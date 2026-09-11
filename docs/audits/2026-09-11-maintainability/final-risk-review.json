@@ -1,0 +1,216 @@
+{
+  "baseSha": "5cb721ff5590bf89b45ea9087d2ace0b74fe7127",
+  "reviewer": "sub-sol-final-risk-review",
+  "scope": "Targeted third-pass adjudication of accessrule, userauth, adminauth, jobs, filestore, database, selfupdate, schema-01/schema-02, and pgbase-01 findings; not a full-codebase review.",
+  "findings": [
+    {
+      "id": "AR1-P1-001 / ACCESSRULE-001",
+      "finalDisposition": "narrow",
+      "priority": "P3",
+      "classification": "contract_risk",
+      "callerAndDefenses": "CompilePocketBase is an internal compiler helper. Its macro uses Kind != Anonymous, but production entry paths construct subjects from authenticated principals and several service boundaries validate Subject.Valid; direct compiler tests and future internal callers can pass malformed subjects.",
+      "impact": "A malformed internal subject would compile @request.authenticated as true. No externally reachable path from an unauthenticated request to such a malformed subject was found, so P1 security severity is overruled.",
+      "sources": ["internal/accessrule/pocketbase_resolver.go:60-77", "internal/accessrule/pocketbase_resolver.go:128-134", "internal/query/compiler.go:182-192", "internal/realtime/service.go:234-251", "internal/userauth/auth_rule_resolver.go:40-57"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Compile authenticated/unauthenticated with zero and unknown Kind and assert fail-closed behavior; retain expected behavior for anonymous, user, administrator, and service. Add one public request-path test showing an unauthenticated request cannot manufacture an invalid subject."
+    },
+    {
+      "id": "AR1-P1-002",
+      "finalDisposition": "defer",
+      "priority": "P3",
+      "classification": "maintenance",
+      "callerAndDefenses": "The native and PocketBase compilers duplicate some typed operand and modifier logic, while their AST and relation semantics differ.",
+      "impact": "Potential future semantic drift; there is no present authorization failure in the finding.",
+      "sources": ["internal/accessrule/rule.go:1-502", "internal/accessrule/pocketbase_resolver.go:1-594"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Before extraction, add parity tables only for the demonstrably shared scalar, modifier, and request operands; both existing compiler suites must remain unchanged."
+    },
+    {
+      "id": "IUA-01",
+      "finalDisposition": "narrow",
+      "priority": "P2",
+      "classification": "static_defect",
+      "callerAndDefenses": "ConfigureOAuth accepts any absolute non-fragment URL and does not reject userinfo. Ordinary BeginOAuth revalidates the same redirect through validEndpoint, but BeginOAuthWithProviderRedirect separates the safe provider callback from the stored return URI, leaving the weak allowlist reachable in split-return/form-post flows.",
+      "impact": "An operator-approved unsafe return URI can receive OAuth code/state over cleartext or embed confusing credentials. The attacker must first obtain that URI in startup configuration; this is not an arbitrary remote redirect.",
+      "sources": ["internal/userauth/oauth.go:22-42", "internal/userauth/oauth.go:49-64", "internal/userauth/oauth_http.go:220-230"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Configure split-return OAuth with a safe providerRedirectURI and each of non-loopback HTTP and userinfo-bearing returnURI; require rejection. Preserve HTTPS and the documented loopback HTTP policy."
+    },
+    {
+      "id": "IUA-02",
+      "finalDisposition": "defer",
+      "priority": "P3",
+      "classification": "contract_risk",
+      "callerAndDefenses": "UpdateAuthRecord is a trusted direct record-management primitive; the authorized-user path separately applies manage rules. Email and Verified are independently mutable by the privileged caller.",
+      "impact": "A privileged caller can retain verification while changing email. Whether that is a defect depends on the documented administrator compatibility contract, not on an untrusted-user bypass shown here.",
+      "sources": ["internal/userauth/auth_records.go:361-437", "internal/userauth/email_actions.go:289-305"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Pin the intended administrator contract: either prove changed email clears verification unless an explicit override is supplied, or prove privileged pre-verification is intentional; also verify the user-authorized path cannot set it without manage authority."
+    },
+    {
+      "id": "IUA-03",
+      "finalDisposition": "accept",
+      "priority": "P3",
+      "classification": "static_defect",
+      "callerAndDefenses": "The auth-rule validator omits emailVisibility although the resolver and request projection implement it.",
+      "impact": "Administrators cannot persist a rule expression the evaluator supports; this is a configuration vocabulary mismatch, not a security boundary failure.",
+      "sources": ["internal/userauth/auth_rules.go:64-77", "internal/userauth/auth_rule_resolver.go:235-253"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Create and update an auth collection rule using emailVisibility and assert validation and evaluation agree."
+    },
+    {
+      "id": "IUA2-01",
+      "finalDisposition": "narrow",
+      "priority": "P2",
+      "classification": "contract_risk",
+      "callerAndDefenses": "The fallback verifier validates signature, issuer, expiry, nonce, algorithm, key ID, and audience membership, but ignores azp. It is reached only for a configured OIDC provider without userinfo.",
+      "impact": "Multi-audience binding is weaker than the OIDC Core verification recommendation. The normative language is SHOULD, not MUST: missing azp is not automatically a standards violation, while a present mismatched azp should be rejected as hardening. P1 framing is not supported.",
+      "sources": ["internal/userauth/oauth_oidc.go:17-68", "internal/userauth/oauth_oidc.go:71-86", "https://openid.net/specs/openid-connect-core-1_0-18.html#IDTokenValidation"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Use signed tokens: multi-audience plus matching azp succeeds; missing or mismatched azp follows the explicitly chosen strict policy; single-audience remains compatible and a present conflicting azp is rejected."
+    },
+    {
+      "id": "AA1-P1-001 / ADMINAUTH-001",
+      "finalDisposition": "accept",
+      "priority": "P2",
+      "classification": "static_defect",
+      "callerAndDefenses": "Only startup configuration controls the password-reset base URL. Userinfo and fragments are already rejected, but schemes other than HTTP(S) are accepted and embedded with a live token in email.",
+      "impact": "Misconfiguration can produce unusable or handler-associated links containing a reset token. It is not a remote attacker-controlled URL, so higher security severity would be inflated.",
+      "sources": ["internal/adminauth/password_recovery.go:51-65", "internal/adminauth/password_recovery.go:112-126"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Reject javascript, ftp, and non-loopback HTTP; accept HTTPS and only the documented loopback HTTP development exception; assert generated token URL escaping."
+    },
+    {
+      "id": "AA1-P1-002",
+      "finalDisposition": "defer",
+      "priority": "P3",
+      "classification": "maintenance",
+      "callerAndDefenses": "Credential flows repeat rate-limit state transitions, but no inconsistent observable outcome is identified.",
+      "impact": "Future drift and review cost only.",
+      "sources": ["internal/adminauth/service.go:1-650", "internal/adminauth/store.go:1-607"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Characterize retry-after, failure accounting, success reset, and lock ordering across every existing credential flow before extracting a shared transition helper."
+    },
+    {
+      "id": "P1-JOBS-LEASE-IGNORING-HANDLER",
+      "finalDisposition": "reject_as_bug",
+      "priority": "P3",
+      "classification": "maintenance",
+      "callerAndDefenses": "Handlers receive a 30-second context; the durable lease is one minute and completion updates are fenced by token and generation. A handler that ignores context may continue after lease expiry, but handler side effects are explicitly outside exactly-once guarantees.",
+      "impact": "Duplicate external side effects are possible under the documented at-least-once model. This is a handler idempotency/fencing contract and operational guardrail issue, not a P1 scheduler correctness defect.",
+      "sources": ["internal/jobs/service.go:23-31", "internal/jobs/service.go:135-169", "internal/jobs/service.go:181-215", "internal/jobs/service.go:217-246", "architect-decisions.md:23-23"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Run two workers with a deliberately context-ignoring handler, expire the first lease, and assert metadata fencing while documenting that the handler may execute twice; separately require built-in handlers to honor cancellation or use generation fencing/idempotency."
+    },
+    {
+      "id": "P1-FILESTORE-STAGE-READ-ORPHAN",
+      "finalDisposition": "accept",
+      "priority": "P2",
+      "classification": "static_defect",
+      "callerAndDefenses": "After Put succeeds, every validation failure queues the key except a non-EOF ReadFull error. At that point no record_files row or deletion queue row exists.",
+      "impact": "A storage backend read failure leaves one durable, undiscoverable object per failed stage attempt, causing storage leakage. The exceptional backend failure and bounded one-object impact make P1 severity excessive.",
+      "sources": ["internal/filestore/staging.go:72-108"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "With a fake object store whose Put succeeds and Open reader returns a sentinel non-EOF error, assert Stage returns that error and queueUnreferenced records the exact object key."
+    },
+    {
+      "id": "P1/P2-DATABASE-ROLLBACK-EXPIRED-DEADLINE",
+      "finalDisposition": "reject_leak_claim",
+      "priority": "P3",
+      "classification": "maintenance",
+      "callerAndDefenses": "BoundedCleanupContext can inherit a deadline already in the past. pgx Rollback then marks the transaction closed and calls conn.die on failure; pgxpool's wrapper releases the connection in all cases.",
+      "impact": "There is no pooled connection leak: a canceled rollback sacrifices the connection and releases it. The remaining issue is avoidable connection churn and loss of graceful rollback, so P2 leak/correctness framing is overruled.",
+      "sources": ["internal/database/tx.go:10-49", "/Users/yakisoba0728/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/tx.go:216-233", "/Users/yakisoba0728/go/pkg/mod/github.com/jackc/pgx/v5@v5.11.0/pgxpool/tx.go:34-43"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Integration test a callback that returns after deadline, assert the transaction is closed and pool acquired-count returns to baseline; optionally assert a fresh connection is created, then decide whether cleanup deserves its own one-second deadline."
+    },
+    {
+      "id": "PASS1/P2-SELFUPDATE-01",
+      "finalDisposition": "narrow",
+      "priority": "P3",
+      "classification": "contract_risk",
+      "callerAndDefenses": "Fetch verifies the signed manifest, selects Candidate, and stores unexported source policy. Apply is called only by the local CLI in production and no current caller mutates Fetched, but Apply accepts exported mutable Candidate fields and does not reverify their membership against ManifestRaw with TrustKey.",
+      "impact": "A malicious remote manifest cannot independently exploit this; mutation requires compromised or erroneous trusted in-process code. The package boundary promises signed selection more strongly than it enforces, so retain as defense-in-depth/API integrity work rather than P2 remote code execution.",
+      "sources": ["internal/selfupdate/download.go:43-51", "internal/selfupdate/download.go:63-120", "internal/selfupdate/install.go:22-50", "internal/selfupdate/install.go:100-142", "internal/cli/update.go:150-166"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Fetch a valid signed manifest, mutate Candidate to an artifact absent from the manifest, and assert Apply returns ErrUntrustedManifest before writing evidence or downloading; preserve the normal CLI path."
+    },
+    {
+      "id": "P1-internal-schema-01-001",
+      "finalDisposition": "reject",
+      "priority": "P3",
+      "classification": "reject",
+      "callerAndDefenses": "Schema import is merge based and TokenTTLs is optional/omitempty; apply updates only supplied purposes.",
+      "impact": "Preserving an omitted TTL purpose follows the established patch contract. Exact import/export convergence was assumed but is not required.",
+      "sources": ["internal/schema/auth_schema_document.go:25-31", "internal/schema/auth_schema_document.go:103-108", "internal/schema/auth_schema_document.go:138-152", "internal/schema/schema_document_test.go:25-43"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Keep a contract test that omitted token purposes survive merge import; if replacement semantics are ever added, gate them behind an explicit delete/replace mode."
+    },
+    {
+      "id": "P1-internal-schema-01-002 / IS1-P2-001",
+      "finalDisposition": "accept",
+      "priority": "P2",
+      "classification": "static_defect",
+      "callerAndDefenses": "Schema document validation checks bounds and JSON string shape but does not compile PasswordPattern or nonempty auth rule sources before apply. Runtime configuration paths do validate regex/rules.",
+      "impact": "An administrator can persist a schema policy that fails only when authentication or authorization evaluates it. This is delayed configuration failure, not an unprivileged bypass.",
+      "sources": ["internal/schema/auth_schema_document.go:80-108", "internal/schema/auth_schema_document.go:112-139", "internal/userauth/auth_admin.go:191-196", "internal/userauth/auth_admin.go:268-268"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Preview malformed password regex and malformed auth/manage rule and assert path-specific validation errors; export a valid auth document and assert preview/apply still succeeds."
+    },
+    {
+      "id": "P1-internal-schema-02-001 / IS2-P2-001",
+      "finalDisposition": "accept",
+      "priority": "P2",
+      "classification": "static_defect",
+      "callerAndDefenses": "The preview checksum hashes auth collection and policy timestamps/rules but omits auth_token_policies. Apply later updates supplied TTL rows; repeatable-read does not cover a committed change between Preview and Apply.",
+      "impact": "A stale approved import can overwrite an intervening administrator TTL edit without conflict. This is a real lost-update window in the execution contract.",
+      "sources": ["internal/schema/schema_policy_checksum.go:14-74", "internal/schema/auth_schema_document.go:123-152", "internal/schema/schema_document.go:536-636"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "PostgreSQL integration test: preview a document with a TTL, update that row and updated_at in another transaction, then apply the old checksum and require ErrConflict; also cover insertion of a formerly absent purpose."
+    },
+    {
+      "id": "PGB01-001",
+      "finalDisposition": "accept",
+      "priority": "P2",
+      "classification": "static_defect",
+      "callerAndDefenses": "A trusted JavaScript extension can call findAll; it appends every admitted page and marshals the full slice before the JSVM output-byte cap runs.",
+      "impact": "A permitted extension and sufficiently large collection can cause unbounded peak allocation. This is a trusted-extension availability risk, not a direct unauthenticated attack.",
+      "sources": ["pgbase/extension_app_query.go:96-113", "internal/jsvm/runtime.go:654-661"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Seed past an explicit aggregate budget, assert a stable error before fetching the next page and no partial successful result; retain rule filtering and projection."
+    },
+    {
+      "id": "PGB01-002",
+      "finalDisposition": "defer",
+      "priority": "P3",
+      "classification": "maintenance",
+      "callerAndDefenses": "deletePrefix is privileged and accumulates keys before deletion, preserving all-or-no-progress when listing fails.",
+      "impact": "Memory grows with key count, but page-at-a-time deletion changes failure semantics to partial progress. This needs an explicit API contract rather than a bug fix.",
+      "sources": ["pgbase/extension_objects.go:499-526"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Characterize current zero-delete behavior on a middle listing failure, then test the chosen bounded design for cursor stability, hooks, and documented partial progress."
+    },
+    {
+      "id": "PGB01-003",
+      "finalDisposition": "narrow",
+      "priority": "P3",
+      "classification": "static_defect",
+      "callerAndDefenses": "The unauthenticated ACME HTTP fallback reflects r.Host into Location, while autocert host policy still prevents certificate issuance for an unconfigured host.",
+      "impact": "The listener emits an attacker-chosen HTTPS redirect. No credential leak or certificate acquisition follows from this code alone; rate P3 hardening unless proxy/cache impact is reproduced.",
+      "sources": ["pgbase/app_construct.go:419-426"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Request a non-challenge path with an unknown Host and require 400/no Location; allowed normalized hosts preserve path and query in the HTTPS redirect."
+    },
+    {
+      "id": "PGB01-004",
+      "finalDisposition": "accept_narrow",
+      "priority": "P2",
+      "classification": "static_defect",
+      "callerAndDefenses": "The first Close caller's context is passed to the one shared closeResources run. All later callers can only bound their wait. Background cancellation and pool close are still initiated even with a canceled context; the pool close continues asynchronously, but hooks and component shutdown calls observe the canceled context and the shared final error is permanently poisoned.",
+      "impact": "This can skip graceful work and report cancellation to all later callers. It is not proven to leak every resource: several cleanup paths still start or continue asynchronously, so the stronger missing-cleanup claim is overruled.",
+      "sources": ["pgbase/app.go:503-538", "pgbase/app.go:541-613", "internal/database/pool.go:219-245"],
+      "reproduction": false,
+      "requiredAcceptanceTest": "Instrument termination hooks and closers; call Close first with an already-canceled context and then with a live context. Assert shared cleanup uses an internal shutdown budget and completes exactly once, while each caller independently respects its own wait deadline."
+    }
+  ]
+}

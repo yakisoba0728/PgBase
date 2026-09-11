@@ -1,0 +1,64 @@
+{
+  "ledgerBase": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+  "entries": 1385,
+  "mismatchCountAtDeclaredBase": 0,
+  "missingAtDeclaredBase": [],
+  "mismatches": [],
+  "fiveFlaggedRangesAtDeclaredBase": [
+    {
+      "path": "internal/query/compiler.go",
+      "baseLines": 527,
+      "declaredRanges": [
+        [
+          1,
+          527
+        ]
+      ],
+      "blobMatches": true
+    },
+    {
+      "path": "internal/userauth/auth_records.go",
+      "baseLines": 514,
+      "declaredRanges": [
+        [
+          1,
+          514
+        ]
+      ],
+      "blobMatches": true
+    },
+    {
+      "path": "internal/userauth/collections.go",
+      "baseLines": 497,
+      "declaredRanges": [
+        [
+          1,
+          497
+        ]
+      ],
+      "blobMatches": true
+    },
+    {
+      "path": "pgbase/extension_app_catalog_authaux.go",
+      "baseLines": 330,
+      "declaredRanges": [
+        [
+          1,
+          330
+        ]
+      ],
+      "blobMatches": true
+    },
+    {
+      "path": "pgbase/model_lifecycle.go",
+      "baseLines": 108,
+      "declaredRanges": [
+        [
+          1,
+          108
+        ]
+      ],
+      "blobMatches": true
+    }
+  ]
+}

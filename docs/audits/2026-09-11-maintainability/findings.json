@@ -1,0 +1,3623 @@
+{
+  "schema": "double-audit-draft-findings-register-v1",
+  "status": "reviewed-plan",
+  "baseSha": "5cb721ff5590bf89b45ea9087d2ace0b74fe7127",
+  "generatedAt": "2026-09-11T05:07:29.685Z",
+  "finalRiskReview": "integrated: completed targeted third-pass adjudication; it does not add a precise failing reproduction",
+  "pendingPass2Batches": [],
+  "evidenceLimit": "Pass declaration and coverage metadata are traceability records, not proof that every file was understood. Existing test passes are not reproductions of a newly alleged defect.",
+  "findings": [
+    {
+      "canonicalId": "DOCS-02-001",
+      "sourceIds": [
+        "DOCS-02-001"
+      ],
+      "batchId": "docs-02",
+      "domain": "docs",
+      "disposition": "reject",
+      "bucket": "rejected",
+      "priority": "해당 없음",
+      "category": "stability",
+      "title": "루트 재검증으로 반려된 historical ledger 비교 오탐",
+      "paths": [
+        {
+          "path": "docs/audits/2026-09-11/coverage.json",
+          "start": 1,
+          "end": 25425
+        }
+      ],
+      "evidence": "루트 재검증 historical-ledger-recheck.json: coverage.json의 선언 기준은 0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b이며, 1,385개 SHA는 모두 그 기준과 일치(0 mismatch/0 missing)한다. 범위 527/514/497/330/108도 선언 blob 길이와 일치한다. 이후 5cb721 커밋과의 비교는 오탐이므로 제품 P1/P2 집계에서 제외한다.",
+      "trigger": "Recompute each recorded blob SHA from the fixed worktree at 5cb721ff5590bf89b45ea9087d2ace0b74fe7127 and compare it with the entry blobSha.",
+      "currentBehavior": "실행 대상 없음: 선언 기준 커밋에서는 불일치/범위 초과가 재현되지 않음.",
+      "desiredBehavior": "Regenerate the ledger from the declared base commit, or explicitly record the source snapshot for every historical/generated entry and fail validation when blobSha does not resolve to the declared base.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_command",
+        "command": "blob-hash comparison over every entry against fixed worktree",
+        "result": "95 mismatches; 0 missing paths; current worktree equals fixed snapshot"
+      },
+      "proposal": "실행하지 않음. historical-ledger-recheck.json을 판정 근거로 보존.",
+      "dependencies": "Coverage generator and validation schema; no product runtime dependency.",
+      "compatibilityRisk": "Low for product behavior; medium for audit consumers until historical entries are explicit.",
+      "phase": null,
+      "acceptanceTests": [
+        "Every non-historical blobSha equals git rev-parse baseSha:path.",
+        "Historical entries resolve to their declared source snapshot."
+      ],
+      "grossLOC": {
+        "added": 20,
+        "deleted": 95,
+        "confidence": "low"
+      },
+      "executionGrossLOC": null,
+      "commentAction": "Keep concise generated provenance; remove repeated manual caveats once validator output supplies evidence.",
+      "adjudicationReason": "루트 재검증 historical-ledger-recheck.json: coverage.json의 선언 기준은 0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b이며, 1,385개 SHA는 모두 그 기준과 일치(0 mismatch/0 missing)한다. 범위 527/514/497/330/108도 선언 blob 길이와 일치한다. 이후 5cb721 커밋과의 비교는 오탐이므로 제품 P1/P2 집계에서 제외한다.",
+      "finalRisk": null,
+      "originalFinding": {
+        "title": "Coverage ledger contains 95 blob IDs that do not replay against its fixed snapshot",
+        "evidence": "The complete ledger has 1,385 entries and 95 recorded blobSha values differ from corresponding fixed-snapshot blobs. All 1,385 paths exist; the worktree is at the stated base commit and has no current-vs-fixed content drift for these paths.",
+        "currentBehavior": "Audit consumers can accept the declared baseSha while dereferencing different historical content for those entries.",
+        "proposal": "Add a generation-time invariant resolving every path at baseSha. For intentional historical blobs, add historicalSnapshot metadata and exclude them from base replay checks; otherwise regenerate stale IDs."
+      }
+    },
+    {
+      "canonicalId": "DOCS-02-002",
+      "sourceIds": [
+        "DOCS-02-002"
+      ],
+      "batchId": "docs-02",
+      "domain": "docs",
+      "disposition": "reject",
+      "bucket": "rejected",
+      "priority": "해당 없음",
+      "category": "stability",
+      "title": "루트 재검증으로 반려된 historical ledger 비교 오탐",
+      "paths": [
+        {
+          "path": "docs/audits/2026-09-11/coverage.json",
+          "start": 1,
+          "end": 25425
+        }
+      ],
+      "evidence": "루트 재검증 historical-ledger-recheck.json: coverage.json의 선언 기준은 0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b이며, 1,385개 SHA는 모두 그 기준과 일치(0 mismatch/0 missing)한다. 범위 527/514/497/330/108도 선언 blob 길이와 일치한다. 이후 5cb721 커밋과의 비교는 오탐이므로 제품 P1/P2 집계에서 제외한다.",
+      "trigger": "Compare every declared readRanges end with the referenced fixed blob line count.",
+      "currentBehavior": "실행 대상 없음: 선언 기준 커밋에서는 불일치/범위 초과가 재현되지 않음.",
+      "desiredBehavior": "Generate readRanges from exact fixed blob line counts, or keep source-file ranges in source coverage reports and use structured_full_read for this aggregate JSON.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_command",
+        "command": "line-count comparison for every ledger path",
+        "result": "5 ranges exceed actual line counts; all other ranges are within bounds"
+      },
+      "proposal": "실행하지 않음. historical-ledger-recheck.json을 판정 근거로 보존.",
+      "dependencies": "Coverage generator and validator only.",
+      "compatibilityRisk": "Low; affects audit metadata only.",
+      "phase": null,
+      "acceptanceTests": [
+        "No range end exceeds fixed blob line count.",
+        "The docs-02 range remains exactly 1..25425."
+      ],
+      "grossLOC": {
+        "added": 8,
+        "deleted": 5,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": null,
+      "commentAction": "Replace stale range literals with generated values.",
+      "adjudicationReason": "루트 재검증 historical-ledger-recheck.json: coverage.json의 선언 기준은 0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b이며, 1,385개 SHA는 모두 그 기준과 일치(0 mismatch/0 missing)한다. 범위 527/514/497/330/108도 선언 blob 길이와 일치한다. 이후 5cb721 커밋과의 비교는 오탐이므로 제품 P1/P2 집계에서 제외한다.",
+      "finalRisk": null,
+      "originalFinding": {
+        "title": "Five full-read ranges exceed the fixed files' actual line counts",
+        "evidence": "Ranges overrun fixed files for internal/query/compiler.go (527 declared versus 523 lines), internal/userauth/auth_records.go (514 versus 507), internal/userauth/collections.go (497 versus 437), pgbase/extension_app_catalog_authaux.go (330 versus 313), and pgbase/model_lifecycle.go (108 versus 102).",
+        "currentBehavior": "Coverage reports can appear complete while range metadata is not an exact statement of fixed-blob extent.",
+        "proposal": "Derive terminal ranges from blob bytes and reject range ends beyond resolved blob length."
+      }
+    },
+    {
+      "canonicalId": "DOCS-02-003",
+      "sourceIds": [
+        "DOCS-02-003"
+      ],
+      "batchId": "docs-02",
+      "domain": "docs",
+      "disposition": "narrow",
+      "bucket": "maintenance",
+      "priority": "P3 (문서 유지보수)",
+      "category": "maintainability",
+      "title": "감사 관찰 표현의 선택적 정리",
+      "paths": [
+        {
+          "path": "docs/audits/2026-09-11/coverage.json",
+          "start": 1,
+          "end": 25425
+        }
+      ],
+      "evidence": "normalized group/report과 nullable batch, source_provenance는 정직한 범위 표기다. full_read라는 읽기 과장 표현을 피하고 path별 관찰 품질만 선택적으로 개선한다.",
+      "trigger": "Canonicalize exact notes strings and count repeated values across all entries.",
+      "currentBehavior": "정규화 provenance는 유지되며, 모든 batch에 중복 provenance를 쓰지 않는다.",
+      "desiredBehavior": "Retain concise path-specific observations and represent shared method metadata once.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_command",
+        "command": "exact-string Counter over every notes field",
+        "result": "1,333 unique notes; 52 repeated entries"
+      },
+      "proposal": "필요할 때만 관찰문을 path별 책임으로 다듬고 full_read라는 과장 표현은 사용하지 않는다.",
+      "dependencies": "Coverage generator format and downstream readers.",
+      "compatibilityRisk": "Low if notes remain strings.",
+      "phase": "5",
+      "acceptanceTests": [
+        "Every entry retains a non-empty path-specific observation.",
+        "Generator reports duplicate-note counts."
+      ],
+      "grossLOC": {
+        "added": 15,
+        "deleted": 0,
+        "confidence": "low"
+      },
+      "executionGrossLOC": {
+        "added": 15,
+        "deleted": 0,
+        "confidence": "low"
+      },
+      "commentAction": "Replace generic notes with path-specific evidence; preserve rationale comments.",
+      "adjudicationReason": "normalized group/report과 nullable batch, source_provenance는 정직한 범위 표기다. full_read라는 읽기 과장 표현을 피하고 path별 관찰 품질만 선택적으로 개선한다.",
+      "finalRisk": null,
+      "originalFinding": {
+        "title": "Coverage notes repeat generic text across 52 entries",
+        "evidence": "There are 1,333 unique notes for 1,385 entries. One direct-read note is repeated for 31 paths and one test-evidence note for 23 paths, yielding 52 duplicate entries without path-specific responsibility or risk detail.",
+        "currentBehavior": "Repeated notes obscure which observations are path-specific and increase generated maintenance bloat.",
+        "proposal": "Compose shared method text with a path-specific responsibility/risk sentence and add a duplicate-note warning to the generator."
+      }
+    },
+    {
+      "canonicalId": "DOCS-02-004",
+      "sourceIds": [
+        "DOCS-02-004"
+      ],
+      "batchId": "docs-02",
+      "domain": "docs",
+      "disposition": "narrow",
+      "bucket": "maintenance",
+      "priority": "P3 (문서 유지보수)",
+      "category": "maintainability",
+      "title": "감사 관찰 표현의 선택적 정리",
+      "paths": [
+        {
+          "path": "docs/audits/2026-09-11/coverage.json",
+          "start": 1,
+          "end": 25425
+        }
+      ],
+      "evidence": "normalized group/report과 nullable batch, source_provenance는 정직한 범위 표기다. full_read라는 읽기 과장 표현을 피하고 path별 관찰 품질만 선택적으로 개선한다.",
+      "trigger": "Inspect provenance.batch and method values for every entry, then group by report and audit domain.",
+      "currentBehavior": "정규화 provenance는 유지되며, 모든 batch에 중복 provenance를 쓰지 않는다.",
+      "desiredBehavior": "Use a closed method vocabulary with explicit source kind and snapshot fields, requiring a generation batch or an intentional historical reason.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_command",
+        "command": "field/type and value audit over all parsed entries",
+        "result": "1,385 entries; 24 source_provenance; 759 null batches; 10 groups; no duplicate paths"
+      },
+      "proposal": "필요할 때만 관찰문을 path별 책임으로 다듬고 full_read라는 과장 표현은 사용하지 않는다.",
+      "dependencies": "Coverage generator, schema consumers, historical retention policy.",
+      "compatibilityRisk": "Medium for tools expecting current method strings; provide a migration reader.",
+      "phase": "5",
+      "acceptanceTests": [
+        "Every entry has source kind, snapshot, and generation provenance or explicit historical exemption.",
+        "Generated coverage and findings contain no secret material."
+      ],
+      "grossLOC": {
+        "added": 25,
+        "deleted": 10,
+        "confidence": "low"
+      },
+      "executionGrossLOC": {
+        "added": 25,
+        "deleted": 10,
+        "confidence": "low"
+      },
+      "commentAction": "Keep historical/generated provenance rationale; remove ambiguous direct-read wording.",
+      "adjudicationReason": "normalized group/report과 nullable batch, source_provenance는 정직한 범위 표기다. full_read라는 읽기 과장 표현을 피하고 path별 관찰 품질만 선택적으로 개선한다.",
+      "finalRisk": null,
+      "originalFinding": {
+        "title": "Provenance is incomplete for 759 entries and 24 use a non-read method label",
+        "evidence": "The ledger declares 1,361 full_read and 24 source_provenance values. 759 entries have provenance.batch null, including all 224 schema_fields_migrations and 118 documentation entries. The source_provenance set includes generated artifacts and historical ledgers; no secret value was printed or inferred.",
+        "currentBehavior": "Reviewers cannot tell which generation batch supplied many records or distinguish direct reads from source-derived claims using batch metadata alone.",
+        "proposal": "Version the coverage schema, normalize source_provenance to structured metadata where appropriate, and make null batches explicit historical exemptions."
+      }
+    },
+    {
+      "canonicalId": "DOCS-03-001",
+      "sourceIds": [
+        "DOCS-03-001"
+      ],
+      "batchId": "docs-03",
+      "domain": "docs",
+      "disposition": "accept",
+      "bucket": "maintenance",
+      "priority": "P3 (문서 유지보수)",
+      "category": "maintainability",
+      "title": "Fourteen feature rows lack linked read or execution evidence",
+      "paths": [
+        {
+          "path": "docs/audits/2026-09-11/features.json",
+          "start": 1,
+          "end": 6945
+        },
+        {
+          "path": "docs/audits/2026-09-11/features.md",
+          "start": 1,
+          "end": 549
+        }
+      ],
+      "evidence": "The parsed 232-row feature ledger has 14 rows with an empty/missing 읽은테스트및실행증거 value: REC-04, REC-06, REC-07, REC-08, REC-10, REC-11, REC-13, REC-14, UI-08, UI-22, UI-26, UI-28, UI-30, and UI-35. The rows remain classified as verified or intentional_difference, so an independent reader cannot reconstruct the evidence path from this artifact alone.",
+      "trigger": "Audit every feature row's 읽은테스트및실행증거 field before accepting verified or intentional_difference verdicts.",
+      "currentBehavior": "The feature report can present a final verdict without a per-row read/test evidence pointer.",
+      "desiredBehavior": "Every row has a repository-relative source/test or explicit historical/contract-only rationale explaining why runtime evidence is not applicable.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_command",
+        "command": "Parse features.json and count rows with empty 읽은테스트및실행증거",
+        "result": "232 rows; 14 missing evidence values; verdict counters remain internally consistent"
+      },
+      "proposal": "Make the generator require evidence for verified rows and require a typed rationale for intentional differences; render both fields in features.md.",
+      "dependencies": "Feature-ledger generator and report renderer.",
+      "compatibilityRisk": "Low for product behavior; medium for audit consumers if a required field is introduced.",
+      "phase": "5",
+      "acceptanceTests": [
+        "All verified rows include a stable repository-relative evidence pointer.",
+        "Every intentional_difference row includes a contract rationale and upstream source or explicit not-applicable reason."
+      ],
+      "grossLOC": {
+        "added": 20,
+        "deleted": 0,
+        "confidence": "low"
+      },
+      "executionGrossLOC": {
+        "added": 20,
+        "deleted": 0,
+        "confidence": "low"
+      },
+      "commentAction": "Retain historical date and snapshot qualifiers; replace empty evidence with precise provenance rather than generic completion prose.",
+      "adjudicationReason": "Independent full-file PASS2 reread reproduced the static evidence and scope; historical document differences were not promoted to product defects.",
+      "finalRisk": null,
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "DOCS-04-001",
+      "sourceIds": [
+        "DOCS-04-001"
+      ],
+      "batchId": "docs-04",
+      "domain": "docs",
+      "disposition": "accept",
+      "bucket": "maintenance",
+      "priority": "P3 (문서 유지보수)",
+      "category": "maintainability",
+      "title": "Current comparison artifact has a date-stale filename relative to its embedded date",
+      "paths": [
+        {
+          "path": "docs/pocketbase-feature-comparison-current-2026-09-10.json",
+          "start": 1,
+          "end": 1
+        },
+        {
+          "path": "docs/pocketbase-feature-comparison-current-2026-09-10.md",
+          "start": 1,
+          "end": 1
+        }
+      ],
+      "evidence": "The JSON file and rendered report are named with 2026-09-10, while the JSON date field is 2026-09-11 and the comparison metadata describes a later integrated/independent-audit state. The matrix is internally consistent at 232 unique rows, but filename-based links can select the wrong snapshot in an audit directory.",
+      "trigger": "Use the filename as the report date while reading the JSON date field and rendered report heading.",
+      "currentBehavior": "Consumers that sort or cite reports by filename see a one-day discrepancy with the embedded current date.",
+      "desiredBehavior": "Regenerate both projections with the same date or use a stable undated canonical name plus an explicit generated-on field.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_command",
+        "command": "Compare filename date, JSON date, and rendered report heading",
+        "result": "Filename 2026-09-10; JSON date 2026-09-11; 232 unique rows and required evidence fields"
+      },
+      "proposal": "Make the comparison generator derive filename, heading, and date from one timestamp and add a canonical artifact pointer for consumers.",
+      "dependencies": "Comparison generator and references in current reassessment/parity documents.",
+      "compatibilityRisk": "Low; affects links and audit navigation only.",
+      "phase": "5",
+      "acceptanceTests": [
+        "Filename, embedded date, and rendered heading agree.",
+        "Existing dated historical artifacts remain preserved and explicitly labeled."
+      ],
+      "grossLOC": {
+        "added": 8,
+        "deleted": 2,
+        "confidence": "low"
+      },
+      "executionGrossLOC": {
+        "added": 8,
+        "deleted": 2,
+        "confidence": "low"
+      },
+      "commentAction": "Keep old snapshots as historical records; update only the current artifact naming/provenance.",
+      "adjudicationReason": "Independent full-file PASS2 reread reproduced the static evidence and scope; historical document differences were not promoted to product defects.",
+      "finalRisk": null,
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "DOCS-04-002",
+      "sourceIds": [
+        "DOCS-04-002"
+      ],
+      "batchId": "docs-04",
+      "domain": "docs",
+      "disposition": "reject",
+      "bucket": "rejected",
+      "priority": "해당 없음",
+      "category": "maintainability",
+      "title": "루트 도구 재검증으로 반려된 감사 메타데이터 오탐",
+      "paths": [
+        {
+          "path": "docs/pocketbase-source-audit-2026-09-09/api-ledger.json",
+          "start": 1,
+          "end": 452
+        },
+        {
+          "path": "docs/pocketbase-source-audit-2026-09-09/core-ledger.json",
+          "start": 1,
+          "end": 737
+        },
+        {
+          "path": "docs/pocketbase-source-audit-2026-09-09/core-fields-ledger.json",
+          "start": 1,
+          "end": 162
+        }
+      ],
+      "evidence": "root-tooling-recheck.json 재검증으로 반려: 저장소 루트 계산 및 중앙 inventory/ledger의 정규화 provenance가 유효하며, 기존 주장은 구조를 오해한 오탐이다.",
+      "trigger": "Move a ledger entry outside the README's original checkout or compare it with a later upstream checkout.",
+      "currentBehavior": "실행 대상 없음: 현재 도구 경로와 중앙 provenance 검증은 정상이다.",
+      "desiredBehavior": "Keep global pinned-source metadata and add a source commit/blob or canonical upstream URL to each ledger, especially when rows are consumed separately.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_command",
+        "command": "Parse API, core, and core-fields ledger objects and inspect keys",
+        "result": "269 entries; path/status/note fields present; no per-entry source revision field"
+      },
+      "proposal": "실행하지 않음. root-tooling-recheck.json을 판정 근거로 보존.",
+      "dependencies": "Source-audit generation and historical retention format.",
+      "compatibilityRisk": "Low for existing readers; additive JSON fields only.",
+      "phase": null,
+      "acceptanceTests": [
+        "Each standalone ledger identifies its pinned upstream commit.",
+        "A row copied without its README remains traceable to source revision and lines."
+      ],
+      "grossLOC": {
+        "added": 18,
+        "deleted": 0,
+        "confidence": "low"
+      },
+      "executionGrossLOC": null,
+      "commentAction": "Preserve the global historical snapshot statement; add machine-readable provenance rather than repeating prose in every note.",
+      "adjudicationReason": "root-tooling-recheck.json 재검증으로 반려: 저장소 루트 계산 및 중앙 inventory/ledger의 정규화 provenance가 유효하며, 기존 주장은 구조를 오해한 오탐이다.",
+      "finalRisk": null,
+      "originalFinding": {
+        "title": "Source-audit ledgers do not carry per-entry pinned source identity",
+        "evidence": "All 269 ledger entries contain path/status/note records, while the per-entry objects do not carry a commit/blob identity. The README and companion reports provide a global pinned-source context, so this is a portability and maintenance limitation rather than evidence that the historical read was wrong.",
+        "currentBehavior": "A copied or extracted ledger row cannot independently prove which upstream source revision supplied its note.",
+        "proposal": "Add a top-level source identity plus optional per-entry blob/line identity, and expose a stable repository-relative evidence link in the rendered summaries."
+      }
+    },
+    {
+      "canonicalId": "DOCS05-P1-001",
+      "sourceIds": [
+        "DOCS05-P1-001"
+      ],
+      "batchId": "docs-05",
+      "domain": "docs",
+      "disposition": "reject",
+      "bucket": "rejected",
+      "priority": "해당 없음",
+      "category": "stability",
+      "title": "루트 도구 재검증으로 반려된 감사 메타데이터 오탐",
+      "paths": [
+        {
+          "path": "docs/pocketbase-source-audit-2026-09-09/coverage.py",
+          "start": 7,
+          "end": 9
+        }
+      ],
+      "evidence": "root-tooling-recheck.json 재검증으로 반려: 저장소 루트 계산 및 중앙 inventory/ledger의 정규화 provenance가 유효하며, 기존 주장은 구조를 오해한 오탐이다.",
+      "trigger": "Run coverage.py from the repository checkout with the documented .local/upstream/pocketbase directory.",
+      "currentBehavior": "실행 대상 없음: 현재 도구 경로와 중앙 provenance 검증은 정상이다.",
+      "desiredBehavior": "Resolve repository root by walking to the directory containing .local/upstream/pocketbase, or use an explicit repository-root argument with a clear failure when absent.",
+      "confidence": "high",
+      "verification": {
+        "kind": "reproduction",
+        "command": "python3 docs/pocketbase-source-audit-2026-09-09/coverage.py",
+        "result": "Not run because the snapshot script is Python 3 and the local command environment has no python alias; static path resolution plus ls docs/.local (absent) and ls .local/upstream/pocketbase (present) confirms the failure."
+      },
+      "proposal": "실행하지 않음. root-tooling-recheck.json을 판정 근거로 보존.",
+      "dependencies": "inventory.json and owner/override ledgers remain at the current paths.",
+      "compatibilityRisk": "low; only audit tooling path resolution changes.",
+      "phase": null,
+      "acceptanceTests": [
+        "coverage.py completes from repository root",
+        "coverage.py completes when invoked by absolute path from another cwd",
+        "hash mismatch and missing checkout still fail with actionable messages"
+      ],
+      "grossLOC": {
+        "added": 12,
+        "deleted": 3,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": null,
+      "commentAction": "retain module docstring; update any path comment to explain root discovery",
+      "adjudicationReason": "root-tooling-recheck.json 재검증으로 반려: 저장소 루트 계산 및 중앙 inventory/ledger의 정규화 provenance가 유효하며, 기존 주장은 구조를 오해한 오탐이다.",
+      "finalRisk": null,
+      "originalFinding": {
+        "title": "Coverage verifier resolves upstream checkout from the wrong repository root",
+        "evidence": "HERE is docs/pocketbase-source-audit-2026-09-09; HERE.parent.parent is docs, so UPSTREAM becomes docs/.local/upstream/pocketbase. The actual pinned checkout is .local/upstream/pocketbase at repository root.",
+        "currentBehavior": "The verifier raises FileNotFoundError while hashing the first inventory path, so it cannot validate ledger coverage or regenerate coverage.json.",
+        "proposal": "Change ROOT derivation to HERE.parents[2] (or a robust marker search), add a repository-root CLI override, and test execution from root and from the script directory."
+      }
+    },
+    {
+      "canonicalId": "DOCS06-P1-001",
+      "sourceIds": [
+        "DOCS06-P1-001"
+      ],
+      "batchId": "docs-06",
+      "domain": "docs",
+      "disposition": "accept",
+      "bucket": "maintenance",
+      "priority": "P3 (문서 유지보수)",
+      "category": "maintainability",
+      "title": "Tools ledger and tools report disagree about whether 16 files were read",
+      "paths": [
+        {
+          "path": "docs/pocketbase-source-audit-2026-09-09/tools-ledger.json",
+          "start": 1,
+          "end": 927
+        },
+        {
+          "path": "docs/pocketbase-source-audit-2026-09-09/tools.md",
+          "start": 35,
+          "end": 41
+        },
+        {
+          "path": "docs/pocketbase-source-audit-2026-09-09/tools-extra-ledger.json",
+          "start": 1,
+          "end": 82
+        }
+      ],
+      "evidence": "tools-ledger.json has 185 rows with 16 archive/cron/dbutils rows status=indexed. tools-extra-ledger.json has those same 16 paths status=read. tools.md says tools-ledger is authoritative and simultaneously says merged scope is 185 read/0 indexed. coverage.py silently overlays the override after loading tools-ledger, hiding the stale indexed statuses.",
+      "trigger": "A reviewer or automation consumes tools-ledger.json as the authoritative status file, then compares it to tools.md or coverage.py's merged result.",
+      "currentBehavior": "Direct consumers see pending files, while the report and coverage summary claim no pending files; audit completion cannot be reproduced unambiguously.",
+      "desiredBehavior": "Declare override precedence in one authoritative schema and regenerate tools-ledger or report so raw and merged views agree; validation should reject contradictory duplicate statuses unless explicitly represented as an override.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "node -e 'const fs=require(\"fs\"); for (const f of [\"tools-ledger.json\",\"tools-extra-ledger.json\"]) { const d=JSON.parse(fs.readFileSync(\"docs/pocketbase-source-audit-2026-09-09/\"+f)); console.log(f,d.filter(x=>x.status===\"indexed\").length,d.length) }'",
+        "result": "tools-ledger.json: 16 indexed of 185; tools-extra-ledger.json: 0 indexed of 16; all 16 override paths overlap."
+      },
+      "proposal": "Use a single merged ledger generated from source ledgers, add an explicit `overrides` map with source and effective status, update tools.md to name effective status, and make coverage validation fail on unannounced conflicting duplicate paths.",
+      "dependencies": "coverage.py merge logic and any downstream audit readers.",
+      "compatibilityRisk": "low for audit metadata; medium if automation currently relies on raw tools-ledger indexed statuses.",
+      "phase": "5",
+      "acceptanceTests": [
+        "tools report and raw effective ledger both show 185 read/0 indexed",
+        "duplicate override paths are listed with provenance",
+        "coverage validation rejects a conflicting status without override metadata"
+      ],
+      "grossLOC": {
+        "added": 18,
+        "deleted": 16,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 18,
+        "deleted": 16,
+        "confidence": "medium"
+      },
+      "commentAction": "retain ledger notes; replace the contradictory authority wording with explicit precedence",
+      "adjudicationReason": "Independent reread confirms the concrete file-specific evidence and proposed narrow plan.",
+      "finalRisk": null,
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "DOCS07-P1-001",
+      "sourceIds": [
+        "DOCS07-P1-001"
+      ],
+      "batchId": "docs-07",
+      "domain": "docs",
+      "disposition": "accept",
+      "bucket": "maintenance",
+      "priority": "P3 (문서 유지보수)",
+      "category": "maintainability",
+      "title": "Historical status documents lack a machine-readable applicability index",
+      "paths": [
+        {
+          "path": "docs/pocketbase-unimplemented-completion-round3-2026-09-11.md",
+          "start": 1,
+          "end": 21
+        },
+        {
+          "path": "docs/production-kernel-handoff.md",
+          "start": 1,
+          "end": 8
+        },
+        {
+          "path": "docs/project-status.md",
+          "start": 1,
+          "end": 18
+        }
+      ],
+      "evidence": "The round-3 ledger records distinct branch, comparison, and final verification SHAs; the production handoff records an older merge basis and explicitly says later stages may change its exclusions; project-status records a separate current installation and merge basis. These are valid historical records, but applicability is currently conveyed only by prose and scattered commit fields.",
+      "trigger": "A reader follows a completion or handoff claim after the repository has advanced beyond the document's stated verification commit.",
+      "currentBehavior": "A human can infer which claims are historical, but tooling cannot enumerate the claim's baseline, verification SHA, and whether it should be compared with current HEAD.",
+      "desiredBehavior": "Add explicit historical metadata (document date, baseline SHA, verification SHA, current-applicability flag) and generate an index or lint report that links each status document to its stated baseline without rewriting historical conclusions.",
+      "confidence": "medium",
+      "verification": {
+        "kind": "static",
+        "command": "sed -n '1,21p' docs/pocketbase-unimplemented-completion-round3-2026-09-11.md; sed -n '1,8p' docs/production-kernel-handoff.md; sed -n '1,18p' docs/project-status.md",
+        "result": "All three documents state separate dates/bases and preserve historical or current-status scope in prose."
+      },
+      "proposal": "Introduce a small front-matter/index schema and a docs check for referenced commit existence, baseline labels, and explicit current-applicability; preserve existing prose and evidence links.",
+      "dependencies": "Documentation index generation and CI documentation checks.",
+      "compatibilityRisk": "low; metadata is additive, but consumers parsing free-form headings may need a transition period.",
+      "phase": "5",
+      "acceptanceTests": [
+        "Every status/handoff document declares baseline and verification SHAs",
+        "Historical documents are not treated as current failures when their own baseline is valid",
+        "The index reports stale or missing commit references deterministically"
+      ],
+      "grossLOC": {
+        "added": 30,
+        "deleted": 5,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 30,
+        "deleted": 5,
+        "confidence": "medium"
+      },
+      "commentAction": "retain the historical documents and add applicability metadata rather than changing their recorded results",
+      "adjudicationReason": "기계 판독 applicability index는 유용할 수 있으나 보안/제품 결함이 아닌 선택적 문서 유지보수다.",
+      "finalRisk": null,
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "DOCS07-P1-002",
+      "sourceIds": [
+        "DOCS07-P1-002"
+      ],
+      "batchId": "docs-07",
+      "domain": "docs",
+      "disposition": "accept",
+      "bucket": "maintenance",
+      "priority": "P3 (문서 유지보수)",
+      "category": "maintainability",
+      "title": "UI audit reproduction command and expected output are not centralized",
+      "paths": [
+        {
+          "path": "docs/pocketbase-source-audit-2026-09-09/ui.md",
+          "start": 1,
+          "end": 68
+        },
+        {
+          "path": "docs/pocketbase-source-audit-2026-09-09/repro-ui.mjs",
+          "start": 1,
+          "end": 69
+        }
+      ],
+      "evidence": "ui.md records a 394-entry ledger and three passing assertions plus an upstream ariaDescription typo; repro-ui.mjs contains the executable fixture and optional checkout argument, but the run contract and expected result are split across the report and script comments.",
+      "trigger": "A reviewer wants to rerun the three UI assertions and distinguish expected upstream defects from a changed fixture.",
+      "currentBehavior": "Reproduction is possible for an informed reviewer, but the canonical command, pinned checkout, assertion count, and expected defect classification are not presented together.",
+      "desiredBehavior": "Document one copy-paste command with the pinned checkout, expected pass/fail counts, and classification of known upstream findings; keep the fixture independent of product tests.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "sed -n '1,69p' docs/pocketbase-source-audit-2026-09-09/repro-ui.mjs; sed -n '1,68p' docs/pocketbase-source-audit-2026-09-09/ui.md",
+        "result": "The script and report separately contain the fixture invocation details and observed UI audit results."
+      },
+      "proposal": "Add a short reproducibility block to ui.md generated from or validated against repro-ui.mjs, including checkout path, command, expected assertion totals, and the known upstream typo boundary.",
+      "dependencies": "Pinned upstream checkout and Node runtime.",
+      "compatibilityRisk": "low; documentation-only and preserves the existing offline fixture.",
+      "phase": "5",
+      "acceptanceTests": [
+        "A fresh reviewer can run the documented command from repository root",
+        "The documented expected counts match the script output",
+        "Known upstream findings remain labeled as upstream rather than PgBase regressions"
+      ],
+      "grossLOC": {
+        "added": 8,
+        "deleted": 2,
+        "confidence": "high"
+      },
+      "executionGrossLOC": {
+        "added": 8,
+        "deleted": 2,
+        "confidence": "high"
+      },
+      "commentAction": "retain the three UI findings as historical upstream evidence and make rerun instructions explicit",
+      "adjudicationReason": "Independent reread confirms the concrete file-specific evidence and proposed narrow plan.",
+      "finalRisk": null,
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "DOC8-P1-001",
+      "sourceIds": [
+        "DOC8-P1-001"
+      ],
+      "batchId": "docs-08",
+      "domain": "docs",
+      "disposition": "accept",
+      "bucket": "maintenance",
+      "priority": "P3 (문서 유지보수)",
+      "category": "stability",
+      "title": "Make checked-in review evidence references repository-portable",
+      "paths": [
+        {
+          "path": "docs/workstreams/n6-n9/N7-review.md",
+          "start": 1,
+          "end": 160
+        },
+        {
+          "path": "docs/workstreams/n6-n9/N8-browser.md",
+          "start": 1,
+          "end": 56
+        },
+        {
+          "path": "docs/workstreams/n6-n9/N8-review.md",
+          "start": 1,
+          "end": 160
+        }
+      ],
+      "evidence": "The records cite /Users/... worktrees and /tmp logs/screenshots that exist only on the original host.",
+      "trigger": "A reviewer clones the repository on a different machine and follows source/evidence paths from the review records.",
+      "currentBehavior": "Several cited artifacts cannot be located from the checkout even though the conclusions and limitations remain understandable.",
+      "desiredBehavior": "Stable evidence references resolve from the repository or a checked manifest; unavailable local-only evidence is labeled as such without a dead path.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_full_read",
+        "command": "not run; read-only PASS1",
+        "result": "source and tests inspected at pinned blob"
+      },
+      "proposal": "Copy durable non-secret manifests into a repository-relative evidence directory or replace absolute paths with commit:path references and retained-artifact IDs. Keep final verdicts and explicit non-executed limits unchanged.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": "5",
+      "acceptanceTests": [
+        "A fresh clone can resolve every claimed durable evidence link; a link checker rejects absolute workstation and /tmp paths."
+      ],
+      "grossLOC": {
+        "added": 20,
+        "deleted": 20,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 20,
+        "deleted": 20,
+        "confidence": "medium"
+      },
+      "commentAction": "preserve rationale comments; add only a short invariant comment if the fix is otherwise non-obvious",
+      "adjudicationReason": "Independent reread confirms the concrete file-specific evidence and proposed narrow plan.",
+      "finalRisk": null,
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "DOC8-P1-002",
+      "sourceIds": [
+        "DOC8-P1-002"
+      ],
+      "batchId": "docs-08",
+      "domain": "docs",
+      "disposition": "accept",
+      "bucket": "maintenance",
+      "priority": "P3 (문서 유지보수)",
+      "category": "maintainability",
+      "title": "Separate final verdicts from historical checkpoint narratives",
+      "paths": [
+        {
+          "path": "docs/workstreams/n6-n9/N8-review.md",
+          "start": 1,
+          "end": 305
+        },
+        {
+          "path": "docs/workstreams/n6-n9/integration.md",
+          "start": 1,
+          "end": 157
+        }
+      ],
+      "evidence": "N8-review correctly leads with PASS and says later sections are historical, but then embeds many once-open findings; integration similarly interleaves pending and final states.",
+      "trigger": "A maintainer searches for P1/P2 or pending labels without reading the surrounding timestamp and final-state qualifiers.",
+      "currentBehavior": "The documents are accurate, yet simple search and automated summarization can misclassify closed historical findings as current.",
+      "desiredBehavior": "One authoritative current-state section and machine-readable status map precede a separately named historical timeline.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_full_read",
+        "command": "not run; read-only PASS1",
+        "result": "source and tests inspected at pinned blob"
+      },
+      "proposal": "Move checkpoint prose under an Archive/Historical section and add stable closedAt/finalStatus fields to the finding table; retain the history rather than deleting it.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": "5",
+      "acceptanceTests": [
+        "A parser sees only zero open findings in current status while every historical R1-R12 entry remains accessible."
+      ],
+      "grossLOC": {
+        "added": 15,
+        "deleted": 5,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 15,
+        "deleted": 5,
+        "confidence": "medium"
+      },
+      "commentAction": "preserve rationale comments; add only a short invariant comment if the fix is otherwise non-obvious",
+      "adjudicationReason": "Independent reread confirms the concrete file-specific evidence and proposed narrow plan.",
+      "finalRisk": null,
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "EX1-P1-001",
+      "sourceIds": [
+        "EX1-P1-001"
+      ],
+      "batchId": "examples-01",
+      "domain": "examples",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P3",
+      "category": "bug",
+      "title": "Bind each SSE loop to its own AbortController",
+      "paths": [
+        {
+          "path": "examples/user-notes/app.js",
+          "start": 1,
+          "end": 260
+        }
+      ],
+      "evidence": "The catch block reads global eventAbort.signal; startEvents overwrites that global for the new loop, so the old loop can treat its expected abort as a live-stream failure.",
+      "trigger": "Logout aborts one event iterator and a new login starts another before the old iterator rejects.",
+      "currentBehavior": "The newly authenticated UI can incorrectly display “Live updates stopped” because a prior session stream completed late.",
+      "desiredBehavior": "Expected aborts are tested against the controller captured by the iterator that raised the error.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_full_read",
+        "command": "not run; read-only PASS1",
+        "result": "source and tests inspected at pinned blob"
+      },
+      "proposal": "Capture const controller, assign it globally only for cancellation, pass controller.signal, and inspect controller.signal in catch.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": "2",
+      "acceptanceTests": [
+        "Start deferred iterator A, abort it, start B, then reject A; assert B's status is unchanged. A genuine B failure must still render."
+      ],
+      "grossLOC": {
+        "added": 4,
+        "deleted": 2,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 4,
+        "deleted": 2,
+        "confidence": "medium"
+      },
+      "commentAction": "preserve rationale comments; add only a short invariant comment if the fix is otherwise non-obvious",
+      "adjudicationReason": "Independent reread confirms the concrete file-specific evidence and proposed narrow plan.",
+      "finalRisk": {
+        "id": "EX1-P1-001",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": 3,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Start deferred iterator A, abort it, start B, then reject A; assert B's status is unchanged. A genuine B failure must still render."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "EX1-P1-002",
+      "sourceIds": [
+        "EX1-P1-002"
+      ],
+      "batchId": "examples-01",
+      "domain": "examples",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P3",
+      "category": "stability",
+      "title": "Handle rejected logout requests in the browser example",
+      "paths": [
+        {
+          "path": "examples/user-notes/app.js",
+          "start": 1,
+          "end": 260
+        }
+      ],
+      "evidence": "The async click handler has no catch/finally, leaving an unhandled rejection and the authenticated controls/token state unchanged.",
+      "trigger": "The SDK logout call rejects because the server is unavailable or the session request fails.",
+      "currentBehavior": "The example UI can remain apparently signed in without explaining the failure.",
+      "desiredBehavior": "Logout failure is rendered and local cleanup follows an explicit policy.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_full_read",
+        "command": "not run; read-only PASS1",
+        "result": "source and tests inspected at pinned blob"
+      },
+      "proposal": "Wrap logout in try/catch; show the SDK error and either retain the session for retry or deliberately clear local state in finally, documented in the sample.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": "3",
+      "acceptanceTests": [
+        "Reject client.logout and assert no unhandled rejection plus the chosen visible/control state; test successful logout remains unchanged."
+      ],
+      "grossLOC": {
+        "added": 8,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 8,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "commentAction": "preserve rationale comments; add only a short invariant comment if the fix is otherwise non-obvious",
+      "adjudicationReason": "Independent reread confirms the concrete file-specific evidence and proposed narrow plan.",
+      "finalRisk": {
+        "id": "EX1-P1-002",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": 3,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Reject client.logout and assert no unhandled rejection plus the chosen visible/control state; test successful logout remains unchanged."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "AR1-P1-002",
+      "sourceIds": [
+        "AR1-P1-002"
+      ],
+      "batchId": "internal-accessrule-01",
+      "domain": "internal/accessrule",
+      "disposition": "defer",
+      "bucket": "deferred",
+      "priority": "P3",
+      "category": "refactor",
+      "title": "Share typed operand and modifier validation between rule compilers",
+      "paths": [
+        {
+          "path": "internal/accessrule/rule.go",
+          "start": 1,
+          "end": 502
+        },
+        {
+          "path": "internal/accessrule/pocketbase_resolver.go",
+          "start": 1,
+          "end": 594
+        }
+      ],
+      "evidence": "Both compilers independently implement value typing, modifiers, request metadata conversion and parameter emission, while relation/name resolution legitimately differs.",
+      "trigger": "A new request operand, scalar type or modifier is added to one rule dialect.",
+      "currentBehavior": "Semantics can drift across native and PocketBase rules and fixes require parallel edits in two files totaling more than 1,000 lines.",
+      "desiredBehavior": "One internal typed-value/modifier/request-operand module serves both compilers, with dialect-specific AST and relation traversal retained.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_full_read",
+        "command": "not run; read-only PASS1",
+        "result": "source and tests inspected at pinned blob"
+      },
+      "proposal": "Extract only shared validated value/modifier/request primitives behind concrete functions; avoid a broad compiler interface and keep SQL relation logic separate.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": null,
+      "acceptanceTests": [
+        "Before extraction, add parity tables only for the demonstrably shared scalar, modifier, and request operands; both existing compiler suites must remain unchanged."
+      ],
+      "grossLOC": {
+        "added": 90,
+        "deleted": 150,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": null,
+      "commentAction": "preserve rationale comments; add only a short invariant comment if the fix is otherwise non-obvious",
+      "adjudicationReason": "No independent adjudication evidence was available.",
+      "finalRisk": {
+        "id": "AR1-P1-002",
+        "disposition": "defer",
+        "classification": "maintenance",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Before extraction, add parity tables only for the demonstrably shared scalar, modifier, and request operands; both existing compiler suites must remain unchanged."
+      },
+      "originalFinding": {
+        "title": "Share typed operand and modifier validation between rule compilers",
+        "evidence": "Both compilers independently implement value typing, modifiers, request metadata conversion and parameter emission, while relation/name resolution legitimately differs.",
+        "currentBehavior": "Semantics can drift across native and PocketBase rules and fixes require parallel edits in two files totaling more than 1,000 lines.",
+        "proposal": "Extract only shared validated value/modifier/request primitives behind concrete functions; avoid a broad compiler interface and keep SQL relation logic separate."
+      }
+    },
+    {
+      "canonicalId": "ACCESSRULE-001",
+      "sourceIds": [
+        "ACCESSRULE-001",
+        "AR1-P1-001"
+      ],
+      "batchId": "internal-accessrule-01",
+      "domain": "internal/accessrule",
+      "disposition": "narrow",
+      "bucket": "contract_risk",
+      "priority": "P3",
+      "category": "security",
+      "title": "PocketBase authenticated macro admits an invalid identity subject",
+      "paths": [
+        {
+          "path": "internal/accessrule/pocketbase_resolver.go",
+          "start": 128,
+          "end": 135
+        },
+        {
+          "path": "internal/accessrule/pocketbase_resolver.go",
+          "start": 128,
+          "end": 134
+        },
+        {
+          "path": "internal/accessrule/pocketbase.go",
+          "start": 1,
+          "end": 62
+        }
+      ],
+      "evidence": "The PocketBase compiler computes authenticated as Principal.Kind != identity.Anonymous. The native compiler in rule.go restricts it to user, administrator, or service, and identity.Subject.Valid is the canonical validity check.",
+      "trigger": "A caller compiles a PocketBase authenticated rule with identity.Subject{} or any unrecognized non-anonymous Kind.",
+      "currentBehavior": "An invalid or future unknown subject kind is treated as authenticated at this authorization boundary; impact depends on whether every caller validates subjects before compilation.",
+      "desiredBehavior": "Use Principal.Valid() plus an explicit non-anonymous/authenticated-kind predicate consistent with the native compiler, and test zero/unknown kinds.",
+      "confidence": "high",
+      "verification": {
+        "kind": "caller-contract needs verification",
+        "command": "rg -n \"CompilePocketBase|PBCompileContext\" --glob \"*.go\"",
+        "result": "Static call sites are transport/service paths, but this pass did not dynamically prove every caller rejects invalid subjects."
+      },
+      "proposal": "Share one authenticated-subject predicate between native and PocketBase compilers; reject invalid subjects before producing TRUE.",
+      "dependencies": [
+        "identity.Subject validity contract",
+        "all PocketBase compiler callers"
+      ],
+      "compatibilityRisk": "Medium: tightening invalid inputs is a security bug fix but can expose callers relying on malformed subjects.",
+      "phase": "1",
+      "acceptanceTests": [
+        "Compile authenticated/unauthenticated with zero and unknown Kind and assert fail-closed behavior; retain expected behavior for anonymous, user, administrator, and service. Add one public request-path test showing an unauthenticated request cannot manufacture an invalid subject."
+      ],
+      "grossLOC": {
+        "added": 12,
+        "deleted": 2,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 12,
+        "deleted": 2,
+        "confidence": "medium"
+      },
+      "commentAction": "none",
+      "adjudicationReason": "",
+      "finalRisk": {
+        "id": "AR1-P1-001 / ACCESSRULE-001",
+        "disposition": "narrow",
+        "classification": "contract_risk",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Compile authenticated/unauthenticated with zero and unknown Kind and assert fail-closed behavior; retain expected behavior for anonymous, user, administrator, and service. Add one public request-path test showing an unauthenticated request cannot manufacture an invalid subject."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "AA1-P1-002",
+      "sourceIds": [
+        "AA1-P1-002"
+      ],
+      "batchId": "internal-adminauth-01",
+      "domain": "internal/adminauth",
+      "disposition": "defer",
+      "bucket": "deferred",
+      "priority": "P3",
+      "category": "refactor",
+      "title": "Extract the repeated rate-limit transition protocol without hiding locks",
+      "paths": [
+        {
+          "path": "internal/adminauth/service.go",
+          "start": 1,
+          "end": 650
+        },
+        {
+          "path": "internal/adminauth/store.go",
+          "start": 1,
+          "end": 607
+        }
+      ],
+      "evidence": "Login, OTP, reset and MFA flows repeat bucket-key derivation and store transition orchestration across two large files; the security-sensitive transaction and row-lock order is spread among call sites.",
+      "trigger": "A new administrator credential flow needs the same network/account bucket check, failure accounting and success reset behavior.",
+      "currentBehavior": "Policy changes risk inconsistent retry-after or failure accounting, while reviewing a full credential flow requires following repeated plumbing.",
+      "desiredBehavior": "A small internal limiter component owns bucket identity and transitions while service methods retain explicit credential/KDF and transaction boundaries.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_full_read",
+        "command": "not run; read-only PASS1",
+        "result": "source and tests inspected at pinned blob"
+      },
+      "proposal": "Extract concrete check/fail/succeed helpers parameterized by purpose and subject; keep Store SQL and lock acquisition visible and document only the lock-order invariant.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": null,
+      "acceptanceTests": [
+        "Characterize retry-after, failure accounting, success reset, and lock ordering across every existing credential flow before extracting a shared transition helper."
+      ],
+      "grossLOC": {
+        "added": 100,
+        "deleted": 170,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": null,
+      "commentAction": "preserve rationale comments; add only a short invariant comment if the fix is otherwise non-obvious",
+      "adjudicationReason": "No independent adjudication evidence was available.",
+      "finalRisk": {
+        "id": "AA1-P1-002",
+        "disposition": "defer",
+        "classification": "maintenance",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Characterize retry-after, failure accounting, success reset, and lock ordering across every existing credential flow before extracting a shared transition helper."
+      },
+      "originalFinding": {
+        "title": "Extract the repeated rate-limit transition protocol without hiding locks",
+        "evidence": "Login, OTP, reset and MFA flows repeat bucket-key derivation and store transition orchestration across two large files; the security-sensitive transaction and row-lock order is spread among call sites.",
+        "currentBehavior": "Policy changes risk inconsistent retry-after or failure accounting, while reviewing a full credential flow requires following repeated plumbing.",
+        "proposal": "Extract concrete check/fail/succeed helpers parameterized by purpose and subject; keep Store SQL and lock acquisition visible and document only the lock-order invariant."
+      }
+    },
+    {
+      "canonicalId": "ADMINAUTH-001",
+      "sourceIds": [
+        "ADMINAUTH-001",
+        "AA1-P1-001"
+      ],
+      "batchId": "internal-adminauth-01",
+      "domain": "internal/adminauth",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "security",
+      "title": "Password-reset mail configuration permits non-HTTP URL schemes",
+      "paths": [
+        {
+          "path": "internal/adminauth/password_recovery.go",
+          "start": 51,
+          "end": 65
+        },
+        {
+          "path": "internal/adminauth/password_recovery.go",
+          "start": 1,
+          "end": 157
+        }
+      ],
+      "evidence": "ConfigurePasswordReset checks only nonempty Scheme and Host, while the generated message concatenates the base with /admin/reset-password#token=... .",
+      "trigger": "An operator configures a syntactically valid absolute base URL such as ftp://host or javascript://host-compatible syntax and a user requests a reset.",
+      "currentBehavior": "Reset mail may contain an unusable or unsafe-scheme link carrying a live reset token; practical exploitability requires control of startup configuration.",
+      "desiredBehavior": "Accept only https, with an explicit documented http exception for loopback/development if required by the deployment contract.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "go test ./internal/adminauth",
+        "result": "pass; current tests cover URL shape but not an allowlist of schemes."
+      },
+      "proposal": "Validate parsed.Scheme against the supported reset-link schemes and add table tests for https, loopback http, ftp, file, and mixed-case schemes.",
+      "dependencies": [
+        "deployment PublicURL/reset URL policy"
+      ],
+      "compatibilityRisk": "Low to medium: deployments using unsupported schemes will fail startup configuration instead of sending broken links.",
+      "phase": "1",
+      "acceptanceTests": [
+        "Reject javascript, ftp, and non-loopback HTTP; accept HTTPS and only the documented loopback HTTP development exception; assert generated token URL escaping."
+      ],
+      "grossLOC": {
+        "added": 15,
+        "deleted": 2,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 15,
+        "deleted": 2,
+        "confidence": "medium"
+      },
+      "commentAction": "none",
+      "adjudicationReason": "",
+      "finalRisk": {
+        "id": "AA1-P1-001 / ADMINAUTH-001",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Reject javascript, ftp, and non-loopback HTTP; accept HTTPS and only the documented loopback HTTP development exception; assert generated token URL escaping."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "API-RT-001",
+      "sourceIds": [
+        "API-RT-001"
+      ],
+      "batchId": "internal-api-01",
+      "domain": "internal/api",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "stability",
+      "title": "Batch staged-file cleanup can outlive every request deadline",
+      "paths": [
+        {
+          "path": "internal/api/batch_handlers.go",
+          "start": 115,
+          "end": 215
+        }
+      ],
+      "evidence": "Every failure and success cleanup call in this region uses context.WithoutCancel(r.Context()). In Go this removes cancellation and the deadline, and Cleanup's error is discarded. The route-level batch timeout at lines 79-87 therefore cannot bound the cleanup operation.",
+      "trigger": "A multipart batch has staged files and then validation, lifecycle, service, or attachment processing fails after the request context is canceled or its configurable batch timeout expires.",
+      "currentBehavior": "The HTTP handler waits for Cleanup with a context that has request values but neither cancellation nor deadline; a blocked storage backend can retain its goroutine and delay the response indefinitely.",
+      "desiredBehavior": "Cleanup should survive client cancellation when required for staged-file hygiene, but have an explicit finite cleanup deadline and report failures through the existing operational logging/metric seam.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static plus package test",
+        "command": "go test ./internal/api",
+        "result": "pass; no test covers cleanup completion when its context is canceled or blocked"
+      },
+      "proposal": "Add one private cleanupStaged helper on recordEndpoints. Build its context from context.WithoutCancel(r.Context()) then context.WithTimeout using a small named cleanup duration; replace the repeated calls with the helper. Keep cleanup best-effort and preserve all current HTTP status/error contracts. Add a fake file service whose Cleanup observes ctx.Done and tests both request cancellation and a blocking cleanup.",
+      "dependencies": [
+        "filestore cleanup context semantics"
+      ],
+      "compatibilityRisk": "Low: internal cleanup timing changes only; retain all existing response codes and staged-file completion behavior.",
+      "phase": "2",
+      "acceptanceTests": [
+        "Use a blocking fake Cleanup: after request cancellation it must receive a fresh non-canceled context with a finite deadline, return at that deadline, and preserve the handler's original API error; success retains CompleteStaged-before-Cleanup ordering."
+      ],
+      "grossLOC": {
+        "added": 35,
+        "deleted": 20,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 35,
+        "deleted": 20,
+        "confidence": "medium"
+      },
+      "commentAction": "Preserve the existing rationale for request-independent cleanup, but update it to state the explicit bounded deadline.",
+      "adjudicationReason": "Second-pass source and tests independently confirm synchronous cleanup uses context.WithoutCancel without a replacement deadline; retain the finding.",
+      "finalRisk": {
+        "id": "API-RT-001",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": 2,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Use a blocking fake Cleanup: after request cancellation it must receive a fresh non-canceled context with a finite deadline, return at that deadline, and preserve the handler's original API error; success retains CompleteStaged-before-Cleanup ordering."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "API2-P1-001",
+      "sourceIds": [
+        "API2-P1-001"
+      ],
+      "batchId": "internal-api-02",
+      "domain": "internal/api",
+      "disposition": "defer",
+      "bucket": "deferred",
+      "priority": "P2",
+      "category": "refactor",
+      "title": "Split schema transport DTOs from endpoint control flow",
+      "paths": [
+        {
+          "path": "internal/api/schema_handlers.go",
+          "start": 1,
+          "end": 780
+        }
+      ],
+      "evidence": "One 780-line file owns DTO declarations/conversion, request-to-domain mapping, compatibility pagination, lifecycle tracking and error classification.",
+      "trigger": "A schema field/relation wire shape or guarded apply behavior changes.",
+      "currentBehavior": "Reviewers must traverse unrelated representations and state transitions, increasing drift risk between plan, catalog and apply responses.",
+      "desiredBehavior": "Closed schema DTO conversion and catalog compatibility paging live in focused modules while endpoint mutation/recovery flow remains together.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_full_read",
+        "command": "not run; read-only PASS1",
+        "result": "source and test contracts inspected at pinned blobs"
+      },
+      "proposal": "Move pure DTOs/converters and PocketBase catalog query/paging into two package-private files; share no new interface and preserve exact golden wire.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": null,
+      "acceptanceTests": [
+        "Run schema handler, operation, golden and live paging suites; regenerate neither golden unless byte output intentionally changes."
+      ],
+      "grossLOC": {
+        "added": 20,
+        "deleted": 80,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": null,
+      "commentAction": "preserve comments that explain security, cancellation, recovery and compatibility invariants",
+      "adjudicationReason": "No independent adjudication evidence was available.",
+      "finalRisk": null,
+      "originalFinding": {
+        "title": "Split schema transport DTOs from endpoint control flow",
+        "evidence": "One 780-line file owns DTO declarations/conversion, request-to-domain mapping, compatibility pagination, lifecycle tracking and error classification.",
+        "currentBehavior": "Reviewers must traverse unrelated representations and state transitions, increasing drift risk between plan, catalog and apply responses.",
+        "proposal": "Move pure DTOs/converters and PocketBase catalog query/paging into two package-private files; share no new interface and preserve exact golden wire."
+      }
+    },
+    {
+      "canonicalId": "API2-P1-002",
+      "sourceIds": [
+        "API2-P1-002"
+      ],
+      "batchId": "internal-api-02",
+      "domain": "internal/api",
+      "disposition": "defer",
+      "bucket": "deferred",
+      "priority": "P2",
+      "category": "test_reliability",
+      "title": "Add cancellation propagation tests to long-running API adapters",
+      "paths": [
+        {
+          "path": "internal/api/sql_console_test.go",
+          "start": 1,
+          "end": 312
+        },
+        {
+          "path": "internal/api/schema_operations_test.go",
+          "start": 583,
+          "end": 652
+        },
+        {
+          "path": "internal/api/setup_status_cache_test.go",
+          "start": 82,
+          "end": 137
+        }
+      ],
+      "evidence": "Production handlers consistently pass request.Context, and schema commit recovery/setup probe intentionally detach with bounds, but most adapter fakes ignore context; only the special recovery/cache semantics are asserted.",
+      "trigger": "A client cancels SQL submit/list, storage migration, schema preview or user management before the domain call completes.",
+      "currentBehavior": "A future handler can accidentally use Background/WithoutCancel on ordinary work without a focused contract failure.",
+      "desiredBehavior": "Ordinary domain calls observe request cancellation; only documented shared probe and commit-recovery reads detach, both with strict deadlines.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static_full_read",
+        "command": "not run; read-only PASS1",
+        "result": "source and test contracts inspected at pinned blobs"
+      },
+      "proposal": "Add a reusable blocking context-aware fake and table-driven tests for representative read, mutation and SQL paths. Keep detached cases as explicit separate tests.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": null,
+      "acceptanceTests": [
+        "Cancel after the fake enters each domain call and require prompt context.Canceled; assert schema recovery uses a fresh <=1s context and setup shared probe survives one caller only."
+      ],
+      "grossLOC": {
+        "added": 90,
+        "deleted": 10,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": null,
+      "commentAction": "preserve comments that explain security, cancellation, recovery and compatibility invariants",
+      "adjudicationReason": "No independent adjudication evidence was available.",
+      "finalRisk": null,
+      "originalFinding": {
+        "title": "Add cancellation propagation tests to long-running API adapters",
+        "evidence": "Production handlers consistently pass request.Context, and schema commit recovery/setup probe intentionally detach with bounds, but most adapter fakes ignore context; only the special recovery/cache semantics are asserted.",
+        "currentBehavior": "A future handler can accidentally use Background/WithoutCancel on ordinary work without a focused contract failure.",
+        "proposal": "Add a reusable blocking context-aware fake and table-driven tests for representative read, mutation and SQL paths. Keep detached cases as explicit separate tests."
+      }
+    },
+    {
+      "canonicalId": "RATELIMIT-001",
+      "sourceIds": [
+        "RATELIMIT-001",
+        "ARL-P1-001"
+      ],
+      "batchId": "internal-apiratelimit-01",
+      "domain": "internal/apiratelimit",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "stability",
+      "title": "Excluded-IP configuration remains aliased after publication",
+      "paths": [
+        {
+          "path": "internal/apiratelimit/service.go",
+          "start": 29,
+          "end": 33
+        },
+        {
+          "path": "internal/apiratelimit/service.go",
+          "start": 30,
+          "end": 38
+        }
+      ],
+      "evidence": "Set copies RateLimits.Rules but stores ExcludedIPs without copying; atomic publication protects only the Settings pointer, not the referenced slice backing array.",
+      "trigger": "A caller reuses or mutates Settings.RateLimits.ExcludedIPs after New or Set while requests concurrently call Admit.",
+      "currentBehavior": "Later caller mutation silently changes bypass policy and concurrent mutation can race with excluded().",
+      "desiredBehavior": "Deep-copy every slice/map reachable from the published rate-limit settings snapshot before Store.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "go test ./internal/apiratelimit",
+        "result": "pass; no mutation-after-Set test exists."
+      },
+      "proposal": "Copy ExcludedIPs alongside Rules in Set and add a test that mutates the caller slice after publication.",
+      "dependencies": [
+        "runtimesettings.Settings ownership contract"
+      ],
+      "compatibilityRisk": "Low; it makes the apparent snapshot ownership real.",
+      "phase": "1",
+      "acceptanceTests": [
+        "Call Set with a spare-capacity ExcludedIPs slice, mutate its original element, and prove Admit retains the published decision; run a concurrent mutation/Admit variant under -race."
+      ],
+      "grossLOC": {
+        "added": 5,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 5,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "commentAction": "none",
+      "adjudicationReason": "",
+      "finalRisk": {
+        "id": "ARL-P1-001 / RATELIMIT-001",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": 1,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Call Set with a spare-capacity ExcludedIPs slice, mutate its original element, and prove Admit retains the published decision; run a concurrent mutation/Admit variant under -race."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "RATELIMIT-002",
+      "sourceIds": [
+        "RATELIMIT-002",
+        "ARL-P1-002"
+      ],
+      "batchId": "internal-apiratelimit-01",
+      "domain": "internal/apiratelimit",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P3",
+      "category": "stability",
+      "title": "Quota fallback reports the superseded admission error",
+      "paths": [
+        {
+          "path": "internal/apiratelimit/service.go",
+          "start": 62,
+          "end": 66
+        },
+        {
+          "path": "internal/apiratelimit/service.go",
+          "start": 55,
+          "end": 70
+        }
+      ],
+      "evidence": "When qerr is non-nil the branch returns err, the earlier upsert error, instead of qerr or an errors.Join value.",
+      "trigger": "The admission upsert fails and the subsequent retry-after lookup also fails, for example during a database outage or missing row.",
+      "currentBehavior": "Callers lose the failure that explains why the fallback decision could not be constructed, weakening classification and diagnosis.",
+      "desiredBehavior": "Return the fallback query error with the original error retained as context.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "go test ./internal/apiratelimit",
+        "result": "pass; no injected QueryRow failure seam covers the two-error path."
+      },
+      "proposal": "Return errors.Join(err, qerr), or wrap qerr while retaining err, and add a database-stub/unit seam if practical.",
+      "dependencies": [
+        "database error classification semantics"
+      ],
+      "compatibilityRisk": "Low; error text/chain becomes more accurate while admission still fails closed.",
+      "phase": "2",
+      "acceptanceTests": [
+        "Inject distinguishable upsert and fallback SELECT errors; assert the fallback error is discoverable with errors.Is, the original may remain joined as context, and Decision.Allowed is false."
+      ],
+      "grossLOC": {
+        "added": 8,
+        "deleted": 1,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 8,
+        "deleted": 1,
+        "confidence": "medium"
+      },
+      "commentAction": "none",
+      "adjudicationReason": "",
+      "finalRisk": {
+        "id": "ARL-P1-002 / RATELIMIT-002",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": 2,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Inject distinguishable upsert and fallback SELECT errors; assert the fallback error is discoverable with errors.Is, the original may remain joined as context, and Decision.Allowed is false."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "P1-CONFIG-RETENTION-RANGE",
+      "sourceIds": [
+        "P1-CONFIG-RETENTION-RANGE",
+        "P2-CONFIG-RETENTION-RANGE"
+      ],
+      "batchId": "internal-config-01",
+      "domain": "internal/config",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P3",
+      "category": "stability",
+      "title": "Reject retention values beyond the persisted storage range during environment loading",
+      "paths": [
+        {
+          "path": "internal/config/backups.go",
+          "start": 19,
+          "end": 25
+        },
+        {
+          "path": "internal/backup/storage_controller.go",
+          "start": 477,
+          "end": 482
+        }
+      ],
+      "evidence": "loadBackups accepts any non-negative strconv.Atoi result, while validateStorageConfig later rejects values above 2147483647.",
+      "trigger": "Set PGBASE_BACKUPS_RETENTION to 2147483648 on a 64-bit host.",
+      "currentBehavior": "Startup proceeds past environment parsing and fails later when storage configuration is validated.",
+      "desiredBehavior": "Environment parsing rejects the unsupported value with the PGBASE_BACKUPS_RETENTION attribution.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static plus targeted package test",
+        "command": "go test ./internal/config ./internal/backup",
+        "result": "passed; boundary assertion is absent"
+      },
+      "proposal": "Apply the same 2147483647 upper bound in loadBackups and add table-driven boundary tests.",
+      "dependencies": "None.",
+      "compatibilityRisk": "Configurations that already fail later will fail earlier with a clearer error.",
+      "phase": "2",
+      "acceptanceTests": [
+        "2147483647 loads; 2147483648 fails with a PGBASE_BACKUPS_RETENTION-specific error; negative and nonnumeric cases retain current errors."
+      ],
+      "grossLOC": {
+        "added": 8,
+        "deleted": 0,
+        "confidence": "high"
+      },
+      "executionGrossLOC": {
+        "added": 8,
+        "deleted": 0,
+        "confidence": "high"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "Independent review confirms loadBackups permits every non-negative Atoi value while backup storage rejects values over PostgreSQL signed-int range. The failure is deterministic and input-local.",
+      "finalRisk": {
+        "id": "P1/P2-CONFIG-RETENTION-RANGE",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": 1,
+        "reproduction": false,
+        "requiredAcceptanceTest": "2147483647 loads; 2147483648 fails with a PGBASE_BACKUPS_RETENTION-specific error; negative and nonnumeric cases retain current errors."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "P1-DATABASE-ROLLBACK-EXPIRED-DEADLINE",
+      "sourceIds": [
+        "P1-DATABASE-ROLLBACK-EXPIRED-DEADLINE",
+        "P2-DATABASE-ROLLBACK-EXPIRED-DEADLINE"
+      ],
+      "batchId": "internal-database-01",
+      "domain": "internal/database",
+      "disposition": "reject_leak_claim",
+      "bucket": "maintenance",
+      "priority": "P3",
+      "category": "dynamic_reproduction_required",
+      "title": "Rollback cleanup receives an already-expired deadline after transaction timeout",
+      "paths": [
+        {
+          "path": "internal/database/tx.go",
+          "start": 20,
+          "end": 29
+        },
+        {
+          "path": "internal/database/tx.go",
+          "start": 37,
+          "end": 49
+        }
+      ],
+      "evidence": "BoundedCleanupContext selects the parent deadline when it precedes now+1s; when already expired, context.WithDeadline returns a canceled cleanup context and tx.Rollback is invoked with it.",
+      "trigger": "A transaction callback returns after its request context deadline has elapsed.",
+      "currentBehavior": "The cleanup rollback request can be canceled before it reaches PostgreSQL; the actual pgx connection-release consequence requires integration reproduction.",
+      "desiredBehavior": "Attempt rollback with a short fresh cleanup deadline after request cancellation, while retaining a documented bound for cleanup lifetime.",
+      "confidence": "medium",
+      "verification": {
+        "kind": "static; targeted package test",
+        "command": "go test ./internal/database",
+        "result": "passed; no test traces rollback after an expired deadline"
+      },
+      "proposal": "Separate cancellation from deadline policy: use a fresh bounded cleanup context when the parent deadline is already elapsed, or explicitly rely on/verify pgx connection destruction. Add a traced integration test.",
+      "dependencies": "Clarify whether hard request deadlines must also cap cleanup I/O.",
+      "compatibilityRisk": "May keep a failed request alive for up to one second to release its transaction cleanly.",
+      "phase": "2",
+      "acceptanceTests": [
+        "Integration test a callback that returns after deadline, assert the transaction is closed and pool acquired-count returns to baseline; optionally assert a fresh connection is created, then decide whether cleanup deserves its own one-second deadline."
+      ],
+      "grossLOC": {
+        "added": 18,
+        "deleted": 4,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 18,
+        "deleted": 4,
+        "confidence": "medium"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "Independent review confirms parent.Deadline can be in the past before the deferred rollback, causing BoundedCleanupContext to return an immediately expired context despite removing cancellation.",
+      "finalRisk": {
+        "id": "P1/P2-DATABASE-ROLLBACK-EXPIRED-DEADLINE",
+        "disposition": "reject_leak_claim",
+        "classification": "maintenance",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Integration test a callback that returns after deadline, assert the transaction is closed and pool acquired-count returns to baseline; optionally assert a fresh connection is created, then decide whether cleanup deserves its own one-second deadline."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "P1-FILESTORE-STAGE-READ-ORPHAN",
+      "sourceIds": [
+        "P1-FILESTORE-STAGE-READ-ORPHAN"
+      ],
+      "batchId": "internal-filestore-01",
+      "domain": "internal/filestore",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "reliability/durable-gc",
+      "title": "Stage leaves an uploaded object unqueued when its validation read fails",
+      "paths": [
+        {
+          "path": "internal/filestore/staging.go",
+          "start": 92,
+          "end": 102
+        }
+      ],
+      "evidence": "stage queues the key after Put, digest, and detected-type failures, but lines 100-102 return readErr directly.",
+      "trigger": "An ObjectStore Put succeeds, then Open succeeds but the first ReadFull returns a non-EOF read error.",
+      "currentBehavior": "The object has no record_files metadata and no file_object_deletions row, so normal GC cannot discover it.",
+      "desiredBehavior": "Queue the key with context.WithoutCancel before returning any post-upload read failure.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "not run; evidence from full source read",
+        "result": "not reproduced"
+      },
+      "proposal": "Route the readErr branch through queueUnreferenced and add a failing-reader ObjectStore test.",
+      "dependencies": [],
+      "compatibilityRisk": "none; this only cleans unreferenced staged bytes",
+      "phase": "2",
+      "acceptanceTests": [
+        "With a fake object store whose Put succeeds and Open reader returns a sentinel non-EOF error, assert Stage returns that error and queueUnreferenced records the exact object key."
+      ],
+      "grossLOC": {
+        "added": 10,
+        "deleted": 0,
+        "confidence": "high"
+      },
+      "executionGrossLOC": {
+        "added": 10,
+        "deleted": 0,
+        "confidence": "high"
+      },
+      "commentAction": "keep the Stage durability contract comment",
+      "adjudicationReason": "",
+      "finalRisk": {
+        "id": "P1-FILESTORE-STAGE-READ-ORPHAN",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "With a fake object store whose Put succeeds and Open reader returns a sentinel non-EOF error, assert Stage returns that error and queueUnreferenced records the exact object key."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "P1-JOBS-LEASE-IGNORING-HANDLER",
+      "sourceIds": [
+        "P1-JOBS-LEASE-IGNORING-HANDLER"
+      ],
+      "batchId": "internal-jobs-01",
+      "domain": "internal/jobs",
+      "disposition": "reject_as_bug",
+      "bucket": "maintenance",
+      "priority": "P3",
+      "category": "reliability/concurrency",
+      "title": "A handler that ignores cancellation can execute concurrently after its lease expires",
+      "paths": [
+        {
+          "path": "internal/jobs/service.go",
+          "start": 23,
+          "end": 29
+        },
+        {
+          "path": "internal/jobs/service.go",
+          "start": 165,
+          "end": 169
+        },
+        {
+          "path": "internal/jobs/service.go",
+          "start": 189,
+          "end": 199
+        }
+      ],
+      "evidence": "RunOnce waits synchronously for invoke; claim makes jobs eligible when lease_until is past; fence_generation only prevents stale completion writes.",
+      "trigger": "A handler ignores its 30-second context deadline and runs longer than the fixed one-minute database lease.",
+      "currentBehavior": "Another runner can claim and execute the same handler while the original still performs side effects.",
+      "desiredBehavior": "Document and enforce a non-overlap execution model, such as renewable leases/fencing exposed to side-effect sinks or a process-isolated timeout boundary.",
+      "confidence": "medium",
+      "verification": {
+        "kind": "static",
+        "command": "not run; evidence from full source read",
+        "result": "not reproduced"
+      },
+      "proposal": "Decide the side-effect fencing contract; add an integration test with a cancellation-ignoring handler and two runners.",
+      "dependencies": [
+        "job handler contract and external side-effect design"
+      ],
+      "compatibilityRisk": "behavioral for long-running handlers",
+      "phase": "2",
+      "acceptanceTests": [
+        "Run two workers with a deliberately context-ignoring handler, expire the first lease, and assert metadata fencing while documenting that the handler may execute twice; separately require built-in handlers to honor cancellation or use generation fencing/idempotency."
+      ],
+      "grossLOC": {
+        "added": 35,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 35,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "commentAction": "keep lease/deadline rationale and expand it to state the enforcement boundary",
+      "adjudicationReason": "",
+      "finalRisk": {
+        "id": "P1-JOBS-LEASE-IGNORING-HANDLER",
+        "disposition": "reject_as_bug",
+        "classification": "maintenance",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Run two workers with a deliberately context-ignoring handler, expire the first lease, and assert metadata fencing while documenting that the handler may execute twice; separately require built-in handlers to honor cancellation or use generation fencing/idempotency."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "P1-internal-schema-01-001",
+      "sourceIds": [
+        "P1-internal-schema-01-001"
+      ],
+      "batchId": "internal-schema-01",
+      "domain": "internal/schema",
+      "disposition": "reject",
+      "bucket": "rejected",
+      "priority": "P3",
+      "category": "bug/feature-completeness",
+      "title": "Auth token-policy import cannot converge to a document that removes a purpose",
+      "paths": [
+        {
+          "path": "internal/schema/auth_schema_document.go",
+          "start": 151,
+          "end": 167
+        }
+      ],
+      "evidence": "applyDocumentAuthCollections iterates only v.TokenTTLs and update-or-inserts each present purpose. It issues no delete for rows whose purpose is absent, while export serializes every auth_token_policies row.",
+      "trigger": "Import a schema document whose auth collection omits a tokenTTL purpose that already exists in the target.",
+      "currentBehavior": "The stale target row survives; a subsequent ExportSchema includes an unexpected tokenTTL and the imported schema does not round-trip exactly.",
+      "desiredBehavior": "Treat tokenTTLs as the document-owned desired set: delete target purposes absent from the input (or explicitly document and implement patch semantics consistently).",
+      "confidence": "static_candidate_high",
+      "verification": {
+        "kind": "not_run",
+        "command": "Add an integration case importing a document into a target containing an extra auth_token_policies purpose, then export.",
+        "result": "not run"
+      },
+      "proposal": "After resolving the collection ID, delete policy rows not in the validated input purpose set, then keep the existing update/insert loop. Add an in-place import/export convergence test.",
+      "dependencies": "Auth-token key lifecycle and SchemaDocument import semantics.",
+      "compatibilityRisk": "If omission intentionally means preserve, deletion changes that contract; establish document replacement versus patch semantics before shipping.",
+      "phase": null,
+      "acceptanceTests": [
+        "Keep a contract test that omitted token purposes survive merge import; if replacement semantics are ever added, gate them behind an explicit delete/replace mode."
+      ],
+      "grossLOC": {
+        "added": 30,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": null,
+      "commentAction": "Preserve the encryption/domain rationale comments; add a short contract comment only if patch semantics are retained.",
+      "adjudicationReason": "Schema import is explicitly merge based: TestSchemaImportMergePreservesOmittedFieldsAndIndexes requires omitted members to survive, and TokenTTLs is optional/omitempty. The update-only loop matches that patch contract. Import/export convergence onto a target with unrelated preexisting members is therefore not an established requirement.",
+      "finalRisk": {
+        "id": "P1-internal-schema-01-001",
+        "disposition": "reject",
+        "classification": "reject",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Keep a contract test that omitted token purposes survive merge import; if replacement semantics are ever added, gate them behind an explicit delete/replace mode."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "IS1-P2-001",
+      "sourceIds": [
+        "IS1-P2-001",
+        "P1-internal-schema-01-002"
+      ],
+      "batchId": "internal-schema-01",
+      "domain": "internal/schema",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "bug/feature-completeness",
+      "title": "Schema import accepts auth regex and rule sources that runtime cannot execute",
+      "paths": [
+        {
+          "path": "internal/schema/auth_schema_document.go",
+          "start": 65,
+          "end": 109
+        }
+      ],
+      "evidence": "validateDocumentAuthCollections validates names, JSON value shape, durations and token purposes, but never compiles PasswordPattern or parses each rule source; applyDocumentAuthCollections writes both strings directly.",
+      "trigger": "Preview an auth collection containing a malformed PasswordPattern or syntactically invalid nonempty auth rule string.",
+      "currentBehavior": "Preview succeeds and apply can persist a policy that later rejects authentication or rules only when evaluated.",
+      "desiredBehavior": "Preview must invoke the same authoritative regex and auth-rule validation used by runtime configuration.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static+unit",
+        "command": "go test ./internal/schema",
+        "result": "passed; no malformed executable auth-policy case exists"
+      },
+      "proposal": "Move cycle-free auth policy syntax validators into a shared leaf package and call them from both userauth configuration and schema-document validation; return an authCollections.<name> path.",
+      "dependencies": "Requires avoiding the existing schema↔userauth package cycle.",
+      "compatibilityRisk": "New imports reject malformed documents previously accepted; reading already stored legacy values remains unchanged.",
+      "phase": "1",
+      "acceptanceTests": [
+        "Preview malformed password regex and malformed auth/manage rule and assert path-specific validation errors; export a valid auth document and assert preview/apply still succeeds."
+      ],
+      "grossLOC": {
+        "added": 35,
+        "deleted": 10,
+        "confidence": "low"
+      },
+      "executionGrossLOC": {
+        "added": 35,
+        "deleted": 10,
+        "confidence": "low"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "",
+      "finalRisk": {
+        "id": "P1-internal-schema-01-002 / IS1-P2-001",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Preview malformed password regex and malformed auth/manage rule and assert path-specific validation errors; export a valid auth document and assert preview/apply still succeeds."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "IS2-P2-001",
+      "sourceIds": [
+        "IS2-P2-001",
+        "P1-internal-schema-02-001"
+      ],
+      "batchId": "internal-schema-02",
+      "domain": "internal/schema",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "stability/concurrency",
+      "title": "Auth token TTL state is omitted from schema import stale-preview detection",
+      "paths": [
+        {
+          "path": "internal/schema/schema_policy_checksum.go",
+          "start": 50,
+          "end": 64
+        },
+        {
+          "path": "internal/schema/schema_document.go",
+          "start": 615,
+          "end": 636
+        }
+      ],
+      "evidence": "schemaPolicyChecksum hashes auth collection and policy updated timestamps plus rules, but no auth_token_policies state. Apply locks base collection policy rows only; applyDocumentAuthCollections later updates the TTL.",
+      "trigger": "Preview a document containing an auth token TTL, change that token policy after preview but before ApplySchemaImport starts, then apply the old checksum at the same catalog version.",
+      "currentBehavior": "The stale preview checksum remains valid and the import overwrites the intervening TTL update.",
+      "desiredBehavior": "Token-policy rows participating in the document must be included deterministically in policy checksum and locked before apply replanning.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static+unit",
+        "command": "go test ./internal/schema",
+        "result": "passed; existing stale-policy integration test mutates collection_access only"
+      },
+      "proposal": "Hash ordered purpose, TTL and updated_at values for each referenced auth collection and lock the auth collection/policy/token rows before recomputing the import plan.",
+      "dependencies": "Schema import policy checksum and auth token-policy write transaction.",
+      "compatibilityRisk": "Preview checksums change; callers already must apply the exact newly issued checksum.",
+      "phase": "1",
+      "acceptanceTests": [
+        "PostgreSQL integration test: preview a document with a TTL, update that row and updated_at in another transaction, then apply the old checksum and require ErrConflict; also cover insertion of a formerly absent purpose."
+      ],
+      "grossLOC": {
+        "added": 35,
+        "deleted": 3,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 35,
+        "deleted": 3,
+        "confidence": "medium"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "",
+      "finalRisk": {
+        "id": "P1-internal-schema-02-001 / IS2-P2-001",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "PostgreSQL integration test: preview a document with a TTL, update that row and updated_at in another transaction, then apply the old checksum and require ErrConflict; also cover insertion of a formerly absent purpose."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "PASS1-SELFUPDATE-01",
+      "sourceIds": [
+        "PASS1-SELFUPDATE-01",
+        "P2-SELFUPDATE-01"
+      ],
+      "batchId": "internal-selfupdate-01",
+      "domain": "internal/selfupdate",
+      "disposition": "narrow",
+      "bucket": "contract_risk",
+      "priority": "P3",
+      "category": "security",
+      "title": "Apply accepts a mutable Candidate without re-binding it to the signed manifest",
+      "paths": [
+        {
+          "path": "internal/selfupdate/install.go",
+          "start": 48,
+          "end": 50
+        },
+        {
+          "path": "internal/selfupdate/install.go",
+          "start": 122,
+          "end": 122
+        },
+        {
+          "path": "internal/selfupdate/download.go",
+          "start": 105,
+          "end": 120
+        }
+      ],
+      "evidence": "Fetch authenticates raw manifest/signature and derives Candidate (download.go:105-120), but Apply only checks that raw bytes and a 32-byte key are non-empty (install.go:48-50). It subsequently downloads options.Fetched.Candidate directly (install.go:122) without calling VerifyManifest, Select, or comparing Candidate to a selected entry.",
+      "trigger": "Code in the module obtains a valid Fetched value, changes its exported Candidate release/artifact fields to another same-origin artifact with a matching digest, then calls Apply with the original manifest bytes and trust key.",
+      "currentBehavior": "The artifact identity written and executed by Apply is controlled by mutable exported Candidate fields rather than proven to be in the signed raw manifest retained as evidence.",
+      "desiredBehavior": "Apply should re-verify ManifestRaw/SignatureRaw using TrustKey, select the candidate using Current and persisted selection inputs, and reject any mismatch; alternatively make Fetched opaque and expose only immutable accessors.",
+      "confidence": "high_static_candidate; current CLI calls Fetch then Apply directly, so this is a module-boundary integrity weakness rather than a demonstrated external CLI exploit.",
+      "verification": {
+        "kind": "targeted_unit_test",
+        "command": "Add a package selfupdate test that Fetches a valid manifest, mutates fetched.Candidate to a same-origin fixture omitted from the signed manifest, and asserts Apply returns ErrUntrustedManifest before staging.",
+        "result": "not run; audit-only pass"
+      },
+      "proposal": "Re-verify at Apply's entry and compare every selected Candidate field with the authenticated selection before evidence/journal creation. Preserve the exact raw evidence journaled today.",
+      "dependencies": "Selection inputs (channel/requested/downgrade) are not retained in Fetched, so either retain them privately or authenticate Candidate against the parsed manifest without re-selection.",
+      "compatibilityRisk": "Internal API behavior becomes stricter; CLI behavior remains unchanged.",
+      "phase": "1",
+      "acceptanceTests": [
+        "Fetch a valid signed manifest, mutate Candidate to an artifact absent from the manifest, and assert Apply returns ErrUntrustedManifest before writing evidence or downloading; preserve the normal CLI path."
+      ],
+      "grossLOC": {
+        "added": 25,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 25,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "commentAction": "keep",
+      "adjudicationReason": "Independent full-path trace confirms Apply trusts exported mutable Candidate fields without proving membership in ManifestRaw authenticated by SignatureRaw and TrustKey. The finding is a package-boundary integrity defect even though current CLI wiring does not mutate the value.",
+      "finalRisk": {
+        "id": "PASS1/P2-SELFUPDATE-01",
+        "disposition": "narrow",
+        "classification": "contract_risk",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Fetch a valid signed manifest, mutate Candidate to an artifact absent from the manifest, and assert Apply returns ErrUntrustedManifest before writing evidence or downloading; preserve the normal CLI path."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "IUA-01",
+      "sourceIds": [
+        "IUA-01"
+      ],
+      "batchId": "internal-userauth-01",
+      "domain": "internal/userauth",
+      "disposition": "narrow",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "security",
+      "title": "Global OAuth setup accepts cleartext and credential-bearing redirect URIs",
+      "paths": [
+        {
+          "path": "internal/userauth/oauth.go",
+          "start": 22,
+          "end": 42
+        },
+        {
+          "path": "internal/userauth/oauth_http.go",
+          "start": 220,
+          "end": 230
+        }
+      ],
+      "evidence": "ConfigureOAuth only requires parsed Scheme and Host and rejects fragments (lines 34-39). beginOAuth accepts a URI present in that map (lines 218-223). The per-collection route uses validEndpoint, which requires HTTPS except explicit loopback HTTP and rejects URL userinfo (oauth_http.go lines 220-230).",
+      "trigger": "An application configures ConfigureOAuth with http://non-loopback.example/callback or a URI containing userinfo, then begins OAuth using that allowlisted return URI.",
+      "currentBehavior": "The authorization response code and state can be sent to a cleartext non-loopback endpoint or a URI with embedded userinfo.",
+      "desiredBehavior": "Every OAuth return URI should use the same endpoint policy: HTTPS, or explicitly allowed loopback HTTP for local development, with no URL userinfo or fragment.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "not run; source review only",
+        "result": "The two validators have different acceptance rules. No external OAuth interaction was performed."
+      },
+      "proposal": "Replace ConfigureOAuth URL parsing with validEndpoint(raw, true) (or a shared redirect-specific validator with identical constraints), retain exact-string allowlist matching, and add table tests for HTTPS, loopback HTTP, non-loopback HTTP, userinfo, and fragments.",
+      "dependencies": "No schema change.",
+      "compatibilityRisk": "Security correction: existing deployments configured with non-loopback HTTP redirects must migrate to HTTPS.",
+      "phase": "1",
+      "acceptanceTests": [
+        "Configure split-return OAuth with a safe providerRedirectURI and each of non-loopback HTTP and userinfo-bearing returnURI; require rejection. Preserve HTTPS and the documented loopback HTTP policy."
+      ],
+      "grossLOC": {
+        "added": 18,
+        "deleted": 7,
+        "confidence": "high"
+      },
+      "executionGrossLOC": {
+        "added": 18,
+        "deleted": 7,
+        "confidence": "high"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "The ordinary BeginOAuth paths pass the same URI as returnURI and providerRedirectURI, and beginOAuth rejects it through validEndpoint. The weakness remains reachable for ConfigureOAuth plus BeginOAuthWithProviderRedirect: providerRedirectURI can be safe while the allowlisted returnURI is HTTP non-loopback or contains userinfo; Apple AcceptOAuthCallback later redirects the code and state to that stored returnURI. Scope the fix and regression test to split-return/form-post callback use.",
+      "finalRisk": {
+        "id": "IUA-01",
+        "disposition": "narrow",
+        "classification": "static_defect",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Configure split-return OAuth with a safe providerRedirectURI and each of non-loopback HTTP and userinfo-bearing returnURI; require rejection. Preserve HTTPS and the documented loopback HTTP policy."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "IUA-02",
+      "sourceIds": [
+        "IUA-02"
+      ],
+      "batchId": "internal-userauth-01",
+      "domain": "internal/userauth",
+      "disposition": "defer",
+      "bucket": "deferred",
+      "priority": "P3",
+      "category": "security",
+      "title": "Direct auth-record email mutation can retain verification for a new unverified address",
+      "paths": [
+        {
+          "path": "internal/userauth/auth_records.go",
+          "start": 361,
+          "end": 437
+        },
+        {
+          "path": "internal/userauth/email_actions.go",
+          "start": 289,
+          "end": 305
+        }
+      ],
+      "evidence": "updateAuthRecord changes users.email through coalesce($3,email) while independently preserving verified via coalesce($6,verified) (auth_records.go lines 424-437). The email-action confirmation path explicitly sets email and verified=true only after consuming an emailed token (email_actions.go lines 289-305).",
+      "trigger": "A privileged caller invokes UpdateAuthRecord with a changed Email and leaves Verified nil or true.",
+      "currentBehavior": "A record can remain verified after its email is changed through the direct update API, even though no proof of control over the replacement mailbox occurred.",
+      "desiredBehavior": "Changing an email should clear verified unless the caller uses an explicit trusted-administrator verification action with auditable semantics.",
+      "confidence": "medium",
+      "verification": {
+        "kind": "static",
+        "command": "not run; source review only",
+        "result": "The SQL update preserves verified when input omits it; no route-level authorization or intended admin contract was executed."
+      },
+      "proposal": "In updateAuthRecord, detect a real email change after locking the row and set verified=false by default; expose a separate explicit administrator-only verified override if current behavior is intentional. Revoke sessions as it already does.",
+      "dependencies": "Confirm API compatibility with the administrator record-update route.",
+      "compatibilityRisk": "May change administrator workflows that intentionally pre-verify a new address; provide an explicit opt-in if required.",
+      "phase": null,
+      "acceptanceTests": [
+        "Pin the intended administrator contract: either prove changed email clears verification unless an explicit override is supplied, or prove privileged pre-verification is intentional; also verify the user-authorized path cannot set it without manage authority."
+      ],
+      "grossLOC": {
+        "added": 22,
+        "deleted": 2,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": null,
+      "commentAction": "preserve",
+      "adjudicationReason": "The SQL evidence is correct, but UpdateAuthRecord is the trusted direct record-management primitive and UpdateAuthorizedAuthRecord separately requires the manage rule for Email/Verified mutations. Whether administrators may deliberately retain or set verification is an API contract decision not established inside this batch. Confirm route-level privilege and PocketBase compatibility before changing semantics; add explicit tests whichever contract is chosen.",
+      "finalRisk": {
+        "id": "IUA-02",
+        "disposition": "defer",
+        "classification": "contract_risk",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Pin the intended administrator contract: either prove changed email clears verification unless an explicit override is supplied, or prove privileged pre-verification is intentional; also verify the user-authorized path cannot set it without manage authority."
+      },
+      "originalFinding": {
+        "title": "Direct auth-record email mutation can retain verification for a new unverified address",
+        "evidence": "updateAuthRecord changes users.email through coalesce($3,email) while independently preserving verified via coalesce($6,verified) (auth_records.go lines 424-437). The email-action confirmation path explicitly sets email and verified=true only after consuming an emailed token (email_actions.go lines 289-305).",
+        "currentBehavior": "A record can remain verified after its email is changed through the direct update API, even though no proof of control over the replacement mailbox occurred.",
+        "proposal": "In updateAuthRecord, detect a real email change after locking the row and set verified=false by default; expose a separate explicit administrator-only verified override if current behavior is intentional. Revoke sessions as it already does."
+      }
+    },
+    {
+      "canonicalId": "IUA-03",
+      "sourceIds": [
+        "IUA-03"
+      ],
+      "batchId": "internal-userauth-01",
+      "domain": "internal/userauth",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P3",
+      "category": "maintainability",
+      "title": "Auth-rule validation rejects supported emailVisibility system field",
+      "paths": [
+        {
+          "path": "internal/userauth/auth_rules.go",
+          "start": 64,
+          "end": 77
+        },
+        {
+          "path": "internal/userauth/auth_rule_resolver.go",
+          "start": 235,
+          "end": 253
+        }
+      ],
+      "evidence": "validateAuthRuleFields accepts only id,email,password,verified,active,created,updated as system roots (auth_rules.go lines 64-75). The SQL resolver separately supports emailVisibility (auth_rule_resolver.go lines 239-253), and request contexts also populate it.",
+      "trigger": "An administrator saves an auth collection rule that references emailVisibility.",
+      "currentBehavior": "A rule field that the evaluator can resolve cannot be configured through collection validation.",
+      "desiredBehavior": "Validation and resolver support should expose the same system-field vocabulary.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "not run; source review only",
+        "result": "The validation allowlist omits emailVisibility while the resolver has an explicit case for it."
+      },
+      "proposal": "Add emailVisibility to the validation system field list and cover both create and update collection paths.",
+      "dependencies": "None.",
+      "compatibilityRisk": "Adds a previously rejected rule expression; no existing rule changes.",
+      "phase": "1",
+      "acceptanceTests": [
+        "Create and update an auth collection rule using emailVisibility and assert validation and evaluation agree."
+      ],
+      "grossLOC": {
+        "added": 8,
+        "deleted": 0,
+        "confidence": "high"
+      },
+      "executionGrossLOC": {
+        "added": 8,
+        "deleted": 0,
+        "confidence": "high"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "validateAuthRuleFields omits emailVisibility while authRuleResolver.resolve, loadAuthRuleActor, authPBRequestContext, and record projections support it. This is a concrete validator/evaluator vocabulary mismatch and the proposed additive regression test is sufficient.",
+      "finalRisk": {
+        "id": "IUA-03",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Create and update an auth collection rule using emailVisibility and assert validation and evaluation agree."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "IUA2-01",
+      "sourceIds": [
+        "IUA2-01"
+      ],
+      "batchId": "internal-userauth-01",
+      "domain": "internal/userauth",
+      "disposition": "narrow",
+      "bucket": "contract_risk",
+      "priority": "P2",
+      "category": "security",
+      "title": "OIDC multi-audience ID tokens are accepted without an authorized-party claim",
+      "paths": [
+        {
+          "path": "internal/userauth/oauth_oidc.go",
+          "start": 52,
+          "end": 75
+        },
+        {
+          "path": "internal/userauth/oauth_http_test.go",
+          "start": 117,
+          "end": 155
+        }
+      ],
+      "evidence": "verifyOIDCIDToken calls oidcAudience, which returns true when any array element equals ClientID, and never reads azp. The rejection table covers wrong audience, issuer, expiry, nonce, signature, alg, and kid but has no multi-audience/azp cases.",
+      "trigger": "A configured OIDC provider returns a validly signed ID token whose aud claim contains this client ID plus another audience, but omits azp or names a different authorized party.",
+      "currentBehavior": "A multi-audience token is treated as client-bound based solely on membership in aud, losing the OIDC authorized-party constraint for tokens issued to multiple recipients.",
+      "desiredBehavior": "When aud has more than one value, require azp to be present and equal the configured client ID; if azp is present for a single audience, reject a mismatch.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static+unit",
+        "command": "go test ./internal/userauth",
+        "result": "passed; existing tests do not exercise multi-audience azp"
+      },
+      "proposal": "Parse aud into a bounded shape alongside azp and enforce the authorized-party rule before returning claims. Add signed-token cases for matching, missing, and mismatched azp.",
+      "dependencies": "No schema change; OIDC claim-validation contract only.",
+      "compatibilityRisk": "May reject non-conforming provider tokens that currently authenticate; standards-conforming single-audience tokens are unchanged.",
+      "phase": "1",
+      "acceptanceTests": [
+        "Use signed tokens: multi-audience plus matching azp succeeds; missing or mismatched azp follows the explicitly chosen strict policy; single-audience remains compatible and a present conflicting azp is rejected."
+      ],
+      "grossLOC": {
+        "added": 18,
+        "deleted": 2,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 18,
+        "deleted": 2,
+        "confidence": "medium"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "",
+      "finalRisk": {
+        "id": "IUA2-01",
+        "disposition": "narrow",
+        "classification": "contract_risk",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Use signed tokens: multi-audience plus matching azp succeeds; missing or mismatched azp follows the explicitly chosen strict policy; single-audience remains compatible and a present conflicting azp is rejected."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "PASS1-USERMIGRATE-01",
+      "sourceIds": [
+        "PASS1-USERMIGRATE-01",
+        "P2-USERMIGRATE-01"
+      ],
+      "batchId": "internal-usermigrate-01",
+      "domain": "internal/usermigrate",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "stability",
+      "title": "Recorder marks a migration written without checking that the artifact still exists",
+      "paths": [
+        {
+          "path": "internal/usermigrate/recorder.go",
+          "start": 117,
+          "end": 128
+        },
+        {
+          "path": "internal/usermigrate/recorder.go",
+          "start": 235,
+          "end": 249
+        }
+      ],
+      "evidence": "MaterializeSchemaMigration returns immediately for status='written' (lines 123-125); Recover iterates only pending rows (lines 241-247). The database retains the exact source but no path revalidation or rematerialization occurs.",
+      "trigger": "After MaterializeSchemaMigration successfully writes a source and marks its row written, delete that generated .go file, then invoke Recover or Run.",
+      "currentBehavior": "A deleted or externally removed generated migration is permanently treated as materialized, so the next build can omit a database-committed migration source.",
+      "desiredBehavior": "For written rows, verify the expected file is regular and byte-identical; on absence, re-materialize from stored source or transition to a recoverable pending state. Preserve conflict behavior for different bytes.",
+      "confidence": "high_static_candidate; the failure path follows explicit status branches but needs a focused integration test for filesystem deletion/recovery.",
+      "verification": {
+        "kind": "integration_test",
+        "command": "Create and materialize a migration, remove its generated file, call Recover, then assert the exact source is restored and status remains written.",
+        "result": "not run; audit-only pass"
+      },
+      "proposal": "Extract a verify-or-materialize helper used by both written and pending paths; only write status after the file's exact bytes have been checked or published.",
+      "dependencies": "None; source and filename are already durably stored by migration 000040.",
+      "compatibilityRisk": "Recovery becomes self-healing for missing artifacts; conflicting files remain blocked.",
+      "phase": "1",
+      "acceptanceTests": [
+        "After written status, delete the file and assert Recover restores exact stored bytes; replace it with different bytes or a non-regular artifact and assert conflict without overwrite; concurrent recovery remains idempotent."
+      ],
+      "grossLOC": {
+        "added": 35,
+        "deleted": 10,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 35,
+        "deleted": 10,
+        "confidence": "medium"
+      },
+      "commentAction": "keep",
+      "adjudicationReason": "Independent trace confirms written returns before any filesystem check and Recover selects pending only. Acceptance is scoped to missing-file restoration plus non-destructive detection of changed/non-regular artifacts from the stored exact source.",
+      "finalRisk": {
+        "id": "PASS1/P2-USERMIGRATE-01",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": 1,
+        "reproduction": false,
+        "requiredAcceptanceTest": "After written status, delete the file and assert Recover restores exact stored bytes; replace it with different bytes or a non-regular artifact and assert conflict without overwrite; concurrent recovery remains idempotent."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "PGB01-001",
+      "sourceIds": [
+        "PGB01-001"
+      ],
+      "batchId": "pgbase-01",
+      "domain": "pgbase",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "stability",
+      "title": "app.record.findAll materializes an unbounded admitted collection",
+      "paths": [
+        {
+          "path": "pgbase/extension_app_query.go",
+          "start": 96,
+          "end": 113
+        }
+      ],
+      "evidence": "The helper requests 200 rows per cursor page and appends every page to one items slice, then JSON-marshals the complete result. Unlike findByIds, it has no item, page, or encoded-byte ceiling.",
+      "trigger": "A permitted JavaScript invocation calls app.record.findAll for a collection with enough matching records to exceed the process memory budget.",
+      "currentBehavior": "Memory and final response size grow with the entire rule-filtered collection.",
+      "desiredBehavior": "Bound the compatibility helper and return a stable limit error, or expose explicit paging while preserving record-rule evaluation.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static review; focused test proposed",
+        "command": "go test -tags=integration ./pgbase -run TestExtensionAppRecordFindAllBound",
+        "result": "not run; audit stage does not edit tests"
+      },
+      "proposal": "Add an item and encoded-byte budget to findAll and document the stable error; keep each page delegated to records.list.",
+      "dependencies": "PocketBase compatibility declarations and generated JS types.",
+      "compatibilityRisk": "Large callers receive an explicit error and must page; small callers retain the same shape.",
+      "phase": "2",
+      "acceptanceTests": [
+        "Seed past an explicit aggregate budget, assert a stable error before fetching the next page and no partial successful result; retain rule filtering and projection."
+      ],
+      "grossLOC": {
+        "added": 35,
+        "deleted": 3,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 35,
+        "deleted": 3,
+        "confidence": "medium"
+      },
+      "commentAction": "Preserve comments explaining compatibility and rule delegation; add only the non-obvious cap rationale.",
+      "adjudicationReason": "The result cap occurs after findAll has accumulated and marshaled all pages; it does not bound internal peak allocation. Preserve all-record compatibility through an explicit limit or versioned paging plan.",
+      "finalRisk": {
+        "id": "PGB01-001",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Seed past an explicit aggregate budget, assert a stable error before fetching the next page and no partial successful result; retain rule filtering and projection."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "PGB01-002",
+      "sourceIds": [
+        "PGB01-002"
+      ],
+      "batchId": "pgbase-01",
+      "domain": "pgbase",
+      "disposition": "defer",
+      "bucket": "deferred",
+      "priority": "P3",
+      "category": "stability",
+      "title": "objects.deletePrefix retains every matching key before deletion",
+      "paths": [
+        {
+          "path": "pgbase/extension_objects.go",
+          "start": 499,
+          "end": 526
+        }
+      ],
+      "evidence": "The cursor loop appends all listed keys to one slice and performs no deletion until enumeration ends; per-page size 100 does not bound the aggregate.",
+      "trigger": "A privileged extension deletes a prefix containing many objects.",
+      "currentBehavior": "Memory grows with key count and no progress is made until the full listing succeeds.",
+      "desiredBehavior": "Use bounded page-at-a-time deletion with explicit partial-failure and cursor semantics.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static review; focused integration test proposed",
+        "command": "go test -tags=integration ./pgbase -run TestExtensionObjectDeletePrefixBounded",
+        "result": "not run; audit stage does not edit tests"
+      },
+      "proposal": "Delete one bounded page at a time; if mutation invalidates cursors, use stable keyset pagination or a documented maximum.",
+      "dependencies": "Object-store list cursor and delete-hook contracts.",
+      "compatibilityRisk": "Return shape can remain stable; partial failure timing becomes observable and must be specified.",
+      "phase": null,
+      "acceptanceTests": [
+        "Characterize current zero-delete behavior on a middle listing failure, then test the chosen bounded design for cursor stability, hooks, and documented partial progress."
+      ],
+      "grossLOC": {
+        "added": 24,
+        "deleted": 8,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": null,
+      "commentAction": "Keep literal-prefix and transaction rationale comments.",
+      "adjudicationReason": "The keyset List query makes page-at-a-time deletion feasible, but current enumeration failure causes zero deletes whereas interleaving makes partial progress observable. This is a P3 design/maintenance decision, not a drop-in bug fix.",
+      "finalRisk": {
+        "id": "PGB01-002",
+        "disposition": "defer",
+        "classification": "maintenance",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Characterize current zero-delete behavior on a middle listing failure, then test the chosen bounded design for cursor stability, hooks, and documented partial progress."
+      },
+      "originalFinding": {
+        "title": "objects.deletePrefix retains every matching key before deletion",
+        "evidence": "The cursor loop appends all listed keys to one slice and performs no deletion until enumeration ends; per-page size 100 does not bound the aggregate.",
+        "currentBehavior": "Memory grows with key count and no progress is made until the full listing succeeds.",
+        "proposal": "Delete one bounded page at a time; if mutation invalidates cursors, use stable keyset pagination or a documented maximum."
+      }
+    },
+    {
+      "canonicalId": "PGB01-003",
+      "sourceIds": [
+        "PGB01-003"
+      ],
+      "batchId": "pgbase-01",
+      "domain": "pgbase",
+      "disposition": "narrow",
+      "bucket": "static_defect",
+      "priority": "P3",
+      "category": "security",
+      "title": "ACME HTTP redirect reflects an untrusted Host header",
+      "paths": [
+        {
+          "path": "pgbase/app_construct.go",
+          "start": 419,
+          "end": 426
+        }
+      ],
+      "evidence": "The fallback redirect concatenates r.Host directly into the Location header. The autocert manager has an ACME host allowlist, but the redirect handler does not consult it.",
+      "trigger": "An unauthenticated request reaches the configured HTTP challenge listener outside the ACME challenge path with Host set to an attacker-controlled value.",
+      "currentBehavior": "The PgBase endpoint can emit a temporary redirect to an arbitrary HTTPS authority supplied by the client.",
+      "desiredBehavior": "Redirect only to a normalized configured ACME host, or reject Host values outside the allowlist.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static review; local HTTP test proposed",
+        "command": "go test -tags=integration ./pgbase -run TestACMERedirectRejectsUnknownHost",
+        "result": "not run; existing ACME test checks a configured Host only"
+      },
+      "proposal": "Normalize host/port and require membership in ACMEHosts before constructing Location.",
+      "dependencies": "TLSOptions ACMEHosts normalization.",
+      "compatibilityRisk": "Requests using aliases absent from ACMEHosts change from redirect to 400.",
+      "phase": "1",
+      "acceptanceTests": [
+        "Request a non-challenge path with an unknown Host and require 400/no Location; allowed normalized hosts preserve path and query in the HTTPS redirect."
+      ],
+      "grossLOC": {
+        "added": 18,
+        "deleted": 3,
+        "confidence": "high"
+      },
+      "executionGrossLOC": {
+        "added": 18,
+        "deleted": 3,
+        "confidence": "high"
+      },
+      "commentAction": "Retain the mock-ACME no-external-network explanation.",
+      "adjudicationReason": "A valid attacker-selected Host is reflected into the fallback redirect although autocert HostPolicy prevents certificate issuance. Treat as P3 open-redirect hardening unless proxy/cache impact is demonstrated; normalize host/port and check ACMEHosts.",
+      "finalRisk": {
+        "id": "PGB01-003",
+        "disposition": "narrow",
+        "classification": "static_defect",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Request a non-challenge path with an unknown Host and require 400/no Location; allowed normalized hosts preserve path and query in the HTTPS redirect."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "PGB01-004",
+      "sourceIds": [
+        "PGB01-004"
+      ],
+      "batchId": "pgbase-01",
+      "domain": "pgbase",
+      "disposition": "accept_narrow",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "stability",
+      "title": "The first Close caller permanently supplies the cleanup context",
+      "paths": [
+        {
+          "path": "pgbase/app.go",
+          "start": 505,
+          "end": 538
+        },
+        {
+          "path": "pgbase/app.go",
+          "start": 541,
+          "end": 613
+        }
+      ],
+      "evidence": "The first caller starts go a.closeResources(ctx, ...); shutdownStarted prevents later callers from supplying a usable context. Expiration can make HTTP force-close, pool CloseContext, and gate release return early, yet shutdown completes permanently.",
+      "trigger": "The first concurrent caller invokes Close with a short or already-canceled context while another caller could allow a normal shutdown timeout.",
+      "currentBehavior": "A transient first caller deadline can determine final cleanup completeness and the error returned to all later Close calls.",
+      "desiredBehavior": "Run one internal cleanup under the application shutdown budget while each caller independently bounds only its wait.",
+      "confidence": "medium",
+      "verification": {
+        "kind": "static concurrency review; focused test proposed",
+        "command": "go test ./pgbase -run TestCloseFirstCallerDeadlineDoesNotPoisonCleanup",
+        "result": "not run; requires instrumented closers"
+      },
+      "proposal": "Create an internal shutdown context once from ShutdownTimeout; callers select on their own context and the shared done channel.",
+      "dependencies": "Run shutdown deadline and lifecycle hook timing.",
+      "compatibilityRisk": "Close may continue cleanup after an individual caller returns, matching idempotent shutdown expectations.",
+      "phase": "2",
+      "acceptanceTests": [
+        "Instrument termination hooks and closers; call Close first with an already-canceled context and then with a live context. Assert shared cleanup uses an internal shutdown budget and completes exactly once, while each caller independently respects its own wait deadline."
+      ],
+      "grossLOC": {
+        "added": 22,
+        "deleted": 9,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 22,
+        "deleted": 9,
+        "confidence": "medium"
+      },
+      "commentAction": "Preserve the HTTP-drain-before-worker-cancel rationale.",
+      "adjudicationReason": "The first caller supplies the context used by shared closeResources; existing tests cover separate first and concurrent deadlines but not canceled-first then live cleanup.",
+      "finalRisk": {
+        "id": "PGB01-004",
+        "disposition": "accept_narrow",
+        "classification": "static_defect",
+        "phase": null,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Instrument termination hooks and closers; call Close first with an already-canceled context and then with a live context. Assert shared cleanup uses an internal shutdown budget and completes exactly once, while each caller independently respects its own wait deadline."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "PGB02-001",
+      "sourceIds": [
+        "PGB02-001"
+      ],
+      "batchId": "pgbase-02",
+      "domain": "pgbase",
+      "disposition": "narrow",
+      "bucket": "maintenance",
+      "priority": "P3",
+      "category": "stability",
+      "title": "Extension object streaming buffers the full object in memory",
+      "paths": [
+        {
+          "path": "pgbase/javascript_runtime.go",
+          "start": 317,
+          "end": 352
+        }
+      ],
+      "evidence": "serveJavaScriptExtensionObject opens the object and immediately io.ReadAlls it to detect content type, then wraps the full byte slice in bytes.NewReader for ServeContent. The route is declared as a stream response, but memory use is object-sized.",
+      "trigger": "A filesystem-capable JavaScript route serves an object near the configured object-size ceiling.",
+      "currentBehavior": "Each concurrent download retains a complete object before writing the response.",
+      "desiredBehavior": "Stream from the object reader while deriving type from a bounded prefix or stored metadata and preserving range/cache behavior where supported.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static review; focused integration test proposed",
+        "command": "go test -tags=integration ./pgbase -run TestJavaScriptObjectServeStreamsBounded",
+        "result": "not run; current tests validate response/security shape, not allocation"
+      },
+      "proposal": "Read at most 512 bytes for sniffing, then replay the prefix with io.MultiReader and stream; use metadata for length/modtime and document range support.",
+      "dependencies": "Object Attributes metadata and HTTP ServeContent/range contract.",
+      "compatibilityRisk": "Range behavior must remain tested; content type and disposition remain unchanged.",
+      "phase": "4",
+      "acceptanceTests": [
+        "Demonstrate first response bytes before backing-reader EOF and bounded prefix buffering, while preserving full body, content type/disposition/CSP/cache headers, cancellation cleanup, and documented range behavior."
+      ],
+      "grossLOC": {
+        "added": 34,
+        "deleted": 12,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 34,
+        "deleted": 12,
+        "confidence": "medium"
+      },
+      "commentAction": "Keep the capability/admission comment and CSP rationale.",
+      "adjudicationReason": "Open limits each object (default 5 MiB; configured files are capped at 100 MiB), so it is not unbounded. io.ReadAll still defeats streaming and allocates one full object per request. Keep as P3 performance/maintenance unless a public-route concurrent repro establishes availability impact.",
+      "finalRisk": {
+        "id": "PGB02-001",
+        "disposition": "narrow",
+        "classification": "maintenance",
+        "phase": 4,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Demonstrate first response bytes before backing-reader EOF and bounded prefix buffering, while preserving full body, content type/disposition/CSP/cache headers, cancellation cleanup, and documented range behavior."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "PGB02-002",
+      "sourceIds": [
+        "PGB02-002"
+      ],
+      "batchId": "pgbase-02",
+      "domain": "pgbase",
+      "disposition": "reject",
+      "bucket": "rejected",
+      "priority": "P3",
+      "category": "maintenance",
+      "title": "JavaScript response paths duplicate status and body emission rules",
+      "paths": [
+        {
+          "path": "pgbase/javascript_runtime.go",
+          "start": 267,
+          "end": 298
+        },
+        {
+          "path": "pgbase/javascript_runtime.go",
+          "start": 380,
+          "end": 415
+        }
+      ],
+      "evidence": "serveRoute, serveJavaScriptGzip, and writeJavaScriptRouteBody independently set content headers/status and emit JSON/body. Gzip special-cases HEAD; the plain writer relies on net/http suppression, and security/header behavior is distributed.",
+      "trigger": "A future response feature changes HEAD, status, JSON, compression, or nosniff behavior in only one writer.",
+      "currentBehavior": "Equivalent response invariants are maintained across several branches and tests must catch drift.",
+      "desiredBehavior": "Centralize validated response metadata and body selection behind one deep writer with compression as a transport option.",
+      "confidence": "medium",
+      "verification": {
+        "kind": "static design review",
+        "command": "go test ./pgbase -run TestJavaScript",
+        "result": "not run; audit stage records refactor plan only"
+      },
+      "proposal": "Introduce one internal response writer that selects body once, applies headers/status once, and optionally wraps output with gzip.",
+      "dependencies": "Existing JavaScript response and HEAD/gzip tests.",
+      "compatibilityRisk": "Low if byte-for-byte status/header tests are retained.",
+      "phase": null,
+      "acceptanceTests": [
+        "Table-test JSON/text/empty responses for GET and HEAD with gzip accepted, rejected, wildcard, and q=0.",
+        "Assert no duplicate status writes and exact Vary/nosniff behavior."
+      ],
+      "grossLOC": {
+        "added": 24,
+        "deleted": 38,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": null,
+      "commentAction": "Collapse repeated implementation comments but retain the reason HEAD and pre-encoded responses skip compression.",
+      "adjudicationReason": "The gzip writer necessarily owns Content-Encoding, Vary, and explicit HEAD suppression while the plain helper owns shared body emission. The existing helper already centralizes plain response behavior; no concrete drift was demonstrated.",
+      "finalRisk": null,
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "PGB02-003",
+      "sourceIds": [
+        "PGB02-003"
+      ],
+      "batchId": "pgbase-02",
+      "domain": "pgbase",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P3",
+      "category": "correctness",
+      "title": "Gzip negotiation accepts valid zero qvalues",
+      "paths": [
+        {
+          "path": "pgbase/javascript_runtime.go",
+          "start": 417,
+          "end": 430
+        }
+      ],
+      "evidence": "acceptsGzip rejects only literal q=0 and q=0.0. HTTP qvalue grammar permits q=0.00, which the loop accepts and causes gzip output.",
+      "trigger": "A client sends Accept-Encoding: gzip;q=0.00.",
+      "currentBehavior": "A response can use an encoding the client explicitly disallowed.",
+      "desiredBehavior": "Parse qvalues rather than matching two spellings, while retaining existing HEAD, Vary, and already-encoded behavior.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static control-flow review; focused existing tests run where listed",
+        "command": "go test ./pgbase -run 'Test(JavaScriptGzipTransportNegotiatesAndClosesStream|CloseHonorsDeadlineWhileBackgroundRunnerIsStalled|ConcurrentCloseCallerHonorsItsOwnDeadline)$' -count=1",
+        "result": "pass (0.65s); no proposed regression test exists yet"
+      },
+      "proposal": "Use a small deterministic parser and table tests for coding selection.",
+      "dependencies": "Public PocketBase compatibility and JavaScript runtime contracts.",
+      "compatibilityRisk": "Low; affects only negotiation correction for clients that send valid qvalue spellings.",
+      "phase": "3",
+      "acceptanceTests": [
+        "gzip;q=0, q=0.0, and q=0.00 must never gzip; cover q=1, wildcard, malformed/repeated parameters, HEAD, and already encoded responses."
+      ],
+      "grossLOC": {
+        "added": 22,
+        "deleted": 8,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 22,
+        "deleted": 8,
+        "confidence": "medium"
+      },
+      "commentAction": "Preserve capability, lifecycle, compatibility, and security rationale comments; remove no contract comments merely to reduce lines.",
+      "adjudicationReason": "",
+      "finalRisk": {
+        "id": "PGB02-003",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": 3,
+        "reproduction": false,
+        "requiredAcceptanceTest": "gzip;q=0, q=0.0, and q=0.00 must never gzip; cover q=1, wildcard, malformed/repeated parameters, HEAD, and already encoded responses."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "PASS2-ROOTCI-001",
+      "sourceIds": [
+        "PASS2-ROOTCI-001",
+        "ROOTCI-P1-001"
+      ],
+      "batchId": "pgbase-03",
+      "domain": "pgbase",
+      "disposition": "accept_narrow",
+      "bucket": "static_defect",
+      "priority": "P3",
+      "category": "security-hardening",
+      "title": "Validate ACME hostnames with DNS-label semantics before startup",
+      "paths": [
+        {
+          "path": "pgbase/tls.go",
+          "start": 88,
+          "end": 98
+        }
+      ],
+      "evidence": "The normalizer lowercases and rejects a small character set, but it does not validate DNS label structure.",
+      "trigger": "An operator configures an ACME host with an empty or invalid DNS label, such as foo..example.",
+      "currentBehavior": "Malformed host text can reach downstream ACME handling.",
+      "desiredBehavior": "Configuration normalization rejects non-canonical DNS hostnames before listener startup.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "not run",
+        "result": "independent source review"
+      },
+      "proposal": "Validate normalized hosts against DNS label rules after trimming and lowercasing; retain duplicate detection.",
+      "dependencies": [],
+      "compatibilityRisk": "Malformed operator configuration will fail earlier.",
+      "phase": "1",
+      "acceptanceTests": [
+        "Reject empty/overlong labels, invalid label characters, leading/trailing hyphens, and overlong total names; accept and normalize valid canonical hostnames and preserve duplicate detection."
+      ],
+      "grossLOC": {
+        "added": 25,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 25,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "commentAction": "Preserve the ACME allowlist rationale comments.",
+      "adjudicationReason": "",
+      "finalRisk": {
+        "id": "ROOTCI-P1-001 / PASS2-ROOTCI-001",
+        "disposition": "accept_narrow",
+        "classification": "static_defect",
+        "phase": 1,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Reject empty/overlong labels, invalid label characters, leading/trailing hyphens, and overlong total names; accept and normalize valid canonical hostnames and preserve duplicate detection."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "SDK-01-001",
+      "sourceIds": [
+        "SDK-01-001"
+      ],
+      "batchId": "sdk-01",
+      "domain": "sdk",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "stability",
+      "title": "Dart shared realtime subscriptions wait forever after an HTTP handshake failure",
+      "paths": [
+        {
+          "path": "sdk/dart/lib/src/realtime.dart",
+          "start": 87,
+          "end": 116
+        }
+      ],
+      "evidence": "`PgBaseTransport.eventStream` returns `StreamedResponse` without status handling (transport.dart:133-152). Unlike `recordEvents` (realtime.dart:181-191), `_run` immediately parses the body at 91-114 and has no status gate. A JSON error frame yields no `PB_CONNECT`; EOF is caught by the broad handler at 115, then retries forever. `_ready` is only completed at 98 and never completed with an error.",
+      "trigger": "Call `client.realtime.subscribe()` when `GET /api/realtime` returns 400, 401, 403, 410, or another non-2xx response.",
+      "currentBehavior": "The initial subscribe Future remains pending while the background loop retries every 250ms; terminal authorization/cursor failures are hidden from the caller.",
+      "desiredBehavior": "Reject initial readiness with the normalized `PgBaseError` for terminal 400/401/403/410 or `cursor_expired`; bound recoverable initial failures with documented reconnect settings, matching the TypeScript SDK's terminal behavior.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "dart test",
+        "result": "not run: `dart` is not installed; inspection also found no Dart shared-realtime terminal-failure test."
+      },
+      "proposal": "Check `response.statusCode` before `_messages`, buffer its error body into `PgBaseResponse`, and use the existing terminal-error policy. Give `RealtimeService` explicit bounded reconnect options and complete `_ready` with error on exhaustion; cancel/clear state in one finally path.",
+      "dependencies": [
+        "sdk/dart/lib/src/transport.dart",
+        "sdk/dart/test/sdk_test.dart"
+      ],
+      "compatibilityRisk": "Low: pending calls become typed failures; this corrects an unusable subscription contract.",
+      "phase": "2",
+      "acceptanceTests": [
+        "Fake a 401 handshake and assert subscribe rejects once as PgBaseError with one request; make 500 exhaust a configured reconnect budget; unsubscribe during pending readiness must settle and cancel retries."
+      ],
+      "grossLOC": {
+        "added": 35,
+        "deleted": 8,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 35,
+        "deleted": 8,
+        "confidence": "medium"
+      },
+      "commentAction": "Preserve the shared-connection and topic-contract comments; no redundant comment removal proposed.",
+      "adjudicationReason": "Independent full read confirms shared RealtimeService has neither the record-event status gate nor a readiness error path; a failed handshake cannot complete _ready.",
+      "finalRisk": {
+        "id": "SDK-01-001",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": 3,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Fake a 401 handshake and assert subscribe rejects once as PgBaseError with one request; make 500 exhaust a configured reconnect budget; unsubscribe during pending readiness must settle and cancel retries."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "SDK-01-002",
+      "sourceIds": [
+        "SDK-01-002"
+      ],
+      "batchId": "sdk-01",
+      "domain": "sdk",
+      "disposition": "accept",
+      "bucket": "maintenance",
+      "priority": "P2",
+      "category": "maintainability",
+      "title": "Dart global and realm OAuth browser flows duplicate security-sensitive callback validation",
+      "paths": [
+        {
+          "path": "sdk/dart/lib/src/client.dart",
+          "start": 311,
+          "end": 444
+        },
+        {
+          "path": "sdk/dart/lib/src/client.dart",
+          "start": 783,
+          "end": 866
+        }
+      ],
+      "evidence": "The two `oauthStartAndOpen` bodies (311-329 and 783-800) and `oauthWithBrowser` bodies (333-380 and 802-854) repeat launch, state extraction, callback-origin validation, callback-error handling, state comparison, and adapter close. The realm version additionally delegates completion to the global completion endpoint, which is intentional per `internal/api/auth_factors.go` route layout.",
+      "trigger": "A change to OAuth callback origin/state/cancellation policy must be applied to both `PgBaseClient` and `AuthRealm` implementations.",
+      "currentBehavior": "Both branches presently validate state and close the adapter, but future fixes can diverge across duplicated code.",
+      "desiredBehavior": "One private flow helper should receive only start and complete functions, retaining the existing public APIs and global completion endpoint.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "rg -n 'oauthWithBrowser|oauthStartAndOpen' sdk/dart/lib/src/client.dart",
+        "result": "two parallel implementations found; Dart tests could not run because Dart is unavailable."
+      },
+      "proposal": "Extract private launch/callback helpers or a parameterized `_oauthWithBrowser`; keep callback-origin and state checks centralized. Do not abstract the different realm start path or alter OAuth wire endpoints.",
+      "dependencies": [
+        "sdk/dart/test/sdk_test.dart"
+      ],
+      "compatibilityRisk": "Low if extracted under existing signatures; OAuth is security-sensitive, so retain behavioral tests before refactoring.",
+      "phase": "4",
+      "acceptanceTests": [
+        "Exercise global and realm success, mismatched state, provider error, callback-origin mismatch, and adapter-close behavior.",
+        "Assert realm start remains realm-scoped while completion remains `/api/v1/auth/oauth/complete`."
+      ],
+      "grossLOC": {
+        "added": 15,
+        "deleted": 80,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 15,
+        "deleted": 80,
+        "confidence": "medium"
+      },
+      "commentAction": "Keep comments explaining adapter ownership and callback flow; remove only comments made redundant by the helper.",
+      "adjudicationReason": "Independent read confirms duplicated OAuth launch/callback validation and cleanup across the global and realm facades. This is a bounded refactor, not a current behavioral defect.",
+      "finalRisk": null,
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "SDK-01-003",
+      "sourceIds": [
+        "SDK-01-003"
+      ],
+      "batchId": "sdk-01",
+      "domain": "sdk",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "api-contract",
+      "title": "TypeScript AuthMethods declares oauth2 mandatory although the runtime and supported response omit it",
+      "paths": [
+        {
+          "path": "sdk/typescript/src/index.ts",
+          "start": 104,
+          "end": 112
+        },
+        {
+          "path": "sdk/typescript/src/index.ts",
+          "start": 676,
+          "end": 677
+        },
+        {
+          "path": "sdk/typescript/test/sdk.test.mjs",
+          "start": 202,
+          "end": 204
+        },
+        {
+          "path": "sdk/typescript/dist/index.d.ts",
+          "start": 171,
+          "end": 183
+        }
+      ],
+      "evidence": "AuthMethods requires oauth2, but AuthRealm.methods directly returns unvalidated server JSON. The SDK test explicitly stubs and asserts a four-field result without oauth2 at lines 202-204. Generated declarations keep oauth2 required.",
+      "trigger": "A TypeScript caller reads methods.oauth2 after an auth-methods response containing only passwordEnabled, otpEnabled, mfaEnabled, and oauthProviders.",
+      "currentBehavior": "Compile-time consumers may dereference oauth2 as present while runtime value is undefined for the supported legacy envelope.",
+      "desiredBehavior": "Either normalize missing oauth2 to { enabled:false, providers:[] } before returning, or mark it optional throughout the public type; normalization aligns with Dart's AuthMethods defaults.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "node --test sdk/typescript/test/sdk.test.mjs",
+        "result": "test file inspection shows the four-field response; full test was not rerun in this pass."
+      },
+      "proposal": "Validate/decode methods responses in one helper and provide the default oauth2 object; add a regression test that accesses oauth2.enabled for the four-field envelope.",
+      "dependencies": [
+        "sdk/typescript/src/index.ts",
+        "sdk/typescript/dist/index.js",
+        "sdk/typescript/dist/index.d.ts",
+        "sdk/typescript/test/sdk.test.mjs"
+      ],
+      "compatibilityRisk": "Low: adds a stable value where callers were promised one.",
+      "phase": "3",
+      "acceptanceTests": [
+        "For the four-field response, assert the chosen contract: preferably normalize oauth2 to disabled/empty before returning; then access oauth2.enabled and verify generated declarations match runtime."
+      ],
+      "grossLOC": {
+        "added": 22,
+        "deleted": 0,
+        "confidence": "high"
+      },
+      "executionGrossLOC": {
+        "added": 22,
+        "deleted": 0,
+        "confidence": "high"
+      },
+      "commentAction": "Preserve the explicit auth-method documentation.",
+      "adjudicationReason": "",
+      "finalRisk": {
+        "id": "SDK-01-003",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": 3,
+        "reproduction": false,
+        "requiredAcceptanceTest": "For the four-field response, assert the chosen contract: preferably normalize oauth2 to disabled/empty before returning; then access oauth2.enabled and verify generated declarations match runtime."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "UI1-001",
+      "sourceIds": [
+        "UI1-001"
+      ],
+      "batchId": "ui-01",
+      "domain": "ui",
+      "disposition": "reject",
+      "bucket": "rejected",
+      "priority": "P3",
+      "category": "maintainability",
+      "title": "Remove the duplicate Referrer-Policy assignment",
+      "paths": [
+        {
+          "path": "ui/admin/handler.go",
+          "start": 188,
+          "end": 192
+        }
+      ],
+      "evidence": "setSecurityHeaders calls Header.Set(\"Referrer-Policy\", \"no-referrer\") twice consecutively.",
+      "trigger": "Every administrator response passes through setSecurityHeaders.",
+      "currentBehavior": "The same header value is overwritten with itself.",
+      "desiredBehavior": "Set the header once while preserving the exact CSP, nosniff, and referrer policy.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "sed -n '188,192p' ui/admin/handler.go",
+        "result": "Inspected at pinned blob; no product/test files changed."
+      },
+      "proposal": "Delete the second Set call.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": null,
+      "acceptanceTests": [
+        "Handler tests continue to assert Referrer-Policy=no-referrer."
+      ],
+      "grossLOC": {
+        "added": 0,
+        "deleted": 1,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": null,
+      "commentAction": "remove duplicate implementation comment/code only",
+      "adjudicationReason": "handler.go line 200 contains one Referrer-Policy Set; lines 188-192 are extension cache handling, so the asserted duplicate is absent at the pinned blob.",
+      "finalRisk": null,
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "UI1-002",
+      "sourceIds": [
+        "UI1-002",
+        "TUI1-001"
+      ],
+      "batchId": "ui-01",
+      "domain": "ui",
+      "disposition": "accept",
+      "bucket": "maintenance",
+      "priority": "P2",
+      "category": "refactoring",
+      "title": "Separate collection draft conversion, recovery storage, and async orchestration",
+      "paths": [
+        {
+          "path": "ui/admin/src/designer/collection-designer.ts",
+          "start": 1,
+          "end": 757
+        }
+      ],
+      "evidence": "The module combines input parsing, relation normalization, localStorage recovery, route hydration, preview/apply/delete transitions, and React effects.",
+      "trigger": "Any collection create/edit/delete route mounts the same 757-line state machine.",
+      "currentBehavior": "One hook owns several independently testable invariants and forces the 1,253-line test file to exercise them through hook state.",
+      "desiredBehavior": "Keep CollectionDesigner as the stable interface while moving pure draft codecs and pending-operation storage behind small modules.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "sed -n '1,757p' ui/admin/src/designer/collection-designer.ts",
+        "result": "Inspected at pinned blob; no product/test files changed."
+      },
+      "proposal": "Extract pure build/validation helpers and a PendingSchemaOperationStore; keep retry identity, stale-plan, route-generation, and unsaved-draft behavior unchanged.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": "4",
+      "acceptanceTests": [
+        "Existing collection-designer and collection-draft suites pass",
+        "Lost-response recovery retains the same operation identity",
+        "Draft edits made during apply remain unsaved"
+      ],
+      "grossLOC": {
+        "added": 180,
+        "deleted": 270,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 180,
+        "deleted": 270,
+        "confidence": "medium"
+      },
+      "commentAction": "preserve comments explaining retry identity and one-hour recovery",
+      "adjudicationReason": "Independent read confirms one collection-designer hook owns codecs, recovery and orchestration; extraction must preserve its explicit lifecycle invariants.",
+      "finalRisk": null,
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "UI1-003",
+      "sourceIds": [
+        "UI1-003",
+        "TUI1-002"
+      ],
+      "batchId": "ui-01",
+      "domain": "ui",
+      "disposition": "accept",
+      "bucket": "maintenance",
+      "priority": "P2",
+      "category": "refactoring",
+      "title": "Split the HTTP adapter by port while retaining one authenticated request primitive",
+      "paths": [
+        {
+          "path": "ui/admin/src/backend/http-backend.ts",
+          "start": 1,
+          "end": 693
+        }
+      ],
+      "evidence": "A single file implements session, setup backup, schema, operations, records/files, settings, auth, storage, and SQL transports.",
+      "trigger": "All administrator surfaces construct ports through httpBackend.",
+      "currentBehavior": "The adapter is a useful deep boundary but unrelated endpoint codecs share one 693-line edit surface.",
+      "desiredBehavior": "Keep the Backend port and credential/CSRF/session-generation invariants while grouping endpoint codecs by sub-port.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "sed -n '1,693p' ui/admin/src/backend/http-backend.ts",
+        "result": "Inspected at pinned blob; no product/test files changed."
+      },
+      "proposal": "Extract request/decode primitives plus session, schema, records/files, and operations adapters; return the same composed Backend object.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": "4",
+      "acceptanceTests": [
+        "http-backend and conformance suites pass unchanged",
+        "No response.json call is introduced",
+        "401 generation checks and exact-number parsing remain centralized"
+      ],
+      "grossLOC": {
+        "added": 120,
+        "deleted": 200,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 120,
+        "deleted": 200,
+        "confidence": "medium"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "Independent read confirms a single broad authenticated adapter; retain the deep shared request/auth boundary while grouping codecs.",
+      "finalRisk": null,
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "UI1-004",
+      "sourceIds": [
+        "UI1-004",
+        "TUI1-003"
+      ],
+      "batchId": "ui-01",
+      "domain": "ui",
+      "disposition": "accept",
+      "bucket": "maintenance",
+      "priority": "P3",
+      "category": "maintainability",
+      "title": "Decompress the auth administration panel into named editors",
+      "paths": [
+        {
+          "path": "ui/admin/src/components/auth-administration-panel.tsx",
+          "start": 1,
+          "end": 97
+        }
+      ],
+      "evidence": "The file packs 15,490 characters into 97 physical lines and mixes request lifetime control with six editor forms.",
+      "trigger": "Opening an auth realm renders policy, providers, templates, SMTP, Apple secret generation, and previews.",
+      "currentBehavior": "Review and focused changes are difficult despite sensible AbortController and timeout guards.",
+      "desiredBehavior": "Give each form a named component and share the existing guarded mutation helper without changing redaction or timeouts.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "sed -n '1,97p' ui/admin/src/components/auth-administration-panel.tsx",
+        "result": "Inspected at pinned blob; no product/test files changed."
+      },
+      "proposal": "Extract ProviderEditor, SMTPSettings, PolicyEditor, and MailTemplateEditor; retain the single mutation lease and mounted guard.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": "4",
+      "acceptanceTests": [
+        "Auth collection tests retain redacted stored secrets",
+        "Timeout and abort paths settle busy state",
+        "Apple secret remains reveal-once state"
+      ],
+      "grossLOC": {
+        "added": null,
+        "deleted": null,
+        "confidence": "추정불가"
+      },
+      "executionGrossLOC": {
+        "added": null,
+        "deleted": null,
+        "confidence": "추정불가"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "Independent read confirms several distinct forms and mutation guards are compressed into the panel.",
+      "finalRisk": null,
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "UI1-005",
+      "sourceIds": [
+        "UI1-005",
+        "TUI1-004"
+      ],
+      "batchId": "ui-01",
+      "domain": "ui",
+      "disposition": "narrow",
+      "bucket": "maintenance",
+      "priority": "P3",
+      "category": "generated-artifact",
+      "title": "Make tracked production assets reproducibly attributable to source",
+      "paths": [
+        {
+          "path": "ui/admin/dist/assets/index-Bd6EhZVZ.js",
+          "start": 1,
+          "end": 204
+        }
+      ],
+      "evidence": "The tracked bundle is valid JavaScript and exposes expected source endpoints, but its 989 KB minified content has no adjacent manifest or source map tying it to a source commit/toolchain.",
+      "trigger": "A release embeds ui/admin/dist directly.",
+      "currentBehavior": "Reviewers can verify syntax and strings but cannot cheaply prove the checked-in artifact was produced from the pinned sources.",
+      "desiredBehavior": "Provide a deterministic build verification step that rebuilds and byte-compares dist assets.",
+      "confidence": "medium",
+      "verification": {
+        "kind": "static",
+        "command": "sed -n '1,204p' ui/admin/dist/assets/index-Bd6EhZVZ.js",
+        "result": "Inspected at pinned blob; no product/test files changed."
+      },
+      "proposal": "Add CI that installs the lockfile, runs the existing build, and fails on a dirty dist tree; do not hand-edit generated files.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": "5",
+      "acceptanceTests": [
+        "Clean checkout npm build leaves dist unchanged",
+        "embed tests serve the rebuilt hashed names"
+      ],
+      "grossLOC": {
+        "added": 15,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 15,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "The generated bundle is structurally inspectable; the actionable issue is missing reproducibility verification, not an inability to inspect all content.",
+      "finalRisk": null,
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "UI2-001",
+      "sourceIds": [
+        "UI2-001",
+        "TUI2-001"
+      ],
+      "batchId": "ui-02",
+      "domain": "ui",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "bug",
+      "title": "Ignore setup restore polling completions after unmount",
+      "paths": [
+        {
+          "path": "ui/admin/src/pages/setup-page.tsx",
+          "start": 43,
+          "end": 48
+        }
+      ],
+      "evidence": "The effect creates and aborts a controller, but onSetupBackupJob accepts no signal and the fulfilled branch does not check controller.signal.aborted before setBackupMessage/setRestore.",
+      "trigger": "A setup restore status request is pending when navigation/unmount or restoreJob replacement occurs.",
+      "currentBehavior": "A late response can update an obsolete setup page and can race a newer restore identity.",
+      "desiredBehavior": "Late fulfillment and rejection must be inert after cleanup or identity change.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "sed -n '43,48p' ui/admin/src/pages/setup-page.tsx",
+        "result": "Inspected at pinned blob; no product/test files changed."
+      },
+      "proposal": "Add an active/generation guard around both fulfillment and rejection; optionally extend the port with AbortSignal if the backend can cancel safely.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": "2",
+      "acceptanceTests": [
+        "Resolve an old deferred poll after restoreJob changes and after unmount; assert it performs no state update and cannot clear the newer job, while the current job still renders completed/failed state."
+      ],
+      "grossLOC": {
+        "added": 8,
+        "deleted": 1,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 8,
+        "deleted": 1,
+        "confidence": "medium"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "The fulfilled callback has no aborted/generation check and its port does not accept a signal.",
+      "finalRisk": {
+        "id": "UI2-001",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": 3,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Resolve an old deferred poll after restoreJob changes and after unmount; assert it performs no state update and cannot clear the newer job, while the current job still renders completed/failed state."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "UI2-002",
+      "sourceIds": [
+        "UI2-002",
+        "TUI2-002"
+      ],
+      "batchId": "ui-02",
+      "domain": "ui",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "bug",
+      "title": "Guard managed-backup polling against stale completion",
+      "paths": [
+        {
+          "path": "ui/admin/src/pages/operations-console.tsx",
+          "start": 46,
+          "end": 50
+        }
+      ],
+      "evidence": "The interval callback passes an AbortSignal but both then and catch update state without checking controller.signal.aborted; other effects in the same component do check it.",
+      "trigger": "A backup status request settles after the effect cleaned up because the page unmounted or backupJob changed.",
+      "currentBehavior": "A nonconforming or already-resolved transport can replace the current job, increment reload, or display an obsolete error.",
+      "desiredBehavior": "Only the live polling generation may update backup state or messages.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "sed -n '46,50p' ui/admin/src/pages/operations-console.tsx",
+        "result": "Inspected at pinned blob; no product/test files changed."
+      },
+      "proposal": "Check the signal/generation in then and catch, and add a deferred-response regression test.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": "2",
+      "acceptanceTests": [
+        "Resolve and reject an old deferred backup poll after job replacement/unmount; assert no state/message/reload change. Verify a terminal result for the current job still refreshes backups."
+      ],
+      "grossLOC": {
+        "added": 5,
+        "deleted": 2,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 5,
+        "deleted": 2,
+        "confidence": "medium"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "The polling then/catch callbacks differ from adjacent guarded callbacks and can mutate after cleanup.",
+      "finalRisk": {
+        "id": "UI2-002",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": 3,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Resolve and reject an old deferred backup poll after job replacement/unmount; assert no state/message/reload change. Verify a terminal result for the current job still refreshes backups."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "UI2-003",
+      "sourceIds": [
+        "UI2-003",
+        "TUI2-003"
+      ],
+      "batchId": "ui-02",
+      "domain": "ui",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P2",
+      "category": "bug",
+      "title": "Reject non-success public file fetches before preview or download",
+      "paths": [
+        {
+          "path": "ui/admin/src/pages/record-edit-page.tsx",
+          "start": 94,
+          "end": 105
+        }
+      ],
+      "evidence": "The public branch calls fetch(...).blob() without testing Response.ok in download and showPreview.",
+      "trigger": "A server-provided same-origin publicUrl answers 4xx/5xx.",
+      "currentBehavior": "An error body is downloaded under the requested filename or converted into a broken preview instead of showing Download failed/Preview failed.",
+      "desiredBehavior": "Treat non-2xx public responses as failures just like protected-file adapter errors.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "sed -n '94,105p' ui/admin/src/pages/record-edit-page.tsx",
+        "result": "Inspected at pinned blob; no product/test files changed."
+      },
+      "proposal": "Introduce a small fetchPublicBlob helper that validates response.ok and use it in both paths.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": "3",
+      "acceptanceTests": [
+        "Return 404 for public download and 500 for public preview; assert the error message, no link click, and no object URL. Preserve successful credential-omit fetch behavior."
+      ],
+      "grossLOC": {
+        "added": 8,
+        "deleted": 2,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 8,
+        "deleted": 2,
+        "confidence": "medium"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "safePublicURL constrains the URL but both fetch paths skip Response.ok.",
+      "finalRisk": {
+        "id": "UI2-003",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": 3,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Return 404 for public download and 500 for public preview; assert the error message, no link click, and no object URL. Preserve successful credential-omit fetch behavior."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "UI2-004",
+      "sourceIds": [
+        "UI2-004",
+        "TUI2-004"
+      ],
+      "batchId": "ui-02",
+      "domain": "ui",
+      "disposition": "accept",
+      "bucket": "static_defect",
+      "priority": "P3",
+      "category": "stability",
+      "title": "Release active file preview URLs when the field leaves",
+      "paths": [
+        {
+          "path": "ui/admin/src/pages/record-edit-page.tsx",
+          "start": 77,
+          "end": 108
+        },
+        {
+          "path": "ui/admin/src/pages/record-edit-page.tsx",
+          "start": 75,
+          "end": 112
+        }
+      ],
+      "evidence": "Object URLs are revoked when replacing/closing a preview, but no cleanup effect revokes the final preview URL on unmount or record/field change.",
+      "trigger": "An administrator previews an image and navigates away without pressing Close preview.",
+      "currentBehavior": "Each abandoned preview retains its Blob for the lifetime of the document.",
+      "desiredBehavior": "Every created object URL is revoked on replacement, close, and unmount.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "sed -n '77,108p' ui/admin/src/pages/record-edit-page.tsx",
+        "result": "Inspected at pinned blob; no product/test files changed."
+      },
+      "proposal": "Store the current URL in a ref or add cleanup tied to preview URL without revoking it during render.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": "2",
+      "acceptanceTests": [
+        "Unmount after preview and assert exactly one revoke; replacement revokes only the old URL; explicit close followed by unmount leaves no live URL."
+      ],
+      "grossLOC": {
+        "added": 6,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": {
+        "added": 6,
+        "deleted": 0,
+        "confidence": "medium"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "The only FileField preview revocations are replace/close; final unmount cleanup is absent.",
+      "finalRisk": {
+        "id": "UI2-004",
+        "disposition": "accept",
+        "classification": "static_defect",
+        "phase": 2,
+        "reproduction": false,
+        "requiredAcceptanceTest": "Unmount after preview and assert exactly one revoke; replacement revokes only the old URL; explicit close followed by unmount leaves no live URL."
+      },
+      "originalFinding": null
+    },
+    {
+      "canonicalId": "UI2-005",
+      "sourceIds": [
+        "UI2-005"
+      ],
+      "batchId": "ui-02",
+      "domain": "ui",
+      "disposition": "defer",
+      "bucket": "deferred",
+      "priority": "P2",
+      "category": "refactoring",
+      "title": "Extract common cancellable page-load and mutation leases",
+      "paths": [
+        {
+          "path": "ui/admin/src/pages/storage-settings-page.tsx",
+          "start": 1,
+          "end": 309
+        }
+      ],
+      "evidence": "StorageSettingsPage alone repeats controllers across load, discovery, poll, save, test, preview, start, resume, and cancel; neighboring pages implement subtly different guards, which produced UI2-001/UI2-002.",
+      "trigger": "Storage, settings, operations, users, and auth pages all coordinate AbortController, busy state, late completion, and retry messages.",
+      "currentBehavior": "Cancellation and generation ownership vary by screen and are easy to omit.",
+      "desiredBehavior": "Use one small internal hook for latest-request ownership and one for exclusive mutations, while retaining page-specific recovery semantics.",
+      "confidence": "medium",
+      "verification": {
+        "kind": "static",
+        "command": "sed -n '1,309p' ui/admin/src/pages/storage-settings-page.tsx",
+        "result": "Inspected at pinned blob; no product/test files changed."
+      },
+      "proposal": "Extract cancellableLatest and exclusiveMutation hooks after fixing the two concrete stale-completion bugs; migrate incrementally with existing tests.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": null,
+      "acceptanceTests": [
+        "All deferred-response navigation tests pass",
+        "No mutation is submitted twice during the render gap",
+        "Uncertain write identities remain recoverable"
+      ],
+      "grossLOC": {
+        "added": 70,
+        "deleted": 120,
+        "confidence": "medium"
+      },
+      "executionGrossLOC": null,
+      "commentAction": "preserve",
+      "adjudicationReason": "The concrete stale callbacks should be fixed first. A shared cancellation hook risks flattening different operation-recovery semantics and needs a focused design pass.",
+      "finalRisk": null,
+      "originalFinding": {
+        "title": "Extract common cancellable page-load and mutation leases",
+        "evidence": "StorageSettingsPage alone repeats controllers across load, discovery, poll, save, test, preview, start, resume, and cancel; neighboring pages implement subtly different guards, which produced UI2-001/UI2-002.",
+        "currentBehavior": "Cancellation and generation ownership vary by screen and are easy to omit.",
+        "proposal": "Extract cancellableLatest and exclusiveMutation hooks after fixing the two concrete stale-completion bugs; migrate incrementally with existing tests."
+      }
+    },
+    {
+      "canonicalId": "UI2-006",
+      "sourceIds": [
+        "UI2-006",
+        "TUI2-005"
+      ],
+      "batchId": "ui-02",
+      "domain": "ui",
+      "disposition": "accept",
+      "bucket": "maintenance",
+      "priority": "P3",
+      "category": "maintainability",
+      "title": "Expand compressed settings forms into reviewable components",
+      "paths": [
+        {
+          "path": "ui/admin/src/pages/settings-page.tsx",
+          "start": 1,
+          "end": 45
+        }
+      ],
+      "evidence": "The file contains 10,278 characters in 45 lines; most JSX and promise chains are single physical lines.",
+      "trigger": "Editing application, log, administrator/API rate, backup, proxy, profile, or allowlist settings touches one page.",
+      "currentBehavior": "The contract is covered, but line-oriented reviews and precise changes are needlessly risky.",
+      "desiredBehavior": "Keep the one-revision save contract while giving each section and async action normal formatting and focused components.",
+      "confidence": "high",
+      "verification": {
+        "kind": "static",
+        "command": "sed -n '1,45p' ui/admin/src/pages/settings-page.tsx",
+        "result": "Inspected at pinned blob; no product/test files changed."
+      },
+      "proposal": "Extract ProfileSettings and rate-limit editors into files, format JSX normally, and preserve a single AdminSettings draft/save boundary.",
+      "dependencies": [],
+      "compatibilityRisk": "low",
+      "phase": "4",
+      "acceptanceTests": [
+        "Settings tests pass unchanged",
+        "One save still sends one complete revision",
+        "Profile and IP allowlist remain dedicated endpoint calls"
+      ],
+      "grossLOC": {
+        "added": null,
+        "deleted": null,
+        "confidence": "추정불가"
+      },
+      "executionGrossLOC": {
+        "added": null,
+        "deleted": null,
+        "confidence": "추정불가"
+      },
+      "commentAction": "preserve",
+      "adjudicationReason": "The settings page is behaviorally substantive but compressed; formatting/component boundaries are a low-risk maintenance improvement.",
+      "finalRisk": null,
+      "originalFinding": null
+    }
+  ],
+  "buckets": {
+    "static_defect": [
+      "EX1-P1-001",
+      "EX1-P1-002",
+      "ADMINAUTH-001",
+      "API-RT-001",
+      "RATELIMIT-001",
+      "RATELIMIT-002",
+      "P1-CONFIG-RETENTION-RANGE",
+      "P1-FILESTORE-STAGE-READ-ORPHAN",
+      "IS1-P2-001",
+      "IS2-P2-001",
+      "IUA-01",
+      "IUA-03",
+      "PASS1-USERMIGRATE-01",
+      "PGB01-001",
+      "PGB01-003",
+      "PGB01-004",
+      "PGB02-003",
+      "PASS2-ROOTCI-001",
+      "SDK-01-001",
+      "SDK-01-003",
+      "UI2-001",
+      "UI2-002",
+      "UI2-003",
+      "UI2-004"
+    ],
+    "static_candidate": [],
+    "contract_risk": [
+      "ACCESSRULE-001",
+      "PASS1-SELFUPDATE-01",
+      "IUA2-01"
+    ],
+    "maintenance": [
+      "DOCS-02-003",
+      "DOCS-02-004",
+      "DOCS-03-001",
+      "DOCS-04-001",
+      "DOCS06-P1-001",
+      "DOCS07-P1-001",
+      "DOCS07-P1-002",
+      "DOC8-P1-001",
+      "DOC8-P1-002",
+      "P1-DATABASE-ROLLBACK-EXPIRED-DEADLINE",
+      "P1-JOBS-LEASE-IGNORING-HANDLER",
+      "PGB02-001",
+      "SDK-01-002",
+      "UI1-002",
+      "UI1-003",
+      "UI1-004",
+      "UI1-005",
+      "UI2-006"
+    ],
+    "rejected": [
+      "DOCS-02-001",
+      "DOCS-02-002",
+      "DOCS-04-002",
+      "DOCS05-P1-001",
+      "P1-internal-schema-01-001",
+      "PGB02-002",
+      "UI1-001"
+    ],
+    "deferred": [
+      "AR1-P1-002",
+      "AA1-P1-002",
+      "API2-P1-001",
+      "API2-P1-002",
+      "IUA-02",
+      "PGB01-002",
+      "UI2-005"
+    ]
+  },
+  "reproducedDefectCount": 0,
+  "executionLOCSummary": {
+    "status": "확정 합계 없음: 각 gross LOC는 원 보고서의 작업별 추정이며 수동 실측 전 전체 순감소를 보장하지 않는다.",
+    "excludedRejectedOrDeferred": 14
+  },
+  "reviewedBaseSha": "5cb721ff5590bf89b45ea9087d2ace0b74fe7127"
+}
