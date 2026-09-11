@@ -10,9 +10,9 @@
   },
   "verdictCounts": {
     "verified": 128,
-    "defect": 23,
+    "defect": 22,
     "intentional_difference": 51,
-    "static_reviewed": 27,
+    "static_reviewed": 28,
     "contract_gap": 3
   },
   "rows": [
@@ -32,6 +32,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/collection.go#L17-L25"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/service_integration_test.go",
         "read: internal/api/schema_handlers_test.go",
@@ -63,6 +64,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/collection_model_auth_options.go#L99-L150"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/auth_collection_document_integration_test.go",
         "read: internal/schema/schema_document_integration_test.go",
@@ -97,6 +99,7 @@
       "findingIds": [
         "SFM-003"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/schema_handlers_test.go",
         "read: internal/schema/compatibility_integration_test.go",
@@ -132,6 +135,7 @@
         "SFM-001",
         "SFM-003"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/compatibility_integration_test.go",
         "read: internal/schema/migration_snapshot_test.go",
@@ -165,6 +169,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/collection_record_table_sync.go#L51-L78"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/collection_rename_integration_test.go",
         "read: internal/schema/collection_reference_rename_test.go",
@@ -195,6 +200,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/collection.go#L150-L180"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/sql_view_service_integration_test.go",
         "read: internal/schema/delete_graph_reuse_test.go",
@@ -229,6 +235,7 @@
       "findingIds": [
         "RQR-003"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/schema_handlers_test.go",
         "read: internal/recordops/truncate_integration_test.go",
@@ -263,6 +270,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/collection.go#L201-L215"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/scaffolds_test.go",
         "read: internal/schema/scaffolds_integration_test.go",
@@ -297,6 +305,7 @@
       "findingIds": [
         "RQR-001"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/recordaccess/pocketbase_rule_integration_test.go",
         "read: internal/recordaccess/pocketbase_conformance_integration_test.go",
@@ -335,6 +344,7 @@
       "findingIds": [
         "SFM-001"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/compatibility_integration_test.go",
         "read: internal/schema/field_presentation_integration_test.go",
@@ -366,6 +376,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_bool.go#L108-L119"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/field_contract_integration_test.go",
         "read: internal/fieldvalue/options_test.go",
@@ -396,6 +407,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_text.go#L162-L170"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/defaults_test.go",
         "read: internal/schema/defaults_integration_test.go",
@@ -426,6 +438,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/collection_validate.go#L525-L551"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/field_contract_integration_test.go",
         "read: internal/schema/compound_index_test.go",
@@ -456,6 +469,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/collection_record_table_sync.go#L325-L365"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/compound_index_test.go",
         "read: internal/schema/compound_index_integration_test.go",
@@ -488,6 +502,7 @@
       "findingIds": [
         "SFM-002"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/advanced_index_test.go",
         "read: internal/schema/advanced_index_integration_test.go",
@@ -520,6 +535,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/collection_record_table_sync.go#L80-L129"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/field_contract_integration_test.go",
         "read: internal/schema/planner_test.go",
@@ -550,6 +566,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/collection_record_table_sync.go#L92-L129"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/relation_planner_test.go",
         "read: internal/schema/relation_planner_integration_test.go",
@@ -580,6 +597,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/collection_validate.go#L220-L243"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/planner_test.go",
         "read: internal/schema/preflight_integration_test.go",
@@ -610,6 +628,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/collection_validate.go#L71-L79"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/sql_view_inspect_test.go",
         "read: internal/schema/sql_view_inspect_integration_test.go",
@@ -640,6 +659,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/collection.go#L262-L295"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/view_integration_test.go",
         "read: internal/schema/sql_view_service_integration_test.go",
@@ -669,6 +689,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/collection_validate.go#L311-L329"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/compatibility_integration_test.go",
         "read: internal/api/schema_operations_live_test.go",
@@ -698,6 +719,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/settings/sync/pageExportCollections.js#L25-L58"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/schema_document_test.go",
         "read: internal/schema/schema_document_integration_test.go",
@@ -728,6 +750,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/collection_import.go#L17-L40"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/schema_document_ledger_integration_test.go",
         "read: internal/schema/operation_store_integration_test.go",
@@ -758,6 +781,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/collection_import.go#L51-L61"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/delete_missing_integration_test.go",
         "read: internal/schema/schema_document_integration_test.go",
@@ -789,6 +813,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_bool.go#L99-L119"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/field_contract_integration_test.go",
         "read: internal/fieldvalue/options_test.go",
@@ -819,6 +844,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_number.go#L129-L195"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/field_contract_integration_test.go",
         "run: source .local/full-audit-2026-09-11/test-env.sh && go test ./internal/fieldvalue ./internal/schema ./internal/migrate ./internal/usermigrate ./internal/recordidentity — PASS: fieldvalue (cached), schema 0.600s, migrate 0.434s, usermigrate 1.525s; recordidentity had no test files."
@@ -848,6 +874,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_text.go#L222-L298"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/field_contract_integration_test.go",
         "read: internal/schema/preflight_integration_test.go",
@@ -878,6 +905,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_text.go#L100-L113"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/fieldvalue/options_test.go",
         "run: source .local/full-audit-2026-09-11/test-env.sh && go test ./internal/fieldvalue ./internal/schema ./internal/migrate ./internal/usermigrate ./internal/recordidentity — PASS: fieldvalue (cached), schema 0.600s, migrate 0.434s, usermigrate 1.525s; recordidentity had no test files."
@@ -906,6 +934,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_email.go#L117-L171"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/fieldvalue/options_test.go",
         "run: source .local/full-audit-2026-09-11/test-env.sh && go test ./internal/fieldvalue ./internal/schema ./internal/migrate ./internal/usermigrate ./internal/recordidentity — PASS: fieldvalue (cached), schema 0.600s, migrate 0.434s, usermigrate 1.525s; recordidentity had no test files."
@@ -933,6 +962,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_url.go#L117-L172"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/fieldvalue/options_test.go",
         "run: source .local/full-audit-2026-09-11/test-env.sh && go test ./internal/fieldvalue ./internal/schema ./internal/migrate ./internal/usermigrate ./internal/recordidentity — PASS: fieldvalue (cached), schema 0.600s, migrate 0.434s, usermigrate 1.525s; recordidentity had no test files."
@@ -961,6 +991,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_date.go#L109-L178"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/compatibility_integration_test.go",
         "read: internal/schema/preflight_integration_test.go",
@@ -990,6 +1021,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_select.go#L136-L226"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/fieldvalue/options_test.go",
         "read: internal/schema/field_contract_integration_test.go",
@@ -1019,6 +1051,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_json.go#L152-L214"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/compatibility_integration_test.go",
         "read: internal/schema/preflight_integration_test.go",
@@ -1051,6 +1084,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_file.go#L225-L307"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/file_options_test.go",
         "read: internal/filestore/service_integration_test.go",
@@ -1089,6 +1123,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_file.go#L128-L138"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/filestore/policy_test.go",
         "read: internal/filestore/service_integration_test.go",
@@ -1123,6 +1158,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_relation.go#L197-L248"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/relation_types_test.go",
         "read: internal/schema/relation_service_integration_test.go",
@@ -1153,6 +1189,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_password.go#L146-L223"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/generated_fields_http_integration_test.go",
         "read: internal/schema/advanced_fields_test.go",
@@ -1182,6 +1219,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_autodate.go#L108-L150"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/generated_fields_http_integration_test.go",
         "read: internal/schema/advanced_fields_test.go",
@@ -1210,6 +1248,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_editor.go#L116-L166"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/advanced_fields_integration_test.go",
         "read: internal/schema/advanced_fields_test.go",
@@ -1238,6 +1277,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_geo_point.go#L109-L150"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/advanced_fields_integration_test.go",
         "read: internal/schema/advanced_fields_test.go",
@@ -1265,6 +1305,7 @@
         "apis/record_crud.go:36-127"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/record_handlers_live_test.go:1-435",
         "read: internal/api/record_handlers_test.go:1-807"
@@ -1292,6 +1333,7 @@
         "apis/record_crud.go:144-206"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/record_handlers_live_test.go:1-435",
         "read: internal/api/record_handlers_test.go:1-807"
@@ -1319,6 +1361,7 @@
         "apis/record_crud.go:209-388"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/record_handlers_live_test.go:1-435",
         "read: internal/api/record_handlers_test.go:1-807"
@@ -1346,6 +1389,7 @@
         "apis/record_crud.go:392-499"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [],
       "differences": [],
       "limitations": [
@@ -1370,6 +1414,7 @@
         "apis/record_crud.go:501-578"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/record_handlers_live_test.go:1-435",
         "read: internal/api/record_handlers_test.go:1-807"
@@ -1397,6 +1442,7 @@
         "apis/record_crud.go:216-218"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [],
       "differences": [],
       "limitations": [
@@ -1422,6 +1468,7 @@
         "core/record_model.go:1261-1341"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [],
       "differences": [],
       "limitations": [
@@ -1447,6 +1494,7 @@
         "apis/batch.go:180-233"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [],
       "differences": [
         "PostgreSQL transaction implementation is an approved storage difference."
@@ -1473,6 +1521,7 @@
         "apis/batch.go:26-88"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/record_handlers_test.go:1-807"
       ],
@@ -1499,6 +1548,7 @@
         "apis/batch.go:38-72"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [],
       "differences": [],
       "limitations": [
@@ -1523,6 +1573,7 @@
         "apis/batch.go:91-168"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [],
       "differences": [],
       "limitations": [
@@ -1550,6 +1601,7 @@
         "apis/batch.go:91-168"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/runtime_settings_http_integration_test.go:10-68",
         "read: internal/runtimesettings/settings_integration_test.go:17-64"
@@ -1580,6 +1632,7 @@
         "core/field_number.go:211-238"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [],
       "differences": [],
       "limitations": [
@@ -1606,6 +1659,7 @@
         "core/field_select.go:229-279"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [],
       "differences": [],
       "limitations": [
@@ -1633,6 +1687,7 @@
         "tools/search/filter.go:167-215"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/compiler_test.go:152-395",
         "read: internal/query/cursor_fuzz_test.go:50-83"
@@ -1662,6 +1717,7 @@
         "tools/search/filter.go:167-215"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/compiler_test.go:226-395"
       ],
@@ -1690,6 +1746,7 @@
         "tools/search/filter.go:167-215"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/pocketbase_filter_completion_test.go:11-31",
         "read: internal/query/relation_filter_sort_live_test.go:89-107"
@@ -1719,6 +1776,7 @@
         "tools/search/filter.go:221-251"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/compiler_test.go:16-45",
         "read: internal/query/compiler_test.go:362-445",
@@ -1749,6 +1807,7 @@
         "tools/search/filter.go:273-329"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/access_rule_test.go:13-24"
       ],
@@ -1777,6 +1836,7 @@
         "tools/search/filter.go:273-329"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/compiler_test.go:309-356"
       ],
@@ -1805,6 +1865,7 @@
         "core/record_field_resolver.go:284-302"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/relation_filter_sort_live_test.go:19-107",
         "read: internal/query/relation_filter_sort_test.go:1-399",
@@ -1835,6 +1896,7 @@
         "core/record_field_resolver_runner.go:461-486"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/pocketbase_filter_completion_test.go:33-50",
         "read: internal/query/relation_filter_sort_test.go:1-399",
@@ -1867,6 +1929,7 @@
       "findingIds": [
         "RQR-002"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/relation_filter_sort_live_test.go:19-107",
         "read: internal/query/audit_reverse_filter_integration_test.go:1-27",
@@ -1897,6 +1960,7 @@
         "core/record_field_resolver.go:19-26"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/accessrule/pocketbase_resolver_test.go:1-82",
         "read: internal/query/access_rule_test.go:13-49",
@@ -1926,6 +1990,7 @@
         "tools/search/token_functions.go:28-96"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/accessrule/pocketbase_resolver_test.go:1-82",
         "read: internal/query/access_rule_test.go:77-84",
@@ -1954,6 +2019,7 @@
         "tools/search/identifier_macros.go:16-134"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/accessrule/pocketbase_resolver_test.go:1-82",
         "read: internal/query/pocketbase_rule_conformance_test.go:13-34",
@@ -1985,6 +2051,7 @@
         "tools/search/sort.go:25-66"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/compiler_test.go:152-308",
         "read: internal/query/compiler_test.go:553-686",
@@ -2021,6 +2088,7 @@
         "tools/search/sort.go:25-66"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/relation_filter_sort_live_test.go:19-87",
         "read: internal/query/relation_filter_sort_live_test.go:204-272",
@@ -2055,6 +2123,7 @@
         "tools/search/sort.go:25-44"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/pocketbase_page_test.go:24-48",
         "read: internal/query/pocketbase_page_integration_test.go:67-94"
@@ -2089,6 +2158,7 @@
         "tools/search/provider.go:46-62"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/record_handlers_live_test.go:1-435",
         "read: internal/api/record_handlers_test.go:1-807",
@@ -2128,6 +2198,7 @@
         "tools/search/provider.go:55-62,122-125"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/record_handlers_test.go:1-807",
         "read: internal/query/compiler_test.go:152-308",
@@ -2162,6 +2233,7 @@
         "tools/router/event.go:185-198"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/projection_test.go:1-84"
       ],
@@ -2191,6 +2263,7 @@
         "core/record_query_expand.go:24-56"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/expand_test.go:1-348",
         "read: internal/query/expand_live_test.go:21-737",
@@ -2224,6 +2297,7 @@
         "core/record_query_expand.go:92-149"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/expand_nested_live_test.go:99-388",
         "read: internal/query/expand_test.go:180-321",
@@ -2255,6 +2329,7 @@
         "apis/record_helpers.go:270-295"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/query/expand_validation_live_test.go:1-38",
         "read: internal/query/expand_live_test.go:225-293"
@@ -2283,6 +2358,7 @@
         "PB superuser model differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/adminauth/service_integration_test.go",
         "read: internal/adminauth/service_test.go",
@@ -2314,6 +2390,7 @@
         "PB MFA wire differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/adminauth/mfa_integration_test.go",
         "read: internal/adminauth/mfa_test.go",
@@ -2342,6 +2419,7 @@
         "PB collections are not realm API"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/collections_integration_test.go"
       ],
@@ -2368,6 +2446,7 @@
         "PB auth fields mapped to typed realm fields"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/auth_record_model_integration_test.go"
       ],
@@ -2394,6 +2473,7 @@
         "PB create contract differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/collections_integration_test.go"
       ],
@@ -2422,6 +2502,7 @@
       "findingIds": [
         "AUTHMAIL-002"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/auth_record_model_integration_test.go",
         "read: .local/full-audit-2026-09-11/worktrees/auth-mail-oauth-empty/internal/userauth/identity_policy_audit_test.go"
@@ -2447,6 +2528,7 @@
         "PB option wire differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/auth_admin_integration_test.go"
       ],
@@ -2473,6 +2555,7 @@
         "PB JWT endpoint differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/auth_collections_methods_test.go"
       ],
@@ -2499,6 +2582,7 @@
         "PB JWT semantics differ"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/service_integration_test.go"
       ],
@@ -2525,6 +2609,7 @@
         "PB persistence differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/user_management_integration_test.go"
       ],
@@ -2551,6 +2636,7 @@
         "PB helper shape differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/auth_methods_integration_test.go"
       ],
@@ -2577,6 +2663,7 @@
         "PB provider JSON differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/oauth_http_test.go"
       ],
@@ -2603,6 +2690,7 @@
         "PB one-call wire differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/auth_factors_integration_test.go"
       ],
@@ -2631,6 +2719,7 @@
       "findingIds": [
         "AUTHMAIL-001"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/oauth_profiles_test.go",
         "read: .local/full-audit-2026-09-11/worktrees/auth-mail-oauth-empty/internal/userauth/oauth_empty_email_audit_test.go"
@@ -2656,6 +2745,7 @@
         "PB auxiliary wire differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/auth_rule_enforcement_integration_test.go"
       ],
@@ -2682,6 +2772,7 @@
         "PB mapping wire differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/oauth_avatar_test.go"
       ],
@@ -2708,6 +2799,7 @@
         "PB route/token differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/email_otp_http_integration_test.go",
         "read: internal/userauth/email_otp_integration_test.go"
@@ -2735,6 +2827,7 @@
         "PB native MFA differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/mfa_integration_test.go"
       ],
@@ -2761,6 +2854,7 @@
         "PB policy storage differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/auth_admin_integration_test.go"
       ],
@@ -2787,6 +2881,7 @@
         "PB endpoint differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/email_actions_integration_test.go"
       ],
@@ -2813,6 +2908,7 @@
         "PB endpoint differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/email_actions_integration_test.go"
       ],
@@ -2839,6 +2935,7 @@
         "PB endpoint differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/email_actions_integration_test.go"
       ],
@@ -2865,6 +2962,7 @@
         "PB endpoint differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/email_actions_integration_test.go"
       ],
@@ -2891,6 +2989,7 @@
         "PB CRUD differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/user_management_integration_test.go"
       ],
@@ -2917,6 +3016,7 @@
         "PB alert wire differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/email_actions_integration_test.go"
       ],
@@ -2943,6 +3043,7 @@
         "PB token semantics differ"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/impersonation_http_integration_test.go"
       ],
@@ -2969,6 +3070,7 @@
         "PB provider options differ"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/auth_methods_integration_test.go"
       ],
@@ -2995,6 +3097,7 @@
         "PB helper differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/apple_client_secret_test.go",
         "read: internal/api/auth_apple_client_secret_test.go"
@@ -3022,6 +3125,7 @@
         "PB system IDs differ"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/auth_record_model_integration_test.go"
       ],
@@ -3048,6 +3152,7 @@
         "PB bcrypt knobs differ"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/auth_admin_integration_test.go"
       ],
@@ -3065,7 +3170,7 @@
       "ID": "AUTH-31",
       "분야": "auth",
       "기능": "목적별 token secret·duration 설정",
-      "verdict": "defect",
+      "verdict": "static_reviewed",
       "workerGroup": "auth_mail",
       "실제trace": [
         "internal/userauth/token_policy.go:49-170; internal/userauth/service.go:370-405; internal/userauth/impersonation.go:15-88"
@@ -3073,7 +3178,8 @@
       "PocketBase근거": [
         "No PocketBase equivalent: this is a PgBase internal keyed opaque-token policy ambiguity."
       ],
-      "findingIds": [
+      "findingIds": [],
+      "withdrawnFindingIds": [
         "AUTHMAIL-003"
       ],
       "읽은테스트및실행증거": [
@@ -3083,7 +3189,8 @@
       ],
       "differences": [],
       "limitations": [
-        "Static source and existing-test assertion review only; no tests were run. No separate PocketBase comparison applies to this internal keyed-token ambiguity."
+        "Static source and existing-test assertion review only; no tests were run. No separate PocketBase comparison applies to this internal keyed-token ambiguity.",
+        "Global UNIQUE(key_version) DB constraint and purpose-policy write path make the proposed shared-key trigger impossible; static source/assertion review only."
       ],
       "코드참조": [
         "internal/userauth/token_policy.go:49-170; internal/userauth/service.go:370-405; internal/userauth/impersonation.go:15-88"
@@ -3102,6 +3209,7 @@
         "PB record wire differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/auth_email_visibility_integration_test.go",
         "read: internal/userauth/auth_record_model_integration_test.go"
@@ -3129,6 +3237,7 @@
         "PB callback/options differ"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/oauth_http_test.go"
       ],
@@ -3155,6 +3264,7 @@
         "core/collection_model.go:128-139"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/accessrule/rule_test.go:1-101"
       ],
@@ -3181,6 +3291,7 @@
         "core/record_field_resolver_test.go:368-377"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/accessrule/rule_test.go:1-101",
         "read: internal/query/access_rule_test.go:26-59"
@@ -3212,6 +3323,7 @@
       "findingIds": [
         "RQR-001"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/recordaccess/pocketbase_rule_integration_test.go:79-157",
         "read: internal/recordaccess/audit_pb_rule_set_integration_test.go:1-45",
@@ -3242,6 +3354,7 @@
         "core/collection_model.go:128-139"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/accessrule/pocketbase_test.go:8-42"
       ],
@@ -3275,6 +3388,7 @@
         "core/collection_model_auth_options.go:101-112"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/auth_rule_enforcement_integration_test.go:20-174",
         "read: internal/userauth/auth_record_model_integration_test.go:100-180"
@@ -3313,6 +3427,7 @@
         "core/collection_model_auth_options.go:114-119"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/auth_record_model_integration_test.go:184-280"
       ],
@@ -3344,6 +3459,7 @@
         "core/record_field_resolver_test.go:871-910"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/rules.go:20-107"
       ],
@@ -3371,6 +3487,7 @@
         "PB global SMTP differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/mailer/smtp_test.go",
         "read: pgbase/email_actions_integration_test.go"
@@ -3398,6 +3515,7 @@
         "PB template wire differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/userauth/auth_rules_test.go",
         "read: internal/userauth/email_actions_integration_test.go"
@@ -3425,6 +3543,7 @@
         "PB placeholder names differ"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/email_actions_integration_test.go"
       ],
@@ -3451,6 +3570,7 @@
         "PB settings form differs"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/email_actions_integration_test.go"
       ],
@@ -3477,6 +3597,7 @@
         "PB hook names differ"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/auth_lifecycle_hooks_test.go"
       ],
@@ -3503,6 +3624,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/record_helpers.go#L34"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/batch_integration_test.go:17",
         "run: focused integration test passed"
@@ -3530,6 +3652,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_file.go#L28"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/filestore/service_integration_test.go:22",
         "run: focused integration test passed"
@@ -3557,6 +3680,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_file.go#L28"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/filestore/service_integration_test.go:22",
         "run: focused integration test passed"
@@ -3584,6 +3708,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/field_file.go#L241"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/file_integration_test.go:1",
         "run: isolated worktree: TestAuditRejectedSecondFilePartCleansPublishedAttachment PASS (required=true, HTTP 400, ready/object 1->1)"
@@ -3611,6 +3736,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/file.go#L108"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/file_integration_test.go",
         "run: focused integration test passed"
@@ -3638,6 +3764,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/file.go#L85"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/file_integration_test.go:1",
         "run: focused integration test passed"
@@ -3665,6 +3792,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/file.go#L62"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/filestore/service_integration_test.go:270",
         "run: focused integration test passed"
@@ -3692,6 +3820,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/file.go#L164"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/filestore/variants_test.go:1",
         "run: focused integration test passed"
@@ -3719,6 +3848,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/file.go#L22"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/filestore/variants_test.go",
         "run: focused integration test passed"
@@ -3746,6 +3876,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/file.go#L219"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/filestore/variants_integration_test.go:61",
         "run: focused integration test passed"
@@ -3773,6 +3904,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/tools/filesystem/filesystem.go#L93"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/filestore/local_test.go:1",
         "run: focused integration test passed"
@@ -3800,6 +3932,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/tools/filesystem/filesystem.go#L63"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/filestore/storage_settings_integration_test.go:21",
         "run: focused integration test passed"
@@ -3827,6 +3960,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/tools/filesystem/filesystem.go#L158"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/extension_objects_integration_test.go:16-87; pgbase/javascript_filesystem_stream_integration_test.go:15-65; pgbase/javascript_filesystem_serve_integration_test.go:18-88",
         "run: isolated worktree: TestAuditExtensionObjectDeleteQueuesAndDrainsPhysicalObject PASS (metadata delete queues durable cleanup; DrainOne removes physical object)"
@@ -3856,6 +3990,7 @@
       "findingIds": [
         "DOC-RT-001"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/realtime_integration_test.go:43",
         "run: focused integration test passed"
@@ -3883,6 +4018,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/realtime.go#L168"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/realtime_sessions_test.go",
         "run: focused integration test passed"
@@ -3910,6 +4046,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/tools/subscriptions/client.go#L27"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/extension_app_broker_integration_test.go; internal/api/realtime_test.go",
         "run: focused integration test passed"
@@ -3937,6 +4074,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/realtime.go#L43"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/realtime_integration_test.go",
         "run: focused integration test passed"
@@ -3964,6 +4102,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/realtime.go#L650"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/realtime/snapshot_test.go",
         "run: focused integration test passed"
@@ -3991,6 +4130,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/tools/subscriptions/message.go#L22"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/realtime_integration_test.go:43",
         "run: focused integration test passed"
@@ -4018,6 +4158,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/apis/realtime.go#L109"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/realtime_integration_test.go:43",
         "run: focused integration test passed"
@@ -4045,6 +4186,7 @@
         ".local/upstream/pocketbase/core/app.go lifecycle interfaces and .local/upstream/pocketbase/core/base.go hook accessors"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/app_lifecycle_hooks_test.go:1-111; pgbase/lifecycle_hooks_integration_test.go:1-504",
         "run: go test ./internal/jsvm ./internal/lifecycle ./pgbase (pass)"
@@ -4072,6 +4214,7 @@
         ".local/upstream/pocketbase/plugins/jsvm/binds.go:151-177 and plugins/jsvm/binds_test.go:1758-1855"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/custom_routes_test.go:1-23; pgbase/custom_routes_integration_test.go:1-110; pgbase/javascript_runtime_test.go:1-216",
         "run: go test ./pgbase (pass)",
@@ -4100,6 +4243,7 @@
         ".local/upstream/pocketbase/plugins/jsvm/binds.go:151-177; plugins/jsvm/binds_test.go:1781-1853"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/custom_routes_integration_test.go:1-110; pgbase/javascript_runtime_test.go:51-183; pgbase/javascript_filesystem_serve_integration_test.go:1-88",
         "run: go test ./pgbase (pass)"
@@ -4127,6 +4271,7 @@
         "PocketBase serves its bundled admin UI and has no matching operator-owned UIExtension registration contract; this is a PgBase extension."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/ui_extension_test.go:1-26; pgbase/ui_extension_integration_test.go:1-45",
         "run: focused TestNewServesOperatorRegisteredUIExtension (pass)"
@@ -4154,6 +4299,7 @@
         ".local/upstream/pocketbase/tools/hook tagged hook implementation as reached through core/base.go hook accessors"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/lifecycle/registry_test.go:1-95; pgbase/lifecycle_hooks_test.go:1-91; pgbase/javascript_hooks_test.go:1-150",
         "run: go test ./internal/lifecycle ./pgbase (pass)"
@@ -4181,6 +4327,7 @@
         ".local/upstream/pocketbase/core/app.go:752-982 and core/db.go model persistence hooks"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/extension_app_model_integration_test.go:1-64; pgbase/javascript_model_phase_hooks_integration_test.go:1-50",
         "run: focused TestJavaScriptPocketBaseModelExecuteHookTagsAndVeto (pass)"
@@ -4210,6 +4357,7 @@
       "findingIds": [
         "EXT-AUD-004"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/lifecycle_hooks_integration_test.go:1-504; pgbase/javascript_collection_enrich_hooks_integration_test.go:1-103",
         "run: go test ./pgbase (pass)",
@@ -4238,6 +4386,7 @@
         ".local/upstream/pocketbase/core/app.go mail/auth/file/realtime/backup hook accessors"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/auth_lifecycle_hooks_test.go:1-78; auth_lifecycle_hooks_integration_test.go:1-79; lifecycle_hooks_test.go:1-91; storage_lifecycle_hooks_test.go:1-45",
         "run: go test ./pgbase (pass)"
@@ -4265,6 +4414,7 @@
         ".local/upstream/pocketbase/core/record_query.go and core/db.go; authority semantics are intentionally PgBase-specific"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/javascript_records_integration_test.go:1-126; pgbase/javascript_text_identity_integration_test.go:1-84",
         "run: go test ./pgbase (pass)"
@@ -4294,6 +4444,7 @@
       "findingIds": [
         "EXT-AUD-003"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/javascript_database_objects_integration_test.go:1-106; pgbase/extension_app_transaction_integration_test.go:1-119",
         "run: focused TestPocketBaseRunInTransactionUsesInvocationBoundPostgresTransaction (pass)"
@@ -4326,6 +4477,7 @@
         "EXT-AUD-006",
         "EXT-AUD-007"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/extension_auth_mail_test.go:1-98; pgbase/extension_objects_integration_test.go:1-96; pgbase/javascript_file_mail_integration_test.go:1-290; pgbase/javascript_template_integration_test.go:1-34",
         "run: focused auth-mail/object integration selection (pass)"
@@ -4353,6 +4505,7 @@
         ".local/upstream/pocketbase/plugins/jsvm/jsvm.go script discovery and plugins/jsvm/binds.go registration"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/jsvm/bundle_test.go:1-170; internal/jsvm/runtime_test.go:1-267; pgbase/javascript_options_test.go:1-63",
         "run: go test ./internal/jsvm ./pgbase (pass)"
@@ -4380,6 +4533,7 @@
         ".local/upstream/pocketbase/plugins/jsvm/jsvm.go CommonJS loader behavior"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/jsvm/bundle_test.go:127-170; internal/jsvm/runtime_test.go:1-267",
         "run: go test ./internal/jsvm (pass)"
@@ -4412,6 +4566,7 @@
         "EXT-AUD-003",
         "EXT-AUD-004"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/jsvm/pocketbase_entrypoint_conformance_test.go:1-119; pocketbase_api_errors_conformance_test.go:1-34; pgbase/extension_app_transaction_integration_test.go:1-119; extension_os_shapes_test.go:1-71",
         "run: go test ./internal/jsvm ./pgbase (pass)",
@@ -4443,6 +4598,7 @@
         "EXT-AUD-001",
         "EXT-AUD-004"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/jsvm/registration_test.go:1-98; pgbase/javascript_bootstrap_registration_test.go:1-56; pgbase/javascript_hooks_test.go:1-150",
         "run: go test ./internal/jsvm ./pgbase (pass)"
@@ -4470,6 +4626,7 @@
         ".local/upstream/pocketbase/plugins/jsvm/binds.go:106-145 and plugins/jsvm/binds_test.go cron registration tests"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/javascript_jobs_test.go:1-47; pgbase/javascript_jobs_integration_test.go:1-148; pgbase/javascript_bootstrap_registration_test.go:1-56",
         "run: focused bootstrap route/hook/job test (pass)",
@@ -4503,6 +4660,7 @@
         "EXT-AUD-006",
         "EXT-AUD-007"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/javascript_records_integration_test.go:1-126; javascript_file_mail_integration_test.go:1-290; javascript_database_objects_integration_test.go:1-106",
         "run: focused records/mail/files/objects integration selection (pass)"
@@ -4532,6 +4690,7 @@
       "findingIds": [
         "EXT-AUD-008"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/jsvm/runtime_test.go:1-267; pgbase/javascript_template_integration_test.go:1-34; pgbase/javascript_options_test.go:1-63",
         "run: go test ./internal/jsvm ./pgbase (pass)"
@@ -4561,6 +4720,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/migrations_list.go#L56-L82; https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/plugins/jsvm/jsvm.go#L217-L228"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/usermigrate/runner_integration_test.go",
         "read: internal/usermigrate/n1_n4_acceptance_integration_test.go",
@@ -4592,6 +4752,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/migrations_runner.go#L119-L172"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/usermigrate/runner_integration_test.go",
         "read: internal/migrate/runner_integration_test.go",
@@ -4621,6 +4782,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/migrations_runner.go#L68-L106; https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/migrations_runner.go#L175-L226"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/usermigrate/runner_test.go",
         "read: internal/usermigrate/runner_integration_test.go",
@@ -4651,6 +4813,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/migrations_runner.go#L127-L167"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/usermigrate/runner_integration_test.go",
         "read: internal/migrate/runner_integration_test.go",
@@ -4680,6 +4843,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/migrations_runner.go#L14-L33"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/usermigrate/runner_test.go",
         "read: internal/usermigrate/runner_integration_test.go",
@@ -4709,6 +4873,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/migrations_runner.go#L107-L113; https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/core/migrations_runner.go#L229-L243"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/usermigrate/runner_integration_test.go",
         "run: source .local/full-audit-2026-09-11/test-env.sh && go test ./internal/fieldvalue ./internal/schema ./internal/migrate ./internal/usermigrate ./internal/recordidentity — PASS: fieldvalue (cached), schema 0.600s, migrate 0.434s, usermigrate 1.525s; recordidentity had no test files."
@@ -4738,6 +4903,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/plugins/migratecmd/automigrate.go#L16-L95"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/usermigrate/recorder_integration_test.go",
         "read: internal/schema/migration_recording_integration_test.go",
@@ -4770,6 +4936,7 @@
         "SFM-001",
         "SFM-002"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/schema/migration_snapshot_test.go",
         "read: internal/usermigrate/n1_n4_acceptance_integration_test.go",
@@ -4799,6 +4966,7 @@
         "Pinned PocketBase uses page-number list APIs; PgBase documents cursor-native list plus opt-in compatibility page."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: sdk/dart/test/sdk_test.dart:117-277",
         "read: sdk/typescript/test/sdk.test.mjs:281-330",
@@ -4827,6 +4995,7 @@
         "PgBase route registry supplies user record routes; projection is a documented PgBase transport contract."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: sdk/dart/test/sdk_test.dart:191-262",
         "read: sdk/typescript/test/sdk.test.mjs:270-287",
@@ -4855,6 +5024,7 @@
         "internal/api/auth_collections.go:65-76 registers named routes; internal/userauth/auth_methods.go:41-61 returns named provider start endpoints."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: sdk/dart/test/sdk_test.dart:117-190,571-621",
         "read: sdk/typescript/test/sdk.test.mjs:200-247",
@@ -4885,6 +5055,7 @@
       "findingIds": [
         "SDK-AUDIT-003"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: sdk/dart/test/sdk_test.dart:378-410,880-890",
         "read: sdk/typescript/test/sdk.test.mjs:224-247"
@@ -4914,6 +5085,7 @@
       "findingIds": [
         "SDK-AUDIT-002"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: sdk/dart/README.md",
         "read: sdk/dart/test/sdk_test.dart:350-376",
@@ -4942,6 +5114,7 @@
         "PocketBase exposes request cancellation semantics; PgBase names explicit tokens/signals."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: sdk/dart/test/sdk_test.dart:305-349,571-621",
         "read: sdk/typescript/test/sdk.test.mjs:171-198,331-404"
@@ -4969,6 +5142,7 @@
         "PgBase error envelope is mapped at each client HTTP boundary; PocketBase's class surface differs."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: sdk/dart/test/sdk_test.dart:278-304",
         "read: sdk/typescript/test/sdk.test.mjs:311-318"
@@ -4996,6 +5170,7 @@
         "Pinned PocketBase SDK filter conventions motivate the syntax; PgBase server owns grammar validation."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: sdk/dart/test/sdk_test.dart:7-45",
         "read: sdk/typescript/test/sdk.test.mjs:145-160",
@@ -5026,6 +5201,7 @@
       "findingIds": [
         "SDK-AUDIT-001"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: sdk/typescript/test/realtime-http-conformance.mjs",
         "read: sdk/dart/tool/realtime_http_conformance.dart",
@@ -5054,6 +5230,7 @@
         "internal/api/router.go:194-196 registers user batch endpoint; PocketBase has no equivalent fluent batch builder."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: sdk/dart/test/sdk_test.dart:117-190",
         "read: sdk/typescript/test/sdk.test.mjs:289-307",
@@ -5082,6 +5259,7 @@
         "internal/api/file_handlers.go:59-70 registers corresponding collection and file routes; Pb public filename URLs are intentionally replaced by token flow."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: sdk/dart/test/sdk_test.dart:468-570",
         "read: sdk/typescript/src/index.ts:905-952",
@@ -5110,6 +5288,7 @@
         "PgBase admin session is cookie+CSRF by design; pinned PocketBase admin APIs use a different auth model."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: sdk/dart/test/sdk_test.dart:263-467",
         "read: sdk/typescript/test/admin.test.mjs",
@@ -5140,6 +5319,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/auth/pageInstaller.js#L28-L105"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/setup-page.test.tsx"
       ],
@@ -5168,6 +5348,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/auth/pageSuperuserLogin.js#L28-L48"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/login-page.test.tsx"
       ],
@@ -5196,6 +5377,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/router.js#L44-L117"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/routing/unsaved-draft.test.tsx:1"
       ],
@@ -5224,6 +5406,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/base/appHeader.js#L102-L149"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/settings-page.test.tsx"
       ],
@@ -5253,6 +5436,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/main.js#L136"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/routing/admin-location.test.tsx; pgbase/ui_extension_integration_test.go"
       ],
@@ -5281,6 +5465,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/collections/collectionUpsertModal.js#L167-L216"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/collection-designer-page.test.tsx:10"
       ],
@@ -5311,6 +5496,7 @@
       "findingIds": [
         "RQR-003"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/designer/collection-draft.test.ts; internal/schema/scaffolds_integration_test.go; internal/recordops/truncate_integration_test.go"
       ],
@@ -5339,6 +5525,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/collections/collectionViewQueryTab.js#L20-L69"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [],
       "differences": [
         "PostgreSQL view syntax/results differ."
@@ -5366,6 +5553,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/base/fieldSettings.js#L1-L130"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/field-options-editor.test.tsx:1"
       ],
@@ -5394,6 +5582,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/collections/indexUpsertModal.js#L31-L139"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/designer/collection-designer.test.tsx:1"
       ],
@@ -5425,6 +5614,7 @@
         "RQR-001",
         "UI-001"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/record-rules-editor.test.tsx:1"
       ],
@@ -5454,6 +5644,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/settings/sync/pageImportCollections.js#L128-L283"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/schema-transfer-page.test.tsx:21"
       ],
@@ -5482,6 +5673,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/apiPreview/apiPreviewModal.js#L34-L124"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/collection-api-examples.tsx"
       ],
@@ -5510,6 +5702,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/records/recordsList.js#L82-L180"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/records-page.test.tsx:27"
       ],
@@ -5538,6 +5731,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/records/recordsList.js#L193-L243"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/workspace/record-productivity.test.ts:1"
       ],
@@ -5567,6 +5761,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/records/recordsList.js#L715-L764"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/workspace/record-workspace.test.tsx:1"
       ],
@@ -5595,6 +5790,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/records/recordUpsertModal.js#L143-L215"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/record-edit-page.test.tsx:23"
       ],
@@ -5623,6 +5819,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/records/recordsPickerModal.js#L33-L220"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/record-edit-page.test.tsx:117"
       ],
@@ -5651,6 +5848,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/records/recordFilePickerModal.js#L27-L160"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/file-field.test.tsx"
       ],
@@ -5679,6 +5877,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/records/recordUpsertModal.js#L938-L1024"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [],
       "differences": [
         "PB modal composition differs."
@@ -5706,6 +5905,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/collections/collectionAuthOptionsTab.js#L1-L6"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/auth-collections-page.test.tsx:8"
       ],
@@ -5735,6 +5935,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/settings/mail/pageMailSettings.js#L149-L376"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/auth-collections-page.test.tsx:57"
       ],
@@ -5763,6 +5964,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/settings/application/pageApplicationSettings.js#L28-L152"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/settings-page.test.tsx"
       ],
@@ -5791,6 +5993,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/logs/pageLogs.js#L21-L163"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [],
       "differences": [
         "PB charts/export/retention setting breadth differs."
@@ -5818,6 +6021,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/settings/crons/cronsList.js#L14-L45"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/operations-console.test.tsx:19"
       ],
@@ -5846,6 +6050,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/settings/backups/backupsList.js#L19-L99"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [],
       "differences": [
         "automatic schedule form layout differs from PocketBase."
@@ -5873,6 +6078,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/settings/storage/pageStorageSettings.js#L34-L155"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/storage-settings-page.test.tsx:28"
       ],
@@ -5902,6 +6108,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/settings/sql/pageSQLConsole.js#L61-L200"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [],
       "differences": [
         "CSV export/column sort does not match PB fully."
@@ -5929,6 +6136,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/base/dropdownKeyboardNav.js#L1"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/record-edit-page.test.tsx:149"
       ],
@@ -5958,6 +6166,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/fields/editor/input.js#L7"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/advanced-field-inputs.test.tsx:7"
       ],
@@ -5987,6 +6196,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/fields/geoPoint/input.js#L7"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: ui/admin/src/pages/advanced-field-inputs.test.tsx:26"
       ],
@@ -6016,6 +6226,7 @@
         "https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/fields/date/input.js#L9"
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [],
       "differences": [
         "dedicated local-time picker UX differs."
@@ -6043,6 +6254,7 @@
         "PocketBase cmd/serve.go is the comparable entrypoint; PgBase PostgreSQL lifecycle is intentional."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/cli/run_test.go",
         "read: internal/cli/run_integration_test.go",
@@ -6075,6 +6287,7 @@
       "findingIds": [
         "OPS-F-001"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/runtimesettings/settings.go",
         "read: internal/api/runtime_settings.go",
@@ -6102,6 +6315,7 @@
         "PocketBase apis/logs.go comparable; PgBase uses PostgreSQL diagnostics without raw request/auth data."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/operations_console.go",
         "read: internal/api/operations_console_test.go",
@@ -6133,6 +6347,7 @@
         "PocketBase provides collection OTP endpoints; PgBase adds explicit local administrator issuance and a separate completion endpoint with per-account/network policy."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/adminauth/service_integration_test.go",
         "read: internal/adminauth/email_otp_integration_test.go",
@@ -6165,6 +6380,7 @@
       "findingIds": [
         "OPS-F-001"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/runtimesettings/settings.go",
         "read: internal/apiratelimit/service.go",
@@ -6193,6 +6409,7 @@
         "PocketBase rate-limit middleware is comparable."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/apiratelimit/service.go",
         "read: internal/apiratelimit/service_test.go",
@@ -6220,6 +6437,7 @@
         "PocketBase serve is comparable; built-in TLS/ACME is PgBase addition."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/config/tls.go",
         "read: pgbase/tls.go",
@@ -6252,6 +6470,7 @@
         "PocketBase backup APIs comparable; PostgreSQL target/lease model intentional."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/setup_backups.go",
         "read: internal/backup/manager.go",
@@ -6286,6 +6505,7 @@
       "findingIds": [
         "OPS-F-002"
       ],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/managed.go",
         "read: pgbase/backup_failure_integration_test.go",
@@ -6314,6 +6534,7 @@
         "PocketBase S3 filesystem is comparable; receipt/fence semantics intentional."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/backup/s3_repository.go",
         "read: internal/backup/s3_repository_test.go",
@@ -6346,6 +6567,7 @@
         "No PocketBase durable-job equivalent required."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/jobs/service.go",
         "read: internal/jobs/service_test.go",
@@ -6378,6 +6600,7 @@
         "PocketBase ghupdate is high-level comparator; PgBase signed recovery model intentional."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/cli/update.go",
         "read: internal/cli/update_test.go",
@@ -6409,6 +6632,7 @@
         "No material comparison difference found."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/observability/logger.go",
         "read: internal/observability/operation_matrix_test.go",
@@ -6436,6 +6660,7 @@
         "PocketBase settings model comparable broadly; environment schema is PgBase-specific."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/config/env.go",
         "read: internal/config/env_test.go",
@@ -6471,6 +6696,7 @@
         "No PocketBase durable backup scheduler equivalent required."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/backup_schedule.go",
         "read: pgbase/backup_options.go",
@@ -6502,6 +6728,7 @@
         "PocketBase backup retention comparable; receipt identity intentional."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/backup/manager.go",
         "read: internal/backup/archive.go",
@@ -6532,6 +6759,7 @@
         "No direct PocketBase alert counterpart required."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/backup/manager.go",
         "read: internal/backup/managed_failure_test.go",
@@ -6563,6 +6791,7 @@
         "PocketBase health endpoint comparable; component status is PgBase addition."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/route_registry_extensions_test.go",
         "read: pgbase/app.go",
@@ -6595,6 +6824,7 @@
         "PocketBase has superuser management but no matching local administrator recovery CLI; PgBase's command boundary is intentional."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/cli/run.go",
         "read: internal/cli/admin_integration_test.go",
@@ -6625,6 +6855,7 @@
         "PocketBase exposes global SuperuserIPs and MFA primitives; PgBase supplies per-administrator TOTP/CIDR policy through local CLI commands."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/cli/run.go",
         "read: internal/cli/admin_integration_test.go",
@@ -6659,6 +6890,7 @@
         "PocketBase CORS defaults to wildcard and supports patterns/configurable credentials; PgBase intentionally rejects wildcard configuration and applies a fixed non-credentialed allowlist."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: internal/api/router.go",
         "read: internal/api/middleware.go",
@@ -6690,6 +6922,7 @@
         "PocketBase public-file serving comparable; PgBase path/fallback policy explicit."
       ],
       "findingIds": [],
+      "withdrawnFindingIds": [],
       "읽은테스트및실행증거": [
         "read: pgbase/options.go",
         "read: pgbase/options_test.go",
