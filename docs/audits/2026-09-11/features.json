@@ -3176,7 +3176,7 @@
         "internal/userauth/token_policy.go:49-170; internal/userauth/service.go:370-405; internal/userauth/impersonation.go:15-88"
       ],
       "PocketBase근거": [
-        "No PocketBase equivalent: this is a PgBase internal keyed opaque-token policy ambiguity."
+        "PgBase-specific purpose별 secret·duration token policy; PocketBase parity finding으로 사용하지 않음."
       ],
       "findingIds": [],
       "withdrawnFindingIds": [
@@ -3187,10 +3187,11 @@
         "read: internal/userauth/impersonation_integration_test.go",
         "read: pgbase/impersonation_http_integration_test.go"
       ],
-      "differences": [],
+      "differences": [
+        "목적별 secret·duration 정책은 PgBase 내부 token policy다."
+      ],
       "limitations": [
-        "Static source and existing-test assertion review only; no tests were run. No separate PocketBase comparison applies to this internal keyed-token ambiguity.",
-        "Global UNIQUE(key_version) DB constraint and purpose-policy write path make the proposed shared-key trigger impossible; static source/assertion review only."
+        "Global UNIQUE(key_version) DB constraint and purpose-policy write path make the proposed shared-key trigger impossible. Static source and existing assertion review only; no token-policy mutation was executed."
       ],
       "코드참조": [
         "internal/userauth/token_policy.go:49-170; internal/userauth/service.go:370-405; internal/userauth/impersonation.go:15-88"

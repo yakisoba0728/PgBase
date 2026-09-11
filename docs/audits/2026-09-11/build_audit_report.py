@@ -163,7 +163,9 @@ def main(inp: Path) -> None:
             w["findings"]=[]
             if fid=="AUTH-31":
                 w["verdict"]="static_reviewed"
-                w["limitations"]=list(items(w.get("limitations")))+["Global UNIQUE(key_version) DB constraint and purpose-policy write path make the proposed shared-key trigger impossible; static source/assertion review only."]
+                w["pbEvidence"]="PgBase-specific purpose별 secret·duration token policy; PocketBase parity finding으로 사용하지 않음."
+                w["differences"]=["목적별 secret·duration 정책은 PgBase 내부 token policy다."]
+                w["limitations"]=["Global UNIQUE(key_version) DB constraint and purpose-policy write path make the proposed shared-key trigger impossible. Static source and existing assertion review only; no token-policy mutation was executed."]
             else:
                 w["verdict"]="static_reviewed"
                 w["limitations"]=list(items(w.get("limitations")))+["The only linked finding was independently rejected; no active defect is retained in this review scope."]
@@ -218,9 +220,9 @@ def main(inp: Path) -> None:
         "RQR-003":("다중 관계 collection truncate가 잘못된 schema의 edge table을 조회함","일반 DDL의 다중 관계 source·target collection은 비어 있지 않으면 truncate할 수 없다.","관계 개수 조회를 pgbase_relation schema로 고정한다."),
         "RQR-001":("유효한 PocketBase 관계 규칙을 저장할 수 없음","관리자가 호환 API로 관계 규칙을 발행하지 못한다.","저장 단계에서 PocketBase catalog compiler를 선택한다."),
         "RQR-002":("역방향 관계 filter가 잘못된 join 조건을 생성함","역관계 조회가 SQL 오류 또는 다른 행을 반환할 수 있다.","reverse hop의 단일·다중 relation predicate를 분기한다."),
-        "EXT-AUD-002":("확장 OTP·인증 알림 helper가 caller payload를 버림","확장 코드가 만든 수신자·본문 정보가 전송 경로에 반영되지 않는다.","검증한 payload를 실제 mail helper까지 전달한다."),
+        "EXT-AUD-002":("확장 OTP·인증 알림 helper가 caller payload를 버림","OTP 코드·식별자와 인증 알림 context가 전송 경로에 반영되지 않는다.","검증한 OTP·알림 context를 실제 mail helper까지 전달한다."),
         "EXT-AUD-001":("확장 ApiError가 항상 정리된 500으로 평탄화됨","호출자가 원래 status와 error data를 받아 분기할 수 없다.","호환 ApiError의 status·data를 보존해 응답한다."),
-        "AUTHMAIL-001":("email 없는 OAuth 가입이 첫 계정만 만들고 다음 계정을 거절함","동일 realm의 서로 다른 provider subject가 불일치하게 가입 실패한다.","빈 email을 일관되게 거절하거나 별도 identity key로 저장한다."),
+        "AUTHMAIL-001":("email 없는 OAuth 가입이 첫 계정만 만들고 다음 계정을 거절함","동일 realm의 서로 다른 provider subject가 불일치하게 가입 실패한다.","email 부재 계정을 지원하면서 provider subject 기반 identity uniqueness를 유지한다."),
         "AUTHMAIL-002":("존재하지 않는 auth identity field를 정책으로 저장함","클라이언트에 보이지만 어떤 사용자도 만족할 수 없는 로그인 방법이 생긴다.","realm schema와 unique 조건을 정책 저장 전에 검증한다."),
         "EXT-AUD-003":("$app.runInTransaction이 transaction-bound app과 중첩을 제공하지 않음","호환 extension transaction 안에서 model 동작과 nesting이 기대와 달라진다.","transaction-bound app facade와 nesting 정책을 구현한다."),
         "EXT-AUD-004":("일반 record CRUD 실패가 model error hook을 내보내지 않음","확장 hook이 실패 lifecycle을 관찰하거나 보완하지 못한다.","일반 persistence 오류에서도 선언한 error phase를 emit한다."),
