@@ -80,7 +80,7 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 	if !registrationEnabled {
 		return Session{}, ErrInvalidCredentials
 	}
-	fields, _, contractErr := s.authRecordContract(ctx, collectionID)
+	fields, contractErr := s.authRecordContract(ctx, collectionID)
 	if contractErr != nil || createRule == nil || !EvaluateAuthRecordRule(*createRule, fields, AuthRuleContext{Principal: authidentity.Subject{Kind: authidentity.Anonymous}, Request: map[string]any{"email": normalized}}) {
 		return Session{}, ErrInvalidCredentials
 	}

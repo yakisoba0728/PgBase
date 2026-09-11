@@ -100,9 +100,3 @@ func (a *App) observeMutation(ctx context.Context, event *ModelMutationEvent, ph
 		_ = a.options.Hooks.Run(ctx, &HookEvent{Kind: kind, Data: event, Err: event.Err}, func() error { return nil })
 	}
 }
-
-func (a *App) observeModel(ctx context.Context, kind string, event *ModelMutationEvent) {
-	if a != nil && a.options.Hooks != nil {
-		_ = a.options.Hooks.Run(ctx, &HookEvent{Kind: kind, Data: event}, func() error { return nil })
-	}
-}

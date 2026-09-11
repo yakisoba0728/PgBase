@@ -188,7 +188,7 @@ func (o *ExtensionObjects) Read(ctx context.Context, namespace, key string) ([]b
 	if err != nil {
 		return nil, err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	return io.ReadAll(r)
 }
 
@@ -398,7 +398,7 @@ func (o *ExtensionObjects) Copy(ctx context.Context, namespace, source, destinat
 	if err != nil {
 		return 0, err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	return o.WriteStream(ctx, namespace, destination, r)
 }
 

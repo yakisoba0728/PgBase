@@ -86,7 +86,7 @@ func CompileUpdateWithSidecar(collection schema.Collection, id uuid.UUID, input 
 	return compileUpdate(collection, id, input, true)
 }
 
-func compileUpdate(collection schema.Collection, id uuid.UUID, input map[string]json.RawMessage, sidecar bool) (Statement, error) {
+func compileUpdate(collection schema.Collection, id uuid.UUID, input map[string]json.RawMessage, _ bool) (Statement, error) {
 	decoded, err := decodeInput(collection, input)
 	if err != nil {
 		return Statement{}, err
@@ -111,10 +111,6 @@ func compileUpdate(collection schema.Collection, id uuid.UUID, input map[string]
 			fmt.Sprintf(" WHERE %s = $%d RETURNING %s", quoted("id"), len(args), selectedColumns(collection)),
 		Args: args,
 	}, nil
-}
-
-func compileListPage(filter filterNode, order orderSpec, after *pageBoundary, fetchLimit int, ownerID *uuid.UUID, policy ...ruleBinding) (Statement, error) {
-	return compileListPageOffset(filter, order, after, fetchLimit, 0, ownerID, policy...)
 }
 
 func compileListPageOffset(filter filterNode, order orderSpec, after *pageBoundary, fetchLimit, offset int, ownerID *uuid.UUID, policy ...ruleBinding) (Statement, error) {

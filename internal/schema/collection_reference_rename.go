@@ -118,7 +118,7 @@ func renameRuleCollectionReferences(value any, oldName, newName string) bool {
 					continue
 				}
 				if text, ok := child.(string); ok && (childKey == "field" || childKey == "otherField" || childKey == "pocketbase") {
-					replaced := text
+					var replaced string
 					if childKey == "pocketbase" {
 						replaced = replaceRuleSource(text, oldPrefix, newPrefix)
 					} else {

@@ -94,7 +94,7 @@ func (s *Service) ExportSchema(ctx context.Context) (SchemaDocument, error) {
 			doc.Collections = append(doc.Collections, item)
 		}
 		doc.AuthCollections, err = exportDocumentAuthCollections(ctx, tx)
-		return nil
+		return err
 	})
 	return doc, err
 }

@@ -27,7 +27,7 @@ func (s *Service) authorizeManagedAuthRecord(ctx context.Context, collectionID, 
 	return err == nil && allowed
 }
 
-func (s *Service) authorizeManagedAuthRecordTx(ctx context.Context, tx database.DBTX, collectionID, actorID uuid.UUID, target AuthRecord, fields []schema.FieldInput, rule string, request map[string]any) (bool, error) {
+func (s *Service) authorizeManagedAuthRecordTx(ctx context.Context, tx database.DBTX, collectionID, actorID uuid.UUID, target AuthRecord, _ []schema.FieldInput, rule string, request map[string]any) (bool, error) {
 	if actorID == uuid.Nil || target.ID == uuid.Nil || strings.TrimSpace(rule) == "" {
 		return false, nil
 	}

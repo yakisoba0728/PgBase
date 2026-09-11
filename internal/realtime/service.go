@@ -111,10 +111,6 @@ func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, in
 			return err
 		}
 		cursor = head
-		statement, args, collection, err := s.eventQuery(ctx, tx, request, collectionID, head)
-		if err != nil {
-			return err
-		}
 		if request.After == nil {
 			return nil
 		}
@@ -125,7 +121,10 @@ func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, in
 			return ErrCursorInvalid
 		}
 		cursor = *request.After
-		statement, args, collection, err = s.eventQuery(ctx, tx, request, collectionID, cursor)
+		statement, args, collection, err := s.eventQuery(ctx, tx, request, collectionID, cursor)
+		if err != nil {
+			return err
+		}
 		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
 		if err != nil {
 			return err

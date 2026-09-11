@@ -11,23 +11,6 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
-type catalogCollectionDTO struct {
-	ID     uuid.UUID `json:"id"`
-	Name   string    `json:"name"`
-	Type   string    `json:"type"`
-	Fields []string  `json:"fields,omitempty"`
-}
-
-func catalogDTO(c interface{}) catalogCollectionDTO {
-	switch v := c.(type) {
-	case userauth.AuthCollection:
-		return catalogCollectionDTO{ID: v.ID, Name: v.Name, Type: "auth"}
-	default:
-		_ = v
-	}
-	return catalogCollectionDTO{}
-}
-
 type adminAuthAuxService interface {
 	AdminListAuthAuxiliary(context.Context, identity.Subject, uuid.UUID, uuid.UUID, string) ([]userauth.AuthAuxiliaryRecord, error)
 	AdminDeleteAuthAuxiliary(context.Context, identity.Subject, uuid.UUID, uuid.UUID, string, uuid.UUID) error

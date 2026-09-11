@@ -76,7 +76,8 @@ func (r *catalogResolver) Resolve(path string) (PBOperand, error) {
 		}
 		nextAlias := pgx.Identifier{"pb_rel_" + string(rune('a'+index))}.Sanitize()
 		table := pgx.Identifier{"app", target.TableName}.Sanitize()
-		join, condition := table+" "+nextAlias, ""
+		join := table + " " + nextAlias
+		var condition string
 		if reverse {
 			if field.Relation.Cardinality == schema.RelationMultiple {
 				edge := pgx.Identifier{"pgbase_relation", field.Relation.Storage.Name}.Sanitize()

@@ -226,7 +226,7 @@ func (control *extensionAppControl) callBackupFilesystem(ctx context.Context, me
 	if err != nil {
 		return nil, extensionError("backup_read_failed", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	data, err := io.ReadAll(io.LimitReader(reader, 5<<20+1))
 	if err != nil || len(data) > 5<<20 {
 		return nil, extensionError("backup_read_failed", errors.New("backup exceeds JavaScript read limit"))

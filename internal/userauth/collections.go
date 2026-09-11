@@ -333,23 +333,6 @@ func scanAuthCollection(row rowScanner, value *AuthCollection) error {
 	return nil
 }
 
-func validProfileSchema(schema map[string]string) bool {
-	if len(schema) > 64 {
-		return false
-	}
-	for name, kind := range schema {
-		if !authCollectionName.MatchString(name) {
-			return false
-		}
-		switch kind {
-		case "boolean", "integer", "numeric", "text", "timestamptz", "uuid", "jsonb":
-		default:
-			return false
-		}
-	}
-	return true
-}
-
 func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes map[string]any) (map[string]any, error) {
 	if userID == uuid.Nil || len(attributes) > 64 {
 		return nil, ErrValidation
@@ -451,56 +434,4 @@ func (s *Service) GetProfile(ctx context.Context, userID uuid.UUID) (map[string]
 		return nil, err
 	}
 	return value, nil
-}
-
-func validateProfile(attributes map[string]any, schema map[string]string) bool {
-	for name, value := range attributes {
-		kind, ok := schema[name]
-		if !ok {
-			return false
-		}
-		switch kind {
-		case "boolean":
-			if _, ok := value.(bool); !ok {
-				return false
-			}
-		case "integer":
-			n, ok := value.(float64)
-			if !ok || n != float64(int64(n)) {
-				return false
-			}
-		case "numeric":
-			if _, ok := value.(float64); !ok {
-				return false
-			}
-		case "text":
-			if v, ok := value.(string); !ok || len(v) > 4096 {
-				return false
-			}
-		case "timestamptz":
-			v, ok := value.(string)
-			if !ok {
-				return false
-			}
-			if _, err := time.Parse(time.RFC3339, v); err != nil {
-				return false
-			}
-		case "uuid":
-			v, ok := value.(string)
-			if !ok {
-				return false
-			}
-			if _, err := uuid.Parse(v); err != nil {
-				return false
-			}
-		case "jsonb":
-			if _, err := json.Marshal(value); err != nil {
-				return false
-			}
-		default:
-			return false
-		}
-	}
-	raw, err := json.Marshal(attributes)
-	return err == nil && len(raw) <= 64<<10
 }

@@ -172,7 +172,7 @@ func (body *javaScriptRouteBody) PrepareInput(ctx context.Context, input json.Ra
 	return json.Marshal(request)
 }
 
-func (body *javaScriptRouteBody) read(ctx context.Context, requestedLimit int64) ([]byte, error) {
+func (body *javaScriptRouteBody) read(_ context.Context, requestedLimit int64) ([]byte, error) {
 	body.mu.Lock()
 	defer body.mu.Unlock()
 	if body.loaded {
@@ -304,7 +304,7 @@ func serveJavaScriptLocalPath(w http.ResponseWriter, r *http.Request, path, name
 		http.Error(w, "extension file is unavailable", http.StatusNotFound)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil || info.IsDir() {
 		http.Error(w, "extension file is unavailable", http.StatusNotFound)
@@ -329,7 +329,7 @@ func serveJavaScriptExtensionObject(w http.ResponseWriter, r *http.Request, obje
 		http.Error(w, "extension file is unavailable", http.StatusNotFound)
 		return
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		http.Error(w, "extension file is unavailable", http.StatusInternalServerError)
@@ -392,7 +392,7 @@ func serveJavaScriptGzip(w http.ResponseWriter, r *http.Request, response javaSc
 		return
 	}
 	gz := gzip.NewWriter(w)
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	if response.JSON != nil {
 		_, _ = gz.Write(response.JSON)
 		return
@@ -453,7 +453,7 @@ func serveJavaScriptStatic(w http.ResponseWriter, r *http.Request, configuredRoo
 		http.NotFound(w, r)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil || info.IsDir() {
 		http.NotFound(w, r)

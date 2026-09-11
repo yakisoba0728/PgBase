@@ -18,7 +18,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/filestore"
 )
 
-func (host *extensionHost) callLocalCreateThumb(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+func (host *extensionHost) callLocalCreateThumb(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	if host.bridge.compatibility == nil || host.bridge.files == nil {
 		return nil, extensionError("thumbnail_unavailable", errors.New("local thumbnail service unavailable"))
 	}
@@ -42,7 +42,7 @@ func (host *extensionHost) callLocalCreateThumb(ctx context.Context, raw json.Ra
 	if err != nil {
 		return nil, extensionError("thumbnail_failed", err)
 	}
-	defer input.Close()
+	defer func() { _ = input.Close() }()
 	probe := make([]byte, 512)
 	n, readErr := io.ReadFull(input, probe)
 	if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, io.EOF) {
@@ -61,12 +61,12 @@ func (host *extensionHost) callLocalCreateThumb(ctx context.Context, raw json.Ra
 		return nil, extensionError("thumbnail_failed", err)
 	}
 	temporaryName := temporary.Name()
-	defer os.Remove(temporaryName)
+	defer func() { _ = os.Remove(temporaryName) }()
 	if err := temporary.Chmod(0o600); err == nil {
 		var written int
 		written, err = temporary.Write(data)
 		if err == nil && written != len(data) {
-			err = io.ErrShortWrite
+			return nil, extensionError("thumbnail_failed", io.ErrShortWrite)
 		}
 	}
 	if closeErr := temporary.Close(); err == nil {

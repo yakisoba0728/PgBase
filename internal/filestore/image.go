@@ -32,7 +32,7 @@ func (s *Service) buildThumbnail(ctx context.Context, file File) ([]byte, error)
 	if err != nil || config.Width < 1 || config.Height < 1 || int64(config.Width) > s.options.MaximumImagePixels/int64(config.Height) || !matchesImageFormat(file.ContentType, format) {
 		return nil, ErrInvalid
 	}
-	source, format, err := decodeImage(bytes.NewReader(data), file.ContentType)
+	source, _, err := decodeImage(bytes.NewReader(data), file.ContentType)
 	if err != nil {
 		return nil, ErrInvalid
 	}

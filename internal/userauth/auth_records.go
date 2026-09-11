@@ -199,7 +199,7 @@ func (s *Service) ListAuthRecords(ctx context.Context, collectionID uuid.UUID, l
 	if collectionID == uuid.Nil || limit < 1 || limit > 100 {
 		return nil, ErrValidation
 	}
-	fields, _, err := s.authRecordContract(ctx, collectionID)
+	fields, err := s.authRecordContract(ctx, collectionID)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +249,7 @@ func (s *Service) GetAuthRecord(ctx context.Context, collectionID, id uuid.UUID)
 	if json.Unmarshal(raw, &v.Fields) != nil {
 		return AuthRecord{}, errors.New("invalid stored auth profile")
 	}
-	fields, _, err := s.authRecordContract(ctx, collectionID)
+	fields, err := s.authRecordContract(ctx, collectionID)
 	if err != nil {
 		return AuthRecord{}, err
 	}
@@ -268,7 +268,7 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 	if err != nil || validatePassword(in.Password) != nil {
 		return AuthRecord{}, ErrValidation
 	}
-	fields, _, err := s.authRecordContract(ctx, collectionID)
+	fields, err := s.authRecordContract(ctx, collectionID)
 	if err != nil {
 		return AuthRecord{}, err
 	}
@@ -350,7 +350,7 @@ func (s *Service) updateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 	if collectionID == uuid.Nil || id == uuid.Nil {
 		return AuthRecord{}, ErrValidation
 	}
-	fields, _, err := s.authRecordContract(ctx, collectionID)
+	fields, err := s.authRecordContract(ctx, collectionID)
 	if err != nil {
 		return AuthRecord{}, err
 	}
@@ -490,25 +490,18 @@ func (s *Service) DeleteAuthRecord(ctx context.Context, collectionID, id uuid.UU
 	})
 }
 
-func (s *Service) authRecordContract(ctx context.Context, id uuid.UUID) ([]schema.FieldInput, AuthCollectionRules, error) {
+func (s *Service) authRecordContract(ctx context.Context, id uuid.UUID) ([]schema.FieldInput, error) {
 	var raw []byte
-	var r AuthCollectionRules
-	var create *string
-	err := s.pool.QueryRow(ctx, `select fields_json,create_rule from pgbase_meta.auth_collections where id=$1`, id).Scan(&raw, &create)
+	err := s.pool.QueryRow(ctx, `select fields_json from pgbase_meta.auth_collections where id=$1`, id).Scan(&raw)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, r, ErrNotFound
+		return nil, ErrNotFound
 	}
 	if err != nil {
-		return nil, r, err
-	}
-	if create == nil {
-		r.nulls = map[string]bool{"create": true}
-	} else {
-		r.Create = *create
+		return nil, err
 	}
 	var fields []schema.FieldInput
 	if json.Unmarshal(raw, &fields) != nil {
-		return nil, r, fmt.Errorf("invalid stored auth fields")
+		return nil, fmt.Errorf("invalid stored auth fields")
 	}
-	return fields, r, nil
+	return fields, nil
 }

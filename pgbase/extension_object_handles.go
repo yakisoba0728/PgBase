@@ -205,7 +205,7 @@ func (h *extensionHost) commitObjectWrite(ctx context.Context, raw json.RawMessa
 	if !ok {
 		return nil, errors.New("object writer is closed")
 	}
-	defer os.Remove(w.path)
+	defer func() { _ = os.Remove(w.path) }()
 	if e := w.file.Close(); e != nil {
 		return nil, e
 	}
@@ -213,7 +213,7 @@ func (h *extensionHost) commitObjectWrite(ctx context.Context, raw json.RawMessa
 	if e != nil {
 		return nil, e
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	n, e := h.bridge.objects.WriteStream(ctx, h.namespace, w.key, f)
 	if e != nil {
 		return nil, e
@@ -252,7 +252,7 @@ func (h *extensionHost) fileFromMultipart(ctx context.Context, raw json.RawMessa
 	if e != nil {
 		return nil, e
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	if size < 0 || size > h.maximumObjectBytes() {
 		return nil, errors.New("multipart object too large")
 	}
@@ -300,7 +300,7 @@ func (h *extensionHost) commitMultipart(ctx context.Context, raw json.RawMessage
 	if !ok {
 		return nil, errors.New("multipart handle is closed")
 	}
-	defer os.Remove(w.path)
+	defer func() { _ = os.Remove(w.path) }()
 	if e := w.file.Close(); e != nil {
 		return nil, e
 	}
@@ -308,7 +308,7 @@ func (h *extensionHost) commitMultipart(ctx context.Context, raw json.RawMessage
 	if e != nil {
 		return nil, e
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	n, e := h.bridge.objects.WriteStream(ctx, h.namespace, q.Key, f)
 	if e != nil {
 		return nil, e

@@ -159,7 +159,7 @@ func (c *extensionCompatibility) call(ctx context.Context, method string, raw js
 		if err != nil {
 			return nil, err
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		if _, err := file.Seek(request.Offset, io.SeekStart); err != nil {
 			return nil, err
 		}
@@ -350,7 +350,7 @@ func (c *extensionCompatibility) readFile(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	data, err := io.ReadAll(io.LimitReader(file, compatibilityMaximumBytes+1))
 	if len(data) > compatibilityMaximumBytes {
 		return nil, errors.New("file exceeds compatibility limit")
@@ -601,7 +601,7 @@ func (c *extensionCompatibility) send(ctx context.Context, raw json.RawMessage) 
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, compatibilityMaximumBytes+1))
 	if err != nil {
 		return nil, err

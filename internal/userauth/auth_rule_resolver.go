@@ -262,7 +262,7 @@ func (r authRuleResolver) resolve(collection authRuleCollection, userAlias, prof
 	return authJSONOperand(profileAlias, parts, field.Type)
 }
 
-func (r authRuleResolver) resolveRelation(_ authRuleCollection, field schema.FieldInput, userAlias, profileAlias string, tail []string) (accessrule.PBOperand, error) {
+func (r authRuleResolver) resolveRelation(_ authRuleCollection, field schema.FieldInput, _ string, profileAlias string, tail []string) (accessrule.PBOperand, error) {
 	if field.Relation == nil {
 		return accessrule.PBOperand{}, errors.New("invalid relation metadata")
 	}
