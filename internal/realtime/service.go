@@ -111,6 +111,9 @@ func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, in
 			return err
 		}
 		cursor = head
+		if _, _, _, err := s.eventQuery(ctx, tx, request, collectionID, head); err != nil {
+			return err
+		}
 		if request.After == nil {
 			return nil
 		}

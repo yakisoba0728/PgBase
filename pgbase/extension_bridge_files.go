@@ -62,16 +62,18 @@ func (host *extensionHost) callLocalCreateThumb(_ context.Context, raw json.RawM
 	}
 	temporaryName := temporary.Name()
 	defer func() { _ = os.Remove(temporaryName) }()
-	if chmodErr := temporary.Chmod(0o600); chmodErr == nil {
-		written, writeErr := temporary.Write(data)
-		if writeErr != nil {
-			_ = temporary.Close()
-			return nil, extensionError("thumbnail_failed", writeErr)
-		}
-		if written != len(data) {
-			_ = temporary.Close()
-			return nil, extensionError("thumbnail_failed", io.ErrShortWrite)
-		}
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return nil, extensionError("thumbnail_failed", err)
+	}
+	written, err := temporary.Write(data)
+	if err != nil {
+		_ = temporary.Close()
+		return nil, extensionError("thumbnail_failed", err)
+	}
+	if written != len(data) {
+		_ = temporary.Close()
+		return nil, extensionError("thumbnail_failed", io.ErrShortWrite)
 	}
 	if err := temporary.Close(); err != nil {
 		return nil, extensionError("thumbnail_failed", err)
