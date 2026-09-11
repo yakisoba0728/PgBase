@@ -192,9 +192,9 @@ func (e authCollectionEndpoints) auxiliaryGet(w http.ResponseWriter, r *http.Req
 }
 
 func (e authCollectionEndpoints) authorizedRecordContext(r *http.Request) (userauth.AuthCollection, userauth.Principal, uuid.UUID, error) {
-	current, currentErr := e.current(r)
+	current, _ := e.current(r)
 	collection, err := e.resolve(r)
-	if currentErr != nil || err != nil {
+	if err != nil {
 		return userauth.AuthCollection{}, userauth.Principal{}, uuid.Nil, userauth.ErrInvalidCredentials
 	}
 	principal := userauth.Principal{}
