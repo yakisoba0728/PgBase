@@ -137,18 +137,25 @@ func runManagedACME(t *testing.T, options Options, challengeAddress string) mana
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- RunManaged(ctx, options) }()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		select {
+		case err := <-done:
+			cancel()
+			t.Fatalf("managed host stopped before ACME challenge listener started: %v", err)
+		default:
+		}
 		if connection, err := net.DialTimeout("tcp", challengeAddress, 20*time.Millisecond); err == nil {
 			_ = connection.Close()
 			return managedACMERun{cancel: cancel, done: done}
 		}
-		time.Sleep(time.Millisecond)
+		if time.Now().After(deadline) {
+			cancel()
+			_ = <-done
+			t.Fatal("managed ACME challenge listener did not start")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	cancel()
-	_ = <-done
-	t.Fatal("managed ACME challenge listener did not start")
-	return managedACMERun{}
 }
 
 func (run managedACMERun) stop(t *testing.T) {
