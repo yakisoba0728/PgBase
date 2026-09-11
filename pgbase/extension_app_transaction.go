@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/recordops"
 )
 
 func (host *extensionHost) callAppTransaction(ctx context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
@@ -27,6 +28,8 @@ func (host *extensionHost) callAppTransaction(ctx context.Context, method string
 			return nil, err
 		}
 		host.databaseTx, host.databaseToken = tx, uuid.New()
+		host.recordOutcome = recordops.NewTransactionOutcome()
+		host.objectTx = newExtensionObjectTransactionState(tx, host.bridge.objects)
 		return json.Marshal(map[string]any{"token": host.databaseToken, "transactional": true})
 	case "app-control.databaseExec":
 		if host.databaseTx == nil {
@@ -87,12 +90,25 @@ func (host *extensionHost) callAppTransaction(ctx context.Context, method string
 			return nil, errors.New("invalid database transaction token")
 		}
 		tx := host.databaseTx
+		recordOutcome := host.recordOutcome
+		objectTx := host.objectTx
 		host.databaseTx, host.databaseToken = nil, uuid.Nil
+		host.recordOutcome = nil
+		host.objectTx = nil
 		var err error
 		if method == "app-control.databaseCommit" {
 			err = tx.Commit(ctx)
+			recordOutcome.Finish(ctx, err)
+			_ = objectTx.finish(ctx, false)
 		} else {
 			err = tx.Rollback(ctx)
+			if err == nil {
+				recordOutcome.Finish(ctx, recordops.ErrTransactionRolledBack)
+				err = objectTx.finish(ctx, true)
+			} else {
+				recordOutcome.Finish(ctx, err)
+				_ = objectTx.finish(ctx, false)
+			}
 		}
 		if err != nil && !errors.Is(err, pgx.ErrTxClosed) {
 			return nil, err
@@ -109,10 +125,21 @@ func (host *extensionHost) rollbackAppTransaction() error {
 		return nil
 	}
 	tx := host.databaseTx
+	recordOutcome := host.recordOutcome
+	objectTx := host.objectTx
 	host.databaseTx, host.databaseToken = nil, uuid.Nil
+	host.recordOutcome = nil
+	host.objectTx = nil
 	ctx := host.authorityContext
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return tx.Rollback(context.WithoutCancel(ctx))
+	err := tx.Rollback(context.WithoutCancel(ctx))
+	if err == nil {
+		recordOutcome.Finish(ctx, recordops.ErrTransactionRolledBack)
+		return objectTx.finish(ctx, true)
+	}
+	recordOutcome.Finish(ctx, err)
+	_ = objectTx.finish(ctx, false)
+	return err
 }

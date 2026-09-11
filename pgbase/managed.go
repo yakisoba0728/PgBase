@@ -120,6 +120,7 @@ func RunManaged(ctx context.Context, options Options) error {
 
 type managedHost struct {
 	options         Options
+	restore         managedRestoreDependencies
 	mu              sync.Mutex
 	app             *App
 	active          int
@@ -128,6 +129,28 @@ type managedHost struct {
 	controller      *backup.StorageController
 	controllerPool  *database.Pool
 	challengeServer *http.Server
+}
+
+type managedRestoreDependencies struct {
+	restoreNew   func(context.Context, string, string, string) (backup.Target, error)
+	openDatabase func(context.Context, string, time.Duration, bool) (*database.Pool, error)
+	discard      func(context.Context, backup.Target) error
+}
+
+func (h *managedHost) restoreDependencies() managedRestoreDependencies {
+	deps := h.restore
+	if deps.restoreNew == nil {
+		deps.restoreNew = backup.RestoreNew
+	}
+	if deps.openDatabase == nil {
+		deps.openDatabase = func(ctx context.Context, databaseURL string, statementTimeout time.Duration, allowInsecure bool) (*database.Pool, error) {
+			return database.Open(ctx, databaseURL, statementTimeout, allowInsecure)
+		}
+	}
+	if deps.discard == nil {
+		deps.discard = backup.DiscardTarget
+	}
+	return deps
 }
 
 // managedServer copies the already-normalized application listener settings
@@ -211,11 +234,21 @@ func (h *managedHost) restoreBackup(ctx context.Context, directory string) (resu
 	h.mu.Lock()
 	options := h.options
 	h.mu.Unlock()
-	target, err := backup.RestoreNew(ctx, directory, options.DatabaseURL, filepath.Join(options.Backups.Directory, "targets"))
+	deps := h.restoreDependencies()
+	target, err := deps.restoreNew(ctx, directory, options.DatabaseURL, filepath.Join(options.Backups.Directory, "targets"))
 	if err != nil {
 		return err
 	}
-	targetPool, err := database.Open(ctx, target.DatabaseURL, options.StatementTimeout, options.AllowInsecureDatabase)
+	activated := false
+	defer func() {
+		if activated || h.targetReferenced(target) {
+			return
+		}
+		cleanup, cancel := context.WithTimeout(context.Background(), options.ShutdownTimeout)
+		defer cancel()
+		resultErr = errors.Join(resultErr, deps.discard(cleanup, target))
+	}()
+	targetPool, err := deps.openDatabase(ctx, target.DatabaseURL, options.StatementTimeout, options.AllowInsecureDatabase)
 	if err != nil {
 		return err
 	}
@@ -231,15 +264,6 @@ func (h *managedHost) restoreBackup(ctx context.Context, directory string) (resu
 	if _, err = targetPool.Exec(ctx, `delete from pgbase_meta.backup_storage_operations`); err != nil {
 		return err
 	}
-	activated := false
-	defer func() {
-		if activated || h.targetReferenced(target) {
-			return
-		}
-		cleanup, cancel := context.WithTimeout(context.Background(), options.ShutdownTimeout)
-		defer cancel()
-		resultErr = errors.Join(resultErr, backup.DiscardTarget(cleanup, target))
-	}()
 	nextOptions := options
 	nextOptions.DatabaseURL = target.DatabaseURL
 	nextOptions.Files = restoredFileOptions(options.Files, target.FilesDirectory)

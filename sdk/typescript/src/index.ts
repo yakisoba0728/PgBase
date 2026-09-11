@@ -71,6 +71,8 @@ export type EventOptions = {
   maxReconnects?: number;
   reconnectDelayMs?: number;
 };
+/** Reconnect policy for the shared PocketBase-compatible realtime session. */
+export type RealtimeSubscriptionOptions = Pick<EventOptions, "maxReconnects" | "reconnectDelayMs">;
 /** A collection record event, retained for existing PocketBase subscriptions. */
 export type RealtimeEvent<T extends RecordData = RecordData> = { action: "create" | "update" | "delete"; record: T; topic: string };
 /** An application topic event. Its payload is arbitrary valid JSON. */
@@ -519,18 +521,24 @@ export class RealtimeService {
   private running?: Promise<void>;
   private ready?: Promise<void>;
   private resolveReady?: () => void;
+  private rejectReady?: (error: unknown) => void;
+  private readySettled = false;
+  private maxReconnects = 5;
+  private reconnectDelayMs = 250;
 
   constructor(private readonly client: PgBaseClient) {}
 
-  async subscribe(topic: `@${string}`, listener: (event: RealtimeCustomEvent) => void): Promise<() => Promise<void>>;
-  async subscribe<T extends RecordData = RecordData>(topic: string, listener: (event: RealtimeEvent<T>) => void): Promise<() => Promise<void>>;
-  async subscribe(topic: string, listener: (event: any) => void): Promise<() => Promise<void>> {
+  async subscribe(topic: `@${string}`, listener: (event: RealtimeCustomEvent) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
+  async subscribe<T extends RecordData = RecordData>(topic: string, listener: (event: RealtimeEvent<T>) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
+  async subscribe(topic: string, listener: (event: any) => void, options: RealtimeSubscriptionOptions = {}): Promise<() => Promise<void>> {
     if (!validRealtimeTopic(topic)) throw new PgBaseError(0, "invalid_realtime_topic");
+    if (options.maxReconnects !== undefined && (!Number.isInteger(options.maxReconnects) || options.maxReconnects < 0)) throw new PgBaseError(0, "invalid_reconnect_options");
+    if (options.reconnectDelayMs !== undefined && (!Number.isFinite(options.reconnectDelayMs) || options.reconnectDelayMs < 0)) throw new PgBaseError(0, "invalid_reconnect_options");
     if (this.controller?.signal.aborted && this.running) await this.running;
     let set = this.listeners.get(topic);
     if (!set) { set = new Set(); this.listeners.set(topic, set); }
     set.add(listener);
-    this.ensureRunning();
+    this.ensureRunning(options);
     if (this.clientId) await this.sync();
     else await this.ready;
     return async () => this.unsubscribe(topic, listener);
@@ -549,20 +557,30 @@ export class RealtimeService {
     if (topic === undefined) this.listeners.clear();
     else if (listener === undefined) this.listeners.delete(topic);
     else { const set = this.listeners.get(topic); set?.delete(listener); if (set?.size === 0) this.listeners.delete(topic); }
-    if (this.listeners.size === 0) { this.controller?.abort(); this.clientId = undefined; return; }
+    if (this.listeners.size === 0) {
+      this.controller?.abort();
+      this.clientId = undefined;
+      this.fail(new PgBaseError(0, "realtime_unsubscribed"));
+      return;
+    }
     if (this.clientId) await this.sync();
   }
 
-  private ensureRunning(): void {
+  private ensureRunning(options: RealtimeSubscriptionOptions): void {
     if (this.running) return;
-    this.ready = new Promise<void>((resolve) => { this.resolveReady = resolve; });
-    this.running = this.run().finally(() => { this.running = undefined; this.ready = undefined; this.resolveReady = undefined; });
+    this.maxReconnects = options.maxReconnects ?? 5;
+    this.reconnectDelayMs = options.reconnectDelayMs ?? 250;
+    this.readySettled = false;
+    this.ready = new Promise<void>((resolve, reject) => { this.resolveReady = resolve; this.rejectReady = reject; });
+    this.running = this.run().finally(() => { this.running = undefined; this.ready = undefined; this.resolveReady = undefined; this.rejectReady = undefined; });
   }
   private async sync(): Promise<void> { if (this.clientId) await this.client._request<void>("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, this.controller?.signal); }
   private async run(): Promise<void> {
     const controller = new AbortController();
     this.controller = controller;
+    let reconnects = 0;
     while (!controller.signal.aborted && this.listeners.size) {
+      let reconnectError: unknown;
       try {
         const response = await this.client._eventStream("/api/realtime", this.lastEventId, controller.signal);
         for await (const message of parseEventStream(response.body!, controller.signal)) {
@@ -570,7 +588,11 @@ export class RealtimeService {
           if (message.event === "PB_CONNECT") {
             this.clientId = typeof data === "object" && data !== null && "clientId" in data ? String(data.clientId ?? "") : "";
             if (!this.clientId) throw new PgBaseError(0, "invalid_realtime_connect");
-            await this.sync(); this.resolveReady?.(); continue;
+            await this.sync();
+            reconnects = 0;
+            this.resolveReady?.();
+            this.readySettled = true;
+            continue;
           }
           if (message.id) this.lastEventId = canonicalDeliveryCursor(message.id);
           const topic = message.event;
@@ -581,9 +603,31 @@ export class RealtimeService {
           if (!event) continue;
           for (const listener of this.listeners.get(topic) ?? []) listener(event);
         }
-      } catch (error) { if (controller.signal.aborted) return; await waitForReconnect(250, controller.signal); }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        reconnectError = error;
+        if (terminalRealtimeError(error)) return this.fail(error);
+      }
+      this.clientId = undefined;
+      if (reconnects >= this.maxReconnects) return this.fail(reconnectError ?? new PgBaseError(0, "realtime_reconnect_exhausted"));
+      reconnects += 1;
+      await waitForReconnect(Math.min(this.reconnectDelayMs * 2 ** (reconnects - 1), 10_000), controller.signal);
     }
   }
+
+  private fail(error: unknown): void {
+    this.clientId = undefined;
+    this.listeners.clear();
+    if (!this.readySettled) {
+      this.rejectReady?.(error);
+      this.readySettled = true;
+    }
+  }
+}
+
+function terminalRealtimeError(error: unknown): boolean {
+  return error instanceof PgBaseError &&
+    ([400, 401, 403, 410].includes(error.status) || error.code === "cursor_expired");
 }
 
 function validRealtimeTopic(topic: string): boolean {

@@ -364,13 +364,15 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 					operationErr = ErrInvalidCredentials
 					return nil
 				}
-				var emailExists bool
-				if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.users where auth_collection_id=$2 and email=$1)`, identity.Email, persistedCollectionID).Scan(&emailExists); err != nil {
-					return err
-				}
-				if emailExists {
-					operationErr = ErrConflict
-					return nil
+				if identity.Email != "" {
+					var emailExists bool
+					if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.users where auth_collection_id=$2 and email=$1)`, identity.Email, persistedCollectionID).Scan(&emailExists); err != nil {
+						return err
+					}
+					if emailExists {
+						operationErr = ErrConflict
+						return nil
+					}
 				}
 				user = User{ID: uuid.New(), Email: identity.Email, Verified: identity.EmailVerified, CreatedAt: now}
 				user.AuthCollectionID = persistedCollectionID

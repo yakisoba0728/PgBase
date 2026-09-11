@@ -121,6 +121,45 @@ func TestPocketBaseAppControlUsesOnlyCapabilityHost(t *testing.T) {
 	}
 }
 
+func TestPocketBaseRunInTransactionPassesAppFacadeAndNests(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/tx","access":"admin","handler":{"module":"route.js","export":"run"},"capabilities":["app-control","records"]}]}`)
+	writeFile(t, directory, "route.js", `exports.run=()=>{let same=false;$app.runInTransaction(tx=>{if(typeof tx.save!=="function"||typeof tx.runInTransaction!=="function")throw new Error("not an app");tx.save(new Record("items",{title:"saved"}));tx.runInTransaction(inner=>{same=inner===tx})});return {same}}`)
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	host := &transactionCompatibilityHost{}
+	output, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Capabilities: []string{"app-control", "records"}, Host: host})
+	if err != nil || string(output) != `{"same":true}` {
+		t.Fatalf("output=%s err=%v calls=%v", output, err, host.calls)
+	}
+	if strings.Join(host.calls, ",") != "app-control.databaseBegin,app.model.save,app-control.databaseCommit" {
+		t.Fatalf("calls=%v", host.calls)
+	}
+}
+
+type transactionCompatibilityHost struct{ calls []string }
+
+func (h *transactionCompatibilityHost) Call(_ context.Context, method string, _ json.RawMessage) (json.RawMessage, error) {
+	h.calls = append(h.calls, method)
+	switch method {
+	case "app-control.databaseBegin":
+		return json.RawMessage(`{"token":"tx","transactional":true}`), nil
+	case "app.model.save":
+		return json.RawMessage(`{"data":{"id":"created"}}`), nil
+	case "app-control.databaseCommit":
+		return json.RawMessage(`{"committed":true}`), nil
+	default:
+		return nil, errors.New("unexpected method")
+	}
+}
+
 func TestPocketBaseAppQueryHelpersHydrateRecords(t *testing.T) {
 	directory := t.TempDir()
 	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/query","access":"public","handler":{"module":"route.js","export":"run"},"capabilities":["records"]}]}`)

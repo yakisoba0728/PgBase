@@ -10,7 +10,7 @@ import (
 	"regexp"
 )
 
-var objectKeyPattern = regexp.MustCompile(`^(?:(?:objects|thumbnails)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|extensions/[0-9a-f]{64}/[0-9a-f]{64})$`)
+var objectKeyPattern = regexp.MustCompile(`^(?:(?:objects|thumbnails)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|extensions/[0-9a-f]{64}/[0-9a-f]{64}(?:/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)$`)
 
 type LocalStore struct{ root string }
 

@@ -590,21 +590,39 @@ func (e schemaEndpoints) collection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := strings.ToLower(r.PathValue("collection"))
-	for _, collection := range catalog.Collections {
-		if strings.ToLower(collection.Name) == key || strings.ToLower(collection.CompatibilityName) == key || strings.ToLower(collection.ID.String()) == key {
-			event, finish, hookErr := e.beginRequest(r, "view", collection.Name)
-			if hookErr != nil {
-				finish(hookErr)
-				writeSchemaError(w, r, hookErr)
-				return
-			}
-			event.Collection = &collection
-			finish(nil)
-			writeJSON(w, http.StatusOK, collectionDTO(collection))
+	matched, err := resolveCollectionIdentifier(catalog, key)
+	if err == nil {
+		event, finish, hookErr := e.beginRequest(r, "view", matched.Name)
+		if hookErr != nil {
+			finish(hookErr)
+			writeSchemaError(w, r, hookErr)
 			return
 		}
+		event.Collection = matched
+		finish(nil)
+		writeJSON(w, http.StatusOK, collectionDTO(*matched))
+		return
 	}
-	writeSchemaError(w, r, schema.ErrCollectionNotFound)
+	writeSchemaError(w, r, err)
+}
+
+func resolveCollectionIdentifier(catalog schema.Catalog, key string) (*schema.Collection, error) {
+	key = strings.ToLower(key)
+	var matched *schema.Collection
+	for _, collection := range catalog.Collections {
+		if strings.ToLower(collection.Name) != key && strings.ToLower(collection.CompatibilityName) != key && strings.ToLower(collection.ID.String()) != key {
+			continue
+		}
+		if matched != nil && matched.ID != collection.ID {
+			return nil, schema.ErrConflict
+		}
+		candidate := collection
+		matched = &candidate
+	}
+	if matched == nil {
+		return nil, schema.ErrCollectionNotFound
+	}
+	return matched, nil
 }
 
 type collectionHookResponseWriter struct {

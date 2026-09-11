@@ -20,8 +20,8 @@ func (h *extensionHost) maximumObjectBytes() int64 {
 	return 5 << 20
 }
 
-func (h *extensionHost) openObjectHandle(ctx context.Context, key string) (json.RawMessage, error) {
-	r, e := h.bridge.objects.Open(ctx, h.namespace, key)
+func (h *extensionHost) openObjectHandle(metadataCtx, readerCtx context.Context, key string) (json.RawMessage, error) {
+	r, e := h.bridge.objects.open(metadataCtx, readerCtx, h.namespace, key)
 	if e != nil {
 		return nil, e
 	}

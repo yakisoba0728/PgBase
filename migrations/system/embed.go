@@ -181,6 +181,12 @@ var authEmailVisibilitySQL string
 //go:embed 000063_advanced_collection_indexes.sql
 var advancedCollectionIndexesSQL string
 
+//go:embed 000064_versioned_extension_objects.sql
+var versionedExtensionObjectsSQL string
+
+//go:embed 000065_optional_auth_email_uniqueness.sql
+var optionalAuthEmailUniquenessSQL string
+
 //go:embed 000052_auth_record_model.sql
 var authRecordModelSQL string
 
@@ -291,6 +297,8 @@ var migrations = []Migration{
 	{Version: 61, Name: "record_identities", SQL: recordIdentitiesSQL, SHA256: sha256.Sum256([]byte(recordIdentitiesSQL))},
 	{Version: 62, Name: "auth_email_visibility", SQL: authEmailVisibilitySQL, SHA256: sha256.Sum256([]byte(authEmailVisibilitySQL))},
 	{Version: 63, Name: "advanced_collection_indexes", SQL: advancedCollectionIndexesSQL, SHA256: sha256.Sum256([]byte(advancedCollectionIndexesSQL))},
+	{Version: 64, Name: "versioned_extension_objects", SQL: versionedExtensionObjectsSQL, SHA256: sha256.Sum256([]byte(versionedExtensionObjectsSQL))},
+	{Version: 65, Name: "optional_auth_email_uniqueness", SQL: optionalAuthEmailUniquenessSQL, SHA256: sha256.Sum256([]byte(optionalAuthEmailUniquenessSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

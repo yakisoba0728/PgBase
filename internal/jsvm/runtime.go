@@ -30,8 +30,17 @@ const (
 )
 
 type Error struct {
-	Code  ErrorCode
-	cause error
+	Code        ErrorCode
+	PublicError *PublicAPIError
+	cause       error
+}
+
+// PublicAPIError is a validated compatibility ApiError that may be returned to
+// an HTTP client. Other JavaScript exceptions intentionally remain opaque.
+type PublicAPIError struct {
+	Status  int
+	Message string
+	Data    json.RawMessage
 }
 
 func (e *Error) Error() string {
@@ -157,6 +166,7 @@ type callState struct {
 	requestHandle  *goja.Object
 	responseHandle *goja.Object
 	responseUsed   bool
+	apiErrorCheck  goja.Callable
 }
 
 type executionChainKey struct{}
@@ -382,14 +392,14 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 	if strings.HasPrefix(ref.Export, registeredExportPrefix) {
 		registered, replayErr := r.replayRegistrations(vm, requireModule)
 		if replayErr != nil {
-			return nil, classifyExecutionError(ctx, replayErr)
+			return nil, classifyExecutionError(ctx, vm, state, replayErr, r.limits.MaximumJSONDepth)
 		}
 		handler, ok = registered.handlers[ref.Export]
 		handlerValue = registered.handlerValues[ref.Export]
 	} else {
 		exports, requireErr := requireModule.Require(virtualRoot + "/" + moduleName)
 		if requireErr != nil {
-			return nil, classifyExecutionError(ctx, requireErr)
+			return nil, classifyExecutionError(ctx, vm, state, requireErr, r.limits.MaximumJSONDepth)
 		}
 		handlerValue = exports.ToObject(vm).Get(ref.Export)
 		handler, ok = goja.AssertFunction(handlerValue)
@@ -438,7 +448,7 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 	}
 	result, err := handler(goja.Undefined(), inputValue)
 	if err != nil {
-		return nil, classifyExecutionError(ctx, err)
+		return nil, classifyExecutionError(ctx, vm, state, err, r.limits.MaximumJSONDepth)
 	}
 	if object, ok := result.(*goja.Object); ok {
 		if then := object.Get("then"); !goja.IsUndefined(then) && !goja.IsNull(then) {
@@ -677,12 +687,55 @@ func capabilitySet(values []string) map[string]bool {
 	return result
 }
 
-func classifyExecutionError(ctx context.Context, err error) error {
+func classifyExecutionError(ctx context.Context, vm *goja.Runtime, state *callState, err error, maximumJSONDepth int) error {
 	var interrupted *goja.InterruptedError
 	if errors.As(err, &interrupted) || ctx.Err() != nil {
 		return invocationContextError(ctx)
 	}
-	return &Error{Code: CodeExecutionFailed, cause: err}
+	return &Error{Code: CodeExecutionFailed, PublicError: publicAPIError(vm, state, err, maximumJSONDepth), cause: err}
+}
+
+func publicAPIError(vm *goja.Runtime, state *callState, err error, maximumJSONDepth int) (result *PublicAPIError) {
+	var exception *goja.Exception
+	if vm == nil || state == nil || state.apiErrorCheck == nil || !errors.As(err, &exception) {
+		return nil
+	}
+	object, ok := exception.Value().(*goja.Object)
+	if !ok {
+		return nil
+	}
+	defer func() { _ = recover() }()
+	branded, checkErr := state.apiErrorCheck(goja.Undefined(), object)
+	if checkErr != nil || !branded.ToBoolean() {
+		return nil
+	}
+	status, ok := apiErrorStatus(object.Get("status"))
+	if !ok {
+		return nil
+	}
+	message, ok := object.Get("message").Export().(string)
+	if !ok || len(message) > 8<<10 {
+		return nil
+	}
+	data, encodeErr := encodeValue(object.Get("data"), maximumJSONDepth)
+	if encodeErr != nil || len(data) > 1<<20 {
+		return nil
+	}
+	return &PublicAPIError{Status: status, Message: message, Data: data}
+}
+
+func apiErrorStatus(value goja.Value) (int, bool) {
+	switch status := value.Export().(type) {
+	case int64:
+		if status >= 100 && status <= 599 {
+			return int(status), true
+		}
+	case float64:
+		if status >= 100 && status <= 599 && status == float64(int(status)) {
+			return int(status), true
+		}
+	}
+	return 0, false
 }
 
 func invocationContextError(ctx context.Context) error {

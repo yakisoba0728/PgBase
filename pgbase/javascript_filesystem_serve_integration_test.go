@@ -58,7 +58,7 @@ exports.thumb=()=>{fs.createThumb("image.png","image-thumb.png","1x1");return {s
 	if err := objects.Write(context.Background(), "route.js", "image.png", encoded.Bytes()); err != nil {
 		t.Fatal(err)
 	}
-	physical, err := extensionObjectKey("route.js", "image.png")
+	physical, err := objects.physicalKey(context.Background(), "route.js", "image.png")
 	if err != nil {
 		t.Fatal(err)
 	}

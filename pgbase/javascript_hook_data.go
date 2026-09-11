@@ -34,7 +34,7 @@ func marshalJavaScriptHookData(event *HookEvent) (json.RawMessage, error) {
 		value = extensionMailHookRequest(*data)
 	case *MailEvent:
 		value = map[string]any{"purpose": data.Purpose, "message": extensionMailRequest{
-			To: data.Message.To, Subject: data.Message.Subject, Text: data.Message.Text, HTML: data.Message.HTML}}
+			To: data.Message.To, Subject: data.Message.Subject, Text: data.Message.Text, HTML: data.Message.HTML}, "meta": cloneMailMeta(data.Meta)}
 	case *api.RecordRequestEvent, *api.BatchRequestEvent, *api.SchemaImportRequestEvent, *api.CollectionRequestEvent, *api.RecordEnrichEvent,
 		*schema.CollectionMutationEvent, *filestore.FileEvent, *filestore.FileAccessEvent,
 		*ApplicationEvent, *AuthEvent, *StorageSettingsEvent, *backup.LifecycleEvent,

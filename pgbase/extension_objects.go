@@ -12,8 +12,10 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/filestore"
@@ -32,6 +34,101 @@ type ExtensionObjectEvent struct {
 	Size                      int64
 }
 
+type extensionObjectTransactionKey struct{}
+type extensionObjectTransactionState struct {
+	mu       sync.Mutex
+	cond     *sync.Cond
+	tx       pgx.Tx
+	objects  *ExtensionObjects
+	uploaded map[string]struct{}
+	active   int
+	closing  bool
+}
+
+func newExtensionObjectTransactionState(tx pgx.Tx, objects *ExtensionObjects) *extensionObjectTransactionState {
+	s := &extensionObjectTransactionState{tx: tx, objects: objects, uploaded: map[string]struct{}{}}
+	s.cond = sync.NewCond(&s.mu)
+	return s
+}
+
+func (s *extensionObjectTransactionState) acquire() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing {
+		return false
+	}
+	s.active++
+	return true
+}
+
+func (s *extensionObjectTransactionState) release() {
+	s.mu.Lock()
+	s.active--
+	if s.active == 0 {
+		s.cond.Broadcast()
+	}
+	s.mu.Unlock()
+}
+
+func (s *extensionObjectTransactionState) register(key string) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing || s.uploaded == nil {
+		return false
+	}
+	s.uploaded[key] = struct{}{}
+	return true
+}
+
+func (s *extensionObjectTransactionState) unregister(key string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	delete(s.uploaded, key)
+	s.mu.Unlock()
+}
+
+func (s *extensionObjectTransactionState) finish(ctx context.Context, rolledBack bool) error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	s.closing = true
+	for s.active > 0 {
+		s.cond.Wait()
+	}
+	keys := make([]string, 0, len(s.uploaded))
+	for key := range s.uploaded {
+		keys = append(keys, key)
+	}
+	s.uploaded = nil
+	s.mu.Unlock()
+	if !rolledBack || s.objects == nil || s.objects.store == nil {
+		return nil
+	}
+	cleanupCtx, cancel := database.BoundedCleanupContext(ctx)
+	defer cancel()
+	var result error
+	for _, key := range keys {
+		result = errors.Join(result, s.objects.store.Delete(cleanupCtx, key))
+	}
+	return result
+}
+
+func (o *ExtensionObjects) querier(ctx context.Context) trustedQuerier {
+	if state, ok := ctx.Value(extensionObjectTransactionKey{}).(*extensionObjectTransactionState); ok && state != nil && state.objects == o && state.tx != nil {
+		return state.tx
+	}
+	return o.pool
+}
+
 // ExtensionObjectInfo describes a namespace-local object without exposing its
 // backend key. Cursor is the last returned logical key.
 type ExtensionObjectInfo struct {
@@ -45,16 +142,16 @@ type ExtensionObjectPage struct {
 }
 
 func (o *ExtensionObjects) Attributes(ctx context.Context, namespace, key string) (ExtensionObjectInfo, error) {
-	physical, err := extensionObjectKey(namespace, key)
+	identity, err := extensionObjectKey(namespace, key)
 	if err != nil {
 		return ExtensionObjectInfo{}, err
 	}
 	if o == nil || o.pool == nil {
 		return ExtensionObjectInfo{}, errors.New("extension object storage unavailable")
 	}
-	parts := strings.Split(physical, "/")
+	parts := strings.Split(identity, "/")
 	var info ExtensionObjectInfo
-	err = o.pool.QueryRow(ctx, `select logical_key,size_bytes,updated_at from pgbase_meta.extension_objects where namespace_hash=$1 and key_hash=$2 and object_key=$3`, parts[1], parts[2], physical).Scan(&info.Key, &info.Size, &info.UpdatedAt)
+	err = o.querier(ctx).QueryRow(ctx, `select logical_key,size_bytes,updated_at from pgbase_meta.extension_objects where namespace_hash=$1 and key_hash=$2`, parts[1], parts[2]).Scan(&info.Key, &info.Size, &info.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ExtensionObjectInfo{}, filestore.ErrNotFound
 	}
@@ -82,12 +179,8 @@ func invalidExtensionPath(value string) bool {
 	return false
 }
 func (o *ExtensionObjects) Write(ctx context.Context, namespace, key string, data []byte) error {
-	event := &ExtensionObjectEvent{Namespace: namespace, Key: key, Operation: "write", Size: int64(len(data))}
-	write := func() error { _, err := o.WriteStream(ctx, namespace, key, bytes.NewReader(data)); return err }
-	if o != nil && o.hooks != nil {
-		return o.hooks.Run(ctx, &HookEvent{Kind: HookObjectWrite, Data: event}, write)
-	}
-	return write()
+	_, err := o.WriteStream(ctx, namespace, key, bytes.NewReader(data))
+	return err
 }
 
 func (o *ExtensionObjects) Read(ctx context.Context, namespace, key string) ([]byte, error) {
@@ -101,22 +194,15 @@ func (o *ExtensionObjects) Read(ctx context.Context, namespace, key string) ([]b
 
 // Open streams a bounded object after checking its namespace metadata.
 func (o *ExtensionObjects) Open(ctx context.Context, namespace, key string) (io.ReadCloser, error) {
-	physical, err := extensionObjectKey(namespace, key)
+	return o.open(ctx, ctx, namespace, key)
+}
+
+func (o *ExtensionObjects) open(metadataCtx, readerCtx context.Context, namespace, key string) (io.ReadCloser, error) {
+	physical, err := o.physicalKey(metadataCtx, namespace, key)
 	if err != nil {
 		return nil, err
 	}
-	if o == nil || o.store == nil || o.pool == nil {
-		return nil, errors.New("extension object storage unavailable")
-	}
-	parts := strings.Split(physical, "/")
-	var exists bool
-	if err := o.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.extension_objects where namespace_hash=$1 and key_hash=$2 and object_key=$3)`, parts[1], parts[2], physical).Scan(&exists); err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, filestore.ErrNotFound
-	}
-	r, err := o.store.Open(ctx, physical)
+	r, err := o.store.Open(readerCtx, physical)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +210,25 @@ func (o *ExtensionObjects) Open(ctx context.Context, namespace, key string) (io.
 	if limit <= 0 {
 		limit = 5 << 20
 	}
-	return &extensionLimitedReader{ReadCloser: r, ctx: ctx, remaining: limit + 1}, nil
+	return &extensionLimitedReader{ReadCloser: r, ctx: readerCtx, remaining: limit + 1}, nil
+}
+
+func (o *ExtensionObjects) physicalKey(ctx context.Context, namespace, key string) (string, error) {
+	identity, err := extensionObjectKey(namespace, key)
+	if err != nil {
+		return "", err
+	}
+	if o == nil || o.store == nil || o.pool == nil {
+		return "", errors.New("extension object storage unavailable")
+	}
+	parts := strings.Split(identity, "/")
+	var physical string
+	if err := o.querier(ctx).QueryRow(ctx, `select object_key from pgbase_meta.extension_objects where namespace_hash=$1 and key_hash=$2`, parts[1], parts[2]).Scan(&physical); errors.Is(err, pgx.ErrNoRows) {
+		return "", filestore.ErrNotFound
+	} else if err != nil {
+		return "", err
+	}
+	return physical, nil
 }
 
 type extensionLimitedReader struct {
@@ -150,48 +254,99 @@ func (r *extensionLimitedReader) Read(p []byte) (int, error) {
 
 // WriteStream consumes data incrementally; it never buffers the object in memory.
 func (o *ExtensionObjects) WriteStream(ctx context.Context, namespace, key string, data io.Reader) (int64, error) {
-	physical, err := extensionObjectKey(namespace, key)
+	identity, err := extensionObjectKey(namespace, key)
 	if err != nil {
 		return 0, err
 	}
 	if o == nil || o.store == nil || o.pool == nil {
 		return 0, errors.New("extension object storage unavailable")
 	}
+	temporary, written, err := o.spool(ctx, data)
+	if temporary != nil {
+		defer func() { _ = temporary.Close(); _ = os.Remove(temporary.Name()) }()
+	}
+	if err != nil {
+		return written, err
+	}
+	event := &ExtensionObjectEvent{Namespace: namespace, Key: key, Operation: "write", Size: written}
+	publish := func() error { return o.publishStream(ctx, identity, namespace, key, temporary, written) }
+	if o != nil && o.hooks != nil {
+		err := o.hooks.Run(ctx, &HookEvent{Kind: HookObjectWrite, Data: event}, publish)
+		return written, err
+	}
+	err = publish()
+	return written, err
+}
+
+func (o *ExtensionObjects) spool(ctx context.Context, data io.Reader) (*os.File, int64, error) {
 	limit := o.maximumBytes
 	if limit <= 0 {
 		limit = 5 << 20
 	}
 	temporary, err := os.CreateTemp("", "pgbase-extension-object-*")
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
-	temporaryName := temporary.Name()
-	defer func() { _ = temporary.Close(); _ = os.Remove(temporaryName) }()
 	written, copyErr := io.Copy(temporary, io.LimitReader(&extensionContextReader{ctx: ctx, reader: data}, limit+1))
 	if copyErr != nil {
-		return written, copyErr
+		return temporary, written, copyErr
 	}
 	if written > limit {
-		return written, filestore.ErrTooLarge
+		return temporary, written, filestore.ErrTooLarge
 	}
 	if _, err := temporary.Seek(0, io.SeekStart); err != nil {
-		return written, err
+		return temporary, written, err
 	}
+	return temporary, written, nil
+}
+
+func (o *ExtensionObjects) publishStream(ctx context.Context, identity, namespace, key string, temporary *os.File, written int64) error {
+	physical := identity + "/" + uuid.NewString()
+	var err error
 	if sized, ok := o.store.(filestore.SizedObjectStore); ok {
 		err = sized.PutSized(ctx, physical, temporary, written)
 	} else {
 		err = o.store.Put(ctx, physical, temporary)
 	}
 	if err != nil {
-		return written, err
+		return err
 	}
-	parts := strings.Split(physical, "/")
-	_, err = o.pool.Exec(ctx, `insert into pgbase_meta.extension_objects(namespace_hash,key_hash,object_key,size_bytes,logical_namespace,logical_key,updated_at) values($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP) on conflict(namespace_hash,key_hash) do update set object_key=excluded.object_key,size_bytes=excluded.size_bytes,logical_namespace=excluded.logical_namespace,logical_key=excluded.logical_key,updated_at=excluded.updated_at`, parts[1], parts[2], physical, written, namespace, key)
+	parts := strings.Split(identity, "/")
+	publish := func(tx trustedQuerier) error {
+		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtextextended($1,0))`, parts[1]+"/"+parts[2]); err != nil {
+			return err
+		}
+		var previous string
+		err := tx.QueryRow(ctx, `select object_key from pgbase_meta.extension_objects where namespace_hash=$1 and key_hash=$2`, parts[1], parts[2]).Scan(&previous)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `insert into pgbase_meta.extension_objects(namespace_hash,key_hash,object_key,size_bytes,logical_namespace,logical_key,updated_at) values($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP) on conflict(namespace_hash,key_hash) do update set object_key=excluded.object_key,size_bytes=excluded.size_bytes,logical_namespace=excluded.logical_namespace,logical_key=excluded.logical_key,updated_at=excluded.updated_at`, parts[1], parts[2], physical, written, namespace, key); err != nil {
+			return err
+		}
+		if previous != "" && previous != physical {
+			_, err = tx.Exec(ctx, `insert into pgbase_meta.file_object_deletions(object_key,queued_at) values($1,CURRENT_TIMESTAMP) on conflict(object_key) do nothing`, previous)
+		}
+		return err
+	}
+	state, external := ctx.Value(extensionObjectTransactionKey{}).(*extensionObjectTransactionState)
+	if external && state != nil && state.tx != nil && state.objects == o {
+		if !state.register(physical) {
+			_ = o.store.Delete(context.WithoutCancel(ctx), physical)
+			return errors.New("extension object transaction is closing")
+		}
+		err = publish(state.tx)
+	} else {
+		err = o.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error { return publish(tx) })
+	}
 	if err != nil {
 		_ = o.store.Delete(context.WithoutCancel(ctx), physical)
-		return written, err
+		if external {
+			state.unregister(physical)
+		}
+		return err
 	}
-	return written, nil
+	return nil
 }
 
 type extensionContextReader struct {
@@ -216,7 +371,7 @@ func (o *ExtensionObjects) List(ctx context.Context, namespace, prefix, cursor s
 	if limit < 1 || limit > 1000 {
 		return ExtensionObjectPage{}, errors.New("invalid object page limit")
 	}
-	rows, err := o.pool.Query(ctx, `select logical_key,size_bytes,updated_at from pgbase_meta.extension_objects where logical_namespace=$1 and logical_key like $2 and logical_key>$3 order by logical_key limit $4`, namespace, prefix+"%", cursor, limit+1)
+	rows, err := o.querier(ctx).Query(ctx, `select logical_key,size_bytes,updated_at from pgbase_meta.extension_objects where logical_namespace=$1 and left(logical_key,length($2))=$2 and logical_key>$3 order by logical_key limit $4`, namespace, prefix, cursor, limit+1)
 	if err != nil {
 		return ExtensionObjectPage{}, err
 	}
@@ -248,7 +403,7 @@ func (o *ExtensionObjects) Copy(ctx context.Context, namespace, source, destinat
 }
 
 func (o *ExtensionObjects) Delete(ctx context.Context, namespace, key string) error {
-	physical, err := extensionObjectKey(namespace, key)
+	identity, err := extensionObjectKey(namespace, key)
 	if err != nil {
 		return err
 	}
@@ -256,9 +411,9 @@ func (o *ExtensionObjects) Delete(ctx context.Context, namespace, key string) er
 		return errors.New("extension object storage unavailable")
 	}
 	event := &ExtensionObjectEvent{Namespace: namespace, Key: key, Operation: "delete"}
-	parts := strings.Split(physical, "/")
+	parts := strings.Split(identity, "/")
 	remove := func() error {
-		_, err := o.pool.Exec(ctx, `delete from pgbase_meta.extension_objects where namespace_hash=$1 and key_hash=$2 and object_key=$3`, parts[1], parts[2], physical)
+		_, err := o.querier(ctx).Exec(ctx, `delete from pgbase_meta.extension_objects where namespace_hash=$1 and key_hash=$2`, parts[1], parts[2])
 		return err
 	}
 	if o.hooks != nil {
@@ -308,7 +463,7 @@ func (host *extensionHost) callObjects(ctx context.Context, method string, raw j
 			return nil, extensionError("thumbnail_failed", readErr)
 		}
 		contentType := strings.TrimSpace(strings.Split(http.DetectContentType(probe[:n]), ";")[0])
-		physical, err := extensionObjectKey(host.namespace, request.OriginalKey)
+		physical, err := host.bridge.objects.physicalKey(ctx, host.namespace, request.OriginalKey)
 		if err != nil {
 			return nil, extensionError("thumbnail_failed", err)
 		}
@@ -426,7 +581,7 @@ func (host *extensionHost) callObjects(ctx context.Context, method string, raw j
 	}
 	switch method {
 	case "objects.open":
-		return host.openObjectHandle(ctx, request.Key)
+		return host.openObjectHandle(ctx, ctx, request.Key)
 	case "objects.write":
 		data, err := base64.StdEncoding.DecodeString(request.Data)
 		if err != nil {

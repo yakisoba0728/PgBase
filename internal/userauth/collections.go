@@ -219,6 +219,15 @@ func (s *Service) UpdateAuthCollection(ctx context.Context, id uuid.UUID, input 
 				return ErrConflict
 			}
 		}
+		var identityFields []string
+		if err := tx.QueryRow(ctx, `select identity_fields from pgbase_meta.auth_collection_policies where auth_collection_id=$1`, id).Scan(&identityFields); errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		} else if err != nil {
+			return err
+		}
+		if !identityFieldsMatchAuthSchema(identityFields, fields) {
+			return ErrValidation
+		}
 		rows, err := tx.Query(ctx, `select p.attributes from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id where u.auth_collection_id=$1 for update of p`, id)
 		if err != nil {
 			return err

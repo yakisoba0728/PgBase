@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -45,6 +46,23 @@ func TestCollectionScaffoldsAndTruncateHandlersExposeNativeContracts(t *testing.
 	(schemaEndpoints{records: records}).truncate(mismatchResponse, mismatch)
 	if mismatchResponse.Code != http.StatusBadRequest {
 		t.Fatalf("mismatch status=%d body=%s", mismatchResponse.Code, mismatchResponse.Body.String())
+	}
+}
+
+func TestResolveCollectionIdentifierRejectsAmbiguousCatalogDeterministically(t *testing.T) {
+	alphaID, fooID := uuid.New(), uuid.New()
+	catalog := schema.Catalog{Collections: map[string]schema.Collection{
+		"alpha": {ID: alphaID, Name: "alpha", CompatibilityName: "Foo"},
+		"foo":   {ID: fooID, Name: "foo"},
+	}}
+	for range 100 {
+		if _, err := resolveCollectionIdentifier(catalog, "fOo"); !errors.Is(err, schema.ErrConflict) {
+			t.Fatalf("ambiguous lookup error = %v, want ErrConflict", err)
+		}
+	}
+	resolved, err := resolveCollectionIdentifier(catalog, alphaID.String())
+	if err != nil || resolved.ID != alphaID {
+		t.Fatalf("ID lookup = (%+v, %v), want alpha", resolved, err)
 	}
 }
 

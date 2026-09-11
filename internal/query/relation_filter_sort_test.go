@@ -74,6 +74,34 @@ func TestCompileRelationListMultipleMembershipAndBoundedPath(t *testing.T) {
 	}
 }
 
+func TestCompileRelationListReverseRelationsUseIncomingCorrelation(t *testing.T) {
+	t.Parallel()
+	catalog, _ := relationFilterSortCatalog()
+	people := catalog.Collections["relation_people"]
+	for _, testCase := range []struct {
+		filter    string
+		fragments []string
+	}{
+		{filter: "relation_posts_via_owner.owner = '11111111-1111-4111-8111-111111111111'", fragments: []string{`FROM "app"."relation_posts" AS`, `"owner" = "rq_root"."id"`}},
+		{filter: "relation_posts_via_reviewers.owner = '11111111-1111-4111-8111-111111111111'", fragments: []string{`FROM "pgbase_relation".`, `"source_id"`, `"target_id" = "rq_root"."id"`}},
+	} {
+		filter := mustParseFilter(t, testCase.filter)
+		plan, err := compileRelationListPlan(catalog, people, filter, effectiveSortKeys(nil))
+		if err != nil {
+			t.Fatalf("compile %q: %v", testCase.filter, err)
+		}
+		statement, err := plan.statement(nil, 10)
+		if err != nil {
+			t.Fatalf("render %q: %v", testCase.filter, err)
+		}
+		for _, fragment := range testCase.fragments {
+			if !strings.Contains(statement.SQL, fragment) {
+				t.Fatalf("reverse SQL %q, want %q", statement.SQL, fragment)
+			}
+		}
+	}
+}
+
 func TestCompileRelationListRejectsStaticBudgets(t *testing.T) {
 	t.Parallel()
 
@@ -395,5 +423,8 @@ func relationFilterSortCatalog() (schema.Catalog, schema.Collection) {
 	return schema.Catalog{Collections: map[string]schema.Collection{
 		people.Name: people,
 		posts.Name:  posts,
-	}}, posts
+	}, Incoming: map[uuid.UUID][]schema.RelationRef{peopleID: {
+		{SourceCollectionID: postsID, SourceFieldID: posts.Fields[0].ID},
+		{SourceCollectionID: postsID, SourceFieldID: posts.Fields[1].ID},
+	}}}, posts
 }

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/yakisoba0728/PgBase/internal/recordops"
 )
 
 func TestRunModelMutationUsesAllLifecyclePhases(t *testing.T) {
@@ -25,6 +27,59 @@ func TestRunModelMutationUsesAllLifecyclePhases(t *testing.T) {
 	}
 	if !reflect.DeepEqual(order, []string{HookModelValidate, HookModelExecute, HookModelSuccess}) || event.Result != "created" {
 		t.Fatalf("order=%v event=%+v", order, event)
+	}
+}
+
+func TestRecordLifecyclePublishesFailedTransactionOutcome(t *testing.T) {
+	registry := &HookRegistry{}
+	failure := errors.New("commit failed")
+	var seen *HookEvent
+	_, err := registry.On("record.model.create.error", Hook{After: func(_ context.Context, event *HookEvent) {
+		seen = event
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooks := recordLifecycleHooks{registry: registry}
+	mutation := recordops.Mutation{Collection: "notes", Operation: "create"}
+	hooks.AfterMutationError(context.Background(), mutation, failure)
+	if seen == nil || !errors.Is(seen.Err, failure) {
+		t.Fatalf("error event = %#v", seen)
+	}
+	model, ok := seen.Data.(*ModelMutationEvent)
+	if !ok || !errors.Is(model.Err, failure) || model.Model != mutation {
+		t.Fatalf("model error event = %#v", seen.Data)
+	}
+}
+
+func TestAppModelWrapperAndRecordLifecyclePublishOneRecordOutcome(t *testing.T) {
+	registry := &HookRegistry{}
+	counts := map[string]int{}
+	for _, kind := range []string{"record.model.create.success", "record.model.create.error"} {
+		captured := kind
+		_, err := registry.On(kind, Hook{Before: func(context.Context, *HookEvent) error { counts[captured]++; return nil }})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	app := &App{options: Options{Hooks: registry}}
+	recordHooks := recordLifecycleHooks{registry: registry}
+	mutation := recordops.Mutation{Collection: "notes", Operation: "create"}
+	if err := app.RunModelMutation(context.Background(), &ModelMutationEvent{Operation: "create", Model: mutation}, func(context.Context, *ModelMutationEvent) error {
+		recordHooks.AfterMutation(context.Background(), mutation)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("rolled back")
+	if err := app.RunModelMutation(context.Background(), &ModelMutationEvent{Operation: "create", Model: mutation}, func(context.Context, *ModelMutationEvent) error {
+		recordHooks.AfterMutationError(context.Background(), mutation, failure)
+		return failure
+	}); !errors.Is(err, failure) {
+		t.Fatalf("wrapper error = %v", err)
+	}
+	if counts["record.model.create.success"] != 1 || counts["record.model.create.error"] != 1 {
+		t.Fatalf("record outcome counts = %v", counts)
 	}
 }
 

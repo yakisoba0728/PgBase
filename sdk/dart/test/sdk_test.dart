@@ -376,7 +376,8 @@ void main() {
   });
 
   test('OAuth launcher receives the provider URL before callback completion', () async {
-    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: _OAuthClient());
+    final oauth = _OAuthClient();
+    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: oauth);
     Uri? opened;
     await client.realm('members').oauthStartAndOpen(
       'github',
@@ -384,10 +385,12 @@ void main() {
       (url) { opened = url; },
     );
     expect(opened, Uri.parse('https://provider.test/authorize?state=expected-state'));
+    expect(oauth.requests, ['/api/v1/auth/members/oauth/start']);
   });
 
   test('OAuth browser flow validates callback state and always closes its adapter', () async {
-    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: _OAuthClient());
+    final oauth = _OAuthClient();
+    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: oauth);
     var closed = 0;
     final session = await client.realm('members').oauthWithBrowser(
       'github',
@@ -399,6 +402,10 @@ void main() {
       ),
     );
     expect(session.token, 'oauth-token');
+    expect(oauth.requests.take(2).toList(), [
+      '/api/v1/auth/members/oauth/start',
+      '/api/v1/auth/oauth/complete',
+    ]);
     expect(closed, 1);
     await expectLater(
       client.realm('members').oauthWithBrowser(
@@ -408,6 +415,23 @@ void main() {
       throwsA(isA<OAuthCallbackError>()),
     );
     expect(closed, 2);
+    await expectLater(
+      client.realm('members').oauthWithBrowser(
+        'github',
+        'app://callback',
+        OAuthBrowserAdapter(
+          open: (_) {},
+          waitForCallback: (_) async => Uri.parse(
+            'app://callback?state=expected-state&error=access_denied&error_description=cancelled',
+          ),
+          close: () => closed++,
+        ),
+      ),
+      throwsA(
+        isA<OAuthCallbackError>().having((error) => error.code, 'code', 'access_denied'),
+      ),
+    );
+    expect(closed, 3);
   });
 
   test('a delayed restore cannot replace a newer clear', () async {
@@ -878,9 +902,11 @@ final class _NetworkClient extends http.BaseClient {
 }
 
 final class _OAuthClient extends http.BaseClient {
+  final List<String> requests = [];
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     await request.finalize().drain<void>();
+    requests.add(request.url.path);
     if (request.url.path.endsWith('/oauth/start')) {
       return _jsonResponse(200, {'authorizationUrl': 'https://provider.test/authorize?state=expected-state', 'expiresAt': '2026-01-02T00:00:00Z'});
     }

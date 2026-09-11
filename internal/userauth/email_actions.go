@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"errors"
 	"fmt"
+	"html"
 	"net/url"
 	"strings"
 	"time"
@@ -256,8 +257,33 @@ func (s *Service) AdminSendAuthAlert(ctx context.Context, userID uuid.UUID) erro
 	if err != nil {
 		return ErrNotFound
 	}
-	s.sendAuthAlert(ctx, managed.User, "Administrator requested security alert")
-	return nil
+	return s.sendAuthAlertMessage(ctx, managed.User, "Administrator requested security alert")
+}
+
+// AdminSendRecordOTP sends caller-selected OTP credentials without creating,
+// consuming, or replacing an OTP challenge.
+func (s *Service) AdminSendRecordOTP(ctx context.Context, collectionID, userID uuid.UUID, otpID, password string) error {
+	if collectionID == uuid.Nil || userID == uuid.Nil || strings.TrimSpace(otpID) == "" || strings.TrimSpace(password) == "" {
+		return ErrValidation
+	}
+	managed, _, err := userPasswordByIDDB(ctx, s.pool, userID, false)
+	if err != nil || managed.AuthCollectionID != collectionID {
+		return ErrNotFound
+	}
+	return s.sendOTP(ctx, collectionID, managed.Email, otpID, password)
+}
+
+// AdminSendRecordAuthAlert renders the supplied alert information and returns
+// transport/template failures to the explicitly privileged caller.
+func (s *Service) AdminSendRecordAuthAlert(ctx context.Context, userID uuid.UUID, alertInfo string) error {
+	if strings.TrimSpace(alertInfo) == "" {
+		return ErrValidation
+	}
+	managed, _, err := userPasswordByIDDB(ctx, s.pool, userID, false)
+	if err != nil {
+		return ErrNotFound
+	}
+	return s.sendAuthAlertMessage(ctx, managed.User, alertInfo)
 }
 
 func (s *Service) ConfirmEmailChange(ctx context.Context, rawToken string) error {
@@ -405,24 +431,28 @@ func (s *Service) sendAction(ctx context.Context, userID uuid.UUID, to, subject,
 // turn a successfully verified credential into a failed login. Administrators
 // opt in by storing the auth_alert template for the collection.
 func (s *Service) sendAuthAlert(ctx context.Context, user User, alert string) {
+	_ = s.sendAuthAlertMessage(ctx, user, alert)
+}
+
+func (s *Service) sendAuthAlertMessage(ctx context.Context, user User, alert string) error {
 	var subject, body, htmlBody string
 	err := s.pool.QueryRow(ctx, `select subject,body,html_body from pgbase_meta.auth_mail_templates where auth_collection_id=$1 and purpose='auth_alert'`, user.AuthCollectionID).Scan(&subject, &body, &htmlBody)
 	if err != nil {
-		return
+		return err
 	}
 	body = strings.ReplaceAll(body, "{{alert}}", alert)
 	if htmlBody != "" {
 		var wrapErr error
-		htmlBody, wrapErr = mailer.WrapHTML(strings.ReplaceAll(htmlBody, "{{alert}}", alert))
+		htmlBody, wrapErr = mailer.WrapHTML(strings.ReplaceAll(htmlBody, "{{alert}}", html.EscapeString(alert)))
 		if wrapErr != nil {
-			return
+			return wrapErr
 		}
 	}
 	sender, err := s.smtpSender(ctx, user.AuthCollectionID)
 	if err != nil {
-		return
+		return err
 	}
-	_ = sender.Send(ctx, mailer.Message{Purpose: "auth_alert", To: user.Email, Subject: subject, Text: body, HTML: htmlBody})
+	return sender.Send(ctx, mailer.Message{Purpose: "auth_alert", To: user.Email, Subject: subject, Text: body, HTML: htmlBody, Meta: map[string]any{"info": alert}})
 }
 
 func (s *Service) actionTokenHash(purpose, raw string) []byte {

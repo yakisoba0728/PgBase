@@ -28,7 +28,7 @@ type ObjectStore interface {
 // inventory/copy session.
 const ObjectGCKey int64 = 0x5047424146494c45
 
-var storedObjectKey = regexp.MustCompile(`^(?:(?:objects|thumbnails)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|extensions/[0-9a-f]{64}/[0-9a-f]{64})$`)
+var storedObjectKey = regexp.MustCompile(`^(?:(?:objects|thumbnails)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|extensions/[0-9a-f]{64}/[0-9a-f]{64}(?:/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)$`)
 
 // ObjectPage is a bounded page returned by stores that can inventory object
 // keys. Callers must treat keys as opaque storage keys.

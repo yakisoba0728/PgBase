@@ -44,8 +44,8 @@ type authMailService interface {
 	AdminRequestPasswordReset(context.Context, uuid.UUID) error
 	AdminRequestVerification(context.Context, uuid.UUID) error
 	AdminRequestEmailChange(context.Context, uuid.UUID, string) error
-	RequestEmailOTPInCollection(context.Context, uuid.UUID, string, string) (userauth.EmailOTPRequest, error)
-	AdminSendAuthAlert(context.Context, uuid.UUID) error
+	AdminSendRecordOTP(context.Context, uuid.UUID, uuid.UUID, string, string) error
+	AdminSendRecordAuthAlert(context.Context, uuid.UUID, string) error
 }
 
 type authAPIService interface {
@@ -77,6 +77,8 @@ type extensionHost struct {
 	databaseMu       sync.Mutex
 	databaseTx       pgx.Tx
 	databaseToken    uuid.UUID
+	recordOutcome    *recordops.TransactionOutcome
+	objectTx         *extensionObjectTransactionState
 	inputPreparer    *javaScriptRouteBody
 	servedObject     *extensionServedObject
 }
@@ -139,11 +141,22 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 	// An object reader is consumed by later host calls in the same JS
 	// invocation. Its context must therefore be the invocation context, not
 	// the short-lived operation context that is released after open returns.
-	if method == "objects.open" {
-		return host.callObjects(ctx, method, input)
+	if method == "objects.open" || method == "filesystem.open" {
+		operationContext, cleanup, err := host.operationContext(ctx)
+		if err != nil {
+			return nil, extensionError("extension_context_expired", err)
+		}
+		defer cleanup()
+		var request struct{ Key string }
+		if err := decodeExtensionInput(input, &request); err != nil {
+			return nil, err
+		}
+		return host.openObjectHandle(operationContext, ctx, request.Key)
 	}
-	if method == "filesystem.open" {
-		return host.callObjects(ctx, "objects.open", input)
+	// Transaction finalization waits for all transaction-bound operations.
+	// It must not register itself as one of those operations.
+	if method == "app-control.databaseCommit" || method == "app-control.databaseRollback" {
+		return host.callAppControl(ctx, method, input)
 	}
 	operationContext, cleanup, err := host.operationContext(ctx)
 	if err != nil {
@@ -307,7 +320,7 @@ func (host *extensionHost) callAuthMail(ctx context.Context, raw json.RawMessage
 	if err != nil || host.bridge.compatibility == nil || !host.bridge.compatibility.authMailCollections[realm] {
 		return nil, extensionError("permission_denied", errors.New("auth mail collection is not operator-authorized"))
 	}
-	record, err := host.bridge.authMail.GetAuthRecord(ctx, realm, id)
+	_, err = host.bridge.authMail.GetAuthRecord(ctx, realm, id)
 	if err != nil {
 		return nil, mapExtensionError(err)
 	}
@@ -332,12 +345,12 @@ func (host *extensionHost) callAuthMail(ctx context.Context, raw json.RawMessage
 		if r.NewEmail != "" || r.OTPID != "" || r.OTPPass != "" || len(r.AlertInfo) == 0 || !json.Valid(r.AlertInfo) {
 			return nil, extensionError("invalid_auth_mail_request", errors.New("auth alert requires alert info only"))
 		}
-		err = host.bridge.authMail.AdminSendAuthAlert(ctx, id)
+		err = host.bridge.authMail.AdminSendRecordAuthAlert(ctx, id, string(r.AlertInfo))
 	case "otp":
 		if r.NewEmail != "" || len(r.AlertInfo) != 0 || strings.TrimSpace(r.OTPID) == "" || strings.TrimSpace(r.OTPPass) == "" {
 			return nil, extensionError("invalid_auth_mail_request", errors.New("OTP requires otpId and otpPass only"))
 		}
-		_, err = host.bridge.authMail.RequestEmailOTPInCollection(ctx, realm, record.Email, "admin-local")
+		err = host.bridge.authMail.AdminSendRecordOTP(ctx, realm, id, r.OTPID, r.OTPPass)
 	default:
 		return nil, extensionError("invalid_auth_mail_request", nil)
 	}
@@ -427,10 +440,6 @@ func (host *extensionHost) runAppModelMutation(ctx context.Context, operation st
 		}
 		return err
 	})
-	if err != nil && host.bridge.appControl.app.options.Hooks != nil {
-		failed := &ModelMutationEvent{Operation: operation, Family: "record", Model: model, Err: err}
-		_ = host.bridge.appControl.app.options.Hooks.Run(ctx, &HookEvent{Kind: "record.model." + operation + ".error", Data: failed, Err: err}, func() error { return nil })
-	}
 	return output, err
 }
 
@@ -461,9 +470,24 @@ func (host *extensionHost) operationContext(caller context.Context) (context.Con
 	}
 	host.databaseMu.Lock()
 	activeTx := host.databaseTx
+	activeRecordOutcome := host.recordOutcome
+	activeObjectTx := host.objectTx
+	if activeObjectTx != nil && !activeObjectTx.acquire() {
+		activeObjectTx = nil
+	}
 	host.databaseMu.Unlock()
+	if activeObjectTx != nil {
+		previousCleanup := cleanup
+		cleanup = func() {
+			activeObjectTx.release()
+			previousCleanup()
+		}
+	}
 	if activeTx != nil {
-		combined = recordops.WithTransaction(combined, activeTx)
+		combined = recordops.WithTransactionOutcome(combined, activeTx, activeRecordOutcome)
+		if activeObjectTx != nil {
+			combined = context.WithValue(combined, extensionObjectTransactionKey{}, activeObjectTx)
+		}
 	}
 	return combined, cleanup, nil
 }

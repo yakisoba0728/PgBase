@@ -570,6 +570,22 @@ func writeJavaScriptRouteError(w http.ResponseWriter, err error) {
 	var executionError *jsvm.Error
 	status := http.StatusInternalServerError
 	if errors.As(err, &executionError) {
+		if executionError.PublicError != nil {
+			public := executionError.PublicError
+			body, marshalErr := json.Marshal(struct {
+				Status  int             `json:"status"`
+				Message string          `json:"message"`
+				Data    json.RawMessage `json:"data"`
+			}{Status: public.Status, Message: public.Message, Data: public.Data})
+			if marshalErr != nil {
+				http.Error(w, "JavaScript extension failed: Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(public.Status)
+			_, _ = w.Write(body)
+			return
+		}
 		switch executionError.Code {
 		case jsvm.CodeBusy, jsvm.CodeRuntimeClosed:
 			status = http.StatusServiceUnavailable

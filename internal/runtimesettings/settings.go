@@ -217,18 +217,16 @@ func (c *Controller) Reload(ctx context.Context) error {
 	if err := validate(v); err != nil {
 		return err
 	}
-	c.mu.Lock()
-	if v.Revision < c.value.Revision {
-		c.mu.Unlock()
+	c.mu.RLock()
+	stale := v.Revision < c.value.Revision
+	c.mu.RUnlock()
+	if stale {
 		return nil
 	}
-	c.value = clone(v)
+	c.mu.Lock()
 	c.ciphertext = append(c.ciphertext[:0], ciphertext...)
-	listeners := append([]func(Settings){}, c.listeners...)
 	c.mu.Unlock()
-	for _, listener := range listeners {
-		listener(clone(v))
-	}
+	c.publish(v)
 	return nil
 }
 func (c *Controller) Update(ctx context.Context, candidate Settings) (Settings, error) {
@@ -265,15 +263,10 @@ func (c *Controller) Update(ctx context.Context, candidate Settings) (Settings, 
 	candidate.Revision = next
 	c.mu.Lock()
 	if candidate.Revision >= c.value.Revision {
-		c.value = clone(candidate)
 		c.ciphertext = append(c.ciphertext[:0], ciphertext...)
 	}
-	listeners := append([]func(Settings){}, c.listeners...)
 	c.mu.Unlock()
-	for _, listener := range listeners {
-		listener(clone(candidate))
-	}
-	return candidate, nil
+	return c.publish(candidate), nil
 }
 
 // RotateKey re-encrypts the durable document without changing its revision or
@@ -352,7 +345,23 @@ func (c *Controller) decrypt(ciphertext []byte) ([]byte, error) {
 
 func clone(v Settings) Settings {
 	v.Proxy.TrustedProxyCIDRs = append([]string(nil), v.Proxy.TrustedProxyCIDRs...)
+	v.RateLimits.Rules = append([]APIRateRule(nil), v.RateLimits.Rules...)
+	v.RateLimits.ExcludedIPs = append([]string(nil), v.RateLimits.ExcludedIPs...)
 	return v
+}
+
+// publish installs an owned settings snapshot, then gives every listener and
+// caller its own copy. The caller must hold notifyMu so publications retain
+// their durable commit order.
+func (c *Controller) publish(v Settings) Settings {
+	c.mu.Lock()
+	c.value = clone(v)
+	listeners := append([]func(Settings){}, c.listeners...)
+	c.mu.Unlock()
+	for _, listener := range listeners {
+		listener(clone(v))
+	}
+	return clone(v)
 }
 
 // TrustedProxies returns the validated runtime snapshot in the representation

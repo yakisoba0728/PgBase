@@ -297,6 +297,9 @@ func validateCreateAgainstCatalog(catalog Catalog, definition PlannedCollection)
 		if collection.Name == definition.Name || collection.TableName == definition.TableName {
 			return ErrConflict
 		}
+		if strings.EqualFold(collection.CompatibilityName, definition.Name) {
+			return validation("name", "duplicate_name")
+		}
 		if definition.CompatibilityName != "" && (strings.EqualFold(collection.Name, definition.CompatibilityName) || strings.EqualFold(collection.CompatibilityName, definition.CompatibilityName)) {
 			return validation("compatibilityName", "duplicate_name")
 		}
@@ -318,7 +321,7 @@ func sameCatalogContent(left, right Catalog) bool {
 
 func validateCatalogIntegrity(catalog Catalog) error {
 	collectionIDs := make(map[uuid.UUID]bool, len(catalog.Collections))
-	compatibilityNames := map[string]bool{}
+	lookupNames := map[string]uuid.UUID{}
 	for key, collection := range catalog.Collections {
 		if key != collection.Name || collection.Name != collection.TableName || collection.ID == uuid.Nil || collectionIDs[collection.ID] {
 			return ErrConflict
@@ -332,12 +335,20 @@ func validateCatalogIntegrity(catalog Catalog) error {
 		if collection.ValidationMode != "" && collection.ValidationMode != ValidationModePostgres && collection.ValidationMode != ValidationModePocketBase {
 			return ErrConflict
 		}
+		nativeName := strings.ToLower(collection.Name)
+		if owner, exists := lookupNames[nativeName]; exists && owner != collection.ID {
+			return ErrConflict
+		}
+		lookupNames[nativeName] = collection.ID
 		if collection.CompatibilityName != "" {
 			normalized := strings.ToLower(collection.CompatibilityName)
-			if !compatibilityCollectionName.MatchString(collection.CompatibilityName) || compatibilityNames[normalized] {
+			if !compatibilityCollectionName.MatchString(collection.CompatibilityName) {
 				return ErrConflict
 			}
-			compatibilityNames[normalized] = true
+			if owner, exists := lookupNames[normalized]; exists && owner != collection.ID {
+				return ErrConflict
+			}
+			lookupNames[normalized] = collection.ID
 		}
 		collectionIDs[collection.ID] = true
 	}

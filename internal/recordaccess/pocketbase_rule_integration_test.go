@@ -155,3 +155,40 @@ func TestPocketBaseCatalogRulesEnforceRelationsBackrelationsCollectionsAndJSON(t
 		t.Fatal(err)
 	}
 }
+
+func TestRuleServiceSetAcceptsPocketBaseRelationRule(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err = migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	schemas := schema.NewService(pool, nil, nil)
+	admin := uuid.New()
+	if _, err = pool.Exec(ctx, `insert into pgbase_meta.admins(id,email,password_hash,active,created_at,updated_at) values($1,$2,'x',true,now(),now())`, admin, admin.String()+"@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	apply := func(input schema.CreateCollectionInput) {
+		change := schema.NewCreateChange(input)
+		plan, previewErr := schemas.Preview(ctx, change)
+		if previewErr != nil {
+			t.Fatal(previewErr)
+		}
+		if _, applyErr := schemas.Apply(ctx, schema.LegacyApply(change, plan, admin)); applyErr != nil {
+			t.Fatal(applyErr)
+		}
+	}
+	apply(schema.CreateCollectionInput{Name: "pb_rule_authors", Fields: []schema.FieldInput{{Name: "name", Type: schema.TypeText}}})
+	apply(schema.CreateCollectionInput{Name: "pb_rule_docs", Fields: []schema.FieldInput{{Name: "author", Type: schema.TypeRelation, Relation: &schema.RelationInput{TargetCollection: "pb_rule_authors", Cardinality: schema.RelationSingle, OnDelete: schema.RelationRestrict}}}})
+	rule, err := query.ParsePocketBaseAccessRule("author.name = 'Alice'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := accessrule.Rules{List: rule, View: rule, Create: rule, Update: rule, Delete: rule}
+	if _, err = recordaccess.NewRuleService(pool, schemas).Set(ctx, "pb_rule_docs", rules); err != nil {
+		t.Fatalf("valid PocketBase relation rule rejected by Set: %v", err)
+	}
+}

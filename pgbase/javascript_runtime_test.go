@@ -48,6 +48,22 @@ func TestJavaScriptRouteUsesBoundedHTTPAdapter(t *testing.T) {
 	}
 }
 
+func TestJavaScriptRoutePreservesPublicApiErrors(t *testing.T) {
+	directory := t.TempDir()
+	writeJavaScriptFixture(t, directory, `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/typed-error","access":"public","handler":{"module":"route.js","export":"run"}}]}`, `exports.run=()=>{throw new ApiError(456,"custom error",{field:"invalid"})}`)
+	runtime, err := prepareJavaScript(JavaScriptOptions{Directory: directory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+
+	response := httptest.NewRecorder()
+	runtime.routes()[0].Handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/typed-error", nil))
+	if response.Code != 456 || response.Header().Get("Content-Type") != "application/json" || strings.TrimSpace(response.Body.String()) != `{"status":456,"message":"custom error","data":{"field":"invalid"}}` {
+		t.Fatalf("response=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+}
+
 func TestJavaScriptBodyLimitBoundsTheHTTPReader(t *testing.T) {
 	directory := t.TempDir()
 	writeJavaScriptFixture(t, directory, `{"format":"pgbase.scripts/v1","routes":[{"method":"POST","pattern":"/limited","access":"public","handler":{"module":"route.js","export":"run"},"maximumRequestBytes":1024}]}`, `exports.run=$apis.bodyLimit(4)((request)=>({status:200,body:request.body}));`)

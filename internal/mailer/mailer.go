@@ -12,6 +12,9 @@ type Message struct {
 	Text        string       `json:"text"`
 	HTML        string       `json:"html"`
 	Attachments []Attachment `json:"-"`
+	// Meta is invocation-scoped hook data. It is never serialized by a mail
+	// transport; callers must allocate a fresh map for every message.
+	Meta map[string]any `json:"-"`
 }
 
 type Attachment struct {

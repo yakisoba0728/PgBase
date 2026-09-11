@@ -13,7 +13,7 @@ func TestBootstrapRegistrationsReplayClosuresForRouteHookAndJob(t *testing.T) {
 	directory := t.TempDir()
 	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","bootstrap":"bootstrap.js","routes":[{"method":"GET","pattern":"/registered","access":"public","handler":{"module":"placeholder.js","export":"run"}}],"hooks":[{"event":"record.create","priority":3,"before":{"module":"placeholder.js","export":"run"}}],"jobs":[{"name":"cleanup","schedule":"0 * * * *","handler":{"module":"placeholder.js","export":"run"}}]}`)
 	writeFile(t, directory, "placeholder.js", `exports.run=()=>({placeholder:true})`)
-	writeFile(t, directory, "bootstrap.js", `const prefix="captured";routerUse((next)=>(e)=>{const r=next(e);r.middleware=true;return r});routerAdd("GET","/registered",(e)=>({kind:"route",prefix,value:e.value}));onRecordCreateRequest((e)=>({kind:"hook",prefix,value:e.value}));cronAdd("cleanup","0 * * * *",(e)=>({kind:"job",prefix,value:e.value}))`)
+	writeFile(t, directory, "bootstrap.js", `const prefix="captured";routerUse((next)=>(e)=>{const r=next(e);r.middleware=true;return r});routerAdd("GET","/registered",(e)=>({kind:"route",prefix,value:e.value}));onRecordCreateRequest((e)=>{e.next();return {kind:"hook",prefix,value:e.value}});cronAdd("cleanup","0 * * * *",(e)=>({kind:"job",prefix,value:e.value}))`)
 	bundle, err := jsvm.LoadBundle(directory)
 	if err != nil {
 		t.Fatal(err)

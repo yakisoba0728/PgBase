@@ -72,11 +72,13 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		61: "b2684b9d6e2e683af9881babe3271630875f8037b7736224d80dd501b2a4824d",
 		62: "3eadda68191f1cc77ba44d8e1bc87dd6c1d3e7a24ff6cdee6dd85e5d8cedbfbd",
 		63: "2eed059e8a905d507b14a55fdda1bcce68da46be10efa29da903b948378ccdea",
+		64: "883a13de641abb913222955a55973b4836e6aee5af287fb6fd936667b500b885",
+		65: "a2e69813d14ef3bf9cee28dce4a31112104fcc12ccc33a13c5a8bf8c20571340",
 		55: "157df7385a28770bcf64dff7ba195b5a719100c68accc6b38a0dd0cb97884bef",
 	}
 	migrations := system.Migrations()
-	if len(migrations) != 58 || migrations[len(migrations)-1].Version != 63 ||
-		migrations[len(migrations)-1].Name != "advanced_collection_indexes" || migrations[7].Version != 8 ||
+	if len(migrations) != 60 || migrations[len(migrations)-1].Version != 65 ||
+		migrations[len(migrations)-1].Name != "optional_auth_email_uniqueness" || migrations[7].Version != 8 ||
 		migrations[7].Name != "schema_companion_indexes" ||
 		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" ||
 		migrations[9].Version != 10 || migrations[9].Name != "public_users" ||

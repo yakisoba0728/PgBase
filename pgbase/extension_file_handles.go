@@ -147,16 +147,19 @@ func (host *extensionHost) Close() error {
 	if host == nil {
 		return nil
 	}
-	host.fileMu.Lock()
-	defer host.fileMu.Unlock()
 	var result error
+	// Transaction finalization can wait for active host operations. Do not hold
+	// a handle mutex while waiting because those operations may need it before
+	// their operation-context cleanup releases the transaction reference.
 	result = errors.Join(result, host.rollbackAppTransaction())
 	result = errors.Join(result, host.closeObjectHandles())
+	host.fileMu.Lock()
 	for id, handle := range host.fileHandles {
 		if handle.reader != nil {
 			result = errors.Join(result, handle.reader.Close())
 		}
 		delete(host.fileHandles, id)
 	}
+	host.fileMu.Unlock()
 	return result
 }

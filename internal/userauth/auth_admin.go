@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/mailer"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 // OAuthMethodProvider describes a provider that can be started from the public
@@ -197,6 +198,16 @@ func (s *Service) SetAuthPolicy(ctx context.Context, collectionID uuid.UUID, pol
 		} else if err != nil {
 			return err
 		}
+		var fieldsRaw []byte
+		if err := tx.QueryRow(ctx, `select fields_json from pgbase_meta.auth_collections where id=$1 for share`, collectionID).Scan(&fieldsRaw); errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		} else if err != nil {
+			return err
+		}
+		var fields []schema.FieldInput
+		if json.Unmarshal(fieldsRaw, &fields) != nil || !identityFieldsMatchAuthSchema(policy.IdentityFields, fields) {
+			return ErrValidation
+		}
 		for _, field := range policy.IdentityFields {
 			if field == "email" {
 				continue
@@ -233,6 +244,25 @@ func (s *Service) SetAuthPolicy(ctx context.Context, collectionID uuid.UUID, pol
 		return err
 	})
 	return policy, err
+}
+
+func identityFieldsMatchAuthSchema(identityFields []string, fields []schema.FieldInput) bool {
+	available := make(map[string]schema.FieldInput, len(fields))
+	for _, field := range fields {
+		available[field.Name] = field
+	}
+	for _, name := range identityFields {
+		if name == "email" {
+			continue
+		}
+		field, ok := available[name]
+		// Password login reads custom identities as scalar JSON text. A declared,
+		// visible text field is the matching stored-schema contract.
+		if !ok || field.Type != schema.TypeText || field.Hidden {
+			return false
+		}
+	}
+	return true
 }
 
 func validPasswordPattern(pattern string) bool { _, err := regexp.Compile(pattern); return err == nil }

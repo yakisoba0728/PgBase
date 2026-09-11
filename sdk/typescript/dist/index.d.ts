@@ -81,6 +81,8 @@ export type EventOptions = {
     maxReconnects?: number;
     reconnectDelayMs?: number;
 };
+/** Reconnect policy for the shared PocketBase-compatible realtime session. */
+export type RealtimeSubscriptionOptions = Pick<EventOptions, "maxReconnects" | "reconnectDelayMs">;
 /** A collection record event, retained for existing PocketBase subscriptions. */
 export type RealtimeEvent<T extends RecordData = RecordData> = {
     action: "create" | "update" | "delete";
@@ -325,9 +327,13 @@ export declare class RealtimeService {
     private running?;
     private ready?;
     private resolveReady?;
+    private rejectReady?;
+    private readySettled;
+    private maxReconnects;
+    private reconnectDelayMs;
     constructor(client: PgBaseClient);
-    subscribe(topic: `@${string}`, listener: (event: RealtimeCustomEvent) => void): Promise<() => Promise<void>>;
-    subscribe<T extends RecordData = RecordData>(topic: string, listener: (event: RealtimeEvent<T>) => void): Promise<() => Promise<void>>;
+    subscribe(topic: `@${string}`, listener: (event: RealtimeCustomEvent) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
+    subscribe<T extends RecordData = RecordData>(topic: string, listener: (event: RealtimeEvent<T>) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
     /**
      * Subscribes to an application-owned topic without exposing its reserved
      * realtime wire name. The callback receives the original UTF-8 topic.
@@ -337,6 +343,7 @@ export declare class RealtimeService {
     private ensureRunning;
     private sync;
     private run;
+    private fail;
 }
 export declare class AuthRealm {
     private readonly client;

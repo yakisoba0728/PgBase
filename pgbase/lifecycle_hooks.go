@@ -177,6 +177,10 @@ func (h recordLifecycleHooks) AfterMutation(ctx context.Context, mutation record
 	model := &ModelMutationEvent{Operation: mutation.Operation, Family: "record", Model: mutation}
 	_ = h.registry.Run(ctx, &HookEvent{Kind: "record.model." + mutation.Operation + ".success", Data: model}, func() error { return nil })
 }
+func (h recordLifecycleHooks) AfterMutationError(ctx context.Context, mutation recordops.Mutation, err error) {
+	model := &ModelMutationEvent{Operation: mutation.Operation, Family: "record", Model: mutation, Err: err}
+	_ = h.registry.Run(ctx, &HookEvent{Kind: "record.model." + mutation.Operation + ".error", Data: model}, func() error { return err })
+}
 
 type hookedMailer struct {
 	registry *HookRegistry
@@ -196,7 +200,7 @@ func (m hookedMailer) Send(ctx context.Context, message mailer.Message) error {
 	// edit deliverable fields but cannot recategorize a send into another hook.
 	message.Purpose = purpose
 	if kind := mailPurposeHook(message.Purpose); kind != "" {
-		event := &MailEvent{Purpose: message.Purpose, Message: message}
+		event := &MailEvent{Purpose: message.Purpose, Message: message, Meta: cloneMailMeta(message.Meta)}
 		purposeFinish, purposeErr := m.registry.Begin(ctx, &HookEvent{Kind: kind, Data: event})
 		if purposeErr != nil {
 			purposeFinish(purposeErr)
@@ -224,6 +228,20 @@ func (m hookedMailer) Send(ctx context.Context, message mailer.Message) error {
 type MailEvent struct {
 	Purpose string
 	Message mailer.Message
+	// Meta mirrors the trusted, invocation-scoped metadata supplied by the
+	// mail service. It is available to purpose hooks but is not sent over SMTP.
+	Meta map[string]any
+}
+
+func cloneMailMeta(meta map[string]any) map[string]any {
+	if len(meta) == 0 {
+		return nil
+	}
+	cloned := make(map[string]any, len(meta))
+	for key, value := range meta {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func mailPurposeHook(purpose string) string {

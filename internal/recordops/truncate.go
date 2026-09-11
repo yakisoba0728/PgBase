@@ -37,8 +37,8 @@ func (s *Service) Truncate(ctx context.Context, request TruncateRequest) (result
 	}
 	ctx, hooks := s.hookContext(ctx)
 	if hooks != nil {
-		hooks.deferAfter = true
-		defer func() { hooks.deferAfter = false; hooks.afterCommitted(ctx, &err) }()
+		hooks.deferAfter++
+		defer func() { hooks.deferAfter--; hooks.after(ctx, &err) }()
 	}
 	result.Name = request.Collection
 	err = database.Retry(ctx, func() error {
@@ -134,7 +134,7 @@ func countTruncateRelations(ctx context.Context, tx pgx.Tx, catalog schema.Catal
 				} else if field.Relation.TargetCollectionID != root.ID {
 					continue
 				}
-				err := tx.QueryRow(ctx, "select count(*) from "+pgx.Identifier{"app", field.Relation.Storage.Name}.Sanitize()+" where "+where, ids).Scan(&count)
+				err := tx.QueryRow(ctx, "select count(*) from "+pgx.Identifier{"pgbase_relation", field.Relation.Storage.Name}.Sanitize()+" where "+where, ids).Scan(&count)
 				if err != nil {
 					return 0, err
 				}

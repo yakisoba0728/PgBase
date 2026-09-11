@@ -10,7 +10,28 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
+
+func TestTruncateCountsMultipleRelationsInRelationSchema(t *testing.T) {
+	_, schemas, records, principal := newRecordOperationsTest(t)
+	ctx := context.Background()
+	applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{Name: "truncate_targets", Fields: []schema.FieldInput{{Name: "name", Type: schema.TypeText, Required: true}}})
+	maximum := 3
+	applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{Name: "truncate_sources", Fields: []schema.FieldInput{
+		{Name: "name", Type: schema.TypeText, Required: true},
+		{Name: "links", Type: schema.TypeRelation, Relation: &schema.RelationInput{TargetCollection: "truncate_targets", Cardinality: schema.RelationMultiple, MaxSelect: &maximum, OnDelete: schema.RelationSetNull}},
+	}})
+	target := createDeleteRecord(t, ctx, records, principal, "truncate_targets", "truncate-target", map[string]json.RawMessage{"name": json.RawMessage(`"target"`)})
+	createDeleteRecord(t, ctx, records, principal, "truncate_sources", "truncate-source", map[string]json.RawMessage{"name": json.RawMessage(`"source"`), "links": relationUUIDArrayJSON(recordResultID(t, target))})
+	result, err := records.Truncate(ctx, TruncateRequest{Principal: principal, RequestID: "truncate-multiple-relation", Collection: "truncate_sources"})
+	if err != nil {
+		t.Fatalf("truncate multiple relation: %v", err)
+	}
+	if !result.Truncated || result.RecordsDeleted != 1 || result.RelationsDeleted != 1 {
+		t.Fatalf("truncate result = %#v", result)
+	}
+}
 
 func TestTruncateUsesRecordAndDurableFileDeletionLifecycle(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)

@@ -753,13 +753,21 @@ func renderRelationExists(
 		}
 		switch hop.field.Relation.Cardinality {
 		case schema.RelationSingle:
-			conditions = append(conditions, qualified(targetAlias, systemFieldID)+" = "+qualified(parentAlias, hop.field.ColumnName))
+			if hop.reverse {
+				conditions = append(conditions, qualified(targetAlias, hop.field.ColumnName)+" = "+qualified(parentAlias, systemFieldID))
+			} else {
+				conditions = append(conditions, qualified(targetAlias, systemFieldID)+" = "+qualified(parentAlias, hop.field.ColumnName))
+			}
 		case schema.RelationMultiple:
 			edgeAlias := renderer.alias("rq_edge")
 			edgeTable := pgx.Identifier{"pgbase_relation", hop.field.Relation.Storage.Name}.Sanitize()
+			targetEndpoint, parentEndpoint := "target_id", "source_id"
+			if hop.reverse {
+				targetEndpoint, parentEndpoint = "source_id", "target_id"
+			}
 			from = edgeTable + " AS " + quoted(edgeAlias) + " JOIN " + from + " ON " +
-				qualified(targetAlias, systemFieldID) + " = " + qualified(edgeAlias, "target_id")
-			conditions = append(conditions, qualified(edgeAlias, "source_id")+" = "+qualified(parentAlias, systemFieldID))
+				qualified(targetAlias, systemFieldID) + " = " + qualified(edgeAlias, targetEndpoint)
+			conditions = append(conditions, qualified(edgeAlias, parentEndpoint)+" = "+qualified(parentAlias, systemFieldID))
 		default:
 			return "", schema.ErrConflict
 		}

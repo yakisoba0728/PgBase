@@ -21,7 +21,21 @@ func TestListRelationAwareFiltersAndSortsWithPrivateStableCursor(t *testing.T) {
 	ctx := context.Background()
 	fixture := createRelationFilterSortFixture(t, ctx, pool, schemas, records)
 	principal := Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")}
-
+	for _, testCase := range []struct {
+		filter string
+		want   uuid.UUID
+	}{
+		{filter: "relation_query_posts_via_owner.title = 'post-ada'", want: fixture.ada},
+		{filter: "relation_query_posts_via_reviewers.title = 'post-bob'", want: fixture.ada},
+	} {
+		page, listErr := records.ListRelationAware(ctx, RelationListRequest{Principal: principal, Collection: "relation_query_people", Limit: 20, Filter: testCase.filter})
+		if listErr != nil {
+			t.Fatalf("reverse filter %q: %v", testCase.filter, listErr)
+		}
+		if got := recordIDs(page.Items); !reflect.DeepEqual(got, []string{testCase.want.String()}) {
+			t.Fatalf("reverse filter %q ids=%v", testCase.filter, got)
+		}
+	}
 	assertIDs := func(name, filter, sortText string, want ...uuid.UUID) {
 		t.Helper()
 		page, err := records.ListRelationAware(ctx, RelationListRequest{

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -14,15 +15,66 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
+func TestRecordHooksFollowExternalTransactionOutcomeExactlyOnce(t *testing.T) {
+	var successes, failures atomic.Int32
+	hooks := &HookRegistry{}
+	_, _ = hooks.On("record.model.create.success", Hook{Before: func(context.Context, *HookEvent) error { successes.Add(1); return nil }})
+	_, _ = hooks.On("record.model.create.error", Hook{Before: func(context.Context, *HookEvent) error { failures.Add(1); return nil }})
+	fixture := newPublicUsersAppOptions(t, false, func(options *Options) { options.Hooks = hooks })
+	cookie, csrf := setupPublicUsersAdministrator(t, fixture)
+	createPublicUsersCollection(t, fixture, cookie, csrf, "external_tx_records")
+	var actor uuid.UUID
+	if err := fixture.app.pool.QueryRow(t.Context(), `select id from pgbase_meta.admins where email=$1`, publicAdminEmail).Scan(&actor); err != nil {
+		t.Fatal(err)
+	}
+	host := &extensionHost{bridge: fixture.app.extensions, principal: identity.Subject{Kind: identity.Administrator, ID: actor}, requestID: "external-tx-rollback", valid: true, authorityContext: t.Context()}
+	transaction := func(method string, token string) string {
+		input := json.RawMessage(`{}`)
+		if token != "" {
+			input = json.RawMessage(`{"token":"` + token + `"}`)
+		}
+		output, err := host.Call(t.Context(), "app-control.database"+method, input)
+		if err != nil {
+			t.Fatalf("transaction %s: %v", method, err)
+		}
+		var response struct {
+			Token string `json:"token"`
+		}
+		_ = json.Unmarshal(output, &response)
+		return response.Token
+	}
+	create := func(title string) {
+		input, _ := json.Marshal(extensionRecordRequest{Collection: "external_tx_records", Input: map[string]json.RawMessage{"title": json.RawMessage(`"` + title + `"`)}})
+		if _, err := host.Call(t.Context(), "records.create", input); err != nil {
+			t.Fatalf("create %q: %v", title, err)
+		}
+	}
+	token := transaction("Begin", "")
+	create("rolled back")
+	if successes.Load() != 0 || failures.Load() != 0 {
+		t.Fatalf("hooks ran before rollback: success=%d error=%d", successes.Load(), failures.Load())
+	}
+	transaction("Rollback", token)
+	host.requestID = "external-tx-commit"
+	token = transaction("Begin", "")
+	create("committed")
+	transaction("Commit", token)
+	var rows int
+	if err := fixture.app.pool.QueryRow(t.Context(), `select count(*) from app.external_tx_records`).Scan(&rows); err != nil || rows != 1 || successes.Load() != 1 || failures.Load() != 1 {
+		t.Fatalf("outcomes rows=%d success=%d error=%d err=%v", rows, successes.Load(), failures.Load(), err)
+	}
+}
+
 func TestPocketBaseRunInTransactionUsesInvocationBoundPostgresTransaction(t *testing.T) {
 	fixture := newPublicUsersAppOptions(t, false, nil)
-	_, _ = setupPublicUsersAdministrator(t, fixture)
+	cookie, csrf := setupPublicUsersAdministrator(t, fixture)
+	createPublicUsersCollection(t, fixture, cookie, csrf, "js_tx_records")
 	var actor uuid.UUID
 	if err := fixture.app.pool.QueryRow(t.Context(), `select id from pgbase_meta.admins where email=$1`, publicAdminEmail).Scan(&actor); err != nil {
 		t.Fatal(err)
 	}
 	directory := t.TempDir()
-	writeJavaScriptFixture(t, directory, `{"format":"pgbase.scripts/v1","routes":[{"method":"POST","pattern":"/tx","access":"admin","handler":{"module":"route.js","export":"run"},"capabilities":["app-control"]}]}`, `exports.run=()=>{let inside=false,rolled=false;try{$app.runInTransaction((tx)=>{inside=$app.isTransactional();tx.exec("create table app.js_tx_rollback(id integer)");throw new Error("rollback")})}catch(_){rolled=true}$app.runInTransaction((tx)=>{tx.exec("create table app.js_tx_commit(id integer)");tx.exec("insert into app.js_tx_commit values($1)",[7]);const rows=tx.query("select id from app.js_tx_commit").items;if(rows.length!==1)throw new Error("query")});return {status:200,json:{inside,rolled,outside:$app.isTransactional()}}}`)
+	writeJavaScriptFixture(t, directory, `{"format":"pgbase.scripts/v1","routes":[{"method":"POST","pattern":"/tx","access":"admin","handler":{"module":"route.js","export":"run"},"capabilities":["app-control","records"]}]}`, `exports.run=()=>{let inside=false,rolled=false,nested=false;try{$app.runInTransaction((tx)=>{inside=$app.isTransactional();tx.db().exec("create table app.js_tx_rollback(id integer)");tx.save(new Record("js_tx_records",{title:"rolled"}));throw new Error("rollback")})}catch(_){rolled=true}$app.runInTransaction((tx)=>{tx.db().exec("create table app.js_tx_commit(id integer)");tx.db().exec("insert into app.js_tx_commit values($1)",[7]);tx.save(new Record("js_tx_records",{title:"committed"}));tx.runInTransaction(inner=>{nested=inner===tx});const rows=tx.db().query("select id from app.js_tx_commit").items;if(rows.length!==1)throw new Error("query")});return {status:200,json:{inside,rolled,nested,outside:$app.isTransactional()}}}`)
 	bundle, err := jsvm.LoadBundle(directory)
 	if err != nil {
 		t.Fatal(err)
@@ -32,8 +84,8 @@ func TestPocketBaseRunInTransactionUsesInvocationBoundPostgresTransaction(t *tes
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
-	host := &extensionHost{bridge: fixture.app.extensions, principal: identity.Subject{Kind: identity.Administrator, ID: actor}, requestID: "tx-js", valid: true, authorityContext: t.Context()}
-	out, err := runtime.Invoke(t.Context(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Host: host, Capabilities: []string{"app-control"}})
+	host := &extensionHost{bridge: fixture.app.extensions, principal: identity.Subject{Kind: identity.Administrator, ID: actor}, requestID: "tx-js-request", valid: true, authorityContext: t.Context()}
+	out, err := runtime.Invoke(t.Context(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Host: host, Capabilities: []string{"app-control", "records"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,6 +100,10 @@ func TestPocketBaseRunInTransactionUsesInvocationBoundPostgresTransaction(t *tes
 	var rolledBack, committed bool
 	if err := fixture.app.pool.QueryRow(t.Context(), `select to_regclass('app.js_tx_rollback') is null, to_regclass('app.js_tx_commit') is not null`).Scan(&rolledBack, &committed); err != nil || !rolledBack || !committed {
 		t.Fatalf("rolledBack=%v committed=%v err=%v out=%s", rolledBack, committed, err, out)
+	}
+	var recordCount int
+	if err := fixture.app.pool.QueryRow(t.Context(), `select count(*) from app.js_tx_records`).Scan(&recordCount); err != nil || recordCount != 1 {
+		t.Fatalf("transaction model rows=%d err=%v", recordCount, err)
 	}
 }
 

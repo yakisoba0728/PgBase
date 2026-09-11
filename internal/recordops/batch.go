@@ -37,8 +37,8 @@ func (s *Service) Batch(ctx context.Context, request BatchRequest) (results []Mu
 	}
 	ctx, hooks := s.hookContext(ctx)
 	if hooks != nil {
-		hooks.deferAfter = true
-		defer func() { hooks.deferAfter = false; hooks.afterCommitted(ctx, &err) }()
+		hooks.deferAfter++
+		defer func() { hooks.deferAfter--; hooks.after(ctx, &err) }()
 	}
 	err = database.Retry(ctx, func() error {
 		if hooks != nil {

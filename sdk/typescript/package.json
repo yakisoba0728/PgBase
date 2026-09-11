@@ -5,6 +5,6 @@
   "type": "module",
   "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
   "files": ["dist"],
-  "scripts": { "build": "tsc -p tsconfig.json", "test:types": "tsc --ignoreConfig --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck test/public-api.test.ts", "test": "npm run build && npm run test:types && node test/sdk.test.mjs && node --test test/admin.test.mjs", "pack:local": "npm pack" },
+  "scripts": { "build": "tsc -p tsconfig.json", "test:types": "tsc --ignoreConfig --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck test/public-api.test.ts", "test": "npm run build && npm run test:types && node test/sdk.test.mjs && node --test test/admin.test.mjs test/realtime-terminal.test.mjs", "pack:local": "npm pack" },
   "devDependencies": { "typescript": "7.0.2" }
 }

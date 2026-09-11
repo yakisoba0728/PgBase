@@ -10,9 +10,10 @@ import (
 )
 
 type countingHook struct {
-	before int
-	after  int
-	fail   error
+	before     int
+	after      int
+	afterError int
+	fail       error
 }
 
 type contextHook struct {
@@ -45,7 +46,8 @@ func TestAfterHookSurvivesCallerCancellationAndPanic(t *testing.T) {
 	}
 }
 
-func (h *countingHook) AfterMutation(context.Context, Mutation) { h.after++ }
+func (h *countingHook) AfterMutation(context.Context, Mutation)             { h.after++ }
+func (h *countingHook) AfterMutationError(context.Context, Mutation, error) { h.afterError++ }
 
 func TestHooksAfterOnlyRunsForCommittedEvents(t *testing.T) {
 	hook := &countingHook{}
@@ -61,13 +63,12 @@ func TestHooksAfterOnlyRunsForCommittedEvents(t *testing.T) {
 	}
 	failed := errors.New("rollback")
 	run.after(ctx, &failed)
-	if hook.before != 1 || hook.after != 0 {
-		t.Fatalf("rollback hooks before=%d after=%d", hook.before, hook.after)
+	if hook.before != 1 || hook.after != 0 || hook.afterError != 1 {
+		t.Fatalf("rollback hooks before=%d after=%d afterError=%d", hook.before, hook.after, hook.afterError)
 	}
-	committed := error(nil)
-	run.after(ctx, &committed)
-	if hook.after != 1 {
-		t.Fatalf("committed after calls=%d", hook.after)
+	run.after(ctx, &failed)
+	if hook.afterError != 1 {
+		t.Fatalf("duplicate rollback afterError calls=%d", hook.afterError)
 	}
 }
 
@@ -82,9 +83,43 @@ func TestBeforeHookFailureDoesNotQueueAfter(t *testing.T) {
 	if err == nil {
 		t.Fatal("before hook failure was accepted")
 	}
-	committed := error(nil)
-	run.after(ctx, &committed)
-	if hook.after != 0 {
-		t.Fatalf("failed before queued after calls=%d", hook.after)
+	run.after(ctx, &err)
+	if hook.after != 0 || hook.afterError != 1 {
+		t.Fatalf("failed before outcome calls after=%d afterError=%d", hook.after, hook.afterError)
+	}
+}
+
+func TestExternalTransactionOutcomeDefersHooksUntilCommitOrRollback(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		outcomeErr error
+		wantAfter  int
+		wantError  int
+	}{
+		{name: "commit", wantAfter: 1},
+		{name: "rollback", outcomeErr: ErrTransactionRolledBack, wantError: 1},
+		{name: "commit_failure", outcomeErr: errors.New("commit failure"), wantError: 1},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			hook := &countingHook{}
+			service := &Service{hooks: []MutationHook{hook}}
+			outcome := NewTransactionOutcome()
+			ctx := context.WithValue(context.Background(), transactionOutcomeKey{}, outcome)
+			ctx, run := service.hookContext(ctx)
+			batch := artifactBatch{collection: schema.Collection{Name: "notes"}, operation: "create", rows: []artifactRow{{eventID: uuid.New(), recordID: uuid.New(), newVersion: 1}}}
+			if err := beforeMutationHooks(ctx, Principal{ID: uuid.New()}, batch); err != nil {
+				t.Fatal(err)
+			}
+			innerErr := error(nil)
+			run.after(ctx, &innerErr)
+			if hook.after != 0 || hook.afterError != 0 {
+				t.Fatalf("hooks ran before transaction outcome: %+v", hook)
+			}
+			outcome.Finish(context.Background(), testCase.outcomeErr)
+			outcome.Finish(context.Background(), testCase.outcomeErr)
+			if hook.after != testCase.wantAfter || hook.afterError != testCase.wantError {
+				t.Fatalf("outcome hooks after=%d error=%d", hook.after, hook.afterError)
+			}
+		})
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -93,6 +94,50 @@ func TestAuthAlertSendsOncePerNewOriginAndNeverFailsAuthentication(t *testing.T)
 	sender.mu.Unlock()
 	if _, err := service.Login(ctx, registered.User.Email, "correct horse battery staple", "198.51.100.3"); err != nil {
 		t.Fatalf("mail outage failed authentication: %v", err)
+	}
+}
+
+func TestAdminRecordMailRendersSuppliedPayloadWithoutMintingOTP(t *testing.T) {
+	service, sender := newEmailActionService(t)
+	ctx := context.Background()
+	registered, err := service.Register(ctx, "record-mail@example.test", "correct horse battery staple", "198.51.100.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.PutMailTemplate(ctx, DefaultCollectionID, MailTemplate{Purpose: "otp", Subject: "OTP {{otp_id}}", Body: "credential={{otp}} id={{otp_id}}"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.PutMailTemplate(ctx, DefaultCollectionID, MailTemplate{Purpose: "auth_alert", Subject: "Alert", Body: "info={{alert}}", HTMLBody: "<p>{{alert}}</p>"}); err != nil {
+		t.Fatal(err)
+	}
+	var before int
+	if err := service.pool.QueryRow(ctx, `select count(*) from pgbase_meta.user_email_otps where user_id=$1`, registered.User.ID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AdminSendRecordOTP(ctx, DefaultCollectionID, registered.User.ID, "caller-otp-id", "caller-otp-pass"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AdminSendRecordAuthAlert(ctx, registered.User.ID, `{"ip":"127.0.0.1"}`); err != nil {
+		t.Fatal(err)
+	}
+	var after int
+	if err := service.pool.QueryRow(ctx, `select count(*) from pgbase_meta.user_email_otps where user_id=$1`, registered.User.ID).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatalf("record mail changed OTP rows: before=%d after=%d", before, after)
+	}
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	if len(sender.messages) != 2 {
+		t.Fatalf("messages=%d", len(sender.messages))
+	}
+	otp, alert := sender.messages[0], sender.messages[1]
+	if !strings.Contains(otp.Text, "credential=caller-otp-pass id=caller-otp-id") || otp.Meta["otpId"] != "caller-otp-id" || otp.Meta["password"] != "caller-otp-pass" {
+		t.Fatalf("OTP did not preserve supplied credentials: %#v", otp)
+	}
+	if !strings.Contains(alert.Text, `info={"ip":"127.0.0.1"}`) || !strings.Contains(alert.HTML, `{&#34;ip&#34;:&#34;127.0.0.1&#34;}`) || alert.Meta["info"] != `{"ip":"127.0.0.1"}` {
+		t.Fatalf("alert did not preserve supplied info: %#v", alert)
 	}
 }
 

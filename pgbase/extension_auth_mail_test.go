@@ -11,6 +11,9 @@ import (
 type fakeAuthMail struct {
 	realm, id uuid.UUID
 	calls     []string
+	otpID     string
+	otpPass   string
+	alertInfo string
 }
 
 func (f *fakeAuthMail) GetAuthCollection(_ context.Context, name string) (userauth.AuthCollection, error) {
@@ -38,12 +41,14 @@ func (f *fakeAuthMail) AdminRequestEmailChange(_ context.Context, _ uuid.UUID, _
 	f.calls = append(f.calls, "changeEmail")
 	return nil
 }
-func (f *fakeAuthMail) RequestEmailOTPInCollection(context.Context, uuid.UUID, string, string) (userauth.EmailOTPRequest, error) {
+func (f *fakeAuthMail) AdminSendRecordOTP(_ context.Context, _ uuid.UUID, _ uuid.UUID, otpID, otpPass string) error {
 	f.calls = append(f.calls, "otp")
-	return userauth.EmailOTPRequest{}, nil
+	f.otpID, f.otpPass = otpID, otpPass
+	return nil
 }
-func (f *fakeAuthMail) AdminSendAuthAlert(context.Context, uuid.UUID) error {
+func (f *fakeAuthMail) AdminSendRecordAuthAlert(_ context.Context, _ uuid.UUID, alertInfo string) error {
 	f.calls = append(f.calls, "authAlert")
+	f.alertInfo = alertInfo
 	return nil
 }
 func TestAuthMailDispatcherChecksRealmAndDispatchesEveryKind(t *testing.T) {
@@ -65,6 +70,9 @@ func TestAuthMailDispatcherChecksRealmAndDispatchesEveryKind(t *testing.T) {
 	}
 	if len(fake.calls) != 5 {
 		t.Fatalf("calls=%v", fake.calls)
+	}
+	if fake.otpID != "otp-id" || fake.otpPass != "otp-pass" || fake.alertInfo != `{"ip":"127.0.0.1"}` {
+		t.Fatalf("semantic values lost: otp=(%q,%q) alert=%s", fake.otpID, fake.otpPass, fake.alertInfo)
 	}
 	byName, _ := json.Marshal(map[string]string{"kind": "passwordReset", "collection": "members", "recordId": id.String()})
 	if _, err := host.callAuthMail(context.Background(), byName); err != nil {
