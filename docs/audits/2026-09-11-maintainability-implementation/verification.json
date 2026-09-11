@@ -1,0 +1,105 @@
+{
+  "status": "passed_with_documented_optional_skips",
+  "productCommit": "02287168d657d1cb2b315b251a968d7dca1454bd",
+  "verificationTestCommit": "5afb698",
+  "scope": "verificationTestCommit restores authenticated browser fixture state only; product source is unchanged.",
+  "checks": [
+    {
+      "command": "scripts/lint-go.sh",
+      "result": "pass",
+      "detail": "0 issues"
+    },
+    {
+      "command": "go vet ./...",
+      "result": "pass"
+    },
+    {
+      "command": "scripts/test-go-unit.sh -race -count=1",
+      "result": "pass"
+    },
+    {
+      "command": "scripts/test-go-integration.sh -race -count=1",
+      "result": "pass"
+    },
+    {
+      "command": "go test -tags='integration sdkconformance' ./pgbase -run '^TestSDKPublicRecordHTTPConformance$' -count=1",
+      "result": "pass",
+      "detail": "2.790s"
+    },
+    {
+      "command": "npm ci && npm test",
+      "working_directory": "sdk/typescript",
+      "result": "pass",
+      "tests": 9
+    },
+    {
+      "command": "dart pub get && dart analyze && dart test",
+      "working_directory": "sdk/dart",
+      "result": "pass-with-info",
+      "tests": 34,
+      "detail": "analyze exits 0 with one avoid_dynamic_calls info in sdk/dart/lib/src/realtime.dart:186"
+    },
+    {
+      "command": "npm ci --ignore-scripts && npm run typecheck && npm test && npm run build",
+      "working_directory": "ui/admin",
+      "result": "pass",
+      "tests": 541,
+      "test_files": 44
+    },
+    {
+      "command": "git diff --exit-code -- ui/admin/dist",
+      "result": "pass",
+      "bundle": "dist/assets/index-DEOSB0YT.js"
+    },
+    {
+      "command": "go test -tags=e2e ./tests/e2e -v -count=2 -shuffle=on",
+      "result": "pass",
+      "detail": "84.369s"
+    },
+    {
+      "command": "container hardening inspection",
+      "result": "pass",
+      "detail": "nonroot:nonroot; /bin/sh absent"
+    },
+    {
+      "command": "Playwright Chromium browser E2E",
+      "result": "pass-with-optional-skips",
+      "tests": {
+        "passed": 19,
+        "skipped": 4,
+        "failed": 0
+      },
+      "detail": "Authenticated lane: 18 passed after local-files fixture reset. Fresh onboarding lane: 1 passed."
+    },
+    {
+      "command": "npm run verify:dist",
+      "working_directory": "ui/admin",
+      "result": "pass",
+      "detail": "Executed after commit; rebuilt output and tracked asset hashes unchanged."
+    },
+    {
+      "command": "python3 docs/check-status-index.py",
+      "result": "pass",
+      "detail": "3 documents; applicability and 6 locally resolvable commit references verified."
+    }
+  ],
+  "optionalBrowserSkips": [
+    {
+      "spec": "managed-restore.spec.ts",
+      "reason": "PGBASE_BROWSER_MANAGED_BACKUPS is not 1; disposable managed-host fixture deliberately unconfigured"
+    },
+    {
+      "spec": "phase2.spec.ts backup upload/download",
+      "reason": "PGBASE_BROWSER_MANAGED_BACKUPS is not 1; disposable managed-host fixture deliberately unconfigured"
+    },
+    {
+      "spec": "phase4.spec.ts local-to-S3",
+      "reason": "PGBASE_BROWSER_S3_SETTINGS is unset; browser S3-settings fixture deliberately unconfigured"
+    },
+    {
+      "spec": "phase4.spec.ts backup S3",
+      "reason": "PGBASE_BROWSER_MANAGED_BACKUPS is not 1 and PGBASE_BROWSER_S3_SETTINGS is unset; optional fixtures deliberately unconfigured"
+    }
+  ],
+  "evidence": "evidence/verification-summary.txt and evidence/raw-log-sha256.txt contain selected outcomes and hashes only; full raw logs remain task-local."
+}

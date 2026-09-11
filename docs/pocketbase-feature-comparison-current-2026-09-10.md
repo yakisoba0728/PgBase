@@ -1,3 +1,5 @@
+> Historical snapshot: filename date is 2026-09-10; the embedded comparison date is 2026-09-11. Use [the canonical current artifact](pocketbase-feature-comparison-current-2026-09-11.md) for the current view.
+
 # PocketBase와 현재 PgBase — 기능별 1:1 비교 (Round 3 최종 통합 갱신)
 
 PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbase/pocketbase/tree/5684ee24f1e88f71a2ede73d20cf547fbd509e16) (`5684ee24f1e88f71a2ede73d20cf547fbd509e16`)이며, 비교는 그 고정 revision의 로컬 checkout을 사용했다.

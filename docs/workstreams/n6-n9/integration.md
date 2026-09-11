@@ -13,6 +13,8 @@ Last updated: 2026-09-10 08:48 KST
 
 **LOCAL ACCEPTANCE COMPLETE.** Final product/UI source is `b7674f704e14b07104ebf6f1c9ee5e53092f367e`; final documentation commits do not change that product tree. G0–G5 are complete under the agreed baseline-plus-affected-delta verification policy. N8 Gauss final report `0b7fcb65` is Standards PASS / Spec PASS / open0. All workers have handed off and closed. [Final acceptance](acceptance.md) records exact commands, original nonzero runs and their narrow closures, artifact paths and qualification limits. No remote release/merge/live replacement occurred.
 
+Portable evidence check: from the repository root run `python3 docs/check-review-links.py`. Task-local database, `/tmp`, and external-worktree artifacts mentioned in the phase log are historical execution context and are not claimed as clone-resolvable evidence links.
+
 The branch was created directly from `117a1db`. The two docs-only plans were cherry-picked as `7cedc6e` and `ff3dada`. N6 product handoff must skip worker plan `9a30b2f`; N7 product handoff must skip rebased plan `39b170c`. Only stable product/test/docs commits after those plan commits are eligible.
 
 | Workstream | Owner / independent review | Final state |

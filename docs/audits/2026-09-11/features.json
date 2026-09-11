@@ -1390,7 +1390,10 @@
       ],
       "findingIds": [],
       "withdrawnFindingIds": [],
-      "읽은테스트및실행증거": [],
+      "읽은테스트및실행증거": [
+        "read: internal/recordops/batch_integration_test.go",
+        "read: internal/api/record_handlers_test.go"
+      ],
       "differences": [],
       "limitations": [
         "No new test run.",
@@ -1399,7 +1402,8 @@
       ],
       "코드참조": [
         "internal/recordops/batch.go:137-191"
-      ]
+      ],
+      "evidenceStatus": "historical_read_pointer"
     },
     {
       "ID": "REC-05",
@@ -1443,7 +1447,10 @@
       ],
       "findingIds": [],
       "withdrawnFindingIds": [],
-      "읽은테스트및실행증거": [],
+      "읽은테스트및실행증거": [
+        "read: internal/recordops/service_test.go",
+        "read: internal/api/record_handlers_test.go"
+      ],
       "differences": [],
       "limitations": [
         "No new test run.",
@@ -1452,7 +1459,8 @@
       ],
       "코드참조": [
         "internal/recordops/service.go:127"
-      ]
+      ],
+      "evidenceStatus": "historical_read_pointer"
     },
     {
       "ID": "REC-07",
@@ -1469,7 +1477,10 @@
       ],
       "findingIds": [],
       "withdrawnFindingIds": [],
-      "읽은테스트및실행증거": [],
+      "읽은테스트및실행증거": [
+        "read: internal/api/record_handlers_test.go",
+        "read: internal/responseprojection/record_test.go"
+      ],
       "differences": [],
       "limitations": [
         "No new test run.",
@@ -1479,7 +1490,8 @@
       "코드참조": [
         "internal/api/record_handlers.go",
         "internal/responseprojection/record.go"
-      ]
+      ],
+      "evidenceStatus": "historical_read_pointer"
     },
     {
       "ID": "REC-08",
@@ -1495,7 +1507,10 @@
       ],
       "findingIds": [],
       "withdrawnFindingIds": [],
-      "읽은테스트및실행증거": [],
+      "읽은테스트및실행증거": [
+        "read: internal/recordops/batch_integration_test.go",
+        "read: internal/recordops/service_test.go"
+      ],
       "differences": [
         "PostgreSQL transaction implementation is an approved storage difference."
       ],
@@ -1506,7 +1521,8 @@
       ],
       "코드참조": [
         "internal/recordops/batch.go:23-120"
-      ]
+      ],
+      "evidenceStatus": "historical_read_pointer"
     },
     {
       "ID": "REC-09",
@@ -1549,7 +1565,10 @@
       ],
       "findingIds": [],
       "withdrawnFindingIds": [],
-      "읽은테스트및실행증거": [],
+      "읽은테스트및실행증거": [
+        "read: internal/recordops/batch_integration_test.go",
+        "read: internal/recordops/batch.go"
+      ],
       "differences": [],
       "limitations": [
         "No new test run.",
@@ -1558,7 +1577,8 @@
       ],
       "코드참조": [
         "internal/recordops/batch.go:150-191"
-      ]
+      ],
+      "evidenceStatus": "historical_read_pointer"
     },
     {
       "ID": "REC-11",
@@ -1574,7 +1594,10 @@
       ],
       "findingIds": [],
       "withdrawnFindingIds": [],
-      "읽은테스트및실행증거": [],
+      "읽은테스트및실행증거": [
+        "read: internal/api/batch_handlers.go",
+        "read: internal/recordops/batch_integration_test.go"
+      ],
       "differences": [],
       "limitations": [
         "No new test run.",
@@ -1583,7 +1606,8 @@
       ],
       "코드참조": [
         "internal/api/batch_handlers.go:365-442"
-      ]
+      ],
+      "evidenceStatus": "historical_read_pointer"
     },
     {
       "ID": "REC-12",
@@ -1633,7 +1657,10 @@
       ],
       "findingIds": [],
       "withdrawnFindingIds": [],
-      "읽은테스트및실행증거": [],
+      "읽은테스트및실행증거": [
+        "read: internal/recordops/modifiers_test.go",
+        "read: internal/recordops/modifiers_integration_test.go"
+      ],
       "differences": [],
       "limitations": [
         "No new test run.",
@@ -1642,7 +1669,8 @@
       ],
       "코드참조": [
         "internal/recordops/modifiers.go"
-      ]
+      ],
+      "evidenceStatus": "historical_read_pointer"
     },
     {
       "ID": "REC-14",
@@ -1660,7 +1688,10 @@
       ],
       "findingIds": [],
       "withdrawnFindingIds": [],
-      "읽은테스트및실행증거": [],
+      "읽은테스트및실행증거": [
+        "read: internal/recordops/modifiers_integration_test.go",
+        "read: internal/api/batch_file_modifiers.go"
+      ],
       "differences": [],
       "limitations": [
         "No new test run.",
@@ -1671,7 +1702,8 @@
         "internal/recordops/modifiers.go",
         "internal/api/batch_file_modifiers.go",
         "internal/relation/storage.go"
-      ]
+      ],
+      "evidenceStatus": "historical_read_pointer"
     },
     {
       "ID": "QRY-01",
@@ -5527,7 +5559,9 @@
       ],
       "findingIds": [],
       "withdrawnFindingIds": [],
-      "읽은테스트및실행증거": [],
+      "읽은테스트및실행증거": [
+        "contract-only: ui/admin/src/pages/view-definition-editor.tsx; authenticated browser evidence was not available in the fixed historical audit"
+      ],
       "differences": [
         "PostgreSQL view syntax/results differ."
       ],
@@ -5538,7 +5572,8 @@
       "코드참조": [
         "ui/admin/src/pages/view-sample-preview.tsx",
         "view sample preview → POST /api/admin/collections/view/sample → schema sampler."
-      ]
+      ],
+      "evidenceStatus": "contract_only_not_applicable"
     },
     {
       "ID": "UI-09",
@@ -5879,7 +5914,9 @@
       ],
       "findingIds": [],
       "withdrawnFindingIds": [],
-      "읽은테스트및실행증거": [],
+      "읽은테스트및실행증거": [
+        "contract-only: ui/admin/src/pages/users-page.tsx; authenticated browser evidence was not available in the fixed historical audit"
+      ],
       "differences": [
         "PB modal composition differs."
       ],
@@ -5890,7 +5927,8 @@
       "코드참조": [
         "ui/admin/src/pages/users-page.tsx",
         "users page → /api/admin/users listing and lifecycle/identity/impersonation mutation routes."
-      ]
+      ],
+      "evidenceStatus": "contract_only_not_applicable"
     },
     {
       "ID": "UI-23",
@@ -5995,7 +6033,9 @@
       ],
       "findingIds": [],
       "withdrawnFindingIds": [],
-      "읽은테스트및실행증거": [],
+      "읽은테스트및실행증거": [
+        "contract-only: ui/admin/src/pages/operations-console.tsx; authenticated browser evidence was not available in the fixed historical audit"
+      ],
       "differences": [
         "PB charts/export/retention setting breadth differs."
       ],
@@ -6006,7 +6046,8 @@
       "코드참조": [
         "ui/admin/src/pages/operations-console.tsx",
         "operations console → request-log query/detail/statistics/truncate routes → observability service."
-      ]
+      ],
+      "evidenceStatus": "contract_only_not_applicable"
     },
     {
       "ID": "UI-27",
@@ -6052,7 +6093,9 @@
       ],
       "findingIds": [],
       "withdrawnFindingIds": [],
-      "읽은테스트및실행증거": [],
+      "읽은테스트및실행증거": [
+        "contract-only: ui/admin/src/pages/operations-console.tsx; authenticated browser evidence was not available in the fixed historical audit"
+      ],
       "differences": [
         "automatic schedule form layout differs from PocketBase."
       ],
@@ -6063,7 +6106,8 @@
       "코드참조": [
         "ui/admin/src/pages/operations-console.tsx",
         "operations console/setup → backup lifecycle and restore job routes → backup manager."
-      ]
+      ],
+      "evidenceStatus": "contract_only_not_applicable"
     },
     {
       "ID": "UI-29",
@@ -6110,7 +6154,9 @@
       ],
       "findingIds": [],
       "withdrawnFindingIds": [],
-      "읽은테스트및실행증거": [],
+      "읽은테스트및실행증거": [
+        "contract-only: ui/admin/src/pages/sql-console-page.tsx; authenticated browser evidence was not available in the fixed historical audit"
+      ],
       "differences": [
         "CSV export/column sort does not match PB fully."
       ],
@@ -6121,7 +6167,8 @@
       "코드참조": [
         "ui/admin/src/pages/sql-console-page.tsx",
         "SQL console → /api/admin/sql/queries and operation-status routes → SQL execution/history service."
-      ]
+      ],
+      "evidenceStatus": "contract_only_not_applicable"
     },
     {
       "ID": "UI-32",
@@ -6228,7 +6275,9 @@
       ],
       "findingIds": [],
       "withdrawnFindingIds": [],
-      "읽은테스트및실행증거": [],
+      "읽은테스트및실행증거": [
+        "contract-only: ui/admin/src/pages/record-edit-page.tsx; visual/browser evidence was not available in the fixed historical audit"
+      ],
       "differences": [
         "dedicated local-time picker UX differs."
       ],
@@ -6240,7 +6289,8 @@
       "코드참조": [
         "ui/admin/src/pages/record-edit-page.tsx",
         "record editor date field → timestamptz codec → record mutation path."
-      ]
+      ],
+      "evidenceStatus": "contract_only_not_applicable"
     },
     {
       "ID": "OPS-01",
@@ -6941,5 +6991,10 @@
         "Options absolute PublicDir validation -> publicsite handler/fallback -> route registration."
       ]
     }
-  ]
+  ],
+  "evidenceContract": {
+    "verified": "repository-relative read/test pointers are required; absence of runtime rerun remains a limitation",
+    "intentional_difference": "contract-only rationale is explicit when authenticated UI execution is unavailable",
+    "historicalBaseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b"
+  }
 }

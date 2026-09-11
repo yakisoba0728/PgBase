@@ -1,0 +1,11 @@
+Product source: 02287168d657d1cb2b315b251a968d7dca1454bd
+Verification-only fixture commit: 5afb698
+
+Selected final outcomes:
+- Go lint: 0 issues; go vet: exit 0; unit and integration race suites: pass.
+- Live SDK conformance: pass. TypeScript SDK: 9 passed. Dart: 34 passed; analysis exit 0 with one informational avoid_dynamic_calls observation.
+- UI: typecheck, 44 files/541 tests, build, and clean dist reproduction passed; index.html and index-DEOSB0YT.js were unchanged before/after verify:dist.
+- Go black-box E2E passed in 84.369s. Hardened candidate: nonroot:nonroot; shell absent.
+- Chromium E2E: 19 passed, 4 optional skips, 0 failed.
+
+Full raw logs are retained only in the task-local validation workspace. They are not repository artifacts and are not represented here as checked-in raw logs.

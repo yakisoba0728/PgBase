@@ -3925,5 +3925,7 @@
     "productFindings": 20,
     "documentationFindings": 2,
     "note": "Existing status fields are historical feature-acceptance records and are not independent audit verdicts."
-  }
+  },
+  "artifactStatus": "historical-superseded",
+  "canonicalCurrent": "docs/pocketbase-feature-comparison-current-2026-09-11.json"
 }

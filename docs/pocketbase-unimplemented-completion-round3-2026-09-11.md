@@ -2,6 +2,10 @@
 
 작성일: 2026-09-11
 
+## Status applicability
+
+This is a historical snapshot. Baseline SHA: `a3a329356cf3efa1fe9f56228930d4e3ba0d0444`; verification SHA: `bd76b1d1aaf28839072fa71e6b05cf39219053e9`. Its verdicts apply only to that declared baseline. The machine-readable index is [`pocketbase-status-index.json`](pocketbase-status-index.json); validate it from the repository root with `python3 docs/check-status-index.py`.
+
 이 문서는 Round 2 뒤 남은 21개 행을 구현하고 독립 수용 검토와 최종 통합 검증으로 닫은 근거다. 최종 코드 검증 HEAD는 `bd76b1d1aaf28839072fa71e6b05cf39219053e9`이며, 고정된 232개 비교 범위의 집계는 **구현 232 / 부분 0 / 미구현 0**이다. 이 수치는 각 행의 기능 수용 조건이 충족됐다는 뜻이며 PocketBase의 모든 HTTP/SDK/ORM/storage API를 수정 없이 교체할 수 있다는 주장이 아니다.
 
 ## 기준선과 보존 문서
