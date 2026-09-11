@@ -105,7 +105,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Generate candidate SBOM
-        uses: anchore/sbom-action@65f438523a6c695224053b36fa18a54cb7026ea3 # v0.24.1
+        uses: anchore/sbom-action@aa80c8c5bd439a416a62804f2151ab38c671a638 # v0.24.1
         with:
           image: ${{ steps.candidate.outputs.candidate_image }}
           format: spdx-json
