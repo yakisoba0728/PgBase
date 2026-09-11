@@ -391,6 +391,62 @@ func TestUploadPublishAuthorizationDeleteAndCleanup(t *testing.T) {
 	}
 }
 
+func TestStageQueuesObjectWhenVerificationReadFails(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	readErr := errors.New("verification reader failed")
+	objects := &verificationReadFailureStore{readErr: readErr}
+	service, err := NewService(pool, objects, func(context.Context, pgx.Tx, identity.Subject, uuid.UUID, uuid.UUID, string, Operation) error {
+		return nil
+	}, Options{
+		MaximumBytes: 32, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, AllowedTypes: []string{"text/plain"}, TokenSecret: bytes.Repeat([]byte{7}, 32), TokenTTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("plain text")
+	digest := sha256.Sum256(body)
+	_, err = service.Stage(ctx, identity.Subject{Kind: identity.User, ID: uuid.New()}, Upload{Filename: "read.txt", ContentType: "text/plain", Size: int64(len(body)), SHA256: digest, Body: bytes.NewReader(body)})
+	if !errors.Is(err, readErr) {
+		t.Fatalf("Stage error = %v, want %v", err, readErr)
+	}
+	var queued string
+	if err := pool.QueryRow(ctx, `select object_key from pgbase_meta.file_object_deletions`).Scan(&queued); err != nil {
+		t.Fatal(err)
+	}
+	if queued != objects.key {
+		t.Fatalf("queued key = %q, put key = %q", queued, objects.key)
+	}
+}
+
+type verificationReadFailureStore struct {
+	key     string
+	readErr error
+}
+
+func (s *verificationReadFailureStore) Put(_ context.Context, key string, body io.Reader) error {
+	s.key = key
+	_, _ = io.Copy(io.Discard, body)
+	return nil
+}
+
+func (s *verificationReadFailureStore) Open(context.Context, string) (io.ReadCloser, error) {
+	return io.NopCloser(errorReader{s.readErr}), nil
+}
+
+func (s *verificationReadFailureStore) Delete(context.Context, string) error { return nil }
+
+type errorReader struct{ err error }
+
+func (r errorReader) Read([]byte) (int, error) { return 0, r.err }
+
 type leaseBlockingStore struct {
 	ObjectStore
 	entered chan uint32

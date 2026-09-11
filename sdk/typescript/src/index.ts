@@ -674,7 +674,10 @@ export class AuthRealm {
   register(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession> { return this.authenticate("register", email, password, options, signal); }
   login(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession> { return this.authenticate("login", email, password, options, signal); }
   /** Returns the sign-in methods enabled for this auth collection. */
-  methods(signal?: AbortSignal): Promise<AuthMethods> { return this.client._request(this.path("methods"), {}, signal); }
+  async methods(signal?: AbortSignal): Promise<AuthMethods> {
+    const methods = await this.client._request<Omit<AuthMethods, "oauth2"> & { oauth2?: AuthMethods["oauth2"] }>(this.path("methods"), {}, signal);
+    return { ...methods, oauth2: methods.oauth2 ?? { enabled: false, providers: [] } };
+  }
   /** Rotates the current bearer token after validating its replacement session. */
   async refresh(signal?: AbortSignal): Promise<UserSession> {
     const generation = this.client.auth.generation;

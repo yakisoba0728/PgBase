@@ -140,12 +140,12 @@ func TestRuntimeCancelsInfiniteLoopAndRemainsAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{DefaultTimeout: 25 * time.Millisecond})
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{DefaultTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
-	_, err = runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler})
+	_, err = runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Timeout: 25 * time.Millisecond})
 	var executionError *jsvm.Error
 	if !errors.As(err, &executionError) || executionError.Code != jsvm.CodeTimeout {
 		t.Fatalf("infinite loop error = %#v", err)
@@ -187,7 +187,7 @@ func TestRuntimeClosesInvocationHostAfterSuccessAndInterrupt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{DefaultTimeout: 25 * time.Millisecond})
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{DefaultTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestRuntimeClosesInvocationHostAfterSuccessAndInterrupt(t *testing.T) {
 		t.Fatalf("successful host closed=%d error=%v", first.closed.Load(), err)
 	}
 	second := &closingHost{}
-	if _, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[1].Handler, Host: second}); err == nil || second.closed.Load() != 1 {
+	if _, err := runtime.Invoke(context.Background(), jsvm.Invocation{Handler: bundle.Manifest().Routes[1].Handler, Host: second, Timeout: 25 * time.Millisecond}); err == nil || second.closed.Load() != 1 {
 		t.Fatalf("interrupted host closed=%d error=%v", second.closed.Load(), err)
 	}
 }

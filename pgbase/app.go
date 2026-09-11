@@ -517,7 +517,15 @@ func (a *App) Close(ctx context.Context) error {
 		if a.readiness != nil {
 			a.readiness.setAccepting(context.Background(), false)
 		}
-		go a.closeResources(ctx, startupDone, a.shutdownDone)
+		shutdownTimeout := a.options.ShutdownTimeout
+		if shutdownTimeout <= 0 {
+			shutdownTimeout = 15 * time.Second
+		}
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+		go func() {
+			defer cancelCleanup()
+			a.closeResources(cleanupCtx, startupDone, a.shutdownDone)
+		}()
 	}
 	done := a.shutdownDone
 	a.shutdownMu.Unlock()

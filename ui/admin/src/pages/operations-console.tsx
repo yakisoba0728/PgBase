@@ -45,7 +45,7 @@ export function OperationsConsole({ port }: { port: OperationsPort }) {
   }, [port,reload]);
   useEffect(() => {
     if (!backupJob || backupJob.status !== "running" || !port.backupJob) return;
-    const controller=new AbortController();const timer=window.setInterval(()=>void port.backupJob!(backupJob.id,controller.signal).then(job=>{setBackupJob(job);if(job.status!=="running")setReload(value=>value+1)}).catch(()=>setMessage("Backup status is unavailable. If restore activated the replacement database, sign in again.")),1000);
+    const controller=new AbortController();const timer=window.setInterval(()=>void port.backupJob!(backupJob.id,controller.signal).then(job=>{if (controller.signal.aborted) return; setBackupJob(job);if(job.status!=="running")setReload(value=>value+1)}).catch(()=>{if (!controller.signal.aborted) setMessage("Backup status is unavailable. If restore activated the replacement database, sign in again.")}),1000);
     return()=>{controller.abort();window.clearInterval(timer)};
   },[backupJob,port]);
   useEffect(() => {

@@ -5,6 +5,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 )
 
 type pbResolverStub map[string]PBOperand
@@ -15,6 +18,36 @@ func (r pbResolverStub) Resolve(path string) (PBOperand, error) {
 		return PBOperand{}, errors.New("unknown")
 	}
 	return value, nil
+}
+
+func TestCompilePocketBaseAuthenticationFailsClosedForInvalidSubjects(t *testing.T) {
+	resolver := pbResolverStub{}
+	validID := uuid.MustParse("019551d0-e9c0-7000-8000-000000000001")
+	tests := []struct {
+		name      string
+		principal identity.Subject
+		want      bool
+	}{
+		{name: "anonymous", principal: identity.Subject{Kind: identity.Anonymous}},
+		{name: "user", principal: identity.Subject{Kind: identity.User, ID: validID}, want: true},
+		{name: "administrator", principal: identity.Subject{Kind: identity.Administrator, ID: validID}, want: true},
+		{name: "service", principal: identity.Subject{Kind: identity.Service, ID: validID}, want: true},
+		{name: "zero subject"},
+		{name: "unknown kind", principal: identity.Subject{Kind: "future", ID: validID}},
+		{name: "user without ID", principal: identity.Subject{Kind: identity.User}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, args, err := CompilePocketBase(Rule{Op: "authenticated"}, PBCompileContext{Resolver: resolver, Principal: test.principal})
+			if err != nil || len(args) != 1 || args[0] != test.want {
+				t.Fatalf("authenticated args=%v err=%v, want %t", args, err, test.want)
+			}
+			_, args, err = CompilePocketBase(Rule{Op: "unauthenticated"}, PBCompileContext{Resolver: resolver, Principal: test.principal})
+			if err != nil || len(args) != 1 || args[0] != !test.want {
+				t.Fatalf("unauthenticated args=%v err=%v, want %t", args, err, !test.want)
+			}
+		})
+	}
 }
 func (r pbResolverStub) ResolveCollection(collection, path string) (PBOperand, error) {
 	return r.Resolve("@collection." + collection + "." + path)

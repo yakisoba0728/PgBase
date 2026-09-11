@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build-sdk": "npm --prefix ../../sdk/typescript run build",
+    "test": "node app.test.mjs",
     "serve": "node server.js"
   }
 }

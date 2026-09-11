@@ -11,6 +11,7 @@ import (
 
 func TestAuthCollectionScaffoldImportsCatalogAndRealm(t *testing.T) {
 	pool, service, admin := newSchemaServiceTest(t)
+	service.SetAuthExecutablePolicyValidator(authExecutableValidator{})
 	value := service.Scaffolds().Auth
 	value.Collection.Name = "scaffold_auth"
 	value.AuthCollection.Name = value.Collection.Name

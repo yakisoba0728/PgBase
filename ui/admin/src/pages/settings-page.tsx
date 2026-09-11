@@ -1,45 +1,273 @@
 import { useEffect, useState } from "react";
-import type { AdminSettings, AdministratorProfile, APIRateLimitRule } from "../backend/ports";
+import type { AdminSettings } from "../backend/ports";
 import { useBackend } from "../auth/session";
-
-function ProfileSettings() {
-  const { profile: port } = useBackend();
-  const [profile, setProfile] = useState<AdministratorProfile | null>(null);
-  const [email, setEmail] = useState("");
-  const [prefixes, setPrefixes] = useState("");
-  const [message, setMessage] = useState("");
-  useEffect(() => { if (!port) return; const c = new AbortController(); void Promise.all([port.get(c.signal), port.ipAllowlist(c.signal)]).then(([p, ips]) => { setProfile(p); setEmail(p.email); setPrefixes(ips.join("\n")); }).catch(() => setMessage("Unable to load administrator profile.")); return () => c.abort(); }, [port]);
-  if (!port || !profile) return null;
-  return <section aria-label="Administrator profile"><h3>Administrator profile</h3>{message && <p role="status">{message}</p>}<fieldset><legend>Identity</legend><label>Email<input type="email" value={email} onChange={e => setEmail(e.target.value)} /></label><button type="button" onClick={() => void port.update({ email }).then(setProfile).then(() => setMessage("Administrator email updated.")).catch(() => setMessage("Unable to update administrator email."))}>Save administrator email</button></fieldset><fieldset><legend>IP allowlist</legend><p>One CIDR per line. When entries exist, this administrator can sign in only from these networks.</p><label>Allowed CIDRs<textarea value={prefixes} onChange={e => setPrefixes(e.target.value)} /></label><button type="button" onClick={() => void port.setIPAllowlist(prefixes.split("\n").map(v => v.trim()).filter(Boolean)).then(items => { setPrefixes(items.join("\n")); setMessage("IP allowlist updated."); }).catch(() => setMessage("Allowlist was rejected. Use canonical CIDR ranges."))}>Save IP allowlist</button></fieldset></section>;
-}
-
-function ruleErrors(rules: APIRateLimitRule[], excludedIPs: string[]): string | null {
-  if (rules.length > 100 || excludedIPs.length > 100) return "Use at most 100 API rules and 100 excluded IP ranges.";
-  for (const rule of rules) {
-    const label = rule.label.trim();
-    if (label.length < 1 || label.length > 256 || !/^(?:[A-Z]+ )?\//.test(label)) return "Each rule label must be an exact path, a METHOD /path label, or a path prefix ending in /.";
-    if (!Number.isInteger(rule.duration) || rule.duration < 1 || rule.duration > 86400) return "Rule duration must be between 1 and 86,400 seconds.";
-    if (!Number.isInteger(rule.maxRequests) || rule.maxRequests < 1 || rule.maxRequests > 100000) return "Rule request limit must be between 1 and 100,000.";
-  }
-  return null;
-}
-
-function APIRateLimitSettings({ value, change, disabled }: { value: AdminSettings; change(patch: Partial<AdminSettings["rateLimits"]>): void; disabled: boolean }) {
-  const rules = Array.isArray(value.rateLimits.rules) ? value.rateLimits.rules : [];
-  const excludedIPs = Array.isArray(value.rateLimits.excludedIPs) ? value.rateLimits.excludedIPs : [];
-  const changeRule = (index: number, patch: Partial<APIRateLimitRule>) => change({ rules: rules.map((rule, candidate) => candidate === index ? { ...rule, ...patch } : rule) });
-  return <fieldset disabled={disabled}><legend>API request rate limits</legend><p>Rules are checked in order. A label matches an exact path, a METHOD /path label, or a path prefix ending in /. Limits are counted per selected audience and client IP.</p><label><input checked={value.rateLimits.enabled} type="checkbox" onChange={e => change({ enabled: e.target.checked })} /> Enable API request rate limits</label>{rules.map((rule, index) => <fieldset key={index}><legend>Rule {index + 1}</legend><label>Rule {index + 1} label<input value={rule.label} maxLength={256} placeholder="GET /api/items or /api/items/" onChange={e => changeRule(index, { label: e.target.value })} /></label><label>Rule {index + 1} audience<select value={rule.audience} onChange={e => changeRule(index, { audience: e.target.value as APIRateLimitRule["audience"] })}><option value="">All callers</option><option value="@guest">Guests</option><option value="@auth">Signed-in callers</option></select></label><label>Rule {index + 1} duration seconds<input type="number" min="1" max="86400" value={rule.duration} onChange={e => changeRule(index, { duration: Number(e.target.value) })} /></label><label>Rule {index + 1} maximum requests<input type="number" min="1" max="100000" value={rule.maxRequests} onChange={e => changeRule(index, { maxRequests: Number(e.target.value) })} /></label><button type="button" onClick={() => change({ rules: rules.filter((_, candidate) => candidate !== index) })}>Remove rule {index + 1}</button></fieldset>)}<button type="button" disabled={rules.length >= 100} onClick={() => change({ rules: [...rules, { label: "", audience: "@guest", duration: 60, maxRequests: 100 }] })}>Add API rate rule</button><label>Excluded client IPs or CIDRs, one per line<textarea value={excludedIPs.join("\n")} onChange={e => change({ excludedIPs: e.target.value.split("\n").map(item => item.trim()).filter(Boolean) })} /></label></fieldset>;
-}
+import { APIRateLimitSettings, ruleErrors } from "./api-rate-limit-settings";
+import { ProfileSettings } from "./profile-settings";
 
 export function SettingsPage() {
-  const { settings: port } = useBackend(); const [value, setValue] = useState<AdminSettings | null>(null); const [message, setMessage] = useState(""); const [busy, setBusy] = useState(false);
-  useEffect(() => { const c = new AbortController(); if (port) void port.get(c.signal).then(setValue).catch(() => setMessage("Unable to load application settings.")); return () => c.abort(); }, [port]);
-  if (!port) return <section><h2>Application settings</h2><p>Settings are unavailable on this server.</p></section>;
-  if (!value) return <section><h2>Application settings</h2><p>{message || "Loading settings…"}</p></section>;
+  const { settings: port } = useBackend();
+  const [value, setValue] = useState<AdminSettings | null>(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const c = new AbortController();
+    if (port)
+      void port
+        .get(c.signal)
+        .then(setValue)
+        .catch(() => setMessage("Unable to load application settings."));
+    return () => c.abort();
+  }, [port]);
+  if (!port)
+    return (
+      <section>
+        <h2>Application settings</h2>
+        <p>Settings are unavailable on this server.</p>
+      </section>
+    );
+  if (!value)
+    return (
+      <section>
+        <h2>Application settings</h2>
+        <p>{message || "Loading settings…"}</p>
+      </section>
+    );
   const settingsPort = port;
   const settingsValue = value;
-  const change = (key: "application" | "logs" | "backups" | "proxy" | "rateLimits", patch: Record<string, unknown>) => setValue(current => current && ({ ...current, [key]: { ...current[key], ...patch } } as AdminSettings));
-  const trustedProxyCIDRs = Array.isArray(value.proxy.trustedProxyCIDRs) ? value.proxy.trustedProxyCIDRs : [];
-  async function save() { const error = ruleErrors(settingsValue.rateLimits.rules ?? [], settingsValue.rateLimits.excludedIPs ?? []); if (error) { setMessage(error); return; } setBusy(true); try { const saved = await settingsPort.save(settingsValue); setValue(saved); document.documentElement.dataset.theme = saved.application.theme; document.documentElement.style.setProperty("--accent", saved.application.accent); setMessage("Settings saved."); } catch { setMessage("Settings changed on the server or were rejected. Reload before retrying."); } finally { setBusy(false); } }
-  return <section><h2>Application settings</h2><p>Changes are validated and saved as one revision.</p>{message && <p role="status">{message}</p>}<ProfileSettings /><fieldset disabled={busy}><legend>Branding and appearance</legend><label>Theme<select value={value.application.theme} onChange={e => change("application", { theme: e.target.value })}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Accent color<input type="color" value={value.application.accent} onChange={e => change("application", { accent: e.target.value })} /></label><label>Branding<input value={value.application.branding} onChange={e => change("application", { branding: e.target.value })} /></label></fieldset><fieldset disabled={busy}><legend>Request logs</legend><label>Retention days<input type="number" min="1" value={value.logs.retentionDays} onChange={e => change("logs", { retentionDays: Number(e.target.value) })} /></label><label>Level<select value={value.logs.level} onChange={e => change("logs", { level: e.target.value })}>{["debug", "info", "warn", "error"].map(level => <option key={level}>{level}</option>)}</select></label><label><input checked={value.logs.includeIP} type="checkbox" onChange={e => change("logs", { includeIP: e.target.checked })} /> Include IP addresses</label><label><input checked={value.logs.includeAuth} type="checkbox" onChange={e => change("logs", { includeAuth: e.target.checked })} /> Include authentication events</label></fieldset><fieldset disabled={busy}><legend>Administrator rate limits</legend><label>Account failures<input type="number" min="1" value={value.rateLimits.admin.accountMaxFailures} onChange={e => change("rateLimits", { admin: { ...value.rateLimits.admin, accountMaxFailures: Number(e.target.value) } })} /></label><label>Network failures<input type="number" min="1" value={value.rateLimits.admin.networkMaxFailures} onChange={e => change("rateLimits", { admin: { ...value.rateLimits.admin, networkMaxFailures: Number(e.target.value) } })} /></label><label>Window seconds<input type="number" min="1" value={value.rateLimits.admin.windowSeconds} onChange={e => change("rateLimits", { admin: { ...value.rateLimits.admin, windowSeconds: Number(e.target.value) } })} /></label><label>Block seconds<input type="number" min="1" value={value.rateLimits.admin.blockSeconds} onChange={e => change("rateLimits", { admin: { ...value.rateLimits.admin, blockSeconds: Number(e.target.value) } })} /></label></fieldset><APIRateLimitSettings disabled={busy} value={value} change={patch => change("rateLimits", patch)} /><fieldset disabled={busy}><legend>Automatic backups</legend><label><input checked={value.backups.enabled} type="checkbox" onChange={e => change("backups", { enabled: e.target.checked })} /> Enabled</label><label>Schedule<input value={value.backups.schedule} onChange={e => change("backups", { schedule: e.target.value })} /></label><label>Timezone<input value={value.backups.timezone} onChange={e => change("backups", { timezone: e.target.value })} /></label></fieldset><fieldset disabled={busy}><legend>Trusted proxies</legend><label>CIDRs, one per line<textarea value={trustedProxyCIDRs.join("\n")} onChange={e => change("proxy", { trustedProxyCIDRs: e.target.value.split("\n").map(s => s.trim()).filter(Boolean) })} /></label></fieldset><button disabled={busy} onClick={() => void save()} type="button">{busy ? "Saving…" : "Save settings"}</button></section>;
+  const change = (
+    key: "application" | "logs" | "backups" | "proxy" | "rateLimits",
+    patch: Record<string, unknown>,
+  ) =>
+    setValue(
+      (current) =>
+        current &&
+        ({ ...current, [key]: { ...current[key], ...patch } } as AdminSettings),
+    );
+  const trustedProxyCIDRs = Array.isArray(value.proxy.trustedProxyCIDRs)
+    ? value.proxy.trustedProxyCIDRs
+    : [];
+  async function save() {
+    const error = ruleErrors(
+      settingsValue.rateLimits.rules ?? [],
+      settingsValue.rateLimits.excludedIPs ?? [],
+    );
+    if (error) {
+      setMessage(error);
+      return;
+    }
+    setBusy(true);
+    try {
+      const saved = await settingsPort.save(settingsValue);
+      setValue(saved);
+      document.documentElement.dataset.theme = saved.application.theme;
+      document.documentElement.style.setProperty(
+        "--accent",
+        saved.application.accent,
+      );
+      setMessage("Settings saved.");
+    } catch {
+      setMessage(
+        "Settings changed on the server or were rejected. Reload before retrying.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section>
+      <h2>Application settings</h2>
+      <p>Changes are validated and saved as one revision.</p>
+      {message && <p role="status">{message}</p>}
+      <ProfileSettings />
+      <fieldset disabled={busy}>
+        <legend>Branding and appearance</legend>
+        <label>
+          Theme
+          <select
+            value={value.application.theme}
+            onChange={(e) => change("application", { theme: e.target.value })}
+          >
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+        <label>
+          Accent color
+          <input
+            type="color"
+            value={value.application.accent}
+            onChange={(e) => change("application", { accent: e.target.value })}
+          />
+        </label>
+        <label>
+          Branding
+          <input
+            value={value.application.branding}
+            onChange={(e) =>
+              change("application", { branding: e.target.value })
+            }
+          />
+        </label>
+      </fieldset>
+      <fieldset disabled={busy}>
+        <legend>Request logs</legend>
+        <label>
+          Retention days
+          <input
+            type="number"
+            min="1"
+            value={value.logs.retentionDays}
+            onChange={(e) =>
+              change("logs", { retentionDays: Number(e.target.value) })
+            }
+          />
+        </label>
+        <label>
+          Level
+          <select
+            value={value.logs.level}
+            onChange={(e) => change("logs", { level: e.target.value })}
+          >
+            {["debug", "info", "warn", "error"].map((level) => (
+              <option key={level}>{level}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <input
+            checked={value.logs.includeIP}
+            type="checkbox"
+            onChange={(e) => change("logs", { includeIP: e.target.checked })}
+          />{" "}
+          Include IP addresses
+        </label>
+        <label>
+          <input
+            checked={value.logs.includeAuth}
+            type="checkbox"
+            onChange={(e) => change("logs", { includeAuth: e.target.checked })}
+          />{" "}
+          Include authentication events
+        </label>
+      </fieldset>
+      <fieldset disabled={busy}>
+        <legend>Administrator rate limits</legend>
+        <label>
+          Account failures
+          <input
+            type="number"
+            min="1"
+            value={value.rateLimits.admin.accountMaxFailures}
+            onChange={(e) =>
+              change("rateLimits", {
+                admin: {
+                  ...value.rateLimits.admin,
+                  accountMaxFailures: Number(e.target.value),
+                },
+              })
+            }
+          />
+        </label>
+        <label>
+          Network failures
+          <input
+            type="number"
+            min="1"
+            value={value.rateLimits.admin.networkMaxFailures}
+            onChange={(e) =>
+              change("rateLimits", {
+                admin: {
+                  ...value.rateLimits.admin,
+                  networkMaxFailures: Number(e.target.value),
+                },
+              })
+            }
+          />
+        </label>
+        <label>
+          Window seconds
+          <input
+            type="number"
+            min="1"
+            value={value.rateLimits.admin.windowSeconds}
+            onChange={(e) =>
+              change("rateLimits", {
+                admin: {
+                  ...value.rateLimits.admin,
+                  windowSeconds: Number(e.target.value),
+                },
+              })
+            }
+          />
+        </label>
+        <label>
+          Block seconds
+          <input
+            type="number"
+            min="1"
+            value={value.rateLimits.admin.blockSeconds}
+            onChange={(e) =>
+              change("rateLimits", {
+                admin: {
+                  ...value.rateLimits.admin,
+                  blockSeconds: Number(e.target.value),
+                },
+              })
+            }
+          />
+        </label>
+      </fieldset>
+      <APIRateLimitSettings
+        disabled={busy}
+        value={value}
+        change={(patch) => change("rateLimits", patch)}
+      />
+      <fieldset disabled={busy}>
+        <legend>Automatic backups</legend>
+        <label>
+          <input
+            checked={value.backups.enabled}
+            type="checkbox"
+            onChange={(e) => change("backups", { enabled: e.target.checked })}
+          />{" "}
+          Enabled
+        </label>
+        <label>
+          Schedule
+          <input
+            value={value.backups.schedule}
+            onChange={(e) => change("backups", { schedule: e.target.value })}
+          />
+        </label>
+        <label>
+          Timezone
+          <input
+            value={value.backups.timezone}
+            onChange={(e) => change("backups", { timezone: e.target.value })}
+          />
+        </label>
+      </fieldset>
+      <fieldset disabled={busy}>
+        <legend>Trusted proxies</legend>
+        <label>
+          CIDRs, one per line
+          <textarea
+            value={trustedProxyCIDRs.join("\n")}
+            onChange={(e) =>
+              change("proxy", {
+                trustedProxyCIDRs: e.target.value
+                  .split("\n")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              })
+            }
+          />
+        </label>
+      </fieldset>
+      <button disabled={busy} onClick={() => void save()} type="button">
+        {busy ? "Saving…" : "Save settings"}
+      </button>
+    </section>
+  );
 }

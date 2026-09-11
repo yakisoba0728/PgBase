@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -103,6 +104,31 @@ func validateDocumentAuthCollections(values []SchemaDocumentAuthCollection) erro
 		for purpose, ttl := range v.TokenTTLs {
 			if !map[string]bool{"verify": true, "password_reset": true, "email_change": true, "session": true, "otp": true, "impersonation": true}[purpose] || ttl < 60 || ttl > 86400 {
 				return validation("authCollections."+v.Name+".tokenTTLs", "invalid")
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Service) validateDocumentAuthExecutables(values []SchemaDocumentAuthCollection) error {
+	for _, value := range values {
+		if source := value.Policy.PasswordPattern; source != "" && (s.authPolicyValidator == nil || !s.authPolicyValidator.ValidatePasswordPattern(source)) {
+			return validation("authCollections."+value.Name+".policy.passwordPattern", "invalid")
+		}
+		if source := strings.TrimSpace(value.Policy.MFARule); source != "" && (s.authPolicyValidator == nil || !s.authPolicyValidator.ValidateMFARule(source)) {
+			return validation("authCollections."+value.Name+".policy.mfaRule", "invalid")
+		}
+		var rules map[string]*string
+		if err := json.Unmarshal(value.Rules, &rules); err != nil {
+			return validation("authCollections."+value.Name+".rules", "invalid")
+		}
+		for _, name := range []string{"list", "view", "create", "update", "delete", "auth", "manage"} {
+			source := rules[name]
+			if source == nil || strings.TrimSpace(*source) == "" {
+				continue
+			}
+			if s.authPolicyValidator == nil || !s.authPolicyValidator.ValidateAuthRule(*source, value.Fields) {
+				return validation("authCollections."+value.Name+".rules."+name, "invalid")
 			}
 		}
 	}

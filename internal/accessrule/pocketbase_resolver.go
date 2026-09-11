@@ -126,7 +126,7 @@ func (c *pbCompiler) rule(rule Rule, depth int) (string, error) {
 		return "FALSE", nil
 	}
 	if rule.Op == "authenticated" || rule.Op == "unauthenticated" {
-		value := c.context.Principal.Kind != identity.Anonymous
+		value := authenticatedSubject(c.context.Principal)
 		if rule.Op == "unauthenticated" {
 			value = !value
 		}

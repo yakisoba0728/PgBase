@@ -46,6 +46,7 @@ func TestEditorAndGeoPointPhysicalDefaultsAndPortableMetadata(t *testing.T) {
 		t.Fatalf("document=%+v", document)
 	}
 	_, target, targetAdmin := newSchemaServiceTest(t)
+	target.SetAuthExecutablePolicyValidator(authExecutableValidator{})
 	plan, err := target.PreviewSchemaImport(ctx, document)
 	if err != nil {
 		t.Fatal(err)

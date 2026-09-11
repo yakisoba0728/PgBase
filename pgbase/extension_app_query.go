@@ -95,6 +95,11 @@ func (host *extensionHost) callAppRecordQuery(ctx context.Context, method string
 		return marshalExtensionResult(count, err)
 	case "app.record.findAll":
 		cursor, items := "", []map[string]any{}
+		encodedBytes := len(`{"items":[]}`)
+		maximumBytes := host.bridge.maximumOutputBytes
+		if maximumBytes <= 0 {
+			maximumBytes = 4 << 20
+		}
 		for {
 			raw, err := call("records.list", extensionRecordRequest{Collection: request.Collection, Cursor: cursor, Limit: 200, Filter: request.Filter, Sort: request.Sort, Expand: request.Expand})
 			if err != nil {
@@ -104,13 +109,41 @@ func (host *extensionHost) callAppRecordQuery(ctx context.Context, method string
 			if json.Unmarshal(raw, &page) != nil {
 				return nil, extensionError("invalid_record_result", nil)
 			}
+			pageBytes := 0
+			for index, item := range page.Items {
+				encoded, marshalErr := json.Marshal(item)
+				if marshalErr != nil {
+					return nil, extensionError("invalid_record_result", marshalErr)
+				}
+				separator := 1
+				if len(items) == 0 && index == 0 {
+					separator = 0
+				}
+				pageBytes += separator + len(encoded)
+			}
+			if encodedBytes+pageBytes > maximumBytes {
+				return nil, extensionError("record_result_limit", errors.New("findAll result exceeds JavaScript output limit"))
+			}
+			encodedBytes += pageBytes
 			items = append(items, page.Items...)
 			if page.NextCursor == "" {
 				break
 			}
+			// Every record item is a JSON object, so another page needs at least
+			// a comma and {}. Fail before issuing a host call that cannot fit.
+			if encodedBytes+3 > maximumBytes {
+				return nil, extensionError("record_result_limit", errors.New("findAll result exceeds JavaScript output limit"))
+			}
 			cursor = page.NextCursor
 		}
-		return json.Marshal(extensionRecordResult{Items: items})
+		result, err := json.Marshal(extensionRecordResult{Items: items})
+		if err != nil {
+			return nil, extensionError("invalid_record_result", err)
+		}
+		if len(result) > maximumBytes {
+			return nil, extensionError("record_result_limit", errors.New("findAll result exceeds JavaScript output limit"))
+		}
+		return result, nil
 	case "app.record.findFirstByData":
 		if request.Field == "" || strings.ContainsAny(request.Field, "'\" ") {
 			return nil, extensionError("invalid_record_request", nil)

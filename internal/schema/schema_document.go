@@ -182,6 +182,9 @@ func (s *Service) planSchemaImport(ctx context.Context, tx pgx.Tx, catalog Catal
 	if err := validateDocumentAuthCollections(document.AuthCollections); err != nil {
 		return SchemaImportPlan{}, err
 	}
+	if err := s.validateDocumentAuthExecutables(document.AuthCollections); err != nil {
+		return SchemaImportPlan{}, err
+	}
 	if document.DeleteMissing {
 		if err := validateDeleteMissingProtection(ctx, tx, catalog, document); err != nil {
 			return SchemaImportPlan{}, err
@@ -629,6 +632,18 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 					return err
 				}
 				if _, err := tx.Exec(ctx, `select 1 from pgbase_meta.collection_rules where collection_id=$1 for update`, collection.ID); err != nil {
+					return err
+				}
+			}
+		}
+		for _, item := range intent.Document.AuthCollections {
+			var authCollectionID uuid.UUID
+			err := tx.QueryRow(ctx, `select c.id from pgbase_meta.auth_collections c join pgbase_meta.auth_collection_policies p on p.auth_collection_id=c.id where c.name=$1 for update of c,p`, item.Name).Scan(&authCollectionID)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			if err == nil {
+				if _, err := tx.Exec(ctx, `select 1 from pgbase_meta.auth_token_policies where auth_collection_id=$1 for update`, authCollectionID); err != nil {
 					return err
 				}
 			}

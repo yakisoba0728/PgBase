@@ -183,6 +183,65 @@ func TestAutoRecorderConcurrentMaterializeWritesOneSource(t *testing.T) {
 	}
 }
 
+func TestAutoRecorderRecoverRestoresMissingWrittenSource(t *testing.T) {
+	ctx := context.Background()
+	pool := userMigrationPool(t)
+	recorder, err := NewAutoRecorder(pool, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := exportSnapshot(t, pool)
+	operationID := uuid.MustParse("0199ab10-0000-7000-8000-000000000214")
+	if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return recorder.RecordSchemaMigration(ctx, tx, schema.MigrationRecording{OperationID: operationID, Name: "restore_missing", Before: snapshot, After: snapshot, CommittedAt: databaseRecordingTime(t, pool)})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.MaterializeSchemaMigration(ctx, operationID); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := recorder.Status(ctx)
+	if err != nil || len(statuses) != 1 {
+		t.Fatalf("statuses=%+v err=%v", statuses, err)
+	}
+	path := filepath.Join(recorder.directory, statuses[0].Filename)
+	var stored []byte
+	if err := pool.QueryRow(ctx, `select source from pgbase_meta.user_migration_sources where operation_id=$1`, operationID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(restored, stored) {
+		t.Fatalf("restored exact stored source=%t err=%v", bytes.Equal(restored, stored), err)
+	}
+	if err := os.WriteFile(path, []byte("user-owned replacement"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.Recover(ctx); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("differing written source recovery error=%v", err)
+	}
+	if existing, err := os.ReadFile(path); err != nil || string(existing) != "user-owned replacement" {
+		t.Fatalf("differing file overwritten=%q err=%v", existing, err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.Recover(ctx); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("non-regular written source recovery error=%v", err)
+	}
+	if info, err := os.Lstat(path); err != nil || !info.IsDir() {
+		t.Fatalf("non-regular path replaced: info=%v err=%v", info, err)
+	}
+}
+
 func databaseRecordingTime(t *testing.T, pool interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }) time.Time {

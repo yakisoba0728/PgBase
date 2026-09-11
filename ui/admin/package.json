@@ -11,7 +11,8 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "build": "tsc -b && vite build"
+    "build": "tsc -b && vite build",
+    "verify:dist": "npm run build && git diff --exit-code -- dist && test -z \"$(git ls-files --others --exclude-standard -- dist)\""
   },
   "dependencies": {
     "@tiptap/extension-image": "3.31.3",

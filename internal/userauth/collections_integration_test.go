@@ -75,6 +75,28 @@ func TestAuthCollectionRegistrationPolicies(t *testing.T) {
 	}
 }
 
+func TestAuthCollectionRulesSupportEmailVisibilityOnCreateAndUpdate(t *testing.T) {
+	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	id := uuid.New()
+	rules := AuthCollectionRules{View: "emailVisibility = true"}
+	created, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: id, Name: "visibility_" + id.String()[:8], Rules: rules})
+	if err != nil {
+		t.Fatalf("create collection with emailVisibility rule: %v", err)
+	}
+	if created.Rules.View != rules.View {
+		t.Fatalf("created view rule = %q, want %q", created.Rules.View, rules.View)
+	}
+	updatedRules := AuthCollectionRules{View: "emailVisibility = false"}
+	updated, err := service.UpdateAuthCollection(ctx, id, UpdateAuthCollectionInput{Rules: updatedRules})
+	if err != nil {
+		t.Fatalf("update collection with emailVisibility rule: %v", err)
+	}
+	if updated.Rules.View != updatedRules.View {
+		t.Fatalf("updated view rule = %q, want %q", updated.Rules.View, updatedRules.View)
+	}
+}
+
 func TestOAuthCallbackPersistsNonDefaultRealm(t *testing.T) {
 	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
 	ctx := context.Background()

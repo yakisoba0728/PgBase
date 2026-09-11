@@ -69,6 +69,20 @@ func TestPocketBaseScalarRulesRoundTripAndEnforceRows(t *testing.T) {
 		if got := loaded.PocketBase().View; got == nil || *got != source {
 			t.Fatalf("roundtrip=%v", got)
 		}
+		authenticatedSource := "@request.auth.id != ''"
+		authenticatedRules, marshalErr := json.Marshal(accessrule.Rules{View: accessrule.Rule{Op: "authenticated", PocketBase: &authenticatedSource}})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if _, updateErr := tx.Exec(ctx, `update pgbase_meta.collection_rules set rules=$2 where collection_id=$1`, collection.ID, authenticatedRules); updateErr != nil {
+			return updateErr
+		}
+		if got, checkErr := recordaccess.AllowsRecord(ctx, tx, collection, identity.Subject{Kind: "future", ID: userID}, "view", allowedID, false); checkErr != nil || got {
+			t.Fatalf("invalid request subject allowed=%t err=%v", got, checkErr)
+		}
+		if got, checkErr := recordaccess.AllowsRecord(ctx, tx, collection, principal, "view", allowedID, false); checkErr != nil || !got {
+			t.Fatalf("valid request subject allowed=%t err=%v", got, checkErr)
+		}
 		return nil
 	})
 	if err != nil {

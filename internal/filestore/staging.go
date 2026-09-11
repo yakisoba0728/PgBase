@@ -98,6 +98,7 @@ func (s *Service) stage(ctx context.Context, principal identity.Subject, input U
 	n, readErr := io.ReadFull(reader, buffer)
 	_ = reader.Close()
 	if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, io.EOF) {
+		_ = s.queueUnreferenced(context.WithoutCancel(ctx), file.ObjectKey)
 		return StagedFile{}, readErr
 	}
 	detected := strings.TrimSpace(strings.Split(http.DetectContentType(buffer[:n]), ";")[0])

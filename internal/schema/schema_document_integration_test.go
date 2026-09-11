@@ -49,6 +49,7 @@ func TestSchemaDocumentPreviewApplyExportWithNewSQLView(t *testing.T) {
 		t.Fatal(err)
 	}
 	service = NewService(pool, &Cache{}, nil)
+	service.SetAuthExecutablePolicyValidator(authExecutableValidator{})
 	exported, err := service.ExportSchema(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -66,6 +67,7 @@ func TestSchemaDocumentPreviewApplyExportWithNewSQLView(t *testing.T) {
 		t.Fatalf("own declarative export does not roundtrip: %#v", err)
 	}
 	_, target, targetActor := newSchemaServiceTest(t)
+	target.SetAuthExecutablePolicyValidator(authExecutableValidator{})
 	targetPlan, err := target.PreviewSchemaImport(ctx, exported)
 	if err != nil {
 		t.Fatal(err)

@@ -314,19 +314,10 @@ final class PgBaseClient {
     String redirectUri,
     OAuthUrlLauncher open, {
     CancellationToken? cancellation,
-  }) async {
-    final started = await oauthStart(
-      provider,
-      redirectUri,
-      cancellation: cancellation,
-    );
-    final authorizationUrl = started['authorizationUrl'];
-    if (authorizationUrl is! JsonString) {
-      throw const PgBaseProtocolError('invalid_oauth_start_response');
-    }
-    await open(Uri.parse(authorizationUrl.value));
-    return started;
-  }
+  }) => _oauthStartAndOpen(
+    () => oauthStart(provider, redirectUri, cancellation: cancellation),
+    open,
+  );
 
   /// Runs OAuth start, launch, callback validation, and completion in one
   /// cancellable operation. The adapter owns platform popup/deep-link I/O.
@@ -335,49 +326,14 @@ final class PgBaseClient {
     String redirectUri,
     OAuthBrowserAdapter adapter, {
     CancellationToken? cancellation,
-  }) async {
-    try {
-      final started = await oauthStart(
-        provider,
-        redirectUri,
-        cancellation: cancellation,
-      );
-      final authorizationUrl = started['authorizationUrl'];
-      if (authorizationUrl is! JsonString)
-        throw const OAuthCallbackError('invalid_start');
-      final expectedState = Uri.parse(authorizationUrl.value)
-          .queryParameters['state'];
-      if (expectedState == null || expectedState.isEmpty)
-        throw const OAuthCallbackError('invalid_start');
-      await adapter.open(Uri.parse(authorizationUrl.value));
-      final callback = await adapter.waitForCallback(cancellation);
-      final redirect = Uri.parse(redirectUri);
-      if (callback.scheme != redirect.scheme ||
-          callback.authority != redirect.authority) {
-        throw const OAuthCallbackError('invalid_callback_origin');
-      }
-      final error = callback.queryParameters['error'];
-      if (error != null)
-        throw OAuthCallbackError(
-          error,
-          callback.queryParameters['error_description'],
-        );
-      final state = callback.queryParameters['state'];
-      final code = callback.queryParameters['code'];
-      if (state == null || state.isEmpty || code == null || code.isEmpty)
-        throw const OAuthCallbackError('invalid_callback');
-      if (state != expectedState)
-        throw const OAuthCallbackError('invalid_state');
-      return await oauthComplete(
-        provider,
-        state,
-        code,
-        cancellation: cancellation,
-      );
-    } finally {
-      adapter.close?.call();
-    }
-  }
+  }) => _oauthWithBrowser(
+    () => oauthStart(provider, redirectUri, cancellation: cancellation),
+    redirectUri,
+    adapter,
+    cancellation,
+    (state, code) =>
+        oauthComplete(provider, state, code, cancellation: cancellation),
+  );
 
   Future<JsonObject> oauthLink(
     String currentPassword,
@@ -785,73 +741,24 @@ final class AuthRealm {
     String redirectUri,
     OAuthUrlLauncher open, {
     CancellationToken? cancellation,
-  }) async {
-    final started = await oauthStart(
-      provider,
-      redirectUri,
-      cancellation: cancellation,
-    );
-    final authorizationUrl = started['authorizationUrl'];
-    if (authorizationUrl is! JsonString) {
-      throw const PgBaseProtocolError('invalid_oauth_start_response');
-    }
-    await open(Uri.parse(authorizationUrl.value));
-    return started;
-  }
+  }) => _oauthStartAndOpen(
+    () => oauthStart(provider, redirectUri, cancellation: cancellation),
+    open,
+  );
 
   Future<UserSession> oauthWithBrowser(
     String provider,
     String redirectUri,
     OAuthBrowserAdapter adapter, {
     CancellationToken? cancellation,
-  }) async {
-    try {
-      final started = await oauthStart(
-        provider,
-        redirectUri,
-        cancellation: cancellation,
-      );
-      final authorizationUrl = started['authorizationUrl'];
-      if (authorizationUrl is! JsonString) {
-        throw const OAuthCallbackError('invalid_start');
-      }
-      final expectedState = Uri.parse(authorizationUrl.value)
-          .queryParameters['state'];
-      if (expectedState == null || expectedState.isEmpty) {
-        throw const OAuthCallbackError('invalid_start');
-      }
-      await adapter.open(Uri.parse(authorizationUrl.value));
-      final callback = await adapter.waitForCallback(cancellation);
-      final redirect = Uri.parse(redirectUri);
-      if (callback.scheme != redirect.scheme ||
-          callback.authority != redirect.authority) {
-        throw const OAuthCallbackError('invalid_callback_origin');
-      }
-      final error = callback.queryParameters['error'];
-      if (error != null) {
-        throw OAuthCallbackError(
-          error,
-          callback.queryParameters['error_description'],
-        );
-      }
-      final state = callback.queryParameters['state'];
-      final code = callback.queryParameters['code'];
-      if (state == null || state.isEmpty || code == null || code.isEmpty) {
-        throw const OAuthCallbackError('invalid_callback');
-      }
-      if (state != expectedState) {
-        throw const OAuthCallbackError('invalid_state');
-      }
-      return await client.oauthComplete(
-        provider,
-        state,
-        code,
-        cancellation: cancellation,
-      );
-    } finally {
-      adapter.close?.call();
-    }
-  }
+  }) => _oauthWithBrowser(
+    () => oauthStart(provider, redirectUri, cancellation: cancellation),
+    redirectUri,
+    adapter,
+    cancellation,
+    (state, code) =>
+        client.oauthComplete(provider, state, code, cancellation: cancellation),
+  );
 
   Future<UserSession> oauthCompleteFromUri(
     String provider,
@@ -987,6 +894,63 @@ UserSession _decodeRefreshSession(JsonValue value) {
     throw const PgBaseProtocolError('invalid_session_response');
   }
   return session;
+}
+
+Future<JsonObject> _oauthStartAndOpen(
+  Future<JsonObject> Function() start,
+  OAuthUrlLauncher open,
+) async {
+  final started = await start();
+  final authorizationUrl = started['authorizationUrl'];
+  if (authorizationUrl is! JsonString) {
+    throw const PgBaseProtocolError('invalid_oauth_start_response');
+  }
+  await open(Uri.parse(authorizationUrl.value));
+  return started;
+}
+
+Future<UserSession> _oauthWithBrowser(
+  Future<JsonObject> Function() start,
+  String redirectUri,
+  OAuthBrowserAdapter adapter,
+  CancellationToken? cancellation,
+  Future<UserSession> Function(String state, String code) complete,
+) async {
+  try {
+    final started = await start();
+    final authorizationUrl = started['authorizationUrl'];
+    if (authorizationUrl is! JsonString) {
+      throw const OAuthCallbackError('invalid_start');
+    }
+    final expectedState = Uri.parse(authorizationUrl.value)
+        .queryParameters['state'];
+    if (expectedState == null || expectedState.isEmpty) {
+      throw const OAuthCallbackError('invalid_start');
+    }
+    await adapter.open(Uri.parse(authorizationUrl.value));
+    final callback = await adapter.waitForCallback(cancellation);
+    final redirect = Uri.parse(redirectUri);
+    if (callback.scheme != redirect.scheme ||
+        callback.authority != redirect.authority) {
+      throw const OAuthCallbackError('invalid_callback_origin');
+    }
+    final error = callback.queryParameters['error'];
+    if (error != null) {
+      throw OAuthCallbackError(
+        error,
+        callback.queryParameters['error_description'],
+      );
+    }
+    final state = callback.queryParameters['state'];
+    final code = callback.queryParameters['code'];
+    if (state == null || state.isEmpty || code == null || code.isEmpty) {
+      throw const OAuthCallbackError('invalid_callback');
+    }
+    if (state != expectedState) throw const OAuthCallbackError('invalid_state');
+    return await complete(state, code);
+  } finally {
+    adapter.close?.call();
+  }
 }
 
 PgBaseError pgBaseError(PgBaseResponse response) {

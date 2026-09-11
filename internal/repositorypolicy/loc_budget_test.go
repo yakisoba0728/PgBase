@@ -87,7 +87,10 @@ import (
 // The 20-defect correctness stack is measured against d05452c. The data-group
 // runtime moves from 27,498 to 27,716 lines (+840/-622, net +218). This is the
 // exact measured ceiling for the approved fixes; it adds no spare headroom.
-const dataGroupRuntimeLimit = 27716
+// The maintainability pass adds 52 lines for executable auth-policy validation
+// and locked token-policy stale checks (IS1-P2-001 and IS2-P2-001). This is the
+// measured ceiling; the package set and source classifier remain unchanged.
+const dataGroupRuntimeLimit = 27768
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -374,14 +377,14 @@ type structuralLimit struct {
 // production files over 800 lines. Classifiers and source inclusion are
 // unchanged; no excluded source or artificial slack is introduced.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 98637, "measured final 20-defect correctness stack"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 7101, "measured final administration UI"},
-	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 95, "measured final 20-defect correctness seams"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1563, "measured final 20-defect correctness API"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 102344, "maintainability pass: UI +3515 physical lines, Go +192 including watch shutdown"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 10616, "measured named UI modules and readable editors; no spare allowance"},
+	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 96, "schema-owned auth-policy validator avoids an import cycle"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1568, "auth-policy interface, startup setter, and three adapter methods"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 64, "measured final 20-defect correctness constructors"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
 	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 180, "measured final compatibility UI state"},
-	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 250, "measured final compatibility UI exports"},
+	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 307, "measured cross-module ports, codecs, and named editors"},
 }
 
 type repositoryMetrics struct {

@@ -52,11 +52,17 @@ async function loadNotes() {
 byID("register").addEventListener("click", () => authenticate("register"));
 byID("login").addEventListener("click", () => authenticate("login"));
 logout.addEventListener("click", async () => {
+  const activeClient = client;
   eventAbort?.abort();
-  await client.logout();
-  form.hidden = true;
-  logout.disabled = true;
-  message("Signed out");
+  try {
+    await activeClient.logout();
+    form.hidden = true;
+    logout.disabled = true;
+    message("Signed out");
+  } catch (error) {
+    if (client === activeClient) startEvents();
+    message(`Sign out failed: ${error.code ?? error.message}`);
+  }
 });
 byID("create").addEventListener("click", async () => {
   try {
@@ -72,15 +78,16 @@ byID("create").addEventListener("click", async () => {
 
 function startEvents() {
   eventAbort?.abort();
-  eventAbort = new AbortController();
+  const controller = new AbortController();
+  eventAbort = controller;
   (async () => {
     try {
-      for await (const event of client.records("notes").events({ signal: eventAbort.signal })) {
+      for await (const event of client.records("notes").events({ signal: controller.signal })) {
         message(`Note ${event.operation}; refreshing private list`);
         await loadNotes();
       }
     } catch (error) {
-      if (!eventAbort.signal.aborted) message(`Live updates stopped: ${error.code ?? error.message}`);
+      if (!controller.signal.aborted) message(`Live updates stopped: ${error.code ?? error.message}`);
     }
   })();
 }

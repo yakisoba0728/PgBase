@@ -32,8 +32,7 @@ func (s *Service) ConfigureOAuth(providers map[string]OAuthProvider, redirectAll
 	}
 	redirects := make(map[string]struct{}, len(redirectAllowlist))
 	for _, raw := range redirectAllowlist {
-		parsed, err := url.Parse(raw)
-		if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.Fragment != "" {
+		if !validEndpoint(raw, true) {
 			return ErrValidation
 		}
 		redirects[raw] = struct{}{}

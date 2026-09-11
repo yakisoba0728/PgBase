@@ -65,6 +65,7 @@ func TestAdvancedFieldRenamePreservesValuesViewsAndPortableOptions(t *testing.T)
 		t.Fatal(err)
 	}
 	_, target, targetAdmin := newSchemaServiceTest(t)
+	target.SetAuthExecutablePolicyValidator(authExecutableValidator{})
 	plan, err := target.PreviewSchemaImport(ctx, document)
 	if err != nil {
 		t.Fatal(err)

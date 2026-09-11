@@ -78,4 +78,28 @@ describe("auth collections page", () => {
     expect(callsTo(harness.script, "testAuthSMTP")[0]?.detail).toEqual({ id: users.id, recipient: "sink@example.test" });
   });
 
+  it("replaces a mail-template draft after a normalized save and a settings reload", async () => {
+    const policy = { passwordEnabled: true, minimumPasswordBytes: 12, mfaEnabled: true, otpEnabled: false, otpDurationSeconds: 300, otpMaxAttempts: 5 };
+    const initial = { purpose: "verify" as const, subject: "Initial subject", body: "Initial body", htmlBody: "<p>Initial</p>" };
+    const normalized = { ...initial, subject: "Normalized subject", body: "Normalized body", htmlBody: "<p>Normalized</p>" };
+    const reloaded = { ...initial, subject: "Reloaded subject", body: "Reloaded body", htmlBody: "<p>Reloaded</p>" };
+    const harness = scriptedAdmin("/admin/auth-collections");
+    harness.script.listAuthCollections.push({ value: [users] });
+    harness.script.getAuthAdministration.push(
+      { value: { policy, providers: [], templates: [initial] } },
+      { value: { policy, providers: [], templates: [reloaded] } },
+    );
+    harness.script.putAuthMailTemplate.push({ value: normalized });
+    renderAdmin(harness);
+    fireEvent.click(await screen.findByText("Authentication settings"));
+    const subject = (await screen.findAllByLabelText("Subject"))[0];
+    fireEvent.change(subject, { target: { value: "Edited subject" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Save template" })[0]);
+    expect(await screen.findByDisplayValue("Normalized subject")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Reload authentication settings" }));
+    expect(await screen.findByDisplayValue("Reloaded subject")).toHaveValue(
+      "Reloaded subject",
+    );
+  });
+
 });

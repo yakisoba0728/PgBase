@@ -15,6 +15,35 @@ import (
 	"time"
 )
 
+type oauthProviderStub struct{}
+
+func (oauthProviderStub) AuthorizationURL(string, string, string) (string, error) { return "", nil }
+func (oauthProviderStub) Exchange(context.Context, string, string, string) (OAuthIdentity, error) {
+	return OAuthIdentity{}, nil
+}
+
+func TestConfigureOAuthRestrictsReturnURIsToWebEndpoints(t *testing.T) {
+	tests := []struct {
+		name string
+		uri  string
+		want bool
+	}{
+		{name: "https", uri: "https://app.example/oauth/callback", want: true},
+		{name: "loopback HTTP", uri: "http://localhost:3000/oauth/callback", want: true},
+		{name: "non-loopback HTTP", uri: "http://app.example/oauth/callback"},
+		{name: "userinfo", uri: "https://user@app.example/oauth/callback"},
+		{name: "fragment", uri: "https://app.example/oauth/callback#fragment"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := (&Service{}).ConfigureOAuth(map[string]OAuthProvider{"test": oauthProviderStub{}}, []string{test.uri}, time.Minute)
+			if (err == nil) != test.want {
+				t.Fatalf("ConfigureOAuth(%q) error=%v, want accepted=%t", test.uri, err, test.want)
+			}
+		})
+	}
+}
+
 func TestHTTPOAuthProviderPKCEExchange(t *testing.T) {
 	var verifier string
 	mux := http.NewServeMux()
@@ -132,6 +161,17 @@ func TestOIDCIDTokenFallbackRejectsInvalidTokens(t *testing.T) {
 	if _, err := p.verifyOIDCIDToken(context.Background(), valid, verifier); err != nil {
 		t.Fatalf("valid token: %v", err)
 	}
+	multiAudience := func(azp any) map[string]any {
+		c := base()
+		c["aud"] = []string{"client", "other-client"}
+		if azp != nil {
+			c["azp"] = azp
+		}
+		return c
+	}
+	if _, err := p.verifyOIDCIDToken(context.Background(), sign(map[string]string{"alg": "RS256", "kid": "one"}, multiAudience("client"), key), verifier); err != nil {
+		t.Fatalf("multi-audience token with matching azp: %v", err)
+	}
 	other, _ := rsa.GenerateKey(rand.Reader, 2048)
 	cases := []struct {
 		name  string
@@ -144,6 +184,9 @@ func TestOIDCIDTokenFallbackRejectsInvalidTokens(t *testing.T) {
 		{"bad signature", sign(map[string]string{"alg": "RS256", "kid": "one"}, base(), other)},
 		{"unsupported algorithm", sign(map[string]string{"alg": "none", "kid": "one"}, base(), key)},
 		{"unknown kid", sign(map[string]string{"alg": "RS256", "kid": "other"}, base(), key)},
+		{"multi-audience without azp", sign(map[string]string{"alg": "RS256", "kid": "one"}, multiAudience(nil), key)},
+		{"multi-audience with wrong azp", sign(map[string]string{"alg": "RS256", "kid": "one"}, multiAudience("other-client"), key)},
+		{"single audience with wrong azp", sign(map[string]string{"alg": "RS256", "kid": "one"}, func() map[string]any { c := base(); c["azp"] = "other-client"; return c }(), key)},
 		{"malformed", "not-a-jwt"},
 	}
 	for _, tc := range cases {

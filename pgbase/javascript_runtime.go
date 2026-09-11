@@ -330,12 +330,35 @@ func serveJavaScriptExtensionObject(w http.ResponseWriter, r *http.Request, obje
 		return
 	}
 	defer func() { _ = reader.Close() }()
-	data, err := io.ReadAll(reader)
+	spool, err := os.CreateTemp("", "pgbase-extension-serve-*")
 	if err != nil {
 		http.Error(w, "extension file is unavailable", http.StatusInternalServerError)
 		return
 	}
-	contentType := strings.TrimSpace(strings.Split(http.DetectContentType(data), ";")[0])
+	spoolName := spool.Name()
+	defer func() {
+		_ = spool.Close()
+		_ = os.Remove(spoolName)
+	}()
+	if _, err := io.Copy(spool, reader); err != nil {
+		http.Error(w, "extension file is unavailable", http.StatusInternalServerError)
+		return
+	}
+	if _, err := spool.Seek(0, io.SeekStart); err != nil {
+		http.Error(w, "extension file is unavailable", http.StatusInternalServerError)
+		return
+	}
+	prefix := make([]byte, 512)
+	prefixLength, err := io.ReadFull(spool, prefix)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		http.Error(w, "extension file is unavailable", http.StatusInternalServerError)
+		return
+	}
+	if _, err := spool.Seek(0, io.SeekStart); err != nil {
+		http.Error(w, "extension file is unavailable", http.StatusInternalServerError)
+		return
+	}
+	contentType := strings.TrimSpace(strings.Split(http.DetectContentType(prefix[:prefixLength]), ";")[0])
 	if typed := mime.TypeByExtension(filepath.Ext(served.name)); typed != "" {
 		contentType = strings.TrimSpace(strings.Split(typed, ";")[0])
 	}
@@ -349,7 +372,7 @@ func serveJavaScriptExtensionObject(w http.ResponseWriter, r *http.Request, obje
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; media-src 'self'; style-src 'unsafe-inline'; sandbox")
 	w.Header().Set("Cache-Control", "max-age=2592000, stale-while-revalidate=86400")
-	http.ServeContent(w, r, served.name, info.UpdatedAt, bytes.NewReader(data))
+	http.ServeContent(w, r, served.name, info.UpdatedAt, spool)
 }
 func hasJavaScriptCapability(capabilities []string, wanted string) bool {
 	for _, capability := range capabilities {
@@ -415,19 +438,53 @@ func writeJavaScriptRouteBody(w http.ResponseWriter, response javaScriptRouteRes
 }
 
 func acceptsGzip(header string) bool {
+	wildcard := -1.0
 	for _, item := range strings.Split(header, ",") {
 		parts := strings.Split(strings.TrimSpace(item), ";")
-		if !strings.EqualFold(strings.TrimSpace(parts[0]), "gzip") && strings.TrimSpace(parts[0]) != "*" {
+		coding := strings.TrimSpace(parts[0])
+		if !strings.EqualFold(coding, "gzip") && coding != "*" {
 			continue
 		}
+		quality, valid, seenQuality := 1.0, true, false
 		for _, parameter := range parts[1:] {
-			if strings.EqualFold(strings.TrimSpace(parameter), "q=0") || strings.EqualFold(strings.TrimSpace(parameter), "q=0.0") {
-				return false
+			name, value, found := strings.Cut(strings.TrimSpace(parameter), "=")
+			if !found || !strings.EqualFold(strings.TrimSpace(name), "q") || seenQuality {
+				valid = false
+				break
+			}
+			seenQuality = true
+			var err error
+			qualityText := strings.TrimSpace(value)
+			quality, err = strconv.ParseFloat(qualityText, 64)
+			if err != nil || !validHTTPQuality(qualityText) {
+				valid = false
 			}
 		}
+		if !valid {
+			continue
+		}
+		if strings.EqualFold(coding, "gzip") {
+			return quality > 0
+		}
+		wildcard = quality
+	}
+	return wildcard > 0
+}
+
+func validHTTPQuality(value string) bool {
+	if value == "0" || value == "1" {
 		return true
 	}
-	return false
+	whole, fraction, found := strings.Cut(value, ".")
+	if !found || len(fraction) == 0 || len(fraction) > 3 || (whole != "0" && whole != "1") {
+		return false
+	}
+	for _, digit := range fraction {
+		if digit < '0' || digit > '9' || (whole == "1" && digit != '0') {
+			return false
+		}
+	}
+	return true
 }
 
 func serveJavaScriptStatic(w http.ResponseWriter, r *http.Request, configuredRoot string, response *javaScriptStaticResponse) {

@@ -126,6 +126,50 @@ func TestRunnerTimeoutAndShutdown(t *testing.T) {
 	}
 }
 
+func TestIgnoringHandlerMayRunTwiceButStaleCompletionIsFenced(t *testing.T) {
+	ctx := context.Background()
+	pool := jobsTestPool(t)
+	insertJob(t, pool, "ignores-cancellation", "@every 1h")
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	registry := NewRegistry()
+	if err := registry.Register("ignores-cancellation", func(context.Context, Job) error {
+		if calls.Add(1) == 1 {
+			close(started)
+			<-release // Deliberately ignores the runner deadline.
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first, second := NewService(pool, registry, nil, uuid.New()), NewService(pool, registry, nil, uuid.New())
+	first.timeout = 10 * time.Millisecond
+	done := make(chan error, 1)
+	go func() { done <- first.RunOnce(ctx) }()
+	<-started
+	if _, err := pool.Exec(ctx, `update pgbase_meta.scheduled_jobs set lease_until=clock_timestamp()-interval '1 second' where name='ignores-cancellation'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("calls=%d, want duplicated at-least-once execution", calls.Load())
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	var attempts int
+	if err := pool.QueryRow(ctx, `select attempts from pgbase_meta.scheduled_jobs where name='ignores-cancellation'`).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 0 {
+		t.Fatalf("stale completion modified current fenced metadata attempts=%d", attempts)
+	}
+}
+
 func jobsTestPool(t *testing.T) *database.Pool {
 	t.Helper()
 	databaseURL := testutil.NewDatabase(t)

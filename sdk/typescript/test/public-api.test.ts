@@ -27,6 +27,7 @@ void realm.profile({ fields: "id,email" });
 void realm.updateProfile({ title: "person" }, { fields: "id,title" });
 void realm.refresh();
 void methods.oauthProviders;
+void methods.oauth2.enabled;
 void operations;
 const batchOptions: BatchOptions = { fields: "id,title" };
 void batchOptions;

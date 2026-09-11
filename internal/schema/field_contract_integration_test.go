@@ -107,6 +107,7 @@ func TestDeniedDomainPreflightRejectsExistingRowsForApplyAndImport(t *testing.T)
 		t.Run(mode, func(t *testing.T) {
 			ctx := context.Background()
 			pool, service, admin := newSchemaServiceTest(t)
+			service.SetAuthExecutablePolicyValidator(authExecutableValidator{})
 			created := applyFreshPlan(t, service, CreateCollectionInput{Name: "domain_items", Fields: []FieldInput{{Name: "email", Type: TypeText, Options: &FieldOptions{Format: "email"}}}}, admin)
 			if _, err := pool.Exec(ctx, `insert into app.domain_items(id,created_at,updated_at,email) values(gen_random_uuid(),now(),now(),'user@blocked.example')`); err != nil {
 				t.Fatal(err)

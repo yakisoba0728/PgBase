@@ -13,6 +13,7 @@ import (
 
 func TestSchemaImportDeleteMissingReportsProtectedSystemCollection(t *testing.T) {
 	_, service, admin := newSchemaServiceTest(t)
+	service.SetAuthExecutablePolicyValidator(authExecutableValidator{})
 	applyChange(t, service, NewCreateChange(CreateCollectionInput{Name: "delete_missing_system", System: true}), admin)
 	document, err := service.ExportSchema(context.Background())
 	if err != nil {
@@ -50,6 +51,7 @@ func TestSchemaImportDeleteMissingReportsProtectedAuthRealm(t *testing.T) {
 
 func TestSchemaImportDeleteMissingDeletesDependenciesInOneSealedApply(t *testing.T) {
 	_, service, admin := newSchemaServiceTest(t)
+	service.SetAuthExecutablePolicyValidator(authExecutableValidator{})
 	applyChange(t, service, NewCreateChange(CreateCollectionInput{Name: "delete_missing_target"}), admin)
 	applyChange(t, service, NewCreateChange(CreateCollectionInput{Name: "delete_missing_source", Fields: []FieldInput{{Name: "label", Type: TypeText}, {Name: "target", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "delete_missing_target", Cardinality: RelationSingle}}}}), admin)
 	applyChange(t, service, NewCreateChange(CreateCollectionInput{Name: "delete_missing_view", Type: CollectionTypeView, View: &ViewInput{Source: "delete_missing_source", Projection: []string{"label"}}}), admin)
@@ -92,6 +94,7 @@ func TestSchemaImportDeleteMissingDeletesDependenciesInOneSealedApply(t *testing
 
 func TestSchemaImportDeleteMissingVetoRollsBackEarlierDeletes(t *testing.T) {
 	_, service, admin := newSchemaServiceTest(t)
+	service.SetAuthExecutablePolicyValidator(authExecutableValidator{})
 	for _, name := range []string{"delete_missing_drop_a", "delete_missing_drop_b", "delete_missing_keep"} {
 		applyChange(t, service, NewCreateChange(CreateCollectionInput{Name: name}), admin)
 	}

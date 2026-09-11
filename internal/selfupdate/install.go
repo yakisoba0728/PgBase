@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -63,6 +64,13 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 		return Status{}, err
 	}
 	defer func() { _ = closeExecutableLock(executableLock) }()
+	manifest, err := VerifyManifest(options.Fetched.ManifestRaw, options.Fetched.SignatureRaw, options.TrustKey)
+	if err != nil {
+		return Status{}, err
+	}
+	if !candidateInManifest(manifest, options.Fetched.Candidate) {
+		return Status{}, ErrUntrustedManifest
+	}
 	if existing, err := loadJournal(state); err == nil {
 		if existing.Target != filepath.Base(target) {
 			return Status{}, ErrRecoveryRequired
@@ -211,6 +219,20 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 		return Status{}, err
 	}
 	return statusFromJournal(entry), nil
+}
+
+func candidateInManifest(manifest Manifest, candidate Candidate) bool {
+	for _, release := range manifest.Releases {
+		if !reflect.DeepEqual(release, candidate.Release) {
+			continue
+		}
+		for _, artifact := range release.Artifacts {
+			if reflect.DeepEqual(artifact, candidate.Artifact) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Rollback explicitly restores the verified original backup. It never makes a

@@ -5,10 +5,23 @@ package schema
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
 )
+
+type authExecutableValidator struct {
+	rejectPassword bool
+	rejectMFA      bool
+	rejectRule     bool
+}
+
+func (v authExecutableValidator) ValidatePasswordPattern(string) bool { return !v.rejectPassword }
+func (v authExecutableValidator) ValidateMFARule(string) bool         { return !v.rejectMFA }
+func (v authExecutableValidator) ValidateAuthRule(string, []FieldInput) bool {
+	return !v.rejectRule
+}
 
 func TestSchemaDocumentAuthCollectionNullableRulesAndPolicyRoundTrip(t *testing.T) {
 	pool, service, _ := newSchemaServiceTest(t)
@@ -40,6 +53,7 @@ func TestSchemaDocumentAuthCollectionNullableRulesAndPolicyRoundTrip(t *testing.
 		t.Fatalf("policy=%+v", users.Policy)
 	}
 	targetPool, target, actor := newSchemaServiceTest(t)
+	target.SetAuthExecutablePolicyValidator(authExecutableValidator{})
 	target.authSecret = []byte("0123456789abcdef0123456789abcdef")
 	plan, err := target.PreviewSchemaImport(ctx, document)
 	if err != nil {
@@ -84,5 +98,37 @@ func TestSchemaDocumentRejectsInvalidAuthPolicyBeforeMutation(t *testing.T) {
 	}
 	if minimum == 1 {
 		t.Fatal("failed preview mutated auth policy")
+	}
+}
+
+func TestSchemaDocumentAuthExecutableValidationIsPathSpecificAndCannotBeBypassedAtApply(t *testing.T) {
+	_, service, actor := newSchemaServiceTest(t)
+	ctx := context.Background()
+	document, err := service.ExportSchema(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document.AuthCollections[0].Policy.PasswordPattern = "["
+	service.SetAuthExecutablePolicyValidator(authExecutableValidator{rejectPassword: true})
+	_, err = service.PreviewSchemaImport(ctx, document)
+	assertAuthValidationPath(t, err, "authCollections."+document.AuthCollections[0].Name+".policy.passwordPattern")
+
+	document.AuthCollections[0].Policy.PasswordPattern = "[A-Z]"
+	document.AuthCollections[0].Rules = json.RawMessage(`{"list":"broken (","view":null,"create":null,"update":null,"delete":null,"auth":null,"manage":null}`)
+	service.SetAuthExecutablePolicyValidator(authExecutableValidator{})
+	plan, err := service.PreviewSchemaImport(ctx, document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.SetAuthExecutablePolicyValidator(authExecutableValidator{rejectRule: true})
+	_, err = service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: uuid.New(), IdempotencyKey: "auth-executable-apply-0001"})
+	assertAuthValidationPath(t, err, "authCollections."+document.AuthCollections[0].Name+".rules.list")
+}
+
+func assertAuthValidationPath(t *testing.T, err error, path string) {
+	t.Helper()
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) || len(validationErr.Details) != 1 || validationErr.Details[0].Field != path {
+		t.Fatalf("validation error=%#v want path=%q", err, path)
 	}
 }

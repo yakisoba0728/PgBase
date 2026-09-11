@@ -58,7 +58,7 @@ func (p *HTTPOAuthProvider) verifyOIDCIDToken(ctx context.Context, raw, verifier
 	}
 	var issuer, nonce string
 	var exp float64
-	if json.Unmarshal(claims["iss"], &issuer) != nil || issuer != p.config.Issuer || json.Unmarshal(claims["exp"], &exp) != nil || time.Now().Unix() >= int64(exp) || !oidcAudience(claims["aud"], p.config.ClientID) || json.Unmarshal(claims["nonce"], &nonce) != nil {
+	if json.Unmarshal(claims["iss"], &issuer) != nil || issuer != p.config.Issuer || json.Unmarshal(claims["exp"], &exp) != nil || time.Now().Unix() >= int64(exp) || !oidcAudience(claims["aud"], claims["azp"], p.config.ClientID) || json.Unmarshal(claims["nonce"], &nonce) != nil {
 		return nil, errors.New("OIDC id token claims are invalid")
 	}
 	d := sha256.Sum256([]byte(verifier))
@@ -68,21 +68,37 @@ func (p *HTTPOAuthProvider) verifyOIDCIDToken(ctx context.Context, raw, verifier
 	return claims, nil
 }
 
-func oidcAudience(raw json.RawMessage, clientID string) bool {
+func oidcAudience(raw, authorizedParty json.RawMessage, clientID string) bool {
 	var one string
 	if json.Unmarshal(raw, &one) == nil {
-		return one == clientID
-	}
-	var many []string
-	if json.Unmarshal(raw, &many) != nil {
-		return false
-	}
-	for _, v := range many {
-		if v == clientID {
+		if one != clientID {
+			return false
+		}
+		if authorizedParty == nil {
 			return true
 		}
+		var azp string
+		return json.Unmarshal(authorizedParty, &azp) == nil && azp == clientID
 	}
-	return false
+	var many []string
+	if json.Unmarshal(raw, &many) != nil || len(many) == 0 {
+		return false
+	}
+	found := false
+	for _, v := range many {
+		if v == clientID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return false
+	}
+	if len(many) == 1 && authorizedParty == nil {
+		return true
+	}
+	var azp string
+	return json.Unmarshal(authorizedParty, &azp) == nil && azp == clientID
 }
 func (p *HTTPOAuthProvider) oidcRSAKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.config.JWKSURL, nil)

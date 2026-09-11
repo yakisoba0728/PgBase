@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 	"math"
@@ -33,6 +34,7 @@ func New(pool *database.Pool, key []byte, initial runtimesettings.Settings) *Ser
 }
 func (s *Service) Set(v runtimesettings.Settings) {
 	v.RateLimits.Rules = append([]runtimesettings.APIRateRule(nil), v.RateLimits.Rules...)
+	v.RateLimits.ExcludedIPs = append([]string(nil), v.RateLimits.ExcludedIPs...)
 	s.settings.Store(&v)
 }
 func (s *Service) Admit(ctx context.Context, method, path, actor, ip string) (Decision, error) {
@@ -62,7 +64,8 @@ func (s *Service) Admit(ctx context.Context, method, path, actor, ip string) (De
 	var retry float64
 	qerr := s.pool.QueryRow(ctx, `SELECT GREATEST(1,EXTRACT(EPOCH FROM window_started_at + ($2 * interval '1 second') - statement_timestamp())) FROM pgbase_meta.api_rate_limits WHERE bucket=$1`, bucket, rule.Duration).Scan(&retry)
 	if qerr != nil {
-		return Decision{}, err
+		// Keep admission fail-closed while exposing the failed fallback lookup.
+		return Decision{}, errors.Join(err, qerr)
 	}
 	return Decision{Allowed: false, RetryAfter: time.Duration(math.Ceil(retry)) * time.Second}, nil
 }

@@ -89,7 +89,7 @@ func (o TLSOptions) normalized() (TLSOptions, error) {
 	hosts := make([]string, 0, len(o.ACMEHosts))
 	for _, raw := range o.ACMEHosts {
 		host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(raw), "."))
-		if host == "" || strings.ContainsAny(host, "*/:@") || !strings.Contains(host, ".") || seen[host] {
+		if !validACMEHostname(host) || seen[host] {
 			return TLSOptions{}, fmt.Errorf("TLS.ACMEHosts: contains an invalid or duplicate host")
 		}
 		seen[host] = true
@@ -97,4 +97,21 @@ func (o TLSOptions) normalized() (TLSOptions, error) {
 	}
 	o.ACMEHosts = hosts
 	return o, nil
+}
+
+func validACMEHostname(host string) bool {
+	if len(host) == 0 || len(host) > 253 || !strings.Contains(host, ".") {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, character := range label {
+			if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
+				return false
+			}
+		}
+	}
+	return true
 }

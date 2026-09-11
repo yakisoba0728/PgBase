@@ -24,19 +24,20 @@ import (
 )
 
 type extensionBridge struct {
-	records       *recordops.Service
-	files         *filestore.Service
-	mailer        mailer.Sender
-	logger        *slog.Logger
-	hooks         *HookRegistry
-	templates     *TemplateRegistry
-	database      *TrustedDatabase
-	objects       *ExtensionObjects
-	compatibility *extensionCompatibility
-	appControl    *extensionAppControl
-	authMail      authMailService
-	authAPI       authAPIService
-	requestLog    *observability.RequestLog
+	records            *recordops.Service
+	files              *filestore.Service
+	mailer             mailer.Sender
+	logger             *slog.Logger
+	hooks              *HookRegistry
+	templates          *TemplateRegistry
+	database           *TrustedDatabase
+	objects            *ExtensionObjects
+	compatibility      *extensionCompatibility
+	appControl         *extensionAppControl
+	authMail           authMailService
+	authAPI            authAPIService
+	requestLog         *observability.RequestLog
+	maximumOutputBytes int
 }
 
 type authMailService interface {

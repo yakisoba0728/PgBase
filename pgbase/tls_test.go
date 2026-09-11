@@ -2,6 +2,7 @@ package pgbase
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -31,5 +32,17 @@ func TestTLSOptionsNormalizeExplicitACMEAllowlist(t *testing.T) {
 	}
 	if len(value.ACMEHosts) != 1 || value.ACMEHosts[0] != "pgbase.example" {
 		t.Fatalf("ACME hosts=%q", value.ACMEHosts)
+	}
+}
+
+func TestTLSOptionsRejectsInvalidACMEHostnames(t *testing.T) {
+	invalid := []string{"example..com", "-api.example.com", "api-.example.com", "api_example.com", strings.Repeat("a", 64) + ".example", strings.Repeat("a.", 127) + "com"}
+	for _, host := range invalid {
+		t.Run(host, func(t *testing.T) {
+			_, err := (TLSOptions{Address: "127.0.0.1:443", ACMEHosts: []string{host}, ACMECacheDirectory: t.TempDir(), HTTPChallengeAddress: "127.0.0.1:80"}).normalized()
+			if err == nil {
+				t.Fatalf("accepted invalid ACME hostname %q", host)
+			}
+		})
 	}
 }

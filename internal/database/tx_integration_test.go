@@ -78,3 +78,28 @@ func TestInTxRollsBackOnPanic(t *testing.T) {
 		t.Fatalf("count = %d", count)
 	}
 }
+
+func TestInTxExpiredDeadlineRollsBackAndReleasesConnection(t *testing.T) {
+	databaseURL := testutil.NewDatabase(t)
+	pool, err := Open(context.Background(), databaseURL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	baseline := pool.Stats().AcquiredConns
+	deadline, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	err = pool.InTx(deadline, pgx.TxOptions{}, func(pgx.Tx) error {
+		<-deadline.Done()
+		return deadline.Err()
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("InTx error = %v", err)
+	}
+	if got := pool.Stats().AcquiredConns; got != baseline {
+		t.Fatalf("acquired connections after expired rollback = %d, want %d", got, baseline)
+	}
+	if err := pool.Ping(context.Background()); err != nil {
+		t.Fatalf("pool after expired rollback: %v", err)
+	}
+}

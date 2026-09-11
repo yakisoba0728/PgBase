@@ -49,6 +49,19 @@ type Service struct {
 	collectionLifecycle CollectionMutationLifecycle
 	migrationRecorder   MigrationRecorder
 	authSecret          []byte
+	authPolicyValidator AuthExecutablePolicyValidator
+}
+
+// AuthExecutablePolicyValidator validates executable authentication policy
+// using the same parser and policy rules as the authentication runtime.
+type AuthExecutablePolicyValidator interface {
+	ValidatePasswordPattern(string) bool
+	ValidateMFARule(string) bool
+	ValidateAuthRule(string, []FieldInput) bool
+}
+
+func (s *Service) SetAuthExecutablePolicyValidator(validator AuthExecutablePolicyValidator) {
+	s.authPolicyValidator = validator
 }
 
 func NewService(pool *database.Pool, cache *Cache, recorder observability.Recorder, cursorSecret ...[]byte) *Service {

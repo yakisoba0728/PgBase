@@ -259,6 +259,40 @@ func TestLocalSignedArtifactApplyAndRollbackFixture(t *testing.T) {
 	}
 }
 
+func TestApplyRejectsCandidateNotBoundToSignedManifestBeforeEffects(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	current := Build{Version: "v0.1.0", Commit: oldCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	manifest := fixtureManifest("v0.2.0", newCommit, "file://"+filepath.Join(directory, "signed-artifact"), 1, strings.Repeat("a", 64))
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := Select(manifest, Selection{Current: current})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate.Artifact.URL = "file://" + filepath.Join(directory, "unsigned-artifact")
+	state := filepath.Join(directory, ".pgbase-update")
+	target := filepath.Join(directory, "pgbase")
+	if err := os.WriteFile(target, []byte("existing executable"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Apply(context.Background(), ApplyOptions{
+		Target: target, StateDir: state, TrustKey: public, Current: current,
+		Fetched: Fetched{ManifestRaw: raw, SignatureRaw: sign(private, raw), Candidate: candidate, local: true},
+	})
+	if !errors.Is(err, ErrUntrustedManifest) {
+		t.Fatalf("apply error=%v", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(state, "journal.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("rejected candidate wrote journal evidence: %v", statErr)
+	}
+}
+
 func TestApplyCrashPhasesRecoverDeterministically(t *testing.T) {
 	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
 	newBinary := buildFixture(t, "v0.2.0", newCommit, "")
