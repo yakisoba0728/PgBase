@@ -1,6 +1,8 @@
 # PocketBase와 현재 PgBase — 기능별 1:1 비교 (Round 3 최종 통합 갱신)
 
-PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbase/pocketbase/tree/5684ee24f1e88f71a2ede73d20cf547fbd509e16) (`5684ee24f1e88f71a2ede73d20cf547fbd509e16`)이며, 로컬 pinned checkout은 `/Users/yakisoba0728/Documents/GitHub/PgBase/.local/upstream/pocketbase`다.
+PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbase/pocketbase/tree/5684ee24f1e88f71a2ede73d20cf547fbd509e16) (`5684ee24f1e88f71a2ede73d20cf547fbd509e16`)이며, 비교는 그 고정 revision의 로컬 checkout을 사용했다.
+
+> **독립 감사 기준:** 이 표의 `232/0/0`은 당시 기능 수용 조건 결과이며 현재 품질 판정이 아니다. 고정 HEAD `0ea07ff`의 독립 감사는 20개 제품 결함과 2개 문서 결함을 확인했다. [전체 코드 감사](codebase-audit-2026-09-11.md)를 현재 품질 판단으로 사용한다.
 
 최종 코드 검증 HEAD는 `bd76b1d1aaf28839072fa71e6b05cf39219053e9`다. 원래 232행은 구현 129·부분 68·미구현 35였고, source audit 기준선 `1c0f967`은 구현 199·부분 8·미구현 25였다. Round 2는 이를 구현 211·부분 0·미구현 21로 좁혔고, Round 3는 남은 21행을 실제 진입점과 회귀·통합 증거로 닫았다. 상세 수용 근거는 [Round 3 완료 ledger](pocketbase-unimplemented-completion-round3-2026-09-11.md)에 있다.
 

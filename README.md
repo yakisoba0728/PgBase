@@ -4,6 +4,8 @@ pgBase is a PostgreSQL-backed application backend with an embedded administrator
 
 As of 2026-09-11, N1–N5 is merged through [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) and installed in the existing local project (PostgreSQL 17, schema v40). N6–N9 JSVM, Dart SDK, SQL console, and self-update work (schema v41) is merged through [PR #35](https://github.com/yakisoba0728/PgBase/pull/35) at `53a4741`, but has not been installed in that project or publicly released. The separate PocketBase Round 3 integration is locally verified at `bd76b1d1` and is not recorded as installed or released. Start with [implementation history and current status](docs/project-status.md), [next work and acceptance criteria](docs/next-work.md), and the [current PocketBase comparison](docs/pocketbase-feature-comparison-current-2026-09-10.md).
 
+The feature-acceptance comparison is historical evidence, not a current quality verdict. The independent fixed-head audit at `0ea07ff` found 20 product findings and 2 documentation findings; see the [2026-09-11 audit](docs/codebase-audit-2026-09-11.md).
+
 ## Quick start
 
 1. Copy `deployments/.env.example` to `deployments/.env` and generate all three required secrets as described in [the quickstart](docs/quickstart.md#1-create-the-local-environment-file).
