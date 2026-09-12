@@ -20,6 +20,8 @@ type watchedJavaScriptSnapshot struct {
 	digest    string
 }
 
+var errWatchedApplicationStopped = errors.New("watched PgBase application stopped without an error")
+
 func runJavaScriptWatch(ctx context.Context, args []string, env environment, streams IO) error {
 	flags := flag.NewFlagSet("js serve", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -86,7 +88,7 @@ func superviseJavaScript(ctx context.Context, sourceOptions pgbase.Options, poll
 			runErr := <-result
 			return errors.Join(closeErr, runErr)
 		case runErr := <-result:
-			return fmt.Errorf("watched PgBase application stopped: %w", runErr)
+			return fmtWatchedApplicationStopped(ctx, runErr)
 		case <-ticker.C:
 			candidateOptions := *sourceOptions.JavaScript
 			candidateOptions.Directory = sourceDirectory
@@ -126,6 +128,16 @@ func superviseJavaScript(ctx context.Context, sourceOptions pgbase.Options, poll
 			_, _ = fmt.Fprintf(streams.stdout(), "JavaScript generation %s running\n", snapshot.digest)
 		}
 	}
+}
+
+func fmtWatchedApplicationStopped(ctx context.Context, runErr error) error {
+	if runErr == nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return errWatchedApplicationStopped
+	}
+	return fmt.Errorf("watched PgBase application stopped: %w", runErr)
 }
 
 func createJavaScriptSnapshot(options *pgbase.JavaScriptOptions) (watchedJavaScriptSnapshot, error) {

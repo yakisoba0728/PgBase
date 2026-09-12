@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 var (
@@ -121,9 +122,6 @@ func (runner *Runner) Run(ctx context.Context, input RunInput) (Result, error) {
 			borrowed.discard()
 		}
 	}()
-	if err := runner.pools.validateCatalogVersion(runContext); err != nil {
-		return Result{}, err
-	}
 	cancelWatcherDone := make(chan struct{})
 	cancelWatcherExited := make(chan struct{})
 	go func() {
@@ -137,6 +135,15 @@ func (runner *Runner) Run(ctx context.Context, input RunInput) (Result, error) {
 
 	if _, err := tx.Exec(runContext, `select pg_catalog.set_config('statement_timeout',$1,true),
 		pg_catalog.set_config('lock_timeout',$2,true)`, postgresMilliseconds(request.Timeout), postgresMilliseconds(LockTimeout)); err != nil {
+		return Result{}, err
+	}
+	// Always acquire locks in generation, execution-gate, relation order.
+	// Supported schema writers do not acquire the console execution gate or its
+	// extension-owned target locks, so they cannot form a reverse edge.
+	if err := schema.LockCatalogGenerationShared(runContext, tx); err != nil {
+		return Result{}, fmt.Errorf("lock SQL console catalog generation: %w", err)
+	}
+	if err := runner.pools.validateCatalogVersion(runContext); err != nil {
 		return Result{}, err
 	}
 	if err := fenceExecution(runContext, tx, input.coordinator); err != nil {

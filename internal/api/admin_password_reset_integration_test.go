@@ -35,7 +35,7 @@ func TestAdministratorPasswordResetHTTPIntegration(t *testing.T) {
 	clock := &resetAPIClock{now: time.Date(2026, 9, 10, 1, 2, 3, 0, time.UTC)}
 	auth := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), testTokenSecret, "admin-reset-api-setup-token-0123456789", time.Hour, clock)
 	mail := &resetAPIMailer{}
-	if err := auth.ConfigurePasswordReset(mail, "http://pgbase.test", time.Minute); err != nil {
+	if err := auth.ConfigurePasswordReset(mail, "http://localhost", time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	session, err := auth.Setup(context.Background(), "admin-reset-api-setup-token-0123456789", "admin@example.test", "correct horse battery staple", "192.0.2.1")

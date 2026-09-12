@@ -36,14 +36,10 @@ func (p *Pool) InTx(ctx context.Context, options pgx.TxOptions, fn func(pgx.Tx) 
 const cleanupTimeout = time.Second
 
 // BoundedCleanupContext permits cleanup after cancellation without allowing a
-// rollback or connection close to outlive the caller's earlier deadline.
+// rollback or connection close to outlive a short, independent cleanup budget.
 func BoundedCleanupContext(parent context.Context) (context.Context, context.CancelFunc) {
 	if parent == nil {
 		parent = context.Background()
 	}
-	deadline := time.Now().Add(cleanupTimeout)
-	if parentDeadline, ok := parent.Deadline(); ok && parentDeadline.Before(deadline) {
-		deadline = parentDeadline
-	}
-	return context.WithDeadline(context.WithoutCancel(parent), deadline)
+	return context.WithTimeout(context.WithoutCancel(parent), cleanupTimeout)
 }

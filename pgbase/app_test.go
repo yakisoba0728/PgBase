@@ -440,6 +440,35 @@ func TestConcurrentCloseCallerHonorsItsOwnDeadline(t *testing.T) {
 	}
 }
 
+func TestCloseFirstCallerCancellationDoesNotPoisonSharedCleanup(t *testing.T) {
+	backgroundDone := make(chan struct{})
+	var cancellations atomic.Int32
+	app := &App{
+		options:          Options{ShutdownTimeout: time.Second},
+		httpServer:       &http.Server{},
+		readiness:        &readinessState{},
+		lifecycleState:   appLifecycleRunning,
+		lifecycleClosing: make(chan struct{}),
+		backgroundCancel: func() { cancellations.Add(1) },
+		backgroundDone:   backgroundDone,
+	}
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	cancelFirst()
+	if err := app.Close(firstCtx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("first Close error=%v, want canceled", err)
+	}
+	waitForSignal(t, app.lifecycleClosing, "shared cleanup did not start")
+	close(backgroundDone)
+	liveCtx, cancelLive := context.WithTimeout(context.Background(), time.Second)
+	defer cancelLive()
+	if err := app.Close(liveCtx); err != nil {
+		t.Fatalf("live Close error=%v", err)
+	}
+	if got := cancellations.Load(); got != 1 {
+		t.Fatalf("background cancellation count=%d, want 1", got)
+	}
+}
+
 func TestCloseForceClosesActiveHTTPConnectionAfterGraceDeadline(t *testing.T) {
 	requestStarted := make(chan struct{})
 	requestCanceled := make(chan struct{})
@@ -471,12 +500,13 @@ func TestCloseForceClosesActiveHTTPConnectionAfterGraceDeadline(t *testing.T) {
 	waitForSignal(t, requestStarted, "request did not reach blocking handler")
 
 	app := &App{
+		options:          Options{ShutdownTimeout: 50 * time.Millisecond},
 		httpServer:       server,
 		readiness:        &readinessState{},
 		lifecycleState:   appLifecycleRunning,
 		lifecycleClosing: make(chan struct{}),
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	if err := app.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Close error = %v, want context deadline exceeded", err)

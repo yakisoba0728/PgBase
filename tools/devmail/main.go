@@ -157,7 +157,7 @@ func (inbox *mailInbox) save(message string) error {
 	}
 	var names []string
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".txt") {
+		if !entry.IsDir() && entry.Type()&os.ModeSymlink == 0 && strings.HasSuffix(entry.Name(), ".txt") {
 			names = append(names, entry.Name())
 		}
 	}
@@ -190,7 +190,7 @@ func (inbox *mailInbox) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		messages := make([]string, 0, len(entries))
 		for index := len(entries) - 1; index >= 0; index-- {
 			entry := entries[index]
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".txt") {
+			if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasSuffix(entry.Name(), ".txt") {
 				continue
 			}
 			body, err := os.ReadFile(filepath.Join(inbox.directory, entry.Name()))

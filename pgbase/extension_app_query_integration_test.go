@@ -4,8 +4,11 @@ package pgbase
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,5 +68,37 @@ func TestExtensionAppRecordCountAndPrivilegedLogDeletionUseLiveDatabase(t *testi
 	output, err := runtime.Invoke(t.Context(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Capabilities: []string{"records", "app-control"}, Host: host})
 	if err != nil || !json.Valid(output) || !containsJSONKey(output, "count") || !containsJSONKey(output, "first") {
 		t.Fatalf("js output=%s err=%v", output, err)
+	}
+}
+
+func TestExtensionAppRecordFindAllHonorsAggregateOutputBudget(t *testing.T) {
+	fixture := newPublicUsersApp(t, false)
+	adminCookie, csrf := setupPublicUsersAdministrator(t, fixture)
+	createPublicUsersCollection(t, fixture, adminCookie, csrf, "find_all_budget")
+	principal := identity.Subject{Kind: identity.Administrator, ID: uuid.New()}
+	for index := 0; index < 8; index++ {
+		_, err := fixture.app.extensions.records.Create(t.Context(), recordops.CreateRequest{Principal: principal, RequestID: fmt.Sprintf("find-all-%d", index), Collection: "find_all_budget", Input: map[string]json.RawMessage{"title": json.RawMessage(fmt.Sprintf("%q", strings.Repeat("x", 80)))}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	fixture.app.extensions.maximumOutputBytes = 256
+	host := &extensionHost{bridge: fixture.app.extensions, principal: principal, requestID: "find-all-budget", valid: true}
+	if _, err := host.callAppRecords(t.Context(), "app.record.findAll", json.RawMessage(`{"collection":"find_all_budget"}`)); err == nil {
+		t.Fatal("findAll returned a partial result past its aggregate budget")
+	} else {
+		var coded interface{ CodeValue() string }
+		if !errors.As(err, &coded) || coded.CodeValue() != "record_result_limit" {
+			t.Fatalf("findAll error=%v", err)
+		}
+	}
+	fixture.app.extensions.maximumOutputBytes = 1 << 20
+	result, err := host.callAppRecords(t.Context(), "app.record.findAll", json.RawMessage(`{"collection":"find_all_budget","filter":"title != ''"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var page extensionRecordResult
+	if err := json.Unmarshal(result, &page); err != nil || len(page.Items) != 8 {
+		t.Fatalf("findAll items=%d err=%v", len(page.Items), err)
 	}
 }

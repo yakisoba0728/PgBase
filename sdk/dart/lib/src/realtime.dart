@@ -11,7 +11,11 @@ import 'transport.dart';
 import 'types.dart';
 
 final class RealtimeEvent {
-  const RealtimeEvent({required this.topic, required this.action, required this.record});
+  const RealtimeEvent({
+    required this.topic,
+    required this.action,
+    required this.record,
+  });
   final String topic;
   final String action;
   final JsonObject record;
@@ -26,8 +30,20 @@ final class RealtimeCustomEvent {
 
 /// One SSE connection shared by PB-style topic subscriptions.
 final class RealtimeService {
-  RealtimeService(this._client);
+  RealtimeService(
+    this._client, {
+    this.maxReconnects = 5,
+    this.reconnectDelay = const Duration(milliseconds: 250),
+  }) {
+    if (maxReconnects < 0 || reconnectDelay.isNegative) {
+      throw const PgBaseProtocolError('invalid_reconnect_options');
+    }
+  }
   final PgBaseClient _client;
+
+  /// Maximum failed handshakes before a pending subscription is rejected.
+  final int maxReconnects;
+  final Duration reconnectDelay;
   final Map<String, Set<Function>> _listeners = {};
   CancellationToken? _stop;
   String? _clientId;
@@ -38,13 +54,19 @@ final class RealtimeService {
   /// Subscribes to collection topics and reserved `@` application topics.
   /// Collection callbacks receive [RealtimeEvent]; application callbacks
   /// receive [RealtimeCustomEvent] with arbitrary JSON [RealtimeCustomEvent.data].
-  Future<Future<void> Function()> subscribe(String topic, Function listener) async {
-    if (!_validTopic(topic)) throw const PgBaseProtocolError('invalid_realtime_topic');
+  Future<Future<void> Function()> subscribe(
+    String topic,
+    Function listener,
+  ) async {
+    if (!_validTopic(topic))
+      throw const PgBaseProtocolError('invalid_realtime_topic');
     if (_stop?.isCancelled ?? false) await _running;
     (_listeners[topic] ??= {}).add(listener);
     _ensureRunning();
-    if (_clientId != null) await _sync();
-    else await _ready!.future;
+    if (_clientId != null)
+      await _sync();
+    else
+      await _ready!.future;
     return () => unsubscribe(topic, listener);
   }
 
@@ -72,30 +94,75 @@ final class RealtimeService {
       listeners?.remove(listener);
       if (listeners?.isEmpty ?? false) _listeners.remove(topic);
     }
-    if (_listeners.isEmpty) { _stop?.cancel(); _clientId = null; return; }
+    if (_listeners.isEmpty) {
+      _stop?.cancel();
+      _clientId = null;
+      return;
+    }
     if (_clientId != null) await _sync();
   }
 
   void _ensureRunning() {
     if (_running != null) return;
     _ready = Completer<void>();
-    _running = _run().whenComplete(() { _running = null; _ready = null; });
+    _running = _run().whenComplete(() {
+      _running = null;
+      _ready = null;
+    });
   }
+
   Future<void> _sync() async {
-    await _client.request('POST', '/api/realtime', body: JsonObject({'clientId': JsonString(_clientId!), 'subscriptions': JsonArray(_listeners.keys.map(JsonString.new).toList())}), cancellation: _stop);
+    await _client.request(
+      'POST',
+      '/api/realtime',
+      body: JsonObject({
+        'clientId': JsonString(_clientId!),
+        'subscriptions': JsonArray(
+          _listeners.keys.map(JsonString.new).toList(),
+        ),
+      }),
+      cancellation: _stop,
+    );
   }
+
   Future<void> _run() async {
     final stop = _stop = CancellationToken();
+    var reconnects = 0;
     while (!stop.isCancelled && _listeners.isNotEmpty) {
       try {
-        final response = await _client.transport.eventStream('/api/realtime', headers: {'accept': 'text/event-stream', ..._client.headersFor(null), if (_lastEventId != null) 'last-event-id': _lastEventId!}, cancellation: stop);
+        final response = await _client.transport.eventStream(
+          '/api/realtime',
+          headers: {
+            'accept': 'text/event-stream',
+            ..._client.headersFor(null),
+            if (_lastEventId != null) 'last-event-id': _lastEventId!,
+          },
+          cancellation: stop,
+        );
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          final bytes = await response.stream.toBytes();
+          throw pgBaseError(
+            PgBaseResponse(
+              status: response.statusCode,
+              headers: response.headers.map(
+                (key, value) => MapEntry(key.toLowerCase(), value),
+              ),
+              bytes: bytes,
+            ),
+          );
+        }
         await for (final message in _messages(response.stream)) {
           final data = decodeExactJson(utf8.encode(message.data));
-          if (data is! JsonObject) continue;
           if (message.event == 'PB_CONNECT') {
+            if (data is! JsonObject)
+              throw const PgBaseProtocolError('invalid_realtime_connect');
             final id = data['clientId'];
-            if (id is! JsonString) throw const PgBaseProtocolError('invalid_realtime_connect');
-            _clientId = id.value; await _sync(); if (!(_ready?.isCompleted ?? true)) _ready!.complete(); continue;
+            if (id is! JsonString)
+              throw const PgBaseProtocolError('invalid_realtime_connect');
+            _clientId = id.value;
+            await _sync();
+            if (!(_ready?.isCompleted ?? true)) _ready!.complete();
+            continue;
           }
           if (message.id != null) _lastEventId = _cursor(message.id!);
           final topic = message.event;
@@ -104,16 +171,62 @@ final class RealtimeService {
           if (topic.startsWith('@')) {
             event = RealtimeCustomEvent(topic: topic, data: data);
           } else {
+            if (data is! JsonObject) continue;
             final action = data['action'];
             final record = data['record'];
             if (action is! JsonString || record is! JsonObject) continue;
-            event = RealtimeEvent(topic: topic, action: action.value, record: record);
+            event = RealtimeEvent(
+              topic: topic,
+              action: action.value,
+              record: record,
+            );
           }
           final listeners = _listeners[topic];
-          if (listeners != null) for (final listener in List.of(listeners)) { listener(event); }
+          if (listeners != null)
+            for (final listener in List.of(listeners)) {
+              listener(event);
+            }
+          if (listeners != null) reconnects = 0;
         }
-      } on PgBaseCancellation { return; } catch (_) { if (stop.isCancelled) return; await Future<void>.delayed(const Duration(milliseconds: 250)); }
+        if (!stop.isCancelled)
+          throw const PgBaseProtocolError('realtime_stream_ended');
+      } on PgBaseCancellation {
+        if (!(_ready?.isCompleted ?? true)) {
+          _failReady(const PgBaseCancellation());
+        }
+        return;
+      } catch (error) {
+        if (stop.isCancelled) {
+          _failReady(const PgBaseCancellation());
+          return;
+        }
+        if (error is PgBaseError && _terminalSseError(error)) {
+          _failReady(error);
+          return;
+        }
+        if (reconnects >= maxReconnects) {
+          _failReady(error);
+          return;
+        }
+        reconnects++;
+        final delay = Duration(
+          milliseconds:
+              (reconnectDelay.inMilliseconds * (1 << (reconnects - 1))).clamp(
+                0,
+                10000,
+              ),
+        );
+        await Future.any<void>([
+          Future<void>.delayed(delay),
+          stop.whenCancelled,
+        ]);
+      }
     }
+    if (!(_ready?.isCompleted ?? true)) _failReady(const PgBaseCancellation());
+  }
+
+  void _failReady(Object error) {
+    if (!(_ready?.isCompleted ?? true)) _ready!.completeError(error);
   }
 }
 
@@ -121,7 +234,8 @@ bool _validTopic(String topic) {
   if (topic.isEmpty) return false;
   if (!topic.startsWith('@')) return true;
   final bytes = utf8.encode(topic).length;
-  return bytes >= 2 && bytes <= 256 &&
+  return bytes >= 2 &&
+      bytes <= 256 &&
       !RegExp(r'[\s\x00-\x1f\x7f?#*]').hasMatch(topic);
 }
 

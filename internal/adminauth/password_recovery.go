@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"net"
 	"net/netip"
 	"net/url"
 	"strings"
@@ -55,14 +56,29 @@ func (s *Service) ConfigurePasswordReset(sender mailer.Sender, baseURL string, t
 	if s == nil || sender == nil || ttl <= 0 || ttl > maximumPasswordResetTTL {
 		return ErrValidation
 	}
-	parsed, err := url.Parse(baseURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+	if !validPasswordResetURL(baseURL) {
 		return ErrValidation
 	}
 	s.resetMailer = sender
 	s.resetBaseURL = strings.TrimRight(baseURL, "/")
 	s.resetTTL = ttl
 	return nil
+}
+
+func validPasswordResetURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" || parsed.ForceQuery {
+		return false
+	}
+	if strings.EqualFold(parsed.Scheme, "https") {
+		return true
+	}
+	if !strings.EqualFold(parsed.Scheme, "http") {
+		return false
+	}
+	host := parsed.Hostname()
+	ip := net.ParseIP(host)
+	return strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback())
 }
 
 func (s *Service) passwordResetReady() error {

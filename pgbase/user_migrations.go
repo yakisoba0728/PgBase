@@ -3,14 +3,17 @@ package pgbase
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"sync"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/doctor"
+	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/usermigrate"
 )
@@ -168,7 +171,15 @@ func ApplyUserMigrationSnapshot(ctx context.Context, tx pgx.Tx, before, after []
 	if tx == nil {
 		return fmt.Errorf("apply user migration snapshot: transaction is nil")
 	}
-	return schema.ApplyMigrationSnapshot(ctx, tx, before, after)
+	return schema.ApplyMigrationSnapshot(ctx, tx, before, after, validateUserMigrationRules)
+}
+
+func validateUserMigrationRules(catalog schema.Catalog, collection schema.Collection, raw json.RawMessage) error {
+	rules, err := accessrule.Parse(raw)
+	if err != nil {
+		return err
+	}
+	return recordaccess.ValidateRules(catalog, collection, rules)
 }
 
 func (a *App) UserMigrationSourceStatus(ctx context.Context) ([]UserMigrationSourceStatus, error) {

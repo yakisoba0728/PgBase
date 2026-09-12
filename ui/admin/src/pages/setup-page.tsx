@@ -6,7 +6,7 @@ interface SetupPageProps {
   onSetup(input: SetupInput): Promise<void>;
 	onUploadBackup?(setupToken: string, archive: File): Promise<{ id: string }>;
 	onRestoreBackup?(setupToken: string, id: string): Promise<unknown>;
-	onSetupBackupJob?(setupToken: string, id: string): Promise<SetupBackupJob>;
+	onSetupBackupJob?(setupToken: string, id: string, signal?: AbortSignal): Promise<SetupBackupJob>;
 }
 
 type SetupField = "setupToken" | "email" | "password" | "confirmation";
@@ -43,7 +43,7 @@ export function SetupPage({ onSetup, onUploadBackup, onRestoreBackup, onSetupBac
 	const [restoreJob, setRestore] = useState<{ token: string; jobID: string } | null>(null);
 	useEffect(() => {
 		if (!restoreJob || !onSetupBackupJob) return;
-		const controller = new AbortController(); const timer = window.setInterval(() => void onSetupBackupJob(restoreJob.token, restoreJob.jobID).then(job => { if (job.status === "failed") { setBackupMessage(job.error || "Backup restore failed."); setRestore(null); } else if (job.status === "completed") { setBackupMessage("Restore completed. The replacement database is activating; reload this page when it is ready."); setRestore(null); } }).catch(() => { if (!controller.signal.aborted) setBackupMessage("Restore status is temporarily unavailable. Do not create an administrator until it finishes."); }), 1000);
+		const controller = new AbortController(); const timer = window.setInterval(() => void onSetupBackupJob(restoreJob.token, restoreJob.jobID, controller.signal).then(job => { if (controller.signal.aborted) return; if (job.status === "failed") { setBackupMessage(job.error || "Backup restore failed."); setRestore(null); } else if (job.status === "completed") { setBackupMessage("Restore completed. The replacement database is activating; reload this page when it is ready."); setRestore(null); } }).catch(() => { if (!controller.signal.aborted) setBackupMessage("Restore status is temporarily unavailable. Do not create an administrator until it finishes."); }), 1000);
 		return () => { controller.abort(); window.clearInterval(timer); };
 	}, [onSetupBackupJob, restoreJob]);
   const setupTokenRef = useRef<HTMLInputElement>(null);

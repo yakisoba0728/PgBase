@@ -48,6 +48,55 @@ func TestImpersonationHandlerReturnsMarkedBoundedSession(t *testing.T) {
 	}
 }
 
+type durationCapturingUserAuth struct {
+	stubUserAuth
+	duration time.Duration
+}
+
+func (auth *durationCapturingUserAuth) Impersonate(_ context.Context, id uuid.UUID, _ string, duration time.Duration) (userauth.Session, error) {
+	auth.calls++
+	auth.duration = duration
+	return userauth.Session{RawToken: "temporary", User: userauth.User{ID: id}, ExpiresAt: time.Now().Add(duration), Impersonated: true}, nil
+}
+
+func TestImpersonationHandlerValidatesSecondsBeforeDurationConversion(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		seconds  string
+		want     int
+		calls    int
+		duration time.Duration
+	}{
+		{name: "omitted defaults", want: http.StatusOK, calls: 1, duration: 5 * time.Minute},
+		{name: "zero defaults", seconds: "0", want: http.StatusOK, calls: 1, duration: 5 * time.Minute},
+		{name: "minimum", seconds: "60", want: http.StatusOK, calls: 1, duration: time.Minute},
+		{name: "maximum", seconds: "900", want: http.StatusOK, calls: 1, duration: 15 * time.Minute},
+		{name: "below minimum", seconds: "59", want: http.StatusBadRequest},
+		{name: "above maximum", seconds: "901", want: http.StatusBadRequest},
+		{name: "negative", seconds: "-60", want: http.StatusBadRequest},
+		{name: "max int", seconds: "9223372036854775807", want: http.StatusBadRequest},
+		{name: "wraps to default", seconds: "36028797018964268", want: http.StatusBadRequest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			auth := &durationCapturingUserAuth{}
+			id := uuid.New()
+			body := `{}`
+			if test.seconds != "" {
+				body = `{"durationSeconds":` + test.seconds + `}`
+			}
+			request := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+id.String()+"/impersonate", strings.NewReader(body))
+			request.SetPathValue("id", id.String())
+			request.Header.Set("Content-Type", "application/json")
+			request = request.WithContext(context.WithValue(request.Context(), adminPrincipalKey{}, AdminPrincipal{RawSession: strings.Repeat("a", 43)}))
+			response := httptest.NewRecorder()
+			(userEndpoints{dependencies: Dependencies{UserAuth: auth}}).impersonateUser(response, request)
+			if response.Code != test.want || auth.calls != test.calls || auth.duration != test.duration {
+				t.Fatalf("status=%d calls=%d duration=%s body=%s", response.Code, auth.calls, auth.duration, response.Body.String())
+			}
+		})
+	}
+}
+
 func TestUserPageInputRejectsAmbiguousAndUnboundedRequests(t *testing.T) {
 	for _, raw := range []string{"limit=0", "limit=101", "limit=x", "limit=1&limit=2", "after=", "after=wrong", "after=00000000-0000-0000-0000-000000000000", "sort=email", "after=%", "limit=", "limit=1;after=x"} {
 		auth := &stubUserAuth{}

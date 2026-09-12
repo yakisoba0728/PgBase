@@ -1,0 +1,513 @@
+{
+  "schema": "double-audit-draft-plan-v1",
+  "status": "reviewed-plan",
+  "baseSha": "5cb721ff5590bf89b45ea9087d2ace0b74fe7127",
+  "inventory": {
+    "files": 1406,
+    "textLines": 313082,
+    "domains": 57,
+    "batches": 71
+  },
+  "pendingPass2Batches": [],
+  "finalRiskReview": "integrated: completed targeted third-pass adjudication; it does not add a precise failing reproduction",
+  "reproducedDefectCount": 0,
+  "classificationCounts": {
+    "static_defect": 24,
+    "static_candidate": 0,
+    "contract_risk": 3,
+    "maintenance": 18,
+    "rejected": 7,
+    "deferred": 7
+  },
+  "executionLOCSummary": {
+    "status": "확정 합계 없음: 각 gross LOC는 원 보고서의 작업별 추정이며 수동 실측 전 전체 순감소를 보장하지 않는다.",
+    "excludedRejectedOrDeferred": 14
+  },
+  "phases": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5"
+  ],
+  "domainPlans": [
+    {
+      "domain": ".github",
+      "fileCount": 10,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "CI 권한 최소화, digest 고정 release gate, 보안 스캔 경계를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "cmd",
+      "fileCount": 1,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "CLI 진입점의 단순한 조립 책임을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "deployments",
+      "fileCount": 11,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "Compose 기본값·이미지 digest·운영 경보 계약을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "docs",
+      "fileCount": 125,
+      "reviewStatus": "1차 8/8, 2차 8/8 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "기준 커밋·역사 기록·재현 한계의 구분을 유지",
+      "findingIds": [
+        "DOCS-02-001",
+        "DOCS-02-002",
+        "DOCS-02-003",
+        "DOCS-02-004",
+        "DOCS-03-001",
+        "DOCS-04-001",
+        "DOCS-04-002",
+        "DOCS05-P1-001",
+        "DOCS06-P1-001",
+        "DOCS07-P1-001",
+        "DOCS07-P1-002",
+        "DOC8-P1-001",
+        "DOC8-P1-002"
+      ]
+    },
+    {
+      "domain": "examples",
+      "fileCount": 19,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "작고 독립적인 브라우저·SSE 사용 예제를 유지",
+      "findingIds": [
+        "EX1-P1-001",
+        "EX1-P1-002"
+      ]
+    },
+    {
+      "domain": "internal/accessrule",
+      "fileCount": 7,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "규칙 컴파일과 subject 검증의 fail-closed 경계를 유지",
+      "findingIds": [
+        "AR1-P1-002",
+        "ACCESSRULE-001"
+      ]
+    },
+    {
+      "domain": "internal/adminauth",
+      "fileCount": 25,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "토큰 비노출·rate-limit 잠금 순서·메일 링크 계약을 유지",
+      "findingIds": [
+        "AA1-P1-002",
+        "ADMINAUTH-001"
+      ]
+    },
+    {
+      "domain": "internal/api",
+      "fileCount": 89,
+      "reviewStatus": "1차 2/2, 2차 2/2 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "라우트별 요청 제한·응답 형식·staged-file 정리 책임을 유지",
+      "findingIds": [
+        "API-RT-001",
+        "API2-P1-001",
+        "API2-P1-002"
+      ]
+    },
+    {
+      "domain": "internal/apiratelimit",
+      "fileCount": 3,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "원자 설정 publish와 quota fail-closed 동작을 유지",
+      "findingIds": [
+        "RATELIMIT-001",
+        "RATELIMIT-002"
+      ]
+    },
+    {
+      "domain": "internal/backup",
+      "fileCount": 28,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "백업 소유권·서명 cursor·취소 정리 경계를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/buildinfo",
+      "fileCount": 1,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "빌드 식별 정보의 안정된 공개 형식을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/cli",
+      "fileCount": 42,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "명령별 공개 text와 종료 계약을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/config",
+      "fileCount": 11,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "환경 설정 검증과 저장 범위의 일치를 유지",
+      "findingIds": [
+        "P1-CONFIG-RETENTION-RANGE"
+      ]
+    },
+    {
+      "domain": "internal/cursor",
+      "fileCount": 4,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "서명 cursor와 scope/order 바인딩을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/database",
+      "fileCount": 13,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "트랜잭션 close/rollback 및 pool 반환 경계를 유지",
+      "findingIds": [
+        "P1-DATABASE-ROLLBACK-EXPIRED-DEADLINE"
+      ]
+    },
+    {
+      "domain": "internal/doctor",
+      "fileCount": 20,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "planner 소유 물리 스키마 검사 경계를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/fieldvalue",
+      "fileCount": 3,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "필드 값 검증과 snapshot 계약을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/filestore",
+      "fileCount": 30,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "파일 객체 소유권·quota·cleanup queue를 유지",
+      "findingIds": [
+        "P1-FILESTORE-STAGE-READ-ORPHAN"
+      ]
+    },
+    {
+      "domain": "internal/identity",
+      "fileCount": 2,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "인증 identity 수명·취소 설명을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/jobs",
+      "fileCount": 5,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "lease fence와 at-least-once handler 계약을 유지",
+      "findingIds": [
+        "P1-JOBS-LEASE-IGNORING-HANDLER"
+      ]
+    },
+    {
+      "domain": "internal/jsonvalue",
+      "fileCount": 4,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "exact JSON·중복 key 거부 경계를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/jsvm",
+      "fileCount": 15,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "JS runtime 취소·capability 경계를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/lifecycle",
+      "fileCount": 2,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "lifecycle 순서와 cancellation 계약을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/mailer",
+      "fileCount": 4,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "메일 전송 권한·입력 검증 경계를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/membership",
+      "fileCount": 22,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "membership lock·migration 호환 경계를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/migrate",
+      "fileCount": 8,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "checksum migration과 데이터 보존을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/observability",
+      "fileCount": 12,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "민감정보 redaction·metric 계약을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/passwordfield",
+      "fileCount": 2,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "비밀번호 처리의 공개 오류·보안 경계를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/publicsite",
+      "fileCount": 2,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "정적 파일 containment와 공개 응답 경계를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/query",
+      "fileCount": 77,
+      "reviewStatus": "1차 2/2, 2차 2/2 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "인가 후 projection·parameter SQL·cursor wire 계약을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/realtime",
+      "fileCount": 6,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "realm 분리·lease·정확한 text identity를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/recordaccess",
+      "fileCount": 9,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "정책 epoch·deny 기본값·preview 경계를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/recordartifact",
+      "fileCount": 1,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "artifact bytes·transaction ownership을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/recordidentity",
+      "fileCount": 3,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "record identity와 policy revision 경계를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/recordops",
+      "fileCount": 50,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "idempotency·relation lock·outbox 순서를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/relation",
+      "fileCount": 18,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "deferrable constraint와 delete graph를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/releasephase",
+      "fileCount": 1,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "혼합 rollout generation 상수를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/repositorypolicy",
+      "fileCount": 8,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "candidate-first·immutable promotion release 정책을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/responseprojection",
+      "fileCount": 3,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "visibility 뒤 projection·100-field cap을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/runtimesettings",
+      "fileCount": 3,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "mutable map/slice 소유권을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/schema",
+      "fileCount": 113,
+      "reviewStatus": "1차 3/3, 2차 3/3 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "checksum·advisory lock·DDL rollback·manifest ownership을 유지",
+      "findingIds": [
+        "P1-internal-schema-01-001",
+        "IS1-P2-001",
+        "IS2-P2-001"
+      ]
+    },
+    {
+      "domain": "internal/selfupdate",
+      "fileCount": 18,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "서명 manifest·digest·rollback 상태를 유지",
+      "findingIds": [
+        "PASS1-SELFUPDATE-01"
+      ]
+    },
+    {
+      "domain": "internal/serviceauth",
+      "fileCount": 2,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "service token 권한·scope 계약을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/sqlconsole",
+      "fileCount": 18,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "read-only·privilege SQL-console 경계를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/testutil",
+      "fileCount": 4,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "테스트 fixture와 polling guard 계약을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "internal/userauth",
+      "fileCount": 57,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "OAuth callback·auth rule·verified 상태의 신뢰 경계를 유지",
+      "findingIds": [
+        "IUA-01",
+        "IUA-02",
+        "IUA-03",
+        "IUA2-01"
+      ]
+    },
+    {
+      "domain": "internal/usermigrate",
+      "fileCount": 10,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "migration source checksum·no-overwrite 보존을 유지",
+      "findingIds": [
+        "PASS1-USERMIGRATE-01"
+      ]
+    },
+    {
+      "domain": "internal/validation",
+      "fileCount": 1,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "안전한 공개 오류와 구조화 field detail을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "migrations",
+      "fileCount": 68,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "과거 migration checksum 불변성과 순방향 변경 원칙을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "pgbase",
+      "fileCount": 167,
+      "reviewStatus": "1차 3/3, 2차 3/3 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "공개 API wire·TLS·종료 순서·메모리 상한을 유지",
+      "findingIds": [
+        "PGB01-001",
+        "PGB01-002",
+        "PGB01-003",
+        "PGB01-004",
+        "PGB02-001",
+        "PGB02-002",
+        "PGB02-003",
+        "PASS2-ROOTCI-001"
+      ]
+    },
+    {
+      "domain": "pgbasecli",
+      "fileCount": 2,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "CLI wrapper의 인자·종료 코드 계약을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "root",
+      "fileCount": 9,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "저장소 정책·문서 진입점·빌드 설정을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "scripts",
+      "fileCount": 17,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "release/test script의 fail-closed preflight를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "sdk",
+      "fileCount": 48,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "언어별 transport·CSRF·exact JSON·SSE 계약을 유지",
+      "findingIds": [
+        "SDK-01-001",
+        "SDK-01-002",
+        "SDK-01-003"
+      ]
+    },
+    {
+      "domain": "tests",
+      "fileCount": 31,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "실제 이미지·복구·release artifact 통합 검증을 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "tools",
+      "fileCount": 7,
+      "reviewStatus": "1차 1/1, 2차 1/1 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "개발 도구의 stable metric·skip parse 경계를 유지",
+      "findingIds": []
+    },
+    {
+      "domain": "ui",
+      "fileCount": 135,
+      "reviewStatus": "1차 2/2, 2차 2/2 선언(coverage는 실제 이해의 증명 아님)",
+      "preserve": "typed route·exact record codec·draft recovery·CSRF 경계를 유지",
+      "findingIds": [
+        "UI1-001",
+        "UI1-002",
+        "UI1-003",
+        "UI1-004",
+        "UI1-005",
+        "UI2-001",
+        "UI2-002",
+        "UI2-003",
+        "UI2-004",
+        "UI2-005",
+        "UI2-006"
+      ]
+    }
+  ],
+  "findingRegister": "draft-findings-register.json",
+  "reviewedBaseSha": "5cb721ff5590bf89b45ea9087d2ace0b74fe7127"
+}

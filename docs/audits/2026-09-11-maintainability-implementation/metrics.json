@@ -1,0 +1,84 @@
+{
+  "schema_version": 2,
+  "source": {
+    "kind": "product-stage-final-source",
+    "productCommit": "02287168d657d1cb2b315b251a968d7dca1454bd",
+    "verificationTestCommit": "5afb698",
+    "note": "Metrics describe product-stage source; verificationTestCommit changes browser fixture state only."
+  },
+  "definitions": {
+    "loc": "number of newline bytes, matching wc -l; binary tracked blobs are included in total LOC",
+    "go_runtime": "tracked .go files excluding *_test.go and tools/**; this authoritative-compatible mechanical set includes internal/testutil",
+    "ui_runtime": "ui/admin/src/**/*.{ts,tsx,css}, excluding *.test.{ts,tsx} and ui/admin/src/test/**; CSS is included",
+    "go_tests": "tracked *_test.go files",
+    "vitest": "tracked ui/admin/src/**/*.test.{ts,tsx} files",
+    "playwright": "tracked ui/admin/**/*.spec.{ts,tsx} files",
+    "docs": "tracked files under docs/**",
+    "exported_go_declarations": "exported type declarations plus exported free-function and method declarations in the Go runtime file set, counted with go/ast",
+    "constructors": "free-function declarations whose names begin with New in the Go runtime file set",
+    "go_comments": "Go runtime lines whose trimmed text begins with //",
+    "ui_comments": "comment-only lines beginning with //, /*, or {/* plus continuation lines inside a block comment; runtime, all-source, and legacy-regex totals are reported separately",
+    "page_hooks": "direct useState/useEffect call tokens outside comments and strings in ui/admin/src/pages/** runtime files",
+    "ui_exports": "UI runtime top-level export statement lines, not the number of individually exported symbols",
+    "long_production_files": ">800 newline bytes in a Go or UI runtime file",
+    "comparison_categories": "runtime=the authoritative-compatible Go/UI runtime sets (including internal/testutil); test=Go/Vitest/Playwright; support=tools/scripts/UI test helpers/migrations; generated=embedded UI dist; docs=docs/** plus root README/SECURITY; config=remaining tracked files; exact renames are counted as one deletion plus one addition so category movement remains visible"
+  },
+  "metrics": {
+    "total_tracked": {
+      "files": 1447,
+      "loc": 384355
+    },
+    "runtime": {
+      "go": {
+        "files": 445,
+        "loc": 91728
+      },
+      "ui": {
+        "files": 70,
+        "loc": 10616
+      },
+      "handwritten_total": {
+        "files": 515,
+        "loc": 102344
+      }
+    },
+    "tests": {
+      "go": {
+        "files": 528,
+        "loc": 102507
+      },
+      "vitest": {
+        "files": 44,
+        "loc": 7506
+      },
+      "playwright": {
+        "files": 15,
+        "loc": 1072
+      }
+    },
+    "docs": {
+      "files": 141,
+      "loc": 144817
+    },
+    "production_go": {
+      "interface_declarations": 96,
+      "exported_type_function_method_declarations": 1568,
+      "new_constructors": 64
+    },
+    "comments": {
+      "go_runtime_comment_only_lines": 3189,
+      "ui_runtime_comment_like_lines": 295,
+      "ui_all_source_comment_like_lines": 444,
+      "ui_excluded_non_runtime_comment_like_lines": 149,
+      "ui_vitest_comment_like_lines": 109,
+      "ui_legacy_regex_all_source_lines": 443
+    },
+    "production_files_over_800_loc": null,
+    "ui": {
+      "page_direct_use_state_effect_occurrences": 180,
+      "page_direct_use_state_occurrences": 148,
+      "page_direct_use_effect_occurrences": 32,
+      "runtime_exports": 307
+    }
+  }
+}

@@ -1,12 +1,16 @@
 """Check audit bookkeeping and pinned bytes; this does not prove human/model reading."""
 import hashlib
 import json
+import argparse
 from collections import Counter, defaultdict
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-UPSTREAM = ROOT / ".local/upstream/pocketbase"
+parser = argparse.ArgumentParser()
+parser.add_argument("--upstream", type=Path, default=ROOT / ".local/upstream/pocketbase")
+args = parser.parse_args()
+UPSTREAM = args.upstream.resolve()
 inventory = json.loads((HERE / "inventory.json").read_text())
 files = {entry["path"]: entry for entry in inventory["files"]}
 assert len(files) == len(inventory["files"]), "Duplicate inventory paths"
@@ -30,6 +34,13 @@ for name, matches in overrides.items():
     paths = [entry["path"] for entry in entries]
     assert len(paths) == len(set(paths)), f"Duplicate {name} override paths"
     assert set(paths) == {path for path in files if matches(path)}, f"Wrong {name} override scope"
+    if name == "tools-extra":
+        raw = {entry["path"]: entry for entry in json.loads((HERE / "tools-ledger.json").read_text())}
+        companion = json.loads((HERE / "tools-effective-ledger.json").read_text())
+        declared = {item["path"]: item for item in companion["overrides"]}
+        for entry in entries:
+            base = raw.get(entry["path"])
+            assert base and declared.get(entry["path"], {}).get("overrideStatus") == entry["status"] and declared.get(entry["path"], {}).get("source") == "tools-extra-ledger.json", f"Conflicting tools status lacks explicit override metadata: {entry['path']}"
     merged.update({entry["path"]: {**entry, "ledger": f"{name}-ledger.json"} for entry in entries})
 
 allowed = {"read", "indexed", "inspected_artifact", "inspected_reference"}

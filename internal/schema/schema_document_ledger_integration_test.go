@@ -187,6 +187,61 @@ func TestSchemaImportRejectsStalePolicyAndCatalogPreviews(t *testing.T) {
 	}
 }
 
+func TestSchemaImportRejectsStaleAuthTokenTTLPreview(t *testing.T) {
+	pool, service, actor := newSchemaServiceTest(t)
+	service.SetAuthExecutablePolicyValidator(authExecutableValidator{})
+	ctx := context.Background()
+	const authID = "00000000-0000-0000-0000-000000000001"
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.auth_token_policies(auth_collection_id,purpose,ttl_seconds,key_version,key_ciphertext,updated_at) values($1,'session',600,'test',decode('00','hex'),clock_timestamp())`, authID); err != nil {
+		t.Fatal(err)
+	}
+	document, err := service.ExportSchema(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := service.PreviewSchemaImport(ctx, document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `update pgbase_meta.auth_token_policies set ttl_seconds=601,updated_at=clock_timestamp() where auth_collection_id=$1 and purpose='session'`, authID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: uuid.New(), IdempotencyKey: "stale-auth-ttl-00000001"})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale auth token TTL error=%v", err)
+	}
+}
+
+func TestSchemaImportRejectsAuthTokenPurposeInsertedAfterPreview(t *testing.T) {
+	pool, service, actor := newSchemaServiceTest(t)
+	service.SetAuthExecutablePolicyValidator(authExecutableValidator{})
+	ctx := context.Background()
+	const authID = "00000000-0000-0000-0000-000000000001"
+	document, err := service.ExportSchema(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range document.AuthCollections {
+		if document.AuthCollections[index].Name == "users" {
+			if document.AuthCollections[index].TokenTTLs == nil {
+				document.AuthCollections[index].TokenTTLs = map[string]int{}
+			}
+			document.AuthCollections[index].TokenTTLs["otp"] = 300
+		}
+	}
+	plan, err := service.PreviewSchemaImport(ctx, document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.auth_token_policies(auth_collection_id,purpose,ttl_seconds,key_version,key_ciphertext,updated_at) values($1,'otp',301,'test',decode('00','hex'),clock_timestamp())`, authID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: uuid.New(), IdempotencyKey: "inserted-auth-ttl-00000001"})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("inserted auth token purpose error=%v", err)
+	}
+}
+
 func ownerRuleDocument() json.RawMessage {
 	return json.RawMessage(`{"list":{"op":"owner"},"view":{"op":"owner"},"create":{"op":"owner"},"update":{"op":"owner"},"delete":{"op":"owner"}}`)
 }

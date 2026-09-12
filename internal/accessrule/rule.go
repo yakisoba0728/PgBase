@@ -119,6 +119,10 @@ type RequestContext struct {
 	Context map[string]any
 }
 
+func authenticatedSubject(subject identity.Subject) bool {
+	return subject.Valid() && (subject.Kind == identity.User || subject.Kind == identity.Administrator || subject.Kind == identity.Service)
+}
+
 func CompileWithRequest(rule Rule, collection schema.Collection, alias string, principal identity.Subject, offset int, prospectiveOwner bool, request RequestContext) (string, []any, error) {
 	if offset < 0 || offset > 10000 || alias == "" {
 		return "", nil, ErrInvalid
@@ -149,9 +153,9 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 		case "deny":
 			return "FALSE", nil
 		case "authenticated":
-			return c.parameter(c.principal.Kind == identity.User || c.principal.Kind == identity.Administrator || string(c.principal.Kind) == "service"), nil
+			return c.parameter(authenticatedSubject(c.principal)), nil
 		case "unauthenticated":
-			return c.parameter(c.principal.Kind != identity.User && c.principal.Kind != identity.Administrator && string(c.principal.Kind) != "service"), nil
+			return c.parameter(!authenticatedSubject(c.principal)), nil
 		case "owner":
 			if c.principal.Kind != identity.User {
 				return "FALSE", nil

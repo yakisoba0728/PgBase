@@ -370,6 +370,10 @@ func decodeStrictJSON(r *http.Request, destination any) error {
 	if err != nil {
 		return err
 	}
+	return decodeStrictJSONBytes(raw, destination)
+}
+
+func decodeStrictJSONBytes(raw []byte, destination any) error {
 	if err := jsonvalue.ValidateUnicode(raw); err != nil {
 		return err
 	}

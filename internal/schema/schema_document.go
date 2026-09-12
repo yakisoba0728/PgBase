@@ -182,6 +182,12 @@ func (s *Service) planSchemaImport(ctx context.Context, tx pgx.Tx, catalog Catal
 	if err := validateDocumentAuthCollections(document.AuthCollections); err != nil {
 		return SchemaImportPlan{}, err
 	}
+	if err := s.validateDocumentAuthExecutables(document.AuthCollections); err != nil {
+		return SchemaImportPlan{}, err
+	}
+	if err := validateDocumentAuthIdentityData(ctx, tx, document.AuthCollections); err != nil {
+		return SchemaImportPlan{}, err
+	}
 	if document.DeleteMissing {
 		if err := validateDeleteMissingProtection(ctx, tx, catalog, document); err != nil {
 			return SchemaImportPlan{}, err
@@ -250,26 +256,6 @@ func (s *Service) ValidateSchemaImportPlan(plan SchemaImportPlan, validate func(
 	return nil
 }
 
-func cloneSchemaDocument(document SchemaDocument) SchemaDocument {
-	raw, _ := json.Marshal(document)
-	var cloned SchemaDocument
-	_ = json.Unmarshal(raw, &cloned)
-	return cloned
-}
-
-func schemaDocumentChecksum(version int64, policyChecksum string, document SchemaDocument, _ []Plan) (string, error) {
-	raw, err := json.Marshal(struct {
-		Version        int64          `json:"version"`
-		PolicyChecksum string         `json:"policyChecksum"`
-		Document       SchemaDocument `json:"document"`
-	}{version, policyChecksum, document})
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:]), nil
-}
-
 func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 	seen := map[string]struct{}{}
 	base, views := []SchemaDocumentCollection{}, []SchemaDocumentCollection{}
@@ -321,7 +307,7 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 			return nil, err
 		}
 		indexes := importedIndexes(current, item.Indexes)
-		if exists && sameImportedBase(current, item.RecordID, fields, indexes, catalog) {
+		if exists && sameImportedBase(current, item, fields, indexes, catalog) {
 			continue
 		}
 		update := UpdateCollectionInput{Name: item.Name, Fields: fields, Indexes: &indexes}
@@ -366,11 +352,17 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 	return changes, nil
 }
 
-func sameImportedBase(current Collection, requested *RecordIDPolicy, fields []FieldInput, indexes []IndexInput, catalog Catalog) bool {
+func sameImportedBase(current Collection, requested SchemaDocumentCollection, fields []FieldInput, indexes []IndexInput, catalog Catalog) bool {
 	if current.IsView() || len(current.Fields) != len(fields) || len(current.Indexes) != len(indexes) {
 		return false
 	}
-	policy, err := NormalizeRecordIDPolicy(requested)
+	if requested.CompatibilityName != "" && requested.CompatibilityName != current.CompatibilityName ||
+		requested.Type != "" && requested.Type != current.Type ||
+		requested.System && !current.System ||
+		requested.ValidationMode != "" && requested.ValidationMode != current.ValidationMode {
+		return false
+	}
+	policy, err := NormalizeRecordIDPolicy(requested.RecordID)
 	if err != nil || !reflect.DeepEqual(policy, current.RecordID) {
 		return false
 	}
@@ -629,6 +621,23 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 					return err
 				}
 				if _, err := tx.Exec(ctx, `select 1 from pgbase_meta.collection_rules where collection_id=$1 for update`, collection.ID); err != nil {
+					return err
+				}
+			}
+		}
+		for _, item := range intent.Document.AuthCollections {
+			var authCollectionID uuid.UUID
+			// SetAuthPolicy locks the policy before the auth collection. Keep the
+			// same order so an import cannot deadlock with a direct policy update.
+			err := tx.QueryRow(ctx, `select c.id from pgbase_meta.auth_collections c join pgbase_meta.auth_collection_policies p on p.auth_collection_id=c.id where c.name=$1 for update of p`, item.Name).Scan(&authCollectionID)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			if err == nil {
+				if _, err := tx.Exec(ctx, `select id from pgbase_meta.auth_collections where id=$1 for update`, authCollectionID); err != nil {
+					return err
+				}
+				if _, err := tx.Exec(ctx, `select 1 from pgbase_meta.auth_token_policies where auth_collection_id=$1 for update`, authCollectionID); err != nil {
 					return err
 				}
 			}

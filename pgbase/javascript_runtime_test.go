@@ -198,6 +198,21 @@ func TestJavaScriptGzipTransportNegotiatesAndClosesStream(t *testing.T) {
 	}
 }
 
+func TestAcceptsGzipQualityValues(t *testing.T) {
+	tests := []struct {
+		header   string
+		accepted bool
+	}{
+		{"gzip", true}, {"gzip;q=1", true}, {"gzip;q=0", false}, {"gzip;q=0.0", false}, {"gzip;q=0.00", false},
+		{"br, *;q=0.5", true}, {"*;q=1, gzip;q=0", false}, {"gzip;q=nope", false}, {"gzip;q=NaN", false}, {"gzip;q=0.0000", false}, {"gzip;q=1;q=0", false}, {"gzip;level=1", false},
+	}
+	for _, test := range tests {
+		if got := acceptsGzip(test.header); got != test.accepted {
+			t.Errorf("acceptsGzip(%q)=%v, want %v", test.header, got, test.accepted)
+		}
+	}
+}
+
 func stringPointer(value string) *string { return &value }
 
 func TestInstallJavaScriptRoutesRejectsGoConflict(t *testing.T) {

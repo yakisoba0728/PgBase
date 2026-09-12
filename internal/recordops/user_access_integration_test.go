@@ -115,6 +115,68 @@ func TestMutationRulesEvaluateIssetAndChangedRequestContext(t *testing.T) {
 	}
 }
 
+func TestCountForwardsRequestContextUsedByListRule(t *testing.T) {
+	f := newUserAccessFixture(t)
+	ctx := context.Background()
+	f.create(t, f.admin, "counted", "request-context-count-admin-01")
+	f.enable(t, "records")
+	listRule, err := query.ParsePocketBaseAccessRule("@request.context.channel = 'allowed'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow := accessrule.Rule{Op: "allow"}
+	rules := accessrule.Rules{List: listRule, View: allow, Create: allow, Update: allow, Delete: allow}
+	raw, err := json.Marshal(rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := f.schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `insert into pgbase_meta.collection_rules(collection_id,rules) values($1,$2::jsonb)`, catalog.Collections["records"].ID, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	ruleContext := &accessrule.RequestContext{Context: map[string]any{"channel": "allowed"}}
+	request := ListRequest{Principal: f.first, RequestID: "request-context-count-list", Collection: "records", Limit: 10, RuleContext: ruleContext}
+	page, err := f.records.List(ctx, request)
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("List() items=%d err=%v", len(page.Items), err)
+	}
+	request.RequestID = "request-context-count-value"
+	total, err := f.records.Count(ctx, request)
+	if err != nil || total != int64(len(page.Items)) {
+		t.Fatalf("Count()=%d err=%v, want %d", total, err, len(page.Items))
+	}
+}
+
+func TestIdempotentCreateReplayUsesCommittedGeneratedRuleContext(t *testing.T) {
+	f := newUserAccessFixture(t)
+	ctx := context.Background()
+	createGeneratedFieldsCollection(t, ctx, f.schemas, f.admin.ID, "generated_rule_replay", []schema.FieldInput{
+		{Name: "slug", Type: schema.TypeText, Required: true, Options: &schema.FieldOptions{AutogeneratePattern: `[a-z]{8}`}},
+		{Name: "title", Type: schema.TypeText, Required: true},
+	})
+	f.enable(t, "generated_rule_replay")
+	generatedPresent := accessrule.Rule{Op: "eq", Field: "slug:isset", Value: json.RawMessage(`true`)}
+	owner := accessrule.Rule{Op: "owner"}
+	rules := accessrule.Rules{List: owner, View: owner, Create: generatedPresent, Update: owner, Delete: owner}
+	if _, err := recordaccess.NewRuleService(f.pool, f.schemas).Set(ctx, "generated_rule_replay", rules); err != nil {
+		t.Fatal(err)
+	}
+	request := CreateRequest{Principal: f.first, RequestID: "generated-rule-first", Collection: "generated_rule_replay",
+		IdempotencyKey: "generated-rule-replay-key-01", Input: map[string]json.RawMessage{"title": json.RawMessage(`"created"`)}}
+	first, err := f.records.Create(ctx, request)
+	if err != nil || first.Replayed {
+		t.Fatalf("first create=%#v err=%v", first, err)
+	}
+	request.RequestID = "generated-rule-second"
+	replay, err := f.records.Create(ctx, request)
+	if err != nil || !replay.Replayed || replay.InternalID != first.InternalID {
+		t.Fatalf("replay=%#v err=%v", replay, err)
+	}
+}
+
 func TestUserCreateOwnershipReplayCursorAndRollback(t *testing.T) {
 	f := newUserAccessFixture(t)
 	ctx := context.Background()

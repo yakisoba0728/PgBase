@@ -52,6 +52,25 @@ describe("SQL console page", () => {
     expect(backend.submit).toHaveBeenCalledWith(expect.objectContaining({ operationID: "operation-id", idempotencyKey: "write-key", mode: "write", dryRun: false }));
   });
 
+  it("does not send a transactional write when its recovery identity cannot persist", async () => {
+    const backend = port();
+    const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("storage denied");
+    });
+    vi.stubGlobal("crypto", {
+      randomUUID: vi.fn().mockReturnValueOnce("write-operation-id").mockReturnValueOnce("write-idempotency-key"),
+    });
+    render(<SQLConsolePage port={backend} />);
+    await screen.findByText("extension.ledger_entries");
+    await userEvent.click(screen.getByLabelText("Transactional write"));
+    await userEvent.click(screen.getByLabelText("I confirm this allowed write transaction should execute once"));
+    await userEvent.click(screen.getByRole("button", { name: "Execute write" }));
+
+    expect(await screen.findByText(/cannot retain recovery information/)).toBeVisible();
+    expect(backend.submit).not.toHaveBeenCalled();
+    set.mockRestore();
+  });
+
   it("keeps read mode to one statement and discards extra write drafts when returning to read", async () => {
     const backend = port();
     render(<SQLConsolePage port={backend} />);

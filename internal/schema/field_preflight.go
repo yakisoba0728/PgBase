@@ -41,12 +41,36 @@ func validateChangedFieldOptions(ctx context.Context, tx pgx.Tx, before, after C
 		if field.Type != TypeBoolean && field.Type != TypeText && field.Type != TypeEditor && field.Type != TypeInteger && field.Type != TypeBigInt && field.Type != TypeNumeric && field.Type != TypeTimestampTZ && field.Type != TypeJSONB {
 			continue
 		}
-		rows, err := tx.Query(ctx, "select "+pgx.Identifier{prior.ColumnName}.Sanitize()+"::text from "+pgx.Identifier{"app", before.TableName}.Sanitize()+" where "+pgx.Identifier{prior.ColumnName}.Sanitize()+" is not null")
+		column := pgx.Identifier{prior.ColumnName}.Sanitize()
+		selection := column + "::text"
+		if field.Type == TypeTimestampTZ {
+			selection = column
+		}
+		rows, err := tx.Query(ctx, "select "+selection+" from "+pgx.Identifier{"app", before.TableName}.Sanitize()+" where "+column+" is not null")
 		if err != nil {
 			return err
 		}
 		valid := true
 		for rows.Next() {
+			if field.Type == TypeTimestampTZ {
+				var parsed time.Time
+				if rows.Scan(&parsed) != nil {
+					valid = false
+					break
+				}
+				if field.Options.Min != nil {
+					bound, e := time.Parse(time.RFC3339Nano, *field.Options.Min)
+					valid = e == nil && !parsed.Before(bound)
+				}
+				if valid && field.Options.Max != nil {
+					bound, e := time.Parse(time.RFC3339Nano, *field.Options.Max)
+					valid = e == nil && !parsed.After(bound)
+				}
+				if !valid {
+					break
+				}
+				continue
+			}
 			var value string
 			if rows.Scan(&value) != nil {
 				valid = false
@@ -58,17 +82,6 @@ func validateChangedFieldOptions(ctx context.Context, tx pgx.Tx, before, after C
 				valid = fieldvalue.ValidateText(value, fieldValueOptions(field.Options)) == ""
 			} else if field.Type == TypeEditor {
 				valid = int64(len(value)) <= editorMaximumSize(&field.Options)
-			} else if field.Type == TypeTimestampTZ {
-				parsed, err := time.Parse(time.RFC3339Nano, value)
-				valid = err == nil
-				if valid && field.Options.Min != nil {
-					bound, e := time.Parse(time.RFC3339Nano, *field.Options.Min)
-					valid = e == nil && !parsed.Before(bound)
-				}
-				if valid && field.Options.Max != nil {
-					bound, e := time.Parse(time.RFC3339Nano, *field.Options.Max)
-					valid = e == nil && !parsed.After(bound)
-				}
 			} else if field.Type == TypeJSONB {
 				if field.Options.MaxSize != nil && int64(len(value)) > *field.Options.MaxSize {
 					valid = false

@@ -134,6 +134,10 @@ func (s *Service) ScheduleInTimezone(ctx context.Context, name, schedule, timezo
 
 // Run polls with a bounded cadence. Claims survive restarts because stale
 // leases are eligible again, and execution never occurs inside the claim tx.
+// Handlers receive a deadline but are extension code: a handler that ignores
+// cancellation may run again after lease expiry. FenceGeneration protects job
+// metadata updates; handlers with external side effects must be idempotent or
+// apply their own generation fence.
 func (s *Service) Run(ctx context.Context) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()

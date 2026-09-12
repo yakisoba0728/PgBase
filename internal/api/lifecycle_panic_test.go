@@ -106,4 +106,32 @@ func TestRequestLifecyclePairsServicePanicsThroughHandlers(t *testing.T) {
 			t.Fatalf("status=%d after=%d body=%s", response.Code, calls, response.Body.String())
 		}
 	})
+
+	t.Run("collection apply", func(t *testing.T) {
+		registry := &lifecycle.Registry{}
+		calls := 0
+		_, err := registry.On("collection.request.create", lifecycle.Hook{After: func(_ context.Context, event *lifecycle.Event) {
+			calls++
+			if event.Err == nil {
+				t.Error("panic paired as success")
+			}
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		service := &fakeSchemaService{applyHook: func(context.Context) (schema.ApplyResult, error) {
+			panic("collection apply panic")
+		}}
+		dependencies := schemaTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, service)
+		dependencies.LifecycleHooks = registry
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/collections/apply", strings.NewReader(`{"operation":"create","name":"posts","fields":[],"baseVersion":1,"checksum":"sealed"}`))
+		protectSchemaMutationRequest(request)
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
+		response := httptest.NewRecorder()
+		mustRouter(t, dependencies).ServeHTTP(response, request)
+		if response.Code != http.StatusInternalServerError || calls != 1 {
+			t.Fatalf("status=%d after=%d body=%s", response.Code, calls, response.Body.String())
+		}
+	})
 }

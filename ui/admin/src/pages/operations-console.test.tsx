@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { OperationsPort, ScheduledJob } from "../backend/ports";
+import type { BackupJob, OperationsPort, ScheduledJob } from "../backend/ports";
 import { OperationsConsole } from "./operations-console";
 
 const job: ScheduledJob = { id: "job", name: "cleanup", schedule: "@every 5m", enabled: true, registered: true, running: false, nextRunAt: "2026-01-01", attempts: 0, failed: false };
@@ -71,5 +71,62 @@ describe("operations console", () => {
     await user.upload(screen.getByLabelText("Upload gzip backup"),new File(["gzip"],"backup.tar.gz",{type:"application/gzip"}));await waitFor(()=>expect(backend.uploadBackup).toHaveBeenCalled());
     await user.click(screen.getByRole("button",{name:"Restore"}));await waitFor(()=>expect(backend.restoreBackup).toHaveBeenCalledWith("backup-id",expect.any(AbortSignal)));
     await user.click(screen.getByRole("button",{name:"Delete"}));await waitFor(()=>expect(backend.deleteBackup).toHaveBeenCalledWith("backup-id",expect.any(AbortSignal)));
+  });
+  it("ignores an old managed-backup poll after cleanup and refreshes after the current terminal result", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const backend = port();
+      const running = { id: "receipt", operation: "restore" as const, backupId: "backup-id", status: "running" as const, phase: "copying", createdAt: "now", updatedAt: "now" };
+      backend.backups = vi.fn().mockResolvedValue([{ id: "backup-id", createdAt: "now", size: 1, postgresqlMajor: 18 }]);
+      backend.restoreBackup = vi.fn().mockResolvedValue(running);
+      let settle!: (value: BackupJob) => void;
+      backend.backupJob = vi.fn(() => new Promise<BackupJob>((resolve) => { settle = resolve; }));
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      const user = userEvent.setup();
+      const old = render(<OperationsConsole port={backend} />);
+      await screen.findByRole("button", { name: "Restore" }); await user.click(screen.getByRole("button", { name: "Restore" }));
+      await act(async () => {});
+      await act(async () => { vi.advanceTimersByTime(1_000); });
+      old.unmount(); await act(async () => { settle({ ...running, status: "completed", phase: "completed" }); });
+      expect(old.container).toBeEmptyDOMElement();
+
+      backend.backupJob = vi.fn().mockResolvedValue({ ...running, status: "completed", phase: "completed" });
+      render(<OperationsConsole port={backend} />);
+      await screen.findByRole("button", { name: "Restore" }); await user.click(screen.getByRole("button", { name: "Restore" }));
+      const backupReads = vi.mocked(backend.backups!);
+      const readsBeforeCompletion = backupReads.mock.calls.length;
+      await act(async () => { vi.advanceTimersByTime(1_000); });
+      await waitFor(() => expect(backupReads.mock.calls.length).toBeGreaterThan(readsBeforeCompletion));
+    } finally { vi.useRealTimers(); }
+  });
+  it("ignores an old rejected poll after the operations port is replaced", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const running = { id: "receipt", operation: "restore" as const, backupId: "backup-id", status: "running" as const, phase: "copying", createdAt: "now", updatedAt: "now" };
+      let rejectOld!: (reason: Error) => void;
+      const oldPort = port();
+      oldPort.backups = vi.fn().mockResolvedValue([{ id: "backup-id", createdAt: "now", size: 1, postgresqlMajor: 18 }]);
+      oldPort.restoreBackup = vi.fn().mockResolvedValue(running);
+      oldPort.backupJob = vi.fn(() => new Promise<BackupJob>((_, reject) => { rejectOld = reject; }));
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      const user = userEvent.setup();
+      const view = render(<OperationsConsole port={oldPort} />);
+      await screen.findByRole("button", { name: "Restore" });
+      await user.click(screen.getByRole("button", { name: "Restore" }));
+      await act(async () => {});
+      await act(async () => { vi.advanceTimersByTime(1_000); });
+      expect(oldPort.backupJob).toHaveBeenCalledOnce();
+
+      const currentPort = port();
+      currentPort.backups = vi.fn().mockResolvedValue([{ id: "backup-id", createdAt: "now", size: 1, postgresqlMajor: 18 }]);
+      currentPort.backupJob = vi.fn().mockResolvedValue({ ...running, status: "failed", phase: "failed", error: "current failure" });
+      view.rerender(<OperationsConsole port={currentPort} />);
+      await act(async () => { rejectOld(new Error("obsolete poll failure")); });
+      expect(screen.queryByText(/Backup status is unavailable/)).not.toBeInTheDocument();
+
+      await act(async () => { vi.advanceTimersByTime(1_000); });
+      expect(await screen.findByText(/current failure/)).toBeVisible();
+      await waitFor(() => expect(currentPort.backups).toHaveBeenCalledTimes(2));
+    } finally { vi.useRealTimers(); }
   });
 });

@@ -170,6 +170,10 @@ func (o Options) Normalized() (Options, error) {
 	if err := validateOptions(o); err != nil {
 		return Options{}, err
 	}
+	if o.PublicURL != nil {
+		publicURL := *o.PublicURL
+		o.PublicURL = &publicURL
+	}
 	for _, hook := range o.MutationHooks {
 		if hook == nil {
 			return Options{}, fmt.Errorf("MutationHooks: nil hook")

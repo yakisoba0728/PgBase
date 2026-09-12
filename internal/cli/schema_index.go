@@ -85,6 +85,9 @@ func runSchemaIndex(ctx context.Context, args []string, env environment, streams
 	if len(witnesses) != 0 && subcommand != "activate" {
 		return configurationError{err: errors.New("witness is only valid for activate"), message: schemaIndexUsage}
 	}
+	if *jsonOutput && subcommand != "status" {
+		return configurationError{err: errors.New("json is only valid for status"), message: schemaIndexUsage}
+	}
 
 	stdout := streams.stdout()
 	runtime, err := openDatabase(ctx, env, streams)

@@ -1,0 +1,31 @@
+{
+  "baseSha": "5cb721ff5590bf89b45ea9087d2ace0b74fe7127",
+  "model_read_proof": false,
+  "note": "Coverage declarations validate claims and metadata; they cannot verify that a model actually read content.",
+  "errors": [],
+  "warnings": [],
+  "incomplete": [],
+  "missing": [],
+  "ok": true,
+  "publishValidation": {
+    "files": 1406,
+    "distinct": true,
+    "batches": 71,
+    "twoDistinctReviewers": true,
+    "sourceFilesExistAtFixedWorktree": true,
+    "reviewerFields": {
+      "pass1": 1406,
+      "pass2": 1406,
+      "matched": 1406
+    },
+    "uniqueFindingsConfirmed": 59
+  },
+  "browserUi": {
+    "fileUrlPolicy": "blocked",
+    "runtimeInteractionVerified": false,
+    "htmlStructure": "checked",
+    "javascriptSyntax": "passed"
+  },
+  "newPreciseReproductions": 0,
+  "productSourceOrTestsModified": 0
+}

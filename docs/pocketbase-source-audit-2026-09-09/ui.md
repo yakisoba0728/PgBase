@@ -51,6 +51,16 @@ PgBase explicitly models durable preview/apply/recovery for PostgreSQL DDL. Pock
 
 ## Verified upstream UI defect candidates
 
+### Reproduction command
+
+From the repository root, run the pinned upstream reproduction:
+
+```sh
+node docs/pocketbase-source-audit-2026-09-09/repro-ui.mjs .local/upstream/pocketbase
+```
+
+Expected output is three `confirmed:` lines, one each for the cron failure, preselected-record loading flag, and record-upsert callback defect. The script reads only the pinned PocketBase checkout; these are upstream findings and are not PgBase regressions. A missing checkout is an unavailable prerequisite, not a passing result.
+
 These are findings in the pinned PocketBase UI, not features PgBase should copy. [`repro-ui.mjs`](./repro-ui.mjs) extracts the relevant original functions and runs them with narrow stubs. All three assertions pass under Node. These are function-level reproductions, not full-browser tests.
 
 1. [`recordsPickerModal.js`](https://github.com/pocketbase/pocketbase/blob/5684ee24f1e88f71a2ede73d20cf547fbd509e16/ui/src/records/recordsPickerModal.js) declares `isLoadingPreselected`, while `loadSelected()` writes `isLoadingSelected`. During preselected-record fetching, the combined loading getter remains false.

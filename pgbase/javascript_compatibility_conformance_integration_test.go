@@ -34,13 +34,13 @@ func TestPocketBaseHTTPSendReturnsPublicResponseShape(t *testing.T) {
 
 func TestPocketBaseFilesystemConstructorsReachObjectStorage(t *testing.T) {
 	directory, files := t.TempDir(), t.TempDir()
-	writeJavaScriptFixture(t, directory, `{"format":"pgbase.scripts/v1","routes":[{"method":"POST","pattern":"/construct","access":"public","handler":{"module":"route.js","export":"run"},"capabilities":["filesystem"]}]}`, `exports.run=()=>{const f=$filesystem.fileFromBytes([97,108,112,104,97],"alpha.txt");$filesystem.write("from-constructor",f);return {status:200,json:$filesystem.open("from-constructor").read()}}`)
+	writeJavaScriptFixture(t, directory, `{"format":"pgbase.scripts/v1","routes":[{"method":"POST","pattern":"/construct","access":"public","handler":{"module":"route.js","export":"run"},"capabilities":["filesystem"]}]}`, `exports.run=()=>{const f=$filesystem.fileFromBytes([97,108,112,104,97],"alpha.txt");$filesystem.write("from-constructor",f);const r=$filesystem.open("from-constructor");return {status:200,json:{first:r.read(),second:r.read()}}}`)
 	fixture := newPublicUsersAppOptions(t, false, func(options *Options) {
 		options.Files = FileOptions{Driver: "local", LocalDirectory: files, MaximumBytes: 1024}
 		options.JavaScript = &JavaScriptOptions{Directory: directory, Capabilities: map[string]bool{"filesystem": true}}
 	})
 	response := publicUsersRequest(t, fixture, http.MethodPost, "/construct", map[string]any{}, "", nil, nil)
-	if response.Code != http.StatusOK || response.Body.String() != `{"data":"YWxwaGE=","eof":true}` {
+	if response.Code != http.StatusOK || response.Body.String() != `{"first":{"data":"YWxwaGE=","eof":false},"second":{"data":"","eof":true}}` {
 		t.Fatalf("constructor storage response=%d body=%s", response.Code, response.Body.String())
 	}
 }

@@ -24,6 +24,8 @@ func TestRedactRemovesSecrets(t *testing.T) {
 		{name: "API key", input: "api_key=provider-key", secret: "provider-key"},
 		{name: "prefixed API key", input: "provider_api_key=provider-prefixed-key", secret: "provider-prefixed-key"},
 		{name: "private key", input: "private-key=signing-key", secret: "signing-key"},
+		{name: "colon secret", input: "client_secret:oauth-secret", secret: "oauth-secret"},
+		{name: "colon quoted secret", input: "password: 'quoted secret' sslmode=disable", secret: "quoted secret"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

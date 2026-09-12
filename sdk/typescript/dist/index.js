@@ -590,7 +590,10 @@ export class AuthRealm {
     register(email, password, options, signal) { return this.authenticate("register", email, password, options, signal); }
     login(email, password, options, signal) { return this.authenticate("login", email, password, options, signal); }
     /** Returns the sign-in methods enabled for this auth collection. */
-    methods(signal) { return this.client._request(this.path("methods"), {}, signal); }
+    async methods(signal) {
+        const methods = await this.client._request(this.path("methods"), {}, signal);
+        return { ...methods, oauth2: methods.oauth2 ?? { enabled: false, providers: [] } };
+    }
     /** Rotates the current bearer token after validating its replacement session. */
     async refresh(signal) {
         const generation = this.client.auth.generation;

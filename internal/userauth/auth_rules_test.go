@@ -50,3 +50,16 @@ func TestAuthRecordRuleConstantsAndValidation(t *testing.T) {
 		t.Fatal("unknown auth rule field accepted")
 	}
 }
+
+func TestAuthRecordRulesAcceptAndEvaluateEmailVisibility(t *testing.T) {
+	rules := AuthCollectionRules{View: "emailVisibility = true"}
+	if !ValidateAuthRecordRules(rules, nil) {
+		t.Fatal("emailVisibility rule was rejected")
+	}
+	if !EvaluateAuthRecordRule(rules.View, nil, AuthRuleContext{Current: AuthRecord{EmailVisibility: true}}) {
+		t.Fatal("emailVisibility rule did not evaluate")
+	}
+	if EvaluateAuthRecordRule(rules.View, nil, AuthRuleContext{Current: AuthRecord{EmailVisibility: false}}) {
+		t.Fatal("emailVisibility rule accepted false value")
+	}
+}

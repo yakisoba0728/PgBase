@@ -391,6 +391,253 @@ func TestUploadPublishAuthorizationDeleteAndCleanup(t *testing.T) {
 	}
 }
 
+func TestStageQueuesObjectWhenVerificationReadFails(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	readErr := errors.New("verification reader failed")
+	objects := &verificationReadFailureStore{readErr: readErr}
+	service, err := NewService(pool, objects, func(context.Context, pgx.Tx, identity.Subject, uuid.UUID, uuid.UUID, string, Operation) error {
+		return nil
+	}, Options{
+		MaximumBytes: 32, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, AllowedTypes: []string{"text/plain"}, TokenSecret: bytes.Repeat([]byte{7}, 32), TokenTTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("plain text")
+	digest := sha256.Sum256(body)
+	_, err = service.Stage(ctx, identity.Subject{Kind: identity.User, ID: uuid.New()}, Upload{Filename: "read.txt", ContentType: "text/plain", Size: int64(len(body)), SHA256: digest, Body: bytes.NewReader(body)})
+	if !errors.Is(err, readErr) {
+		t.Fatalf("Stage error = %v, want %v", err, readErr)
+	}
+	var queued string
+	if err := pool.QueryRow(ctx, `select object_key from pgbase_meta.file_object_deletions`).Scan(&queued); err != nil {
+		t.Fatal(err)
+	}
+	if queued != objects.key {
+		t.Fatalf("queued key = %q, put key = %q", queued, objects.key)
+	}
+}
+
+func TestStagePreRegistersCleanupBeforeVerificationAndQueueFailure(t *testing.T) {
+	ctx := context.Background()
+	databaseURL := testutil.NewDatabase(t)
+	pool, err := database.Open(ctx, databaseURL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	readErr := errors.New("verification reader failed")
+	objects := &poolClosingVerificationStore{pool: pool, values: make(map[string][]byte), readErr: readErr}
+	service, err := NewService(pool, objects, func(context.Context, pgx.Tx, identity.Subject, uuid.UUID, uuid.UUID, string, Operation) error {
+		return nil
+	}, Options{
+		MaximumBytes: 32, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, AllowedTypes: []string{"text/plain"}, TokenSecret: bytes.Repeat([]byte{7}, 32), TokenTTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("plain text")
+	digest := sha256.Sum256(body)
+	_, err = service.Stage(ctx, identity.Subject{Kind: identity.User, ID: uuid.New()}, Upload{Filename: "read.txt", ContentType: "text/plain", Size: int64(len(body)), SHA256: digest, Body: bytes.NewReader(body)})
+	if !errors.Is(err, readErr) {
+		t.Fatalf("Stage error=%v, want %v", err, readErr)
+	}
+	recovered, err := database.Open(ctx, databaseURL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(recovered.Close)
+	var queued string
+	if err := recovered.QueryRow(ctx, `select object_key from pgbase_meta.file_object_deletions`).Scan(&queued); err != nil {
+		t.Fatal(err)
+	}
+	if queued != objects.key {
+		t.Fatalf("durable cleanup key=%q, put key=%q", queued, objects.key)
+	}
+	recoveredService, err := NewService(recovered, objects, func(context.Context, pgx.Tx, identity.Subject, uuid.UUID, uuid.UUID, string, Operation) error {
+		return nil
+	}, Options{
+		MaximumBytes: 32, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, AllowedTypes: []string{"text/plain"}, TokenSecret: bytes.Repeat([]byte{7}, 32), TokenTTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	worked, err := recoveredService.DrainOne(ctx)
+	if err != nil || !worked {
+		t.Fatalf("DrainOne=%t err=%v", worked, err)
+	}
+	if _, err := objects.OpenStored(queued); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("failed staged bytes remain after recovery: %v", err)
+	}
+}
+
+func TestStageCleanupIntentCannotDrainBeforeCompletion(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	objects := &migrationMemoryStore{values: make(map[string][]byte)}
+	service, err := NewService(pool, objects, func(context.Context, pgx.Tx, identity.Subject, uuid.UUID, uuid.UUID, string, Operation) error {
+		return nil
+	}, Options{
+		MaximumBytes: 32, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, AllowedTypes: []string{"text/plain"}, TokenSecret: bytes.Repeat([]byte{7}, 32), TokenTTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("plain text")
+	digest := sha256.Sum256(body)
+	staged, err := service.Stage(ctx, identity.Subject{Kind: identity.User, ID: uuid.New()}, Upload{Filename: "active.txt", ContentType: "text/plain", Size: int64(len(body)), SHA256: digest, Body: bytes.NewReader(body)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := service.DrainOne(ctx); err != nil || worked {
+		t.Fatalf("active stage drained: worked=%t err=%v", worked, err)
+	}
+	if reader, err := objects.Open(ctx, staged.file.ObjectKey); err != nil {
+		t.Fatalf("active stage missing: %v", err)
+	} else {
+		_ = reader.Close()
+	}
+	if err := service.Cleanup(ctx, []StagedFile{staged}); err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := service.DrainOne(ctx); err != nil || !worked {
+		t.Fatalf("released stage cleanup: worked=%t err=%v", worked, err)
+	}
+	if _, err := objects.Open(ctx, staged.file.ObjectKey); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("released staged bytes remain: %v", err)
+	}
+}
+
+func TestStageCleanupIntentSharesStorageTransitionLease(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	controller, err := NewStorageController(ctx, pool, bytes.Repeat([]byte{8}, 32), StorageConfig{Driver: "local", LocalDirectory: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(pool, controller, func(context.Context, pgx.Tx, identity.Subject, uuid.UUID, uuid.UUID, string, Operation) error {
+		return nil
+	}, Options{
+		MaximumBytes: 32, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, AllowedTypes: []string{"text/plain"}, TokenSecret: bytes.Repeat([]byte{7}, 32), TokenTTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("plain text")
+	digest := sha256.Sum256(body)
+	staged, err := service.Stage(ctx, identity.Subject{Kind: identity.User, ID: uuid.New()}, Upload{Filename: "leased.txt", ContentType: "text/plain", Size: int64(len(body)), SHA256: digest, Body: bytes.NewReader(body)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transition, err := pool.OpenCoordinationSession(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transition.Close(context.Background())
+	var acquired bool
+	if err := transition.QueryRow(ctx, `select pg_try_advisory_lock($1)`, storageTransitionLock).Scan(&acquired); err != nil {
+		t.Fatal(err)
+	}
+	if acquired {
+		t.Fatal("storage transition lock was available while staged intent was active")
+	}
+	if err := service.Cleanup(ctx, []StagedFile{staged}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for !acquired && time.Now().Before(deadline) {
+		if err := transition.QueryRow(ctx, `select pg_try_advisory_lock($1)`, storageTransitionLock).Scan(&acquired); err != nil {
+			t.Fatal(err)
+		}
+		if !acquired {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if !acquired {
+		t.Fatal("storage transition remained blocked after staged resolution")
+	}
+	_, _ = transition.Exec(ctx, `select pg_advisory_unlock($1)`, storageTransitionLock)
+}
+
+type verificationReadFailureStore struct {
+	key     string
+	readErr error
+}
+
+type poolClosingVerificationStore struct {
+	pool    *database.Pool
+	values  map[string][]byte
+	key     string
+	readErr error
+}
+
+func (s *poolClosingVerificationStore) Put(_ context.Context, key string, body io.Reader) error {
+	value, err := io.ReadAll(body)
+	if err == nil {
+		s.key = key
+		s.values[key] = value
+	}
+	return err
+}
+
+func (s *poolClosingVerificationStore) Open(context.Context, string) (io.ReadCloser, error) {
+	s.pool.Close()
+	return io.NopCloser(errorReader{s.readErr}), nil
+}
+
+func (s *poolClosingVerificationStore) OpenStored(key string) (io.ReadCloser, error) {
+	value, ok := s.values[key]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return io.NopCloser(bytes.NewReader(value)), nil
+}
+
+func (s *poolClosingVerificationStore) Delete(_ context.Context, key string) error {
+	delete(s.values, key)
+	return nil
+}
+
+func (s *verificationReadFailureStore) Put(_ context.Context, key string, body io.Reader) error {
+	s.key = key
+	_, _ = io.Copy(io.Discard, body)
+	return nil
+}
+
+func (s *verificationReadFailureStore) Open(context.Context, string) (io.ReadCloser, error) {
+	return io.NopCloser(errorReader{s.readErr}), nil
+}
+
+func (s *verificationReadFailureStore) Delete(context.Context, string) error { return nil }
+
+type errorReader struct{ err error }
+
+func (r errorReader) Read([]byte) (int, error) { return 0, r.err }
+
 type leaseBlockingStore struct {
 	ObjectStore
 	entered chan uint32

@@ -78,6 +78,22 @@ describe("record editor page", () => {
     expect(callsTo(harness.script, "create")[0].detail.input).toEqual({ title: "copy me", tags: [] });
   });
 
+  it("keeps the source record open when duplicate draft persistence fails", async () => {
+    const harness = scriptedAdmin(`/admin/collections/posts/records/${recordID}`);
+    harness.script.catalog.push({ value: { version: 4, collections: [posts, tagsCollection] } });
+    harness.script.read.push({ value: { data: { id: recordID, title: "copy me", tags: [] }, etag: '"pgb1.one"' } });
+    const denied = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("storage denied");
+    });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+    await user.click(await screen.findByRole("button", { name: "Duplicate record" }));
+
+    expect(await screen.findByText(/Unable to prepare the duplicate/)).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Edit posts record" })).toBeVisible();
+    denied.mockRestore();
+  });
+
   it("renders allowed text and JSON values as constrained selectors", async () => {
     const constrained = collection("settings", "settings-id", [
       textField("theme", 0, { options: { allowedValues: ["light", "dark"] } }),

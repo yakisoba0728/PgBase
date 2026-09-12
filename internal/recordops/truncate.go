@@ -27,7 +27,10 @@ type TruncateResult struct {
 
 // Truncate deletes every record through the ordinary delete graph in one
 // transaction. This preserves hooks, audit/outbox artifacts, relation actions,
-// membership state and the durable file-deletion queue.
+// membership state and the durable file-deletion queue. The transaction takes
+// one stable, ordered snapshot of all root IDs before deleting any of them;
+// consequently its memory and lock duration scale with collection cardinality.
+// Callers that require bounded bulk work must issue bounded ordinary deletes.
 func (s *Service) Truncate(ctx context.Context, request TruncateRequest) (result TruncateResult, err error) {
 	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
 		return result, err

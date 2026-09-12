@@ -44,7 +44,7 @@ func (s *migrationMemoryStore) Delete(_ context.Context, key string) error {
 func TestCopyVerifiedPreservesConflictingDestinationObject(t *testing.T) {
 	source := &migrationMemoryStore{values: map[string][]byte{"objects/key": []byte("source")}}
 	destination := &migrationMemoryStore{values: map[string][]byte{"objects/key": []byte("destination")}}
-	if _, _, _, err := copyVerified(context.Background(), source, destination, "objects/key"); err != ErrStorageConflict {
+	if _, _, _, err := copyVerifiedWithIntent(context.Background(), source, destination, "objects/key", nil); err != ErrStorageConflict {
 		t.Fatalf("copy error=%v", err)
 	}
 	reader, err := destination.Open(context.Background(), "objects/key")
@@ -61,7 +61,7 @@ func TestCopyVerifiedPreservesConflictingDestinationObject(t *testing.T) {
 func TestCopyVerifiedReusesIdenticalDestinationObject(t *testing.T) {
 	source := &migrationMemoryStore{values: map[string][]byte{"objects/key": []byte("same")}}
 	destination := &migrationMemoryStore{values: map[string][]byte{"objects/key": []byte("same")}}
-	size, _, _, err := copyVerified(context.Background(), source, destination, "objects/key")
+	size, _, _, err := copyVerifiedWithIntent(context.Background(), source, destination, "objects/key", nil)
 	if err != nil || size != 4 {
 		t.Fatalf("size=%d err=%v", size, err)
 	}

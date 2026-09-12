@@ -29,19 +29,9 @@ func AllowsRecordInCatalog(ctx context.Context, tx pgx.Tx, catalog schema.Catalo
 	if err != nil {
 		return false, err
 	}
-	var predicate string
-	var args []any
-	if rule.PocketBase != nil {
-		resolver, resolveErr := accessrule.NewCatalogResolver(catalog, collection, collection.TableName)
-		if resolveErr != nil {
-			return false, resolveErr
-		}
-		predicate, args, err = accessrule.CompilePocketBase(rule, accessrule.PBCompileContext{Resolver: resolver, Principal: principal, Request: request, ArgOffset: 1})
-	} else if request == nil {
-		predicate, args, err = accessrule.Compile(rule, collection, collection.TableName, principal, 1, prospectiveOwner)
-	} else {
-		predicate, args, err = accessrule.CompileWithRequest(rule, collection, collection.TableName, principal, 1, prospectiveOwner, *request)
-	}
+	predicate, args, err := compileRecordRule(catalog, collection, rule, principal, ruleCompileOptions{
+		request: request, argOffset: 1, prospectiveOwner: prospectiveOwner, directRequest: true,
+	})
 	if err != nil {
 		return false, err
 	}
@@ -72,21 +62,9 @@ func AllowsRecordsInCatalogWithRequest(ctx context.Context, tx pgx.Tx, catalog s
 	if err != nil {
 		return false, err
 	}
-	var predicate string
-	var args []any
-	if rule.PocketBase != nil {
-		resolver, e := accessrule.NewCatalogResolver(catalog, collection, collection.TableName)
-		if e != nil {
-			return false, e
-		}
-		predicate, args, err = accessrule.CompilePocketBase(rule, accessrule.PBCompileContext{Resolver: resolver, Principal: principal, Request: request, ArgOffset: 1})
-	} else {
-		if request == nil {
-			predicate, args, err = accessrule.Compile(rule, collection, collection.TableName, principal, 1, prospectiveOwner)
-		} else {
-			predicate, args, err = accessrule.CompileWithRequest(rule, collection, collection.TableName, principal, 1, prospectiveOwner, *request)
-		}
-	}
+	predicate, args, err := compileRecordRule(catalog, collection, rule, principal, ruleCompileOptions{
+		request: request, argOffset: 1, prospectiveOwner: prospectiveOwner, directRequest: true,
+	})
 	if err != nil {
 		return false, err
 	}

@@ -6,62 +6,208 @@ import 'package:pgbase/pgbase.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('filter placeholder values are deterministic and never parsed twice', () {
-    final pgbase = PgBaseClient(Uri.parse('http://pgbase.test/'));
-    expect(
-      pgbase.filter('title = {:title} || summary = {:title}', {
-        'title': 'quoted "value"\\next\nline',
-      }),
-      'title = "quoted \\"value\\"\\\\next\\nline" || summary = "quoted \\"value\\"\\\\next\\nline"',
+  test(
+    'filter placeholder values are deterministic and never parsed twice',
+    () {
+      final pgbase = PgBaseClient(Uri.parse('http://pgbase.test/'));
+      expect(
+        pgbase.filter('title = {:title} || summary = {:title}', {
+          'title': 'quoted "value"\\next\nline',
+        }),
+        'title = "quoted \\"value\\"\\\\next\\nline" || summary = "quoted \\"value\\"\\\\next\\nline"',
+      );
+      expect(
+        pgbase.filter('created >= {:when}', {
+          'when': DateTime.utc(2026, 1, 2, 3, 4, 5),
+        }),
+        'created >= "2026-01-02 03:04:05.000Z"',
+      );
+      expect(
+        pgbase.filter('flags = {:value}', {
+          'value': [true, 'two'],
+        }),
+        'flags = "[true,\\"two\\"]"',
+      );
+      expect(
+        pgbase.filter('meta = {:value}', {
+          'value': {'flag': true},
+        }),
+        'meta = "{\\"flag\\":true}"',
+      );
+      expect(
+        pgbase.filter('unset = {:value}', {'value': null}),
+        'unset = null',
+      );
+      expect(
+        pgbase.filter('number = {:value}', {'value': double.nan}),
+        'number = NaN',
+      );
+      expect(
+        pgbase.filter('number = {:value}', {'value': double.infinity}),
+        'number = Infinity',
+      );
+      expect(
+        pgbase.filter('known = {:known} && missing = {:missing}', {
+          'known': false,
+        }),
+        'known = false && missing = {:missing}',
+      );
+      expect(
+        pgbase.filter('value = {:text}', {
+          'text': '{:text} || title != "safe"',
+        }),
+        'value = "{:text} || title != \\"safe\\""',
+      );
+    },
+  );
+
+  test(
+    'application realtime topics preserve the raw name and payload',
+    () async {
+      final client = _ApplicationTopicClient();
+      final pgbase = PgBaseClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: client,
+      );
+      final received = Completer<RealtimeCustomEvent>();
+      final stop = await pgbase.realtime.subscribeApplication(
+        'custom-topic',
+        received.complete,
+      );
+      final event = await received.future;
+      expect(event.topic, 'custom-topic');
+      expect(((event.data as JsonObject)['ok'] as JsonBool).value, isTrue);
+      expect(client.subscriptions, ['@app/Y3VzdG9tLXRvcGlj']);
+      await stop();
+      expect(
+        () => pgbase.realtime.subscribeApplication('', (_) {}),
+        throwsA(isA<PgBaseProtocolError>()),
+      );
+    },
+  );
+
+  test(
+    'application realtime topics preserve every valid JSON payload shape',
+    () async {
+      const payloads = <String>[
+        '{"ok":true}',
+        '[1,2]',
+        '"text"',
+        '7',
+        'false',
+        'null',
+      ];
+      for (final payload in payloads) {
+        final client = _ApplicationPayloadClient(payload);
+        final pgbase = PgBaseClient(
+          Uri.parse('http://pgbase.test/'),
+          httpClient: client,
+        );
+        final received = Completer<RealtimeCustomEvent>();
+        final stop = await pgbase.realtime.subscribeApplication(
+          'payload',
+          received.complete,
+        );
+        final event = await received.future.timeout(
+          const Duration(milliseconds: 50),
+        );
+        expect(event.topic, 'payload');
+        expect(utf8.decode(encodeExactJson(event.data)), payload);
+        await stop();
+      }
+    },
+  );
+
+  test('clean shared realtime EOF consumes the reconnect budget', () async {
+    final httpClient = _CleanEofThenTerminalClient();
+    final client = PgBaseClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: httpClient,
     );
-    expect(
-      pgbase.filter('created >= {:when}', {
-        'when': DateTime.utc(2026, 1, 2, 3, 4, 5),
-      }),
-      'created >= "2026-01-02 03:04:05.000Z"',
+    final realtime = RealtimeService(
+      client,
+      maxReconnects: 0,
+      reconnectDelay: Duration.zero,
     );
-    expect(
-      pgbase.filter('flags = {:value}', {
-        'value': [true, 'two'],
-      }),
-      'flags = "[true,\\"two\\"]"',
-    );
-    expect(
-      pgbase.filter('meta = {:value}', {
-        'value': {'flag': true},
-      }),
-      'meta = "{\\"flag\\":true}"',
-    );
-    expect(pgbase.filter('unset = {:value}', {'value': null}), 'unset = null');
-    expect(pgbase.filter('number = {:value}', {'value': double.nan}), 'number = NaN');
-    expect(pgbase.filter('number = {:value}', {'value': double.infinity}), 'number = Infinity');
-    expect(
-      pgbase.filter('known = {:known} && missing = {:missing}', {'known': false}),
-      'known = false && missing = {:missing}',
-    );
-    expect(
-      pgbase.filter('value = {:text}', {'text': '{:text} || title != "safe"'}),
-      'value = "{:text} || title != \\"safe\\""',
-    );
+    final stop = await realtime.subscribe('notes', (_) {});
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(httpClient.getCalls, 1);
+    await stop();
   });
 
-  test('application realtime topics preserve the raw name and payload', () async {
-    final client = _ApplicationTopicClient();
-    final pgbase = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: client);
-    final received = Completer<RealtimeCustomEvent>();
-    final stop = await pgbase.realtime.subscribeApplication(
-      'custom-topic',
-      received.complete,
+  test(
+    'malformed optional HTTP error fields retain stable error normalization',
+    () async {
+      for (final body in <String>[
+        '{"error":{"code":7}}',
+        '{"error":{"code":[]}}',
+        '{"error":{"requestId":{}}}',
+      ]) {
+        final pgbase = PgBaseClient(
+          Uri.parse('http://pgbase.test/'),
+          httpClient: _MalformedErrorClient(body),
+        );
+        await expectLater(
+          pgbase.session(),
+          throwsA(
+            isA<PgBaseError>()
+                .having((error) => error.status, 'status', 500)
+                .having((error) => error.code, 'code', 'request_failed')
+                .having((error) => error.requestId, 'requestId', isNull)
+                .having((error) => error.etag, 'etag', '"pgb1.error"'),
+          ),
+        );
+      }
+    },
+  );
+
+  test('shared realtime rejects a terminal HTTP handshake without retrying', () async {
+    final httpClient = _TerminalSseClient(401, code: 'unauthorized');
+    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: httpClient);
+    final realtime = RealtimeService(client, maxReconnects: 3);
+
+    await expectLater(
+      realtime.subscribe('notes', (_) {}),
+      throwsA(isA<PgBaseError>().having((error) => error.status, 'status', 401)),
     );
-    final event = await received.future;
-    expect(event.topic, 'custom-topic');
-    expect(((event.data as JsonObject)['ok'] as JsonBool).value, isTrue);
-    expect(client.subscriptions, ['@app/Y3VzdG9tLXRvcGlj']);
-    await stop();
-    expect(
-      () => pgbase.realtime.subscribeApplication('', (_) {}),
-      throwsA(isA<PgBaseProtocolError>()),
+    expect(httpClient.calls, 1);
+  });
+
+  test('shared realtime bounds recoverable handshake retries', () async {
+    final httpClient = _TerminalSseClient(500, code: 'server_error');
+    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: httpClient);
+    final realtime = RealtimeService(
+      client,
+      maxReconnects: 1,
+      reconnectDelay: Duration.zero,
     );
+
+    await expectLater(realtime.subscribe('notes', (_) {}), throwsA(isA<PgBaseError>()));
+    expect(httpClient.calls, 2);
+  });
+
+  test('unsubscribing during a pending shared handshake settles readiness', () async {
+    final httpClient = _BlockingSseClient();
+    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: httpClient);
+    final realtime = RealtimeService(client);
+    final pending = realtime.subscribe('notes', (_) {});
+    await httpClient.started.future;
+    await realtime.unsubscribe();
+
+    await expectLater(pending, throwsA(isA<PgBaseCancellation>()));
+    await httpClient.aborted.future;
+  });
+
+  test('a non-cancellation body error after unsubscribe settles readiness', () async {
+    final httpClient = _BodyAbortErrorSseClient();
+    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: httpClient);
+    final realtime = RealtimeService(client);
+    final pending = realtime.subscribe('notes', (_) {});
+    await httpClient.started.future;
+    await realtime.unsubscribe();
+
+    await expectLater(pending, throwsA(isA<PgBaseCancellation>()));
+    await httpClient.aborted.future;
   });
 
   group('exact JSON', () {
@@ -151,7 +297,10 @@ void main() {
       ]);
       expect(pgbase.auth.token, 'still-valid-locally');
       expect(created.etag, '"pgb1.created"');
-      expect(client.requests[4].headers['authorization'], 'Bearer still-valid-locally');
+      expect(
+        client.requests[4].headers['authorization'],
+        'Bearer still-valid-locally',
+      );
       expect(client.requests[4].headers['idempotency-key'], 'create-note-0001');
       expect(client.requests[5].headers['if-match'], '"pgb1.created"');
       expect(batch['results'], isA<JsonArray>());
@@ -210,13 +359,12 @@ void main() {
         httpClient: client,
       );
 
-      final page = await pgbase.records('notes').list(
-        const Query(fields: 'title,summary'),
-      );
-      final record = await pgbase.records('notes').get(
-        '01900000-0000-7000-8000-000000000001',
-        fields: 'title,summary',
-      );
+      final page = await pgbase
+          .records('notes')
+          .list(const Query(fields: 'title,summary'));
+      final record = await pgbase
+          .records('notes')
+          .get('01900000-0000-7000-8000-000000000001', fields: 'title,summary');
 
       expect((page.items.single['title'] as JsonString).value, 'listed');
       expect(page.items.single.values.containsKey('private'), isFalse);
@@ -230,29 +378,37 @@ void main() {
     },
   );
 
-  test('PocketBase numbered list sends its explicit compatibility contract', () async {
-    final client = _ProjectionClient();
-    final pgbase = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: client);
-    final page = await pgbase.records('notes').getList(
-      2,
-      25,
-      const PocketBaseListOptions(
-        filter: 'title = "paged"',
-        sort: '@random',
-        skipTotal: true,
-      ),
-    );
-    expect(page.page, 2);
-    expect(page.perPage, 25);
-    expect(page.totalItems, -1);
-    expect(page.totalPages, -1);
-    expect((page.items.single['title'] as JsonString).value, 'paged');
-    final url = client.urls.single;
-    expect(url.queryParameters['compat'], 'pocketbase');
-    expect(url.queryParameters['page'], '2');
-    expect(url.queryParameters['perPage'], '25');
-    expect(url.queryParameters['skipTotal'], 'true');
-  });
+  test(
+    'PocketBase numbered list sends its explicit compatibility contract',
+    () async {
+      final client = _ProjectionClient();
+      final pgbase = PgBaseClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: client,
+      );
+      final page = await pgbase
+          .records('notes')
+          .getList(
+            2,
+            25,
+            const PocketBaseListOptions(
+              filter: 'title = "paged"',
+              sort: '@random',
+              skipTotal: true,
+            ),
+          );
+      expect(page.page, 2);
+      expect(page.perPage, 25);
+      expect(page.totalItems, -1);
+      expect(page.totalPages, -1);
+      expect((page.items.single['title'] as JsonString).value, 'paged');
+      final url = client.urls.single;
+      expect(url.queryParameters['compat'], 'pocketbase');
+      expect(url.queryParameters['page'], '2');
+      expect(url.queryParameters['perPage'], '25');
+      expect(url.queryParameters['skipTotal'], 'true');
+    },
+  );
 
   test('admin client keeps CSRF apart from bearer authentication', () async {
     final client = _ScriptedClient();
@@ -266,24 +422,27 @@ void main() {
     expect(client.requests.last.headers.containsKey('authorization'), isFalse);
   });
 
-  test('concurrent admin logins keep the newest cookie and CSRF paired', () async {
-    final client = _RacingAdminLoginClient();
-    final admin = PgBaseAdminClient(
-      Uri.parse('http://pgbase.test/'),
-      httpClient: client,
-    );
-    final older = admin.login('old@example.test', 'password');
-    await client.oldLoginStarted.future;
-    final newer = admin.login('new@example.test', 'password');
-    await newer;
-    client.oldLoginResponse.complete(_adminLoginResponse('old'));
-    await older;
-    await admin.configureJob('daily', '0 0 * * *', true);
+  test(
+    'concurrent admin logins keep the newest cookie and CSRF paired',
+    () async {
+      final client = _RacingAdminLoginClient();
+      final admin = PgBaseAdminClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: client,
+      );
+      final older = admin.login('old@example.test', 'password');
+      await client.oldLoginStarted.future;
+      final newer = admin.login('new@example.test', 'password');
+      await newer;
+      client.oldLoginResponse.complete(_adminLoginResponse('old'));
+      await older;
+      await admin.configureJob('daily', '0 0 * * *', true);
 
-    final mutation = client.requests.last;
-    expect(mutation.headers['cookie'], 'admin-session=new');
-    expect(mutation.headers['x-pgbase-csrf'], 'csrf-new');
-  });
+      final mutation = client.requests.last;
+      expect(mutation.headers['cookie'], 'admin-session=new');
+      expect(mutation.headers['x-pgbase-csrf'], 'csrf-new');
+    },
+  );
 
   test('structured HTTP errors retain their ETag and details', () async {
     final pgbase = PgBaseClient(
@@ -324,7 +483,10 @@ void main() {
 
   test('request keys cancel the prior Dart request and cancelAll cancels active keys', () async {
     final httpClient = _KeyedAbortClient();
-    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: httpClient);
+    final client = PgBaseClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: httpClient,
+    );
     final first = client.request('GET', '/one', requestKey: 'same');
     await httpClient.firstStarted.future;
     final second = client.request('GET', '/two', requestKey: 'same');
@@ -359,80 +521,133 @@ void main() {
     expect(storage.value, isNull);
   });
 
-  test('auth store retains its record across an SSR cookie round trip', () async {
-    final source = AuthStore();
-    await source.save(
-      'server-token',
-      record: const User(
-        id: '01900000-0000-7000-8000-000000000001',
-        email: 'person@example.test',
-        createdAt: '2026-01-01T00:00:00Z',
-      ),
-    );
-    final restored = AuthStore();
-    await restored.loadFromCookie(source.exportToCookie());
-    expect(restored.isValid, isTrue);
-    expect(restored.record?.email, 'person@example.test');
-  });
+  test(
+    'auth store retains its record across an SSR cookie round trip',
+    () async {
+      final source = AuthStore();
+      await source.save(
+        'server-token',
+        record: const User(
+          id: '01900000-0000-7000-8000-000000000001',
+          email: 'person@example.test',
+          createdAt: '2026-01-01T00:00:00Z',
+        ),
+      );
+      final restored = AuthStore();
+      await restored.loadFromCookie(source.exportToCookie());
+      expect(restored.isValid, isTrue);
+      expect(restored.record?.email, 'person@example.test');
+    },
+  );
 
-  test('OAuth launcher receives the provider URL before callback completion', () async {
-    final oauth = _OAuthClient();
-    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: oauth);
-    Uri? opened;
-    await client.realm('members').oauthStartAndOpen(
-      'github',
-      'app://callback',
-      (url) { opened = url; },
-    );
-    expect(opened, Uri.parse('https://provider.test/authorize?state=expected-state'));
-    expect(oauth.requests, ['/api/v1/auth/members/oauth/start']);
-  });
+  test(
+    'OAuth launcher receives the provider URL before callback completion',
+    () async {
+      final oauth = _OAuthClient();
+      final client = PgBaseClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: oauth,
+      );
+      Uri? opened;
+      await client.realm('members').oauthStartAndOpen(
+        'github',
+        'app://callback',
+        (url) {
+          opened = url;
+        },
+      );
+      expect(
+        opened,
+        Uri.parse('https://provider.test/authorize?state=expected-state'),
+      );
+      expect(oauth.requests, ['/api/v1/auth/members/oauth/start']);
+    },
+  );
 
-  test('OAuth browser flow validates callback state and always closes its adapter', () async {
-    final oauth = _OAuthClient();
-    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: oauth);
-    var closed = 0;
-    final session = await client.realm('members').oauthWithBrowser(
-      'github',
-      'app://callback',
-      OAuthBrowserAdapter(
-        open: (_) {},
-        waitForCallback: (_) async => Uri.parse('app://callback?state=expected-state&code=code'),
-        close: () => closed++,
-      ),
-    );
-    expect(session.token, 'oauth-token');
-    expect(oauth.requests.take(2).toList(), [
-      '/api/v1/auth/members/oauth/start',
-      '/api/v1/auth/oauth/complete',
-    ]);
-    expect(closed, 1);
-    await expectLater(
-      client.realm('members').oauthWithBrowser(
-        'github', 'app://callback',
-        OAuthBrowserAdapter(open: (_) {}, waitForCallback: (_) async => Uri.parse('app://callback?state=wrong&code=code'), close: () => closed++),
-      ),
-      throwsA(isA<OAuthCallbackError>()),
-    );
-    expect(closed, 2);
-    await expectLater(
-      client.realm('members').oauthWithBrowser(
+  test(
+    'OAuth browser flow validates callback state and always closes its adapter',
+    () async {
+      final oauth = _OAuthClient();
+      final client = PgBaseClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: oauth,
+      );
+      var closed = 0;
+      final session = await client
+          .realm('members')
+          .oauthWithBrowser(
+            'github',
+            'app://callback',
+            OAuthBrowserAdapter(
+              open: (_) {},
+              waitForCallback: (_) async =>
+                  Uri.parse('app://callback?state=expected-state&code=code'),
+              close: () => closed++,
+            ),
+          );
+      expect(session.token, 'oauth-token');
+      expect(oauth.requests.take(2).toList(), [
+        '/api/v1/auth/members/oauth/start',
+        '/api/v1/auth/oauth/complete',
+      ]);
+      expect(closed, 1);
+      final globalSession = await client.oauthWithBrowser(
         'github',
         'app://callback',
         OAuthBrowserAdapter(
           open: (_) {},
-          waitForCallback: (_) async => Uri.parse(
-            'app://callback?state=expected-state&error=access_denied&error_description=cancelled',
-          ),
+          waitForCallback: (_) async =>
+              Uri.parse('app://callback?state=expected-state&code=code'),
           close: () => closed++,
         ),
-      ),
-      throwsA(
-        isA<OAuthCallbackError>().having((error) => error.code, 'code', 'access_denied'),
-      ),
-    );
-    expect(closed, 3);
-  });
+      );
+      expect(globalSession.token, 'oauth-token');
+      expect(oauth.requests.skip(2).take(2).toList(), [
+        '/api/v1/auth/oauth/start',
+        '/api/v1/auth/oauth/complete',
+      ]);
+      expect(closed, 2);
+      await expectLater(
+        client
+            .realm('members')
+            .oauthWithBrowser(
+              'github',
+              'app://callback',
+              OAuthBrowserAdapter(
+                open: (_) {},
+                waitForCallback: (_) async =>
+                    Uri.parse('app://callback?state=wrong&code=code'),
+                close: () => closed++,
+              ),
+            ),
+        throwsA(isA<OAuthCallbackError>()),
+      );
+      expect(closed, 3);
+      await expectLater(
+        client
+            .realm('members')
+            .oauthWithBrowser(
+              'github',
+              'app://callback',
+              OAuthBrowserAdapter(
+                open: (_) {},
+                waitForCallback: (_) async => Uri.parse(
+                  'app://callback?state=expected-state&error=access_denied&error_description=cancelled',
+                ),
+                close: () => closed++,
+              ),
+            ),
+        throwsA(
+          isA<OAuthCallbackError>().having(
+            (error) => error.code,
+            'code',
+            'access_denied',
+          ),
+        ),
+      );
+      expect(closed, 4);
+    },
+  );
 
   test('a delayed restore cannot replace a newer clear', () async {
     final storage = _DelayedAuthStorage()..value = 'stale-token';
@@ -686,10 +901,7 @@ final class _ProjectionClient extends http.BaseClient {
         'totalItems': -1,
         'totalPages': -1,
         'items': [
-          {
-            'id': '01900000-0000-7000-8000-000000000001',
-            'title': 'paged',
-          },
+          {'id': '01900000-0000-7000-8000-000000000001', 'title': 'paged'},
         ],
       });
     }
@@ -704,10 +916,7 @@ final class _ProjectionClient extends http.BaseClient {
                 },
               ],
             }
-          : {
-              'id': '01900000-0000-7000-8000-000000000001',
-              'title': 'viewed',
-            },
+          : {'id': '01900000-0000-7000-8000-000000000001', 'title': 'viewed'},
     );
   }
 }
@@ -733,10 +942,79 @@ final class _ApplicationTopicClient extends http.BaseClient {
     if (request.method == 'POST' && request.url.path == '/api/realtime') {
       final value = decodeExactJson(body) as JsonObject;
       final values = value['subscriptions'] as JsonArray;
-      subscriptions.addAll(values.values.cast<JsonString>().map((value) => value.value));
+      subscriptions.addAll(
+        values.values.cast<JsonString>().map((value) => value.value),
+      );
       return _jsonResponse(204, null);
     }
     throw StateError('unexpected application realtime request ${request.url}');
+  }
+}
+
+final class _ApplicationPayloadClient extends http.BaseClient {
+  _ApplicationPayloadClient(this.payload);
+  final String payload;
+  var getCalls = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    if (request.method == 'POST') return _jsonResponse(204, null);
+    getCalls++;
+    if (getCalls > 1)
+      return _jsonResponse(410, {
+        'error': {'code': 'gone'},
+      });
+    return http.StreamedResponse(
+      http.ByteStream.fromBytes(
+        utf8.encode(
+          'event: PB_CONNECT\ndata: {"clientId":"payload-test"}\n\n'
+          'event: @app/cGF5bG9hZA\ndata: $payload\n\n',
+        ),
+      ),
+      200,
+      headers: const {'content-type': 'text/event-stream'},
+    );
+  }
+}
+
+final class _CleanEofThenTerminalClient extends http.BaseClient {
+  var getCalls = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    if (request.method == 'POST') return _jsonResponse(204, null);
+    getCalls++;
+    if (getCalls > 1)
+      return _jsonResponse(410, {
+        'error': {'code': 'gone'},
+      });
+    return http.StreamedResponse(
+      http.ByteStream.fromBytes(
+        utf8.encode('event: PB_CONNECT\ndata: {"clientId":"eof-test"}\n\n'),
+      ),
+      200,
+      headers: const {'content-type': 'text/event-stream'},
+    );
+  }
+}
+
+final class _MalformedErrorClient extends http.BaseClient {
+  _MalformedErrorClient(this.body);
+  final String body;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    return http.StreamedResponse(
+      http.ByteStream.fromBytes(utf8.encode(body)),
+      500,
+      headers: const {
+        'content-type': 'application/json',
+        'etag': '"pgb1.error"',
+      },
+    );
   }
 }
 
@@ -852,13 +1130,34 @@ final class _BlockingSseClient extends http.BaseClient {
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    if (!request.url.path.endsWith('/events')) {
+    if (!request.url.path.endsWith('/events') && request.url.path != '/api/realtime') {
       throw StateError('unexpected request ${request.url}');
     }
     final stream = StreamController<List<int>>();
     final abortable = request as http.Abortable;
     abortable.abortTrigger!.then((_) async {
       if (!aborted.isCompleted) aborted.complete();
+      await stream.close();
+    });
+    started.complete();
+    return http.StreamedResponse(stream.stream, 200);
+  }
+}
+
+final class _BodyAbortErrorSseClient extends http.BaseClient {
+  final started = Completer<void>();
+  final aborted = Completer<void>();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    if (request.url.path != '/api/realtime') {
+      throw StateError('unexpected request ${request.url}');
+    }
+    final stream = StreamController<List<int>>();
+    final abortable = request as http.Abortable;
+    abortable.abortTrigger!.then((_) async {
+      if (!aborted.isCompleted) aborted.complete();
+      stream.addError(http.ClientException('body aborted', request.url));
       await stream.close();
     });
     started.complete();
@@ -908,10 +1207,22 @@ final class _OAuthClient extends http.BaseClient {
     await request.finalize().drain<void>();
     requests.add(request.url.path);
     if (request.url.path.endsWith('/oauth/start')) {
-      return _jsonResponse(200, {'authorizationUrl': 'https://provider.test/authorize?state=expected-state', 'expiresAt': '2026-01-02T00:00:00Z'});
+      return _jsonResponse(200, {
+        'authorizationUrl':
+            'https://provider.test/authorize?state=expected-state',
+        'expiresAt': '2026-01-02T00:00:00Z',
+      });
     }
     if (request.url.path.endsWith('/oauth/complete')) {
-      return _jsonResponse(200, {'token': 'oauth-token', 'user': {'id': 'oauth', 'email': 'oauth@example.test', 'createdAt': '2026-01-01T00:00:00Z'}, 'expiresAt': '2026-01-02T00:00:00Z'});
+      return _jsonResponse(200, {
+        'token': 'oauth-token',
+        'user': {
+          'id': 'oauth',
+          'email': 'oauth@example.test',
+          'createdAt': '2026-01-01T00:00:00Z',
+        },
+        'expiresAt': '2026-01-02T00:00:00Z',
+      });
     }
     throw StateError('unexpected request');
   }
@@ -1026,8 +1337,9 @@ final class _ClearThenRestoreStorage implements AuthStorage {
 }
 
 final class _TerminalSseClient extends http.BaseClient {
-  _TerminalSseClient(this.status);
+  _TerminalSseClient(this.status, {this.code = 'cursor_expired'});
   final int status;
+  final String code;
   int calls = 0;
 
   @override
@@ -1036,7 +1348,7 @@ final class _TerminalSseClient extends http.BaseClient {
     await request.finalize().drain<void>();
     return http.StreamedResponse(
       http.ByteStream.fromBytes(
-        utf8.encode('{"error":{"code":"cursor_expired"}}'),
+        utf8.encode('{"error":{"code":"$code"}}'),
       ),
       status,
       headers: const {'content-type': 'application/json'},
@@ -1115,14 +1427,17 @@ final class _RacingAdminLoginClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     final body = await request.finalize().toBytes();
-    requests.add(_CapturedRequest(
-      request.method,
-      request.url.path,
-      Map.unmodifiable(request.headers),
-      body,
-    ));
+    requests.add(
+      _CapturedRequest(
+        request.method,
+        request.url.path,
+        Map.unmodifiable(request.headers),
+        body,
+      ),
+    );
     if (request.url.path == '/api/admin/auth/login') {
-      final email = (jsonDecode(utf8.decode(body)) as Map<String, dynamic>)['email'];
+      final email =
+          (jsonDecode(utf8.decode(body)) as Map<String, dynamic>)['email'];
       if (email == 'old@example.test') {
         oldLoginStarted.complete();
         return oldLoginResponse.future;

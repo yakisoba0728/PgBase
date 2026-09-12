@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	neturl "net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -274,6 +275,10 @@ func (e schemaEndpoints) apply(w http.ResponseWriter, r *http.Request) {
 	tracked := &collectionHookResponseWriter{ResponseWriter: w}
 	w = tracked
 	defer func() {
+		if recovered := recover(); recovered != nil {
+			finish(errors.New("collection request panicked"))
+			panic(recovered)
+		}
 		if tracked.status >= 400 {
 			finish(errors.New("collection request failed"))
 		} else {
@@ -414,6 +419,11 @@ func (e schemaEndpoints) applyGuarded(
 }
 
 func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
+	values, queryErr := neturl.ParseQuery(r.URL.RawQuery)
+	if queryErr != nil || duplicateSingleton(values, "compat", "page", "perPage", "filter", "sort") {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
 	if e.service == nil {
 		writeSchemaError(w, r, errors.New("schema service is unavailable"))
 		return
@@ -430,7 +440,7 @@ func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
 		writeSchemaError(w, r, err)
 		return
 	}
-	if r.URL.Query().Get("compat") != "pocketbase" {
+	if values.Get("compat") != "pocketbase" {
 		collections := make(map[string]collectionResponse, len(catalog.Collections))
 		for name, collection := range catalog.Collections {
 			collections[name] = collectionDTO(collection)
@@ -439,7 +449,7 @@ func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, perPage := 1, 30
-	if raw := r.URL.Query().Get("page"); raw != "" {
+	if raw := values.Get("page"); raw != "" {
 		value, parseErr := strconv.Atoi(raw)
 		if parseErr != nil || value < 1 {
 			writeAPIError(w, r, APIError{Status: 400, Code: "invalid_request", Message: "Invalid request"})
@@ -447,7 +457,7 @@ func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
 		}
 		page = value
 	}
-	if raw := r.URL.Query().Get("perPage"); raw != "" {
+	if raw := values.Get("perPage"); raw != "" {
 		value, parseErr := strconv.Atoi(raw)
 		if parseErr != nil || value < 1 || value > 200 {
 			writeAPIError(w, r, APIError{Status: 400, Code: "invalid_request", Message: "Invalid request"})
@@ -456,7 +466,7 @@ func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
 		perPage = value
 	}
 	fields := catalogScalarFields()
-	filterText := strings.TrimSpace(r.URL.Query().Get("filter"))
+	filterText := strings.TrimSpace(values.Get("filter"))
 	var predicate query.ScalarPredicate
 	if filterText != "" {
 		predicate, err = query.CompileScalarPredicate(filterText, fields)
@@ -472,7 +482,7 @@ func (e schemaEndpoints) catalog(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, collection)
 	}
-	sorts, parseErr := query.ParseSort(r.URL.Query().Get("sort"))
+	sorts, parseErr := query.ParseSort(values.Get("sort"))
 	if parseErr != nil {
 		writeAPIError(w, r, APIError{Status: 400, Code: "invalid_request", Message: "Invalid request"})
 		return

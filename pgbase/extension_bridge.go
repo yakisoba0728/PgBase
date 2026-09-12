@@ -2,7 +2,6 @@ package pgbase
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -24,19 +23,20 @@ import (
 )
 
 type extensionBridge struct {
-	records       *recordops.Service
-	files         *filestore.Service
-	mailer        mailer.Sender
-	logger        *slog.Logger
-	hooks         *HookRegistry
-	templates     *TemplateRegistry
-	database      *TrustedDatabase
-	objects       *ExtensionObjects
-	compatibility *extensionCompatibility
-	appControl    *extensionAppControl
-	authMail      authMailService
-	authAPI       authAPIService
-	requestLog    *observability.RequestLog
+	records            *recordops.Service
+	files              *filestore.Service
+	mailer             mailer.Sender
+	logger             *slog.Logger
+	hooks              *HookRegistry
+	templates          *TemplateRegistry
+	database           *TrustedDatabase
+	objects            *ExtensionObjects
+	compatibility      *extensionCompatibility
+	appControl         *extensionAppControl
+	authMail           authMailService
+	authAPI            authAPIService
+	requestLog         *observability.RequestLog
+	maximumOutputBytes int
 }
 
 type authMailService interface {
@@ -728,41 +728,6 @@ func marshalExtensionResult(value any, err error) (json.RawMessage, error) {
 	return json.Marshal(value)
 }
 
-type extensionMailRequest struct {
-	To          string                    `json:"to"`
-	Subject     string                    `json:"subject"`
-	Text        string                    `json:"text"`
-	HTML        string                    `json:"html,omitempty"`
-	Attachments []extensionMailAttachment `json:"attachments,omitempty"`
-}
-type extensionMailAttachment struct {
-	Filename    string `json:"filename"`
-	ContentType string `json:"contentType,omitempty"`
-	DataBase64  string `json:"dataBase64"`
-}
-
-func (host *extensionHost) callMail(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	if host.bridge.mailer == nil {
-		return nil, extensionError("mail_unavailable", errors.New("mail transport is unavailable"))
-	}
-	var request extensionMailRequest
-	if err := decodeExtensionInput(raw, &request); err != nil {
-		return nil, extensionError("invalid_mail_request", err)
-	}
-	attachments := make([]mailer.Attachment, len(request.Attachments))
-	for index, attachment := range request.Attachments {
-		data, err := base64.StdEncoding.DecodeString(attachment.DataBase64)
-		if err != nil {
-			return nil, extensionError("invalid_mail_request", err)
-		}
-		attachments[index] = mailer.Attachment{Filename: attachment.Filename, ContentType: attachment.ContentType, Data: data}
-	}
-	if err := host.bridge.mailer.Send(ctx, mailer.Message{To: request.To, Subject: request.Subject, Text: request.Text, HTML: request.HTML, Attachments: attachments}); err != nil {
-		return nil, mapExtensionError(err)
-	}
-	return json.RawMessage(`{"sent":true}`), nil
-}
-
 type extensionLogRequest struct {
 	Message string            `json:"message"`
 	Fields  map[string]string `json:"fields,omitempty"`
@@ -775,7 +740,7 @@ func (host *extensionHost) callLog(ctx context.Context, method string, raw json.
 	}
 	attributes := []any{"request_id", host.requestID}
 	for name, value := range request.Fields {
-		if len(name) > 64 || len(value) > 256 || strings.ContainsAny(name+value, "\r\n") {
+		if name == "request_id" || len(name) > 64 || len(value) > 256 || strings.ContainsAny(name+value, "\r\n") {
 			return nil, extensionError("invalid_log_request", errors.New("log field is invalid"))
 		}
 		attributes = append(attributes, name, value)

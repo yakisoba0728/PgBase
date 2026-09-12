@@ -25,6 +25,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -215,7 +216,13 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)
 	}
-	var publicHandler http.Handler
+	var publicHandler *publicsite.Handler
+	keepPublicHandler := false
+	defer func() {
+		if !keepPublicHandler && publicHandler != nil {
+			_ = publicHandler.Close()
+		}
+	}()
 	if normalized.PublicDir != "" {
 		publicHandler, err = publicsite.New(normalized.PublicDir, normalized.PublicSPAFallback)
 		if err != nil {
@@ -296,6 +303,7 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, err
 	}
+	schemaService.SetAuthExecutablePolicyValidator(userService)
 	if extensionMailer != nil {
 		if err := authService.ConfigurePasswordReset(extensionMailer, normalized.PublicURL.String(), time.Hour); err != nil {
 			return nil, fmt.Errorf("configure administrator password reset: %w", err)
@@ -316,6 +324,7 @@ func newWithCatalogPreflight(
 	extensions := &extensionBridge{records: recordService, files: fileService, mailer: extensionMailer, authMail: userService, authAPI: userService, logger: normalized.Logger, hooks: normalized.Hooks, templates: normalized.Templates}
 	if normalized.JavaScript != nil {
 		extensions.compatibility = newExtensionCompatibility(normalized.JavaScript.PocketBaseCompatibility)
+		extensions.maximumOutputBytes = normalized.JavaScript.MaximumOutputBytes
 	}
 	if objectStore != nil {
 		extensions.objects = &ExtensionObjects{store: objectStore, pool: pool, maximumBytes: normalized.Files.MaximumBytes, hooks: normalized.Hooks}
@@ -362,6 +371,7 @@ func newWithCatalogPreflight(
 		records:               recordService,
 		backupGate:            gate,
 		handler:               handler,
+		publicSite:            publicHandler,
 		readiness:             readiness,
 		cleaner:               adminauth.NewCleaner(pool, nil, normalized.Logger),
 		recordCleaner:         recordops.NewIdempotencyCleaner(pool, normalized.Logger),
@@ -416,14 +426,7 @@ func newWithCatalogPreflight(
 			}
 			app.httpServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: manager.GetCertificate}
 			app.serve = func(listener net.Listener) error { return app.httpServer.ServeTLS(listener, "", "") }
-			redirect := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				host := r.Host
-				if host == "" {
-					http.Error(w, "missing host", http.StatusBadRequest)
-					return
-				}
-				http.Redirect(w, r, "https://"+host+r.URL.RequestURI(), http.StatusTemporaryRedirect)
-			})
+			redirect := acmeRedirectHandler(tlsOptions.ACMEHosts)
 			challengeServer := &http.Server{Addr: tlsOptions.HTTPChallengeAddress, Handler: manager.HTTPHandler(redirect), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 << 10}
 			app.challengeServer = challengeServer
 			app.startChallenge = func() error {
@@ -440,5 +443,27 @@ func newWithCatalogPreflight(
 	keepGate = true
 	keepJavaScript = true
 	keepSQLConsole = true
+	keepPublicHandler = true
 	return app, nil
+}
+
+func acmeRedirectHandler(allowedHosts []string) http.Handler {
+	allowed := make(map[string]struct{}, len(allowedHosts))
+	for _, host := range allowedHosts {
+		allowed[host] = struct{}{}
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(r.Host), "."))
+		if hostname, _, err := net.SplitHostPort(host); err == nil {
+			host = strings.TrimSuffix(hostname, ".")
+		} else if strings.Contains(host, ":") {
+			http.Error(w, "invalid host", http.StatusBadRequest)
+			return
+		}
+		if _, ok := allowed[host]; !ok {
+			http.Error(w, "invalid host", http.StatusBadRequest)
+			return
+		}
+		http.Redirect(w, r, "https://"+host+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+	})
 }

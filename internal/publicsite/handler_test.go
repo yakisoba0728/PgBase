@@ -165,6 +165,23 @@ func TestHandlerRequiresAbsoluteExistingDirectory(t *testing.T) {
 	}
 }
 
+func TestHandlerCloseReleasesItsRoot(t *testing.T) {
+	root := t.TempDir()
+	h, err := New(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if h.root != nil {
+		t.Fatal("root descriptor remained after close")
+	}
+	if err := h.Close(); err != nil {
+		t.Fatalf("second close: %v", err)
+	}
+}
+
 func writeSiteFile(t *testing.T, root, name, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(name))

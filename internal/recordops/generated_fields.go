@@ -82,6 +82,28 @@ func (s *Service) prepareGeneratedFields(ctx context.Context, tx pgx.Tx, collect
 	return result, nil
 }
 
+// generatedValidationCollection models fields satisfied by trusted create
+// generation without generating values, taking locks, or reading the clock.
+func generatedValidationCollection(collection schema.Collection, input map[string]json.RawMessage, create bool) (schema.Collection, error) {
+	result := collection
+	result.Fields = append([]schema.Field(nil), collection.Fields...)
+	for index := range result.Fields {
+		field := &result.Fields[index]
+		if field.Type == schema.TypeAutoDate {
+			if _, supplied := input[field.Name]; supplied {
+				return schema.Collection{}, fieldError(field.Name, "field_read_only")
+			}
+			if create && field.Options.OnCreate {
+				field.Required = false
+			}
+		}
+		if create && field.Type == schema.TypeText && field.Options.AutogeneratePattern != "" {
+			field.Required = false
+		}
+	}
+	return result, nil
+}
+
 func generateTextValue(ctx context.Context, tx pgx.Tx, collection schema.Collection, field schema.Field, reader io.Reader) (string, error) {
 	options := fieldvalue.Options{
 		MinLength: field.Options.MinLength, MaxLength: field.Options.MaxLength,
@@ -174,6 +196,34 @@ func cloneRawInput(input map[string]json.RawMessage) map[string]json.RawMessage 
 		result[name] = append(json.RawMessage(nil), raw...)
 	}
 	return result
+}
+
+// generatedReplayInput reconstructs the request body that authorized the
+// committed create. Generated values come from the idempotency receipt rather
+// than being generated again, so a replay observes the same :isset/body values
+// without taking uniqueness locks or consulting a later clock.
+func generatedReplayInput(collection schema.Collection, input map[string]json.RawMessage, stored map[string]any) (map[string]json.RawMessage, error) {
+	result := cloneRawInput(input)
+	for _, field := range collection.Fields {
+		generated := field.Type == schema.TypeAutoDate && field.Options.OnCreate ||
+			field.Type == schema.TypeText && field.Options.AutogeneratePattern != ""
+		if !generated {
+			continue
+		}
+		if _, supplied := input[field.Name]; supplied {
+			continue
+		}
+		value, ok := stored[field.Name]
+		if !ok {
+			return nil, fmt.Errorf("reconstruct generated replay field %q", field.Name)
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return nil, fmt.Errorf("reconstruct generated replay field %q: %w", field.Name, err)
+		}
+		result[field.Name] = encoded
+	}
+	return result, nil
 }
 
 func fieldError(field, code string) error {

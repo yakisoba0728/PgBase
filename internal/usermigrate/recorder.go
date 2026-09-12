@@ -120,9 +120,6 @@ func (r *AutoRecorder) MaterializeSchemaMigration(ctx context.Context, operation
 		}
 		return err
 	}
-	if status == "written" {
-		return nil
-	}
 	if status == "conflict" {
 		return errors.New("automatic user migration source has a file conflict")
 	}
@@ -154,7 +151,14 @@ func (r *AutoRecorder) materialize(filename string, source []byte) error {
 		return fmt.Errorf("create automatic user migration directory: %w", err)
 	}
 	path := filepath.Join(r.directory, filename)
-	if existing, err := os.ReadFile(path); err == nil {
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%w: automatic user migration path is not a regular file", os.ErrExist)
+		}
+		existing, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return fmt.Errorf("inspect automatic user migration file: %w", readErr)
+		}
 		if bytes.Equal(existing, source) {
 			return nil
 		}
@@ -239,7 +243,7 @@ func (r *AutoRecorder) Recover(ctx context.Context) error {
 	}
 	var failures []error
 	for _, status := range statuses {
-		if status.Status != "pending" {
+		if status.Status != "pending" && status.Status != "written" {
 			continue
 		}
 		if err := r.MaterializeSchemaMigration(ctx, status.OperationID); err != nil {

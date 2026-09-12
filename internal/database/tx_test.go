@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestBoundedCleanupContextAllowsCleanupAfterCancellationAndRetainsEarlierDeadline(t *testing.T) {
+func TestBoundedCleanupContextAllowsCleanupAfterCancellationAndUsesFreshDeadline(t *testing.T) {
 	canceledParent, cancelParent := context.WithCancel(context.Background())
 	cancelParent()
 	cleanupCtx, cancelCleanup := BoundedCleanupContext(canceledParent)
@@ -27,7 +27,7 @@ func TestBoundedCleanupContextAllowsCleanupAfterCancellationAndRetainsEarlierDea
 	earlierCleanup, cancelEarlierCleanup := BoundedCleanupContext(deadlineParent)
 	defer cancelEarlierCleanup()
 	gotDeadline, ok := earlierCleanup.Deadline()
-	if !ok || gotDeadline.After(parentDeadline) {
-		t.Fatalf("cleanup deadline = %v, want no later than %v", gotDeadline, parentDeadline)
+	if !ok || !gotDeadline.After(parentDeadline) || time.Until(gotDeadline) < cleanupTimeout/2 {
+		t.Fatalf("cleanup deadline = %v, want a fresh deadline after expired parent %v", gotDeadline, parentDeadline)
 	}
 }

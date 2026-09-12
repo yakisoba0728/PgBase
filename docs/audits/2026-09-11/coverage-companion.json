@@ -1,0 +1,467 @@
+{
+  "schemaVersion": 1,
+  "coverage": "coverage.json",
+  "observationPolicy": {
+    "text": "Retain notes/readRanges exactly; report duplicates and add only selectively verified baseline observations.",
+    "fullReadTerminologyPreserved": true
+  },
+  "noteAudit": {
+    "entryCount": 1385,
+    "nonEmptyCount": 1385,
+    "uniqueNoteCount": 1333,
+    "duplicateEntryCount": 52,
+    "duplicateNoteGroupCount": 2,
+    "duplicateGroups": [
+      {
+        "note": "Direct full read; assertions used as audit evidence.",
+        "paths": [
+          "internal/api/realtime_sessions_test.go",
+          "internal/api/realtime_test.go",
+          "internal/filestore/hidden_policy_test.go",
+          "internal/filestore/local_test.go",
+          "internal/filestore/policy_test.go",
+          "internal/filestore/read_lifecycle_test.go",
+          "internal/filestore/record_identity_integration_test.go",
+          "internal/filestore/restore_integration_test.go",
+          "internal/filestore/s3_integration_test.go",
+          "internal/filestore/service_integration_test.go",
+          "internal/filestore/storage_migration_integration_test.go",
+          "internal/filestore/storage_migration_test.go",
+          "internal/filestore/storage_settings_integration_test.go",
+          "internal/filestore/variants_integration_test.go",
+          "internal/filestore/variants_test.go",
+          "internal/realtime/retry_integration_test.go",
+          "internal/realtime/service_integration_test.go",
+          "internal/realtime/snapshot_test.go",
+          "pgbase/file_integration_test.go",
+          "pgbase/realtime_integration_test.go",
+          "pgbase/sdk_realtime_conformance_integration_test.go",
+          "pgbase/storage_settings_http_integration_test.go",
+          "tests/restore/files_test.go"
+        ]
+      },
+      {
+        "note": "Direct full read; traced for file/realtime entry points, validation, storage and response/lifecycle paths.",
+        "paths": [
+          "internal/api/backup_storage_settings.go",
+          "internal/api/batch_file_modifiers.go",
+          "internal/api/file_handlers.go",
+          "internal/api/realtime.go",
+          "internal/api/realtime_broker.go",
+          "internal/api/realtime_sessions.go",
+          "internal/api/realtime_status.go",
+          "internal/api/storage_migrations.go",
+          "internal/api/storage_settings.go",
+          "internal/filestore/auth_records.go",
+          "internal/filestore/catalog.go",
+          "internal/filestore/image.go",
+          "internal/filestore/local.go",
+          "internal/filestore/public.go",
+          "internal/filestore/read_lifecycle.go",
+          "internal/filestore/record_identity.go",
+          "internal/filestore/restore.go",
+          "internal/filestore/s3.go",
+          "internal/filestore/service.go",
+          "internal/filestore/staging.go",
+          "internal/filestore/storage_gate.go",
+          "internal/filestore/storage_migration.go",
+          "internal/filestore/storage_settings.go",
+          "internal/filestore/store.go",
+          "internal/filestore/token_resolution.go",
+          "internal/filestore/variants.go",
+          "internal/realtime/outbox.go",
+          "internal/realtime/service.go",
+          "internal/realtime/status.go",
+          "pgbase/file_options.go",
+          "pgbase/file_services.go"
+        ]
+      }
+    ]
+  },
+  "provenanceContract": {
+    "sourceKindField": "kind",
+    "snapshotField": "blobSha",
+    "generationField": "provenance",
+    "nullBatchMeaning": "historical nullable batch; not upgraded to a read claim"
+  },
+  "duplicateObservations": [
+    {
+      "path": "internal/api/realtime_sessions_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestRealtimeApplicationTopicDeliversOverHTTPExactly, TestRealtimeApplicationNamespaceCannotBypassCollectionAuthorization provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/api/realtime_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestRealtimeLifecycleVetoesBeforeRead, TestRealtimeLifecycleObservesMessageAndDisconnect provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/filestore/hidden_policy_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestHiddenFieldPolicyGuardsEveryFileOperation provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/filestore/local_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestLocalStoreRejectsTraversalAndPublishesAtomically, TestCountingReaderStopsAtMaximumWithoutBuffering provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/filestore/policy_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestPolicyCallbackMustExplicitlyOptIntoPublicFiles provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/filestore/read_lifecycle_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestLifecycleReadCloserReportsOneFinalStreamOutcome provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/filestore/record_identity_integration_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestResolveRecordIDUsesExactTextIdentityForFileRoutes provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/filestore/restore_integration_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestResetRestoredStorageDetachesSourceNamespaceAndWork provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/filestore/s3_integration_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestS3StoreAgainstLocalMinIO provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/filestore/service_integration_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestUploadPublishAuthorizationDeleteAndCleanup, TestAuthRecordFileUsesSharedStorageWithExplicitOwnership provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/filestore/storage_migration_integration_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestObjectMigrationLocalToMinIOCutoverAndDelayedCleanup, TestObjectMigrationCancelKeepsCurrentDestination provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/filestore/storage_migration_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestCopyVerifiedPreservesConflictingDestinationObject, TestCopyVerifiedReusesIdenticalDestinationObject provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/filestore/storage_settings_integration_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestStorageControllerMinIOSaveRotateRestartAndRollback, TestStorageLeaseDoesNotExhaustRequestPoolAndLostLeaseCannotPublish provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/filestore/variants_integration_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestVariantInsertFailureQueuesUploadedObjectOutsideAbortedTransaction, TestVariantCleanupWaitsForPublisherCommitBeforeReferenceCheck provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/filestore/variants_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestVariantGrammarIsBounded, TestRenderVariantSupportsWebP provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/realtime/retry_integration_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestDeliveryFailureBackoffDeadLetterAndOperatorRetry provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/realtime/service_integration_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestHeadOnlyReadValidatesSubscriptionOptions, TestReadForResolvesAndProjectsExactTextRecordIdentity provides this path's concrete verification assertion."
+    },
+    {
+      "path": "internal/realtime/snapshot_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestValidateEventFieldsRejectsUnknownAndHiddenFieldsForPublicPrincipals, TestPublicSnapshotMapsPhysicalNamesAndDropsHiddenFields provides this path's concrete verification assertion."
+    },
+    {
+      "path": "pgbase/file_integration_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestPrivateRecordFileHTTPContract, TestPublicFileFieldHTTPRevokesOnProtectedToggle provides this path's concrete verification assertion."
+    },
+    {
+      "path": "pgbase/realtime_integration_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestPocketBaseRealtimeAvailableToGuestAdministratorAndService, TestPocketBaseRealtimeConnectReplaceFilterFieldsDeleteAndRevocation provides this path's concrete verification assertion."
+    },
+    {
+      "path": "pgbase/sdk_realtime_conformance_integration_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestSDKRealtimeHTTPConformance provides this path's concrete verification assertion."
+    },
+    {
+      "path": "pgbase/storage_settings_http_integration_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: TestAdministratorS3SettingsHTTPRedactionTestAndRotation provides this path's concrete verification assertion."
+    },
+    {
+      "path": "tests/restore/files_test.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: seedRestoreFile, verifyRestoreFile is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/api/backup_storage_settings.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: backupStorageAdministrationRoutes, get is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/api/batch_file_modifiers.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: CommitBatch, extractBatchAttachments is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/api/file_handlers.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: fileRoutes, publicDownload is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/api/realtime.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: beginRealtime, realtimeHandler is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/api/realtime_broker.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: setAuthorizer, NewApplicationRealtimeBroker is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/api/realtime_sessions.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: newRealtimeHub, authorizeApplicationMessage is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/api/realtime_status.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: realtimeOperationRoutes is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/api/storage_migrations.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: storageMigrationRoutes, latest is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/api/storage_settings.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: storageAdministrationRoutes, get is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/auth_records.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: authFieldPolicy, boolPointer is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/catalog.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: CollectionID, IsFileField is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/image.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: buildThumbnail, thumbnailImageType is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/local.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: NewLocalStore, path is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/public.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: OpenPublic is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/read_lifecycle.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: newLifecycleReadCloser, complete is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/record_identity.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: ResolveRecordID is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/restore.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: ResetRestoredStorage is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/s3.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: NewS3Store, validate is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/service.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: policy, authorizeField is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/staging.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: ID, Filename is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/storage_gate.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: beginStorageOperation, guardStoragePublication is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/storage_migration.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: NewObjectMigrationService, Preview is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/storage_settings.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: BeginStorageOperation, NewStorageController is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/store.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: ObjectStore, ObjectPage defines this file's storage/realtime contract guard."
+    },
+    {
+      "path": "internal/filestore/token_resolution.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: ResolveDownloadToken is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/filestore/variants.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: validVariant, containsVariant is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/realtime/outbox.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: Run, Deliver is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/realtime/service.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: NewService, Read is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "internal/realtime/status.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: Status, Retry is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "pgbase/file_options.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: normalized is the file's concrete storage/realtime control seam."
+    },
+    {
+      "path": "pgbase/file_services.go",
+      "baseline": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+      "sourceRead": true,
+      "observationDate": "2026-09-11",
+      "observation": "Baseline source read on 2026-09-11: ValidateRecords, recordOperationCollection is the file's concrete storage/realtime control seam."
+    }
+  ]
+}

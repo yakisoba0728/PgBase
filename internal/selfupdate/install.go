@@ -11,10 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/yakisoba0728/PgBase/internal/durablefile"
 )
 
 const probeLimit = 64 << 10
@@ -63,6 +66,13 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 		return Status{}, err
 	}
 	defer func() { _ = closeExecutableLock(executableLock) }()
+	manifest, err := VerifyManifest(options.Fetched.ManifestRaw, options.Fetched.SignatureRaw, options.TrustKey)
+	if err != nil {
+		return Status{}, err
+	}
+	if !candidateInManifest(manifest, options.Fetched.Candidate) {
+		return Status{}, ErrUntrustedManifest
+	}
 	if existing, err := loadJournal(state); err == nil {
 		if existing.Target != filepath.Base(target) {
 			return Status{}, ErrRecoveryRequired
@@ -211,6 +221,20 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 		return Status{}, err
 	}
 	return statusFromJournal(entry), nil
+}
+
+func candidateInManifest(manifest Manifest, candidate Candidate) bool {
+	for _, release := range manifest.Releases {
+		if !reflect.DeepEqual(release, candidate.Release) {
+			continue
+		}
+		for _, artifact := range release.Artifacts {
+			if reflect.DeepEqual(artifact, candidate.Artifact) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Rollback explicitly restores the verified original backup. It never makes a
@@ -546,17 +570,10 @@ func copyRegular(source, target string, mode os.FileMode) error {
 		return err
 	}
 	defer func() { _ = from.Close() }()
-	to, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-	if err != nil {
+	return durablefile.WriteExclusive(target, mode, func(destination *os.File) error {
+		_, err := io.Copy(destination, from)
 		return err
-	}
-	if _, err = io.Copy(to, from); err == nil {
-		err = to.Sync()
-	}
-	if closeErr := to.Close(); err == nil {
-		err = closeErr
-	}
-	return err
+	}, func(_ string, err error) error { return err })
 }
 
 func syncFile(path string) error {
@@ -575,7 +592,8 @@ func runBeforePhase(hook func(string) error, phase string) error {
 }
 
 func sameBuild(left, right Build) bool {
-	return left.Version == right.Version && left.Commit == right.Commit && left.GOOS == right.GOOS && left.GOARCH == right.GOARCH
+	return left.Version == right.Version && left.Commit == right.Commit && left.GOOS == right.GOOS && left.GOARCH == right.GOARCH &&
+		left.SchemaMin == right.SchemaMin && left.SchemaMax == right.SchemaMax
 }
 
 // ProbeBinary executes only the requested path's network-free version command.

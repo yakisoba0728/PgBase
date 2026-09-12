@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -176,5 +177,34 @@ func TestStorageLeaseDoesNotExhaustRequestPoolAndLostLeaseCannotPublish(t *testi
 	release()
 	if active := len(controller.operations); active != 0 {
 		t.Fatalf("lost-session release retained coordination slots=%d", active)
+	}
+}
+
+func TestStorageLocationChangeRejectsExtensionOnlyInventory(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	controller, err := NewStorageController(ctx, pool, bytes.Repeat([]byte{9}, 32), StorageConfig{Driver: "local", LocalDirectory: t.TempDir(), AllowInsecureLoopback: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	namespace, object := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	key := "extensions/" + namespace + "/" + object
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.extension_objects(namespace_hash,key_hash,object_key,size_bytes) values($1,$2,$3,1)`, namespace, object, key); err != nil {
+		t.Fatal(err)
+	}
+	_, err = controller.Update(ctx, StorageUpdate{Driver: "s3", Bucket: "unused", Region: "us-east-1", Endpoint: "http://127.0.0.1:1", AccessKey: "test", SecretKey: "test", UsePathStyle: true, Revision: 1})
+	if !errors.Is(err, ErrStorageConflict) {
+		t.Fatalf("extension-only location change=%v, want ErrStorageConflict", err)
+	}
+	settings, err := controller.Settings(ctx)
+	if err != nil || settings.Driver != "local" || settings.Revision != 1 {
+		t.Fatalf("settings after rejected change=%#v err=%v", settings, err)
 	}
 }

@@ -35,6 +35,11 @@ type JavaScriptOptions struct {
 	MaximumHostCalls   int
 	MaximumInputBytes  int
 	MaximumOutputBytes int
+	// MaximumAppStoreBytes bounds the logical bytes retained by $app.store.
+	// It counts UTF-8 key bytes and copied JSON values, not Go heap overhead.
+	MaximumAppStoreBytes int
+	// MaximumAppStoreEntries bounds the number of keys retained by $app.store.
+	MaximumAppStoreEntries int
 	// OnInit installs trusted application bindings in every fresh VM. It runs
 	// during validation and each invocation and must not retain the VM.
 	OnInit func(*goja.Runtime) error
@@ -158,6 +163,18 @@ func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
 	options.MaximumHostCalls = limits.MaximumHostCalls
 	options.MaximumInputBytes = limits.MaximumInputBytes
 	options.MaximumOutputBytes = limits.MaximumOutputBytes
+	if options.MaximumAppStoreBytes == 0 {
+		options.MaximumAppStoreBytes = defaultExtensionAppStoreBytes
+	}
+	if options.MaximumAppStoreBytes < 1 || options.MaximumAppStoreBytes > 16<<20 {
+		return JavaScriptOptions{}, errors.New("JavaScript.MaximumAppStoreBytes must be between 1 and 16777216")
+	}
+	if options.MaximumAppStoreEntries == 0 {
+		options.MaximumAppStoreEntries = defaultExtensionAppStoreEntries
+	}
+	if options.MaximumAppStoreEntries < 1 || options.MaximumAppStoreEntries > 65536 {
+		return JavaScriptOptions{}, errors.New("JavaScript.MaximumAppStoreEntries must be between 1 and 65536")
+	}
 	return options, nil
 }
 

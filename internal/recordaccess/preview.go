@@ -2,6 +2,7 @@ package recordaccess
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/google/uuid"
@@ -13,10 +14,11 @@ import (
 // RulePreview evaluates an unsaved rule against existing rows without modifying
 // either data or policy. Omitting UserID evaluates the anonymous principal.
 type RulePreview struct {
-	Rule      accessrule.Rule `json:"rule"`
-	Action    string          `json:"action"`
-	UserID    uuid.UUID       `json:"userId"`
-	RecordIDs []uuid.UUID     `json:"recordIds"`
+	Rule      accessrule.Rule            `json:"rule"`
+	Action    string                     `json:"action"`
+	UserID    uuid.UUID                  `json:"userId"`
+	RecordIDs []uuid.UUID                `json:"recordIds"`
+	Request   *accessrule.RequestContext `json:"request,omitempty"`
 }
 
 type RuleDecision struct {
@@ -25,7 +27,7 @@ type RuleDecision struct {
 }
 
 func (s *RuleService) Preview(ctx context.Context, name string, input RulePreview) ([]RuleDecision, error) {
-	if len(input.RecordIDs) == 0 || len(input.RecordIDs) > 50 {
+	if len(input.RecordIDs) == 0 || len(input.RecordIDs) > 50 || !validRulePreviewRequest(input.Request) {
 		return nil, accessrule.ErrInvalid
 	}
 	switch input.Action {
@@ -55,7 +57,9 @@ func (s *RuleService) Preview(ctx context.Context, name string, input RulePrevie
 		if !ok {
 			return ErrNotFound
 		}
-		predicate, args, err := accessrule.Compile(input.Rule, collection, collection.TableName, subject, 1, false)
+		predicate, args, err := compileRecordRule(catalog, collection, input.Rule, subject, ruleCompileOptions{
+			request: input.Request, argOffset: 1, requestFallback: input.Action == "update",
+		})
 		if err != nil {
 			return err
 		}
@@ -88,4 +92,15 @@ func (s *RuleService) Preview(ctx context.Context, name string, input RulePrevie
 		return nil
 	})
 	return results, err
+}
+
+func validRulePreviewRequest(request *accessrule.RequestContext) bool {
+	if request == nil {
+		return true
+	}
+	if len(request.Present) > 64 || len(request.Changed) > 64 || len(request.Body) > 64 || len(request.Query) > 64 || len(request.Headers) > 64 || len(request.Auth) > 64 || len(request.Context) > 64 {
+		return false
+	}
+	raw, err := json.Marshal(request)
+	return err == nil && len(raw) <= 64<<10
 }

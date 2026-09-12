@@ -24,6 +24,7 @@ import (
 
 const maximumBatchRequestBytes = maximumRecordRequestBytes
 const maximumMultipartBatchRequestBytes = runtimesettings.MaximumBatchBodyBytes
+const batchStagedCleanupTimeout = time.Second
 
 type batchRecordService interface {
 	Batch(context.Context, recordops.BatchRequest) ([]recordops.MutationResult, error)
@@ -115,9 +116,7 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	input, staged, err := e.decodeBatch(r, principal)
 	maximumRequests := settings.MaxRequests
 	if err != nil || (len(input.Operations) == 0) == (len(input.Requests) == 0) || len(input.Operations)+len(input.Requests) > maximumRequests {
-		if len(staged) > 0 && e.files != nil {
-			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
-		}
+		e.cleanupStaged(r, staged)
 		writeInvalidRecordRequest(w, r)
 		return
 	}
@@ -129,9 +128,7 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		for _, request := range input.Requests {
 			item, status, valid := batchHTTPRequestOperation(request)
 			if !valid {
-				if len(staged) > 0 && e.files != nil {
-					_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
-				}
+				e.cleanupStaged(r, staged)
 				writeInvalidRecordRequest(w, r)
 				return
 			}
@@ -141,18 +138,14 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	}
 	attachments, err := extractBatchAttachments(r.Context(), e.files, items, staged)
 	if err != nil {
-		if len(staged) > 0 && e.files != nil {
-			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
-		}
+		e.cleanupStaged(r, staged)
 		writeInvalidRecordRequest(w, r)
 		return
 	}
 	for _, item := range items {
 		operation, ok := batchOperation(item)
 		if !ok {
-			if len(staged) > 0 && e.files != nil {
-				_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
-			}
+			e.cleanupStaged(r, staged)
 			writeInvalidRecordRequest(w, r)
 			return
 		}
@@ -173,25 +166,21 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	finish, err := beginLifecycle(r.Context(), e.hooks, "record.batch", event)
 	if err != nil {
 		finish(err)
-		if len(staged) > 0 && e.files != nil {
-			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
-		}
+		e.cleanupStaged(r, staged)
 		writeRecordError(w, r, err)
 		return
 	}
 	if len(attachments) != 0 && !attachmentBindings.compatible(event.Operations) {
 		err = errors.New("batch hook changed a multipart attachment binding")
 		finish(err)
-		_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
+		e.cleanupStaged(r, staged)
 		writeInvalidRecordRequest(w, r)
 		return
 	}
 	if !identities.restore(event.Operations) {
 		err = errors.New("batch hook changed an idempotency identity")
 		finish(err)
-		if len(staged) > 0 && e.files != nil {
-			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
-		}
+		e.cleanupStaged(r, staged)
 		writeInvalidRecordRequest(w, r)
 		return
 	}
@@ -204,15 +193,13 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	if err != nil {
-		if len(staged) > 0 && e.files != nil {
-			_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
-		}
+		e.cleanupStaged(r, staged)
 		writeRecordError(w, r, err)
 		return
 	}
 	if len(staged) > 0 {
 		e.files.CompleteStaged(staged.files(), nil)
-		_ = e.files.Cleanup(context.WithoutCancel(r.Context()), staged.files())
+		e.cleanupStaged(r, staged)
 	}
 	response := make([]batchResult, 0, len(results))
 	for _, result := range results {
@@ -235,6 +222,18 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, struct {
 		Results []batchResult `json:"results"`
 	}{response})
+}
+
+// cleanupStaged preserves request-independent staged-file hygiene while
+// bounding a backend stall. Cleanup remains best effort so API results keep
+// their established status and error contracts.
+func (e recordEndpoints) cleanupStaged(r *http.Request, staged namedStagedFiles) {
+	if len(staged) == 0 || e.files == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), batchStagedCleanupTimeout)
+	defer cancel()
+	_ = e.files.Cleanup(ctx, staged.files())
 }
 
 // batchAttachmentBindings freezes operation routing metadata when a multipart
@@ -394,7 +393,7 @@ func (e recordEndpoints) decodeBatch(r *http.Request, principal identity.Subject
 		if name == "requests" {
 			data, readErr := io.ReadAll(io.LimitReader(part, maximumBatchRequestBytes+1))
 			closeErr := part.Close()
-			if readErr != nil || closeErr != nil || len(data) > maximumBatchRequestBytes || part.FileName() != "" || json.Unmarshal(data, &input) != nil {
+			if readErr != nil || closeErr != nil || len(data) > maximumBatchRequestBytes || part.FileName() != "" || decodeStrictJSONBytes(data, &input) != nil {
 				return batchInput{}, staged, errors.New("invalid requests")
 			}
 			continue

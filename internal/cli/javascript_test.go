@@ -47,6 +47,18 @@ func TestJavaScriptCheckRejectsInvalidBundleAsConfiguration(t *testing.T) {
 	}
 }
 
+func TestJavaScriptTypesReportsOutputWriteFailureWithoutPanicking(t *testing.T) {
+	directory := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"js", "types", directory}, nil, testIO(nil, &stdout, &stderr))
+	if code != 1 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "pgbase: command failed") {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+}
+
 func TestJavaScriptMigrationPreflightsBundleBeforeDatabase(t *testing.T) {
 	directory := t.TempDir()
 	if err := os.WriteFile(filepath.Join(directory, "pgbase.scripts.json"), []byte(`{"format":"pgbase.scripts/v1","migrations":[{"id":"202609100040_bad","module":"missing.js","up":"up","irreversibleReason":"fixture"}]}`), 0o600); err != nil {

@@ -101,6 +101,42 @@ func TestLoadEnvBackupS3IsIndependentFromFileStorage(t *testing.T) {
 	}
 }
 
+func TestLoadEnvRejectsBackupRetentionOutsidePersistedRange(t *testing.T) {
+	for _, testCase := range []struct {
+		value   string
+		wantErr bool
+	}{
+		{value: "2147483647"},
+		{value: "2147483648", wantErr: true},
+		{value: "-1", wantErr: true},
+		{value: "not-a-number", wantErr: true},
+	} {
+		t.Run(testCase.value, func(t *testing.T) {
+			options, err := LoadEnv(func(key string) (string, bool) {
+				if key == "PGBASE_BACKUPS_RETENTION" {
+					return testCase.value, true
+				}
+				if key == "PGBASE_DATABASE_URL" {
+					return "postgres://postgres:postgres@localhost/pgbase", true
+				}
+				if key == "PGBASE_TOKEN_SECRET" {
+					return base64.StdEncoding.EncodeToString(make([]byte, 32)), true
+				}
+				return "", false
+			})
+			if testCase.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "PGBASE_BACKUPS_RETENTION") {
+					t.Fatalf("LoadEnv error = %v", err)
+				}
+				return
+			}
+			if err != nil || options.Backups.Retention != 2147483647 {
+				t.Fatalf("LoadEnv retention=%d err=%v", options.Backups.Retention, err)
+			}
+		})
+	}
+}
+
 func TestLoadEnvRejectsSetupTokenThatCannotFitTheHTTPBudget(t *testing.T) {
 	env := map[string]string{
 		"PGBASE_DATABASE_URL": "postgres://postgres:postgres@localhost/pgbase",

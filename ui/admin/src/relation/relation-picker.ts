@@ -245,11 +245,13 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
       if (displayField === undefined || state.mutating) return;
       patch({ mutating: true, status: null });
       void records.get(target.name, id).then((record) => {
+        if (!alive.current) return undefined;
         const draft = { ...initialDraft(target.fields, record.data, false), [displayField.name]: { kind: "value" as const, value } };
         const encoded = encodeDraft(target.fields, draft, new Set([displayField.name]), false);
         if (Object.keys(encoded.errors).length > 0) throw new Error(encoded.errors[displayField.name]);
         return records.update(record, encoded.input);
       }).then((record) => {
+        if (record === undefined) return;
         if (!alive.current) return;
         const candidate = relationTargetOption(record.data, displayField);
         if (candidate === undefined) return;

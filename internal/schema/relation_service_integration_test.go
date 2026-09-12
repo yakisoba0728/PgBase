@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 func TestRelationServiceCreatesExistingTargetSingleAndMultipleRoundTrip(t *testing.T) {
@@ -317,6 +318,53 @@ func TestRelationServiceAddsUpdatesAndDropsOptionalRelationPreservingFieldIDs(t 
 	}
 	if len(catalog.Incoming) != 0 {
 		t.Fatalf("drop left incoming catalog entries: %#v", catalog.Incoming)
+	}
+}
+
+func TestRelationServiceRenamesRequiredRelationByFieldIDOnPopulatedCollection(t *testing.T) {
+	for _, cardinality := range []RelationCardinality{RelationSingle, RelationMultiple} {
+		t.Run(string(cardinality), func(t *testing.T) {
+			ctx := context.Background()
+			pool, service, administratorID := newSchemaServiceTest(t)
+			target := applyFreshPlan(t, service, CreateCollectionInput{Name: "rename_relation_targets"}, administratorID)
+			minimum, maximum := 1, 1
+			if cardinality == RelationMultiple {
+				maximum = 2
+			}
+			relation := &RelationInput{TargetCollection: target.Name, Cardinality: cardinality, MinSelect: &minimum, MaxSelect: &maximum, OnDelete: RelationRestrict}
+			source := applyFreshPlan(t, service, CreateCollectionInput{Name: "rename_relation_sources", Fields: []FieldInput{{Name: "owner", Type: TypeRelation, Required: true, Relation: relation}}}, administratorID)
+			targetRecord, sourceRecord := uuid.New(), uuid.New()
+			if _, err := pool.Exec(ctx, `insert into app.rename_relation_targets(id,created_at,updated_at) values($1,current_timestamp,current_timestamp)`, targetRecord); err != nil {
+				t.Fatal(err)
+			}
+			if cardinality == RelationSingle {
+				if _, err := pool.Exec(ctx, `insert into app.rename_relation_sources(id,created_at,updated_at,owner) values($1,current_timestamp,current_timestamp,$2)`, sourceRecord, targetRecord); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+				if _, err := tx.Exec(ctx, `insert into app.rename_relation_sources(id,created_at,updated_at) values($1,current_timestamp,current_timestamp)`, sourceRecord); err != nil {
+					return err
+				}
+				edge := pgx.Identifier{"pgbase_relation", source.Fields[0].Relation.Storage.Name}.Sanitize()
+				_, err := tx.Exec(ctx, "insert into "+edge+"(source_id,target_id,position) values($1,$2,0)", sourceRecord, targetRecord)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			fieldID := source.Fields[0].ID
+			input := UpdateCollectionInput{Name: source.Name, Fields: []FieldInput{{ID: &fieldID, Name: "author", Type: TypeRelation, Required: true, Relation: relation}}}
+			plan, err := service.Preview(ctx, NewUpdateChange(input))
+			if err != nil {
+				t.Fatalf("required relation rename preview: %v", err)
+			}
+			updated, err := applyUpdate(ctx, service, input, plan, administratorID)
+			if err != nil {
+				t.Fatalf("required relation rename apply: %v", err)
+			}
+			if len(updated.Fields) != 1 || updated.Fields[0].ID != fieldID || updated.Fields[0].Name != "author" || updated.Fields[0].ColumnName != "owner" {
+				t.Fatalf("renamed relation=%#v", updated.Fields)
+			}
+		})
 	}
 }
 

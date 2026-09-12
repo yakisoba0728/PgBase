@@ -1,0 +1,689 @@
+{
+  "schemaVersion": 1,
+  "productCommit": "0228716",
+  "scope": {
+    "approvedItems": 45,
+    "outOfScope": {
+      "rejected": 7,
+      "deferred": 7
+    }
+  },
+  "finalVerification": "passed_with_documented_optional_skips",
+  "verification": "verification.json",
+  "notes": [
+    "Final validation passed; four optional browser scenarios are documented as skipped because their optional fixtures were deliberately unconfigured.",
+    "No code-line reduction is claimed; handwritten runtime increased by 3,707 physical lines (UI +3,515; Go +192)."
+  ],
+  "items": [
+    {
+      "id": "ACCESSRULE-001",
+      "lane": "auth",
+      "feature": "PocketBase 인증 주체 fail-closed",
+      "status": "implemented",
+      "change": "Valid anonymous, user, administrator, and service subjects retain their prior rule result. Malformed subjects now evaluate as unauthenticated.",
+      "files": [
+        "internal/accessrule/rule.go",
+        "internal/accessrule/pocketbase_resolver.go",
+        "internal/accessrule/pocketbase_resolver_test.go"
+      ],
+      "staticOrRed": "failed: zero, unknown, and ID-less subjects compiled PocketBase authenticated as true",
+      "green": "pass",
+      "remaining": "The public record-access regression passed against PostgreSQL with an unknown subject denied and a valid user allowed."
+    },
+    {
+      "id": "ADMINAUTH-001",
+      "lane": "auth",
+      "feature": "관리자 재설정 URL 정책",
+      "status": "implemented",
+      "change": "HTTPS and HTTP localhost/loopback remain accepted; reset-token query escaping remains url.QueryEscape.",
+      "files": [
+        "internal/adminauth/password_recovery.go",
+        "internal/adminauth/password_recovery_test.go"
+      ],
+      "staticOrRed": "failed: non-loopback HTTP, ftp, and javascript reset bases were accepted",
+      "green": "pass",
+      "remaining": "Existing deployments using non-web or non-loopback HTTP reset bases will fail configuration, by design."
+    },
+    {
+      "id": "IUA-01",
+      "lane": "auth",
+      "feature": "OAuth 반환 URI 보안",
+      "status": "implemented",
+      "change": "Exact allowlist matching is unchanged; HTTPS and loopback HTTP return URIs remain allowed.",
+      "files": [
+        "internal/userauth/oauth.go",
+        "internal/userauth/oauth_http_test.go"
+      ],
+      "staticOrRed": "failed: non-loopback HTTP and userinfo OAuth return URIs were accepted",
+      "green": "pass",
+      "remaining": "Configured non-loopback HTTP returns are rejected at startup configuration."
+    },
+    {
+      "id": "IUA-03",
+      "lane": "auth",
+      "feature": "emailVisibility 규칙 검증",
+      "status": "implemented",
+      "change": "Adds only the already-resolved emailVisibility system field; existing field vocabulary is unchanged.",
+      "files": [
+        "internal/userauth/auth_rules.go",
+        "internal/userauth/auth_rules_test.go",
+        "internal/userauth/collections_integration_test.go"
+      ],
+      "staticOrRed": "failed: emailVisibility rule was rejected",
+      "green": "pass",
+      "remaining": "The PostgreSQL create/update collection regression passed."
+    },
+    {
+      "id": "IUA2-01",
+      "lane": "auth",
+      "feature": "OIDC azp 결속",
+      "status": "implemented",
+      "change": "Single-audience tokens without azp remain valid; a matching multi-audience azp remains valid.",
+      "files": [
+        "internal/userauth/oauth_oidc.go",
+        "internal/userauth/oauth_http_test.go"
+      ],
+      "staticOrRed": "failed: multi-audience tokens missing azp, with a mismatched azp, and single-audience tokens with a conflicting azp were accepted",
+      "green": "pass",
+      "remaining": "Non-conforming multi-audience provider tokens are now rejected."
+    },
+    {
+      "id": "DOCS-02-003",
+      "lane": "docs",
+      "feature": "감사 관찰 보완",
+      "status": "implemented",
+      "change": "coverage companion에 중복 관찰 52개를 작게 분리하고 fixed baseline의 54 path를 실제 읽어 sourceRead/date/구체 관찰을 기록했다.",
+      "files": [
+        "docs/audits/2026-09-11/coverage.json",
+        "docs/audits/2026-09-11/coverage-companion.json",
+        "docs/apply_maintenance_docs.py"
+      ],
+      "staticOrRed": "실행 red 없음(역사 문서 보완); coverage() 재실행으로 54 entries의 날짜·sourceRead·legacy template 제거 확인",
+      "green": "coverage companion audit: 1385 entries, 1333 unique notes, 52 duplicates; shape preserved",
+      "remaining": "중복 path 관찰만 보완하며 범용 path claim은 추가하지 않음"
+    },
+    {
+      "id": "DOCS-02-004",
+      "lane": "docs",
+      "feature": "감사 provenance 보존",
+      "status": "implemented",
+      "change": "coverage 원본의 kind/blobSha/provenance를 보존하고 nullable provenance batch를 companion contract에 명시했다.",
+      "files": [
+        "docs/audits/2026-09-11/coverage.json",
+        "docs/audits/2026-09-11/coverage-companion.json"
+      ],
+      "staticOrRed": "실행 red 없음(정적 provenance 보존 확인)",
+      "green": "coverage companion audit에서 원본 evidence field와 nullable contract 확인",
+      "remaining": "읽지 않은 source를 full_read/source_provenance로 승격하지 않음"
+    },
+    {
+      "id": "DOCS-03-001",
+      "lane": "docs",
+      "feature": "기능 증거 연결",
+      "status": "implemented",
+      "change": "features 232행에 fixed-baseline read/execution evidence pointer를 연결하고 UI 차이는 contract-only로 명시했다.",
+      "files": [
+        "docs/audits/2026-09-11/features.json",
+        "docs/audits/2026-09-11/features.md"
+      ],
+      "staticOrRed": "실행 red 없음(문서 evidence 보완)",
+      "green": "feature evidence audit: 232 rows, missing evidence 0; 14 new pointers baseline 확인",
+      "remaining": "현재 rerun은 역사 증거로 표기하지 않음"
+    },
+    {
+      "id": "DOCS-04-001",
+      "lane": "docs",
+      "feature": "비교 날짜 정합",
+      "status": "implemented",
+      "change": "2026-09-11 canonical comparison artifact를 만들고 2026-09-10 artifact를 historical-superseded로 연결했다.",
+      "files": [
+        "docs/pocketbase-feature-comparison-current-2026-09-11.json",
+        "docs/pocketbase-feature-comparison-current-2026-09-11.md",
+        "docs/pocketbase-feature-comparison-current-2026-09-10.json",
+        "docs/pocketbase-feature-comparison-current-2026-09-10.md"
+      ],
+      "staticOrRed": "실행 red 없음(artifact 날짜 정합)",
+      "green": "comparison generator repeated-run byte stability 통과",
+      "remaining": "과거 snapshot의 embedded date는 역사 증거로 유지"
+    },
+    {
+      "id": "DOCS06-P1-001",
+      "lane": "docs",
+      "feature": "tools ledger 정합",
+      "status": "implemented",
+      "change": "raw tools ledger는 유지하고 effective ledger로 16 overlap override provenance를 분리했다.",
+      "files": [
+        "docs/pocketbase-source-audit-2026-09-09/tools-ledger.json",
+        "docs/pocketbase-source-audit-2026-09-09/tools.md",
+        "docs/pocketbase-source-audit-2026-09-09/tools-effective-ledger.json",
+        "docs/pocketbase-source-audit-2026-09-09/coverage.py"
+      ],
+      "staticOrRed": "실행 red 없음(ledger 정합 확인)",
+      "green": "coverage.py와 effective ledger audit: 185 read / 0 indexed, 16 overrides",
+      "remaining": "raw indexed status는 변경하지 않음"
+    },
+    {
+      "id": "DOCS07-P1-001",
+      "lane": "docs",
+      "feature": "status index",
+      "status": "implemented",
+      "change": "status applicability index와 checker를 추가해 역사 status 문서의 baseline/verification applicability를 명시했다.",
+      "files": [
+        "docs/pocketbase-status-index.json",
+        "docs/check-status-index.py",
+        "docs/pocketbase-unimplemented-completion-round3-2026-09-11.md",
+        "docs/production-kernel-handoff.md",
+        "docs/project-status.md"
+      ],
+      "staticOrRed": "실행 red 없음(문서 index 추가)",
+      "green": "python3 docs/check-status-index.py 실행 기록: pass; 3 documents declare baseline/verification SHA",
+      "remaining": "기존 checker의 SHA-only 한계는 별도 후속에서 정정 예정"
+    },
+    {
+      "id": "DOCS07-P1-002",
+      "lane": "docs",
+      "feature": "UI 재현 절차",
+      "status": "implemented",
+      "change": "UI audit의 root reproduction command와 expected three confirmed lines, upstream scope를 한 곳에 기록했다.",
+      "files": [
+        "docs/pocketbase-source-audit-2026-09-09/ui.md"
+      ],
+      "staticOrRed": "실행 red 없음(재현 절차 문서화)",
+      "green": "documented command와 repro-ui.mjs 및 expected output 대조",
+      "remaining": "pinned upstream은 필요하며 local PgBase regression을 뜻하지 않음"
+    },
+    {
+      "id": "DOC8-P1-001",
+      "lane": "docs",
+      "feature": "검토 링크 이식성",
+      "status": "implemented",
+      "change": "review evidence를 repository-portable link로 바꾸고 task-local screenshot/log는 unavailable로 명시했다.",
+      "files": [
+        "docs/workstreams/n6-n9/N7-review.md",
+        "docs/workstreams/n6-n9/N8-browser.md",
+        "docs/workstreams/n6-n9/N8-review.md",
+        "docs/workstreams/n6-n9/integration.md",
+        "docs/check-review-links.py"
+      ],
+      "staticOrRed": "실행 red 없음(portable path 정적 점검)",
+      "green": "python3 docs/check-review-links.py: 4 documents, absolute workstation/tmp paths 0",
+      "remaining": "없는 durable artifact를 만들지 않음"
+    },
+    {
+      "id": "DOC8-P1-002",
+      "lane": "docs",
+      "feature": "최종·역사 판단 분리",
+      "status": "implemented",
+      "change": "N8 최종 remaining findings와 R1–R12 역사 checkpoint narrative를 분리해 각각의 적용 시점을 명확히 했다.",
+      "files": [
+        "docs/workstreams/n6-n9/N8-review.md",
+        "docs/workstreams/n6-n9/integration.md"
+      ],
+      "staticOrRed": "실행 red 없음(역사 narrative 분리)",
+      "green": "current remaining findings 0 및 historical checkpoint scope 확인",
+      "remaining": "역사 checkpoint text는 audit traceability를 위해 유지"
+    },
+    {
+      "id": "PGB01-001",
+      "lane": "runtime",
+      "feature": "findAll 출력 예산",
+      "status": "implemented_green",
+      "change": "No item-count cap or truncation; exact JSON envelope/item accounting uses the configured MaximumOutputBytes.",
+      "files": [
+        "pgbase/extension_app_query.go",
+        "pgbase/extension_bridge.go",
+        "pgbase/app_construct.go",
+        "pgbase/extension_app_query_integration_test.go"
+      ],
+      "staticOrRed": "The prior loop appended every admitted page and only the VM rejected the fully marshaled result.",
+      "green": "pass",
+      "remaining": "none identified"
+    },
+    {
+      "id": "PGB01-003",
+      "lane": "runtime",
+      "feature": "ACME Host 검증",
+      "status": "implemented_green",
+      "change": "Configured hosts, optional request ports, path, and query are preserved; unknown hosts return 400 without Location.",
+      "files": [
+        "pgbase/app_construct.go",
+        "pgbase/acme_redirect_test.go"
+      ],
+      "staticOrRed": "The prior fallback reflected r.Host directly into Location.",
+      "green": "pass",
+      "remaining": "none identified"
+    },
+    {
+      "id": "PGB01-004",
+      "lane": "runtime",
+      "feature": "Close cleanup 수명",
+      "status": "implemented_green",
+      "change": "Caller context values reach lifecycle hooks through context.WithoutCancel; cancellation/deadline only bounds that caller's wait; shared cleanup remains bounded by ShutdownTimeout.",
+      "files": [
+        "pgbase/app.go",
+        "pgbase/app_test.go"
+      ],
+      "staticOrRed": "The prior first canceled context was passed to the one shared closeResources run.",
+      "green": "pass",
+      "remaining": "none identified"
+    },
+    {
+      "id": "PGB02-001",
+      "lane": "runtime",
+      "feature": "객체 응답 spool",
+      "status": "implemented_green",
+      "change": "The verified bounded object reader is copied to a temporary seekable file, retaining EOF integrity validation, Range/HEAD/content headers, request cancellation, and bounded memory; all paths close and remove the spool.",
+      "files": [
+        "pgbase/javascript_runtime.go",
+        "pgbase/javascript_filesystem_serve_integration_test.go"
+      ],
+      "staticOrRed": "The old handler used io.ReadAll and retained an object-sized byte slice before ServeContent.",
+      "green": "pass",
+      "remaining": "This is disk spooling, so first-byte latency still follows complete object verification."
+    },
+    {
+      "id": "PGB02-003",
+      "lane": "runtime",
+      "feature": "gzip qvalue",
+      "status": "implemented_green",
+      "change": "Explicit gzip overrides wildcard; valid qvalues are parsed deterministically and malformed/repeated parameters are rejected.",
+      "files": [
+        "pgbase/javascript_runtime.go",
+        "pgbase/javascript_runtime_test.go"
+      ],
+      "staticOrRed": "The prior parser recognized q=0 and q=0.0 only, accepting q=0.00.",
+      "green": "pass",
+      "remaining": "none identified"
+    },
+    {
+      "id": "PASS2-ROOTCI-001",
+      "lane": "runtime",
+      "feature": "ACME DNS label",
+      "status": "implemented_green",
+      "change": "Existing lowercase/trailing-dot normalization and duplicate detection remain; DNS labels and total length are now validated.",
+      "files": [
+        "pgbase/tls.go",
+        "pgbase/tls_test.go"
+      ],
+      "staticOrRed": "The prior validation allowed empty/overlong labels, underscores, and edge hyphens.",
+      "green": "pass",
+      "remaining": "ASCII DNS names only, consistent with autocert host allowlisting."
+    },
+    {
+      "id": "IS1-P2-001",
+      "lane": "schema",
+      "feature": "스키마 인증 실행 정책",
+      "status": "complete",
+      "change": "Empty/default policies remain valid in schema-only services; executable policies require authoritative validation. Apply cannot bypass Preview validation.",
+      "files": [
+        "internal/schema/service.go",
+        "internal/schema/auth_schema_document.go",
+        "internal/schema/schema_document.go",
+        "internal/schema/auth_collection_document_integration_test.go",
+        "internal/schema/scaffolds_integration_test.go",
+        "internal/userauth/auth_policy_validator.go",
+        "internal/userauth/auth_policy_validator_test.go",
+        "pgbase/app_construct.go"
+      ],
+      "staticOrRed": "baseline: go test -tags=integration ./internal/schema -run TestRedMalformedAuthPasswordPatternIsRejectedByPreview -count=1 => FAIL: malformed executable password pattern was accepted",
+      "green": "go test -tags=integration ./internal/schema -run 'Test(AuthCollectionScaffoldImportsCatalogAndRealm|SchemaDocumentAuthExecutableValidationIsPathSpecificAndCannotBeBypassedAtApply)' -count=1 => ok",
+      "remaining": "The package contract test uses a stub; userauth separately tests the concrete runtime-backed implementation and pgbase wires it."
+    },
+    {
+      "id": "IS2-P2-001",
+      "lane": "schema",
+      "feature": "토큰 TTL stale 검출",
+      "status": "complete",
+      "change": "Preview checksums intentionally change; no migration/checksum history was edited.",
+      "files": [
+        "internal/schema/schema_policy_checksum.go",
+        "internal/schema/schema_document.go",
+        "internal/schema/schema_document_ledger_integration_test.go"
+      ],
+      "staticOrRed": "baseline: go test -tags=integration ./internal/schema -run 'TestSchemaImportRejects(StaleAuthTokenTTLPreview|AuthTokenPurposeInsertedAfterPreview)' -count=1 => FAIL; stale TTL update and newly inserted purpose both applied without ErrConflict",
+      "green": "same focused integration tests in implementation worktree => ok",
+      "remaining": "Concurrent writes after the repeatable-read snapshot remain governed by PostgreSQL isolation; required pre-Apply stale mutations are covered."
+    },
+    {
+      "id": "PASS1-SELFUPDATE-01",
+      "lane": "schema",
+      "feature": "서명 후보 재결속",
+      "status": "complete",
+      "change": "Normal local/HTTPS Fetch-to-Apply paths remain green; executable-lock precedence is preserved.",
+      "files": [
+        "internal/selfupdate/install.go",
+        "internal/selfupdate/selfupdate_test.go"
+      ],
+      "staticOrRed": "go test ./internal/selfupdate -run TestApplyRejectsCandidateNotBoundToSignedManifestBeforeEffects -count=1 => FAIL: got ErrInvalidInput after mutable candidate passed trust boundary",
+      "green": "go test ./internal/selfupdate -count=1 => ok",
+      "remaining": "Candidate matching is exact against the authenticated release and artifact structs."
+    },
+    {
+      "id": "PASS1-USERMIGRATE-01",
+      "lane": "schema",
+      "feature": "마이그레이션 소스 복구",
+      "status": "complete",
+      "change": "Missing files are restored from exact stored bytes; different bytes and non-regular paths return conflict without overwrite.",
+      "files": [
+        "internal/usermigrate/recorder.go",
+        "internal/usermigrate/recorder_integration_test.go"
+      ],
+      "staticOrRed": "baseline: go test -tags=integration ./internal/usermigrate -run TestAutoRecorderRecoverRestoresMissingWrittenSource -count=1 => FAIL: written source remained missing",
+      "green": "go test -tags=integration ./internal/usermigrate -run 'TestAutoRecorderRecoverRestoresMissingWrittenSource|TestAutoRecorderConcurrentMaterializeWritesOneSource' -count=1 => ok",
+      "remaining": "None identified at the recorder/recovery seam."
+    },
+    {
+      "id": "SDK-01-001",
+      "lane": "sdk",
+      "feature": "Dart realtime 실패",
+      "status": "complete",
+      "change": "Existing successful shared subscriptions keep their protocol; terminal failures now reject as typed errors and recoverable failures have a public bounded retry configuration.",
+      "files": [
+        "sdk/dart/lib/src/realtime.dart",
+        "sdk/dart/test/sdk_test.dart"
+      ],
+      "staticOrRed": "Executed in isolated baseline copy (`sdk-baseline-dart.evppek`): terminal 401 readiness test remained pending until external timeout control; no typed rejection was produced. The full current regression file cannot load on baseline because the new reconnect configuration is intentionally absent.",
+      "green": "dart test: 34 passing tests, including terminal 401 (one request), bounded 500 retries (two requests), and pending unsubscribe settlement.",
+      "remaining": "최종 validation 통과; 선택 browser skip 4건은 verification.json에 이유와 함께 문서화됨."
+    },
+    {
+      "id": "SDK-01-002",
+      "lane": "sdk",
+      "feature": "Dart OAuth 공통화",
+      "status": "complete",
+      "change": "Public OAuth signatures and wire endpoints are unchanged; shared helper centralizes the existing validation and adapter-close policy.",
+      "files": [
+        "sdk/dart/lib/src/client.dart",
+        "sdk/dart/test/sdk_test.dart"
+      ],
+      "staticOrRed": "Not applicable: this is an approved deduplication refactor, not a behavioral defect. No artificial red failure was created.",
+      "green": "dart test: global and realm browser flows cover success; realm start remains realm-scoped and both complete through /api/v1/auth/oauth/complete. Existing state, provider-error, origin, cancellation, and close coverage passes.",
+      "remaining": "최종 validation 통과; 선택 browser skip 4건은 verification.json에 이유와 함께 문서화됨."
+    },
+    {
+      "id": "SDK-01-003",
+      "lane": "sdk",
+      "feature": "TypeScript oauth2 기본값",
+      "status": "complete",
+      "change": "AuthMethods remains non-optional as declared; legacy server responses now receive its documented disabled/empty default.",
+      "files": [
+        "sdk/typescript/src/index.ts",
+        "sdk/typescript/dist/index.js",
+        "sdk/typescript/test/sdk.test.mjs",
+        "sdk/typescript/test/public-api.test.ts"
+      ],
+      "staticOrRed": "Runtime regression was established from the supported legacy envelope; the current test asserts the formerly absent required field. A standalone baseline rerun was not performed because TypeScript source build output is shared/generated.",
+      "green": "npm test: build, declaration type check, SDK test, admin tests, and realtime conformance all pass; regression accesses oauth2.enabled on the legacy response.",
+      "remaining": "최종 validation 통과; 선택 browser skip 4건은 verification.json에 이유와 함께 문서화됨."
+    },
+    {
+      "id": "EX1-P1-001",
+      "lane": "sdk",
+      "feature": "SSE별 AbortController",
+      "status": "complete",
+      "change": "The latest stream remains globally cancellable; each loop now checks its own cancellation state.",
+      "files": [
+        "examples/user-notes/app.js",
+        "examples/user-notes/app.test.mjs",
+        "examples/user-notes/package.json"
+      ],
+      "staticOrRed": "Executed in isolated baseline copy (`sdk-baseline-example.tuK7aR`): `node app-sse-baseline-red.test.mjs` failed with `Live updates stopped: late old stream failure` after loop B began.",
+      "green": "npm test in examples/user-notes verifies late rejected A does not alter B status while a B failure renders Live updates stopped.",
+      "remaining": "최종 validation 통과; 선택 browser skip 4건은 verification.json에 이유와 함께 문서화됨."
+    },
+    {
+      "id": "EX1-P1-002",
+      "lane": "sdk",
+      "feature": "로그아웃 실패 처리",
+      "status": "complete",
+      "change": "Successful logout UI remains unchanged; failed logout keeps local session UI available for retry.",
+      "files": [
+        "examples/user-notes/app.js",
+        "examples/user-notes/app.test.mjs",
+        "examples/user-notes/package.json"
+      ],
+      "staticOrRed": "Executed in isolated baseline copy (`sdk-baseline-example.tuK7aR`): `node app.test.mjs` exited 1 with uncaught `{ code: 'offline' }` from the logout click handler.",
+      "green": "npm test verifies rejected logout displays Sign out failed and retains enabled controls for retry; node --check app.js passes.",
+      "remaining": "최종 validation 통과; 선택 browser skip 4건은 verification.json에 이유와 함께 문서화됨."
+    },
+    {
+      "id": "API-RT-001",
+      "lane": "storage",
+      "feature": "배치 파일 정리 수명",
+      "status": "implemented",
+      "change": "Original HTTP response and CompleteStaged-before-Cleanup order are retained; cleanup is still best effort.",
+      "files": [
+        "internal/api/batch_handlers.go",
+        "internal/api/batch_handlers_cleanup_test.go"
+      ],
+      "staticOrRed": "Baseline overlay cannot compile the focused regression because cleanupStaged and its deadline constant do not exist; source uses context.WithoutCancel(r.Context()) at every batch Cleanup call, which has no deadline.",
+      "green": "go test ./internal/api: pass; its focused cleanup test passed in the package unit run",
+      "remaining": "The cleanup timeout is one second; a backend can defer deletion to later GC after that budget."
+    },
+    {
+      "id": "RATELIMIT-001",
+      "lane": "storage",
+      "feature": "제외 IP 방어적 복사",
+      "status": "implemented",
+      "change": "Published settings now have the snapshot ownership callers reasonably expect.",
+      "files": [
+        "internal/apiratelimit/service.go",
+        "internal/apiratelimit/service_test.go"
+      ],
+      "staticOrRed": "Baseline-overlay regression panicked after caller mutation because the published bypass changed and attempted quota I/O through the nil test pool; pre-fix Set retained the caller-owned ExcludedIPs backing array.",
+      "green": "go test ./internal/apiratelimit: pass",
+      "remaining": "Race-detector execution remains part of the aggregate verification run. Baseline overlay panicked after caller mutation because it attempted quota I/O through the nil test pool; fixed snapshot bypassed I/O."
+    },
+    {
+      "id": "RATELIMIT-002",
+      "lane": "storage",
+      "feature": "쿼터 오류 보존",
+      "status": "implemented",
+      "change": "Admission remains fail-closed; errors.Join exposes both operational causes through errors.Is.",
+      "files": [
+        "internal/apiratelimit/service.go"
+      ],
+      "staticOrRed": "Pre-fix source returned only the original upsert error. A distinct two-error runtime regression was not introduced because database.Pool intentionally has no lightweight QueryRow failure seam.",
+      "green": "go test ./internal/apiratelimit: pass",
+      "remaining": "The concrete database.Pool seam prevents a no-Postgres injected QueryRow test without widening the production API; PostgreSQL rate-limit integration suite passes."
+    },
+    {
+      "id": "P1-CONFIG-RETENTION-RANGE",
+      "lane": "storage",
+      "feature": "보존 기간 범위",
+      "status": "implemented",
+      "change": "Already-invalid persisted configurations now fail earlier with the environment variable named in the error.",
+      "files": [
+        "internal/config/backups.go",
+        "internal/config/env_test.go"
+      ],
+      "staticOrRed": "Baseline-overlay regression accepted 2147483648 with no LoadEnv error even though persisted storage rejects it.",
+      "green": "go test ./internal/config: pass",
+      "remaining": "None identified."
+    },
+    {
+      "id": "P1-DATABASE-ROLLBACK-EXPIRED-DEADLINE",
+      "lane": "storage",
+      "feature": "rollback 정리 deadline",
+      "status": "implemented",
+      "change": "Rollback keeps request values but receives its own one-second cleanup deadline, allowing pgx rollback/release after request expiry.",
+      "files": [
+        "internal/database/tx.go",
+        "internal/database/tx_test.go",
+        "internal/database/tx_integration_test.go"
+      ],
+      "staticOrRed": "Existing unit test initially failed after the independent-deadline fix because it encoded the old inherited-deadline behavior.",
+      "green": "go test ./internal/database: pass",
+      "remaining": "None identified. Dedicated PostgreSQL test passed and baseline overlay retained an acquired connection after the expired rollback."
+    },
+    {
+      "id": "P1-FILESTORE-STAGE-READ-ORPHAN",
+      "lane": "storage",
+      "feature": "stage orphan 정리",
+      "status": "implemented",
+      "change": "Stage still returns the original read error; cleanup queues precisely the generated object key.",
+      "files": [
+        "internal/filestore/staging.go",
+        "internal/filestore/service_integration_test.go"
+      ],
+      "staticOrRed": "Baseline-overlay PostgreSQL regression returned the sentinel verification-read error and then found no queued object deletion row.",
+      "green": "go test ./internal/filestore: pass",
+      "remaining": "None identified. Dedicated PostgreSQL test passed and baseline overlay left no queued deletion row."
+    },
+    {
+      "id": "P1-JOBS-LEASE-IGNORING-HANDLER",
+      "lane": "storage",
+      "feature": "job lease fencing",
+      "status": "implemented",
+      "change": "No scheduling semantics changed. Documentation and regression test make fence scope explicit: metadata is fenced, arbitrary external handler side effects must be idempotent or generation-fenced.",
+      "files": [
+        "internal/jobs/service.go",
+        "internal/jobs/service_integration_test.go"
+      ],
+      "staticOrRed": "Baseline-overlay two-runner regression passes because at-least-once metadata fencing already works; this item is a contract clarification and regression lock, not a runtime scheduling defect.",
+      "green": "go test ./internal/jobs: pass",
+      "remaining": "Cancellation-ignoring extension handlers can still duplicate external effects by design; the passing dedicated PostgreSQL test verifies that metadata fencing survives it."
+    },
+    {
+      "id": "UI1-002",
+      "lane": "ui",
+      "feature": "designer 초안 분리",
+      "status": "complete",
+      "change": "useCollectionDesigner 공개 interface를 유지하며 draft 변환·검증, state hydration, contract, error mapping, versioned recovery store를 분리하고 async preview/apply/delete orchestration은 한 hook에 유지했다.",
+      "files": [
+        "ui/admin/src/designer/collection-designer.ts",
+        "ui/admin/src/designer/collection-draft.ts",
+        "ui/admin/src/designer/collection-designer-state.ts",
+        "ui/admin/src/designer/collection-designer-contract.ts",
+        "ui/admin/src/designer/collection-designer-errors.ts",
+        "ui/admin/src/designer/pending-schema-operation-store.ts",
+        "ui/admin/src/designer/collection-draft.test.ts"
+      ],
+      "staticOrRed": "실행 red: 첫 추출에서 stable re-export가 빠져 draft contract 7개와 typecheck가 실패했다.",
+      "green": "npm test -- --run collection-draft/field-options/collection-designer/page/unsaved-draft: 5 files, 85 tests passed; npm run typecheck and designer diff check passed",
+      "remaining": "최종 validation 통과; 선택 browser skip 4건은 verification.json에 이유와 함께 문서화됨."
+    },
+    {
+      "id": "UI1-003",
+      "lane": "ui",
+      "feature": "HTTP port 분리",
+      "status": "complete",
+      "change": "Shared authenticated transport retains lossless decode, CSRF, 401 generation checks, and abort signals; no response.json calls.",
+      "files": [
+        "ui/admin/src/backend/http-backend.ts",
+        "ui/admin/src/backend/http-transport.ts",
+        "ui/admin/src/backend/http-session-port.ts",
+        "ui/admin/src/backend/http-schema-port.ts",
+        "ui/admin/src/backend/http-records-port.ts",
+        "ui/admin/src/backend/http-files-port.ts",
+        "ui/admin/src/backend/http-admin-ports.ts"
+      ],
+      "staticOrRed": "정적/문서 확인(실행 red 없음)",
+      "green": "npm test -- --run src/backend/http-backend.test.ts src/backend/conformance.test.ts src/backend/ports.test.ts (141 passed)",
+      "remaining": "최종 validation 통과; 선택 browser skip 4건은 verification.json에 이유와 함께 문서화됨."
+    },
+    {
+      "id": "UI1-004",
+      "lane": "ui",
+      "feature": "인증 editor 추출",
+      "status": "complete",
+      "change": "The panel retains one AbortController mutation lease, mounted-state guard, ten-second load/mutation timeouts, redacted stored SMTP/provider secrets, and Apple secret reveal state.",
+      "files": [
+        "ui/admin/src/components/auth-administration-panel.tsx",
+        "ui/admin/src/components/auth-policy-editor.tsx",
+        "ui/admin/src/components/auth-provider-editor.tsx",
+        "ui/admin/src/components/auth-mail-template-editor.tsx",
+        "ui/admin/src/components/auth-smtp-settings.tsx"
+      ],
+      "staticOrRed": "Not applicable: this is a behavior-preserving extraction, and pre-existing auth collection behavior is covered by the focused suite.",
+      "green": "npm test -- --run src/pages/auth-collections-page.test.tsx src/pages/settings-page.test.tsx (9 passed); includes normalized-save and reload draft replacement coverage",
+      "remaining": "최종 validation 통과; 선택 browser skip 4건은 verification.json에 이유와 함께 문서화됨."
+    },
+    {
+      "id": "UI1-005",
+      "lane": "ui",
+      "feature": "asset 재현성",
+      "status": "complete",
+      "change": "Embedded index and final hashed asset are reproducibly rebuilt from source; verify:dist detects stale tracked output.",
+      "files": [
+        "ui/admin/package.json",
+        "ui/admin/BUILDING.md",
+        "ui/admin/dist/index.html",
+        "ui/admin/dist/assets/index-DEOSB0YT.js"
+      ],
+      "staticOrRed": "npm run verify:dist correctly fails before the regenerated dist changes are committed because it detects the old tracked asset deletion.",
+      "green": "npm run build passed; final bundle index-DEOSB0YT.js",
+      "remaining": "최종 validation 통과; 선택 browser skip 4건은 verification.json에 이유와 함께 문서화됨."
+    },
+    {
+      "id": "UI2-001",
+      "lane": "ui",
+      "feature": "setup polling stale 차단",
+      "status": "complete",
+      "change": "The SetupBackupJob port receives an AbortSignal and stale completions are inert; follow-up tests cover dependency replacement, unmount, and current terminal outcomes.",
+      "files": [
+        "ui/admin/src/pages/setup-page.tsx",
+        "ui/admin/src/pages/setup-page.test.tsx"
+      ],
+      "staticOrRed": "Copied UI overlay with only production polling guards removed: obsolete setup failure rendered (focused failure).",
+      "green": "typecheck passed; setup/operations focused files: 20 tests passed",
+      "remaining": "최종 validation 통과; 선택 browser skip 4건은 verification.json에 이유와 함께 문서화됨."
+    },
+    {
+      "id": "UI2-002",
+      "lane": "ui",
+      "feature": "backup polling stale 차단",
+      "status": "complete",
+      "change": "The live generation retains request, terminal refresh, and message behavior; stale rejection is inert after dependency replacement and unmount.",
+      "files": [
+        "ui/admin/src/pages/operations-console.tsx"
+      ],
+      "staticOrRed": "Copied UI overlay with only production polling guards removed: obsolete managed-backup rejection rendered (focused failure).",
+      "green": "typecheck passed; setup/operations focused files: 20 tests passed",
+      "remaining": "최종 validation 통과; 선택 browser skip 4건은 verification.json에 이유와 함께 문서화됨."
+    },
+    {
+      "id": "UI2-003",
+      "lane": "ui",
+      "feature": "공개 파일 오류 검사",
+      "status": "complete",
+      "change": "Both successful public flows retain credentials: omit. Protected files still use their scoped token flow.",
+      "files": [
+        "ui/admin/src/pages/record-edit-page.tsx",
+        "ui/admin/src/pages/file-field.test.tsx"
+      ],
+      "staticOrRed": "The new public interaction test would fail against the prior direct response.blob() calls because 404/500 created a Blob URL instead of the respective error message.",
+      "green": "npm test -- --run src/pages/file-field.test.tsx; npm run typecheck",
+      "remaining": "최종 validation 통과; 선택 browser skip 4건은 verification.json에 이유와 함께 문서화됨."
+    },
+    {
+      "id": "UI2-004",
+      "lane": "ui",
+      "feature": "preview URL 해제",
+      "status": "complete",
+      "change": "The ref tracks only the active preview URL, so replacement and explicit close retain their one-time revocation semantics.",
+      "files": [
+        "ui/admin/src/pages/record-edit-page.tsx",
+        "ui/admin/src/pages/file-field.test.tsx"
+      ],
+      "staticOrRed": "The unmount interaction test would fail against the old code, which only revoked a preview when replaced or explicitly closed.",
+      "green": "npm test -- --run src/pages/file-field.test.tsx; npm run typecheck",
+      "remaining": "최종 validation 통과; 선택 browser skip 4건은 verification.json에 이유와 함께 문서화됨."
+    },
+    {
+      "id": "UI2-006",
+      "lane": "ui",
+      "feature": "설정 form 분리",
+      "status": "complete",
+      "change": "SettingsPage remains the only AdminSettings draft and revision-save owner. Profile email and IP allowlist retain their dedicated profile-port calls; their shared form-lifetime draft is one { email, prefixes } state.",
+      "files": [
+        "ui/admin/src/pages/settings-page.tsx",
+        "ui/admin/src/pages/profile-settings.tsx",
+        "ui/admin/src/pages/api-rate-limit-settings.tsx"
+      ],
+      "staticOrRed": "Not applicable: this is a behavior-preserving extraction, and settings interactions are covered by the focused suite.",
+      "green": "npm test -- --run src/pages/auth-collections-page.test.tsx src/pages/settings-page.test.tsx (8 passed)",
+      "remaining": "최종 validation 통과; 선택 browser skip 4건은 verification.json에 이유와 함께 문서화됨."
+    }
+  ]
+}

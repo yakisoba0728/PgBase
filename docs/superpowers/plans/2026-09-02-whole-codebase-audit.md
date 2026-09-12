@@ -2,6 +2,8 @@
 
 감사일: 2026-09-02 (Asia/Seoul)
 
+역사적 실행 로그는 당시 `/tmp` 작업 디렉터리에 기록됐으며 현재 checkout에는 보존되지 않는다. 아래 표의 해당 결과는 기록된 historical claim이고 fresh checkout에서 재현 가능한 증거로 취급하지 않는다. 소스 인용은 이 checkout의 상대 경로 또는 고정 커밋 기준으로 유지한다.
+
 ## 결론
 
 **기존 자동 검증은 통과하지만, 전체 구현 완료 또는 운영 배포 승인으로 판정할 수 없다.**
@@ -23,21 +25,21 @@ Standards 3건, Spec 3건, 추가 실행·정합성 검사 4건을 확인했다.
 
 ### STD-1 · P2 · 저장 중 추가 편집한 draft가 조용히 유실됨
 
-위치: [collection-designer.ts:493](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/ui/admin/src/designer/collection-designer.ts:493), [record-workspace.ts:249](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/ui/admin/src/workspace/record-workspace.ts:249).
+위치: [collection-designer.ts:493](../../../ui/admin/src/designer/collection-designer.ts:493), [record-workspace.ts:249](../../../ui/admin/src/workspace/record-workspace.ts:249).
 
 Collection apply가 진행되는 동안 필드 입력은 활성화되어 있다. A를 제출한 뒤 사용자가 B로 추가 편집해도, A의 성공 응답이 현재 draft의 revision을 확인하지 않고 `savedDraft()`와 `navigate()`를 실행한다. 저장되지 않은 B까지 저장된 것으로 처리되어 이탈 확인 없이 사라진다. Record editor도 동일한 제출/응답 처리 구조이며 일반 입력이 pending 중 활성화되어 있다.
 
 재현: preview A → 응답을 보류한 apply → 필드명을 `new_unsaved_title`로 편집 → A 성공 응답. 최신 draft가 남아 있어야 하지만 records 화면으로 navigation이 발생했다. Collection 흐름은 scratch Vitest로 재현했고 record 흐름은 코드로 확인했다.
 
-기준: [F0 완료 조건, 계획:890](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/docs/superpowers/plans/2026-09-01-whole-codebase-refactor.md:890)의 저장 완료·명시적 discard 외 dirty draft 유실 금지.
+기준: [F0 완료 조건, 계획:890](../../../docs/superpowers/plans/2026-09-01-whole-codebase-refactor.md:890)의 저장 완료·명시적 discard 외 dirty draft 유실 금지.
 
 수정 완료 조건: 제출 revision과 현재 revision을 비교해 이후 편집을 보존하거나 pending 중 편집을 차단한다. Collection/record 양쪽에 deferred-response 회귀 테스트를 둔다.
 
 ### STD-2 · P2 · DELETE마다 catalog 전체의 delete graph를 O(C²)로 다시 생성
 
-위치: [recordops/delete.go:68](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/recordops/delete.go:68) → [relation/delete.go:125](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/relation/delete.go:125) → [binding.go:44](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/relation/binding.go:44).
+위치: [recordops/delete.go:68](../../../internal/recordops/delete.go:68) → [relation/delete.go:125](../../../internal/relation/delete.go:125) → [binding.go:44](../../../internal/relation/binding.go:44).
 
-각 DELETE attempt에서 `BindDeleteGraph(catalog)`를 호출한다. 이 함수는 collection C개 각각에 대해 `Bind`를 호출하고, 각 `Bind`는 전체 C개 collection을 다시 순회하고 map을 할당한다. [compiledCatalog:23](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/schema/catalog.go:23)에는 재사용할 relation binding/delete graph가 없다.
+각 DELETE attempt에서 `BindDeleteGraph(catalog)`를 호출한다. 이 함수는 collection C개 각각에 대해 `Bind`를 호출하고, 각 `Bind`는 전체 C개 collection을 다시 순회하고 map을 할당한다. [compiledCatalog:23](../../../internal/schema/catalog.go:23)에는 재사용할 relation binding/delete graph가 없다.
 
 순수 benchmark 결과(Apple M5, DB 호출 없음, 각 3회):
 
@@ -49,13 +51,13 @@ Collection apply가 진행되는 동안 필드 입력은 활성화되어 있다.
 
 이는 전체 DELETE 지연이나 production SLO 측정값이 아니라 graph 생성만의 비용이다. SQL query-count gate는 이 CPU/메모리 비용을 탐지하지 못한다.
 
-기준: [계획:307](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/docs/superpowers/plans/2026-09-01-whole-codebase-refactor.md:307)의 catalog version마다 relation binding/delete graph를 정확히 한 번 compile.
+기준: [계획:307](../../../docs/superpowers/plans/2026-09-01-whole-codebase-refactor.md:307)의 catalog version마다 relation binding/delete graph를 정확히 한 번 compile.
 
 수정 완료 조건: 검증된 version별 immutable graph를 재사용하고 collection 수에 따른 CPU/할당량 회귀 검사를 추가한다. 기존 코드보다 느려졌다는 주장이 아니라, 약속한 구조적 개선이 빠졌다는 지적이다.
 
 ### STD-3 · P3 · SchemaKernel의 내부 compatibility forwarding surface가 남음
 
-위치: [service.go:98](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/schema/service.go:98).
+위치: [service.go:98](../../../internal/schema/service.go:98).
 
 `PlanCreate/PlanUpdate/PlanDelete/ApplyCreate/ApplyUpdate/ApplyDelete` 6개가 새 `Preview/Apply`에 전달하는 wrapper로 남았고 API 의존 interface에도 기존/신규 surface가 병렬로 유지된다. Legacy HTTP wire 보존은 필요하지만, 그것이 내부 중복 surface의 존속을 요구하지는 않는다.
 
@@ -67,7 +69,7 @@ Collection apply가 진행되는 동안 필드 입력은 활성화되어 있다.
 
 ### SPEC-1 · P1 · 기존 populated DB의 membership rollout을 실행할 운영 진입점이 없음
 
-위치: [CLI 명령 목록:47](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/cli/run.go:47), [bootstrap.go:195](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/membership/bootstrap.go:195), [traversal.go:146](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/membership/traversal.go:146).
+위치: [CLI 명령 목록:47](../../../internal/cli/run.go:47), [bootstrap.go:195](../../../internal/membership/bootstrap.go:195), [traversal.go:146](../../../internal/membership/traversal.go:146).
 
 현재 CLI는 `serve/migrate/admin/doctor/schema-index/healthcheck`뿐이다. `Cutover/Backfill/PromoteReady/EnableV5/DisableV5/RetireV4`의 production caller는 0개다. Fresh bootstrap은 기존 레코드가 있으면 건너뛰지만, 최종 Release C List는 ready·v5 issue·v4 retirement를 모두 요구한다. 문서에 전이 순서가 있어도 제공 바이너리로 실행할 방법이 없다.
 
@@ -75,27 +77,27 @@ Collection apply가 진행되는 동안 필드 입력은 활성화되어 있다.
 
 이 재현은 구버전 바이너리를 직접 실행한 것이 아니라 바이트 동일한 migration prefix를 구성한 것이다. 또한 문서가 금지한 C 직행을 권장하는 것이 아니다. 안전한 A0/M/A/B/C 경로를 실제로 실행할 지원 surface가 없다는 점이 문제다. 외부 registry에 과거 A/B artifact가 있는지는 조사하지 않았다.
 
-기준: [R4 rollout, 계획:607](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/docs/superpowers/plans/2026-09-01-whole-codebase-refactor.md:607)의 drain/cutover/resumable backfill/ready/enable/drain/retire 및 독립 deployable artifact 요구. [open-decisions:153](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/docs/superpowers/plans/2026-09-02-open-decisions.md:153)도 CLI 미배선을 기록하고 있어 새 발견으로 가장하지 않았다. 완료 판정에서 남아 있는 blocker다.
+기준: [R4 rollout, 계획:607](../../../docs/superpowers/plans/2026-09-01-whole-codebase-refactor.md:607)의 drain/cutover/resumable backfill/ready/enable/drain/retire 및 독립 deployable artifact 요구. [open-decisions:153](../../../docs/superpowers/plans/2026-09-02-open-decisions.md:153)도 CLI 미배선을 기록하고 있어 새 발견으로 가장하지 않았다. 완료 판정에서 남아 있는 blocker다.
 
 수정 완료 조건: operator-only 전이 명령과 정확한 artifact/runbook을 제공하고, populated 이전 버전 DB를 지원 순서로 업그레이드하여 List 및 rollback/holdpoint를 black-box 검증한다. Capability를 SQL로 강제 ready 처리하는 임시 우회는 해결로 보지 않는다.
 
 ### SPEC-2 · P2 · v2 plan compiler와 신규 collection의 transactional companion 생성이 미배선
 
-위치: [planner.go:560](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/schema/planner.go:560), [create DDL:523](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/schema/planner.go:523), [operation_apply.go:255](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/schema/operation_apply.go:255).
+위치: [planner.go:560](../../../internal/schema/planner.go:560), [create DDL:523](../../../internal/schema/planner.go:523), [operation_apply.go:255](../../../internal/schema/operation_apply.go:255).
 
 실제 checksum compiler는 `schema-plan-v1` 상수이며 production v2 issuance/dual validation 경로가 없다. Create DDL은 core/relation index만 만들고 companion은 만들지 않는다. 모든 schema mutation은 capability를 pending으로 내리므로 ready 이후 새 collection을 만들어도 수동 activation/build 경로가 다시 필요하다.
 
-기준: [계획:646](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/docs/superpowers/plans/2026-09-01-whole-codebase-refactor.md:646)의 mixed-fleet dual validation, [승인 D2-4:40](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/docs/superpowers/plans/2026-09-02-open-decisions.md:40)의 “새 collection은 v2에서 companion index를 생성 transaction 안에서 만든다.”
+기준: [계획:646](../../../docs/superpowers/plans/2026-09-01-whole-codebase-refactor.md:646)의 mixed-fleet dual validation, [승인 D2-4:40](../../../docs/superpowers/plans/2026-09-02-open-decisions.md:40)의 “새 collection은 v2에서 companion index를 생성 transaction 안에서 만든다.”
 
 수정 완료 조건: capability와 compiler format을 연결하고, v1/v2 검증·downgrade 동작을 고정한다. Ready 상태의 신규 collection 생성은 같은 transaction에서 companion을 갖춰야 한다. 기존 collection의 field/index 추가만 승인된 CIC maintenance 경로로 보낸다.
 
 ### SPEC-3 · P2 · macOS terminal CI 완료 조건이 없음
 
-위치: [backend.yml:45](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/.github/workflows/backend.yml:45).
+위치: [backend.yml:45](../../../.github/workflows/backend.yml:45).
 
 현재 workflow의 runner는 Ubuntu뿐이다. Darwin 전용 PTY cancellation/echo-restoration 테스트는 존재하지만 Linux 빌드에서 제외되므로 release CI가 이 동작의 회귀를 막지 못한다.
 
-기준: [R8 완료 조건, 계획:770](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/docs/superpowers/plans/2026-09-01-whole-codebase-refactor.md:770)의 macOS terminal CI 실행.
+기준: [R8 완료 조건, 계획:770](../../../docs/superpowers/plans/2026-09-01-whole-codebase-refactor.md:770)의 macOS terminal CI 실행.
 
 이번 Mac 로컬 Go suite는 통과했다. 지적은 macOS 구현이 현재 실패한다는 뜻이 아니라, 명시된 지속 검증 gate가 없다는 것이다. 수정 완료 조건은 해당 PTY 테스트를 실행하는 macOS CI job과 성공 실행 증거다.
 
@@ -103,7 +105,7 @@ Collection apply가 진행되는 동안 필드 입력은 활성화되어 있다.
 
 ### RUN-1 · P1 · 정상 장시간 schema DDL이 heartbeat를 실패시켜 앱 종료로 전파됨
 
-위치: [membership/service.go:146](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/membership/service.go:146), [runtime.go:129](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/membership/runtime.go:129), [app.go:523](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/pgbase/app.go:523).
+위치: [membership/service.go:146](../../../internal/membership/service.go:146), [runtime.go:129](../../../internal/membership/runtime.go:129), [app.go:523](../../../pgbase/app.go:523).
 
 Heartbeat는 `schema_state FOR SHARE`를 얻는데 schema apply의 `FOR UPDATE`와 충돌한다. DDL에는 별도 장시간 budget과 `statement_timeout=0`이 적용되지만 heartbeat는 기본 5초 statement timeout을 사용한다. 이 오류에서 membership runtime은 종료하며 App은 다른 background를 취소하고 실행 오류로 전파한다.
 
@@ -113,7 +115,7 @@ Heartbeat는 `schema_state FOR SHARE`를 얻는데 schema apply의 `FOR UPDATE`�
 
 ### RUN-2 · P1 · 중복 witness ID로 mixed-compiler fleet 차단을 우회
 
-위치: [companion_index.go:436](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/schema/companion_index.go:436), [CLI witness 파싱:27](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/cli/schema_index.go:27).
+위치: [companion_index.go:436](../../../internal/schema/companion_index.go:436), [CLI witness 파싱:27](../../../internal/cli/schema_index.go:27).
 
 검증은 live map 크기와 proof slice 길이를 비교한 뒤 proof 각 항목만 조회한다. 고유성이나 UUID 집합의 정확한 일치를 검사하지 않는다. Live fleet이 `[newID, oldID]`여도 proof `[newID, newID]`의 길이는 2이고 모든 조회가 new compiler를 가리켜 통과한다. CLI도 중복 witness를 허용한다.
 
@@ -125,7 +127,7 @@ Heartbeat는 `schema_state FOR SHARE`를 얻는데 schema apply의 `FOR UPDATE`�
 
 ### RUN-3 · P2 · 잘못된 index opclass를 정상 companion으로 인정
 
-위치: [companion_index.go:599](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/schema/companion_index.go:599), [shape comparison:640](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/internal/schema/companion_index.go:640).
+위치: [companion_index.go:599](../../../internal/schema/companion_index.go:599), [shape comparison:640](../../../internal/schema/companion_index.go:640).
 
 Physical observation은 key 열과 DESC/NULL 옵션 등만 읽고 `indclass`/`indcollation`은 읽지 않는다. 이름과 열 순서가 같은 `text_pattern_ops` index도 일반 text ORDER BY용 companion으로 인정하여 maintenance가 ready로 승격하고 diagnostics가 정상으로 보고한다.
 
@@ -135,13 +137,13 @@ Physical observation은 key 열과 DESC/NULL 옵션 등만 읽고 `indclass`/`in
 
 ### RUN-4 · P2 · SIGTERM에서 background가 HTTP drain보다 먼저 취소됨
 
-위치: [app.go:478](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/pgbase/app.go:478), [closeResources:585](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/pgbase/app.go:585).
+위치: [app.go:478](../../../pgbase/app.go:478), [closeResources:585](../../../pgbase/app.go:585).
 
 새 `Close` ordering은 HTTP drain 후 background를 취소하지만, background context는 여전히 `Run` 부모 context의 직접 자식이다. SIGTERM/Run cancel에서는 부모 취소가 먼저 전파되므로 drain 중인 요청이 있어도 listener·membership heartbeat·reconciler가 먼저 멈춘다.
 
 재현: 실제 TCP HTTP 요청을 barrier 안에 유지한 채 Run context 취소 → 요청 완료 전에 background stopped channel이 닫힘. `-race` scratch 테스트가 `background runner was cancelled while HTTP request was still in flight`로 실패했다. 기존 ordering 테스트의 `Start(context.Background())` 후 직접 Close 경로와 다르다.
 
-기준: [계획:707](/Users/yakisoba0728/.codex/worktrees/0f44/PgBase/docs/superpowers/plans/2026-09-01-whole-codebase-refactor.md:707)의 Run parent 취소와 task 취소 분리.
+기준: [계획:707](../../../docs/superpowers/plans/2026-09-01-whole-codebase-refactor.md:707)의 Run parent 취소와 task 취소 분리.
 
 수정 완료 조건: Run 종료 신호와 background context를 분리하여 readiness false → HTTP drain → task cancel/wait → pool close를 실제 signal 경로에서도 보장한다. Caller-owned Start 계약은 별도로 유지한다.
 

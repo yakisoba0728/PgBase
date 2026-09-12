@@ -64,12 +64,12 @@ func (c *extensionCompatibility) call(ctx context.Context, method string, raw js
 			return nil, err
 		}
 		var response struct {
-			Body string `json:"body"`
+			Body []byte `json:"body"`
 		}
 		if json.Unmarshal(result, &response) != nil {
 			return nil, errors.New("invalid HTTP response")
 		}
-		return compatibilityInlineFile("", []byte(response.Body))
+		return compatibilityInlineFile("", response.Body)
 	case "filesystem.fileFromBytes":
 		var request struct {
 			Bytes any    `json:"bytes"`
@@ -250,6 +250,10 @@ func (c *extensionCompatibility) safePath(name string, allowMissing bool) (strin
 	if c.root == "" {
 		return "", errors.New("filesystem root is not configured")
 	}
+	root, err := filepath.EvalSymlinks(c.root)
+	if err != nil {
+		return "", err
+	}
 	if filepath.IsAbs(name) {
 		name = strings.TrimPrefix(filepath.Clean(name), filepath.VolumeName(name)+string(filepath.Separator))
 	}
@@ -260,18 +264,26 @@ func (c *extensionCompatibility) safePath(name string, allowMissing bool) (strin
 	}
 	check := path
 	if allowMissing {
-		if _, err := os.Lstat(path); err != nil {
+		for {
+			_, err := os.Lstat(check)
+			if err == nil {
+				break
+			}
 			if !errors.Is(err, os.ErrNotExist) {
 				return "", err
 			}
-			check = filepath.Dir(path)
+			parent := filepath.Dir(check)
+			if parent == check {
+				return "", err
+			}
+			check = parent
 		}
 	}
 	real, err := filepath.EvalSymlinks(check)
 	if err != nil {
 		return "", err
 	}
-	rel, err = filepath.Rel(c.root, real)
+	rel, err = filepath.Rel(root, real)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", errors.New("symlink escapes filesystem root")
 	}

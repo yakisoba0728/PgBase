@@ -3,8 +3,10 @@
 package schema
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -49,7 +51,7 @@ func TestMigrationSnapshotReplayPreservesMetadataAndAdvancedIndexes(t *testing.T
 		t.Fatal(err)
 	}
 	if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		return ApplyMigrationSnapshot(ctx, tx, before, after)
+		return ApplyMigrationSnapshot(ctx, tx, before, after, acceptMigrationRulesForTest)
 	}); err != nil {
 		t.Fatalf("apply snapshot: %#v", err)
 	}
@@ -118,7 +120,7 @@ func TestLegacyMigrationSnapshotReplayInheritsAbsentMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		return ApplyMigrationSnapshot(ctx, tx, before, after)
+		return ApplyMigrationSnapshot(ctx, tx, before, after, acceptMigrationRulesForTest)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -136,3 +138,49 @@ func TestLegacyMigrationSnapshotReplayInheritsAbsentMetadata(t *testing.T) {
 		t.Fatalf("legacy replay lost metadata: %+v fields=%+v", got, got.Fields)
 	}
 }
+
+func TestMigrationSnapshotRejectsInvalidViewMetadataAtomically(t *testing.T) {
+	ctx := context.Background()
+	pool, service, actor := newSchemaServiceTest(t)
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "migration_view_source", Fields: []FieldInput{{Name: "title", Type: TypeText}}}, actor)
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "migration_view_report", View: &ViewInput{SQL: `select id,title from app.migration_view_source`}}, actor)
+	before, err := service.ExportMigrationSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot MigrationSnapshot
+	if err := json.Unmarshal(before, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	for collectionIndex := range snapshot.Collections {
+		if snapshot.Collections[collectionIndex].Name != "migration_view_report" {
+			continue
+		}
+		for fieldIndex := range snapshot.Collections[collectionIndex].Fields {
+			if snapshot.Collections[collectionIndex].Fields[fieldIndex].Name == "title" {
+				snapshot.Collections[collectionIndex].Fields[fieldIndex].Hidden = true
+				snapshot.Collections[collectionIndex].Fields[fieldIndex].Presentable = true
+			}
+		}
+	}
+	after, err := MarshalMigrationSnapshot(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return ApplyMigrationSnapshot(ctx, tx, before, after, acceptMigrationRulesForTest)
+	})
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("invalid view metadata error=%v", err)
+	}
+	current, err := service.ExportMigrationSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(current, before) {
+		t.Fatalf("failed migration changed snapshot:\nbefore=%s\nafter=%s", before, current)
+	}
+}
+
+func acceptMigrationRulesForTest(Catalog, Collection, json.RawMessage) error { return nil }

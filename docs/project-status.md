@@ -1,5 +1,9 @@
 # PgBase 구현 이력과 현재 상태
 
+## Status applicability
+
+This document has a current status section and historical sections. Baseline SHA: `0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b`; verification SHA: `53a474143e117251d9b322441508ac85d776ef2a`. Historical entries are scoped to their own dated evidence. Run `python3 docs/check-status-index.py` from the repository root to check the applicability index.
+
 기록일: 2026-09-11. 이 문서는 지금까지의 작업을 통합한 현재 상태 문서다. 세부 작업 기록은 [TODO](../TODO.md), 다음 실행 순서와 완료 기준은 [후속 작업](next-work.md), PocketBase와의 차이는 [현재 기능 비교](pocketbase-feature-comparison-current-2026-09-10.md)를 따른다. 과거 감사·마일스톤 문서는 당시 증거를 보존하는 기록이다.
 
 `232/0/0` 비교표는 기능 수용 기록이며 현재 품질 판정은 아니다. 고정 HEAD 독립 감사의 20개 제품 결함과 2개 문서 결함은 [전체 코드 감사](codebase-audit-2026-09-11.md)를 따른다.

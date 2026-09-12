@@ -14,6 +14,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/backup"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/publicsite"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
 	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 	"github.com/yakisoba0728/PgBase/internal/schema"
@@ -32,6 +33,7 @@ type App struct {
 	records                *recordops.Service
 	backupGate             *database.BackupGate
 	handler                http.Handler
+	publicSite             *publicsite.Handler
 	httpServer             *http.Server
 	challengeServer        *http.Server
 	readiness              *readinessState
@@ -517,7 +519,15 @@ func (a *App) Close(ctx context.Context) error {
 		if a.readiness != nil {
 			a.readiness.setAccepting(context.Background(), false)
 		}
-		go a.closeResources(ctx, startupDone, a.shutdownDone)
+		shutdownTimeout := a.options.ShutdownTimeout
+		if shutdownTimeout <= 0 {
+			shutdownTimeout = 15 * time.Second
+		}
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+		go func() {
+			defer cancelCleanup()
+			a.closeResources(cleanupCtx, startupDone, a.shutdownDone)
+		}()
 	}
 	done := a.shutdownDone
 	a.shutdownMu.Unlock()
@@ -590,6 +600,9 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 	}
 	if a.javaScriptRuntime != nil {
 		closeErr = errors.Join(closeErr, a.javaScriptRuntime.Close(ctx))
+	}
+	if a.publicSite != nil {
+		closeErr = errors.Join(closeErr, a.publicSite.Close())
 	}
 	if a.pool != nil {
 		if err := a.pool.CloseContext(ctx); err != nil {

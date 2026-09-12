@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/relation"
@@ -36,6 +37,7 @@ func hydrateRelationRecordsBounded(
 	collection schema.Collection,
 	records []map[string]any,
 	principal Principal,
+	ruleContext *accessrule.RequestContext,
 	usage *expansionUsage,
 ) error {
 	if len(records) == 0 {
@@ -46,7 +48,7 @@ func hydrateRelationRecordsBounded(
 		if !ok {
 			return relationHydrationFailure(relation.ErrInvalidBinding)
 		}
-		return filterRelationValues(ctx, tx, catalog, collection, records, principal)
+		return filterRelationValues(ctx, tx, catalog, collection, records, principal, ruleContext)
 	}
 	bindings, err := relation.Bind(catalog, collection)
 	if err != nil {
@@ -74,10 +76,10 @@ func hydrateRelationRecordsBounded(
 	if !ok {
 		return relationHydrationFailure(relation.ErrInvalidBinding)
 	}
-	return filterRelationValues(ctx, tx, catalog, collection, records, principal)
+	return filterRelationValues(ctx, tx, catalog, collection, records, principal, ruleContext)
 }
 
-func filterRelationValues(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, records []map[string]any, principal Principal) error {
+func filterRelationValues(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, records []map[string]any, principal Principal, ruleContext *accessrule.RequestContext) error {
 	if principal.Kind == identity.Administrator {
 		return nil
 	}
@@ -119,7 +121,7 @@ func filterRelationValues(ctx context.Context, tx pgx.Tx, catalog schema.Catalog
 		if err != nil {
 			return err
 		}
-		predicate, args, err := compilePolicyPredicate(rules.View, target, policyTarget, target.TableName, principal, 1)
+		predicate, args, err := compilePolicyPredicateWithRequest(rules.View, target, policyTarget, target.TableName, principal, 1, catalog, ruleContext)
 		if err != nil {
 			return err
 		}

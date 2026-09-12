@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -25,6 +27,29 @@ type StagedFile struct {
 	finish         func(error)
 	storageRelease func()
 	storageLease   storageLease
+	ownership      *stagedObjectOwnership
+}
+
+type stagedObjectOwnership struct {
+	conn    *pgx.Conn
+	key     string
+	ownConn bool
+	once    sync.Once
+}
+
+func (o *stagedObjectOwnership) release() {
+	if o == nil {
+		return
+	}
+	o.once.Do(func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if o.ownConn {
+			_ = o.conn.Close(cleanup)
+			return
+		}
+		_, _ = o.conn.Exec(cleanup, `select pg_advisory_unlock(hashtextextended($1,0))`, stagedObjectLockName(o.key))
+	})
 }
 
 func (s StagedFile) ID() uuid.UUID       { return s.file.ID }
@@ -77,21 +102,28 @@ func (s *Service) stage(ctx context.Context, principal identity.Subject, input U
 		return StagedFile{}, ErrInvalid
 	}
 	file := File{ID: uuid.New(), OwnerID: principal.ID, Filename: input.Filename, ContentType: input.ContentType, Size: input.Size, SHA256: input.SHA256, ObjectKey: "objects/" + uuid.NewString(), CreatedAt: s.options.Now().UTC()}
+	ownership, err := s.reserveStagedObject(ctx, file.ObjectKey)
+	if err != nil {
+		return StagedFile{}, err
+	}
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			ownership.release()
+		}
+	}()
 	counted, hash := &countingReader{reader: input.Body, maximum: s.options.MaximumBytes}, sha256.New()
 	if err := s.objects.Put(ctx, file.ObjectKey, io.TeeReader(counted, hash)); err != nil {
-		_ = s.queueUnreferenced(context.WithoutCancel(ctx), file.ObjectKey)
 		if errors.Is(counted.err, ErrTooLarge) {
 			return StagedFile{}, ErrTooLarge
 		}
 		return StagedFile{}, err
 	}
 	if counted.count != input.Size || !hmac.Equal(hash.Sum(nil), input.SHA256[:]) {
-		_ = s.queueUnreferenced(context.WithoutCancel(ctx), file.ObjectKey)
 		return StagedFile{}, ErrInvalid
 	}
 	reader, err := s.objects.Open(ctx, file.ObjectKey)
 	if err != nil {
-		_ = s.queueUnreferenced(context.WithoutCancel(ctx), file.ObjectKey)
 		return StagedFile{}, err
 	}
 	buffer := make([]byte, 512)
@@ -102,11 +134,36 @@ func (s *Service) stage(ctx context.Context, principal identity.Subject, input U
 	}
 	detected := strings.TrimSpace(strings.Split(http.DetectContentType(buffer[:n]), ";")[0])
 	if detected != input.ContentType {
-		_ = s.queueUnreferenced(context.WithoutCancel(ctx), file.ObjectKey)
 		return StagedFile{}, ErrInvalid
 	}
-	return StagedFile{file: file}, nil
+	succeeded = true
+	return StagedFile{file: file, ownership: ownership}, nil
 }
+
+func (s *Service) reserveStagedObject(ctx context.Context, key string) (*stagedObjectOwnership, error) {
+	lease, _ := ctx.Value(storageLeaseContextKey{}).(storageLease)
+	conn, ownConn := lease.conn, false
+	var err error
+	if conn == nil {
+		conn, err = s.pool.OpenCoordinationSession(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ownConn = true
+	}
+	ownership := &stagedObjectOwnership{conn: conn, key: key, ownConn: ownConn}
+	if _, err = conn.Exec(ctx, `select pg_advisory_lock(hashtextextended($1,0))`, stagedObjectLockName(key)); err != nil {
+		ownership.release()
+		return nil, err
+	}
+	if _, err = s.pool.Exec(ctx, `insert into pgbase_meta.file_object_deletions(object_key,queued_at) values($1,CURRENT_TIMESTAMP) on conflict(object_key) do nothing`, key); err != nil {
+		ownership.release()
+		return nil, err
+	}
+	return ownership, nil
+}
+
+func stagedObjectLockName(key string) string { return "file-staged-object/" + key }
 
 // Commit attaches staged objects in the caller's transaction. Repeating the
 // exact same staged handles is safe and returns the already-ready rows.
@@ -174,6 +231,7 @@ func (s *Service) Commit(ctx context.Context, tx pgx.Tx, principal identity.Subj
 			if err := lockObjectReference(ctx, tx, staged.file.ObjectKey); err != nil {
 				return nil, err
 			}
+			staged.ownership.release()
 			var object, status string
 			err := tx.QueryRow(ctx, `select object_key,status from pgbase_meta.record_files where id=$1`, staged.file.ID).Scan(&object, &status)
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -216,6 +274,9 @@ func (s *Service) Commit(ctx context.Context, tx pgx.Tx, principal identity.Subj
 				}
 				file = existing
 			}
+			if _, err := tx.Exec(ctx, `delete from pgbase_meta.file_object_deletions where object_key=$1`, file.ObjectKey); err != nil {
+				return nil, err
+			}
 			result = append(result, file)
 		}
 	}
@@ -250,6 +311,7 @@ func (s *Service) CompleteStaged(staged []StagedFile, operationErr error) {
 		if item.finish != nil {
 			item.finish(operationErr)
 		}
+		item.ownership.release()
 		if item.storageRelease != nil {
 			item.storageRelease()
 		}

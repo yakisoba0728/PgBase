@@ -9,12 +9,22 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 // stubTx is only ever handed to a Write that has no relation work to do, so a
 // statement reaching PostgreSQL through it would panic rather than pass.
 type stubTx struct{ pgx.Tx }
+type taggedTx struct {
+	pgx.Tx
+	id int
+}
+type failingTx struct{ pgx.Tx }
+
+func (failingTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, errors.New("injected lock failure")
+}
 
 func relationFreeCollection() schema.Collection {
 	return schema.Collection{
@@ -41,14 +51,44 @@ func TestWriteRefusesStorageBeforeLocks(t *testing.T) {
 	if err := write.Snapshot(ctx, stubTx{}, sourceID, record); !errors.Is(err, ErrInvalidBinding) {
 		t.Fatalf("Snapshot before Lock error = %v, want ErrInvalidBinding", err)
 	}
-	if err := write.Lock(ctx, stubTx{}, sourceID); err != nil {
+	tx := taggedTx{id: 1}
+	if err := write.Lock(ctx, tx, sourceID); err != nil {
 		t.Fatalf("Lock(): %v", err)
 	}
-	if err := write.Store(ctx, stubTx{}, sourceID, record); err != nil {
+	if err := write.Snapshot(ctx, taggedTx{id: 2}, sourceID, record); !errors.Is(err, ErrInvalidBinding) {
+		t.Fatalf("Snapshot with different transaction error = %v, want ErrInvalidBinding", err)
+	}
+	if err := write.Store(ctx, taggedTx{id: 2}, sourceID, record); !errors.Is(err, ErrInvalidBinding) {
+		t.Fatalf("Store with different transaction error = %v, want ErrInvalidBinding", err)
+	}
+	if err := write.Store(ctx, tx, sourceID, record); err != nil {
 		t.Fatalf("Store(): %v", err)
 	}
-	if err := write.Store(ctx, stubTx{}, sourceID, record); !errors.Is(err, ErrInvalidBinding) {
+	if err := write.Store(ctx, tx, sourceID, record); !errors.Is(err, ErrInvalidBinding) {
 		t.Fatalf("second Store error = %v, want ErrInvalidBinding", err)
+	}
+}
+
+func TestWriteFailedLockDoesNotGrantStorageCapability(t *testing.T) {
+	catalog, collection := deleteCatalogFixture()
+	target := uuid.MustParse("0199aa22-0000-7000-8000-0000000001aa")
+	write, err := PrepareWrite(catalog, collection, PatchWrite, map[string]json.RawMessage{
+		"single_null": json.RawMessage(`"` + target.String() + `"`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	sourceID := uuid.MustParse("0199aa22-0000-7000-8000-0000000003ff")
+	tx := failingTx{}
+	if err := write.Lock(ctx, tx, sourceID); err == nil {
+		t.Fatal("Lock() succeeded through injected failure")
+	}
+	if err := write.Snapshot(ctx, tx, sourceID, map[string]any{}); !errors.Is(err, ErrInvalidBinding) {
+		t.Fatalf("Snapshot after failed Lock error = %v, want ErrInvalidBinding", err)
+	}
+	if err := write.Store(ctx, tx, sourceID, map[string]any{}); !errors.Is(err, ErrInvalidBinding) {
+		t.Fatalf("Store after failed Lock error = %v, want ErrInvalidBinding", err)
 	}
 }
 

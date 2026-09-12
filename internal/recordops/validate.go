@@ -43,11 +43,19 @@ func (s *Service) Validate(ctx context.Context, request ValidateRequest) error {
 		if resolveErr != nil {
 			return resolveErr
 		}
+		validationCollection, resolveErr := generatedValidationCollection(collection, resolved, true)
+		if resolveErr != nil {
+			return resolveErr
+		}
 		resolved, resolveErr = s.resolveRelationIdentities(ctx, s.pool, catalog, collection, resolved)
 		if resolveErr != nil {
 			return resolveErr
 		}
-		_, err = query.CompileInsert(collection, resolved, uuid.New())
+		_, err = query.CompileInsert(validationCollection, resolved, uuid.New())
+		return err
+	}
+	_, err = generatedValidationCollection(collection, input, false)
+	if err != nil {
 		return err
 	}
 	resolved, err := s.resolveRelationIdentities(ctx, s.pool, catalog, collection, input)

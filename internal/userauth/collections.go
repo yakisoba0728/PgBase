@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -340,22 +341,37 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 	var public map[string]any
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var fieldsRaw []byte
-		var updateRule string
+		var updateRule *string
 		var existingRaw []byte
-		if err := tx.QueryRow(ctx, `select c.fields_json,c.update_rule,coalesce(p.attributes,'{}') from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.id=$1 and u.active for update of u`, userID).Scan(&fieldsRaw, &updateRule, &existingRaw); errors.Is(err, pgx.ErrNoRows) {
+		var current AuthRecord
+		if err := tx.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.active,u.created_at,u.updated_at,c.fields_json,c.update_rule,coalesce(p.attributes,'{}') from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.id=$1 and u.active for update of u`, userID).Scan(&current.ID, &current.AuthCollectionID, &current.Email, &current.EmailVisibility, &current.Verified, &current.Active, &current.CreatedAt, &current.UpdatedAt, &fieldsRaw, &updateRule, &existingRaw); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
 			return err
 		}
 		var fields []schema.FieldInput
-		if json.Unmarshal(fieldsRaw, &fields) != nil {
+		if json.Unmarshal(fieldsRaw, &fields) != nil || json.Unmarshal(existingRaw, &current.Fields) != nil {
+			return ErrValidation
+		}
+		if updateRule == nil {
+			return ErrValidation
+		}
+		request := make(map[string]any, len(attributes))
+		for name, value := range attributes {
+			request[name] = value
+		}
+		allowed, err := EvaluateAuthRecordRuleInTx(ctx, tx, current.AuthCollectionID, *updateRule, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: userID}, Current: current, Request: request})
+		if err != nil {
+			return err
+		}
+		if !allowed {
 			return ErrValidation
 		}
 		if err := s.resolveAuthRelationIdentities(ctx, tx, attributes, fields); err != nil {
 			return err
 		}
 		changes, ok := prepareAuthPasswordFields(fields, attributes, false)
-		if !ok || !ruleAllowsOperation(updateRule, userID, userID) {
+		if !ok {
 			return ErrValidation
 		}
 		merged := map[string]any{}

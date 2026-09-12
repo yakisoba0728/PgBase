@@ -73,7 +73,7 @@ func (h *extensionHost) readObjectChunk(raw json.RawMessage) (json.RawMessage, e
 	b := make([]byte, n)
 	got, er := r.Read(b)
 	h.objectBytesRead += int64(got)
-	eof := er == io.EOF || got < len(b)
+	eof := er == io.EOF
 	if er != nil && !eof {
 		_ = r.Close()
 		delete(h.objectHandles, id)

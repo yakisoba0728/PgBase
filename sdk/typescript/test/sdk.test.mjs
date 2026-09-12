@@ -200,7 +200,9 @@ try {
   assert.equal(aborted, 2, "disabling auto cancellation never registers or aborts keyed requests");
 
   const realm = client.realm("members");
-	assert.deepEqual(await realm.methods(), { passwordEnabled: true, otpEnabled: true, mfaEnabled: false, oauthProviders: ["github"] });
+	const authMethods = await realm.methods();
+	assert.deepEqual(authMethods, { passwordEnabled: true, otpEnabled: true, mfaEnabled: false, oauthProviders: ["github"], oauth2: { enabled: false, providers: [] } });
+	assert.equal(authMethods.oauth2.enabled, false);
 	assert.equal(requests.at(-1).path, "/api/v1/auth/members/methods");
 	client.auth.save("refresh-source-token");
 	const refreshed = await realm.refresh();

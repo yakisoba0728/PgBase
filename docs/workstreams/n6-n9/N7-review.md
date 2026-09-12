@@ -32,7 +32,7 @@ cookie/CSRF boundary.
 
 ### P1 - logout can leave a stale persisted token
 
-`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7/sdk/dart/lib/src/auth.dart:28`
+`sdk/dart/lib/src/auth.dart:28`
 updates memory before awaiting `AuthStorage.write`, while `clear` independently
 updates memory and awaits `AuthStorage.clear` at line 33. With a delayed write,
 `clear()` completes first and the older write then stores the stale token. A
@@ -48,12 +48,12 @@ delayed `AuthStorage`.
 
 ### P1 - an old admin 401 clears a newly adopted session
 
-`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7/sdk/dart/lib/src/admin.dart:82`
+`sdk/dart/lib/src/admin.dart:82`
 does not capture the request generation, and lines 98-103 clear cookie/CSRF on
 every 401. If an old request returns 401 after a newer login succeeds, the next
 mutation loses `X-PgBase-CSRF`. The TypeScript reference guards this cleanup
 with the generation captured before send at
-`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7/sdk/typescript/src/admin.ts:158`.
+`sdk/typescript/src/admin.ts:158`.
 
 Reproduction: login with `csrf-old`, hold a mutation, login with `csrf-new`,
 then release the held request as 401. Expected the next mutation to send
@@ -65,7 +65,7 @@ and logout.
 
 ### P1 - cancellation cannot stop a stalled file hash stream
 
-`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7/sdk/dart/lib/src/files.dart:153`
+`sdk/dart/lib/src/files.dart:153`
 uses `await for` and observes cancellation only after a chunk arrives. If the
 source stalls before its next chunk, cancellation cannot cancel the source
 subscription or finish the upload operation, contrary to N7.3 and N7.md lines
@@ -81,7 +81,7 @@ state deterministically.
 
 ### P2 - terminal SSE errors are retried
 
-`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7/sdk/dart/lib/src/realtime.dart:54`
+`sdk/dart/lib/src/realtime.dart:54`
 turns the non-2xx response into `PgBaseError`, but the broad catch at line 83
 retries it. A 410 `cursor_expired` must surface immediately under N7.md lines
 156-162 and N7.3; invalid cursor, authentication, and access errors are also
@@ -98,12 +98,12 @@ EOF/failure.
 
 ### P2 - realm profile exposes the server envelope instead of attributes
 
-`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7/sdk/dart/lib/src/client.dart:487`
+`sdk/dart/lib/src/client.dart:487`
 returns the entire response for both profile methods. The server wraps the
 payload as `{attributes: ...}` at
-`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7/internal/api/auth_collections.go:316`,
+`internal/api/auth_collections.go:316`,
 while the TypeScript contract unwraps it at
-`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7/sdk/typescript/src/index.ts:389`.
+`sdk/typescript/src/index.ts:389`.
 
 Reproduction: return `{"attributes":{"displayName":"Ada"}}`. Expected
 `profile["displayName"] == "Ada"`; actual top-level key is `attributes`.
@@ -113,7 +113,7 @@ both GET and PATCH.
 
 ### P2 - schema preview and replay identity are not bound by the SDK
 
-`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7/sdk/dart/lib/src/admin.dart:121`
+`sdk/dart/lib/src/admin.dart:121`
 returns an unbound preview, and `applySchema` at line 130 accepts an unrelated
 body plus caller-selected operation and idempotency values. Import has the same
 shape at lines 155-178. This does not implement N7.md lines 103-108 or the
@@ -129,13 +129,13 @@ to schema import.
 ### P2 - structured errors omit the server request ID and network category
 
 The server writes `error.requestId` at
-`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7/internal/api/errors.go:16`,
+`internal/api/errors.go:16`,
 but `PgBaseError` has no field for it at
-`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7/sdk/dart/lib/src/errors.dart:1`
+`sdk/dart/lib/src/errors.dart:1`
 and decoding drops it at
-`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7/sdk/dart/lib/src/client.dart:544`.
+`sdk/dart/lib/src/client.dart:544`.
 The transport only maps `RequestAbortedException` at
-`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7/sdk/dart/lib/src/transport.dart:143`,
+`sdk/dart/lib/src/transport.dart:143`,
 leaving network failures as transport implementation exceptions. N7.1
 requires status/code/details/request ID and distinct network/cancel/invalid-body
 failures.
@@ -159,7 +159,7 @@ pagination, stale 412, idempotent replay/different-body conflict, exact JSONB,
 batch rollback, reconnect/410, file cancellation cleanup, or admin 401/403
 cases. The actual Flutter browser run is pending, and the committed Flutter
 example at
-`/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7/sdk/dart/example/flutter_app/lib/main.dart:6`
+`sdk/dart/example/flutter_app/lib/main.dart:6`
 only renders an exact number and closes a client; it does not itself implement
 the login/CRUD/file/realtime flow required by N7.4. These are completion
 boundaries rather than additional Standards findings.
@@ -183,14 +183,14 @@ Three Spec items remain:
 
 - **P1 — restore after a clear has started can revive stale memory state.**
   `AuthStore.restore` at
-  `/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7-fix/sdk/dart/lib/src/auth.dart:22`
+  `sdk/dart/lib/src/auth.dart:22`
   reads outside `_storageTail`. A focused test delayed `storage.clear`, called
   `restore` after clear had started, then released clear. Expected final token
   `null`; actual `stale-token`. Restore must wait behind earlier durable
   mutations while retaining its generation guard.
 - **P2 — approved schema bodies remain mutable across preview and after
   return.** At
-  `/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7-fix/sdk/dart/lib/src/admin.dart:121`,
+  `sdk/dart/lib/src/admin.dart:121`,
   `schemaPlan` reads `change.values` after awaiting the preview, and the
   approved object publicly exposes a `JsonObject` containing mutable
   `JsonArray.values`. A focused test appended a field after preview request
@@ -200,7 +200,7 @@ Three Spec items remain:
   apply the same rule to import.
 - **P2 — the stable network-error category is still absent.** Request ID is
   now retained, but
-  `/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/review-n7-fix/sdk/dart/lib/src/transport.dart:143`
+  `sdk/dart/lib/src/transport.dart:143`
   still maps only `RequestAbortedException`; `http.ClientException` escapes as
   a transport-specific exception instead of the N7.1 SDK network category.
 

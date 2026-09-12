@@ -32,6 +32,8 @@ type pocketBaseListService interface {
 	ListPocketBase(context.Context, recordops.PocketBaseListRequest) (recordops.PocketBasePage, error)
 }
 
+const recordEnrichmentHeader = "PgBase-Enrichment"
+
 func ruleRequestContext(r *http.Request) *accessrule.RequestContext {
 	queryValues := map[string][]string{}
 	for key, values := range r.URL.Query() {
@@ -324,7 +326,7 @@ func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Location", prefix+neturl.PathEscape(r.PathValue("collection"))+"/records/"+neturl.PathEscape(createdID))
 	writeCompatibilityHeaders(w, result.Compatibility)
 	if err := e.enrich(r.Context(), event.Collection, result.Record.Data); err != nil {
-		writeRecordError(w, r, err)
+		writeCommittedRecordFallback(w, http.StatusCreated, createdID)
 		return
 	}
 	writeJSON(w, http.StatusCreated, projection.Apply(result.Record.Data))
@@ -386,10 +388,30 @@ func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", result.Record.ETag)
 	writeCompatibilityHeaders(w, result.Compatibility)
 	if err := e.enrich(r.Context(), event.Collection, result.Record.Data); err != nil {
-		writeRecordError(w, r, err)
+		writeCommittedRecordFallback(w, http.StatusOK, id)
 		return
 	}
 	writeJSON(w, http.StatusOK, projection.Apply(result.Record.Data))
+}
+
+func writeCommittedRecordFallback(w http.ResponseWriter, status int, id string) {
+	w.Header().Set(recordEnrichmentHeader, "failed")
+	exposed := w.Header().Get("Access-Control-Expose-Headers")
+	if exposed == "" {
+		w.Header().Set("Access-Control-Expose-Headers", recordEnrichmentHeader)
+	} else if !headerListContains(exposed, recordEnrichmentHeader) {
+		w.Header().Set("Access-Control-Expose-Headers", exposed+", "+recordEnrichmentHeader)
+	}
+	writeJSON(w, status, map[string]string{"id": id})
+}
+
+func headerListContains(value, name string) bool {
+	for _, item := range strings.Split(value, ",") {
+		if strings.EqualFold(strings.TrimSpace(item), name) {
+			return true
+		}
+	}
+	return false
 }
 
 func compileMutationProjection(w http.ResponseWriter, r *http.Request) (query.Projection, bool) {

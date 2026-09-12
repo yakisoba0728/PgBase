@@ -1,0 +1,15 @@
+{
+  "coverageToolRoot": {
+    "script": "docs/pocketbase-source-audit-2026-09-09/coverage.py",
+    "expression": "HERE = Path(__file__).resolve().parent; ROOT = HERE.parent.parent",
+    "computedRootMatchesRepository": true,
+    "repositoryRelativeUpstream": ".local/upstream/pocketbase"
+  },
+  "sourceIdentity": {
+    "inventoryCommit": "5684ee24f1e88f71a2ede73d20cf547fbd509e16",
+    "pgbaseCommit": "35af64c3e4736af0a8a6d2d3ecb36640e035840a",
+    "fileCount": 923,
+    "allFilesHavePathAndSha256": true,
+    "verifier": "coverage.py:38-41 resolves all paths through the central inventory and verifies upstream SHA-256; per-entry duplication of snapshot identity is not required."
+  }
+}

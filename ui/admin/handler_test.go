@@ -97,6 +97,16 @@ func TestHandlerWithExtensionsInjectsMainAndServesScopedAssets(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsExtensionNamesThatCannotRouteToOnePathSegment(t *testing.T) {
+	_, err := Handler([]UIExtension{{
+		Name: "reports/nested",
+		FS:   fstest.MapFS{"main.js": {Data: []byte("export {}")}},
+	}})
+	if err == nil {
+		t.Fatal("Handler accepted an extension name that cannot be reached below one URL segment")
+	}
+}
+
 func TestHandlerFallsBackForNamesTheEmbeddedFilesystemRejects(t *testing.T) {
 	handler, err := Handler()
 	if err != nil {

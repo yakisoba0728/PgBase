@@ -19,6 +19,7 @@ func TestSchemaIndexRejectsInvalidUsage(t *testing.T) {
 		"positional argument":      {"schema-index", "status", "extra"},
 		"malformed witness":        {"schema-index", "activate", "--witness", "not-a-uuid"},
 		"witness outside activate": {"schema-index", "build", "--witness", "0199c100-0000-7000-8000-000000000001"},
+		"json outside status":      {"schema-index", "build", "--json"},
 		"repeated witness": {"schema-index", "activate",
 			"--witness", "0199c100-0000-7000-8000-000000000001",
 			"--witness", "0199c100-0000-7000-8000-000000000001"},

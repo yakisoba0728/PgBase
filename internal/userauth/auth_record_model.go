@@ -82,27 +82,6 @@ func normalizeAuthFields(fields []schema.FieldInput, legacy map[string]string) (
 	return result, compatibility, true
 }
 
-func ruleAllowsSelf(rule string, authenticated, target uuid.UUID) bool {
-	switch strings.TrimSpace(rule) {
-	case "true":
-		return true
-	case "@request.auth.id = id":
-		return authenticated != uuid.Nil && authenticated == target
-	case "@request.auth.id != ''":
-		return authenticated != uuid.Nil
-	default:
-		return false
-	}
-}
-
-// Empty preserves the pre-rule PgBase behavior for migrated collections.
-func ruleAllowsOperation(rule string, authenticated, target uuid.UUID) bool {
-	if strings.TrimSpace(rule) == "" {
-		return true
-	}
-	return ruleAllowsSelf(rule, authenticated, target)
-}
-
 func validateTypedProfile(attributes map[string]any, fields []schema.FieldInput, storedPasswords bool) bool {
 	definitions := map[string]schema.FieldInput{}
 	for _, f := range fields {

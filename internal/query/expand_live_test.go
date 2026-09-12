@@ -11,9 +11,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/cursor"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -78,6 +81,100 @@ func TestGetExpandedReturnsSingleTargetApartFromRoot(t *testing.T) {
 	}
 	if response["owner"] != targetID.String() || response["expand"] == nil {
 		t.Fatalf("expanded JSON = %s", encoded)
+	}
+}
+
+func TestExpandedTargetRulesReceiveRequestContextAndFullCatalog(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{Name: "expand_context_teams", Fields: []schema.FieldInput{
+		{Name: "name", Type: schema.TypeText, Required: true},
+	}})
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{Name: "expand_context_people", Fields: []schema.FieldInput{
+		{Name: "name", Type: schema.TypeText, Required: true},
+		{Name: "team", Type: schema.TypeRelation, Relation: &schema.RelationInput{TargetCollection: "expand_context_teams", Cardinality: schema.RelationSingle, OnDelete: schema.RelationRestrict}},
+	}})
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{Name: "expand_context_posts", Fields: []schema.FieldInput{
+		{Name: "title", Type: schema.TypeText, Required: true},
+		{Name: "owner", Type: schema.TypeRelation, Relation: &schema.RelationInput{TargetCollection: "expand_context_people", Cardinality: schema.RelationSingle, OnDelete: schema.RelationRestrict}},
+	}})
+	team, err := records.Create(ctx, "expand_context_teams", map[string]json.RawMessage{"name": json.RawMessage(`"allowed"`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	person, err := records.Create(ctx, "expand_context_people", map[string]json.RawMessage{
+		"name": json.RawMessage(`"Ada"`), "team": json.RawMessage(`"` + team["id"].(string) + `"`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post, err := records.Create(ctx, "expand_context_posts", map[string]json.RawMessage{
+		"title": json.RawMessage(`"Compiler"`), "owner": json.RawMessage(`"` + person["id"].(string) + `"`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	user := Principal{Kind: identity.User, ID: uuid.New()}
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.users(id,email,password_hash,active,created_at,updated_at)
+		values($1,$2,'test',true,transaction_timestamp(),transaction_timestamp())`, user.ID, "expand-context@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	for _, collection := range []string{"expand_context_teams", "expand_context_people", "expand_context_posts"} {
+		if _, err := recordaccess.NewService(pool).Set(ctx, collection, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	allow := accessrule.Rule{Op: "allow"}
+	contextRule, err := ParsePocketBaseAccessRule("team.name = 'allowed' && @request.context.channel = 'allowed'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeRules := func(collectionID uuid.UUID, rules accessrule.Rules) {
+		t.Helper()
+		raw, marshalErr := json.Marshal(rules)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		if _, execErr := pool.Exec(ctx, `insert into pgbase_meta.collection_rules(collection_id,rules) values($1,$2::jsonb)
+			on conflict(collection_id) do update set rules=excluded.rules,revision=pgbase_meta.collection_rules.revision+1`, collectionID, string(raw)); execErr != nil {
+			t.Fatal(execErr)
+		}
+	}
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeRules(catalog.Collections["expand_context_people"].ID, accessrule.Rules{List: allow, View: contextRule, Create: allow, Update: allow, Delete: allow})
+	storeRules(catalog.Collections["expand_context_posts"].ID, accessrule.Rules{List: allow, View: allow, Create: allow, Update: allow, Delete: allow})
+	storeRules(catalog.Collections["expand_context_teams"].ID, accessrule.Rules{List: allow, View: allow, Create: allow, Update: allow, Delete: allow})
+	ruleContext := &accessrule.RequestContext{Context: map[string]any{"channel": "allowed"}}
+	peopleCollection := catalog.Collections["expand_context_people"]
+	if _, _, err := compilePolicyPredicateWithRequest(contextRule, peopleCollection, peopleCollection, peopleCollection.TableName, user, 0, catalog, ruleContext); err != nil {
+		t.Fatalf("compile forward target rule: %v", err)
+	}
+	forward, err := records.GetExpanded(ctx, GetRequest{Principal: user, Collection: "expand_context_posts",
+		ID: uuid.MustParse(post["id"].(string)), Expand: "owner", RuleContext: ruleContext})
+	if err != nil {
+		t.Fatalf("forward expansion: %v", err)
+	}
+	if owner, ok := forward.Expand["owner"].(map[string]any); !ok || owner["name"] != "Ada" {
+		t.Fatalf("forward owner = %#v", forward.Expand["owner"])
+	}
+
+	reverseRule, err := ParsePocketBaseAccessRule("owner.name = 'Ada' && @request.context.channel = 'allowed'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeRules(catalog.Collections["expand_context_people"].ID, accessrule.Rules{List: allow, View: allow, Create: allow, Update: allow, Delete: allow})
+	storeRules(catalog.Collections["expand_context_posts"].ID, accessrule.Rules{List: allow, View: reverseRule, Create: allow, Update: allow, Delete: allow})
+	reverse, err := records.GetExpanded(ctx, GetRequest{Principal: user, Collection: "expand_context_people",
+		ID: uuid.MustParse(person["id"].(string)), Expand: "expand_context_posts_via_owner", RuleContext: ruleContext})
+	if err != nil {
+		t.Fatalf("reverse expansion: %v", err)
+	}
+	posts, ok := reverse.Expand["expand_context_posts_via_owner"].([]map[string]any)
+	if !ok || len(posts) != 1 || posts[0]["title"] != "Compiler" {
+		t.Fatalf("reverse posts = %#v", reverse.Expand["expand_context_posts_via_owner"])
 	}
 }
 

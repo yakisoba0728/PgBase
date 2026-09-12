@@ -16,7 +16,7 @@ var hashedAsset = regexp.MustCompile(`-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$`)
 
 const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
-type handler struct {
+type Handler struct {
 	root *os.Root
 	spa  bool
 }
@@ -24,7 +24,7 @@ type handler struct {
 // New constructs a handler rooted at an existing directory. The resolved root
 // is retained so every individual opened path can be checked against it after
 // symlink resolution.
-func New(root string, spa bool) (http.Handler, error) {
+func New(root string, spa bool) (*Handler, error) {
 	if !filepath.IsAbs(root) {
 		return nil, errors.New("public directory must be absolute")
 	}
@@ -40,10 +40,21 @@ func New(root string, spa bool) (http.Handler, error) {
 	if err != nil {
 		return nil, errors.New("open public directory")
 	}
-	return handler{root: rootHandle, spa: spa}, nil
+	return &Handler{root: rootHandle, spa: spa}, nil
 }
 
-func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// Close releases the descriptor retained for the public-site root. It is
+// called after HTTP shutdown, when no request can still use the handler.
+func (h *Handler) Close() error {
+	if h == nil || h.root == nil {
+		return nil
+	}
+	err := h.root.Close()
+	h.root = nil
+	return err
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -76,7 +87,7 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-func (h handler) serveNamed(w http.ResponseWriter, r *http.Request, name string) bool {
+func (h *Handler) serveNamed(w http.ResponseWriter, r *http.Request, name string) bool {
 	file, info, err := h.open(name)
 	if err != nil {
 		return false
@@ -97,7 +108,7 @@ func (h handler) serveNamed(w http.ResponseWriter, r *http.Request, name string)
 	return true
 }
 
-func (h handler) open(name string) (*os.File, os.FileInfo, error) {
+func (h *Handler) open(name string) (*os.File, os.FileInfo, error) {
 	if name == "." || name == "" || strings.HasPrefix(name, "/") || unsafePath("/"+name, "") {
 		return nil, nil, os.ErrNotExist
 	}

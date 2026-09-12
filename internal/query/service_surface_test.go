@@ -131,7 +131,9 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// external-id ordering while retaining UUID cursor and @rowid authority.
 	// RQR-002 adds direction-aware correlation for reverse single and multiple
 	// relation filters at the existing relation SQL renderer.
-	if runtimeLines > 7534 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 7534", runtimeLines)
+	// The 2026-09-12 query audit adds exact timestamp comparison, ambiguous
+	// reverse-path rejection, and request-aware expansion policy propagation.
+	if runtimeLines > 7565 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 7565", runtimeLines)
 	}
 }

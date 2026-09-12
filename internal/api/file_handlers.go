@@ -102,7 +102,7 @@ func (e fileEndpoints) publicDownload(w http.ResponseWriter, r *http.Request) {
 }
 
 func downloadContentType(file filestore.File, variant filestore.Variant) string {
-	if variant != filestore.Original && variant != filestore.Thumbnail && (file.ContentType == "image/gif" || file.ContentType == "image/webp") {
+	if variant != filestore.Original && (file.ContentType == "image/gif" || file.ContentType == "image/webp") {
 		return "image/jpeg"
 	}
 	return file.ContentType
@@ -229,7 +229,7 @@ func (e fileEndpoints) download(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = reader.Close() }()
 	w.Header().Set("Cache-Control", "private, no-store")
-	w.Header().Set("Content-Type", file.ContentType)
+	w.Header().Set("Content-Type", downloadContentType(file, variant))
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.Filename}))
 	_, _ = io.Copy(w, reader)
 }

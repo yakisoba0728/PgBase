@@ -275,8 +275,8 @@ func measureCascadeDelete(t *testing.T, recordCount int) cascadeDeleteMeasuremen
 		t.Fatalf("unclassified delete statements (%d):\n%s", len(measurement.unknown), strings.Join(measurement.unknown, "\n"))
 	}
 
-	// The root event must stay first in the audit sequence and every derived
-	// event must follow it exactly once, as the per-record path guaranteed.
+	// Artifact sequence is deterministic by collection UUID and then record UUID.
+	// The root is identified by result.EventID and need not be the first group.
 	events := readDeleteRequestArtifacts(t, ctx, pool, requestID)
 	if len(events) != recordCount {
 		t.Fatalf("audit events = %d, want %d", len(events), recordCount)

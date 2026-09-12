@@ -1,6 +1,7 @@
 package deployments_test
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -23,7 +24,10 @@ var (
 )
 
 func TestTrivyAllowlistEntriesAreOwnedAndDated(t *testing.T) {
-	entries := parseTrivyAllowlist(t, readFile(t, "security/trivy-allowlist.yaml"))
+	entries, err := parseTrivyAllowlist(readFile(t, "security/trivy-allowlist.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	seen := make(map[string]int, len(entries))
 	for _, entry := range entries {
 		if !advisoryIdentifier.MatchString(entry.id) {
@@ -76,8 +80,7 @@ func TestSecurityWorkflowScansWithoutABlanketUnfixedExemption(t *testing.T) {
 // parseTrivyAllowlist reads the narrow list shape the allowlist documents. A
 // YAML dependency would be production surface for one file, so anything the
 // reader cannot classify fails the test rather than being skipped.
-func parseTrivyAllowlist(t *testing.T, source string) []allowlistEntry {
-	t.Helper()
+func parseTrivyAllowlist(source string) ([]allowlistEntry, error) {
 	var entries []allowlistEntry
 	inVulnerabilities := false
 	folding := ""
@@ -89,8 +92,14 @@ func parseTrivyAllowlist(t *testing.T, source string) []allowlistEntry {
 		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "-") {
 			key, value, _ := strings.Cut(line, ":")
 			inVulnerabilities = key == "vulnerabilities"
-			if inVulnerabilities && strings.TrimSpace(value) == "[]" {
-				return nil
+			if inVulnerabilities {
+				switch strings.TrimSpace(value) {
+				case "":
+				case "[]":
+					return nil, nil
+				default:
+					return nil, fmt.Errorf("line %d: vulnerabilities must be a block list or []", lineNumber)
+				}
 			}
 			folding = ""
 			continue
@@ -105,7 +114,7 @@ func parseTrivyAllowlist(t *testing.T, source string) []allowlistEntry {
 			folding = ""
 		}
 		if len(entries) == 0 {
-			t.Fatalf("line %d: allowlist content appears before its first list item", lineNumber)
+			return nil, fmt.Errorf("line %d: allowlist content appears before its first list item", lineNumber)
 		}
 		entry := &entries[len(entries)-1]
 		if key, value, hasKey := strings.Cut(trimmed, ":"); hasKey && isAllowlistKey(strings.TrimSpace(key)) {
@@ -121,11 +130,17 @@ func parseTrivyAllowlist(t *testing.T, source string) []allowlistEntry {
 			continue
 		}
 		if folding == "" {
-			t.Fatalf("line %d: %q is neither an allowlist key nor a folded continuation", lineNumber, trimmed)
+			return nil, fmt.Errorf("line %d: %q is neither an allowlist key nor a folded continuation", lineNumber, trimmed)
 		}
 		setAllowlistField(entry, folding, joinFolded(allowlistField(entry, folding), trimmed))
 	}
-	return entries
+	return entries, nil
+}
+
+func TestTrivyAllowlistRejectsFlowStyleVulnerabilities(t *testing.T) {
+	if _, err := parseTrivyAllowlist("vulnerabilities: [{id: CVE-2026-1234}]"); err == nil {
+		t.Fatal("flow-style vulnerabilities list was accepted")
+	}
 }
 
 func isAllowlistKey(key string) bool {
