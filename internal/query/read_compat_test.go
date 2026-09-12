@@ -42,7 +42,7 @@ func CompileList(collection schema.Collection, query ListQuery) (Statement, erro
 	if err != nil {
 		return Statement{}, err
 	}
-	return compileListPage(query.Filter, order, query.After, normalizedFetchLimit(query.Limit), nil)
+	return compileListPageOffset(query.Filter, order, query.After, normalizedFetchLimit(query.Limit), 0, nil)
 }
 
 func (p relationListPlan) statement(after *pageBoundary, limit int) (Statement, error) {

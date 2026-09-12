@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,6 +48,7 @@ type Service struct {
 	compilerVersion     int16
 	collectionLifecycle CollectionMutationLifecycle
 	migrationRecorder   MigrationRecorder
+	authSecret          []byte
 }
 
 func NewService(pool *database.Pool, cache *Cache, recorder observability.Recorder, cursorSecret ...[]byte) *Service {
@@ -57,7 +59,7 @@ func NewService(pool *database.Pool, cache *Cache, recorder observability.Record
 	if len(cursorSecret) != 0 {
 		operationCursorSecret = cursorSecret[0]
 	}
-	return &Service{
+	service := &Service{
 		pool: pool, cache: cache, recorder: recorder,
 		operationCursors:    newSchemaOperationCursorCodec(operationCursorSecret),
 		now:                 time.Now,
@@ -67,6 +69,10 @@ func NewService(pool *database.Pool, cache *Cache, recorder observability.Record
 		catalogWireLimit:    maximumCatalogWireBytes,
 		compilerVersion:     schemaCompilerVersion,
 	}
+	if len(cursorSecret) != 0 {
+		service.authSecret = append([]byte(nil), cursorSecret[0]...)
+	}
+	return service
 }
 
 func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err error) {
@@ -115,7 +121,7 @@ func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err er
 	}
 	switch change.kind {
 	case changeUpdate:
-		current := catalog.Collections[change.update.Name]
+		current, _ := collectionForUpdate(catalog, change.update)
 		relationOperation = relationOperation || collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
 		if err := validateRequiredRelationAdds(ctx, s.pool, current, plan.Definition, false); err != nil {
 			return Plan{}, err
@@ -291,6 +297,12 @@ func validateCreateAgainstCatalog(catalog Catalog, definition PlannedCollection)
 		if collection.Name == definition.Name || collection.TableName == definition.TableName {
 			return ErrConflict
 		}
+		if strings.EqualFold(collection.CompatibilityName, definition.Name) {
+			return validation("name", "duplicate_name")
+		}
+		if definition.CompatibilityName != "" && (strings.EqualFold(collection.Name, definition.CompatibilityName) || strings.EqualFold(collection.CompatibilityName, definition.CompatibilityName)) {
+			return validation("compatibilityName", "duplicate_name")
+		}
 	}
 	return nil
 }
@@ -309,12 +321,34 @@ func sameCatalogContent(left, right Catalog) bool {
 
 func validateCatalogIntegrity(catalog Catalog) error {
 	collectionIDs := make(map[uuid.UUID]bool, len(catalog.Collections))
+	lookupNames := map[string]uuid.UUID{}
 	for key, collection := range catalog.Collections {
 		if key != collection.Name || collection.Name != collection.TableName || collection.ID == uuid.Nil || collectionIDs[collection.ID] {
 			return ErrConflict
 		}
 		if err := validateName("", collection.Name); err != nil {
 			return ErrConflict
+		}
+		if collection.Type != "" && collection.Type != CollectionTypeBase && collection.Type != CollectionTypeAuth && collection.Type != CollectionTypeView {
+			return ErrConflict
+		}
+		if collection.ValidationMode != "" && collection.ValidationMode != ValidationModePostgres && collection.ValidationMode != ValidationModePocketBase {
+			return ErrConflict
+		}
+		nativeName := strings.ToLower(collection.Name)
+		if owner, exists := lookupNames[nativeName]; exists && owner != collection.ID {
+			return ErrConflict
+		}
+		lookupNames[nativeName] = collection.ID
+		if collection.CompatibilityName != "" {
+			normalized := strings.ToLower(collection.CompatibilityName)
+			if !compatibilityCollectionName.MatchString(collection.CompatibilityName) {
+				return ErrConflict
+			}
+			if owner, exists := lookupNames[normalized]; exists && owner != collection.ID {
+				return ErrConflict
+			}
+			lookupNames[normalized] = collection.ID
 		}
 		collectionIDs[collection.ID] = true
 	}
@@ -391,24 +425,16 @@ func validateCatalogIntegrity(catalog Catalog) error {
 		}
 		indexNames := map[string]bool{}
 		for _, index := range collection.Indexes {
-			if index.ID == uuid.Nil || indexNames[index.Name] || index.IndexName != compoundIndexName(collection.Name, index.Name) || len(index.Fields) < 2 || len(index.Fields) > 8 {
+			if index.ID == uuid.Nil || indexNames[index.Name] || index.IndexName != compoundIndexName(collection.Name, index.Name) {
 				return ErrConflict
 			}
 			if err := validateName("", index.Name); err != nil {
 				return ErrConflict
 			}
 			indexNames[index.Name] = true
-			seen := map[string]bool{}
-			for _, name := range index.Fields {
-				if seen[name] || !fieldNames[name] {
-					return ErrConflict
-				}
-				seen[name] = true
-				for _, field := range collection.Fields {
-					if field.Name == name && (field.Type == TypeFile || field.Type == TypeRelation || field.Type == TypeJSONB || field.Type == TypeGeoPoint || field.Type == TypePassword) {
-						return ErrConflict
-					}
-				}
+			planned, _, err := normalizeIndexInput(collection.Name, indexInputFromCatalog(index), plannedFieldsByName(collection.Fields), "index")
+			if err != nil || !sameIndexDefinition(index, planned) {
+				return ErrConflict
 			}
 		}
 		if collection.View != nil {
@@ -582,8 +608,12 @@ func updatedFieldMetadata(collectionID uuid.UUID, existing []Field, definition P
 		existingByID[field.ID] = field
 	}
 	fields := make([]Field, 0, len(definition.Fields))
+	usedIDs := make(map[uuid.UUID]bool, len(definition.Fields))
 	for ordinal, planned := range definition.Fields {
 		fieldID, ok := existingIDs[planned.Name]
+		if ok && usedIDs[fieldID] {
+			fieldID, ok = uuid.Nil, false
+		}
 		columnName := planned.ColumnName
 		if planned.ID != uuid.Nil {
 			prior, exists := existingByID[planned.ID]
@@ -601,6 +631,7 @@ func updatedFieldMetadata(collectionID uuid.UUID, existing []Field, definition P
 				return nil, fmt.Errorf("generate field ID: %w", err)
 			}
 		}
+		usedIDs[fieldID] = true
 		relation, err := resolvedPlannedRelation(fmt.Sprintf("fields.%d", ordinal), collectionID, planned)
 		if err != nil {
 			return nil, err
@@ -608,7 +639,7 @@ func updatedFieldMetadata(collectionID uuid.UUID, existing []Field, definition P
 		fields = append(fields, Field{
 			ID: fieldID, Name: planned.Name, ColumnName: columnName, Type: planned.Type,
 			Required: planned.Required, Unique: planned.Unique, Indexed: planned.Indexed,
-			Default: append([]byte(nil), planned.Default...), Relation: relation, Options: cloneFieldOptions(planned.Options), Hidden: planned.Hidden, Presentable: planned.Presentable, Help: planned.Help, Ordinal: planned.Ordinal,
+			Default: append([]byte(nil), planned.Default...), Relation: relation, Options: cloneFieldOptions(planned.Options), Hidden: planned.Hidden, Presentable: planned.Presentable, Help: planned.Help, System: planned.System, Ordinal: planned.Ordinal,
 		})
 	}
 	return fields, nil
@@ -629,7 +660,11 @@ func updatedIndexMetadata(collection string, existing []Index, definition Planne
 				return nil, err
 			}
 		}
-		result = append(result, Index{ID: id, Name: planned.Name, Fields: append([]string(nil), planned.Fields...), IndexName: compoundIndexName(collection, planned.Name), Unique: planned.Unique})
+		result = append(result, Index{
+			ID: id, Name: planned.Name, Fields: append([]string(nil), planned.Fields...),
+			IndexName: compoundIndexName(collection, planned.Name), Unique: planned.Unique,
+			Keys: append([]IndexKeyInput(nil), planned.Keys...), Where: planned.Where, RawSQL: planned.RawSQL,
+		})
 	}
 	return result, nil
 }

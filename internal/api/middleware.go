@@ -6,12 +6,57 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/apiratelimit"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 	"log/slog"
+	"math"
 	"net/http"
+	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 )
+
+func apiRateLimitMiddleware(limiter *apiratelimit.Service, trusted func() []netip.Prefix, pattern string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		address, ok := clientAddress(r, currentTrustedProxies(trusted))
+		if !ok {
+			address = "unknown"
+		}
+		actor := apiRateLimitActor(r.Context())
+		decision, err := limiter.Admit(r.Context(), r.Method, pattern, actor, address)
+		if err != nil {
+			writeAPIError(w, r, APIError{Status: http.StatusServiceUnavailable, Code: "rate_limit_unavailable", Message: "Rate limit unavailable"})
+			return
+		}
+		if !decision.Allowed {
+			w.Header().Set("Retry-After", strconv.FormatInt(int64(math.Ceil(decision.RetryAfter.Seconds())), 10))
+			writeAPIError(w, r, APIError{Status: http.StatusTooManyRequests, Code: "rate_limited", Message: "Too many requests"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// apiRateLimitActor derives the quota audience from the identity already
+// admitted by the route policy. Service tokens use their durable token UUID,
+// never the bearer credential, so a service request belongs to @auth without
+// leaking or making buckets depend on the raw secret.
+func apiRateLimitActor(ctx context.Context) string {
+	if p, ok := AdminPrincipalFromContext(ctx); ok && p.Administrator.ID != uuid.Nil {
+		return "admin:" + p.Administrator.ID.String()
+	}
+	if p, ok := ctx.Value(userPrincipalKey{}).(authenticatedUser); ok && p.principal.User.ID != uuid.Nil {
+		return "user:" + p.principal.User.ID.String()
+	}
+	if subject, ok := ctx.Value(publicRecordPrincipalKey{}).(identity.Subject); ok && subject.Kind == identity.Service && subject.ID != uuid.Nil {
+		return "service:" + subject.ID.String()
+	}
+	return ""
+}
 
 const (
 	maxJSONBodyBytes              = 1 << 20
@@ -19,6 +64,21 @@ const (
 )
 
 type requestIDKey struct{}
+type requestLogContextKey struct{}
+type requestLogContext struct {
+	clientIP, authKind, authID string
+	includeAuth                bool
+	skipSuccessActivityLog     bool
+}
+
+// SkipSuccessActivityLog records a request-local opt-out that the access log
+// reads after its nested handler returns. Only successful responses are
+// skipped; failures remain part of the diagnostic and security trail.
+func SkipSuccessActivityLog(ctx context.Context) {
+	if metadata, ok := ctx.Value(requestLogContextKey{}).(*requestLogContext); ok && metadata != nil {
+		metadata.skipSuccessActivityLog = true
+	}
+}
 
 func requestID(ctx context.Context) string {
 	if value, ok := ctx.Value(requestIDKey{}).(string); ok {
@@ -206,8 +266,19 @@ func (w *statusWriter) Write(body []byte) (int, error) {
 	return w.ResponseWriter.Write(body)
 }
 
-func accessLogMiddleware(logger *slog.Logger, next http.Handler, logs ...*observability.RequestLog) http.Handler {
+func accessLogMiddleware(logger *slog.Logger, settings *runtimesettings.Controller, trustedProxies func() []netip.Prefix, next http.Handler, logs ...*observability.RequestLog) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		configured := runtimesettings.Default().Logs
+		if settings != nil {
+			configured = settings.Get().Logs
+		}
+		metadata := &requestLogContext{includeAuth: configured.IncludeAuth}
+		if configured.IncludeIP {
+			if address, ok := clientIP(r, trustedProxies()); ok {
+				metadata.clientIP = address
+			}
+		}
+		r = r.WithContext(context.WithValue(r.Context(), requestLogContextKey{}, metadata))
 		started := time.Now()
 		response := &statusWriter{ResponseWriter: w}
 		next.ServeHTTP(response, r)
@@ -215,10 +286,29 @@ func accessLogMiddleware(logger *slog.Logger, next http.Handler, logs ...*observ
 		if status == 0 {
 			status = http.StatusOK
 		}
-		for _, log := range logs {
-			log.Record(r.Method, requestRoute(r), status, time.Since(started))
+		if metadata.skipSuccessActivityLog && status >= http.StatusOK && status < http.StatusBadRequest {
+			return
 		}
-		logger.Info("http request", "request_id", requestID(r.Context()), "method", r.Method, "route", requestRoute(r), "status", status, "duration_ms", time.Since(started).Milliseconds())
+		for _, log := range logs {
+			log.RecordContext(r.Method, requestRoute(r), status, time.Since(started), metadata.clientIP, metadata.authKind, metadata.authID)
+		}
+		attrs := []any{"request_id", requestID(r.Context()), "method", r.Method, "route", requestRoute(r), "status", status, "duration_ms", time.Since(started).Milliseconds()}
+		if metadata.clientIP != "" {
+			attrs = append(attrs, "client_ip", metadata.clientIP)
+		}
+		if metadata.authID != "" {
+			attrs = append(attrs, "auth_kind", metadata.authKind, "auth_id", metadata.authID)
+		}
+		switch configured.Level {
+		case "debug":
+			logger.Debug("http request", attrs...)
+		case "warn":
+			logger.Warn("http request", attrs...)
+		case "error":
+			logger.Error("http request", attrs...)
+		default:
+			logger.Info("http request", attrs...)
+		}
 	})
 }
 

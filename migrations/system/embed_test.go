@@ -56,10 +56,29 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		39: "c6acb137040bbe69bc7f276aa74f0f1b94f1aa2bfd5fdc3f1d109dbffe2d35ed",
 		40: "ffecb2cff732be1c1922fa893d61ba3f0ad77c1d8c8d1e2159ece97c967d64ee",
 		41: "628b3920dd97db4b419ba7f2ed4b3b921911a07d374033ad8e2f0a849871d699",
+		42: "8ab7ffccff22509e2b3186eca18420b5428b827ec9279a36eac7920f91a2fd92",
+		43: "d7fb1735466f7cfa7463ad95d7c312bc704350115eab8fe8ad5f0a78e784e6b0",
+		45: "43dddfefca04b239547c579dda39c8ddd348fdbd5ec85f3018cc9805c42141c7",
+		48: "a8ce4d47642feadb70d9c1dfa5466b3448b37ba506535d2a09dd7c9d52c88c3f",
+		50: "93d1a641462382d75d055774b87b8b76baa4c7cd61dc70228f0e770356fcabb1",
+		51: "5d41df638207edc2389c023b12e63b701e69ff0cb7e87f3ad2ebe0c794af640c",
+		52: "9c0f87e8deb1c0649a064599946a95c635572f04bca6a5a2d3a0d07d8ba71ae5",
+		54: "9bb87253d2b6f398b5b5d8d2269baf35504c71d7a138d178b062f38345a18d6d",
+		56: "8aecc4be385dfb2b639e6cb8ea71728812ffb40ab16afec5418688390ec82757",
+		57: "26d636fa0d64bd8d7f6d459f8e36ed5585159ebe258746f18387c618b0a50a58",
+		58: "8b0d489f5401fb04b797cb0f0301d895f6f69ba64d6233d2c3d3af26b41d860d",
+		59: "a9a2df49c7af3c9aca9c56fd1804e3c9ee8ca62992d9eb0933f706c708581a0b",
+		60: "3aa7f1f2f54d85183e7d55e91e58ba8e645d5bdd00b3a5363b795afe15cbc753",
+		61: "b2684b9d6e2e683af9881babe3271630875f8037b7736224d80dd501b2a4824d",
+		62: "3eadda68191f1cc77ba44d8e1bc87dd6c1d3e7a24ff6cdee6dd85e5d8cedbfbd",
+		63: "2eed059e8a905d507b14a55fdda1bcce68da46be10efa29da903b948378ccdea",
+		64: "883a13de641abb913222955a55973b4836e6aee5af287fb6fd936667b500b885",
+		65: "a2e69813d14ef3bf9cee28dce4a31112104fcc12ccc33a13c5a8bf8c20571340",
+		55: "157df7385a28770bcf64dff7ba195b5a719100c68accc6b38a0dd0cb97884bef",
 	}
 	migrations := system.Migrations()
-	if len(migrations) != 41 || migrations[len(migrations)-1].Version != 41 ||
-		migrations[len(migrations)-1].Name != "sql_console" || migrations[7].Version != 8 ||
+	if len(migrations) != 60 || migrations[len(migrations)-1].Version != 65 ||
+		migrations[len(migrations)-1].Name != "optional_auth_email_uniqueness" || migrations[7].Version != 8 ||
 		migrations[7].Name != "schema_companion_indexes" ||
 		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" ||
 		migrations[9].Version != 10 || migrations[9].Name != "public_users" ||

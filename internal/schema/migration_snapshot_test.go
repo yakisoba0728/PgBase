@@ -3,6 +3,7 @@ package schema
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -110,6 +111,49 @@ func TestAnalyzeMigrationSnapshotsReportsEachCollectionUpdate(t *testing.T) {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("operations=%v missing %q", impact.Operations, expected)
 		}
+	}
+}
+
+func TestMigrationSnapshotMatchesInheritsOnlyAbsentLegacyMetadata(t *testing.T) {
+	fieldID := uuid.MustParse("0199ab10-0000-7000-8000-000000000021")
+	actualFieldID := uuid.MustParse("0199ab10-0000-7000-8000-000000000022")
+	compatibilityName, collectionType, system, validationMode, fieldSystem := "Items", CollectionTypeBase, true, ValidationModePocketBase, true
+	actual := mustMigrationSnapshot(t, MigrationSnapshot{Format: MigrationSnapshotFormat, Collections: []MigrationSnapshotCollection{{
+		Name: "items", CompatibilityName: &compatibilityName, Type: &collectionType, System: &system, ValidationMode: &validationMode,
+		Fields: []FieldInput{{ID: &actualFieldID, Name: "created", Type: TypeTimestampTZ, System: &fieldSystem}}, Rules: json.RawMessage(`{}`),
+	}}})
+	legacy := mustMigrationSnapshot(t, MigrationSnapshot{Format: MigrationSnapshotFormat, Collections: []MigrationSnapshotCollection{{
+		Name: "items", Fields: []FieldInput{{ID: &fieldID, Name: "created", Type: TypeTimestampTZ}}, Rules: json.RawMessage(`{}`),
+	}}})
+	if matches, err := migrationSnapshotMatches(actual, legacy); err != nil || !matches {
+		t.Fatalf("legacy snapshot match=(%v, %v), want true", matches, err)
+	}
+
+	explicitPostgres := ValidationModePostgres
+	requested := mustMigrationSnapshot(t, MigrationSnapshot{Format: MigrationSnapshotFormat, Collections: []MigrationSnapshotCollection{{
+		Name: "items", ValidationMode: &explicitPostgres,
+		Fields: []FieldInput{{ID: &fieldID, Name: "created", Type: TypeTimestampTZ}}, Rules: json.RawMessage(`{}`),
+	}}})
+	if matches, err := migrationSnapshotMatches(actual, requested); err != nil || matches {
+		t.Fatalf("explicit metadata mismatch=(%v, %v), want false", matches, err)
+	}
+}
+
+func TestMigrationSnapshotIndexPreservesLogicalDefinition(t *testing.T) {
+	index := Index{
+		Name: "search_items", Fields: []string{"title", "score"}, Unique: true,
+		Keys:  []IndexKeyInput{{Expression: "lower(title)", Collation: "C", Order: "DESC"}},
+		Where: "score > 0",
+	}
+	got := migrationSnapshotIndex(index)
+	if !reflect.DeepEqual(got.Keys, index.Keys) || got.Where != index.Where || len(got.Fields) != 0 || !got.Unique {
+		t.Fatalf("migration snapshot index lost logical definition: %+v", got)
+	}
+	got.Keys[0].Expression = "changed"
+	ordinary := migrationSnapshotIndex(Index{Name: "ordinary", Fields: []string{"title"}})
+	ordinary.Fields[0] = "changed"
+	if index.Fields[0] != "title" || index.Keys[0].Expression != "lower(title)" {
+		t.Fatal("migration snapshot index aliases catalog slices")
 	}
 }
 

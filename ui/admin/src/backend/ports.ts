@@ -6,6 +6,8 @@ import { stringifyJSON } from "./json";
 interface Administrator { id: string; email: string; createdAt: string }
 export interface AuthenticatedSession { administrator: Administrator; expiresAt: string; sqlConsoleEnabled?: boolean }
 export interface SetupInput { setupToken: string; email: string; password: string }
+export interface SetupBackup { id: string; createdAt?: string; size?: number; postgresqlMajor?: number }
+export interface SetupBackupJob { id: string; status?: string; phase?: string; error?: string }
 export interface LoginInput { email: string; password: string; otpCode?: string }
 
 export type AuthSnapshot =
@@ -33,6 +35,8 @@ export const fieldTypes = ["boolean", "integer", "bigint", "numeric", "text", "t
 export const relationCardinalities = ["single", "multiple"] as const;
 export const relationDeleteActions = ["restrict", "cascade", "set_null"] as const;
 export type FieldType = typeof fieldTypes[number];
+export const collectionTypes = ["base", "auth", "view"] as const;
+export type CollectionType = typeof collectionTypes[number];
 export type RelationCardinality = typeof relationCardinalities[number];
 export type RelationDeleteAction = typeof relationDeleteActions[number];
 
@@ -40,7 +44,10 @@ interface RelationInput { targetCollection: string; cardinality: RelationCardina
 interface RelationDefinition extends Omit<RelationInput, "targetCollection"> { targetCollectionId: string }
 
 export interface FieldOptions { maxSize?: number; convertURLs?: boolean; onCreate?: boolean; onUpdate?: boolean; minLength?: number; maxLength?: number; pattern?: string; autogeneratePattern?: string; format?: "email" | "url"; allowedDomains?: string[]; deniedDomains?: string[]; allowedValues?: string[]; min?: string; max?: string; minSelect?: number; maxSelect?: number; maxFileSize?: number; mimeTypes?: string[]; thumbs?: string[] }
-export interface FieldInput { id?: string; options?: FieldOptions; name: string; type: FieldType; required: boolean; unique: boolean; indexed: boolean; hidden?: boolean; presentable?: boolean; help?: string; default?: unknown; relation?: RelationInput }
+// System fields are supplied by a trusted server template. The designer keeps
+// the flag through a duplicate or scaffold apply; it is never inferred from a
+// field name in the browser.
+export interface FieldInput { id?: string; options?: FieldOptions; name: string; type: FieldType; required: boolean; unique: boolean; indexed: boolean; hidden?: boolean; presentable?: boolean; system?: boolean; help?: string; default?: unknown; relation?: RelationInput }
 
 export interface FieldDefinition extends Omit<FieldInput, "relation"> { relation?: RelationDefinition; ordinal: number }
 export interface PlannedField extends Omit<FieldInput, "relation"> { relation?: RelationInput }
@@ -50,11 +57,11 @@ export type SQLViewDefinition = { sql: string; dependencies?: string[]; source?:
 export type ViewDefinition =
 	| { sourceCollectionId?: string; source: string; projection: string[]; filter?: ViewFilter; sql?: never; dependencies?: never }
 	| SQLViewDefinition;
-export interface CollectionDefinition { id?: string; name: string; tableName: string; fields: FieldDefinition[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
+export interface CollectionDefinition { id?: string; name: string; tableName: string; type?: CollectionType; fields: FieldDefinition[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
 export type CollectionChange =
-	| { operation: "create"; name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
-	| { operation: "update"; name: string; fields: FieldInput[]; indexes?: CompoundIndex[]; view?: never }
-	| { operation: "update"; name: string; view: SQLViewDefinition; fields?: never; indexes?: never }
+  | { operation: "create"; name: string; type?: CollectionType; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
+  | { operation: "update"; name: string; type?: CollectionType; fields: FieldInput[]; indexes?: CompoundIndex[]; view?: never }
+  | { operation: "update"; name: string; type?: CollectionType; view: SQLViewDefinition; fields?: never; indexes?: never }
 	| { operation: "delete"; name: string; fields?: never; indexes?: never; view?: never };
 
 // A Map keyed by own entries, so a collection named `constructor` or
@@ -244,6 +251,11 @@ export interface SessionPort {
   setup(input: SetupInput): Promise<AuthenticatedSession>;
   login(input: LoginInput): Promise<AuthenticatedSession>;
   logout(): Promise<void>;
+	uploadSetupBackup?(setupToken: string, archive: File, signal?: AbortSignal): Promise<SetupBackup>;
+	restoreSetupBackup?(setupToken: string, id: string, signal?: AbortSignal): Promise<SetupBackupJob>;
+	setupBackupJob?(setupToken: string, id: string, signal?: AbortSignal): Promise<SetupBackupJob>;
+	requestPasswordReset?(email: string, signal?: AbortSignal): Promise<void>;
+	confirmPasswordReset?(token: string, newPassword: string, signal?: AbortSignal): Promise<void>;
   onExpired(listener: () => void): () => void;
 }
 
@@ -261,10 +273,20 @@ export interface SchemaPort {
 	previewImport?(document: SchemaDocument, signal?: AbortSignal): Promise<SchemaImportPlan>;
 	applyImport?(plan: SchemaImportPlan, signal?: AbortSignal): Promise<SchemaImportResult>;
 	importStatus?(operationId: string, signal?: AbortSignal): Promise<SchemaImportResult>;
+	/** Validates a prospective SQL view without storing it and returns its bounded sample. */
+	sampleView?(query: string, signal?: AbortSignal): Promise<{ fields: FieldDefinition[]; items: RecordData[]; dependencies: string[] }>;
+  /** Returns server-owned starting documents for the three supported collection kinds. */
+	scaffolds?(signal?: AbortSignal): Promise<CollectionScaffolds>;
+	/** Removes every record from one base collection after an exact typed confirmation. */
+	truncate?(collection: string, confirmation: string, signal?: AbortSignal): Promise<{ name: string; truncated: true; recordsDeleted: number; filesDeleted: number; relationsDeleted: number }>;
 }
-export interface SchemaDocumentCollection { name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> }
-export interface SchemaDocument { format: "pgbase.schema/v1"; collections: SchemaDocumentCollection[] }
-export interface SchemaImportPreviewChange { operation: string; baseVersion: number; definition: { name: string; tableName: string; fields: PlannedField[] }; sql: string[] }
+export interface SchemaDocumentCollection { name: string; type?: CollectionType; system?: boolean; validationMode?: "postgres" | "pocketbase"; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> }
+export interface SchemaDocumentAuthPolicy { passwordEnabled: boolean; minimumPasswordBytes: number; maximumPasswordBytes: number; passwordPattern: string; identityFields: string[]; mfaEnabled: boolean; mfaDurationSeconds: number; mfaRule: string; otpEnabled: boolean; otpDurationSeconds: number; otpMaxAttempts: number }
+export interface SchemaDocumentAuthCollection { name: string; registrationEnabled: boolean; fields: FieldInput[]; rules: Record<string, string | null>; policy: SchemaDocumentAuthPolicy; tokenTTLs?: Record<string, number> }
+export interface AuthCollectionScaffold { collection: SchemaDocumentCollection; authCollection: SchemaDocumentAuthCollection }
+export interface CollectionScaffolds { base: SchemaDocumentCollection; auth: AuthCollectionScaffold; view: SchemaDocumentCollection }
+export interface SchemaDocument { format: "pgbase.schema/v1"; collections: SchemaDocumentCollection[]; authCollections?: SchemaDocumentAuthCollection[] }
+export interface SchemaImportPreviewChange { operation: string; baseVersion: number; definition: { name: string; tableName: string; type?: CollectionType; fields: PlannedField[] }; sql: string[] }
 export interface SchemaImportPlan { baseVersion: number; checksum: string; policyChecksum: string; changes: SchemaImportPreviewChange[]; document: SchemaDocument; operationId?: string; idempotencyKey?: string }
 export interface SchemaImportResult { operationId: string; status: "running" | "unknown" | "committed" | "failed"; version: number; applied: number }
 export interface RecordRules { collection: string; rules: Record<string, unknown>; revision: number }
@@ -284,6 +306,7 @@ export interface AuthAdministration { policy: AuthPolicy; providers: OAuthProvid
 export interface AuthCollectionsPort {
   listAuthCollections(signal?: AbortSignal): Promise<AuthCollection[]>; createAuthCollection(value: AuthCollection, signal?: AbortSignal): Promise<AuthCollection>; updateAuthCollection(id: string, value: Pick<AuthCollection, "registrationEnabled" | "profileSchema">, signal?: AbortSignal): Promise<AuthCollection>; deleteAuthCollection(id: string, signal?: AbortSignal): Promise<void>;
   getAdministration(id: string, signal?: AbortSignal): Promise<AuthAdministration>; setPolicy(id: string, value: AuthPolicy, signal?: AbortSignal): Promise<AuthPolicy>; putProvider(id: string, value: OAuthProviderSettings, signal?: AbortSignal): Promise<OAuthProviderSettings>; deleteProvider(id: string, name: string, signal?: AbortSignal): Promise<void>; putTemplate(id: string, value: AuthMailTemplate, signal?: AbortSignal): Promise<AuthMailTemplate>; previewTemplate(id: string, value: AuthMailTemplate & { actionUrl: string }, signal?: AbortSignal): Promise<AuthMailPreview>; putSMTP(id: string, value: AuthSMTPSettings, signal?: AbortSignal): Promise<AuthSMTPSettings>; testSMTP(id: string, recipient: string, signal?: AbortSignal): Promise<void>;
+	generateAppleClientSecret?(value: { clientId: string; teamId: string; keyId: string; privateKey: string; duration: number }, signal?: AbortSignal): Promise<{ secret: string }>;
 }
 export interface ServiceTokenScope { collectionId: string; action: "read" | "create" | "update" | "delete" }
 export interface ServiceToken { id: string; name: string; active: boolean; expiresAt: string; revokedAt?: string; createdAt: string; scopes: ServiceTokenScope[] }
@@ -303,7 +326,7 @@ export interface RecordPort {
 	updateWithFiles(record: VersionedRecord, patch: RecordData, files: Record<string, File[]>): Promise<VersionedRecord>;
   remove(record: VersionedRecord): Promise<void>;
 }
-export interface FileInfo { id: string; field: string; filename: string; contentType: string; size: number; thumbnail: boolean }
+export interface FileInfo { id: string; field: string; filename: string; contentType: string; size: number; thumbnail: boolean; protected?: boolean; publicUrl?: string }
 export interface FilePort {
   listFiles(collection: string, recordID: string, field: string, signal?: AbortSignal): Promise<FileInfo[]>;
   uploadFile(collection: string, recordID: string, field: string, file: File, signal?: AbortSignal): Promise<FileInfo>;
@@ -316,8 +339,14 @@ export interface SystemPort {
   status(signal?: AbortSignal): Promise<SystemStatus>;
   health(signal?: AbortSignal): Promise<SchemaHealth>;
 }
+export interface APIRateLimitRule { label: string; audience: "" | "@guest" | "@auth"; duration: number; maxRequests: number }
+export interface AdminSettings { batch: { enabled: boolean; maxRequests: number; maxBodyBytes: number; timeoutMs: number }; logs: { retentionDays: number; level: "debug" | "info" | "warn" | "error"; includeIP: boolean; includeAuth: boolean }; proxy: { trustedProxyCIDRs: string[] }; backups: { schedule: string; timezone: string; enabled: boolean; keep: number }; application: { theme: "system" | "light" | "dark"; accent: string; branding: string }; rateLimits: { admin: { accountMaxFailures: number; networkMaxFailures: number; windowSeconds: number; blockSeconds: number }; user: { accountMaxFailures: number; networkMaxFailures: number; registrationNetworkMaxFailures: number; windowSeconds: number; blockSeconds: number }; enabled: boolean; rules: APIRateLimitRule[]; excludedIPs: string[] }; revision: number }
+export interface SettingsPort { get(signal?: AbortSignal): Promise<AdminSettings>; save(value: AdminSettings, signal?: AbortSignal): Promise<AdminSettings>; reload(signal?: AbortSignal): Promise<void> }
+export interface AdministratorProfile { id: string; email: string; active: boolean; createdAt: string; updatedAt: string }
+export interface AdministratorProfilePort { get(signal?: AbortSignal): Promise<AdministratorProfile>; update(value: { email: string }, signal?: AbortSignal): Promise<AdministratorProfile>; ipAllowlist(signal?: AbortSignal): Promise<string[]>; setIPAllowlist(prefixes: string[], signal?: AbortSignal): Promise<string[]> }
 
 export interface ManagedUser { id: string; email: string; active: boolean; verified?: boolean; createdAt: string; updatedAt: string }
+export interface OAuthIdentity { provider: string; subject: string; createdAt: string }
 export interface UserPage { items: ManagedUser[]; nextAfter?: string }
 export interface ImpersonatedUserSession { token: string; user: { id: string; email: string; verified: boolean; createdAt: string }; expiresAt: string; impersonated: true; impersonatingAdministratorId: string }
 export interface UsersPort {
@@ -328,6 +357,8 @@ export interface UsersPort {
   sendVerification(id: string): Promise<void>;
   sendPasswordReset(id: string): Promise<void>;
   impersonate(id: string, durationSeconds?: number): Promise<ImpersonatedUserSession>;
+	oauthIdentities?(id: string, signal?: AbortSignal): Promise<OAuthIdentity[]>;
+	unlinkOAuthIdentity?(id: string, provider: string, signal?: AbortSignal): Promise<void>;
 }
 
 export interface RequestLogEntry { id: number; at: string; method: string; route: string; status: number; durationMs: number }
@@ -367,6 +398,8 @@ export interface AdminBackend {
   schema: SchemaPort;
   records: RecordPort;
   system: SystemPort;
+	settings?: SettingsPort;
+	profile?: AdministratorProfilePort;
   users: UsersPort;
   files: FilePort;
   rules: RecordRulesPort;

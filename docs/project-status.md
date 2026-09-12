@@ -1,6 +1,10 @@
 # PgBase 구현 이력과 현재 상태
 
-기록일: 2026-09-10. 이 문서는 지금까지의 작업을 통합한 현재 상태 문서다. 세부 작업 기록은 [TODO](../TODO.md), 다음 실행 순서와 완료 기준은 [후속 작업](next-work.md), PocketBase와의 차이는 [현재 재평가](pocketbase-current-reassessment.md)를 따른다. 과거 감사·마일스톤 문서는 당시 증거를 보존하는 기록이다.
+기록일: 2026-09-11. 이 문서는 지금까지의 작업을 통합한 현재 상태 문서다. 세부 작업 기록은 [TODO](../TODO.md), 다음 실행 순서와 완료 기준은 [후속 작업](next-work.md), PocketBase와의 차이는 [현재 기능 비교](pocketbase-feature-comparison-current-2026-09-10.md)를 따른다. 과거 감사·마일스톤 문서는 당시 증거를 보존하는 기록이다.
+
+`232/0/0` 비교표는 기능 수용 기록이며 현재 품질 판정은 아니다. 고정 HEAD 독립 감사의 20개 제품 결함과 2개 문서 결함은 [전체 코드 감사](codebase-audit-2026-09-11.md)를 따른다.
+
+감사 원본을 유지한 수정 ledger는 [2026-09-11 결함 수정 및 재검증](audits/2026-09-11/defect-fixes.md)에 있다. 20개 제품 finding의 focused·전체 기능 package·최종 structural-budget policy 검증이 통과했다.
 
 ## 1. 현재 기준점
 
@@ -9,7 +13,8 @@
 | 현재 저장소 | [yakisoba0728/PgBase](https://github.com/yakisoba0728/PgBase) |
 | 최신 제품 병합 기준 | [PR #34](https://github.com/yakisoba0728/PgBase/pull/34), `2939f1543e4889c0ffa967eae398c91d0ecbb6ce` |
 | N1–N5 개발 기준 | 구현·독립 검토·전체 로컬 인수 및 필수 원격 CI5/5·정상 병합 완료. [기존 설치·인수](workstreams/n1-n5/release-install.md) 완료 |
-| N6–N9 로컬 기준 | **구현·독립 검토·G5 로컬 인수 완료**. 최종 제품/UI `b7674f704e14b07104ebf6f1c9ee5e53092f367e`, branch `codex/n6-n9-integration`. [인수 증거](workstreams/n6-n9/acceptance.md) |
+| N6–N9 소스 기준 | **구현·독립 검토·G5 로컬 인수 및 원격 병합 완료**. 최종 제품/UI `b7674f704e14b07104ebf6f1c9ee5e53092f367e`, 후속 수정은 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)로 main `53a474143e117251d9b322441508ac85d776ef2a`에 병합. [인수 증거](workstreams/n6-n9/acceptance.md) |
+| PocketBase Round 3 검증 소스 | `codex/round3-integration`의 `bd76b1d1aaf28839072fa71e6b05cf39219053e9`. 고정 232행은 구현 232·부분 0·미구현 0. [21행 완료 ledger](pocketbase-unimplemented-completion-round3-2026-09-11.md) |
 | 설치 제품 커밋 | `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`. 설치 기록 문서의 후속 커밋과 구분 |
 | 실제 로컬 설치 | N1–N5, PostgreSQL17.9, schema40, `http://127.0.0.1:8090/admin` |
 | P8 개발 DB | migration 33–38, 임시 PostgreSQL 18/MinIO 및 populated 복사본 인수 완료 |
@@ -35,6 +40,7 @@ N1–N5 구현·로컬 통합 인수·필수 원격 CI 5개·PR 병합·기존 �
 | P7 | hidden/presentable/help, schema import/export, 이메일 OTP, impersonation, Go custom routes | [PR #31](https://github.com/yakisoba0728/PgBase/pull/31), `701256b` 병합, 필수 CI 5개 및 로컬 v28→v32 인수 완료 |
 | P8 | 고급 필드, 저장된 S3 설정·파일 이전·백업 저장소, 사용자 Go migration, 추가 hooks | [PR #32](https://github.com/yakisoba0728/PgBase/pull/32), `0d28446` 병합, 필수 CI 5개·로컬 v32→v38 인수 완료 |
 | N1–N5 | 자동 migration, public 정적 사이트/SPA, 관리자 CLI, 필드·조회 세부 계약, request/file/mail hooks | 전체 로컬 인수·독립 검토와 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) 필수 CI5/5·merge `2939f15` 완료. 03:24 KST 기존 PG17/schema38→40 설치·인수 완료 |
+| PocketBase Round 2/3 | source audit의 부분·미구현 행을 actual route/service/SDK/UI 효과와 거절·rollback·동시성 근거로 닫음 | Round 2 `211/0/21`, Round 3 최종 `bd76b1d1`에서 `232/0/0`. [current comparison](pocketbase-feature-comparison-current-2026-09-10.md)과 [Round 3 ledger](pocketbase-unimplemented-completion-round3-2026-09-11.md) 참조 |
 
 M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 항목을 후속 단계가 구현한 경우 후속 기록을 우선한다. 예를 들어 과거 M6의 'JS runtime 범위 결정 완료'는 JSVM 구현 완료가 아니다.
 
@@ -90,7 +96,7 @@ N8 SQL 콘솔은 parser/role guard, 정확한 결과·cancel, 영구 write ident
 
 G5는 전체 Go/PG18+MinIO baseline 실행과 정확한 실패 범위 수정·재검증을 결합한다. 최초 전체 PG 명령의43 package PASS와 두 test fixture 실패, 수정 뒤 성공, 최종 lint0/vet/SDK live+pack/UI build·repro/구조 실측/6build/native metadata를 [최종 인수](workstreams/n6-n9/acceptance.md)에 분리 기록했다. 기존 green N6/N7/N9 전체 인수는 반복하지 않았다.
 
-08:45 KST에 작업 전용 N7/N8/G5 컨테이너6개를 정지했고 data/evidence를 보존했다. 모든 worker/API/UI/browser도 종료했다. live PG17.9 `55440`, HTTP `8090`, MinIO `59000`, 설치 binary와 기존 userdata는 변경하지 않았다. N6–N9 원격 병합·공개 release/npm/pub.dev/cloud 배포·live 교체는 수행하지 않았다.
+08:45 KST에 작업 전용 N7/N8/G5 컨테이너6개를 정지했고 data/evidence를 보존했다. 모든 worker/API/UI/browser도 종료했다. live PG17.9 `55440`, HTTP `8090`, MinIO `59000`, 설치 binary와 기존 userdata는 변경하지 않았다. N6–N9는 이후 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)로 정상 병합됐고, 공개 release/npm/pub.dev/cloud 배포·live 교체는 수행하지 않았다.
 
 ## 7. 검증과 실제 수정한 문제
 
@@ -106,6 +112,7 @@ G5는 전체 Go/PG18+MinIO baseline 실행과 정확한 실패 범위 수정·�
 | P8 집중 검증 | 고급 필드 rename/View/schema 왕복·권한/Batch, 사용자 migration, 파일 lease 유실, 백업 pending fence | 최종 PG18+MinIO/race 통과. 백업 테스트 종료 동기화는 패키지 전체 재검사로 보완 |
 | P8 백업 최종 집중 묶음 | PG18+MinIO race: `internal/backup` 3.761초, `pgbase` 3.493초. 실제 S3 원본 삭제 후 복원 바이트·local/no-secret 설정, 소유 객체 보호·pending fence·managed 전환 | `phase4-backup-s3.log`. 전체 저장소/Go/UI/SDK 인수와는 구분 |
 | N1–N5 전체 로컬 인수 | final Go unit/race 24.2초, PG18+MinIO integration/race(`pgbase` 191.613초 등), skip policy 1.163초, UI 492개·typecheck/build/repro, SDK 7/7·live/pack, OpenAPI 115 paths/144 operations, 6종 build, 실제 Chromium 20개와 focused N2/N3/N4 | 독립 Standards/Spec review와 구조 실측 완료. 잘못된 backup product 가설은 exact revert 후 affected unit/race·PG18+MinIO·auto-wait browser로 최종 확인 |
+| PocketBase Round 3 최종 검증 | `bd76b1d1`: Go unit/vet, 전체 integration `-p 2`, recordidentity/recordops/query/userauth/realtime/pgbase race, TS build/types/tests 8, Dart analyze+tests 30, SDK text-ID/auth HTTP count 2, UI 44 files/533 tests+build | Chromium auth realm scaffold/duplicate/register/login, base/view/truncate/UI extension 증거는 앞선 schema+UI 통합 head에서 수행. final head는 UI unit/build 재실행. 구조 측정 data 27,498, handwritten 97,941, UI 7,101, production 800줄 초과 0 |
 
 수정과 검증의 대표 사례:
 
@@ -126,12 +133,12 @@ G5는 전체 Go/PG18+MinIO baseline 실행과 정확한 실패 범위 수정·�
 
 ## 8. 남은 범위와 문서 사용법
 
-N6–N9 구현·독립 검토·전체 G5 로컬 인수는 `b7674f7`에서 완료했다. 설치 제품은 여전히 N1–N5/schema40이며 공개·원격 배포와 구분한다. PostgreSQL·UUID·세션·커서·ETag를 PB와 다르다는 이유만으로 미완료로 세지 않는다. 무수정 PB 호환은 현재 제공하지 않는다. N1–N5의 원격 PR/병합과 실제 설치는 구현 완료와 별도 상태로 남는다.
+N6–N9 구현·독립 검토·전체 G5 로컬 인수는 `b7674f7`에서 완료했고, 후속 수정까지 main `53a4741`에 병합됐다. PocketBase Round 3 기능 수용은 별도 검증 branch `bd76b1d1`에서 완료했으며 원격 병합·설치·공개 배포와 구분한다. 설치 제품은 여전히 N1–N5/schema40이다. 232/0/0은 고정 비교표의 기능 수용 결과이고 무수정 PocketBase wire/SDK/ORM 호환을 뜻하지 않는다.
 
 클라우드 배포·운영 SLO/RPO/RTO·외부 provider 계정·실제 다중 호스트 partition·공개 패키지 배포는 별도 대기다. 로컬 테스트와 cross-build가 이 증거를 대신하지 않는다. read replica·sharding·다중 프로젝트 control plane·online DDL 같은 장기 확장은 PB 기능 공백 및 현재 로컬 완료 조건과 분리한다.
 
 1. 전체 진행 상황은 이 문서를 읽는다.
 2. 다음 구현은 [후속 작업](next-work.md)의 ID·완료 기준을 따른다.
 3. 실행 결과는 [TODO](../TODO.md)에 기록하고 이 문서의 상태와 함께 갱신한다.
-4. PB 세부 차이는 [현재 재평가](pocketbase-current-reassessment.md), 동작 규약은 각 기능 문서를 따른다.
+4. PB 세부 차이는 [현재 기능 비교](pocketbase-feature-comparison-current-2026-09-10.md)와 [Round 3 완료 ledger](pocketbase-unimplemented-completion-round3-2026-09-11.md), 동작 규약은 각 기능 문서를 따른다.
 5. 과거 감사의 미구현/미해결 표시는 해당 커밋의 기록으로 읽고 현재 코드와 대조한다.

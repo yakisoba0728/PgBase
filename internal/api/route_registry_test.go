@@ -44,6 +44,8 @@ func TestRouteRegistryDeclaresExactlyThePublicSurface(t *testing.T) {
 		"DELETE /api/admin/session",
 		"DELETE /api/v1/collections/{collection}/records/{id}",
 		"GET /api/admin/collections",
+		"GET /api/admin/collections/scaffolds",
+		"GET /api/admin/collections/{collection}",
 		"GET /api/admin/jobs",
 		"GET /api/admin/schema-operations",
 		"GET /api/admin/schema-operations/{id}",
@@ -56,10 +58,15 @@ func TestRouteRegistryDeclaresExactlyThePublicSurface(t *testing.T) {
 		"GET /health/live",
 		"GET /health/ready",
 		"PATCH /api/v1/collections/{collection}/records/{id}",
+		"POST /api/admin/auth/confirm-password-reset",
 		"POST /api/admin/auth/login",
 		"POST /api/admin/auth/logout",
+		"POST /api/admin/auth/otp/complete",
+		"POST /api/admin/auth/request-password-reset",
 		"POST /api/admin/collections/apply",
 		"POST /api/admin/collections/plan",
+		"POST /api/admin/collections/view/sample",
+		"POST /api/admin/collections/{collection}/truncate",
 		"POST /api/admin/login",
 		"POST /api/admin/setup",
 		"POST /api/v1/collections/batch",
@@ -82,10 +89,10 @@ func TestRouteRegistryIsCompleteUniqueAndWithinTheMetricBudget(t *testing.T) {
 			methodAgnostic++
 		}
 	}
-	if len(routes) > maximumRegisteredRoutes || methodAgnostic > maximumMethodAgnosticRoutes {
+	if len(routes) > maximumBuiltinRoutes || methodAgnostic > maximumMethodAgnosticRoutes {
 		t.Fatalf("route budget exceeded: routes=%d/%d method-agnostic=%d/%d; update the telemetry "+
 			"design and series budget before expanding",
-			len(routes), maximumRegisteredRoutes, methodAgnostic, maximumMethodAgnosticRoutes)
+			len(routes), maximumBuiltinRoutes, methodAgnostic, maximumMethodAgnosticRoutes)
 	}
 }
 
@@ -99,15 +106,22 @@ func TestEveryRouteCarriesOneCheckedAccessPolicy(t *testing.T) {
 		"GET /api/admin/status":                                accessPublic,
 		"POST /api/admin/setup":                                accessSameOrigin,
 		"POST /api/admin/auth/login":                           accessSameOrigin,
+		"POST /api/admin/auth/confirm-password-reset":          accessPublic,
+		"POST /api/admin/auth/request-password-reset":          accessPublic,
+		"POST /api/admin/auth/otp/complete":                    accessPublic,
 		"POST /api/admin/login":                                accessSameOrigin,
 		"GET /api/admin/session":                               accessAdminSameOriginRead,
 		"POST /api/admin/auth/logout":                          accessAdminSession,
 		"DELETE /api/admin/session":                            accessAdminSession,
 		"POST /api/admin/collections/plan":                     accessAdminSession,
+		"POST /api/admin/collections/view/sample":              accessAdminSession,
 		"POST /api/admin/collections/apply":                    accessAdminSession,
 		"GET /api/admin/schema-operations":                     accessAdminSameOriginRead,
 		"GET /api/admin/schema-operations/{id}":                accessAdminSameOriginRead,
 		"GET /api/admin/collections":                           accessAdminSameOriginRead,
+		"GET /api/admin/collections/scaffolds":                 accessAdminSameOriginRead,
+		"GET /api/admin/collections/{collection}":              accessAdminSameOriginRead,
+		"POST /api/admin/collections/{collection}/truncate":    accessAdminSession,
 		"GET /api/admin/jobs":                                  accessAdminSameOriginRead,
 		"GET /api/admin/system":                                accessAdminSameOriginRead,
 		"GET /api/admin/system/health":                         accessAdminSameOriginRead,
@@ -165,12 +179,21 @@ func TestBufferedRoutesNameACapAndOnlySchemaApplyRunsLong(t *testing.T) {
 
 func TestOnlyCredentialEntryRoutesUseTheSmallerRequestBodyCap(t *testing.T) {
 	want := map[string]bool{
-		"POST /api/admin/setup":      true,
-		"POST /api/admin/auth/login": true,
-		"POST /api/admin/login":      true,
+		"POST /api/admin/setup":                       true,
+		"POST /api/admin/auth/login":                  true,
+		"POST /api/admin/auth/confirm-password-reset": true,
+		"POST /api/admin/auth/request-password-reset": true,
+		"POST /api/admin/auth/otp/complete":           true,
+		"POST /api/admin/login":                       true,
 	}
 	for _, declared := range declaredTestRoutes(t) {
 		key := declared.muxPattern()
+		if key == "POST /api/admin/collections/view/sample" {
+			if declared.maximumRequestBytes != 5256 {
+				t.Fatalf("view sample cap=%d", declared.maximumRequestBytes)
+			}
+			continue
+		}
 		if want[key] {
 			if declared.maximumRequestBytes != maximumCredentialRequestBytes {
 				t.Fatalf("route %q request cap = %d, want %d", key, declared.maximumRequestBytes, maximumCredentialRequestBytes)

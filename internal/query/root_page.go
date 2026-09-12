@@ -23,6 +23,7 @@ type rootPageReadRequest struct {
 	charge   func(int) error
 	hydrate  func([]map[string]any) error
 	hydrator *rootHydrator
+	offset   int
 }
 
 type rootPageReadResult struct {
@@ -117,7 +118,7 @@ func (s *Service) readRootPageInTx(
 	pageLimit := normalizedFetchLimit(request.limit) - 1
 	responseBytes := 0
 	hasMore := false
-	err := scanRootRows(ctx, tx, plan, after, pageLimit+1, func(candidate pageCandidate) (bool, error) {
+	err := scanRootRows(ctx, tx, plan, after, pageLimit+1, request.offset, func(candidate pageCandidate) (bool, error) {
 		encoded, err := json.Marshal(candidate.root)
 		if err != nil {
 			return false, fmt.Errorf("measure record page item: %w", err)
@@ -150,6 +151,9 @@ func (s *Service) readRootPageInTx(
 		}
 	}
 
+	if order.random() {
+		hasMore = false
+	}
 	keep, cursor, err := assembler.finish(result.candidates, hasMore)
 	if err != nil {
 		return rootPageReadResult{}, err
@@ -170,6 +174,7 @@ func (s *Service) readSequentialRootPage(
 	measuredBytes := 0
 	accepted := 0
 	acceptedCursor := ""
+	offset := request.offset
 	for len(result.candidates) < pageLimit {
 		remaining := pageLimit - len(result.candidates)
 		batchLimit := min(rootHydrationBatchSize, remaining)
@@ -180,7 +185,7 @@ func (s *Service) readSequentialRootPage(
 		// errors keep their historical order. Only compact identity/cursor stubs
 		// survive the callback; the full base map is immediately collectible.
 		batch := make([]rootStub, 0, batchLimit+1)
-		err := scanRootRows(ctx, tx, request.plan, after, batchLimit+1, func(candidate pageCandidate) (bool, error) {
+		err := scanRootRows(ctx, tx, request.plan, after, batchLimit+1, offset, func(candidate pageCandidate) (bool, error) {
 			noteRetainedRoots(&result, result.candidates, 1)
 			stub, err := compactRootCandidate(candidate)
 			candidate.root = nil
@@ -283,6 +288,7 @@ func (s *Service) readSequentialRootPage(
 
 		last := result.candidates[len(result.candidates)-1]
 		after = &pageBoundary{Values: cloneCursorValues(last.cursorValues), membership: after.membershipBoundary()}
+		offset = 0
 	}
 	keep, cursor, err := assembler.finish(result.candidates, true)
 	if err != nil {
@@ -323,9 +329,10 @@ func scanRootRows(
 	plan rootPlan,
 	after *pageBoundary,
 	fetchLimit int,
+	offset int,
 	visit func(pageCandidate) (bool, error),
 ) error {
-	statement, err := plan.pageStatement(after, fetchLimit)
+	statement, err := plan.pageStatement(after, fetchLimit, offset)
 	if err != nil {
 		return err
 	}

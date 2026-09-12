@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func TestHandlerServesAdminRootAssetsAndSPAFallback(t *testing.T) {
@@ -60,6 +61,38 @@ func TestHandlerServesAdminRootAssetsAndSPAFallback(t *testing.T) {
 		}
 		if !strings.HasPrefix(response.Header().Get("Content-Type"), wantType) {
 			t.Fatalf("asset %s Content-Type=%q, want prefix %q", entry, response.Header().Get("Content-Type"), wantType)
+		}
+	}
+}
+
+func TestHandlerWithExtensionsInjectsMainAndServesScopedAssets(t *testing.T) {
+	handler, err := Handler([]UIExtension{{Name: "reports", FS: fstest.MapFS{
+		"main.js":                  {Data: []byte(`window.pgbaseAdmin.registerScreen({id:"reports",label:"Reports",path:"/admin/ext/reports",mount:function(node){node.textContent="report extension"}});`)},
+		"assets/chart-a1b2c3d4.js": {Data: []byte("chart")},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(path string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		return response
+	}
+	index := request("/admin/")
+	if index.Code != http.StatusOK || !strings.Contains(index.Body.String(), `src="/admin/extensions.js"`) {
+		t.Fatalf("index status=%d body=%q", index.Code, index.Body.String())
+	}
+	main := request("/admin/extensions.js")
+	if main.Code != http.StatusOK || !strings.Contains(main.Body.String(), "registerScreen") || !strings.Contains(main.Body.String(), "await (async function(){") {
+		t.Fatalf("main status=%d type=%q body=%q", main.Code, main.Header().Get("Content-Type"), main.Body.String())
+	}
+	asset := request("/admin/extensions/reports/assets/chart-a1b2c3d4.js")
+	if asset.Code != http.StatusOK || asset.Body.String() != "chart" || asset.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("asset status=%d cache=%q body=%q", asset.Code, asset.Header().Get("Cache-Control"), asset.Body.String())
+	}
+	for _, path := range []string{"/admin/extensions/missing/main.js", "/admin/extensions/reports/../../index.html", "/admin/extensions/reports/missing.js"} {
+		if response := request(path); response.Code != http.StatusNotFound {
+			t.Fatalf("%s status=%d", path, response.Code)
 		}
 	}
 }

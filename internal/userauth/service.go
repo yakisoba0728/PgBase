@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	authidentity "github.com/yakisoba0728/PgBase/internal/identity"
 )
 
 const (
@@ -54,7 +56,7 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 		return Session{}, err
 	}
 	policy, err := s.authPolicy(ctx, collectionID)
-	if err != nil || !policy.PasswordEnabled || len(password) < policy.MinimumPasswordBytes {
+	if err != nil || !passwordMatchesPolicy(password, policy) {
 		return Session{}, ErrValidation
 	}
 	if err := validateClientAddress(clientAddress); err != nil {
@@ -67,8 +69,10 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 	if err := s.maybeCleanup(ctx); err != nil {
 		return Session{}, err
 	}
+	ratePolicy := s.currentRatePolicy()
 	var registrationEnabled bool
-	if err := s.pool.QueryRow(ctx, `select registration_enabled from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&registrationEnabled); errors.Is(err, pgx.ErrNoRows) {
+	var createRule *string
+	if err := s.pool.QueryRow(ctx, `select registration_enabled,create_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&registrationEnabled, &createRule); errors.Is(err, pgx.ErrNoRows) {
 		return Session{}, ErrNotFound
 	} else if err != nil {
 		return Session{}, err
@@ -76,11 +80,15 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 	if !registrationEnabled {
 		return Session{}, ErrInvalidCredentials
 	}
+	fields, contractErr := s.authRecordContract(ctx, collectionID)
+	if contractErr != nil || createRule == nil || !EvaluateAuthRecordRule(*createRule, fields, AuthRuleContext{Principal: authidentity.Subject{Kind: authidentity.Anonymous}, Request: map[string]any{"email": normalized}}) {
+		return Session{}, ErrInvalidCredentials
+	}
 	if collectionID == DefaultCollectionID && !s.defaultRegistration {
 		return Session{}, ErrInvalidCredentials
 	}
 	bucket := s.subjectHash("register", "network", clientAddress)
-	if err := s.consumeRateLimit(ctx, bucket, registerNetworkLimit, now); err != nil {
+	if err := s.consumeRateLimit(ctx, bucket, ratePolicy.RegistrationNetworkMaxFailures, now, ratePolicy.Window, ratePolicy.Block); err != nil {
 		return Session{}, err
 	}
 	releaseHash, err := admit(s.passwordSlots)
@@ -97,6 +105,11 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 	if database.Classify(err) == database.KindConflict {
 		return Session{}, ErrConflict
 	}
+	if err == nil {
+		if added, _ := s.recordAuthOrigin(ctx, user.ID, clientAddress, now); added {
+			s.sendAuthAlert(ctx, user, "New sign-in origin: "+clientAddress)
+		}
+	}
 	return issued, err
 }
 
@@ -109,7 +122,7 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 		return Session{}, err
 	}
 	policy, policyErr := s.authPolicy(ctx, collectionID)
-	if policyErr != nil || !policy.PasswordEnabled || len(password) < policy.MinimumPasswordBytes {
+	if policyErr != nil || !passwordMatchesPolicy(password, policy) {
 		return Session{}, ErrInvalidCredentials
 	}
 	release, err := admit(s.credentialSlots)
@@ -117,9 +130,11 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 		return Session{}, err
 	}
 	defer release()
-	normalized, emailErr := normalizeEmail(email)
-	if emailErr != nil {
-		normalized = ""
+	identity := strings.TrimSpace(email)
+	normalized, emailErr := normalizeEmail(identity)
+	if len(policy.IdentityFields) != 1 || policy.IdentityFields[0] != "email" {
+		emailErr = nil
+		normalized = identity
 	}
 	if err := validateClientAddress(clientAddress); err != nil {
 		return Session{}, err
@@ -132,6 +147,7 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	if err := s.maybeCleanup(ctx); err != nil {
 		return Session{}, err
 	}
+	ratePolicy := s.currentRatePolicy()
 	accountSubject := collectionID.String() + "\x00" + normalized
 	if emailErr != nil {
 		// All malformed emails share one fixed-size bucket. Valid unknown emails
@@ -140,8 +156,8 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 		accountSubject = collectionID.String() + "\x00<invalid>"
 	}
 	buckets := []rateLimitBucket{
-		{hash: s.subjectHash("login", "account", accountSubject), limit: loginAccountLimit},
-		{hash: s.subjectHash("login", "network", clientAddress), limit: loginNetworkLimit},
+		{hash: s.subjectHash("login", "account", accountSubject), limit: ratePolicy.AccountMaxFailures, window: ratePolicy.Window, block: ratePolicy.Block},
+		{hash: s.subjectHash("login", "network", clientAddress), limit: ratePolicy.NetworkMaxFailures, window: ratePolicy.Window, block: ratePolicy.Block},
 	}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return Session{}, err
@@ -149,8 +165,8 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	var user User
 	var hash string
 	lookupErr := error(ErrInvalidCredentials)
-	if emailErr == nil && passwordErr == nil {
-		user, hash, lookupErr = userByEmailDB(ctx, s.pool, collectionID, normalized, false)
+	if emailErr == nil && passwordErr == nil && normalized != "" {
+		user, hash, lookupErr = userByIdentityDB(ctx, s.pool, collectionID, policy.IdentityFields, normalized)
 		if lookupErr != nil && !errors.Is(lookupErr, ErrInvalidCredentials) {
 			return Session{}, lookupErr
 		}
@@ -179,7 +195,52 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	if errors.Is(err, ErrInvalidCredentials) {
 		_ = s.recordFailures(ctx, buckets, now)
 	}
+	if err == nil {
+		if added, _ := s.recordAuthOrigin(ctx, user.ID, clientAddress, now); added {
+			s.sendAuthAlert(ctx, user, "New sign-in origin: "+clientAddress)
+		}
+	}
 	return issued, err
+}
+
+// userByIdentityDB permits email plus declared text profile fields.  Field names
+// are read from validated policy rather than interpolated into SQL, keeping the
+// JSON lookup parameterized and preventing profile-field SQL injection.
+func userByIdentityDB(ctx context.Context, db database.DBTX, collectionID uuid.UUID, fields []string, identity string) (User, string, error) {
+	for _, field := range fields {
+		if field == "email" {
+			u, hash, err := userByEmailDB(ctx, db, collectionID, identity, false)
+			if err == nil {
+				return u, hash, nil
+			}
+			if !errors.Is(err, ErrInvalidCredentials) {
+				return User{}, "", err
+			}
+			continue
+		}
+		var u User
+		var hash string
+		err := db.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.created_at,u.password_hash from pgbase_meta.users u join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.active and p.attributes ->> $2=$3`, collectionID, field, identity).Scan(&u.ID, &u.AuthCollectionID, &u.Email, &u.EmailVisibility, &u.Verified, &u.CreatedAt, &hash)
+		if err == nil {
+			u.CreatedAt = u.CreatedAt.UTC()
+			return u, hash, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return User{}, "", fmt.Errorf("read user identity: %w", err)
+		}
+	}
+	return User{}, "", ErrInvalidCredentials
+}
+
+func passwordMatchesPolicy(password string, policy AuthPolicy) bool {
+	if !policy.PasswordEnabled || len(password) < policy.MinimumPasswordBytes || len(password) > policy.MaximumPasswordBytes {
+		return false
+	}
+	if policy.PasswordPattern == "" {
+		return true
+	}
+	re, err := regexp.Compile(policy.PasswordPattern)
+	return err == nil && re.MatchString(password)
 }
 
 func (s *Service) AuthenticateForCollection(ctx context.Context, collectionID uuid.UUID, rawToken string) (Principal, error) {
@@ -197,7 +258,8 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	if err := s.ready(); err != nil {
 		return Principal{}, err
 	}
-	if err := validateToken(rawToken); err != nil {
+	hash, hashErr := s.sessionHash(ctx, rawToken)
+	if hashErr != nil {
 		return Principal{}, ErrInvalidCredentials
 	}
 	release, err := admit(s.sessionSlots)
@@ -206,7 +268,7 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	}
 	defer release()
 	var p Principal
-	err = s.pool.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.created_at,s.expires_at,s.session_kind='impersonation',coalesce(s.impersonating_admin_id,'00000000-0000-0000-0000-000000000000') from pgbase_meta.user_sessions s join pgbase_meta.users u on u.id=s.user_id left join pgbase_meta.admin_sessions ads on ads.id=s.impersonating_admin_session_id left join pgbase_meta.admins a on a.id=s.impersonating_admin_id where s.token_hash=$1 and s.revoked_at is null and s.expires_at>CURRENT_TIMESTAMP and u.active and (s.session_kind='user' or (ads.revoked_at is null and ads.expires_at>CURRENT_TIMESTAMP and a.active))`, s.tokenHash(rawToken)).Scan(&p.User.ID, &p.User.AuthCollectionID, &p.User.Email, &p.User.Verified, &p.User.CreatedAt, &p.ExpiresAt, &p.Impersonated, &p.ImpersonatingAdministratorID)
+	err = s.pool.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.created_at,s.expires_at,s.session_kind='impersonation',coalesce(s.impersonating_admin_id,'00000000-0000-0000-0000-000000000000') from pgbase_meta.user_sessions s join pgbase_meta.users u on u.id=s.user_id left join pgbase_meta.admin_sessions ads on ads.id=s.impersonating_admin_session_id left join pgbase_meta.admins a on a.id=s.impersonating_admin_id where s.token_hash=$1 and s.revoked_at is null and s.expires_at>CURRENT_TIMESTAMP and u.active and (s.session_kind='user' or (ads.revoked_at is null and ads.expires_at>CURRENT_TIMESTAMP and a.active))`, hash).Scan(&p.User.ID, &p.User.AuthCollectionID, &p.User.Email, &p.User.EmailVisibility, &p.User.Verified, &p.User.CreatedAt, &p.ExpiresAt, &p.Impersonated, &p.ImpersonatingAdministratorID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Principal{}, ErrInvalidCredentials
 	}
@@ -215,6 +277,9 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	}
 	p.User.CreatedAt = p.User.CreatedAt.UTC()
 	p.ExpiresAt = p.ExpiresAt.UTC()
+	if err := s.projectUser(ctx, s.pool, &p.User); err != nil {
+		return Principal{}, err
+	}
 	return p, nil
 }
 
@@ -222,7 +287,8 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	if err := s.ready(); err != nil {
 		return err
 	}
-	if err := validateToken(rawToken); err != nil {
+	hash, hashErr := s.sessionHash(ctx, rawToken)
+	if hashErr != nil {
 		return ErrValidation
 	}
 	release, err := admit(s.sessionSlots)
@@ -230,7 +296,7 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 		return err
 	}
 	defer release()
-	_, err = s.pool.Exec(ctx, `update pgbase_meta.user_sessions set revoked_at=coalesce(revoked_at,CURRENT_TIMESTAMP) where token_hash=$1`, s.tokenHash(rawToken))
+	_, err = s.pool.Exec(ctx, `update pgbase_meta.user_sessions set revoked_at=coalesce(revoked_at,CURRENT_TIMESTAMP) where token_hash=$1`, hash)
 	if err != nil {
 		return fmt.Errorf("revoke user session: %w", err)
 	}
@@ -243,7 +309,14 @@ func (s *Service) createUserAndSession(ctx context.Context, user User, passwordH
 		if user.AuthCollectionID == uuid.Nil {
 			user.AuthCollectionID = DefaultCollectionID
 		}
-		_, err := tx.Exec(ctx, `insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,active,created_at,updated_at) values($1,$2,$3,$4,true,$5,$5)`, user.ID, user.AuthCollectionID, user.Email, passwordHash, now)
+		policy, err := authRecordIDPolicy(ctx, tx, user.AuthCollectionID)
+		if err != nil {
+			return err
+		}
+		if _, err := s.recordIdentities.ReserveAuth(ctx, tx, user.AuthCollectionID, user.ID, policy, nil); err != nil {
+			return fmt.Errorf("create user identity: %w", err)
+		}
+		_, err = tx.Exec(ctx, `insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,active,created_at,updated_at) values($1,$2,$3,$4,true,$5,$5)`, user.ID, user.AuthCollectionID, user.Email, passwordHash, now)
 		if err != nil {
 			return fmt.Errorf("create user: %w", err)
 		}
@@ -270,8 +343,8 @@ func (s *Service) issueCheckedSession(ctx context.Context, user User, expectedHa
 			opErr = ErrInvalidCredentials
 			return nil
 		}
-		var mfaActive bool
-		if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.user_totp_factors where user_id=$1 and active)`, current.ID).Scan(&mfaActive); err != nil {
+		mfaActive, err := s.mfaRequiredTx(ctx, tx, current)
+		if err != nil {
 			return err
 		}
 		if mfaActive {
@@ -295,27 +368,51 @@ func (s *Service) issueCheckedSession(ctx context.Context, user User, expectedHa
 }
 
 func (s *Service) insertSession(ctx context.Context, db database.DBTX, user User, now time.Time) (Session, error) {
+	if allowed, err := s.authorizeSessionTx(ctx, db, user); err != nil {
+		return Session{}, fmt.Errorf("authorize session: %w", err)
+	} else if !allowed {
+		return Session{}, fmt.Errorf("auth rule denied: %w", ErrInvalidCredentials)
+	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return Session{}, fmt.Errorf("generate user session token: %w", err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
-	expires := now.Add(s.ttl)
-	_, err := db.Exec(ctx, `insert into pgbase_meta.user_sessions(id,user_id,token_hash,expires_at,revoked_at,created_at) values($1,$2,$3,$4,null,$5)`, uuid.New(), user.ID, s.tokenHash(token), expires, now)
+	tokenHash := s.tokenHash(token)
+	ttl := s.ttl
+	var configured int
+	var version string
+	var cipher []byte
+	if err := db.QueryRow(ctx, `select ttl_seconds,key_version,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='session' for share`, user.AuthCollectionID).Scan(&configured, &version, &cipher); err == nil {
+		ttl = time.Duration(configured) * time.Second
+		key, err := s.decrypt("auth-token-policy:session", cipher)
+		if err != nil {
+			return Session{}, err
+		}
+		token = user.AuthCollectionID.String() + "." + version + "." + token
+		tokenHash = keyedDigest(key, "user-session\x00", token)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return Session{}, err
+	}
+	expires := now.Add(ttl)
+	_, err := db.Exec(ctx, `insert into pgbase_meta.user_sessions(id,user_id,token_hash,expires_at,revoked_at,created_at) values($1,$2,$3,$4,null,$5)`, uuid.New(), user.ID, tokenHash, expires, now)
 	if err != nil {
 		return Session{}, fmt.Errorf("create user session: %w", err)
+	}
+	if err := s.projectUser(ctx, db, &user); err != nil {
+		return Session{}, err
 	}
 	return Session{User: user, RawToken: token, ExpiresAt: expires}, nil
 }
 
 func userByEmailDB(ctx context.Context, db database.DBTX, collectionID uuid.UUID, email string, lock bool) (User, string, error) {
-	q := `select id,auth_collection_id,email,verified,created_at,password_hash from pgbase_meta.users where auth_collection_id=$1 and email=$2 and active`
+	q := `select id,auth_collection_id,email,email_visibility,verified,created_at,password_hash from pgbase_meta.users where auth_collection_id=$1 and email=$2 and active`
 	if lock {
 		q += " for update"
 	}
 	var u User
 	var hash string
-	err := db.QueryRow(ctx, q, collectionID, email).Scan(&u.ID, &u.AuthCollectionID, &u.Email, &u.Verified, &u.CreatedAt, &hash)
+	err := db.QueryRow(ctx, q, collectionID, email).Scan(&u.ID, &u.AuthCollectionID, &u.Email, &u.EmailVisibility, &u.Verified, &u.CreatedAt, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, "", ErrInvalidCredentials
 	}
@@ -326,16 +423,17 @@ func userByEmailDB(ctx context.Context, db database.DBTX, collectionID uuid.UUID
 	return u, hash, nil
 }
 
-func (s *Service) consumeRateLimit(ctx context.Context, hash []byte, limit int, now time.Time) error {
+func (s *Service) consumeRateLimit(ctx context.Context, hash []byte, limit int, now time.Time, durations ...time.Duration) error {
 	if err := s.ensureNotBlocked(ctx, hash, now); err != nil {
 		return err
 	}
-	return s.recordFailure(ctx, hash, limit, now)
+	return s.recordFailure(ctx, hash, limit, now, durations...)
 }
 
 type rateLimitBucket struct {
-	hash  []byte
-	limit int
+	hash          []byte
+	limit         int
+	window, block time.Duration
 }
 
 func (s *Service) ensureBucketsNotBlocked(ctx context.Context, buckets []rateLimitBucket, now time.Time) error {
@@ -367,7 +465,7 @@ func (s *Service) recordFailures(ctx context.Context, buckets []rateLimitBucket,
 			}
 		}
 		for _, bucket := range buckets {
-			bucketBlocked, err := recordFailureInTx(ctx, tx, bucket.hash, bucket.limit, now)
+			bucketBlocked, err := recordFailureInTx(ctx, tx, bucket.hash, bucket.limit, now, bucket.window, bucket.block)
 			if err != nil {
 				return err
 			}
@@ -394,7 +492,16 @@ func (s *Service) ensureNotBlocked(ctx context.Context, hash []byte, now time.Ti
 	}
 	return nil
 }
-func (s *Service) recordFailure(ctx context.Context, hash []byte, limit int, now time.Time) error {
+func (s *Service) recordFailure(ctx context.Context, hash []byte, limit int, now time.Time, durations ...time.Duration) error {
+	window, block := 15*time.Minute, 15*time.Minute
+	if len(durations) == 2 {
+		if durations[0] > 0 {
+			window = durations[0]
+		}
+		if durations[1] > 0 {
+			block = durations[1]
+		}
+	}
 	var blocked bool
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var ok bool
@@ -405,7 +512,7 @@ func (s *Service) recordFailure(ctx context.Context, hash []byte, limit int, now
 			return ErrRateLimited
 		}
 		var err error
-		blocked, err = recordFailureInTx(ctx, tx, hash, limit, now)
+		blocked, err = recordFailureInTx(ctx, tx, hash, limit, now, window, block)
 		return err
 	})
 	if err != nil {
@@ -417,9 +524,18 @@ func (s *Service) recordFailure(ctx context.Context, hash []byte, limit int, now
 	return nil
 }
 
-func recordFailureInTx(ctx context.Context, tx pgx.Tx, hash []byte, limit int, now time.Time) (bool, error) {
+func recordFailureInTx(ctx context.Context, tx pgx.Tx, hash []byte, limit int, now time.Time, durations ...time.Duration) (bool, error) {
+	window, block := 15*time.Minute, 15*time.Minute
+	if len(durations) == 2 {
+		if durations[0] > 0 {
+			window = durations[0]
+		}
+		if durations[1] > 0 {
+			block = durations[1]
+		}
+	}
 	var blocked bool
-	err := tx.QueryRow(ctx, `insert into pgbase_meta.user_auth_rate_limits as r(subject_hash,window_started_at,failures,blocked_until,updated_at) values($1,$2,1,null,$2) on conflict(subject_hash) do update set window_started_at=case when r.window_started_at<=$2-interval '15 minutes' then $2 else r.window_started_at end,failures=case when r.window_started_at<=$2-interval '15 minutes' then 1 else r.failures+1 end,blocked_until=case when (case when r.window_started_at<=$2-interval '15 minutes' then 1 else r.failures+1 end)>=$3 then $2+interval '15 minutes' else r.blocked_until end,updated_at=$2 returning coalesce(blocked_until>$2,false)`, hash, now, limit).Scan(&blocked)
+	err := tx.QueryRow(ctx, `insert into pgbase_meta.user_auth_rate_limits as r(subject_hash,window_started_at,failures,blocked_until,updated_at) values($1,$2,1,null,$2) on conflict(subject_hash) do update set window_started_at=case when r.window_started_at<=$2-make_interval(secs=>$4) then $2 else r.window_started_at end,failures=case when r.window_started_at<=$2-make_interval(secs=>$4) then 1 else r.failures+1 end,blocked_until=case when (case when r.window_started_at<=$2-make_interval(secs=>$4) then 1 else r.failures+1 end)>=$3 then $2+make_interval(secs=>$5) else r.blocked_until end,updated_at=$2 returning coalesce(blocked_until>$2,false)`, hash, now, limit, int64(window.Seconds()), int64(block.Seconds())).Scan(&blocked)
 	return blocked, err
 }
 

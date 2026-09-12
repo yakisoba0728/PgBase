@@ -28,7 +28,7 @@ describe("administration shell", () => {
 
 		expect(await screen.findByRole("heading", { name: "SQL console" })).toBeVisible();
 		expect(screen.getByRole("link", { name: "SQL console" })).toHaveAttribute("href", "/admin/sql");
-		expect(sqlConsole.history).toHaveBeenCalledTimes(1);
+		await waitFor(() => expect(sqlConsole.history).toHaveBeenCalledTimes(1));
 	});
 
   it("swaps the record list between collections as history moves", async () => {

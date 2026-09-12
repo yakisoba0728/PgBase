@@ -49,6 +49,7 @@ const (
 	HookAppServe                 = "app.serve"
 	HookAppTerminate             = "app.terminate"
 	HookAuthPassword             = "auth.password"
+	HookAuthRefresh              = "auth.refresh"
 	HookAuthOAuthBegin           = "auth.oauth.begin"
 	HookAuthOAuthComplete        = "auth.oauth.complete"
 	HookAuthOTPRequest           = "auth.otp.request"
@@ -60,13 +61,24 @@ const (
 	HookAuthEmailChangeRequest   = "auth.email_change.request"
 	HookAuthEmailChangeConfirm   = "auth.email_change.confirm"
 	HookAuthImpersonate          = "auth.impersonate"
+	HookAuthAlert                = "auth.alert"
+	HookSettingsReload           = "settings.reload"
+	HookSettingsList             = "settings.list"
+	HookSettingsUpdate           = "settings.update"
+	HookObjectWrite              = "object.write"
+	HookObjectDelete             = "object.delete"
 )
 
 type CollectionEvent = schema.CollectionMutationEvent
 
 type schemaLifecycleHooks struct{ registry *HookRegistry }
 
+type skipJavaScriptSchemaHooksKey struct{}
+
 func (h schemaLifecycleHooks) BeginCollectionMutation(ctx context.Context, event *schema.CollectionMutationEvent) (func(error), error) {
+	if skip, _ := ctx.Value(skipJavaScriptSchemaHooksKey{}).(bool); skip {
+		return func(error) {}, nil
+	}
 	kind := HookCollectionCreate
 	switch event.Operation {
 	case "update":
@@ -74,7 +86,28 @@ func (h schemaLifecycleHooks) BeginCollectionMutation(ctx context.Context, event
 	case "delete":
 		kind = HookCollectionDelete
 	}
-	return h.registry.Begin(ctx, &HookEvent{Kind: kind, Data: event})
+	model := &ModelMutationEvent{Operation: event.Operation, Family: "collection", Model: event}
+	if err := runMutationPhases(ctx, h.registry, model, "validate"); err != nil {
+		return func(error) {}, err
+	}
+	if err := runMutationPhases(ctx, h.registry, model, event.Operation); err != nil {
+		return func(error) {}, err
+	}
+	if err := runMutationPhases(ctx, h.registry, model, event.Operation+".execute"); err != nil {
+		return func(error) {}, err
+	}
+	finish, err := h.registry.Begin(ctx, &HookEvent{Kind: kind, Data: event})
+	return func(operationErr error) {
+		finish(operationErr)
+		model.Err = operationErr
+		phase := "success"
+		if operationErr != nil {
+			phase = "error"
+		}
+		for _, eventKind := range []string{"model." + event.Operation + "." + phase, "collection.model." + event.Operation + "." + phase} {
+			_ = h.registry.Run(ctx, &HookEvent{Kind: eventKind, Data: model, Err: operationErr}, func() error { return nil })
+		}
+	}, err
 }
 
 // RequestEvent gives trusted extensions the request and response writer before
@@ -128,10 +161,25 @@ type recordLifecycleHooks struct{ registry *HookRegistry }
 func (h recordLifecycleHooks) BeforeMutation(ctx context.Context, mutation recordops.Mutation) error {
 	// Validation is inside the write transaction and can repeat on retry. Do not
 	// perform external side effects here; record.after is commit-only observation.
-	return h.registry.Run(ctx, &HookEvent{Kind: HookRecordBefore, Data: mutation}, func() error { return nil })
+	model := &ModelMutationEvent{Operation: mutation.Operation, Family: "record", Model: mutation}
+	return h.registry.Run(ctx, &HookEvent{Kind: HookRecordBefore, Data: mutation}, func() error {
+		if err := h.registry.Run(ctx, &HookEvent{Kind: "record.model.validate", Data: model}, func() error { return nil }); err != nil {
+			return err
+		}
+		if err := h.registry.Run(ctx, &HookEvent{Kind: "record.model." + mutation.Operation, Data: model}, func() error { return nil }); err != nil {
+			return err
+		}
+		return h.registry.Run(ctx, &HookEvent{Kind: "record.model." + mutation.Operation + ".execute", Data: model}, func() error { return nil })
+	})
 }
 func (h recordLifecycleHooks) AfterMutation(ctx context.Context, mutation recordops.Mutation) {
 	_ = h.registry.Run(ctx, &HookEvent{Kind: HookRecordAfter, Data: mutation}, func() error { return nil })
+	model := &ModelMutationEvent{Operation: mutation.Operation, Family: "record", Model: mutation}
+	_ = h.registry.Run(ctx, &HookEvent{Kind: "record.model." + mutation.Operation + ".success", Data: model}, func() error { return nil })
+}
+func (h recordLifecycleHooks) AfterMutationError(ctx context.Context, mutation recordops.Mutation, err error) {
+	model := &ModelMutationEvent{Operation: mutation.Operation, Family: "record", Model: mutation, Err: err}
+	_ = h.registry.Run(ctx, &HookEvent{Kind: "record.model." + mutation.Operation + ".error", Data: model}, func() error { return err })
 }
 
 type hookedMailer struct {
@@ -152,7 +200,7 @@ func (m hookedMailer) Send(ctx context.Context, message mailer.Message) error {
 	// edit deliverable fields but cannot recategorize a send into another hook.
 	message.Purpose = purpose
 	if kind := mailPurposeHook(message.Purpose); kind != "" {
-		event := &MailEvent{Purpose: message.Purpose, Message: message}
+		event := &MailEvent{Purpose: message.Purpose, Message: message, Meta: cloneMailMeta(message.Meta)}
 		purposeFinish, purposeErr := m.registry.Begin(ctx, &HookEvent{Kind: kind, Data: event})
 		if purposeErr != nil {
 			purposeFinish(purposeErr)
@@ -180,6 +228,20 @@ func (m hookedMailer) Send(ctx context.Context, message mailer.Message) error {
 type MailEvent struct {
 	Purpose string
 	Message mailer.Message
+	// Meta mirrors the trusted, invocation-scoped metadata supplied by the
+	// mail service. It is available to purpose hooks but is not sent over SMTP.
+	Meta map[string]any
+}
+
+func cloneMailMeta(meta map[string]any) map[string]any {
+	if len(meta) == 0 {
+		return nil
+	}
+	cloned := make(map[string]any, len(meta))
+	for key, value := range meta {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func mailPurposeHook(purpose string) string {
@@ -194,9 +256,25 @@ func mailPurposeHook(purpose string) string {
 		return HookMailEmailChange
 	case "smtp_test":
 		return HookMailSMTPTest
+	case "auth_alert":
+		return HookAuthAlert
 	default:
 		return ""
 	}
+}
+
+// SettingsReloadEvent is emitted after durable settings are committed and the
+// live snapshot is replaced. Changed contains stable setting names, not secrets.
+type SettingsReloadEvent struct{ Changed []string }
+
+// NotifySettingsReload lets the settings service publish its commit boundary
+// without exposing settings storage to extensions.
+func (a *App) NotifySettingsReload(ctx context.Context, changed []string) {
+	if a == nil || a.options.Hooks == nil {
+		return
+	}
+	copyOfChanged := append([]string(nil), changed...)
+	_ = a.options.Hooks.Run(ctx, &HookEvent{Kind: HookSettingsReload, Data: &SettingsReloadEvent{Changed: copyOfChanged}}, func() error { return nil })
 }
 
 func applicationMutationHooks(options Options) []MutationHook {

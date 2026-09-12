@@ -74,6 +74,34 @@ func TestCompileRelationListMultipleMembershipAndBoundedPath(t *testing.T) {
 	}
 }
 
+func TestCompileRelationListReverseRelationsUseIncomingCorrelation(t *testing.T) {
+	t.Parallel()
+	catalog, _ := relationFilterSortCatalog()
+	people := catalog.Collections["relation_people"]
+	for _, testCase := range []struct {
+		filter    string
+		fragments []string
+	}{
+		{filter: "relation_posts_via_owner.owner = '11111111-1111-4111-8111-111111111111'", fragments: []string{`FROM "app"."relation_posts" AS`, `"owner" = "rq_root"."id"`}},
+		{filter: "relation_posts_via_reviewers.owner = '11111111-1111-4111-8111-111111111111'", fragments: []string{`FROM "pgbase_relation".`, `"source_id"`, `"target_id" = "rq_root"."id"`}},
+	} {
+		filter := mustParseFilter(t, testCase.filter)
+		plan, err := compileRelationListPlan(catalog, people, filter, effectiveSortKeys(nil))
+		if err != nil {
+			t.Fatalf("compile %q: %v", testCase.filter, err)
+		}
+		statement, err := plan.statement(nil, 10)
+		if err != nil {
+			t.Fatalf("render %q: %v", testCase.filter, err)
+		}
+		for _, fragment := range testCase.fragments {
+			if !strings.Contains(statement.SQL, fragment) {
+				t.Fatalf("reverse SQL %q, want %q", statement.SQL, fragment)
+			}
+		}
+	}
+}
+
 func TestCompileRelationListRejectsStaticBudgets(t *testing.T) {
 	t.Parallel()
 
@@ -148,8 +176,14 @@ func TestCompileRelationListSinglePathSortIsPrivateAndMultiSortIsStableError(t *
 	if err != nil {
 		t.Fatalf("parseSort(reviewers.name) error = %v", err)
 	}
-	_, err = compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(multi))
-	assertValidationDetail(t, err, "sort", "relation_sort_unsupported")
+	multiPlan, err := compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(multi))
+	if err != nil {
+		t.Fatal(err)
+	}
+	multiStatement, err := multiPlan.statement(nil, 2)
+	if err != nil || !strings.Contains(multiStatement.SQL, "LEFT JOIN LATERAL") || !strings.Contains(multiStatement.SQL, `"pgbase_relation"`) || !strings.Contains(multiStatement.SQL, `"sort_value"`) {
+		t.Fatalf("multi relation sort SQL=%q err=%v", multiStatement.SQL, err)
+	}
 }
 
 func TestOrderSpecV5DescriptorUsesStableFieldIDsAndExplicitSemantics(t *testing.T) {
@@ -389,5 +423,8 @@ func relationFilterSortCatalog() (schema.Catalog, schema.Collection) {
 	return schema.Catalog{Collections: map[string]schema.Collection{
 		people.Name: people,
 		posts.Name:  posts,
-	}}, posts
+	}, Incoming: map[uuid.UUID][]schema.RelationRef{peopleID: {
+		{SourceCollectionID: postsID, SourceFieldID: posts.Fields[0].ID},
+		{SourceCollectionID: postsID, SourceFieldID: posts.Fields[1].ID},
+	}}}, posts
 }

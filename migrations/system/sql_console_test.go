@@ -17,8 +17,8 @@ import (
 func TestSQLConsoleMigrationStoresOnlyRedactedExecutionAndReceipt(t *testing.T) {
 	ctx := context.Background()
 	migrations := system.Migrations()
-	if len(migrations) != 41 || migrations[40].Version != 41 || migrations[40].Name != "sql_console" {
-		t.Fatalf("last migration = %#v, want 41 sql_console", migrations[len(migrations)-1])
+	if len(migrations) < 41 || migrations[40].Version != 41 || migrations[40].Name != "sql_console" {
+		t.Fatalf("sql console migration = %#v, want 41 sql_console", migrations)
 	}
 
 	pool, err := database.Open(ctx, testutil.NewDatabase(t), 10*time.Second)

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,6 +36,10 @@ type Job struct {
 	Error     string    `json:"error,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	// Managed is process-local scheduling metadata. It is deliberately omitted
+	// from receipts so a restore receipt remains an operation receipt, not a
+	// source of scheduler configuration.
+	Managed bool `json:"-"`
 }
 type ManagerOptions struct {
 	LogError   func(context.Context, error)
@@ -44,6 +49,9 @@ type ManagerOptions struct {
 	Repository Repository
 	Retention  int
 	Lifecycle  Lifecycle
+	// OnFailure observes final failed managed jobs after their receipt is
+	// updated. It receives only the safe public receipt, never operation errors.
+	OnFailure func(context.Context, Job)
 }
 
 type LifecycleEvent struct {
@@ -59,14 +67,16 @@ type Lifecycle interface {
 // a time. Job receipts survive database restore and process restart. Callbacks
 // receive verified directories, never user-selected paths or database URLs.
 type Manager struct {
-	options ManagerOptions
-	mu      sync.Mutex
-	busy    bool
-	closed  bool
-	jobs    map[string]Job
-	cancel  context.CancelFunc
-	ctx     context.Context
-	wg      sync.WaitGroup
+	options             ManagerOptions
+	mu                  sync.Mutex
+	busy                bool
+	closed              bool
+	jobs                map[string]Job
+	cancel              context.CancelFunc
+	ctx                 context.Context
+	wg                  sync.WaitGroup
+	retentionOverride   atomic.Int64
+	retentionConfigured atomic.Bool
 }
 
 func NewManager(options ManagerOptions) (*Manager, error) {
@@ -188,18 +198,39 @@ func (m *Manager) release() {
 	m.wg.Done()
 }
 func (m *Manager) Create(ctx context.Context) (Job, error) {
-	return m.start(ctx, "create", uuid.NewString())
+	return m.start(ctx, "create", uuid.NewString(), false)
+}
+
+// CreateManaged starts the built-in scheduler's backup operation. The marker
+// lets operators alert on failed scheduled protection without alerting for a
+// manually requested backup.
+func (m *Manager) CreateManaged(ctx context.Context) (Job, error) {
+	return m.start(ctx, "create", uuid.NewString(), true)
 }
 func (m *Manager) Restore(ctx context.Context, id string) (Job, error) {
+	return m.restore(ctx, id, nil)
+}
+
+// RestoreWithGuard transfers an admission guard to the background operation.
+// On error the caller still owns release; on success the worker releases it
+// after activation and the final receipt, including failed or cancelled jobs.
+func (m *Manager) RestoreWithGuard(ctx context.Context, id string, release func()) (Job, error) {
+	return m.restore(ctx, id, release)
+}
+
+func (m *Manager) restore(ctx context.Context, id string, release func()) (Job, error) {
 	if !validID(id) {
 		return Job{}, ErrNotFound
 	}
 	if _, err := m.options.Repository.Get(ctx, id); err != nil {
 		return Job{}, ErrNotFound
 	}
-	return m.start(ctx, "restore", id)
+	return m.startGuarded(ctx, "restore", id, release, false)
 }
-func (m *Manager) start(ctx context.Context, operation, id string) (Job, error) {
+func (m *Manager) start(ctx context.Context, operation, id string, managed bool) (Job, error) {
+	return m.startGuarded(ctx, operation, id, nil, managed)
+}
+func (m *Manager) startGuarded(ctx context.Context, operation, id string, release func(), managed bool) (Job, error) {
 	if err := ctx.Err(); err != nil {
 		return Job{}, err
 	}
@@ -218,7 +249,7 @@ func (m *Manager) start(ctx context.Context, operation, id string) (Job, error) 
 		return Job{}, err
 	}
 	now := time.Now().UTC()
-	job := Job{ID: uuid.NewString(), Operation: operation, BackupID: id, Status: "running", Phase: operation, CreatedAt: now, UpdatedAt: now}
+	job := Job{ID: uuid.NewString(), Operation: operation, BackupID: id, Status: "running", Phase: operation, CreatedAt: now, UpdatedAt: now, Managed: managed}
 	if err := m.persistJob(job); err != nil {
 		m.release()
 		finish(err)
@@ -227,7 +258,12 @@ func (m *Manager) start(ctx context.Context, operation, id string) (Job, error) 
 	m.mu.Lock()
 	m.jobs[job.ID] = job
 	m.mu.Unlock()
-	go m.execute(job, event, finish)
+	go func() {
+		if release != nil {
+			defer release()
+		}
+		m.execute(job, event, finish)
+	}()
 	return job, nil
 }
 func (m *Manager) execute(job Job, event *LifecycleEvent, finish func(error)) {
@@ -256,6 +292,9 @@ func (m *Manager) execute(job Job, event *LifecycleEvent, finish func(error)) {
 	m.jobs[job.ID] = job
 	m.mu.Unlock()
 	event.Job = job
+	if job.Managed && job.Status == "failed" && m.options.OnFailure != nil {
+		m.options.OnFailure(context.WithoutCancel(ctx), job)
+	}
 	finish(err)
 }
 func (m *Manager) executeOperation(ctx context.Context, job Job) error {
@@ -338,8 +377,13 @@ func (m *Manager) publish(ctx context.Context, directory, id string) (Entry, err
 
 func (m *Manager) prune(ctx context.Context, currentID string) error {
 	retention := m.options.Retention
+	if m.retentionConfigured.Load() {
+		retention = int(m.retentionOverride.Load())
+	}
 	if provider, ok := m.options.Repository.(interface{ Retention() int }); ok {
-		retention = provider.Retention()
+		if !m.retentionConfigured.Load() {
+			retention = provider.Retention()
+		}
 	}
 	if retention <= 0 {
 		return nil
@@ -363,6 +407,16 @@ func (m *Manager) prune(ctx context.Context, currentID string) error {
 		remove--
 	}
 	return nil
+}
+
+// SetRetention changes the pruning window used by future backups. Zero keeps
+// every archive; positive values prune after each successful publish.
+func (m *Manager) SetRetention(value int) {
+	if value < 0 {
+		return
+	}
+	m.retentionOverride.Store(int64(value))
+	m.retentionConfigured.Store(true)
 }
 func (m *Manager) Upload(ctx context.Context, source io.Reader) (Entry, error) {
 	if err := m.reserve(); err != nil {

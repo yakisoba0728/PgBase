@@ -275,9 +275,14 @@ func SplitFilterModifier(value string) (string, string, bool) {
 	if !strings.Contains(value, ":") {
 		return value, "", true
 	}
-	if strings.Count(value, ":") != 1 || !strings.HasSuffix(value, ":lower") {
+	if strings.Count(value, ":") != 1 {
 		return "", "", false
 	}
-	name := strings.TrimSuffix(value, ":lower")
-	return name, "lower", name != ""
+	name, modifier, _ := strings.Cut(value, ":")
+	switch modifier {
+	case "lower", "length", "each", "isset", "changed":
+		return name, modifier, name != ""
+	default:
+		return "", "", false
+	}
 }

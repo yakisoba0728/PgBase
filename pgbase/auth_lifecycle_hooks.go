@@ -134,3 +134,7 @@ func (h hookedUserAuth) ConfirmEmailChange(ctx context.Context, token string) er
 func (h hookedUserAuth) Impersonate(ctx context.Context, user uuid.UUID, admin string, duration time.Duration) (userauth.Session, error) {
 	return h.session(ctx, HookAuthImpersonate, "impersonate", uuid.Nil, user, "", func() (userauth.Session, error) { return h.Service.Impersonate(ctx, user, admin, duration) })
 }
+
+func (h hookedUserAuth) RefreshSessionForCollection(ctx context.Context, realm uuid.UUID, token string) (userauth.Session, error) {
+	return h.session(ctx, HookAuthRefresh, "refresh", realm, uuid.Nil, "", func() (userauth.Session, error) { return h.Service.RefreshSessionForCollection(ctx, realm, token) })
+}

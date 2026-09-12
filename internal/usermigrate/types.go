@@ -51,5 +51,13 @@ type HistoryEntry struct {
 	ExecutionMS     int64
 }
 
+// HistoryCleanup is the deterministic result of removing applied ledger rows
+// whose migration source is no longer compiled into this executable.
+// Cleanup never runs migration callbacks and never changes schema versions.
+type HistoryCleanup struct {
+	Entries []HistoryEntry
+	DryRun  bool
+}
+
 type Validator func(context.Context, pgx.Tx) error
 type AfterCommit func(context.Context) error

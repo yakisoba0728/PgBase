@@ -54,4 +54,28 @@ describe("auth collections page", () => {
     expect(callsTo(harness.script, "createAuthCollection")).toHaveLength(0);
   });
 
+  it("keeps a stored SMTP password redacted while saving settings and using the local test action", async () => {
+    const smtp = { address: "localhost:1025", from: "mailer@example.test", username: "mailer", passwordConfigured: true, serverName: "localhost", implicitTls: false, allowInsecureLoopback: true };
+    const harness = scriptedAdmin("/admin/auth-collections");
+    harness.script.listAuthCollections.push({ value: [users] });
+    harness.script.getAuthAdministration.push({ value: { policy: { passwordEnabled: true, minimumPasswordBytes: 12, mfaEnabled: true, otpEnabled: false, otpDurationSeconds: 300, otpMaxAttempts: 5 }, providers: [], templates: [], smtp } });
+    harness.script.putAuthSMTP.push({ value: smtp });
+    harness.script.testAuthSMTP.push({ value: undefined });
+    renderAdmin(harness);
+    await screen.findByText("users");
+    fireEvent.click(await screen.findByText("Authentication settings"));
+    await screen.findByLabelText("Server address");
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+    expect(screen.getByLabelText("Password")).toHaveAttribute("placeholder", "Stored; leave blank to keep");
+    fireEvent.change(screen.getByLabelText("Server address"), { target: { value: "localhost:2525" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save SMTP" }));
+    expect(await screen.findByText("SMTP settings saved. Stored passwords are never returned.")).toBeVisible();
+    expect(callsTo(harness.script, "putAuthSMTP")[0]?.detail.value).toMatchObject({ ...smtp, address: "localhost:2525" });
+    expect(callsTo(harness.script, "putAuthSMTP")[0]?.detail.value).not.toHaveProperty("password");
+    fireEvent.change(screen.getByLabelText("Local test recipient"), { target: { value: "sink@example.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send test" }));
+    expect(await screen.findByText("Test message sent to sink@example.test.")).toBeVisible();
+    expect(callsTo(harness.script, "testAuthSMTP")[0]?.detail).toEqual({ id: users.id, recipient: "sink@example.test" });
+  });
+
 });

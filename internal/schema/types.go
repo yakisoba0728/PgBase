@@ -43,6 +43,7 @@ type FieldInput struct {
 	Hidden      bool            `json:"hidden,omitempty"`
 	Presentable bool            `json:"presentable,omitempty"`
 	Help        string          `json:"help,omitempty"`
+	System      *bool           `json:"system,omitempty"`
 }
 
 // FieldOptions contains value constraints enforced on record writes. Required
@@ -72,19 +73,55 @@ type FieldOptions struct {
 	ConvertURLs bool     `json:"convertURLs,omitempty"`
 	OnCreate    bool     `json:"onCreate,omitempty"`
 	OnUpdate    bool     `json:"onUpdate,omitempty"`
+	// Protected defaults to true for file fields when omitted. Explicit false
+	// opts a file field into public delivery policy.
+	Protected *bool `json:"protected,omitempty"`
 }
 
+type CollectionType string
+
+const (
+	CollectionTypeBase CollectionType = "base"
+	CollectionTypeAuth CollectionType = "auth"
+	CollectionTypeView CollectionType = "view"
+)
+
+type ValidationMode string
+
+const (
+	ValidationModePostgres   ValidationMode = "postgres"
+	ValidationModePocketBase ValidationMode = "pocketbase"
+)
+
 type IndexInput struct {
-	Name   string   `json:"name"`
-	Fields []string `json:"fields"`
-	Unique bool     `json:"unique"`
+	Name   string          `json:"name"`
+	Fields []string        `json:"fields,omitempty"`
+	Unique bool            `json:"unique"`
+	Keys   []IndexKeyInput `json:"keys,omitempty"`
+	Where  string          `json:"where,omitempty"`
+	RawSQL string          `json:"rawSql,omitempty"`
+}
+
+// IndexKeyInput is one btree key. Field and Expression are mutually exclusive.
+// Expressions and partial predicates use PostgreSQL syntax but are accepted
+// only after the planner has parsed and allowlisted their AST.
+type IndexKeyInput struct {
+	Field      string `json:"field,omitempty"`
+	Expression string `json:"expression,omitempty"`
+	Collation  string `json:"collation,omitempty"`
+	Order      string `json:"order,omitempty"`
 }
 
 type CreateCollectionInput struct {
-	Name    string       `json:"name"`
-	Fields  []FieldInput `json:"fields"`
-	Indexes []IndexInput `json:"indexes,omitempty"`
-	View    *ViewInput   `json:"view,omitempty"`
+	Name              string          `json:"name"`
+	CompatibilityName string          `json:"compatibilityName,omitempty"`
+	Type              CollectionType  `json:"type,omitempty"`
+	System            bool            `json:"system,omitempty"`
+	ValidationMode    ValidationMode  `json:"validationMode,omitempty"`
+	RecordID          *RecordIDPolicy `json:"recordId,omitempty"`
+	Fields            []FieldInput    `json:"fields"`
+	Indexes           []IndexInput    `json:"indexes,omitempty"`
+	View              *ViewInput      `json:"view,omitempty"`
 }
 
 type ViewInput struct {
@@ -103,10 +140,18 @@ type ViewFilter struct {
 }
 
 type UpdateCollectionInput struct {
-	Name    string        `json:"name"`
-	Fields  []FieldInput  `json:"fields"`
-	Indexes *[]IndexInput `json:"indexes,omitempty"`
-	View    *ViewInput    `json:"view,omitempty"`
+	// CollectionID selects the stable collection identity for a rename. When it
+	// is omitted Name keeps its historical role as both selector and target.
+	CollectionID      *uuid.UUID      `json:"collectionId,omitempty"`
+	Name              string          `json:"name"`
+	CompatibilityName *string         `json:"compatibilityName,omitempty"`
+	Type              *CollectionType `json:"type,omitempty"`
+	System            *bool           `json:"system,omitempty"`
+	ValidationMode    *ValidationMode `json:"validationMode,omitempty"`
+	RecordID          *RecordIDPolicy `json:"recordId,omitempty"`
+	Fields            []FieldInput    `json:"fields"`
+	Indexes           *[]IndexInput   `json:"indexes,omitempty"`
+	View              *ViewInput      `json:"view,omitempty"`
 }
 
 type changeKind uint8
@@ -174,6 +219,7 @@ func cloneIndexInputs(indexes []IndexInput) []IndexInput {
 	cloned := append([]IndexInput(nil), indexes...)
 	for index := range cloned {
 		cloned[index].Fields = append([]string(nil), indexes[index].Fields...)
+		cloned[index].Keys = append([]IndexKeyInput(nil), indexes[index].Keys...)
 	}
 	return cloned
 }
@@ -203,6 +249,7 @@ func cloneFieldOptions(source FieldOptions) FieldOptions {
 	result.Max = clonePointer(source.Max)
 	result.MaxFileSize = clonePointer(source.MaxFileSize)
 	result.MaxSize = clonePointer(source.MaxSize)
+	result.Protected = clonePointer(source.Protected)
 	result.AllowedDomains = append([]string(nil), source.AllowedDomains...)
 	result.DeniedDomains = append([]string(nil), source.DeniedDomains...)
 	result.AllowedValues = append([]string(nil), source.AllowedValues...)
@@ -257,17 +304,23 @@ type Field struct {
 	Hidden      bool            `json:"hidden,omitempty"`
 	Presentable bool            `json:"presentable,omitempty"`
 	Help        string          `json:"help,omitempty"`
+	System      bool            `json:"system,omitempty"`
 	Ordinal     int             `json:"ordinal"`
 }
 
 type Collection struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	TableName string    `json:"tableName"`
-	Fields    []Field   `json:"fields"`
-	Indexes   []Index   `json:"indexes,omitempty"`
-	View      *ViewSpec `json:"view,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID                uuid.UUID      `json:"id"`
+	Name              string         `json:"name"`
+	CompatibilityName string         `json:"compatibilityName,omitempty"`
+	Type              CollectionType `json:"type"`
+	System            bool           `json:"system,omitempty"`
+	ValidationMode    ValidationMode `json:"validationMode"`
+	RecordID          RecordIDPolicy `json:"recordId"`
+	TableName         string         `json:"tableName"`
+	Fields            []Field        `json:"fields"`
+	Indexes           []Index        `json:"indexes,omitempty"`
+	View              *ViewSpec      `json:"view,omitempty"`
+	CreatedAt         time.Time      `json:"createdAt"`
 }
 
 type ViewSpec struct {
@@ -289,11 +342,14 @@ func (c Collection) AccessCollectionID() uuid.UUID {
 }
 
 type Index struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	Fields    []string  `json:"fields"`
-	IndexName string    `json:"indexName"`
-	Unique    bool      `json:"unique"`
+	ID        uuid.UUID       `json:"id"`
+	Name      string          `json:"name"`
+	Fields    []string        `json:"fields"`
+	IndexName string          `json:"indexName"`
+	Unique    bool            `json:"unique"`
+	Keys      []IndexKeyInput `json:"keys,omitempty"`
+	Where     string          `json:"where,omitempty"`
+	RawSQL    string          `json:"rawSql,omitempty"`
 }
 
 type PlannedField struct {
@@ -310,15 +366,21 @@ type PlannedField struct {
 	Hidden      bool             `json:"hidden,omitempty"`
 	Presentable bool             `json:"presentable,omitempty"`
 	Help        string           `json:"help,omitempty"`
+	System      bool             `json:"system,omitempty"`
 	Ordinal     int
 }
 
 type PlannedCollection struct {
-	Name      string
-	TableName string
-	Fields    []PlannedField
-	Indexes   []PlannedIndex
-	View      *PlannedView `json:"view,omitempty"`
+	Name              string
+	CompatibilityName string
+	Type              CollectionType
+	System            bool
+	ValidationMode    ValidationMode
+	RecordID          RecordIDPolicy
+	TableName         string
+	Fields            []PlannedField
+	Indexes           []PlannedIndex
+	View              *PlannedView `json:"view,omitempty"`
 }
 type PlannedView struct {
 	SourceCollectionID uuid.UUID   `json:"sourceCollectionId"`
@@ -330,9 +392,12 @@ type PlannedView struct {
 }
 
 type PlannedIndex struct {
-	Name   string   `json:"name"`
-	Fields []string `json:"fields"`
-	Unique bool     `json:"unique"`
+	Name   string          `json:"name"`
+	Fields []string        `json:"fields"`
+	Unique bool            `json:"unique"`
+	Keys   []IndexKeyInput `json:"keys,omitempty"`
+	Where  string          `json:"where,omitempty"`
+	RawSQL string          `json:"rawSql,omitempty"`
 }
 
 type Plan struct {

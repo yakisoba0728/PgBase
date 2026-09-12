@@ -12,12 +12,12 @@ func TestAllOptionalRoutesFitTheDeclaredBudget(t *testing.T) {
 	if err := validateRoutes(routes); err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("all optional modules: %d routes, budget %d", len(routes), maximumRegisteredRoutes)
+	t.Logf("all optional modules: %d routes, built-in budget %d; custom capacity %d", len(routes), maximumBuiltinRoutes, MaximumCustomRoutes)
 	patterns := map[string]bool{}
 	for _, route := range routes {
 		patterns[route.muxPattern()] = true
 	}
-	for _, pattern := range []string{"GET /api/admin/storage/files", "PUT /api/admin/storage/files", "POST /api/admin/storage/files/test", "GET /api/admin/schema/export", "POST /api/admin/schema/import/preview", "POST /api/admin/schema/import/apply", "POST /api/v1/auth/otp/request", "POST /api/v1/auth/otp/complete", "POST /api/v1/auth/{authCollection}/otp/request", "POST /api/v1/auth/{authCollection}/otp/complete", "GET /api/admin/backups", "POST /api/admin/sql/queries", "GET /api/admin/sql/queries/{id}"} {
+	for _, pattern := range []string{"GET /api/admin/storage/files", "PUT /api/admin/storage/files", "POST /api/admin/storage/files/test", "GET /api/admin/schema/export", "POST /api/admin/schema/import/preview", "POST /api/admin/schema/import/apply", "POST /api/v1/auth/otp/request", "POST /api/v1/auth/otp/complete", "POST /api/v1/auth/{authCollection}/otp/request", "POST /api/v1/auth/{authCollection}/otp/complete", "GET /api/v1/auth/{authCollection}/methods", "POST /api/v1/auth/{authCollection}/refresh", "GET /api/admin/backups", "POST /api/admin/sql/queries", "GET /api/admin/sql/queries/{id}"} {
 		if !patterns[pattern] {
 			t.Errorf("optional route omitted: %s", pattern)
 		}

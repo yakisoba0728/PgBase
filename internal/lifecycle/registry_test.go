@@ -68,3 +68,28 @@ func TestPanicContainmentAndFinishOnce(t *testing.T) {
 		t.Fatal(n)
 	}
 }
+
+func TestWithoutHooksSkipsCallbacksButRunsOperation(t *testing.T) {
+	var registry Registry
+	callbacks := 0
+	_, _ = registry.On("save", Hook{
+		Before: func(context.Context, *Event) error { callbacks++; return nil },
+		After:  func(context.Context, *Event) { callbacks++ },
+	})
+	operations := 0
+	if err := registry.Run(WithoutHooks(context.Background()), &Event{Kind: "save"}, func() error {
+		operations++
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if callbacks != 0 || operations != 1 {
+		t.Fatalf("callbacks=%d operations=%d", callbacks, operations)
+	}
+	if err := registry.Run(context.Background(), &Event{Kind: "save"}, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if callbacks != 2 {
+		t.Fatalf("normal callbacks=%d", callbacks)
+	}
+}

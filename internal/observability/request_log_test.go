@@ -43,6 +43,22 @@ func TestRequestLogBoundedPagesAndFilter(t *testing.T) {
 	}
 }
 
+func TestRequestLogContextIsExplicitAndOptIn(t *testing.T) {
+	var log RequestLog
+	log.Record("GET", "/anonymous", 200, time.Millisecond)
+	log.RecordContext("GET", "/identified", 200, time.Millisecond, "192.0.2.4", "admin", "019551d0-e9c0-7000-8000-0000000000aa")
+	page := log.Page(0, 0)
+	if len(page.Items) != 2 {
+		t.Fatalf("items = %d", len(page.Items))
+	}
+	if page.Items[0].ClientIP != "192.0.2.4" || page.Items[0].AuthKind != "admin" || page.Items[0].AuthID == "" {
+		t.Fatalf("identified entry = %#v", page.Items[0])
+	}
+	if page.Items[1].ClientIP != "" || page.Items[1].AuthID != "" {
+		t.Fatalf("anonymous entry retained context = %#v", page.Items[1])
+	}
+}
+
 func TestRequestLogFlushAfterShutdownDoesNotBlock(t *testing.T) {
 	log := &RequestLog{flush: make(chan chan error)}
 	log.closed.Store(true)

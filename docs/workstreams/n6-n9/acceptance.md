@@ -1,6 +1,6 @@
 # N6–N9 final local acceptance
 
-Accepted product/UI source: `b7674f704e14b07104ebf6f1c9ee5e53092f367e`, on `codex/n6-n9-integration`. Later final commits contain evidence/status documentation only. Baseline is merged N1–N5 `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`, with the installed-status record `117a1db` retained. This is local implementation and acceptance; no remote merge, live replacement or public distribution was performed.
+Accepted product/UI source: `b7674f704e14b07104ebf6f1c9ee5e53092f367e`, initially accepted on `codex/n6-n9-integration`. Baseline is merged N1–N5 `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`, with the installed-status record `117a1db` retained. The later SQL recovery, release-build metadata, module-path, and CI updates were merged with this work as [PR #35](https://github.com/yakisoba0728/PgBase/pull/35), main merge commit `53a474143e117251d9b322441508ac85d776ef2a`. The local acceptance evidence remains distinct from live replacement or public distribution, neither of which was performed.
 
 ## Feature acceptance
 
@@ -45,7 +45,7 @@ The final five-case PostgreSQL command is `go test -tags=integration -race ./int
 
 At08:45 KST, the six task-owned N7/N8/G5 containers were identified by exact Compose project/config labels and AutoRemove=false, then stopped without removal. Named/anonymous volumes, container data and browser evidence are preserved. N8 API/UI/browser processes were already stopped. Completed N6 AutoRemove PG removal on the earlier pause remains historical. No command targeted live8090/55440/59000, the installed binary or existing userdata.
 
-Windows-native execution is unavailable and unclaimed; actual Windows helper code/compile and available Darwin-native tests satisfy the local boundary. JS code is trusted application code, with no hostile multitenant hard-heap sandbox claim. N8 supports its documented native expression/role/target subset; unsupported SQL fails closed. Compact write keys are retained indefinitely, so total key storage is not globally bounded. The additional browser restart/commit-unknown/real-time TTL exercise was not completed and is not claimed; deterministic backend and UI-unit evidence cover those mechanisms. No public release, npm/pub.dev publication, cloud deployment, remote merge or live update occurred.
+Windows-native execution is unavailable and unclaimed; actual Windows helper code/compile and available Darwin-native tests satisfy the local boundary. JS code is trusted application code, with no hostile multitenant hard-heap sandbox claim. N8 supports its documented native expression/role/target subset; unsupported SQL fails closed. Compact write keys are retained indefinitely, so total key storage is not globally bounded. The additional browser restart/commit-unknown/real-time TTL exercise was not completed and is not claimed; deterministic backend and UI-unit evidence cover those mechanisms. No public release, npm/pub.dev publication, cloud deployment, or live update occurred; remote merge is recorded above.
 
 ## Post-acceptance local follow-up (2026-09-10)
 
@@ -53,9 +53,10 @@ The repository Git metadata was repaired before this follow-up: a backup was mad
 `/tmp/pgbase-git-metadata-backup.ZF8RfK/git`, the final missing newline in
 `packed-refs` was restored, and the missing local integration ref was recovered
 only from the matching `logs/HEAD` and index transition. `git show-ref` and
-`git fsck --full --connectivity-only` then passed. The recovered checkout is
+`git fsck --full --connectivity-only` then passed. The recovered checkout was
 `codex/n6-n9-integration` at `8d52c8d49f16ad491d4f0e821c94fef2324757d1`;
-`origin/main` remains `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`.
+it was subsequently merged as [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)
+at main commit `53a474143e117251d9b322441508ac85d776ef2a`.
 
 The previously excluded SQL-console browser restart/commit-unknown behaviour
 now has a focused UI test: it retains the session-scoped write identity across
@@ -75,5 +76,5 @@ Six local CGO-free artifacts for the recovered source were built under
 `SHA256SUMS` manifest. Native Darwin/arm64 `version --json` reports commit
 `8d52c8d49f16ad491d4f0e821c94fef2324757d1` and schema range `41..41`.
 Windows artifacts were cross-compiled only; native Windows replacement was not
-executed. These are local release-preparation artifacts, not a public release,
-remote merge, or live installation.
+executed. These are local release-preparation artifacts, not a public release
+or live installation.

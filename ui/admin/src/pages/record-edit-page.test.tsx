@@ -43,6 +43,14 @@ describe("record editor page", () => {
 		expect(callsTo(harness.script, "createWithFiles")[0].detail).toMatchObject({ collection: "documents", input: { title: "contract" }, files: { attachment: ["contract.txt"] } });
 	});
 
+	it("shows a local preview for selected media before the atomic file save", async () => {
+		const imageField: FieldDefinition = { ...requiredAttachment, options: { maxSelect: 1, mimeTypes: ["image/png"] } };
+		const images = collection("images", "images-id", [textField("title", 0), imageField]); const harness = scriptedAdmin("/admin/collections/images/records/new"); harness.script.catalog.push({ value: { version: 4, collections: [images] } });
+		vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:selected-image"); const user = userEvent.setup(); renderAdmin(harness);
+		const picker = await screen.findByLabelText("attachment files for save"); expect(picker).toHaveAttribute("accept", "image/png"); await user.upload(picker, new File(["png"], "cover.png", { type: "image/png" }));
+		expect(await screen.findByRole("img", { name: "Selected cover.png" })).toHaveAttribute("src", "blob:selected-image"); expect(callsTo(harness.script, "createWithFiles")).toHaveLength(0);
+	});
+
 	it("atomically attaches selected files while preserving the edit precondition", async () => {
 		const harness = scriptedAdmin(`/admin/collections/documents/records/${recordID}`);
 		harness.script.catalog.push({ value: { version: 4, collections: [documents] } });

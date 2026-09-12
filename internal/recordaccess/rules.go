@@ -69,8 +69,28 @@ func (s *RuleService) Set(ctx context.Context, name string, rules accessrule.Rul
 		}
 		for _, action := range []string{"list", "view", "create", "update", "delete"} {
 			rule, _ := rules.Action(action)
-			if _, _, err := accessrule.Compile(rule, collection, collection.TableName, identity.Subject{Kind: identity.User, ID: uuid.New()}, 0, false); err != nil {
-				return err
+			principal := identity.Subject{Kind: identity.User, ID: uuid.New()}
+			if rule.PocketBase != nil {
+				resolver, resolverErr := accessrule.NewCatalogResolver(catalog, collection, collection.TableName)
+				if resolverErr != nil {
+					return resolverErr
+				}
+				var request *accessrule.RequestContext
+				if action == "create" || action == "update" {
+					request = &accessrule.RequestContext{Present: map[string]bool{}, Changed: map[string]bool{}}
+				}
+				if _, _, compileErr := accessrule.CompilePocketBase(rule, accessrule.PBCompileContext{Resolver: resolver, Principal: principal, Request: request}); compileErr != nil {
+					return compileErr
+				}
+				continue
+			}
+			if _, _, err := accessrule.Compile(rule, collection, collection.TableName, principal, 0, false); err != nil {
+				if action != "create" && action != "update" {
+					return err
+				}
+				if _, _, requestErr := accessrule.CompileWithRequest(rule, collection, collection.TableName, principal, 0, action == "create", accessrule.RequestContext{Present: map[string]bool{}, Changed: map[string]bool{}}); requestErr != nil {
+					return requestErr
+				}
 			}
 		}
 		raw, err := json.Marshal(rules)

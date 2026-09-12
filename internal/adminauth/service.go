@@ -23,13 +23,16 @@ const dummyPasswordHash = "$argon2id$v=19$m=65536,t=3,p=4$cGdiYXNlLWR1bW15LXYxIQ
 const dummyPassword = "pgbase dummy credential 2026"
 
 const (
-	accountFailureLimit = 5
-	networkFailureLimit = 20
+	accountFailureLimit     = 5
+	networkFailureLimit     = 20
+	maximumPasswordResetTTL = 24 * time.Hour
 )
 
 type rateLimitBucket struct {
 	hash           []byte
 	limit          int
+	window         time.Duration
+	block          time.Duration
 	clearOnSuccess bool
 }
 
@@ -192,41 +195,6 @@ func (s *Service) CreateAdministrator(ctx context.Context, email, password strin
 	return administrator, nil
 }
 
-// ResetAdministratorPassword replaces an active administrator password and
-// revokes all of that administrator's sessions without issuing a replacement.
-func (s *Service) ResetAdministratorPassword(ctx context.Context, email, password string) (Administrator, error) {
-	if err := s.ready(); err != nil {
-		return Administrator{}, err
-	}
-	normalizedEmail, err := NormalizeEmail(email)
-	if err != nil {
-		return Administrator{}, err
-	}
-	passwordHash, err := s.passwords.Hash(password)
-	if err != nil {
-		return Administrator{}, err
-	}
-	now := s.clock.Now().UTC()
-	var administrator Administrator
-	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		var resetErr error
-		store := NewStore(tx)
-		administrator, resetErr = store.ResetAdministratorPassword(ctx, normalizedEmail, passwordHash, now)
-		if resetErr != nil {
-			return resetErr
-		}
-		emailHash := rateLimitSubjectHash(s.tokenSecret, "login", "account", normalizedEmail)
-		if err := store.LockRateLimits(ctx, []int64{advisoryKey(emailHash)}); err != nil {
-			return err
-		}
-		return store.ClearRateLimit(ctx, emailHash)
-	})
-	if err != nil {
-		return Administrator{}, err
-	}
-	return administrator, nil
-}
-
 func (s *Service) SetupRequired(ctx context.Context) (bool, error) {
 	if err := s.ready(); err != nil {
 		return false, err
@@ -237,6 +205,54 @@ func (s *Service) SetupRequired(ctx context.Context) (bool, error) {
 	}
 	defer releaseAdmission()
 	return s.setupRequired(ctx)
+}
+
+// AuthorizeSetup rechecks the setup boundary at action time. It is used only
+// by pre-install recovery operations; once any administrator exists the setup
+// token is no longer an authority.
+func (s *Service) AuthorizeSetup(ctx context.Context, token string) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	if s.setupToken == "" || !constantTimeStringEqual(s.setupToken, token) {
+		return ErrInvalidCredentials
+	}
+	required, err := s.setupRequired(ctx)
+	if err != nil {
+		return err
+	}
+	if !required {
+		return ErrSetupUnavailable
+	}
+	return nil
+}
+
+// BeginSetupGuard serializes a pre-install destructive action with first-admin
+// creation. The caller holds the returned release through its admission work.
+func (s *Service) BeginSetupGuard(ctx context.Context, token string) (func(), error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	if s.setupToken == "" || !constantTimeStringEqual(s.setupToken, token) {
+		return nil, ErrInvalidCredentials
+	}
+	conn, err := s.pool.OpenCoordinationSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = conn.Exec(ctx, "select pg_advisory_lock($1)", setupAdvisoryLockKey); err != nil {
+		_ = conn.Close(context.Background())
+		return nil, err
+	}
+	count, err := NewStore(conn).AdministratorCount(ctx)
+	if err != nil || count != 0 {
+		_ = conn.Close(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		return nil, ErrSetupUnavailable
+	}
+	return func() { _ = conn.Close(context.Background()) }, nil
 }
 
 func (s *Service) setupRequired(ctx context.Context) (bool, error) {
@@ -272,24 +288,25 @@ func (s *Service) login(ctx context.Context, email, password, subject, otpCode s
 		normalizedEmail = strings.ToLower(strings.TrimSpace(email))
 	}
 	now := s.clock.Now()
+	policy := s.currentRatePolicy()
 	emailBucket := rateLimitBucket{
 		hash:           rateLimitSubjectHash(s.tokenSecret, "login", "account", normalizedEmail),
 		clearOnSuccess: true,
 	}
 	networkBucket := rateLimitBucket{
 		hash:  rateLimitSubjectHash(s.tokenSecret, "login", "network", subject),
-		limit: networkFailureLimit,
+		limit: policy.NetworkMaxFailures, window: policy.Window, block: policy.Block,
 	}
 	if err := s.admitRateLimit(ctx, []rateLimitBucket{networkBucket}, now); err != nil {
 		return Session{}, err
 	}
 	traceLogin(ctx, loginStageNetworkAdmission)
-	failures, err := s.loginFailureCount(ctx, emailBucket.hash, now)
+	failures, err := s.loginFailureCount(ctx, emailBucket.hash, now, policy.Window)
 	if err != nil {
 		return Session{}, err
 	}
 	traceLogin(ctx, loginStageFailureSignalRead)
-	if err := waitLoginFailureDelay(ctx, failures); err != nil {
+	if err := waitLoginFailureDelay(ctx, failures, policy.AccountMaxFailures); err != nil {
 		return Session{}, err
 	}
 	candidate, valid, err := s.verifyLoginCandidate(ctx, normalizedEmail, normalizationErr, password)
@@ -297,7 +314,7 @@ func (s *Service) login(ctx context.Context, email, password, subject, otpCode s
 		return Session{}, err
 	}
 	if !valid {
-		if err := s.recordLoginFailure(ctx, emailBucket.hash, now); err != nil {
+		if err := s.recordLoginFailure(ctx, emailBucket.hash, now, policy.Window); err != nil {
 			return Session{}, err
 		}
 		traceLogin(ctx, loginStageFailureRecorded)
@@ -364,7 +381,7 @@ func (s *Service) login(ctx context.Context, email, password, subject, otpCode s
 	}
 	if operationErr != nil {
 		if errors.Is(operationErr, ErrInvalidCredentials) {
-			if err := s.recordLoginFailure(ctx, emailBucket.hash, now); err != nil {
+			if err := s.recordLoginFailure(ctx, emailBucket.hash, now, policy.Window); err != nil {
 				return Session{}, err
 			}
 			traceLogin(ctx, loginStageFailureRecorded)
@@ -492,7 +509,7 @@ func (s *Service) verifyLoginCandidate(
 	return candidate, credentialShapeValid && verificationErr == nil, nil
 }
 
-func (s *Service) loginFailureCount(ctx context.Context, emailHash []byte, now time.Time) (int, error) {
+func (s *Service) loginFailureCount(ctx context.Context, emailHash []byte, now time.Time, window time.Duration) (int, error) {
 	failures := 0
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		store := NewStore(tx)
@@ -500,32 +517,36 @@ func (s *Service) loginFailureCount(ctx context.Context, emailHash []byte, now t
 			return err
 		}
 		var err error
-		failures, err = store.RateLimitFailures(ctx, emailHash, now)
+		failures, err = store.RateLimitFailures(ctx, emailHash, now, window)
 		return err
 	})
 	return failures, err
 }
 
-func (s *Service) recordLoginFailure(ctx context.Context, emailHash []byte, now time.Time) error {
+func (s *Service) recordLoginFailure(ctx context.Context, emailHash []byte, now time.Time, window time.Duration) error {
 	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		store := NewStore(tx)
 		if err := store.LockRateLimits(ctx, []int64{advisoryKey(emailHash)}); err != nil {
 			return err
 		}
-		return store.RecordRateLimitSignal(ctx, emailHash, now)
+		return store.RecordRateLimitSignal(ctx, emailHash, now, window)
 	})
 }
 
-func waitLoginFailureDelay(ctx context.Context, failures int) error {
+func waitLoginFailureDelay(ctx context.Context, failures int, maximums ...int) error {
+	maximum := accountFailureLimit
+	if len(maximums) == 1 {
+		maximum = maximums[0]
+	}
 	var delay time.Duration
 	switch {
-	case failures >= 5:
+	case failures >= maximum:
 		delay = time.Second
 		traceLogin(ctx, loginStageDelay1S)
-	case failures == 4:
+	case failures > 0 && failures == maximum-1:
 		delay = 500 * time.Millisecond
 		traceLogin(ctx, loginStageDelay500MS)
-	case failures == 3:
+	case failures > 0 && failures == maximum-2:
 		delay = 250 * time.Millisecond
 		traceLogin(ctx, loginStageDelay250MS)
 	default:
@@ -595,7 +616,7 @@ func rateLimitBlocked(ctx context.Context, store *Store, buckets []rateLimitBuck
 
 func recordRateLimitAttempt(ctx context.Context, store *Store, buckets []rateLimitBucket, now time.Time) error {
 	for _, bucket := range buckets {
-		if _, err := store.RecordRateLimitFailure(ctx, bucket.hash, now, bucket.limit); err != nil {
+		if _, err := store.RecordRateLimitFailure(ctx, bucket.hash, now, bucket.limit, bucket.window, bucket.block); err != nil {
 			return err
 		}
 	}

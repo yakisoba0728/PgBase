@@ -40,6 +40,15 @@ type adminOTPLogin interface {
 	LoginWithOTP(context.Context, string, string, string, string) (adminauth.Session, error)
 }
 
+type adminPasswordReset interface {
+	RequestPasswordReset(context.Context, string, string) error
+	ConfirmPasswordReset(context.Context, string, string) error
+}
+
+type adminEmailOTP interface {
+	CompleteEmailOTP(context.Context, string, string, string) (adminauth.Session, error)
+}
+
 func (e adminEndpoints) status(w http.ResponseWriter, r *http.Request) {
 	if e.auth == nil {
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
@@ -64,7 +73,7 @@ func (e adminEndpoints) status(w http.ResponseWriter, r *http.Request) {
 type adminEndpoints struct {
 	auth           AdminAuth
 	publicURL      *url.URL
-	trustedProxies []netip.Prefix
+	trustedProxies func() []netip.Prefix
 	sqlConsole     bool
 	recorder       observability.Recorder
 	statusCache    *setupStatusCache
@@ -93,7 +102,7 @@ func newAdminEndpoints(dependencies Dependencies) adminEndpoints {
 	return adminEndpoints{
 		auth:           dependencies.AdminAuth,
 		publicURL:      dependencies.PublicURL,
-		trustedProxies: append([]netip.Prefix(nil), dependencies.TrustedProxies...),
+		trustedProxies: dependencies.trustedProxies,
 		sqlConsole:     dependencies.SQLConsole != nil,
 		recorder:       recorder,
 		statusCache:    newSetupStatusCache(),
@@ -121,7 +130,7 @@ func (e adminEndpoints) setup(w http.ResponseWriter, r *http.Request) {
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
 		return
 	}
-	subject, ok := clientAddress(r, e.trustedProxies)
+	subject, ok := clientAddress(r, currentTrustedProxies(e.trustedProxies))
 	if !ok {
 		outcome = observability.OutcomeValidation
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
@@ -159,7 +168,7 @@ func (e adminEndpoints) login(w http.ResponseWriter, r *http.Request) {
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
 		return
 	}
-	subject, ok := clientIP(r, e.trustedProxies)
+	subject, ok := clientIP(r, currentTrustedProxies(e.trustedProxies))
 	if !ok {
 		outcome = observability.OutcomeValidation
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
@@ -178,6 +187,81 @@ func (e adminEndpoints) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	outcome = observability.OutcomeSuccess
+	e.writeIssuedSession(w, r, http.StatusOK, session)
+}
+
+func (e adminEndpoints) requestPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Email string `json:"email"`
+	}
+	if err := decodeStrictJSON(r, &input); err != nil {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	service, ok := e.auth.(adminPasswordReset)
+	if !ok {
+		writeAdminAuthError(w, r, errors.New("administrator password reset is unavailable"))
+		return
+	}
+	address, ok := clientIP(r, currentTrustedProxies(e.trustedProxies))
+	if !ok {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	if err := service.RequestPasswordReset(r.Context(), input.Email, address); err != nil {
+		writeAdminAuthError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (e adminEndpoints) confirmPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Token       string `json:"token"`
+		NewPassword string `json:"newPassword"`
+	}
+	if err := decodeStrictJSON(r, &input); err != nil {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	service, ok := e.auth.(adminPasswordReset)
+	if !ok {
+		writeAdminAuthError(w, r, errors.New("administrator password reset is unavailable"))
+		return
+	}
+	if err := service.ConfirmPasswordReset(r.Context(), input.Token, input.NewPassword); err != nil {
+		writeAdminAuthError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (e adminEndpoints) completeEmailOTP(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		OTPID string `json:"otpId"`
+		Code  string `json:"code"`
+	}
+	if err := decodeStrictJSON(r, &input); err != nil {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	service, ok := e.auth.(adminEmailOTP)
+	if !ok {
+		writeAdminAuthError(w, r, errors.New("administrator email OTP is unavailable"))
+		return
+	}
+	address, ok := clientIP(r, currentTrustedProxies(e.trustedProxies))
+	if !ok {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+		return
+	}
+	session, err := service.CompleteEmailOTP(r.Context(), input.OTPID, input.Code, address)
+	if err != nil {
+		writeAdminAuthError(w, r, err)
+		return
+	}
 	e.writeIssuedSession(w, r, http.StatusOK, session)
 }
 
@@ -237,13 +321,13 @@ func (e adminEndpoints) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     adminCookieNameForRequest(r, e.publicURL, e.trustedProxies),
+		Name:     adminCookieNameForRequest(r, e.publicURL, currentTrustedProxies(e.trustedProxies)),
 		Value:    "",
 		Path:     "/",
 		Expires:  time.Unix(1, 0).UTC(),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   secureAdminCookie(r, e.publicURL, e.trustedProxies),
+		Secure:   secureAdminCookie(r, e.publicURL, currentTrustedProxies(e.trustedProxies)),
 		SameSite: http.SameSiteLaxMode,
 	})
 	w.WriteHeader(http.StatusNoContent)
@@ -251,12 +335,12 @@ func (e adminEndpoints) logout(w http.ResponseWriter, r *http.Request) {
 
 func (e adminEndpoints) writeIssuedSession(w http.ResponseWriter, r *http.Request, status int, session adminauth.Session) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     adminCookieNameForRequest(r, e.publicURL, e.trustedProxies),
+		Name:     adminCookieNameForRequest(r, e.publicURL, currentTrustedProxies(e.trustedProxies)),
 		Value:    session.RawToken,
 		Path:     "/",
 		Expires:  session.ExpiresAt.UTC(),
 		HttpOnly: true,
-		Secure:   secureAdminCookie(r, e.publicURL, e.trustedProxies),
+		Secure:   secureAdminCookie(r, e.publicURL, currentTrustedProxies(e.trustedProxies)),
 		SameSite: http.SameSiteLaxMode,
 	})
 	writeJSON(w, status, sessionResponse(session.Administrator, session.ExpiresAt, session.CSRFToken, e.sqlConsole))

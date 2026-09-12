@@ -70,10 +70,6 @@ func (s *Service) cursorV5ScopeFingerprint(principal Principal) []byte {
 	return s.cursors.ScopeFingerprint([]byte(`{"kind":"` + string(principal.Kind) + `","id":"` + principal.ID.String() + `","policy":"` + policy + `"}`))
 }
 
-// A v5 descriptor is derived from the request's own filter and order, so a
-// failure building one usually means the request is malformed, not that a
-// cursor is bad. Reporting it as an invalid cursor would change the answer a
-// cursorless request already had the moment v5 issuance is enabled.
 func cursorV5RequestError(err error) error {
 	var validationError *ValidationError
 	if errors.As(err, &validationError) {

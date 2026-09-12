@@ -19,6 +19,7 @@ type realtimeAuthStub struct {
 	principal userauth.Principal
 	mu        sync.Mutex
 	calls     int
+	err       error
 }
 
 type realtimeLifecycleStub struct {
@@ -98,8 +99,9 @@ func (*realtimeAuthStub) Login(context.Context, string, string, string) (useraut
 func (s *realtimeAuthStub) Authenticate(context.Context, string) (userauth.Principal, error) {
 	s.mu.Lock()
 	s.calls++
+	err := s.err
 	s.mu.Unlock()
-	return s.principal, nil
+	return s.principal, err
 }
 func (*realtimeAuthStub) Logout(context.Context, string) error { return nil }
 func (*realtimeAuthStub) ListUsers(context.Context, uuid.UUID, int) (userauth.UserPage, error) {

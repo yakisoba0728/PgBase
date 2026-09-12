@@ -4,6 +4,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/yakisoba0728/PgBase/internal/fieldvalue"
 )
@@ -33,15 +34,30 @@ func validateFieldOptions(kind FieldType, options *FieldOptions) error {
 		return nil
 	}
 	if kind != TypeFile {
-		if options != nil && (options.MaxFileSize != nil || len(options.MimeTypes) != 0 || len(options.Thumbs) != 0) {
+		if options != nil && (options.MaxFileSize != nil || len(options.MimeTypes) != 0 || len(options.Thumbs) != 0 || options.Protected != nil) {
 			return errors.New("file options require file type")
+		}
+		if kind == TypeTimestampTZ {
+			if options == nil {
+				return nil
+			}
+			for _, bound := range []*string{options.Min, options.Max} {
+				if bound != nil {
+					if parsed, err := time.Parse(time.RFC3339Nano, *bound); err != nil || parsed.Location() == nil {
+						return errors.New("invalid date bound")
+					}
+				}
+			}
+			copy := *options
+			copy.Min, copy.Max = nil, nil
+			return fieldvalue.ValidateDefinition(string(kind), fieldInputValueOptions(&copy))
 		}
 		return fieldvalue.ValidateDefinition(string(kind), fieldInputValueOptions(options))
 	}
 	if options == nil {
 		return nil
 	}
-	if options.MinLength != nil || options.MaxLength != nil || options.Pattern != "" || options.Format != "" || len(options.AllowedDomains) != 0 || len(options.DeniedDomains) != 0 || options.AutogeneratePattern != "" || len(options.AllowedValues) != 0 || options.Min != nil || options.Max != nil || options.MinSelect != nil {
+	if options.MinLength != nil || options.MaxLength != nil || options.Pattern != "" || options.Format != "" || len(options.AllowedDomains) != 0 || len(options.DeniedDomains) != 0 || options.AutogeneratePattern != "" || len(options.AllowedValues) != 0 || options.Min != nil || options.Max != nil || options.MinSelect != nil || options.MaxSize != nil {
 		return fieldvalue.ValidateDefinition("file", fieldInputValueOptions(options))
 	}
 	if options.MaxSelect != nil && (*options.MaxSelect < 1 || *options.MaxSelect > maximumFiles) {
@@ -95,7 +111,7 @@ func validateAdvancedFieldOptions(kind FieldType, options *FieldOptions) error {
 		}
 		return fieldvalue.ValidateDefinition("text", fieldInputValueOptions(options))
 	default:
-		if options.MaxSize != nil || options.ConvertURLs || options.OnCreate || options.OnUpdate {
+		if options.MaxSize != nil && kind != TypeJSONB || options.ConvertURLs || options.OnCreate || options.OnUpdate {
 			return errors.New("advanced options require matching field type")
 		}
 	}

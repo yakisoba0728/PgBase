@@ -11,7 +11,47 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/query"
 )
+
+func TestBatchConditionalUpsertDoesNotCreateAbsentRecord(t *testing.T) {
+	pool, _, records, principal := newRecordOperationsTest(t)
+	ctx := context.Background()
+	id := uuid.MustParse("019551d0-e9c0-7000-8000-000000000501")
+	_, err := records.Batch(ctx, BatchRequest{Principal: principal, RequestID: "conditional-absent-upsert", Operations: []BatchOperation{{Upsert: &UpdateRequest{
+		Collection: "records", ID: id, Input: batchInput("must-not-exist"),
+		IfMatch: EntityTagSet{Present: true, Values: []string{`"pgb1.stale"`}},
+	}}}})
+	if !errors.Is(err, query.ErrRecordNotFound) {
+		t.Fatalf("conditional absent upsert error=%v, want record not found", err)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `select count(*) from app.records where id=$1`, id).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("absent upsert row count=%d err=%v", count, err)
+	}
+}
+
+func TestBatchUpsertTreatsRevisionlessBaseRowAsExisting(t *testing.T) {
+	pool, _, records, principal := newRecordOperationsTest(t)
+	ctx := context.Background()
+	id := uuid.MustParse("019551d0-e9c0-7000-8000-000000000502")
+	if _, err := pool.Exec(ctx, `insert into app.records (id,created_at,updated_at,title,count,metadata) values ($1,statement_timestamp(),statement_timestamp(),'legacy-upsert',1,'{}')`, id); err != nil {
+		t.Fatal(err)
+	}
+	results, err := records.Batch(ctx, BatchRequest{Principal: principal, RequestID: "legacy-upsert", Operations: []BatchOperation{{Upsert: &UpdateRequest{
+		Collection: "records", ID: id, Input: map[string]json.RawMessage{"count": json.RawMessage(`2`)},
+	}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Record.Version != 1 {
+		t.Fatalf("legacy upsert results=%+v", results)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `select count from app.records where id=$1`, id).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("legacy count=%d err=%v", count, err)
+	}
+}
 
 func TestBatchRollsBackEveryRecordArtifact(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)

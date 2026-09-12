@@ -1,8 +1,8 @@
 # pgBase 구현 현황 / TODO
 
-## N6–N9 — **로컬 구현·G5 인수 완료** (2026-09-10 08:48 KST)
+## N6–N9 — **구현·G5 인수·원격 병합 완료** (2026-09-10)
 
-최종 제품·UI는 `b7674f704e14b07104ebf6f1c9ee5e53092f367e`, branch는 `codex/n6-n9-integration`이다. 마지막 문서 커밋은 제품 SHA와 구분한다. [최종 인수 증거](docs/workstreams/n6-n9/acceptance.md)와 [단계 기록](docs/workstreams/n6-n9/integration.md)에 초기 실패·좁은 수정·최종 검증을 보존했다. **원격 병합·공개 배포·live 교체는 수행하지 않았다.** 설치는 계속 N1–N5/schema40이다.
+최종 제품·UI는 `b7674f704e14b07104ebf6f1c9ee5e53092f367e`이며, 후속 수정까지 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)로 병합되어 main merge commit은 `53a474143e117251d9b322441508ac85d776ef2a`다. [최종 인수 증거](docs/workstreams/n6-n9/acceptance.md)와 [단계 기록](docs/workstreams/n6-n9/integration.md)에 초기 실패·좁은 수정·최종 검증을 보존했다. **공개 배포·live 교체는 수행하지 않았다.** 설치는 계속 N1–N5/schema40이다.
 
 | 단계 | 담당 | 최종 상태 |
 | --- | --- | --- |

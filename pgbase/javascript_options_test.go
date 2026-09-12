@@ -47,3 +47,17 @@ func TestJavaScriptCapabilitiesRequireConfiguredServices(t *testing.T) {
 		}
 	}
 }
+
+func TestJavaScriptHooksBypassRequiresOperatorOptIn(t *testing.T) {
+	options := JavaScriptOptions{
+		Directory:    "/tmp/application",
+		Capabilities: map[string]bool{"hooks-bypass": true, "app-control": true},
+	}
+	if _, err := options.normalized(); err == nil {
+		t.Fatal("hooks-bypass accepted without operator opt-in")
+	}
+	options.PocketBaseCompatibility.AllowHookBypass = true
+	if _, err := options.normalized(); err != nil {
+		t.Fatalf("hooks-bypass rejected with operator opt-in: %v", err)
+	}
+}

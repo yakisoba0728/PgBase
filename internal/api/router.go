@@ -10,8 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yakisoba0728/PgBase/internal/apiratelimit"
 	"github.com/yakisoba0728/PgBase/internal/lifecycle"
 	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 type Dependencies struct {
@@ -36,6 +39,7 @@ type Dependencies struct {
 	UserAuth                    UserAuth
 	RecordAccess                RecordAccess
 	Realtime                    Realtime
+	ApplicationRealtimeBroker   *ApplicationRealtimeBroker
 	RealtimeLifecycle           RealtimeLifecycle
 	EmailActions                EmailActions
 	AuthFactors                 AuthFactors
@@ -61,6 +65,16 @@ type Dependencies struct {
 	// construction fails rather than silently running an apply unbounded.
 	SchemaApplyTimeout time.Duration
 	SQLConsole         *SQLConsoleHandlers
+	RuntimeSettings    *runtimesettings.Controller
+	SettingsLifecycle  SettingsLifecycle
+	APIRateLimits      *apiratelimit.Service
+}
+
+func (d Dependencies) trustedProxies() []netip.Prefix {
+	if d.RuntimeSettings != nil {
+		return d.RuntimeSettings.TrustedProxies()
+	}
+	return d.TrustedProxies
 }
 
 // declareRoutes is the single authoritative description of the HTTP surface.
@@ -69,8 +83,11 @@ type Dependencies struct {
 // the shape of a registration call.
 func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 	admin := newAdminEndpoints(dependencies)
-	schemas := schemaEndpoints{service: dependencies.Schema}
+	schemas := schemaEndpoints{service: dependencies.Schema, records: dependencies.Records, hooks: dependencies.LifecycleHooks}
 	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files, hooks: dependencies.LifecycleHooks}
+	if dependencies.RuntimeSettings != nil {
+		records.settings = dependencies.RuntimeSettings
+	}
 	logout := http.HandlerFunc(admin.logout)
 	login := http.HandlerFunc(admin.login)
 
@@ -87,6 +104,15 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 		{method: "POST", pattern: "/api/admin/auth/login", access: accessSameOrigin,
 			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault,
 			maximumRequestBytes: maximumCredentialRequestBytes, handler: login},
+		{method: "POST", pattern: "/api/admin/auth/request-password-reset", access: accessPublic,
+			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault,
+			maximumRequestBytes: maximumCredentialRequestBytes, noStore: true, handler: http.HandlerFunc(admin.requestPasswordReset)},
+		{method: "POST", pattern: "/api/admin/auth/confirm-password-reset", access: accessPublic,
+			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault,
+			maximumRequestBytes: maximumCredentialRequestBytes, noStore: true, handler: http.HandlerFunc(admin.confirmPasswordReset)},
+		{method: "POST", pattern: "/api/admin/auth/otp/complete", access: accessPublic,
+			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault,
+			maximumRequestBytes: maximumCredentialRequestBytes, noStore: true, handler: http.HandlerFunc(admin.completeEmailOTP)},
 		{method: "POST", pattern: "/api/admin/login", access: accessSameOrigin,
 			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault,
 			maximumRequestBytes: maximumCredentialRequestBytes, handler: login},
@@ -111,6 +137,14 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.operationStatus)},
 		{method: "GET", pattern: "/api/admin/collections", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.catalog)},
+		{method: "GET", pattern: "/api/admin/collections/scaffolds", access: accessAdminSameOriginRead,
+			response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.scaffolds)},
+		{method: "POST", pattern: "/api/admin/collections/{collection}/truncate", access: accessAdminSession,
+			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.truncate)},
+		{method: "GET", pattern: "/api/admin/collections/{collection}", access: accessAdminSameOriginRead,
+			response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(schemas.collection)},
+		{method: "POST", pattern: "/api/admin/collections/view/sample", access: accessAdminSession,
+			response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, maximumRequestBytes: schema.MaximumViewSampleQueryBytes + 256, handler: http.HandlerFunc(schemas.sampleView)},
 		{method: "GET", pattern: "/api/admin/system", access: accessAdminSameOriginRead,
 			response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: systemStatus(dependencies.System)},
 		// Cookie-authenticated reads reject a presented foreign Origin even when
@@ -128,6 +162,12 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumRecordRequestBytes, recordDocument: true, handler: http.HandlerFunc(records.update)},
 		{method: "DELETE", pattern: "/api/v1/collections/{collection}/records/{id}", access: accessAdminSession,
 			response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.delete)},
+	}
+	if dependencies.RuntimeSettings != nil {
+		routes = append(routes, runtimeSettingsRoutes(dependencies.RuntimeSettings, dependencies.SettingsLifecycle)...)
+	}
+	if dependencies.Backups != nil {
+		routes = append(routes, setupBackupRoutes(dependencies)...)
 	}
 	routes = append(routes, storageAdministrationRoutes(dependencies)...)
 	routes = append(routes, storageMigrationRoutes(dependencies.StorageMigrations)...)
@@ -156,12 +196,14 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 		routes = append(routes, route{method: "POST", pattern: "/api/v1/user/collections/batch", access: accessUserSession, response: atomicJSON(maximumBatchResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumMultipartBatchRequestBytes, streamedUpload: true, handler: http.HandlerFunc(records.batch)})
 	}
 	routes = append(routes, authCollectionRoutes(dependencies)...)
+	routes = append(routes, adminProfileRoutes(dependencies)...)
 	routes = append(routes, schemaDocumentRoutes(dependencies)...)
 	routes = append(routes, authAdministrationRoutes(dependencies)...)
 	routes = append(routes, operationsConsoleRoutes(dependencies)...)
 	routes = append(routes, serviceTokenRoutes(dependencies)...)
 	routes = append(routes, serviceRecordRoutes(dependencies)...)
 	routes = append(routes, realtimeOperationRoutes(dependencies)...)
+	routes = append(routes, realtimeSessionRoutes(dependencies)...)
 	routes = append(routes, ruleRoutes(dependencies)...)
 	routes = append(routes, fileRoutes(dependencies)...)
 	if console := dependencies.SQLConsole; console != nil {
@@ -243,6 +285,9 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 			requestLimit = maxJSONBodyBytes
 		}
 		handler = requestBodyLimitMiddleware(requestLimit, handler)
+		if dependencies.APIRateLimits != nil {
+			handler = apiRateLimitMiddleware(dependencies.APIRateLimits, dependencies.trustedProxies, declared.pattern, handler)
+		}
 		handler = dependencies.admit(declared.access, handler)
 		if declared.noStore {
 			handler = noStoreCustomHandler(handler)
@@ -262,9 +307,12 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 	var handler http.Handler = mux
 	handler = corsMiddleware(dependencies.CORSAllowedOrigins, handler)
 	handler = securityHeadersMiddleware(handler)
-	handler = accessLogMiddleware(logger, handler, dependencies.RequestLog)
-	handler = requestIDMiddleware(handler)
 	handler = recoveryMiddleware(logger, handler)
+	// Keep recovery inside request logging.  A recovered panic is a completed
+	// HTTP request with a 500 response and must be visible in the same durable
+	// diagnostic trail as every other response.
+	handler = accessLogMiddleware(logger, dependencies.RuntimeSettings, dependencies.trustedProxies, handler, dependencies.RequestLog)
+	handler = requestIDMiddleware(handler)
 	if metricsEnabled {
 		handler = dependencies.Metrics.WrapHTTP(mux, handler)
 	}

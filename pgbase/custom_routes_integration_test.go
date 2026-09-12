@@ -16,6 +16,7 @@ import (
 func TestCustomRoutesThroughHTTPWithSessionRevocation(t *testing.T) {
 	registry := &HookRegistry{}
 	var observed atomic.Int64
+	var streamed atomic.Bool
 	_, err := registry.On(HookRequest, Hook{After: func(context.Context, *HookEvent) { observed.Add(1) }})
 	if err != nil {
 		t.Fatal(err)
@@ -35,6 +36,18 @@ func TestCustomRoutesThroughHTTPWithSessionRevocation(t *testing.T) {
 			{Method: "POST", Pattern: "/reports/admin", Access: RouteAdmin, Handler: handler},
 			{Method: "GET", Pattern: "/reports/user", Access: RouteUser, Handler: handler},
 			{Method: "GET", Pattern: "/reports/service", Access: RouteService, Handler: handler},
+			{Method: "GET", Pattern: "/reports/stream", Access: RouteUser, StreamResponse: true, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if _, ok := PrincipalFromContext(r.Context()); !ok {
+					t.Error("stream ran before admission")
+					return
+				}
+				_, _ = w.Write([]byte("data: ready\n\n"))
+				if err := http.NewResponseController(w).Flush(); err != nil {
+					t.Errorf("flush: %v", err)
+					return
+				}
+				streamed.Store(true)
+			})},
 		}
 	})
 	cookie, csrf := setupPublicUsersAdministrator(t, fixture)
@@ -58,6 +71,10 @@ func TestCustomRoutesThroughHTTPWithSessionRevocation(t *testing.T) {
 	decodePublicUsersJSON(t, user, &principal)
 	if principal.Kind != "user" || principal.ID != session.User.ID.String() || principal.AuthCollectionID == "" || strings.Contains(user.Body.String(), session.Token) {
 		t.Fatal("incorrect user identity projection")
+	}
+	assertPublicUsersStatus(t, publicUsersRequest(t, fixture, "GET", "/reports/stream", nil, session.Token, nil, nil), 200)
+	if !streamed.Load() {
+		t.Fatal("authenticated streaming route did not flush")
 	}
 	assertPublicUsersStatus(t, publicUsersRequest(t, fixture, "GET", "/reports/admin", nil, session.Token, nil, nil), 401)
 	assertPublicUsersStatus(t, publicUsersRequest(t, fixture, "GET", "/reports/user", nil, "", cookie, nil), 401)

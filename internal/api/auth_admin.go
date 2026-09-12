@@ -22,6 +22,10 @@ type AuthAdministration interface {
 	SetUserVerified(context.Context, uuid.UUID, bool) (userauth.ManagedUser, error)
 	AdminRequestVerification(context.Context, uuid.UUID) error
 	AdminRequestPasswordReset(context.Context, uuid.UUID) error
+	ListOAuthIdentities(context.Context, uuid.UUID) ([]userauth.OAuthIdentitySummary, error)
+	UnlinkOAuthIdentity(context.Context, uuid.UUID, string) error
+	ListTokenPolicies(context.Context, uuid.UUID) ([]userauth.TokenPolicy, error)
+	PutTokenPolicy(context.Context, uuid.UUID, userauth.TokenPolicy) (userauth.TokenPolicy, error)
 }
 
 type authAdministrationEndpoints struct{ service AuthAdministration }
@@ -38,6 +42,7 @@ func authAdministrationRoutes(dependencies Dependencies) []route {
 		return route{method: method, pattern: pattern, access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: handler}
 	}
 	return []route{
+		write(http.MethodPost, "/api/admin/settings/apple/generate-client-secret", e.appleClientSecret),
 		read("/api/admin/auth-collections/{id}/administration", e.get),
 		write(http.MethodPut, "/api/admin/auth-collections/{id}/policy", e.policy),
 		write(http.MethodPut, "/api/admin/auth-collections/{id}/oauth-providers/{provider}", e.provider),
@@ -49,7 +54,96 @@ func authAdministrationRoutes(dependencies Dependencies) []route {
 		write(http.MethodPut, "/api/admin/users/{id}/verification", e.userVerification),
 		write(http.MethodPost, "/api/admin/users/{id}/send-verification", e.sendVerification),
 		write(http.MethodPost, "/api/admin/users/{id}/send-password-reset", e.sendReset),
+		read("/api/admin/users/{id}/oauth-identities", e.userOAuthIdentities),
+		write(http.MethodDelete, "/api/admin/users/{id}/oauth-identities/{provider}", e.userOAuthIdentity),
+		read("/api/admin/auth-collections/{id}/token-policies", e.tokenPolicies),
+		write(http.MethodPut, "/api/admin/auth-collections/{id}/token-policies/{purpose}", e.tokenPolicy),
 	}
+}
+
+// appleClientSecret creates a one-time Apple OAuth client secret. The P8 is
+// deliberately only held in the request and returned token; neither reaches
+// collection settings, audit state, or response logs.
+func (e authAdministrationEndpoints) appleClientSecret(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ClientID   string `json:"clientId"`
+		TeamID     string `json:"teamId"`
+		KeyID      string `json:"keyId"`
+		PrivateKey string `json:"privateKey"`
+		Duration   int    `json:"duration"`
+	}
+	if decodeStrictJSON(r, &input) != nil {
+		writeAuthAdministrationError(w, r, userauth.ErrValidation)
+		return
+	}
+	secret, err := userauth.GenerateAppleClientSecret(userauth.AppleClientSecretInput{
+		ClientID: input.ClientID, TeamID: input.TeamID, KeyID: input.KeyID, PrivateKey: input.PrivateKey, Duration: input.Duration,
+	})
+	if err != nil {
+		writeAuthAdministrationError(w, r, userauth.ErrValidation)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, struct {
+		Secret string `json:"secret"`
+	}{secret})
+}
+func (e authAdministrationEndpoints) tokenPolicies(w http.ResponseWriter, r *http.Request) {
+	id, err := collectionID(r)
+	if err == nil {
+		var v []userauth.TokenPolicy
+		v, err = e.service.ListTokenPolicies(r.Context(), id)
+		if err == nil {
+			writeJSON(w, http.StatusOK, struct {
+				Items []userauth.TokenPolicy `json:"items"`
+			}{v})
+			return
+		}
+	}
+	writeAuthAdministrationError(w, r, err)
+}
+func (e authAdministrationEndpoints) tokenPolicy(w http.ResponseWriter, r *http.Request) {
+	id, err := collectionID(r)
+	var in struct {
+		TTLSeconds int    `json:"ttlSeconds"`
+		KeyVersion string `json:"keyVersion"`
+		Key        string `json:"key"`
+	}
+	if err != nil || decodeStrictJSON(r, &in) != nil {
+		writeAuthAdministrationError(w, r, userauth.ErrValidation)
+		return
+	}
+	v, err := e.service.PutTokenPolicy(r.Context(), id, userauth.TokenPolicy{Purpose: r.PathValue("purpose"), TTLSeconds: in.TTLSeconds, KeyVersion: in.KeyVersion, Key: in.Key})
+	if err != nil {
+		writeAuthAdministrationError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+func (e authAdministrationEndpoints) userOAuthIdentities(w http.ResponseWriter, r *http.Request) {
+	id, err := collectionID(r)
+	if err == nil {
+		var v []userauth.OAuthIdentitySummary
+		v, err = e.service.ListOAuthIdentities(r.Context(), id)
+		if err == nil {
+			writeJSON(w, http.StatusOK, struct {
+				Items []userauth.OAuthIdentitySummary `json:"items"`
+			}{v})
+			return
+		}
+	}
+	writeAuthAdministrationError(w, r, err)
+}
+func (e authAdministrationEndpoints) userOAuthIdentity(w http.ResponseWriter, r *http.Request) {
+	id, err := collectionID(r)
+	if err == nil {
+		err = e.service.UnlinkOAuthIdentity(r.Context(), id, r.PathValue("provider"))
+	}
+	if err != nil {
+		writeAuthAdministrationError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func collectionID(r *http.Request) (uuid.UUID, error) {
@@ -75,24 +169,46 @@ func (e authAdministrationEndpoints) get(w http.ResponseWriter, r *http.Request)
 func (e authAdministrationEndpoints) policy(w http.ResponseWriter, r *http.Request) {
 	id, err := collectionID(r)
 	var in struct {
-		PasswordEnabled      *bool `json:"passwordEnabled"`
-		MinimumPasswordBytes *int  `json:"minimumPasswordBytes"`
-		MFAEnabled           *bool `json:"mfaEnabled"`
-		OTPEnabled           *bool `json:"otpEnabled"`
-		OTPDurationSeconds   *int  `json:"otpDurationSeconds"`
-		OTPMaxAttempts       *int  `json:"otpMaxAttempts"`
+		PasswordEnabled      *bool     `json:"passwordEnabled"`
+		MinimumPasswordBytes *int      `json:"minimumPasswordBytes"`
+		MaximumPasswordBytes *int      `json:"maximumPasswordBytes"`
+		PasswordPattern      *string   `json:"passwordPattern"`
+		IdentityFields       *[]string `json:"identityFields"`
+		MFAEnabled           *bool     `json:"mfaEnabled"`
+		MFADurationSeconds   *int      `json:"mfaDurationSeconds"`
+		MFARule              *string   `json:"mfaRule"`
+		OTPEnabled           *bool     `json:"otpEnabled"`
+		OTPDurationSeconds   *int      `json:"otpDurationSeconds"`
+		OTPMaxAttempts       *int      `json:"otpMaxAttempts"`
 	}
 	if err != nil || decodeStrictJSON(r, &in) != nil || in.PasswordEnabled == nil || in.MinimumPasswordBytes == nil || in.MFAEnabled == nil {
 		writeAuthAdministrationError(w, r, userauth.ErrValidation)
 		return
 	}
 	policy := userauth.AuthPolicy{PasswordEnabled: *in.PasswordEnabled, MinimumPasswordBytes: *in.MinimumPasswordBytes, MFAEnabled: *in.MFAEnabled}
+	current, getErr := e.service.GetAuthAdministration(r.Context(), id)
+	if getErr != nil {
+		writeAuthAdministrationError(w, r, getErr)
+		return
+	}
+	policy.MaximumPasswordBytes, policy.PasswordPattern, policy.IdentityFields = current.Policy.MaximumPasswordBytes, current.Policy.PasswordPattern, current.Policy.IdentityFields
+	policy.MFADurationSeconds, policy.MFARule = current.Policy.MFADurationSeconds, current.Policy.MFARule
+	if in.MaximumPasswordBytes != nil {
+		policy.MaximumPasswordBytes = *in.MaximumPasswordBytes
+	}
+	if in.PasswordPattern != nil {
+		policy.PasswordPattern = *in.PasswordPattern
+	}
+	if in.IdentityFields != nil {
+		policy.IdentityFields = *in.IdentityFields
+	}
+	if in.MFADurationSeconds != nil {
+		policy.MFADurationSeconds = *in.MFADurationSeconds
+	}
+	if in.MFARule != nil {
+		policy.MFARule = *in.MFARule
+	}
 	if in.OTPEnabled == nil || in.OTPDurationSeconds == nil || in.OTPMaxAttempts == nil {
-		current, getErr := e.service.GetAuthAdministration(r.Context(), id)
-		if getErr != nil {
-			writeAuthAdministrationError(w, r, getErr)
-			return
-		}
 		policy.OTPEnabled = current.Policy.OTPEnabled
 		policy.OTPDurationSeconds = current.Policy.OTPDurationSeconds
 		policy.OTPMaxAttempts = current.Policy.OTPMaxAttempts
@@ -127,6 +243,8 @@ func (e authAdministrationEndpoints) provider(w http.ResponseWriter, r *http.Req
 		AuthorizationURL      string   `json:"authorizationUrl"`
 		TokenURL              string   `json:"tokenUrl"`
 		UserInfoURL           string   `json:"userInfoUrl"`
+		Issuer                string   `json:"issuer"`
+		JWKSURL               string   `json:"jwksUrl"`
 		ClientID              string   `json:"clientId"`
 		ClientSecret          string   `json:"clientSecret"`
 		Scopes                []string `json:"scopes"`
@@ -141,7 +259,7 @@ func (e authAdministrationEndpoints) provider(w http.ResponseWriter, r *http.Req
 		writeAuthAdministrationError(w, r, userauth.ErrValidation)
 		return
 	}
-	v, err := e.service.PutOAuthProvider(r.Context(), id, userauth.OAuthProviderConfig{Name: name, Enabled: in.Enabled, AuthorizationURL: in.AuthorizationURL, TokenURL: in.TokenURL, UserInfoURL: in.UserInfoURL, ClientID: in.ClientID, ClientSecret: in.ClientSecret, Scopes: in.Scopes, RedirectURIs: in.RedirectURIs, SubjectField: in.SubjectField, EmailField: in.EmailField, EmailVerifiedField: in.EmailVerifiedField, AvatarField: in.AvatarField, AllowInsecureLoopback: in.AllowInsecureLoopback})
+	v, err := e.service.PutOAuthProvider(r.Context(), id, userauth.OAuthProviderConfig{Name: name, Enabled: in.Enabled, AuthorizationURL: in.AuthorizationURL, TokenURL: in.TokenURL, UserInfoURL: in.UserInfoURL, Issuer: in.Issuer, JWKSURL: in.JWKSURL, ClientID: in.ClientID, ClientSecret: in.ClientSecret, Scopes: in.Scopes, RedirectURIs: in.RedirectURIs, SubjectField: in.SubjectField, EmailField: in.EmailField, EmailVerifiedField: in.EmailVerifiedField, AvatarField: in.AvatarField, AllowInsecureLoopback: in.AllowInsecureLoopback})
 	if err != nil {
 		writeAuthAdministrationError(w, r, err)
 		return

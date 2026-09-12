@@ -1,8 +1,9 @@
-import { act, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { backendScript, callsTo, deferredStep, type BackendScript } from "../test/backend-script";
 import { activeSessionExpiresAt, administrator, renderAdmin, scriptedAdmin, type AdminHarness } from "../test/harness";
+import { SetupPage } from "./setup-page";
 
 const password = "correct horse battery staple";
 
@@ -129,4 +130,11 @@ describe("administrator setup", () => {
     expect(screen.getByText(administrator.email)).toBeVisible();
     expect(callsTo(harness.script, "setup")[0].detail).toMatchObject({ setupToken: "first-run-token", email: administrator.email });
   });
+
+	it("uploads a setup-scoped backup and only starts restore after destructive confirmation", async () => {
+		const user = userEvent.setup(); const upload = vi.fn().mockResolvedValue({ id: "initial-backup" }); const restore = vi.fn().mockResolvedValue({ id: "job" }); const status = vi.fn().mockResolvedValue({ id: "job", status: "running" }); vi.spyOn(window, "confirm").mockReturnValue(true);
+		render(<SetupPage onRestoreBackup={restore} onSetup={vi.fn()} onSetupBackupJob={status} onUploadBackup={upload} />);
+		await user.type(screen.getByLabelText("Setup token"), "first-run-token"); await user.upload(screen.getByLabelText("Gzip backup"), new File(["gzip"], "initial.tar.gz", { type: "application/gzip" })); await user.click(screen.getByRole("button", { name: "Upload and restore backup" }));
+		expect(upload).toHaveBeenCalledWith("first-run-token", expect.any(File)); expect(restore).toHaveBeenCalledWith("first-run-token", "initial-backup"); expect(await screen.findByText(/Restore started/)).toBeVisible(); expect(screen.getByRole("button", { name: "Waiting for backup restore…" })).toBeDisabled();
+	});
 });

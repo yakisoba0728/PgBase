@@ -1,0 +1,9 @@
+import { useSyncExternalStore } from "react";
+export interface AdminExtensionScreen { id: string; label: string; path: string; mount(container: HTMLElement): void | (() => void) }
+interface ExtensionAPI { registerScreen(screen: AdminExtensionScreen): void }
+const screenByID = new Map<string, AdminExtensionScreen>(), subscribers = new Set<() => void>(); let revision = 0;
+function valid(screen: AdminExtensionScreen) { return /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(screen.id) && screen.label.trim().length > 0 && screen.label.length <= 80 && /^\/admin\/ext\/[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(screen.path) && typeof screen.mount === "function"; }
+function registerScreen(screen: AdminExtensionScreen) { if (!valid(screen)) throw new Error("Invalid pgBase administrator extension screen"); if (screenByID.has(screen.id) || [...screenByID.values()].some((candidate) => candidate.path === screen.path)) throw new Error(`Duplicate pgBase administrator extension screen: ${screen.id}`); screenByID.set(screen.id, Object.freeze({ ...screen })); revision += 1; for (const notify of [...subscribers]) notify(); }
+export function installAdminExtensionAPI() { const target = window as typeof window & { pgbaseAdmin?: ExtensionAPI }; if (target.pgbaseAdmin !== undefined) return; Object.defineProperty(target, "pgbaseAdmin", { configurable: false, enumerable: false, writable: false, value: Object.freeze({ registerScreen }) }); }
+export function extensionScreen(id: string, path: string) { const screen = screenByID.get(id); return screen?.path === path ? screen : undefined; }
+export function useAdminExtensionScreens(): readonly AdminExtensionScreen[] { useSyncExternalStore((notify) => { subscribers.add(notify); return () => subscribers.delete(notify); }, () => revision, () => 0); return [...screenByID.values()]; }

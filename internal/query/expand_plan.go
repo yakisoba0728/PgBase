@@ -1,6 +1,7 @@
 package query
 
 import (
+	"errors"
 	"sort"
 	"strings"
 
@@ -29,9 +30,6 @@ type expandNode struct {
 	children []expandNode
 }
 
-// reverseExpandIndex is compiled once per request from Catalog.Incoming. It
-// keeps path resolution O(total catalog fields + expand nodes) instead of
-// rescanning the complete catalog for every path segment.
 type reverseExpandIndex map[uuid.UUID]map[string][]expandNode
 
 func compileExpandPlan(catalog schema.Catalog, root schema.Collection, text string, limits expandLimits) (expandPlan, error) {
@@ -94,6 +92,36 @@ func compileExpandPlan(catalog schema.Catalog, root schema.Collection, text stri
 
 	sortExpandNodes(rootNode.children)
 	return expandPlan{nodes: rootNode.children}, nil
+}
+
+func compilePocketBaseExpandPlan(catalog schema.Catalog, root schema.Collection, text string, limits expandLimits) (expandPlan, error) {
+	if len(text) > maximumExpandBytes {
+		return expandPlan{}, validation("expand", "expand_budget_exceeded")
+	}
+	valid := make([]string, 0)
+	for _, raw := range strings.Split(text, ",") {
+		path := strings.TrimSpace(raw)
+		if path == "" {
+			continue
+		}
+		plan, err := compileExpandPlan(catalog, root, path, limits)
+		if err == nil && len(plan.nodes) != 0 {
+			valid = append(valid, path)
+			continue
+		}
+		var detail *ValidationError
+		if errors.As(err, &detail) {
+			if len(detail.Details) == 1 && detail.Details[0].Code == "expand_budget_exceeded" {
+				return expandPlan{}, err
+			}
+			continue
+		}
+		return expandPlan{}, err
+	}
+	if len(valid) == 0 {
+		return expandPlan{}, nil
+	}
+	return compileExpandPlan(catalog, root, strings.Join(valid, ","), limits)
 }
 
 func childExpandNode(nodes []expandNode, name string) *expandNode {

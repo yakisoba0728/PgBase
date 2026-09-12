@@ -8,30 +8,39 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/mailer"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 	"github.com/yakisoba0728/PgBase/internal/serviceauth"
 	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
 // withUserServices installs the public identity capability as one unit, so the
 // bearer routes cannot be exposed without the collection policy service.
-func withUserServices(dependencies api.Dependencies, pool *database.Pool, options Options) (api.Dependencies, mailer.Sender, error) {
+func withUserServices(dependencies api.Dependencies, pool *database.Pool, options Options) (api.Dependencies, mailer.Sender, *userauth.Service, error) {
 	auth := userauth.NewService(pool, adminauth.NewArgon2idPasswords(), options.TokenSecret, 24*time.Hour)
+	if dependencies.RuntimeSettings != nil {
+		applyRatePolicy := func(value runtimesettings.Settings) {
+			p := value.RateLimits.User
+			_ = auth.ConfigureRatePolicy(userauth.RatePolicy{AccountMaxFailures: p.AccountMaxFailures, NetworkMaxFailures: p.NetworkMaxFailures, RegistrationNetworkMaxFailures: p.RegistrationNetworkMaxFailures, Window: time.Duration(p.WindowSeconds) * time.Second, Block: time.Duration(p.BlockSeconds) * time.Second})
+		}
+		applyRatePolicy(dependencies.RuntimeSettings.Get())
+		dependencies.RuntimeSettings.Subscribe(applyRatePolicy)
+	}
 	if options.Hooks != nil {
 		auth.ConfigureMailerDecorator(func(sender mailer.Sender) mailer.Sender { return hookedMailer{options.Hooks, sender} })
 	}
 	if options.PublicURL != nil {
 		if err := auth.ConfigureEmailActionBaseURL(options.PublicURL.String(), time.Hour); err != nil {
-			return api.Dependencies{}, nil, err
+			return api.Dependencies{}, nil, nil, err
 		}
 	}
 	var extensionMailer mailer.Sender
 	if options.SMTP.Address != "" {
 		sender, err := mailer.NewSMTP(options.SMTP.config())
 		if err != nil {
-			return api.Dependencies{}, nil, err
+			return api.Dependencies{}, nil, nil, err
 		}
 		if err := auth.ConfigureEmailActions(sender, options.PublicURL.String(), time.Hour); err != nil {
-			return api.Dependencies{}, nil, err
+			return api.Dependencies{}, nil, nil, err
 		}
 		extensionMailer = sender
 		if options.Hooks != nil {
@@ -41,10 +50,10 @@ func withUserServices(dependencies api.Dependencies, pool *database.Pool, option
 	if len(options.OAuthProviders) > 0 {
 		providers, err := oauthProviders(options.OAuthProviders)
 		if err != nil {
-			return api.Dependencies{}, nil, err
+			return api.Dependencies{}, nil, nil, err
 		}
 		if err := auth.ConfigureOAuth(providers, options.OAuthRedirects, 5*time.Minute); err != nil {
-			return api.Dependencies{}, nil, err
+			return api.Dependencies{}, nil, nil, err
 		}
 	}
 	auth.ConfigureOAuthRegistration(options.UserRegistrationEnabled)
@@ -66,5 +75,5 @@ func withUserServices(dependencies api.Dependencies, pool *database.Pool, option
 	dependencies.UserAuth = userService
 	dependencies.RecordAccess = recordaccess.NewService(pool)
 	dependencies.UserRegistrationEnabled = options.UserRegistrationEnabled
-	return dependencies, extensionMailer, nil
+	return dependencies, extensionMailer, auth, nil
 }

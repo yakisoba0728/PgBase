@@ -15,6 +15,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/recordartifact"
 	"github.com/yakisoba0728/PgBase/internal/relation"
+	"github.com/yakisoba0728/PgBase/internal/responseprojection"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -94,6 +95,10 @@ func (s *Service) readGetInTx(
 	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "view"); err != nil {
 		return err
 	}
+	projection, err := compileRecordProjection(collection, request.Principal, request.Fields)
+	if err != nil {
+		return err
+	}
 	if err := validateSQLViewIdentity(ctx, tx, collection); err != nil {
 		return err
 	}
@@ -107,7 +112,7 @@ func (s *Service) readGetInTx(
 		if err != nil {
 			return err
 		}
-		predicate, args, err := compilePolicyPredicate(rules.View, collection, policyTarget, collection.TableName, request.Principal, len(statement.Args))
+		predicate, args, err := compilePolicyPredicateWithRequest(rules.View, collection, policyTarget, collection.TableName, request.Principal, len(statement.Args), catalog, request.RuleContext)
 		if err != nil {
 			return err
 		}
@@ -136,6 +141,9 @@ func (s *Service) readGetInTx(
 	} else {
 		usage := &expansionUsage{limits: s.expandLimits}
 		plan, err := compileExpandPlan(catalog, collection, request.Expand, usage.limits)
+		if request.PocketBaseCompatibility {
+			plan, err = compilePocketBaseExpandPlan(catalog, collection, request.Expand, usage.limits)
+		}
 		if err != nil {
 			return err
 		}
@@ -178,7 +186,10 @@ func (s *Service) readGetInTx(
 	if err != nil {
 		return err
 	}
-	result.record = Record{Data: response, ETag: etag, Version: version}
+	if request.PocketBaseCompatibility {
+		response = responseprojection.PocketBaseRecord(response, collection.ID.String(), collection.Name)
+	}
+	result.record = Record{Data: projection.apply(response), ETag: etag, Version: version}
 	return nil
 }
 
@@ -201,6 +212,10 @@ func (s *Service) readList(ctx context.Context, request ListRequest) (result lis
 		return listResult{}, validation("principal", "invalid")
 	}
 	filterNode, err := parseFilterRequest(request.Filter)
+	if request.PocketBaseCompatibility {
+		filterNode, err = parsePocketBaseFilterRequest(request.Filter)
+		filterNode = markPocketBaseLike(filterNode)
+	}
 	if err != nil {
 		return listResult{}, err
 	}
@@ -233,15 +248,22 @@ func (s *Service) readListInTx(
 	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "list"); err != nil {
 		return listResult{}, false, err
 	}
+	var err error
+	projection, err := compileRecordProjection(collection, request.Principal, request.Fields)
+	if err != nil {
+		return listResult{}, false, err
+	}
 	if err := validateSQLViewIdentity(ctx, tx, collection); err != nil {
 		return listResult{}, false, err
 	}
 	var expansion expandPlan
 	var usage *expansionUsage
-	var err error
 	if request.Expand != "" {
 		usage = &expansionUsage{limits: s.expandLimits, pageResult: true}
 		expansion, err = compileExpandPlan(catalog, collection, request.Expand, usage.limits)
+		if request.PocketBaseCompatibility {
+			expansion, err = compilePocketBaseExpandPlan(catalog, collection, request.Expand, usage.limits)
+		}
 		if err != nil {
 			return listResult{}, false, err
 		}
@@ -250,6 +272,9 @@ func (s *Service) readListInTx(
 		}
 	}
 	relationOperation := requestAddressesRelationField(collection, filterNode, effectiveSortKeys(requestedSort))
+	if request.PocketBaseCompatibility {
+		requestedSort = pocketBaseSortKeys(collection, requestedSort)
+	}
 	relationPlan, err := compileRelationListPlan(catalog, collection, filterNode, effectiveSortKeys(requestedSort))
 	if err != nil {
 		if request.Cursor != "" && validationField(err, "sort") {
@@ -267,6 +292,7 @@ func (s *Service) readListInTx(
 	}
 	rootPlan := plannedRootPlan(filterNode, relationPlan)
 	rootPlan.catalogVersion, rootPlan.principal = catalog.Version, request.Principal
+	rootPlan.ruleContext = request.RuleContext
 	rootPlan.policyCollection, err = sourcePolicyCollection(catalog, collection)
 	if err != nil {
 		return listResult{}, relationOperation, err
@@ -294,7 +320,7 @@ func (s *Service) readListInTx(
 	}
 	rootRequest := rootPageReadRequest{
 		plan: rootPlan, cursorToken: request.Cursor, limit: request.Limit,
-		operationTime: traversal.TransactionTime, traversal: traversal,
+		operationTime: traversal.TransactionTime, traversal: traversal, offset: request.Offset,
 	}
 	if usage == nil {
 		if multipleRelationFieldCount(collection) != 0 {
@@ -324,7 +350,12 @@ func (s *Service) readListInTx(
 		for _, item := range root.page.Items {
 			hideRecordFields(collection, request.Principal, item)
 		}
-		return listResult{page: root.page}, relationOperation, nil
+		if request.PocketBaseCompatibility {
+			for index, item := range root.page.Items {
+				root.page.Items[index] = responseprojection.PocketBaseRecord(item, collection.ID.String(), collection.Name)
+			}
+		}
+		return listResult{page: projection.applyPage(root.page)}, relationOperation, nil
 	}
 
 	expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, collection, root.page.Items, expansion, request.Principal, usage)
@@ -352,11 +383,72 @@ func (s *Service) readListInTx(
 		if err != nil {
 			return listResult{}, relationOperation, err
 		}
+		if request.PocketBaseCompatibility {
+			items[index] = responseprojection.PocketBaseRecord(items[index], collection.ID.String(), collection.Name)
+		}
 	}
 	return listResult{
-		page:     RecordPage{Items: items, NextCursor: cursor},
+		page:     projection.applyPage(RecordPage{Items: items, NextCursor: cursor}),
 		expanded: expanded[:keep], querySteps: usage.querySteps,
 	}, relationOperation, nil
+}
+
+func (s *Service) countListInTx(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, request ListRequest, filterNode filterNode) (int64, error) {
+	stableSort := []SortKey{{Field: systemFieldID}}
+	if err := rejectHiddenQueryFields(collection, request.Principal, filterNode, stableSort); err != nil {
+		return 0, err
+	}
+	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "list"); err != nil {
+		return 0, err
+	}
+	if err := validateSQLViewIdentity(ctx, tx, collection); err != nil {
+		return 0, err
+	}
+	relationPlan, err := compileRelationListPlan(catalog, collection, filterNode, stableSort)
+	if err != nil {
+		return 0, err
+	}
+	if err := rejectHiddenRelationPlan(request.Principal, relationPlan); err != nil {
+		return 0, err
+	}
+	if relationListPlanUsesRelation(relationPlan) {
+		if err := bindRelationPolicies(ctx, tx, &relationPlan, request.Principal); err != nil {
+			return 0, err
+		}
+	}
+	plan := plannedRootPlan(filterNode, relationPlan)
+	plan.catalogVersion, plan.principal, plan.ruleContext = catalog.Version, request.Principal, request.RuleContext
+	plan.policyCollection, err = sourcePolicyCollection(catalog, collection)
+	if err != nil {
+		return 0, err
+	}
+	if request.Principal.Kind == identity.User || request.Principal.Kind == identity.Anonymous {
+		rules, revision, loadErr := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
+		if loadErr != nil {
+			return 0, loadErr
+		}
+		if revision == 0 && request.Principal.Kind == identity.User {
+			ownerID := request.Principal.ID
+			plan.ownerID = &ownerID
+		} else {
+			plan.rule, plan.ruleRevision = &rules.List, revision
+		}
+	}
+	traversal, err := s.resolveReadTraversal(ctx, tx, collection)
+	if err != nil {
+		return 0, err
+	}
+	var highWater *int64
+	if !collection.IsSQLView() {
+		highWater = &traversal.HighWater
+	}
+	statement, err := plan.countStatement(highWater)
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	err = tx.QueryRow(ctx, statement.SQL, statement.Args...).Scan(&total)
+	return total, err
 }
 
 func collectionHasRelation(collection schema.Collection) bool {

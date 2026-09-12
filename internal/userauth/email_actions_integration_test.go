@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -59,6 +60,87 @@ func newEmailActionService(t *testing.T) (*Service, *capturedSender) {
 	return service, sender
 }
 
+func TestAuthAlertSendsOncePerNewOriginAndNeverFailsAuthentication(t *testing.T) {
+	service, sender := newEmailActionService(t)
+	ctx := context.Background()
+	registered, err := service.Register(ctx, "origin-alert@example.test", "correct horse battery staple", "198.51.100.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.messages) != 0 {
+		t.Fatal("origin alert sent without configured template")
+	}
+	if _, err := service.PutMailTemplate(ctx, DefaultCollectionID, MailTemplate{Purpose: "auth_alert", Subject: "New login", Body: "{{alert}}"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Login(ctx, registered.User.Email, "correct horse battery staple", "198.51.100.1"); err != nil {
+		t.Fatal(err)
+	}
+	const attempts = 2
+	var group sync.WaitGroup
+	for range attempts {
+		group.Go(func() {
+			if _, err := service.Login(ctx, registered.User.Email, "correct horse battery staple", "198.51.100.2"); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	group.Wait()
+	sender.mu.Lock()
+	if len(sender.messages) != 1 || sender.messages[0].Purpose != "auth_alert" {
+		t.Fatalf("concurrent origin alerts = %#v", sender.messages)
+	}
+	sender.err = errors.New("mail unavailable")
+	sender.mu.Unlock()
+	if _, err := service.Login(ctx, registered.User.Email, "correct horse battery staple", "198.51.100.3"); err != nil {
+		t.Fatalf("mail outage failed authentication: %v", err)
+	}
+}
+
+func TestAdminRecordMailRendersSuppliedPayloadWithoutMintingOTP(t *testing.T) {
+	service, sender := newEmailActionService(t)
+	ctx := context.Background()
+	registered, err := service.Register(ctx, "record-mail@example.test", "correct horse battery staple", "198.51.100.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.PutMailTemplate(ctx, DefaultCollectionID, MailTemplate{Purpose: "otp", Subject: "OTP {{otp_id}}", Body: "credential={{otp}} id={{otp_id}}"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.PutMailTemplate(ctx, DefaultCollectionID, MailTemplate{Purpose: "auth_alert", Subject: "Alert", Body: "info={{alert}}", HTMLBody: "<p>{{alert}}</p>"}); err != nil {
+		t.Fatal(err)
+	}
+	var before int
+	if err := service.pool.QueryRow(ctx, `select count(*) from pgbase_meta.user_email_otps where user_id=$1`, registered.User.ID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AdminSendRecordOTP(ctx, DefaultCollectionID, registered.User.ID, "caller-otp-id", "caller-otp-pass"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AdminSendRecordAuthAlert(ctx, registered.User.ID, `{"ip":"127.0.0.1"}`); err != nil {
+		t.Fatal(err)
+	}
+	var after int
+	if err := service.pool.QueryRow(ctx, `select count(*) from pgbase_meta.user_email_otps where user_id=$1`, registered.User.ID).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatalf("record mail changed OTP rows: before=%d after=%d", before, after)
+	}
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	if len(sender.messages) != 2 {
+		t.Fatalf("messages=%d", len(sender.messages))
+	}
+	otp, alert := sender.messages[0], sender.messages[1]
+	if !strings.Contains(otp.Text, "credential=caller-otp-pass id=caller-otp-id") || otp.Meta["otpId"] != "caller-otp-id" || otp.Meta["password"] != "caller-otp-pass" {
+		t.Fatalf("OTP did not preserve supplied credentials: %#v", otp)
+	}
+	if !strings.Contains(alert.Text, `info={"ip":"127.0.0.1"}`) || !strings.Contains(alert.HTML, `{&#34;ip&#34;:&#34;127.0.0.1&#34;}`) || alert.Meta["info"] != `{"ip":"127.0.0.1"}` {
+		t.Fatalf("alert did not preserve supplied info: %#v", alert)
+	}
+}
+
 func TestVerificationTokenIsHashedPurposeBoundAndSingleUse(t *testing.T) {
 	service, sender := newEmailActionService(t)
 	ctx := context.Background()
@@ -89,6 +171,48 @@ func TestVerificationTokenIsHashedPurposeBoundAndSingleUse(t *testing.T) {
 	principal, err := service.Authenticate(ctx, registered.RawToken)
 	if err != nil || !principal.User.Verified {
 		t.Fatalf("verified principal = %#v, %v", principal, err)
+	}
+}
+
+func TestConfiguredVerificationKeyRotationExpiryAndSingleUse(t *testing.T) {
+	service, sender := newEmailActionService(t)
+	ctx := context.Background()
+	registered, err := service.Register(ctx, "keyed-verify@example.test", "correct horse battery staple", "keyed-verify-register")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "verify", TTLSeconds: 60, KeyVersion: "verify-one", Key: "first-verification-policy-key-000001"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.RequestVerification(ctx, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	rotated := sender.token(t)
+	if _, err = service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "verify", TTLSeconds: 60, KeyVersion: "verify-two", Key: "second-verification-policy-key-00001"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.ConfirmVerification(ctx, rotated); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("rotated verification=%v", err)
+	}
+	if err = service.RequestVerification(ctx, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	expired := sender.token(t)
+	if _, err = service.pool.Exec(ctx, `update pgbase_meta.user_email_actions set expires_at=CURRENT_TIMESTAMP-interval '1 second' where user_id=$1 and purpose='verify' and consumed_at is null`, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.ConfirmVerification(ctx, expired); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("expired verification=%v", err)
+	}
+	if err = service.RequestVerification(ctx, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	valid := sender.token(t)
+	if err = service.ConfirmVerification(ctx, valid); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.ConfirmVerification(ctx, valid); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("replayed verification=%v", err)
 	}
 }
 

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/base64"
 	"strings"
 	"testing"
@@ -34,6 +35,46 @@ func TestLoadEnvReadsPublicStaticSettings(t *testing.T) {
 	}
 	if options.PublicDir != "/srv/pgbase/public" || !options.PublicSPAFallback {
 		t.Fatalf("public options=%#v", options)
+	}
+}
+
+func TestLoadEnvReadsRuntimeSettingsEncryptionKey(t *testing.T) {
+	key := bytes.Repeat([]byte("k"), 32)
+	env := map[string]string{
+		"PGBASE_DATABASE_URL":                    "postgres://postgres:postgres@localhost/pgbase",
+		"PGBASE_TOKEN_SECRET":                    base64.StdEncoding.EncodeToString(make([]byte, 32)),
+		"PGBASE_RUNTIME_SETTINGS_ENCRYPTION_KEY": base64.StdEncoding.EncodeToString(key),
+	}
+	options, err := LoadEnv(func(key string) (string, bool) { value, ok := env[key]; return value, ok })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(options.RuntimeSettingsEncryptionKey, key) {
+		t.Fatalf("RuntimeSettingsEncryptionKey = %q", options.RuntimeSettingsEncryptionKey)
+	}
+}
+
+func TestLoadEnvSelectsRuntimeSettingsEncryptionEnvironment(t *testing.T) {
+	key := bytes.Repeat([]byte("r"), 32)
+	env := map[string]string{
+		"PGBASE_DATABASE_URL":                    "postgres://postgres:postgres@localhost/pgbase",
+		"PGBASE_TOKEN_SECRET":                    base64.StdEncoding.EncodeToString(make([]byte, 32)),
+		"PGBASE_RUNTIME_SETTINGS_ENCRYPTION_ENV": "OPERATOR_RUNTIME_KEY",
+		"OPERATOR_RUNTIME_KEY":                   base64.StdEncoding.EncodeToString(key),
+	}
+	options, err := LoadEnv(func(key string) (string, bool) { value, ok := env[key]; return value, ok })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(options.RuntimeSettingsEncryptionKey, key) {
+		t.Fatalf("RuntimeSettingsEncryptionKey = %q", options.RuntimeSettingsEncryptionKey)
+	}
+	delete(env, "OPERATOR_RUNTIME_KEY")
+	if _, err := LoadEnv(func(key string) (string, bool) { value, ok := env[key]; return value, ok }); err == nil || strings.Contains(err.Error(), "OPERATOR_RUNTIME_KEY") {
+		t.Fatalf("missing selected key error = %v", err)
+	}
+	if _, err := LoadEnvWithRuntimeSettingsEncryptionEnv(func(key string) (string, bool) { value, ok := env[key]; return value, ok }, "not-valid"); err == nil {
+		t.Fatal("invalid encryption environment name unexpectedly accepted")
 	}
 }
 

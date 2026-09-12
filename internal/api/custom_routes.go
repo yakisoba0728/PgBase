@@ -23,6 +23,11 @@ type CustomRoute struct {
 	Handler              http.Handler
 	MaximumRequestBytes  int64
 	MaximumResponseBytes int
+	// StreamResponse sends writes directly to the client and exposes optional
+	// http.ResponseController capabilities such as Flush and Hijack. Use it for
+	// SSE, large downloads, and protocol upgrades. Streaming handlers are
+	// responsible for their own response size and cannot use response rollback.
+	StreamResponse bool
 }
 
 type CustomRouteAccess string
@@ -144,6 +149,9 @@ func validateCustomRoute(item CustomRoute) error {
 	if item.MaximumResponseBytes < 0 || item.MaximumResponseBytes > maximumCustomRouteResponseBytes {
 		return fmt.Errorf("maximum response bytes must be between 0 and %d", maximumCustomRouteResponseBytes)
 	}
+	if item.StreamResponse && item.MaximumResponseBytes != 0 {
+		return fmt.Errorf("streaming responses cannot set maximum response bytes")
+	}
 	return nil
 }
 
@@ -172,11 +180,15 @@ func (d Dependencies) customRoutes() ([]route, error) {
 			policy = accessServiceSession
 		}
 		responseBytes := item.MaximumResponseBytes
-		if responseBytes == 0 {
-			responseBytes = maximumAdminResponseBytes
+		response := passthrough()
+		if !item.StreamResponse {
+			if responseBytes == 0 {
+				responseBytes = maximumAdminResponseBytes
+			}
+			response = atomicJSON(responseBytes)
 		}
 		result = append(result, route{method: item.Method, pattern: item.Pattern, access: policy,
-			response: atomicJSON(responseBytes), deadline: deadlineDefault,
+			response: response, deadline: deadlineDefault,
 			maximumRequestBytes: item.MaximumRequestBytes, handler: item.Handler,
 			noStore: item.Access != CustomRoutePublic})
 	}

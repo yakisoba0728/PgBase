@@ -50,18 +50,26 @@ function executionMessage(error: unknown): string {
   return "Unable to contact the SQL console.";
 }
 
+function csvCell(value: string): string { return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value; }
 function ResultTable({ statement, filter, copy }: { statement: SQLConsoleStatementResult; filter: string; copy(value: string): void }) {
+  const [sort, setSort] = useState<{ index: number; descending: boolean } | null>(null);
   const rows = statement.rows ?? [];
-  const shown = filter.trim() === "" ? rows : rows.filter((row) => row.some((cell) => copiedText(cell).toLocaleLowerCase().includes(filter.toLocaleLowerCase())));
+  const filtered = filter.trim() === "" ? rows : rows.filter((row) => row.some((cell) => copiedText(cell).toLocaleLowerCase().includes(filter.toLocaleLowerCase())));
+  const shown = sort === null ? filtered : [...filtered].sort((left, right) => copiedText(left[sort.index]!).localeCompare(copiedText(right[sort.index]!)) * (sort.descending ? -1 : 1));
+  const downloadCSV = () => {
+    const csv = [statement.columns?.map((column) => csvCell(column.name)).join(",") ?? "", ...shown.map((row) => row.map(copiedText).map(csvCell).join(","))].join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = "pgbase-sql-result.csv"; link.click(); URL.revokeObjectURL(url);
+  };
   if ((statement.columns?.length ?? 0) === 0) return <p>{statement.command ?? "Command completed"}: {statement.affectedRows} affected rows.</p>;
   return <div className="table-scroll sql-console-results" tabIndex={0}>
     <table>
-      <thead><tr>{statement.columns?.map((column, index) => <th key={`${column.name}:${index}`} scope="col">{column.name} <small>{column.typeName}</small></th>)}</tr></thead>
+      <thead><tr>{statement.columns?.map((column, index) => <th key={`${column.name}:${index}`} scope="col"><button onClick={() => setSort((current) => current?.index === index ? { index, descending: !current.descending } : { index, descending: false })} type="button">{column.name}{sort?.index === index ? sort.descending ? " ↓" : " ↑" : ""}</button> <small>{column.typeName}</small></th>)}</tr></thead>
       <tbody>{shown.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex} data-cell-kind={cell.kind}>
         <span>{copiedText(cell)}</span> <small>{cellText[cell.kind]}</small>{" "}<button aria-label={`Copy row ${rowIndex + 1} column ${cellIndex + 1}`} onClick={() => copy(copiedText(cell))} type="button">Copy</button>
       </td>)}</tr>)}</tbody>
     </table>
     {shown.length === 0 && <p>No returned values match this bounded result.</p>}
+    <button disabled={shown.length === 0} onClick={downloadCSV} type="button">Export visible result as CSV</button>
   </div>;
 }
 

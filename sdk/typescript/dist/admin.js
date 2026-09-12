@@ -75,6 +75,13 @@ export class PgBaseAdminClient {
         }
     }
     catalog(signal) { return this.request("/api/admin/collections", {}, signal); }
+    generateAppleClientSecret(input, signal) {
+        return this.request("/api/admin/settings/apple/generate-client-secret", { method: "POST", body: JSON.stringify(input) }, signal);
+    }
+    scaffolds(signal) { return this.request("/api/admin/collections/scaffolds", {}, signal); }
+    truncateCollection(name, signal) {
+        return this.request(`/api/admin/collections/${encodeURIComponent(name)}/truncate`, { method: "POST", body: JSON.stringify({ name }) }, signal);
+    }
     async plan(change, signal) {
         // Snapshot before awaiting: caller edits while the preview runs must not
         // bind a different change to the server's returned checksum.

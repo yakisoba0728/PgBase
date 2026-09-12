@@ -39,6 +39,9 @@ type FieldPolicy struct {
 	Thumbs       []string
 	Required     bool
 	Hidden       bool
+	// Nil preserves the secure default. A policy callback must explicitly opt
+	// into public delivery with a false value.
+	Protected *bool
 }
 
 type PolicyFunc func(context.Context, pgx.Tx, uuid.UUID, string) (FieldPolicy, error)
@@ -64,7 +67,8 @@ type Service struct {
 }
 
 func (s *Service) policy(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID, field string) (FieldPolicy, error) {
-	policy := FieldPolicy{MaximumBytes: s.options.MaximumBytes, MaximumCount: 1, MimeTypes: append([]string(nil), s.options.AllowedTypes...)}
+	protected := true
+	policy := FieldPolicy{MaximumBytes: s.options.MaximumBytes, MaximumCount: 1, MimeTypes: append([]string(nil), s.options.AllowedTypes...), Protected: &protected}
 	if s.options.Policy != nil {
 		resolved, err := s.options.Policy(ctx, tx, collectionID, field)
 		if err != nil {
@@ -82,11 +86,17 @@ func (s *Service) policy(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID,
 		policy.Thumbs = append([]string(nil), resolved.Thumbs...)
 		policy.Required = resolved.Required
 		policy.Hidden = resolved.Hidden
+		if resolved.Protected != nil {
+			policy.Protected = resolved.Protected
+		}
 	}
 	return policy, nil
 }
 
 func (s *Service) authorizeField(ctx context.Context, tx pgx.Tx, principal identity.Subject, collectionID, recordID uuid.UUID, field string, operation Operation) error {
+	if _, auth, err := s.authFieldPolicy(ctx, tx, principal, collectionID, recordID, field, operation); auth {
+		return err
+	}
 	if err := s.authorize(ctx, tx, principal, collectionID, recordID, field, operation); err != nil {
 		return err
 	}
@@ -98,6 +108,13 @@ func (s *Service) authorizeField(ctx context.Context, tx pgx.Tx, principal ident
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (s *Service) resolvedPolicy(ctx context.Context, tx pgx.Tx, principal identity.Subject, collectionID, recordID uuid.UUID, field string, operation Operation) (FieldPolicy, error) {
+	if p, auth, err := s.authFieldPolicy(ctx, tx, principal, collectionID, recordID, field, operation); auth {
+		return p, err
+	}
+	return s.policy(ctx, tx, collectionID, field)
 }
 
 func (s *Service) Run(ctx context.Context) error {
@@ -149,6 +166,9 @@ type File struct {
 	ThumbnailKey string
 	CreatedAt    time.Time
 	ReadyAt      time.Time
+	// Public is a current list-time policy observation. Downloads always
+	// reauthorize; this flag is never persisted as authority.
+	Public bool
 }
 
 type FileEvent struct {
@@ -191,19 +211,6 @@ func (s *Service) OpenObject(ctx context.Context, key string) (io.ReadCloser, er
 		return nil, ErrInvalid
 	}
 	return s.objects.Open(ctx, key)
-}
-
-func (s *Service) CollectionID(ctx context.Context, name string) (uuid.UUID, error) {
-	if !fieldPattern.MatchString(name) {
-		return uuid.Nil, ErrInvalid
-	}
-	var id uuid.UUID
-	if err := s.pool.QueryRow(ctx, `SELECT id FROM pgbase_meta.collections WHERE name=$1`, name).Scan(&id); errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, ErrNotFound
-	} else if err != nil {
-		return uuid.Nil, err
-	}
-	return id, nil
 }
 
 func NewService(pool *database.Pool, objects ObjectStore, authorize AuthorizeFunc, options Options) (*Service, error) {
@@ -267,7 +274,7 @@ func (s *Service) upload(ctx context.Context, principal identity.Subject, input 
 		if err := s.authorizeField(ctx, tx, principal, input.CollectionID, input.RecordID, input.Field, OperationWrite); err != nil {
 			return err
 		}
-		policy, err := s.policy(ctx, tx, input.CollectionID, input.Field)
+		policy, err := s.resolvedPolicy(ctx, tx, principal, input.CollectionID, input.RecordID, input.Field, OperationWrite)
 		if err != nil {
 			return err
 		}
@@ -283,11 +290,19 @@ func (s *Service) upload(ctx context.Context, principal identity.Subject, input 
 			return err
 		}
 		var count int
-		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.record_files where collection_id=$1 and record_id=$2 and field_name=$3 and status in ('pending','ready')`, input.CollectionID, input.RecordID, input.Field).Scan(&count); err != nil {
+		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.record_files where coalesce(collection_id,auth_collection_id)=$1 and coalesce(record_id,auth_user_id)=$2 and field_name=$3 and status in ('pending','ready')`, input.CollectionID, input.RecordID, input.Field).Scan(&count); err != nil {
 			return err
 		}
 		if count >= policy.MaximumCount {
 			return ErrTooMany
+		}
+		var auth bool
+		if e := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.auth_collections where id=$1)`, file.CollectionID).Scan(&auth); e != nil {
+			return e
+		}
+		if auth {
+			_, err = tx.Exec(ctx, `INSERT INTO pgbase_meta.record_files (id,auth_collection_id,auth_user_id,owner_id,field_name,filename,content_type,size_bytes,sha256,object_key,status,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11)`, file.ID, file.CollectionID, file.RecordID, nullableUUID(file.OwnerID), file.Field, file.Filename, file.ContentType, file.Size, file.SHA256[:], file.ObjectKey, now)
+			return err
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO pgbase_meta.record_files
 			(id,collection_id,record_id,owner_id,field_name,filename,content_type,size_bytes,sha256,object_key,status,created_at)
@@ -371,18 +386,21 @@ func (s *Service) Open(ctx context.Context, principal identity.Subject, id uuid.
 	}
 	var file File
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if err := scanFile(tx.QueryRow(ctx, `SELECT id,collection_id,record_id,coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
+		if err := scanFile(tx.QueryRow(ctx, `SELECT id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
 			FROM pgbase_meta.record_files WHERE id=$1 AND status='ready'`, id), &file); err != nil {
 			return err
 		}
 		if err := s.authorizeField(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead); err != nil {
 			return err
 		}
+		policy, err := s.resolvedPolicy(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead)
+		if err != nil {
+			return err
+		}
+		if *policy.Protected && token == "" {
+			return ErrDenied
+		}
 		if variant != Original && variant != Thumbnail {
-			policy, err := s.policy(ctx, tx, file.CollectionID, file.Field)
-			if err != nil {
-				return err
-			}
 			if !containsVariant(policy.Thumbs, string(variant)) {
 				return ErrNotFound
 			}
@@ -392,7 +410,12 @@ func (s *Service) Open(ctx context.Context, principal identity.Subject, id uuid.
 	if err != nil {
 		return File{}, nil, err
 	}
+	return s.openAuthorizedObject(ctx, file, principal, variant)
+}
+
+func (s *Service) openAuthorizedObject(ctx context.Context, file File, principal identity.Subject, variant Variant) (File, io.ReadCloser, error) {
 	key := file.ObjectKey
+	var err error
 	if variant == Thumbnail {
 		key = file.ThumbnailKey
 		if key == "" {
@@ -427,7 +450,7 @@ func (s *Service) Delete(ctx context.Context, principal identity.Subject, id uui
 	}
 	var preview File
 	if err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if err := scanFile(tx.QueryRow(ctx, `select id,collection_id,record_id,coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at from pgbase_meta.record_files where id=$1 and status='ready'`, id), &preview); err != nil {
+		if err := scanFile(tx.QueryRow(ctx, `select id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at from pgbase_meta.record_files where id=$1 and status='ready'`, id), &preview); err != nil {
 			return err
 		}
 		return s.authorizeField(ctx, tx, principal, preview.CollectionID, preview.RecordID, preview.Field, OperationWrite)
@@ -438,7 +461,7 @@ func (s *Service) Delete(ctx context.Context, principal identity.Subject, id uui
 	return s.options.Hooks.Run(ctx, event, func() error {
 		return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 			var file File
-			if err := scanFile(tx.QueryRow(ctx, `SELECT id,collection_id,record_id,coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
+			if err := scanFile(tx.QueryRow(ctx, `SELECT id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
 			FROM pgbase_meta.record_files WHERE id=$1 AND status='ready' FOR UPDATE`, id), &file); err != nil {
 				return err
 			}
@@ -446,7 +469,7 @@ func (s *Service) Delete(ctx context.Context, principal identity.Subject, id uui
 			if err := s.authorizeField(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationWrite); err != nil {
 				return err
 			}
-			policy, err := s.policy(ctx, tx, file.CollectionID, file.Field)
+			policy, err := s.resolvedPolicy(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationWrite)
 			if err != nil {
 				return err
 			}
@@ -455,7 +478,7 @@ func (s *Service) Delete(ctx context.Context, principal identity.Subject, id uui
 			}
 			if policy.Required {
 				var count int
-				if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.record_files where collection_id=$1 and record_id=$2 and field_name=$3 and status='ready'`, file.CollectionID, file.RecordID, file.Field).Scan(&count); err != nil {
+				if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.record_files where coalesce(collection_id,auth_collection_id)=$1 and coalesce(record_id,auth_user_id)=$2 and field_name=$3 and status='ready'`, file.CollectionID, file.RecordID, file.Field).Scan(&count); err != nil {
 					return err
 				}
 				if count <= 1 {
@@ -479,8 +502,13 @@ func (s *Service) List(ctx context.Context, principal identity.Subject, collecti
 		if err := s.authorizeField(ctx, tx, principal, collectionID, recordID, field, OperationRead); err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, `SELECT id,collection_id,record_id,coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
-			FROM pgbase_meta.record_files WHERE collection_id=$1 AND record_id=$2 AND field_name=$3 AND status='ready' ORDER BY created_at,id`, collectionID, recordID, field)
+		policy, err := s.resolvedPolicy(ctx, tx, principal, collectionID, recordID, field, OperationRead)
+		if err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, `SELECT id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
+			FROM pgbase_meta.record_files WHERE coalesce(collection_id,auth_collection_id)=$1 AND coalesce(record_id,auth_user_id)=$2 AND field_name=$3 AND status='ready' ORDER BY created_at,id`, collectionID, recordID, field)
+
 		if err != nil {
 			return err
 		}
@@ -490,6 +518,7 @@ func (s *Service) List(ctx context.Context, principal identity.Subject, collecti
 			if err := scanFile(rows, &file); err != nil {
 				return err
 			}
+			file.Public = !*policy.Protected && !policy.Hidden
 			files = append(files, file)
 		}
 		return rows.Err()
@@ -575,7 +604,7 @@ func (s *Service) MintDownloadToken(ctx context.Context, principal identity.Subj
 	}
 	var file File
 	if err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if err := scanFile(tx.QueryRow(ctx, `SELECT id,collection_id,record_id,coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
+		if err := scanFile(tx.QueryRow(ctx, `SELECT id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
 			FROM pgbase_meta.record_files WHERE id=$1 AND status='ready'`, id), &file); err != nil {
 			return err
 		}
@@ -583,7 +612,7 @@ func (s *Service) MintDownloadToken(ctx context.Context, principal identity.Subj
 			return ErrNotFound
 		}
 		if variant != Original && variant != Thumbnail {
-			policy, err := s.policy(ctx, tx, file.CollectionID, file.Field)
+			policy, err := s.resolvedPolicy(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead)
 			if err != nil {
 				return err
 			}

@@ -46,6 +46,28 @@ func TestNewIncludesEmbeddedAdminUI(t *testing.T) {
 	}
 }
 
+func TestRotateRuntimeSettingsEncryptionKeySurvivesRestart(t *testing.T) {
+	ctx := context.Background()
+	databaseURL := testutil.NewDatabase(t)
+	firstKey := []byte("runtime-settings-encryption-key-a")
+	secondKey := []byte("runtime-settings-encryption-key-b")
+	app, err := New(ctx, Options{DatabaseURL: databaseURL, TokenSecret: make([]byte, 32), RuntimeSettingsEncryptionKey: firstKey, AutoMigrate: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.RotateRuntimeSettingsEncryptionKey(ctx, secondKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := New(ctx, Options{DatabaseURL: databaseURL, TokenSecret: make([]byte, 32), RuntimeSettingsEncryptionKey: secondKey, AutoMigrate: true})
+	if err != nil {
+		t.Fatalf("restart with rotated key: %v", err)
+	}
+	t.Cleanup(func() { _ = restarted.Close(context.Background()) })
+}
+
 func TestMetricsEndpointIsOptInAndBearerProtected(t *testing.T) {
 	newApp := func(t *testing.T, metricsToken []byte) *App {
 		t.Helper()
@@ -209,7 +231,7 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 
 func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) < 20 || migrations[len(migrations)-1].Version != int64(len(migrations)) {
+	if len(migrations) < 20 || migrations[len(migrations)-1].Version != 65 {
 		t.Fatalf("schema-compiler-generation manifest = %#v", migrations)
 	}
 	tests := []struct {
@@ -286,7 +308,8 @@ func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 					_ = app.Close(context.Background())
 					t.Fatal(statusErr)
 				}
-				if status.Current != int64(testCase.through) || !status.Compatible {
+				expectedVersion := migrations[testCase.through-1].Version
+				if status.Current != expectedVersion || !status.Compatible {
 					_ = app.Close(context.Background())
 					t.Fatalf("startup changed accepted P0 history: %#v", status)
 				}

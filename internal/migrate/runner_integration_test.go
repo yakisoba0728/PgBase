@@ -583,10 +583,11 @@ func TestPublicIdentityArtifactRequiresCompleteMigrationHistory(t *testing.T) {
 		t.Fatal("historic preparation policy must not accept current manifest")
 	}
 	runner := New(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	latest := int64(len(migrations))
-	for _, version := range []int64{9, 10, 11, latest - 1, latest} {
+	latest := migrations[len(migrations)-1].Version
+	for _, count := range []int{9, 10, 11, len(migrations) - 1, len(migrations)} {
+		version := migrations[count-1].Version
 		bootstrap := New(pool, nil)
-		bootstrap.migrations = migrations[:version]
+		bootstrap.migrations = migrations[:count]
 		bootstrap.compatibility = nil
 		if err := bootstrap.Up(context.Background()); err != nil {
 			t.Fatal(err)

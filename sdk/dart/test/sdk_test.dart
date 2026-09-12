@@ -6,6 +6,64 @@ import 'package:pgbase/pgbase.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('filter placeholder values are deterministic and never parsed twice', () {
+    final pgbase = PgBaseClient(Uri.parse('http://pgbase.test/'));
+    expect(
+      pgbase.filter('title = {:title} || summary = {:title}', {
+        'title': 'quoted "value"\\next\nline',
+      }),
+      'title = "quoted \\"value\\"\\\\next\\nline" || summary = "quoted \\"value\\"\\\\next\\nline"',
+    );
+    expect(
+      pgbase.filter('created >= {:when}', {
+        'when': DateTime.utc(2026, 1, 2, 3, 4, 5),
+      }),
+      'created >= "2026-01-02 03:04:05.000Z"',
+    );
+    expect(
+      pgbase.filter('flags = {:value}', {
+        'value': [true, 'two'],
+      }),
+      'flags = "[true,\\"two\\"]"',
+    );
+    expect(
+      pgbase.filter('meta = {:value}', {
+        'value': {'flag': true},
+      }),
+      'meta = "{\\"flag\\":true}"',
+    );
+    expect(pgbase.filter('unset = {:value}', {'value': null}), 'unset = null');
+    expect(pgbase.filter('number = {:value}', {'value': double.nan}), 'number = NaN');
+    expect(pgbase.filter('number = {:value}', {'value': double.infinity}), 'number = Infinity');
+    expect(
+      pgbase.filter('known = {:known} && missing = {:missing}', {'known': false}),
+      'known = false && missing = {:missing}',
+    );
+    expect(
+      pgbase.filter('value = {:text}', {'text': '{:text} || title != "safe"'}),
+      'value = "{:text} || title != \\"safe\\""',
+    );
+  });
+
+  test('application realtime topics preserve the raw name and payload', () async {
+    final client = _ApplicationTopicClient();
+    final pgbase = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: client);
+    final received = Completer<RealtimeCustomEvent>();
+    final stop = await pgbase.realtime.subscribeApplication(
+      'custom-topic',
+      received.complete,
+    );
+    final event = await received.future;
+    expect(event.topic, 'custom-topic');
+    expect(((event.data as JsonObject)['ok'] as JsonBool).value, isTrue);
+    expect(client.subscriptions, ['@app/Y3VzdG9tLXRvcGlj']);
+    await stop();
+    expect(
+      () => pgbase.realtime.subscribeApplication('', (_) {}),
+      throwsA(isA<PgBaseProtocolError>()),
+    );
+  });
+
   group('exact JSON', () {
     test(
       'retains arbitrary JSON number spelling and rejects duplicate keys',
@@ -32,6 +90,14 @@ void main() {
         '99999999999999999999999.0001',
       );
       expect(() => ExactDecimal('1e3'), throwsA(isA<PgBaseProtocolError>()));
+      expect(
+        PgBaseUuid('00000000-0000-0000-0000-000000000000').value,
+        '00000000-0000-0000-0000-000000000000',
+      );
+      expect(
+        PgBaseUuid('FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF').value,
+        'ffffffff-ffff-ffff-ffff-ffffffffffff',
+      );
     });
   });
 
@@ -44,6 +110,22 @@ void main() {
         httpClient: client,
       );
       await pgbase.login('person@example.test', 'password');
+      final members = pgbase.realm('members');
+      final methods = await members.methods();
+      expect(methods.passwordEnabled, isTrue);
+      expect(methods.otpEnabled, isTrue);
+      expect(methods.oauthProviders, ['github']);
+      expect(client.requests[1].path, '/api/v1/auth/members/methods');
+      final refreshed = await members.refresh();
+      expect(refreshed.token, 'rotated-token');
+      expect(pgbase.auth.token, 'rotated-token');
+      expect(client.requests[2].headers['authorization'], 'Bearer user-token');
+      await pgbase.auth.save('still-valid-locally');
+      await expectLater(
+        pgbase.realm('invalid').refresh(),
+        throwsA(isA<PgBaseProtocolError>()),
+      );
+      expect(pgbase.auth.token, 'still-valid-locally');
       final created = await pgbase
           .records('notes')
           .createWithEtag(
@@ -67,11 +149,11 @@ void main() {
           }),
         ),
       ]);
-      expect(pgbase.auth.token, 'user-token');
+      expect(pgbase.auth.token, 'still-valid-locally');
       expect(created.etag, '"pgb1.created"');
-      expect(client.requests[1].headers['authorization'], 'Bearer user-token');
-      expect(client.requests[1].headers['idempotency-key'], 'create-note-0001');
-      expect(client.requests[2].headers['if-match'], '"pgb1.created"');
+      expect(client.requests[4].headers['authorization'], 'Bearer still-valid-locally');
+      expect(client.requests[4].headers['idempotency-key'], 'create-note-0001');
+      expect(client.requests[5].headers['if-match'], '"pgb1.created"');
       expect(batch['results'], isA<JsonArray>());
       expect(
         () => pgbase.records('notes').create(JsonObject({}), 'short'),
@@ -79,6 +161,98 @@ void main() {
       );
     },
   );
+
+  test('batch upserts use both compact and generic PUT forms', () async {
+    final client = _ScriptedClient();
+    final pgbase = PgBaseClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: client,
+    );
+    const id = '01900000-0000-7000-8000-000000000001';
+    final input = JsonObject({'title': const JsonString('upserted')});
+
+    await pgbase.batch([
+      BatchOperation.upsert(collection: 'notes', id: id, input: input),
+    ]);
+    await pgbase.batchHttpRequests([
+      BatchHttpRequest.upsert(
+        collection: 'notes',
+        id: id,
+        input: input,
+        ifMatch: '"pgb1.current"',
+      ),
+    ]);
+
+    final compact = decodeExactJson(client.requests[0].body) as JsonObject;
+    final operation =
+        ((compact['operations'] as JsonArray).values.single as JsonObject);
+    expect((operation['operation'] as JsonString).value, 'upsert');
+    expect((operation['id'] as JsonString).value, id);
+
+    final generic = decodeExactJson(client.requests[1].body) as JsonObject;
+    final request =
+        ((generic['requests'] as JsonArray).values.single as JsonObject);
+    expect((request['method'] as JsonString).value, 'PUT');
+    expect(
+      (request['url'] as JsonString).value,
+      '/api/v1/collections/notes/records/$id',
+    );
+    final headers = request['headers'] as JsonObject;
+    expect((headers['if-match'] as JsonString).value, '"pgb1.current"');
+  });
+
+  test(
+    'record fields projections reach list and get and preserve responses',
+    () async {
+      final client = _ProjectionClient();
+      final pgbase = PgBaseClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: client,
+      );
+
+      final page = await pgbase.records('notes').list(
+        const Query(fields: 'title,summary'),
+      );
+      final record = await pgbase.records('notes').get(
+        '01900000-0000-7000-8000-000000000001',
+        fields: 'title,summary',
+      );
+
+      expect((page.items.single['title'] as JsonString).value, 'listed');
+      expect(page.items.single.values.containsKey('private'), isFalse);
+      expect((record['title'] as JsonString).value, 'viewed');
+      expect(record.values.containsKey('private'), isFalse);
+      expect(client.urls, hasLength(2));
+      for (final url in client.urls) {
+        expect(url.query, 'fields=title%2Csummary');
+        expect(url.queryParameters['fields'], 'title,summary');
+      }
+    },
+  );
+
+  test('PocketBase numbered list sends its explicit compatibility contract', () async {
+    final client = _ProjectionClient();
+    final pgbase = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: client);
+    final page = await pgbase.records('notes').getList(
+      2,
+      25,
+      const PocketBaseListOptions(
+        filter: 'title = "paged"',
+        sort: '@random',
+        skipTotal: true,
+      ),
+    );
+    expect(page.page, 2);
+    expect(page.perPage, 25);
+    expect(page.totalItems, -1);
+    expect(page.totalPages, -1);
+    expect((page.items.single['title'] as JsonString).value, 'paged');
+    final url = client.urls.single;
+    expect(url.queryParameters['compat'], 'pocketbase');
+    expect(url.queryParameters['page'], '2');
+    expect(url.queryParameters['perPage'], '25');
+    expect(url.queryParameters['skipTotal'], 'true');
+  });
 
   test('admin client keeps CSRF apart from bearer authentication', () async {
     final client = _ScriptedClient();
@@ -90,6 +264,25 @@ void main() {
     await admin.configureJob('daily', '0 0 * * *', true);
     expect(client.requests.last.headers['x-pgbase-csrf'], 'csrf-token');
     expect(client.requests.last.headers.containsKey('authorization'), isFalse);
+  });
+
+  test('concurrent admin logins keep the newest cookie and CSRF paired', () async {
+    final client = _RacingAdminLoginClient();
+    final admin = PgBaseAdminClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: client,
+    );
+    final older = admin.login('old@example.test', 'password');
+    await client.oldLoginStarted.future;
+    final newer = admin.login('new@example.test', 'password');
+    await newer;
+    client.oldLoginResponse.complete(_adminLoginResponse('old'));
+    await older;
+    await admin.configureJob('daily', '0 0 * * *', true);
+
+    final mutation = client.requests.last;
+    expect(mutation.headers['cookie'], 'admin-session=new');
+    expect(mutation.headers['x-pgbase-csrf'], 'csrf-new');
   });
 
   test('structured HTTP errors retain their ETag and details', () async {
@@ -129,6 +322,22 @@ void main() {
     },
   );
 
+  test('request keys cancel the prior Dart request and cancelAll cancels active keys', () async {
+    final httpClient = _KeyedAbortClient();
+    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: httpClient);
+    final first = client.request('GET', '/one', requestKey: 'same');
+    await httpClient.firstStarted.future;
+    final second = client.request('GET', '/two', requestKey: 'same');
+    await expectLater(first, throwsA(isA<PgBaseCancellation>()));
+    expect(await second, isA<JsonObject>());
+    expect(httpClient.aborted, 1);
+    final third = client.request('GET', '/three', requestKey: 'three');
+    await httpClient.secondStarted.future;
+    client.cancelAllRequests();
+    await expectLater(third, throwsA(isA<PgBaseCancellation>()));
+    expect(httpClient.aborted, 2);
+  });
+
   test('network failures have a stable SDK error type', () async {
     final pgbase = PgBaseClient(
       Uri.parse('http://pgbase.test/'),
@@ -148,6 +357,81 @@ void main() {
     await Future.wait([save, clear]);
 
     expect(storage.value, isNull);
+  });
+
+  test('auth store retains its record across an SSR cookie round trip', () async {
+    final source = AuthStore();
+    await source.save(
+      'server-token',
+      record: const User(
+        id: '01900000-0000-7000-8000-000000000001',
+        email: 'person@example.test',
+        createdAt: '2026-01-01T00:00:00Z',
+      ),
+    );
+    final restored = AuthStore();
+    await restored.loadFromCookie(source.exportToCookie());
+    expect(restored.isValid, isTrue);
+    expect(restored.record?.email, 'person@example.test');
+  });
+
+  test('OAuth launcher receives the provider URL before callback completion', () async {
+    final oauth = _OAuthClient();
+    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: oauth);
+    Uri? opened;
+    await client.realm('members').oauthStartAndOpen(
+      'github',
+      'app://callback',
+      (url) { opened = url; },
+    );
+    expect(opened, Uri.parse('https://provider.test/authorize?state=expected-state'));
+    expect(oauth.requests, ['/api/v1/auth/members/oauth/start']);
+  });
+
+  test('OAuth browser flow validates callback state and always closes its adapter', () async {
+    final oauth = _OAuthClient();
+    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: oauth);
+    var closed = 0;
+    final session = await client.realm('members').oauthWithBrowser(
+      'github',
+      'app://callback',
+      OAuthBrowserAdapter(
+        open: (_) {},
+        waitForCallback: (_) async => Uri.parse('app://callback?state=expected-state&code=code'),
+        close: () => closed++,
+      ),
+    );
+    expect(session.token, 'oauth-token');
+    expect(oauth.requests.take(2).toList(), [
+      '/api/v1/auth/members/oauth/start',
+      '/api/v1/auth/oauth/complete',
+    ]);
+    expect(closed, 1);
+    await expectLater(
+      client.realm('members').oauthWithBrowser(
+        'github', 'app://callback',
+        OAuthBrowserAdapter(open: (_) {}, waitForCallback: (_) async => Uri.parse('app://callback?state=wrong&code=code'), close: () => closed++),
+      ),
+      throwsA(isA<OAuthCallbackError>()),
+    );
+    expect(closed, 2);
+    await expectLater(
+      client.realm('members').oauthWithBrowser(
+        'github',
+        'app://callback',
+        OAuthBrowserAdapter(
+          open: (_) {},
+          waitForCallback: (_) async => Uri.parse(
+            'app://callback?state=expected-state&error=access_denied&error_description=cancelled',
+          ),
+          close: () => closed++,
+        ),
+      ),
+      throwsA(
+        isA<OAuthCallbackError>().having((error) => error.code, 'code', 'access_denied'),
+      ),
+    );
+    expect(closed, 3);
   });
 
   test('a delayed restore cannot replace a newer clear', () async {
@@ -387,6 +671,75 @@ final class _CapturedRequest {
   final List<int> body;
 }
 
+final class _ProjectionClient extends http.BaseClient {
+  final List<Uri> urls = [];
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    urls.add(request.url);
+    final isList = request.url.path.endsWith('/records');
+    if (isList && request.url.queryParameters['compat'] == 'pocketbase') {
+      return _jsonResponse(200, {
+        'page': 2,
+        'perPage': 25,
+        'totalItems': -1,
+        'totalPages': -1,
+        'items': [
+          {
+            'id': '01900000-0000-7000-8000-000000000001',
+            'title': 'paged',
+          },
+        ],
+      });
+    }
+    return _jsonResponse(
+      200,
+      isList
+          ? {
+              'items': [
+                {
+                  'id': '01900000-0000-7000-8000-000000000001',
+                  'title': 'listed',
+                },
+              ],
+            }
+          : {
+              'id': '01900000-0000-7000-8000-000000000001',
+              'title': 'viewed',
+            },
+    );
+  }
+}
+
+final class _ApplicationTopicClient extends http.BaseClient {
+  final List<String> subscriptions = [];
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final body = await request.finalize().toBytes();
+    if (request.method == 'GET' && request.url.path == '/api/realtime') {
+      return http.StreamedResponse(
+        http.ByteStream.fromBytes(
+          utf8.encode(
+            'event: PB_CONNECT\ndata: {"clientId":"application-test"}\n\n'
+            'event: @app/Y3VzdG9tLXRvcGlj\ndata: {"ok":true}\n\n',
+          ),
+        ),
+        200,
+        headers: const {'content-type': 'text/event-stream'},
+      );
+    }
+    if (request.method == 'POST' && request.url.path == '/api/realtime') {
+      final value = decodeExactJson(body) as JsonObject;
+      final values = value['subscriptions'] as JsonArray;
+      subscriptions.addAll(values.values.cast<JsonString>().map((value) => value.value));
+      return _jsonResponse(204, null);
+    }
+    throw StateError('unexpected application realtime request ${request.url}');
+  }
+}
+
 final class _ScriptedClient extends http.BaseClient {
   final List<_CapturedRequest> requests = [];
 
@@ -412,6 +765,25 @@ final class _ScriptedClient extends http.BaseClient {
         },
         'expiresAt': '2026-01-02T00:00:00Z',
       });
+    if (path == '/api/v1/auth/members/methods')
+      return _json(200, {
+        'passwordEnabled': true,
+        'otpEnabled': true,
+        'mfaEnabled': false,
+        'oauthProviders': ['github'],
+      });
+    if (path == '/api/v1/auth/members/refresh')
+      return _json(200, {
+        'token': 'rotated-token',
+        'user': {
+          'id': '01900000-0000-7000-8000-000000000001',
+          'email': 'person@example.test',
+          'createdAt': '2026-01-01T00:00:00Z',
+        },
+        'expiresAt': '2026-01-02T00:00:00Z',
+      });
+    if (path == '/api/v1/auth/invalid/refresh')
+      return _json(200, {'token': 'must-not-save'});
     if (path == '/api/admin/auth/login')
       return _json(200, {
         'csrfToken': 'csrf-token',
@@ -526,6 +898,47 @@ final class _NetworkClient extends http.BaseClient {
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     await request.finalize().drain<void>();
     throw http.ClientException('offline', request.url);
+  }
+}
+
+final class _OAuthClient extends http.BaseClient {
+  final List<String> requests = [];
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    requests.add(request.url.path);
+    if (request.url.path.endsWith('/oauth/start')) {
+      return _jsonResponse(200, {'authorizationUrl': 'https://provider.test/authorize?state=expected-state', 'expiresAt': '2026-01-02T00:00:00Z'});
+    }
+    if (request.url.path.endsWith('/oauth/complete')) {
+      return _jsonResponse(200, {'token': 'oauth-token', 'user': {'id': 'oauth', 'email': 'oauth@example.test', 'createdAt': '2026-01-01T00:00:00Z'}, 'expiresAt': '2026-01-02T00:00:00Z'});
+    }
+    throw StateError('unexpected request');
+  }
+}
+
+final class _KeyedAbortClient extends http.BaseClient {
+  final firstStarted = Completer<void>();
+  final secondStarted = Completer<void>();
+  int calls = 0;
+  int aborted = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    calls++;
+    final abortable = request as http.Abortable;
+    if (calls == 2) return Future.value(_jsonResponse(200, {'ok': true}));
+    if (calls == 1) {
+      firstStarted.complete();
+    } else {
+      secondStarted.complete();
+    }
+    final response = Completer<http.StreamedResponse>();
+    abortable.abortTrigger!.then((_) {
+      aborted++;
+      response.completeError(http.RequestAbortedException(request.url));
+    });
+    return response.future;
   }
 }
 
@@ -691,6 +1104,32 @@ final class _AdminStale401Client extends http.BaseClient {
       3 => _adminLoginResponse('new'),
       _ => _jsonResponse(204, null),
     };
+  }
+}
+
+final class _RacingAdminLoginClient extends http.BaseClient {
+  final List<_CapturedRequest> requests = [];
+  final oldLoginStarted = Completer<void>();
+  final oldLoginResponse = Completer<http.StreamedResponse>();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final body = await request.finalize().toBytes();
+    requests.add(_CapturedRequest(
+      request.method,
+      request.url.path,
+      Map.unmodifiable(request.headers),
+      body,
+    ));
+    if (request.url.path == '/api/admin/auth/login') {
+      final email = (jsonDecode(utf8.decode(body)) as Map<String, dynamic>)['email'];
+      if (email == 'old@example.test') {
+        oldLoginStarted.complete();
+        return oldLoginResponse.future;
+      }
+      return _adminLoginResponse('new');
+    }
+    return _jsonResponse(204, null);
   }
 }
 

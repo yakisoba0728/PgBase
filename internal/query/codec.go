@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/big"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,19 +23,89 @@ import (
 var decimalInput = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
 var integerStringInput = regexp.MustCompile(`^-?[0-9]+$`)
 
-// nonFiniteNumericLiterals holds every value PostgreSQL's numeric output can
-// produce that this API cannot represent as a decimal string.
+func FieldInputEqualsStored(field schema.Field, raw json.RawMessage, stored any) bool {
+	decoded, err := decodeFieldValue(field, raw)
+	if err != nil {
+		return false
+	}
+	if decoded == nil || stored == nil {
+		return decoded == nil && stored == nil
+	}
+	if field.Type == schema.TypeTimestampTZ || field.Type == schema.TypeAutoDate {
+		text, ok := stored.(string)
+		if !ok {
+			return false
+		}
+		value, err := time.Parse(time.RFC3339Nano, text)
+		return err == nil && decoded.(time.Time).Equal(value)
+	}
+	if field.Type == schema.TypeBigInt {
+		text, ok := stored.(string)
+		return ok && text == strconv.FormatInt(decoded.(int64), 10)
+	}
+	if field.Type == schema.TypeNumeric {
+		text, ok := stored.(string)
+		if !ok {
+			return false
+		}
+		storedNumber := new(big.Rat)
+		if _, ok := storedNumber.SetString(text); !ok {
+			return false
+		}
+		value, err := decoded.(pgtype.Numeric).Value()
+		if err != nil {
+			return false
+		}
+		proposedNumber := new(big.Rat)
+		_, ok = proposedNumber.SetString(value.(string))
+		return ok && proposedNumber.Cmp(storedNumber) == 0
+	}
+	left, err := json.Marshal(decoded)
+	if err != nil {
+		return false
+	}
+	right, err := json.Marshal(stored)
+	if err != nil {
+		return false
+	}
+	var lv, rv any
+	ld := json.NewDecoder(bytes.NewReader(left))
+	ld.UseNumber()
+	rd := json.NewDecoder(bytes.NewReader(right))
+	rd.UseNumber()
+	if ld.Decode(&lv) != nil || rd.Decode(&rv) != nil {
+		return false
+	}
+	return reflect.DeepEqual(normalizeSemanticJSON(lv), normalizeSemanticJSON(rv))
+}
+
+func normalizeSemanticJSON(value any) any {
+	switch current := value.(type) {
+	case json.Number:
+		rational := new(big.Rat)
+		if _, ok := rational.SetString(string(current)); ok {
+			return "#number:" + rational.RatString()
+		}
+		return string(current)
+	case map[string]any:
+		result := make(map[string]any, len(current))
+		for key, child := range current {
+			result[key] = normalizeSemanticJSON(child)
+		}
+		return result
+	case []any:
+		result := make([]any, len(current))
+		for i := range current {
+			result[i] = normalizeSemanticJSON(current[i])
+		}
+		return result
+	default:
+		return value
+	}
+}
+
 var nonFiniteNumericLiterals = map[string]bool{"NaN": true, "Infinity": true, "-Infinity": true}
 
-// maximumUnindexedTextBytes restates the request body limit at the codec layer
-// so a single text value stays bounded even where that limit is bypassed.
-// Indexed and unique text keeps the much smaller schema.MaximumTextBytes,
-// because PostgreSQL btree entries have a page-dependent limit below 2704
-// bytes and deterministic headroom beats letting data-dependent compression
-// decide whether a request becomes an opaque database failure. Neither bound
-// is a whole-record invariant: patching several unindexed text fields in turn
-// can still grow one record past the list page budget, and that invariant
-// belongs to the write service which sees the merged record.
 const maximumUnindexedTextBytes = 1 << 20
 
 func decodeInput(collection schema.Collection, input map[string]json.RawMessage) (map[string]any, error) {
@@ -56,7 +129,7 @@ func decodeInput(collection schema.Collection, input map[string]json.RawMessage)
 		if field.Type == schema.TypeFile {
 			return nil, validation(name, "file_field_read_only")
 		}
-		value, err := decodeFieldValue(field, raw)
+		value, err := decodeFieldValueMode(field, raw, collection.ValidationMode)
 		if err != nil {
 			return nil, err
 		}
@@ -66,6 +139,10 @@ func decodeInput(collection schema.Collection, input map[string]json.RawMessage)
 }
 
 func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
+	return decodeFieldValueMode(field, raw, schema.ValidationModePostgres)
+}
+
+func decodeFieldValueMode(field schema.Field, raw json.RawMessage, mode schema.ValidationMode) (any, error) {
 	invalid := func() (any, error) { return nil, validation(field.Name, "type_mismatch") }
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		switch field.Type {
@@ -90,7 +167,11 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		if !bytes.Equal(raw, []byte("true")) && !bytes.Equal(raw, []byte("false")) {
 			return invalid()
 		}
-		return bytes.Equal(raw, []byte("true")), nil
+		value := bytes.Equal(raw, []byte("true"))
+		if mode == schema.ValidationModePocketBase && field.Required && !value {
+			return nil, validation(field.Name, "required")
+		}
+		return value, nil
 	case schema.TypeInteger:
 		value, err := strconv.ParseInt(string(raw), 10, 32)
 		if err != nil {
@@ -98,6 +179,9 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		}
 		if code := fieldvalue.ValidateNumeric(strconv.FormatInt(value, 10), codecOptions(field)); code != "" {
 			return nil, validation(field.Name, code)
+		}
+		if mode == schema.ValidationModePocketBase && field.Required && value == 0 {
+			return nil, validation(field.Name, "required")
 		}
 		return int32(value), nil
 	case schema.TypeBigInt:
@@ -112,6 +196,9 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		if code := fieldvalue.ValidateNumeric(value, codecOptions(field)); code != "" {
 			return nil, validation(field.Name, code)
 		}
+		if mode == schema.ValidationModePocketBase && field.Required && parsed == 0 {
+			return nil, validation(field.Name, "required")
+		}
 		return parsed, nil
 	case schema.TypeNumeric:
 		value, ok := jsonString(raw)
@@ -124,6 +211,9 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		}
 		if code := fieldvalue.ValidateNumeric(value, codecOptions(field)); code != "" {
 			return nil, validation(field.Name, code)
+		}
+		if mode == schema.ValidationModePocketBase && field.Required && numericInputIsZero(value) {
+			return nil, validation(field.Name, "required")
 		}
 		return numeric, nil
 	case schema.TypeText, schema.TypeEditor:
@@ -142,6 +232,9 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 			return nil, validation(field.Name, "value_too_long")
 		}
 		if field.Type == schema.TypeEditor && field.Required && value == "" {
+			return nil, validation(field.Name, "required")
+		}
+		if mode == schema.ValidationModePocketBase && field.Required && value == "" {
 			return nil, validation(field.Name, "required")
 		}
 		if field.Type != schema.TypeEditor {
@@ -165,6 +258,18 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		if err != nil || !hasRFC3339Offset(value) {
 			return invalid()
 		}
+		if field.Options.Min != nil {
+			bound, e := time.Parse(time.RFC3339Nano, *field.Options.Min)
+			if e != nil || parsed.Before(bound) {
+				return nil, validation(field.Name, "min")
+			}
+		}
+		if field.Options.Max != nil {
+			bound, e := time.Parse(time.RFC3339Nano, *field.Options.Max)
+			if e != nil || parsed.After(bound) {
+				return nil, validation(field.Name, "max")
+			}
+		}
 		return parsed.UTC(), nil
 	case schema.TypeUUID:
 		value, ok := jsonString(raw)
@@ -184,6 +289,12 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 		if !validJSON(raw) {
 			return invalid()
 		}
+		if field.Options.MaxSize != nil && int64(len(raw)) > *field.Options.MaxSize {
+			return nil, validation(field.Name, "value_too_long")
+		}
+		if mode == schema.ValidationModePocketBase && field.Required && jsonBlank(raw) {
+			return nil, validation(field.Name, "required")
+		}
 		if len(field.Options.AllowedValues) > 0 {
 			var values []string
 			if json.Unmarshal(raw, &values) != nil || values == nil {
@@ -197,6 +308,17 @@ func decodeFieldValue(field schema.Field, raw json.RawMessage) (any, error) {
 	default:
 		return nil, validation(field.Name, "unsupported_type")
 	}
+}
+
+func numericInputIsZero(value string) bool {
+	value = strings.TrimPrefix(value, "-")
+	value = strings.ReplaceAll(value, ".", "")
+	return strings.Trim(value, "0") == ""
+}
+
+func jsonBlank(raw []byte) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return bytes.Equal(trimmed, []byte("null")) || bytes.Equal(trimmed, []byte(`""`)) || bytes.Equal(trimmed, []byte("[]")) || bytes.Equal(trimmed, []byte("{}"))
 }
 
 func codecOptions(field schema.Field) fieldvalue.Options {

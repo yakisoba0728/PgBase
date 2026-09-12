@@ -38,6 +38,7 @@ func (*callbackFactors) BeginOAuthLink(context.Context, uuid.UUID, string, strin
 func (*callbackFactors) BeginOAuthLinkWithProviderRedirect(context.Context, uuid.UUID, string, string, string, string) (userauth.OAuthAuthorization, error) {
 	return userauth.OAuthAuthorization{}, nil
 }
+func (*callbackFactors) UnlinkOAuthIdentity(context.Context, uuid.UUID, string) error { return nil }
 func (*callbackFactors) CompleteOAuth(context.Context, string, string, string) (userauth.Session, error) {
 	return userauth.Session{}, nil
 }

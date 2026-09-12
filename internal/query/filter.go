@@ -1,7 +1,9 @@
 package query
 
 import (
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/yakisoba0728/PgBase/internal/cursor"
 	"github.com/yakisoba0728/PgBase/internal/fieldvalue"
@@ -20,10 +22,20 @@ const (
 type filterNode interface{ isFilterNode() }
 
 type filterComparison struct {
-	field    string
-	modifier string
-	operator string
-	value    filterLiteral
+	field          string
+	modifier       string
+	otherField     string
+	otherModifier  string
+	operator       string
+	value          filterLiteral
+	literalLeft    bool
+	pocketBaseLike bool
+	function       *filterFunction
+}
+
+type filterFunction struct {
+	name string
+	args []filterOperand
 }
 
 type filterAnd struct{ children []filterNode }
@@ -33,6 +45,26 @@ type filterOr struct{ children []filterNode }
 func (filterComparison) isFilterNode() {}
 func (filterAnd) isFilterNode()        {}
 func (filterOr) isFilterNode()         {}
+
+func markPocketBaseLike(node filterNode) filterNode {
+	switch value := node.(type) {
+	case filterComparison:
+		value.pocketBaseLike = true
+		return value
+	case filterAnd:
+		for i := range value.children {
+			value.children[i] = markPocketBaseLike(value.children[i])
+		}
+		return value
+	case filterOr:
+		for i := range value.children {
+			value.children[i] = markPocketBaseLike(value.children[i])
+		}
+		return value
+	default:
+		return node
+	}
+}
 
 type filterLiteralKind int
 
@@ -44,13 +76,12 @@ const (
 )
 
 type filterLiteral struct {
-	kind filterLiteralKind
-	text string
-	bool bool
+	kind  filterLiteralKind
+	text  string
+	bool  bool
+	macro string
 }
 
-// SortKey is one ordered column of a list query. The logical field name is
-// resolved against the catalog before compilation.
 type SortKey = cursor.SortKey
 
 type filterParser struct {
@@ -59,10 +90,6 @@ type filterParser struct {
 	nodes int
 }
 
-// parseFilter parses the supported filter grammar: comparisons combined with
-// "&&" and "||", grouped with parentheses. Comparisons must pair a field name
-// with a literal; literal-only predicates such as "1=1" are rejected. All
-// errors are reported as stable validation details without echoing input.
 func parseFilter(input string) (filterNode, error) {
 	if len(input) > maximumFilterBytes {
 		return nil, validation("filter", "filter_too_complex")
@@ -154,14 +181,15 @@ func (p *filterParser) parsePrimary() (filterNode, error) {
 }
 
 func (p *filterParser) buildComparison(left filterOperand, operator string, right filterOperand) (filterNode, error) {
-	// Comparisons pair exactly one field operand with one literal operand.
-	// A literal on the left ("5 < count") flips the ordering operator so the
-	// compiled SQL keeps the caller's direction.
 	switch {
+	case left.function != nil && right.field == "" && right.function == nil:
+		return filterComparison{function: left.function, operator: operator, value: right.literal}, nil
+	case left.field != "" && right.field != "":
+		return filterComparison{field: left.field, modifier: left.modifier, otherField: right.field, otherModifier: right.modifier, operator: operator}, nil
 	case left.field != "" && right.field == "":
 		return filterComparison{field: left.field, modifier: left.modifier, operator: operator, value: right.literal}, nil
 	case left.field == "" && right.field != "":
-		return filterComparison{field: right.field, modifier: right.modifier, operator: flipComparisonOperator(operator), value: left.literal}, nil
+		return filterComparison{field: right.field, modifier: right.modifier, operator: flipComparisonOperator(operator), value: left.literal, literalLeft: operator == "~" || operator == "!~"}, nil
 	default:
 		return nil, validation("filter", "invalid_filter")
 	}
@@ -185,6 +213,7 @@ func flipComparisonOperator(operator string) string {
 type filterOperand struct {
 	field, modifier string
 	literal         filterLiteral
+	function        *filterFunction
 }
 
 func (p *filterParser) parseOperand() (filterOperand, error) {
@@ -204,11 +233,38 @@ func (p *filterParser) parseOperand() (filterOperand, error) {
 		if !ok {
 			return filterOperand{}, validation("filter", "invalid_filter")
 		}
+
 		return filterOperand{literal: filterLiteral{kind: filterLiteralNumber, text: number}}, nil
 	default:
 		word, ok := p.consumeWord()
 		if !ok {
 			return filterOperand{}, validation("filter", "invalid_filter")
+		}
+		p.skipSpaces()
+		if (word == "geoDistance" || word == "strftime") && p.consumeKeyword("(") {
+			args := []filterOperand{}
+			for {
+				p.skipSpaces()
+				if p.consumeKeyword(")") {
+					break
+				}
+				arg, err := p.parseOperand()
+				if err != nil {
+					return filterOperand{}, err
+				}
+				args = append(args, arg)
+				if len(args) > 10 {
+					return filterOperand{}, validation("filter", "filter_too_complex")
+				}
+				p.skipSpaces()
+				if p.consumeKeyword(")") {
+					break
+				}
+				if !p.consumeKeyword(",") {
+					return filterOperand{}, validation("filter", "invalid_filter")
+				}
+			}
+			return filterOperand{function: &filterFunction{name: word, args: args}}, nil
 		}
 		switch word {
 		case "true":
@@ -217,6 +273,16 @@ func (p *filterParser) parseOperand() (filterOperand, error) {
 			return filterOperand{literal: filterLiteral{kind: filterLiteralBool}}, nil
 		case "null":
 			return filterOperand{literal: filterLiteral{kind: filterLiteralNull}}, nil
+		}
+		if strings.HasPrefix(word, "@") {
+			if strings.HasPrefix(word, "@collection.") {
+				return filterOperand{field: word}, nil
+			}
+			literal, ok := filterTimeMacro(word, time.Now().UTC())
+			if !ok {
+				return filterOperand{}, validation("filter", "invalid_filter")
+			}
+			return filterOperand{literal: literal}, nil
 		}
 		field, modifier, ok := fieldvalue.SplitFilterModifier(word)
 		if !ok {
@@ -236,7 +302,7 @@ func (p *filterParser) consumeKeyword(keyword string) bool {
 }
 
 func (p *filterParser) consumeOperator() (string, bool) {
-	for _, operator := range []string{"!=", ">=", "<=", "=", ">", "<"} {
+	for _, operator := range []string{"?!~", "?!=", "?>=", "?<=", "?=", "?~", "?>", "?<", "!=", "!~", ">=", "<=", "=", ">", "<", "~"} {
 		if strings.HasPrefix(p.input[p.pos:], operator) {
 			p.pos += len(operator)
 			return operator, true
@@ -298,7 +364,7 @@ func (p *filterParser) consumeNumber() (string, bool) {
 
 func (p *filterParser) consumeWord() (string, bool) {
 	start := p.pos
-	for p.pos < len(p.input) && (isWordByte(p.input[p.pos]) || p.input[p.pos] == '.' || p.input[p.pos] == ':') {
+	for p.pos < len(p.input) && (isWordByte(p.input[p.pos]) || p.input[p.pos] == '.' || p.input[p.pos] == ':' || (p.input[p.pos] == '@' && p.pos == start)) {
 		p.pos++
 	}
 	if p.pos == start {
@@ -307,6 +373,38 @@ func (p *filterParser) consumeWord() (string, bool) {
 	return p.input[start:p.pos], true
 }
 
+func filterTimeMacro(name string, now time.Time) (filterLiteral, bool) {
+	now = now.UTC()
+	date := func(v time.Time) filterLiteral {
+		return filterLiteral{kind: filterLiteralString, text: v.Format(time.RFC3339Nano), macro: name}
+	}
+	switch name {
+	case "@now":
+		return date(now), true
+	case "@yesterday":
+		return date(now.AddDate(0, 0, -1)), true
+	case "@tomorrow":
+		return date(now.AddDate(0, 0, 1)), true
+	case "@todayStart":
+		return date(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)), true
+	case "@todayEnd":
+		return date(time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, int(999*time.Millisecond), time.UTC)), true
+	case "@monthStart":
+		return date(time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)), true
+	case "@monthEnd":
+		return date(time.Date(now.Year(), now.Month()+1, 0, 23, 59, 59, int(999*time.Millisecond), time.UTC)), true
+	case "@yearStart":
+		return date(time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC)), true
+	case "@yearEnd":
+		return date(time.Date(now.Year(), 12, 31, 23, 59, 59, int(999*time.Millisecond), time.UTC)), true
+	}
+	numbers := map[string]int{"@second": now.Second(), "@minute": now.Minute(), "@hour": now.Hour(), "@day": now.Day(), "@month": int(now.Month()), "@weekday": int(now.Weekday()), "@year": now.Year()}
+	value, ok := numbers[name]
+	if !ok {
+		return filterLiteral{}, false
+	}
+	return filterLiteral{kind: filterLiteralNumber, text: strconv.Itoa(value), macro: name}, true
+}
 func (p *filterParser) skipSpaces() {
 	for p.pos < len(p.input) && (p.input[p.pos] == ' ' || p.input[p.pos] == '\t' || p.input[p.pos] == '\n' || p.input[p.pos] == '\r') {
 		p.pos++
@@ -325,8 +423,6 @@ func isWordByte(current byte) bool {
 	return current == '_' || (current >= 'a' && current <= 'z') || (current >= 'A' && current <= 'Z') || (current >= '0' && current <= '9')
 }
 
-// parseSort parses "-created_at,name" into ordered sort keys. At most
-// maximumSortKeys keys are accepted and duplicates are rejected.
 func parseSort(input string) ([]SortKey, error) {
 	if input == "" {
 		return nil, nil
@@ -346,7 +442,12 @@ func parseSort(input string) ([]SortKey, error) {
 		if strings.HasPrefix(field, "+") {
 			field = strings.TrimPrefix(field, "+")
 		}
-		if !validSortFieldName(field) {
+		if field == "@rowid" {
+			// PostgreSQL has no SQLite rowid. The compatibility adapter gives
+			// this token the documented durable internal-id ordering instead.
+			field = internalRowIDSort
+		}
+		if field != "@random" && field != internalRowIDSort && !validSortFieldName(field) {
 			return nil, validation("sort", "invalid_sort")
 		}
 		if _, duplicate := seen[field]; duplicate {
@@ -370,31 +471,22 @@ func validSortFieldName(field string) bool {
 	return true
 }
 
-// effectiveSortKeys normalizes requested keys and appends the "id" tiebreaker
-// so keyset pagination has a stable total order.
-// An appended tiebreaker follows the direction of the key it breaks ties for.
-// A mixed order such as "created_at DESC, id ASC" matches neither scan
-// direction of the (created_at, id) page index, so it costs a full sort of the
-// table. Aligning it here rather than in one compiler keeps every sort entry
-// point — scalar pages, relation-aware pages, root pages and expansion — on the
-// same tie order, which the cursor encodes and later pages have to reproduce.
-// A tiebreaker the caller wrote out itself is left exactly as requested.
 func effectiveSortKeys(requested []SortKey) []SortKey {
 	if len(requested) == 0 {
 		return []SortKey{{Field: systemFieldCreatedAt}, {Field: systemFieldID}}
 	}
 	keys := append([]SortKey(nil), requested...)
-	if keys[len(keys)-1].Field != systemFieldID {
+	if keys[len(keys)-1].Field != systemFieldID && keys[len(keys)-1].Field != internalRowIDSort {
 		keys = append(keys, SortKey{Field: systemFieldID, Desc: keys[len(keys)-1].Desc})
 	}
 	return keys
 }
 
-// filterField resolves a logical field name to its physical column and type.
-// System columns are addressable with their fixed types.
 func filterField(collection schema.Collection, name string) (schema.Field, bool) {
 	switch name {
 	case systemFieldID:
+		return schema.Field{Name: systemFieldID, ColumnName: systemFieldID, Type: schema.TypeUUID, Indexed: true}, true
+	case internalRowIDSort:
 		return schema.Field{Name: systemFieldID, ColumnName: systemFieldID, Type: schema.TypeUUID, Indexed: true}, true
 	case systemFieldCreatedAt:
 		return schema.Field{Name: name, ColumnName: name, Type: schema.TypeTimestampTZ, Indexed: true}, true

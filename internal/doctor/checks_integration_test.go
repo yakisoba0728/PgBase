@@ -32,7 +32,7 @@ func TestRunReportsHealthyMigratedDatabase(t *testing.T) {
 
 func TestRunRequiresADeclaredCompatibleHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) < 20 || migrations[len(migrations)-1].Version != int64(len(migrations)) {
+	if len(migrations) < 20 || migrations[len(migrations)-1].Version != 65 {
 		t.Fatalf("preparatory manifest = %#v", migrations)
 	}
 	tests := []struct {

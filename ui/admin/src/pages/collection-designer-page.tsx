@@ -5,6 +5,7 @@ import type { AdminRoute } from "../routing/admin-location";
 import { CollectionFieldEditor } from "./collection-field-editor";
 import { ViewDefinitionEditor } from "./view-definition-editor";
 import { RecordRulesEditor } from "./record-rules-editor";
+import { useBackend } from "../auth/session";
 
 /**
  * The outcome of an apply the server could not decide within the request. It
@@ -25,8 +26,9 @@ function ApplyRecovery({ navigate, recovery }: { navigate(route: AdminRoute): vo
 }
 
 export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode; navigate(route: AdminRoute): void }) {
+  const { schema } = useBackend();
   const designer = useCollectionDesigner(mode, navigate);
-  const heading = designer.create ? "Create collection" : "Edit collection";
+  const heading = mode.kind === "duplicate" ? "Duplicate collection" : mode.kind === "scaffold" ? `Create ${mode.scaffold} scaffold` : designer.create ? "Create collection" : "Edit collection";
 
   if (designer.phase === "missing") return <section><h2>{heading}</h2><p role="alert">Collection not found.</p></section>;
   if (designer.phase === "unavailable") return <section><h2>{heading}</h2><p role="alert">Unable to load collection.</p></section>;
@@ -35,7 +37,7 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
   return <section>
     <h2>{heading}</h2>
     {designer.create
-      ? <p>Preview the server-generated schema plan before applying it.</p>
+      ? <p>{mode.kind === "duplicate" ? "The duplicate starts with the source schema and creates a separate empty collection." : "Preview the server-generated schema plan before applying it."}</p>
       : <p>{designer.name} · physical table {designer.tableName}</p>}
     {designer.error && <p role="alert">{designer.error}</p>}
     {designer.recovery !== null && <ApplyRecovery navigate={navigate} recovery={designer.recovery} />}
@@ -46,8 +48,9 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
         <label htmlFor="collection-name">Collection name</label>
         <input disabled={designer.editingBlocked} id="collection-name" onChange={(event) => designer.rename(event.target.value)} required value={designer.name} />
       </>}
-      {designer.create && <label>Collection kind <select disabled={designer.editingBlocked} value={designer.view === undefined ? "base" : "view"} onChange={(event) => designer.setView(event.target.value === "base" ? undefined : { source: "", projection: [] })}><option value="base">Base collection</option><option value="view">Read-only view</option></select></label>}
-		{designer.view !== undefined ? <ViewDefinitionEditor view={designer.view} sources={designer.viewSources} disabled={designer.editingBlocked} modeLocked={!designer.create} onChange={designer.setView} /> : <>
+      {designer.create && designer.collectionType === "auth" && <p>Collection kind: Authentication realm. System fields and authentication policy are preserved in the server-owned template.</p>}
+      {designer.create && designer.collectionType !== "auth" && <label>Collection kind <select disabled={designer.editingBlocked} value={designer.view === undefined ? "base" : "view"} onChange={(event) => designer.setView(event.target.value === "base" ? undefined : { source: "", projection: [] })}><option value="base">Base collection</option><option value="view">Read-only view</option></select></label>}
+		{designer.view !== undefined ? <ViewDefinitionEditor view={designer.view} sources={designer.viewSources} disabled={designer.editingBlocked} modeLocked={!designer.create} onChange={designer.setView} schema={schema} /> : <>
       <fieldset disabled={designer.editingBlocked}>
         <legend>Fields</legend>
         {designer.fields.map((field, index) => <CollectionFieldEditor

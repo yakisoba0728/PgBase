@@ -58,6 +58,7 @@ func withBackupServices(ctx context.Context, dependencies api.Dependencies, file
 		return dependencies, nil, err
 	}
 	dependencies.BackupStorageAdministration = controller
+	alerter := newBackupFailureAlerter(pool, options)
 	manager, err := backup.NewManager(backup.ManagerOptions{
 		Directory:  options.Backups.Directory,
 		Repository: controller,
@@ -65,6 +66,9 @@ func withBackupServices(ctx context.Context, dependencies api.Dependencies, file
 		Lifecycle:  backupLifecycle(options.Hooks),
 		LogError: func(ctx context.Context, err error) {
 			options.Logger.ErrorContext(ctx, "backup operation failed", "error", err)
+		},
+		OnFailure: func(ctx context.Context, job backup.Job) {
+			alerter.Notify(ctx, job)
 		},
 		Create: func(ctx context.Context, destination string) error {
 			return backup.CreateOnline(ctx, destination, options.DatabaseURL, objects)

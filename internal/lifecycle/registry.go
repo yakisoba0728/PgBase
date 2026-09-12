@@ -35,6 +35,15 @@ type Registry struct {
 	entries map[string][]entry
 }
 
+type withoutHooksKey struct{}
+
+// WithoutHooks suppresses lifecycle callbacks only for operations derived from
+// this context. Authorization, validation, constraints, and auditing remain in
+// their owning services.
+func WithoutHooks(ctx context.Context) context.Context {
+	return context.WithValue(ctx, withoutHooksKey{}, true)
+}
+
 // On registers a hook and returns an idempotent removal function. An operation
 // snapshots its hooks at entry, so removal affects only subsequent operations.
 func (r *Registry) On(kind string, hook Hook) (func(), error) {
@@ -80,6 +89,9 @@ func (r *Registry) snapshot(kind string) []entry {
 // observes failures as well as success. Call finish only after transaction commit
 // or rollback; retries must use a fresh Begin and must not cause external effects.
 func (r *Registry) Begin(ctx context.Context, event *Event) (finish func(error), err error) {
+	if skipped, _ := ctx.Value(withoutHooksKey{}).(bool); skipped {
+		return func(error) {}, ctx.Err()
+	}
 	list := r.snapshot(event.Kind)
 	var once sync.Once
 	finish = func(operationErr error) {

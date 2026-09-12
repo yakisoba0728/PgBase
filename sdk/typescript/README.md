@@ -12,6 +12,16 @@ location.assign(authorizationUrl);
 
 `members.login` raises `MFAChallengeError` when a challenge must be completed. Tokens live only in the supplied `AuthStore`; pass `browserTokenStorage(localStorage)` only when persistent browser storage is intended.
 
+Discover allowed sign-in methods and rotate a user token through the same explicit realm:
+
+```ts
+const methods = await members.methods();
+if (methods.otpEnabled) await members.requestOTP("person@example.com");
+const refreshed = await members.refresh(); // AuthStore now contains refreshed.token
+```
+
+Refresh tokens are single-use. The SDK saves a replacement only after it validates the complete response. If the refresh request may have reached the server but its response was lost, the old token might already be invalid and the replacement cannot be recovered; clear local auth and have the user sign in again rather than retrying with the old token.
+
 ## Administrator schema and operations client
 
 Use `PgBaseAdminClient` in a same-origin browser administrator tool. The browser keeps the session cookie; the client holds the CSRF token only in memory. It is separate from the public-user `PgBaseClient`.

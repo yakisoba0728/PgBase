@@ -2,10 +2,12 @@ package pgbase
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
 	"github.com/yakisoba0728/PgBase/internal/api"
+	"github.com/yakisoba0728/PgBase/internal/apiratelimit"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/membership"
 	"github.com/yakisoba0728/PgBase/internal/migrate"
@@ -14,10 +16,13 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/realtime"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
+	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/sqlconsole"
 	"github.com/yakisoba0728/PgBase/internal/usermigrate"
 	adminui "github.com/yakisoba0728/PgBase/ui/admin"
+	"golang.org/x/crypto/acme"
+	"golang.org/x/crypto/acme/autocert"
 	"net"
 	"net/http"
 	"time"
@@ -202,7 +207,11 @@ func newWithCatalogPreflight(
 			_ = sqlConsoleService.Close(shutdown)
 		}
 	}()
-	adminHandler, err := adminui.Handler()
+	uiExtensions := make([]adminui.UIExtension, 0, len(normalized.UIExtensions))
+	for _, extension := range normalized.UIExtensions {
+		uiExtensions = append(uiExtensions, adminui.UIExtension{Name: extension.Name, FS: extension.FS})
+	}
+	adminHandler, err := adminui.Handler(uiExtensions)
 	if err != nil {
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)
 	}
@@ -222,6 +231,34 @@ func newWithCatalogPreflight(
 	}
 	realtimeService := realtime.NewService(pool, normalized.Logger, schemaService)
 	requestLog := newRequestLog(pool, normalized)
+	runtimeSettingsKey := normalized.RuntimeSettingsEncryptionKey
+	if len(runtimeSettingsKey) == 0 {
+		runtimeSettingsKey = normalized.TokenSecret
+	}
+	runtimeSettings, err := runtimesettings.New(ctx, pool, runtimeSettingsKey)
+	if err != nil {
+		return nil, fmt.Errorf("initialize runtime settings: %w", err)
+	}
+	apiLimits := apiratelimit.New(pool, normalized.TokenSecret, runtimeSettings.Get())
+	runtimeSettings.Subscribe(apiLimits.Set)
+	applyAdminRatePolicy := func(value runtimesettings.Settings) {
+		p := value.RateLimits.Admin
+		_ = authService.ConfigureRatePolicy(adminauth.RatePolicy{AccountMaxFailures: p.AccountMaxFailures, NetworkMaxFailures: p.NetworkMaxFailures, Window: time.Duration(p.WindowSeconds) * time.Second, Block: time.Duration(p.BlockSeconds) * time.Second})
+	}
+	applyAdminRatePolicy(runtimeSettings.Get())
+	runtimeSettings.Subscribe(applyAdminRatePolicy)
+	// Request diagnostics intentionally never retain IP addresses or auth
+	// material. The persisted privacy switches remain a truthful declaration of
+	// that fixed redaction boundary while retention is applied live.
+	applyLogSettings := func(value runtimesettings.Settings) {
+		retentionCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if applyErr := requestLog.SetRetention(retentionCtx, time.Duration(value.Logs.RetentionDays)*24*time.Hour); applyErr != nil {
+			normalized.Logger.ErrorContext(retentionCtx, "apply request log retention", "error", applyErr)
+		}
+	}
+	applyLogSettings(runtimeSettings.Get())
+	runtimeSettings.Subscribe(applyLogSettings)
 	defer func() {
 		if !keepPool {
 			ctx, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
@@ -229,41 +266,63 @@ func newWithCatalogPreflight(
 			_ = requestLog.Shutdown(ctx)
 		}
 	}()
-	dependencies, extensionMailer, err := withUserServices(api.Dependencies{
-		Realtime:           realtimeService,
-		RequestLog:         requestLog,
-		RecordRules:        recordaccess.NewRuleService(pool, schemaService),
-		Readiness:          readiness,
-		Logger:             normalized.Logger,
-		CORSAllowedOrigins: normalized.CORSAllowedOrigins,
-		AdminAuth:          authService,
-		CustomRoutes:       normalized.CustomRoutes,
-		Schema:             schemaService,
-		Records:            recordService,
-		PublicURL:          normalized.PublicURL,
-		TrustedProxies:     normalized.TrustedProxies,
-		System:             systemStatus,
-		SchemaHealth:       schemaHealth,
-		AdminUI:            adminHandler,
-		PublicStatic:       publicHandler,
-		Metrics:            metrics,
-		MetricsExposition:  metricsExposition,
-		SchemaApplyTimeout: normalized.SchemaApplyTimeout,
-		SQLConsole:         sqlConsoleHandlers,
+	applicationRealtimeBroker := api.NewApplicationRealtimeBroker()
+	dependencies, extensionMailer, userService, err := withUserServices(api.Dependencies{
+		Realtime:                  realtimeService,
+		ApplicationRealtimeBroker: applicationRealtimeBroker,
+		RequestLog:                requestLog,
+		RuntimeSettings:           runtimeSettings,
+		SettingsLifecycle:         settingsLifecycleHooks{normalized.Hooks},
+		RecordRules:               recordaccess.NewRuleService(pool, schemaService),
+		Readiness:                 readiness,
+		Logger:                    normalized.Logger,
+		CORSAllowedOrigins:        normalized.CORSAllowedOrigins,
+		AdminAuth:                 authService,
+		CustomRoutes:              normalized.CustomRoutes,
+		Schema:                    schemaService,
+		Records:                   recordService,
+		PublicURL:                 normalized.PublicURL,
+		TrustedProxies:            normalized.TrustedProxies,
+		System:                    systemStatus,
+		SchemaHealth:              schemaHealth,
+		AdminUI:                   adminHandler,
+		PublicStatic:              publicHandler,
+		Metrics:                   metrics,
+		MetricsExposition:         metricsExposition,
+		SchemaApplyTimeout:        normalized.SchemaApplyTimeout,
+		SQLConsole:                sqlConsoleHandlers,
+		APIRateLimits:             apiLimits,
 	}, pool, normalized)
 	if err != nil {
 		return nil, err
+	}
+	if extensionMailer != nil {
+		if err := authService.ConfigurePasswordReset(extensionMailer, normalized.PublicURL.String(), time.Hour); err != nil {
+			return nil, fmt.Errorf("configure administrator password reset: %w", err)
+		}
+		if err := authService.ConfigureEmailOTP(extensionMailer, 5*time.Minute); err != nil {
+			return nil, fmt.Errorf("configure administrator email OTP: %w", err)
+		}
 	}
 	if normalized.Hooks != nil {
 		dependencies.RealtimeLifecycle = realtimeLifecycleHooks{normalized.Hooks}
 		dependencies.LifecycleHooks = normalized.Hooks
 	}
-	dependencies, fileService, err := withFileServices(ctx, dependencies, pool, normalized, schemaService)
+	dependencies, fileService, objectStore, err := withFileServices(ctx, dependencies, pool, normalized, schemaService)
 	if err != nil {
 		return nil, err
 	}
 	recordService.SetTransactionValidators([]recordops.TransactionValidator{requiredFileValidator{schemas: schemaService}})
-	extensions := &extensionBridge{records: recordService, files: fileService, mailer: extensionMailer, logger: normalized.Logger, hooks: normalized.Hooks}
+	extensions := &extensionBridge{records: recordService, files: fileService, mailer: extensionMailer, authMail: userService, authAPI: userService, logger: normalized.Logger, hooks: normalized.Hooks, templates: normalized.Templates}
+	if normalized.JavaScript != nil {
+		extensions.compatibility = newExtensionCompatibility(normalized.JavaScript.PocketBaseCompatibility)
+	}
+	if objectStore != nil {
+		extensions.objects = &ExtensionObjects{store: objectStore, pool: pool, maximumBytes: normalized.Files.MaximumBytes, hooks: normalized.Hooks}
+	}
+	if normalized.EnableTrustedDatabaseAccess {
+		extensions.database = &TrustedDatabase{pool: pool}
+	}
 	if javascript != nil {
 		javascript.bridge = extensions
 	}
@@ -281,6 +340,11 @@ func newWithCatalogPreflight(
 	if jobService != nil {
 		dependencies.Jobs = jobService
 	}
+	if err := installManagedBackupSchedule(ctx, jobService, backupManager, runtimeSettings, func(ctx context.Context, err error) {
+		normalized.Logger.ErrorContext(ctx, "reconfigure managed backup schedule", "error", err)
+	}); err != nil {
+		return nil, fmt.Errorf("install managed backup schedule: %w", err)
+	}
 	dependencies.MaximumFileUploadBytes = normalized.Files.MaximumBytes + 64<<10
 	handler, err := api.NewRouter(dependencies)
 	if err != nil {
@@ -292,7 +356,10 @@ func newWithCatalogPreflight(
 		options:               normalized,
 		backupManager:         backupManager,
 		requestLog:            dependencies.RequestLog,
+		realtimeBroker:        applicationRealtimeBroker,
+		runtimeSettings:       runtimeSettings,
 		pool:                  pool,
+		records:               recordService,
 		backupGate:            gate,
 		handler:               handler,
 		readiness:             readiness,
@@ -312,6 +379,9 @@ func newWithCatalogPreflight(
 		listen:                net.Listen,
 		lifecycleClosing:      make(chan struct{}),
 	}
+	bindRuntimeSettingsLifecycle(app, runtimeSettings)
+	extensions.appControl = newExtensionAppControl(app, normalized.JavaScript)
+	extensions.requestLog = app.requestLog
 	if jobService != nil {
 		app.jobWorker = jobService
 	}
@@ -329,6 +399,42 @@ func newWithCatalogPreflight(
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    64 << 10,
+	}
+	if normalized.TLS != nil {
+		tlsOptions := *normalized.TLS
+		if len(tlsOptions.ACMEHosts) == 0 {
+			certificate, err := tls.LoadX509KeyPair(tlsOptions.CertificateFile, tlsOptions.KeyFile)
+			if err != nil {
+				return nil, fmt.Errorf("load TLS certificate: %w", err)
+			}
+			app.httpServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
+			app.serve = func(listener net.Listener) error { return app.httpServer.ServeTLS(listener, "", "") }
+		} else {
+			manager := &autocert.Manager{Cache: autocert.DirCache(tlsOptions.ACMECacheDirectory), Prompt: autocert.AcceptTOS, HostPolicy: autocert.HostWhitelist(tlsOptions.ACMEHosts...)}
+			if tlsOptions.ACMEDirectoryURL != "" {
+				manager.Client = &acme.Client{DirectoryURL: tlsOptions.ACMEDirectoryURL}
+			}
+			app.httpServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: manager.GetCertificate}
+			app.serve = func(listener net.Listener) error { return app.httpServer.ServeTLS(listener, "", "") }
+			redirect := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				host := r.Host
+				if host == "" {
+					http.Error(w, "missing host", http.StatusBadRequest)
+					return
+				}
+				http.Redirect(w, r, "https://"+host+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+			})
+			challengeServer := &http.Server{Addr: tlsOptions.HTTPChallengeAddress, Handler: manager.HTTPHandler(redirect), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 << 10}
+			app.challengeServer = challengeServer
+			app.startChallenge = func() error {
+				listener, err := net.Listen("tcp", tlsOptions.HTTPChallengeAddress)
+				if err != nil {
+					return err
+				}
+				go func() { _ = challengeServer.Serve(listener) }()
+				return nil
+			}
+		}
 	}
 	keepPool = true
 	keepGate = true

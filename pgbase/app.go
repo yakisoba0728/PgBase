@@ -14,6 +14,8 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/backup"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/recordops"
+	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/sqlconsole"
 	"github.com/yakisoba0728/PgBase/internal/usermigrate"
@@ -23,11 +25,15 @@ type App struct {
 	schemaCache            *schema.Cache
 	backupManager          *backup.Manager
 	requestLog             *observability.RequestLog
+	realtimeBroker         *api.ApplicationRealtimeBroker
+	runtimeSettings        *runtimesettings.Controller
 	options                Options
 	pool                   *database.Pool
+	records                *recordops.Service
 	backupGate             *database.BackupGate
 	handler                http.Handler
 	httpServer             *http.Server
+	challengeServer        *http.Server
 	readiness              *readinessState
 	cleaner                backgroundRunner
 	recordCleaner          backgroundRunner
@@ -46,6 +52,8 @@ type App struct {
 	javaScriptRuntime      *javaScriptRuntime
 	extensions             *extensionBridge
 	listen                 func(string, string) (net.Listener, error)
+	serve                  func(net.Listener) error
+	startChallenge         func() error
 	shutdownMu             sync.Mutex
 	shutdownStarted        bool
 	shutdownDone           chan struct{}
@@ -355,7 +363,11 @@ func (a *App) Run(ctx context.Context) (err error) {
 	if listen == nil {
 		listen = net.Listen
 	}
-	listener, err := listen("tcp", a.options.HTTPAddress)
+	address := a.options.HTTPAddress
+	if a.options.TLS != nil {
+		address = a.options.TLS.Address
+	}
+	listener, err := listen("tcp", address)
 	if err != nil {
 		a.finishStartup()
 		closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
@@ -363,6 +375,17 @@ func (a *App) Run(ctx context.Context) (err error) {
 		err = errors.Join(fmt.Errorf("listen for HTTP: %w", err), a.Close(closeCtx))
 		finish(err)
 		return err
+	}
+	if a.startChallenge != nil {
+		if err := a.startChallenge(); err != nil {
+			_ = listener.Close()
+			a.finishStartup()
+			closeCtx, cancel := context.WithTimeout(context.Background(), a.options.ShutdownTimeout)
+			defer cancel()
+			err = errors.Join(fmt.Errorf("listen for ACME HTTP challenge: %w", err), a.Close(closeCtx))
+			finish(err)
+			return err
+		}
 	}
 	serverDone := make(chan error, 1)
 	// Background tasks are deliberately detached from Run's parent context. A
@@ -442,7 +465,11 @@ func (a *App) activate(ctx context.Context, listener net.Listener, serverDone ch
 	}
 	backgroundDone := a.startBackground(ctx)
 	if listener != nil {
-		go func() { serverDone <- a.httpServer.Serve(listener) }()
+		serve := a.serve
+		if serve == nil {
+			serve = a.httpServer.Serve
+		}
+		go func() { serverDone <- serve(listener) }()
 	}
 	a.readiness.setAccepting(ctx, true)
 	a.lifecycleState = appLifecycleRunning
@@ -538,6 +565,12 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 			if forceErr := forceCloseHTTP(ctx, a.httpServer); forceErr != nil && !errors.Is(forceErr, http.ErrServerClosed) {
 				closeErr = errors.Join(closeErr, forceErr)
 			}
+		}
+	}
+	if a.challengeServer != nil {
+		shutdownErr := a.challengeServer.Shutdown(ctx)
+		if !errors.Is(shutdownErr, http.ErrServerClosed) {
+			closeErr = errors.Join(closeErr, shutdownErr)
 		}
 	}
 	if backgroundCancel != nil {

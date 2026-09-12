@@ -62,10 +62,25 @@ func (s *S3Store) validate(key string) error {
 }
 
 func (s *S3Store) Put(ctx context.Context, key string, body io.Reader) error {
+	return s.put(ctx, key, body, nil)
+}
+
+func (s *S3Store) PutSized(ctx context.Context, key string, body io.Reader, size int64) error {
+	if size < 0 {
+		return ErrInvalid
+	}
+	return s.put(ctx, key, body, &size)
+}
+
+func (s *S3Store) put(ctx context.Context, key string, body io.Reader, size *int64) error {
 	if err := s.validate(key); err != nil {
 		return err
 	}
-	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key), Body: body}, func(options *s3.Options) {
+	input := &s3.PutObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key), Body: body}
+	if size != nil {
+		input.ContentLength = aws.Int64(*size)
+	}
+	_, err := s.client.PutObject(ctx, input, func(options *s3.Options) {
 		options.APIOptions = append(options.APIOptions, awsv4.SwapComputePayloadSHA256ForUnsignedPayloadMiddleware)
 	})
 	if err != nil {

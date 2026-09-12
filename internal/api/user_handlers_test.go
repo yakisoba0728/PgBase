@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,20 @@ import (
 type stubUserAuth struct {
 	calls int
 	err   error
+}
+
+type projectionUserAuth struct {
+	stubUserAuth
+	session userauth.Session
+}
+
+func (s *projectionUserAuth) Register(context.Context, string, string, string) (userauth.Session, error) {
+	s.calls++
+	return s.session, s.err
+}
+func (s *projectionUserAuth) Login(context.Context, string, string, string) (userauth.Session, error) {
+	s.calls++
+	return s.session, s.err
 }
 
 func (s *stubUserAuth) Register(context.Context, string, string, string) (userauth.Session, error) {
@@ -110,6 +125,39 @@ func TestPublicRegistrationIsExplicitlyEnabledAndStrictlyDecoded(t *testing.T) {
 				t.Fatalf("status=%d calls=%d body=%s", w.Code, auth.calls, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestAuthSessionProjectionSelectsNestedUserAndTokenBeforeMutation(t *testing.T) {
+	user := userauth.User{ID: uuid.MustParse("019c5b18-8b85-7c34-8d14-3f9aaf8484b2"), Email: "member@example.test", Verified: true, CreatedAt: time.Now()}
+	auth := &projectionUserAuth{session: userauth.Session{User: user, RawToken: "issued-token", ExpiresAt: time.Now().Add(time.Hour)}}
+	endpoint := userEndpoints{dependencies: Dependencies{UserAuth: auth, UserRegistrationEnabled: true}}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register?fields=user.id,token", strings.NewReader(`{"email":"member@example.test","password":"safe-password"}`))
+	r.RemoteAddr = "127.0.0.1:1234"
+	r.Header.Set("Content-Type", "application/json")
+	endpoint.credentials(true).ServeHTTP(w, r)
+	if w.Code != http.StatusCreated || auth.calls != 1 {
+		t.Fatalf("status=%d calls=%d body=%s", w.Code, auth.calls, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body) != 2 || body["token"] != "issued-token" {
+		t.Fatalf("projected response=%#v", body)
+	}
+	member, _ := body["user"].(map[string]any)
+	if len(member) != 1 || member["id"] != user.ID.String() {
+		t.Fatalf("projected user=%#v", member)
+	}
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register?fields=user.", strings.NewReader(`{"email":"member@example.test","password":"safe-password"}`))
+	r.RemoteAddr = "127.0.0.1:1234"
+	r.Header.Set("Content-Type", "application/json")
+	endpoint.credentials(true).ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest || auth.calls != 1 {
+		t.Fatalf("invalid projection status=%d calls=%d body=%s", w.Code, auth.calls, w.Body.String())
 	}
 }
 

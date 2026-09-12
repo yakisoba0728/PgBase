@@ -40,6 +40,7 @@ func TestCustomRoutesRejectInvalidRegistration(t *testing.T) {
 		{"negative request cap", func(v *CustomRoute) { v.MaximumRequestBytes = -1 }},
 		{"response cap", func(v *CustomRoute) { v.MaximumResponseBytes = maximumCustomRouteResponseBytes + 1 }},
 		{"negative response cap", func(v *CustomRoute) { v.MaximumResponseBytes = -1 }},
+		{"stream response cap", func(v *CustomRoute) { v.StreamResponse = true; v.MaximumResponseBytes = 1 }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			v := valid

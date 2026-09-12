@@ -17,6 +17,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/membership"
 	"github.com/yakisoba0728/PgBase/internal/migrate"
 	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
 	"github.com/yakisoba0728/PgBase/migrations/system"
 	"github.com/yakisoba0728/PgBase/tests/testsupport"
 )
@@ -130,57 +131,24 @@ func TestReleaseARejectsInjectedA0WriterCapability(t *testing.T) {
 }
 
 func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.T) {
-	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	// Rewind to exactly v6. Remove every later object and history row so Up sees
-	// a contiguous pre-membership history even as new migrations are appended.
-	if _, err := pool.Exec(ctx, `drop table pgbase_meta.sql_console_write_receipts, pgbase_meta.sql_console_write_identities, pgbase_meta.sql_console_executions;
-		drop table pgbase_meta.backup_storage_operations, pgbase_meta.backup_storage_settings;
-		drop table pgbase_meta.user_migration_schema_versions, pgbase_meta.user_migration_sources;
-		drop table pgbase_meta.admin_totp, pgbase_meta.admin_ip_allowlist;
-		drop table pgbase_meta.file_storage_source_cleanup, pgbase_meta.file_storage_migration_objects,
-			pgbase_meta.file_storage_migrations, pgbase_meta.user_migrations, pgbase_meta.file_storage_settings;
-		drop table pgbase_meta.user_email_otps, pgbase_meta.schema_import_operations;
-        alter table pgbase_meta.fields drop column hidden, drop column presentable, drop column help;
-        drop table pgbase_meta.record_file_variants, pgbase_meta.request_logs, pgbase_meta.user_oauth_avatars;
-        drop function pgbase_meta.queue_record_file_variant_object();
-        drop trigger auth_collection_policy_after_insert on pgbase_meta.auth_collections;
-        drop function pgbase_meta.create_auth_policy();
-        drop table pgbase_meta.auth_collection_policies, pgbase_meta.auth_oauth_providers,
-            pgbase_meta.auth_mail_templates, pgbase_meta.auth_smtp_configs;
-        drop function pgbase_meta.rename_field_references(jsonb,text,text);
-        alter table pgbase_meta.fields drop column options_json;
-        drop table pgbase_meta.collection_views;
-        drop table pgbase_meta.service_token_scopes, pgbase_meta.service_tokens;
-        drop table pgbase_meta.compound_index_fields, pgbase_meta.compound_indexes;
-        drop table pgbase_meta.collection_rules;
-        drop table pgbase_meta.user_auth_profiles, pgbase_meta.user_oauth_identities,
-            pgbase_meta.user_oauth_states, pgbase_meta.user_totp_recovery_codes,
-            pgbase_meta.user_totp_factors, pgbase_meta.user_mfa_challenges;
-        drop table pgbase_meta.scheduled_jobs;
-        drop table pgbase_meta.realtime_events, pgbase_meta.outbox_delivery, pgbase_meta.realtime_retention;
-        alter table pgbase_meta.record_outbox drop column owner_user_id, drop column record_snapshot;
-        drop trigger fields_delete_record_files on pgbase_meta.fields;
-        drop table pgbase_meta.record_files, pgbase_meta.file_object_deletions;
-        drop function pgbase_meta.queue_record_file_objects(), pgbase_meta.delete_record_files_for_field();
-        drop table pgbase_meta.user_email_actions;
-        drop table pgbase_meta.schema_writer_leases;
-		drop table pgbase_meta.schema_companion_index_capability;
-		drop table pgbase_meta.record_owners;
-		drop table pgbase_meta.collection_access;
-		drop table pgbase_meta.user_sessions;
-		drop table pgbase_meta.user_auth_rate_limits;
-		drop table pgbase_meta.users;
-        drop table pgbase_meta.auth_collections;
-		drop table pgbase_meta.record_creation_ordinals;
-		drop table pgbase_meta.record_membership_backfills;
-		drop table pgbase_meta.collection_creation_counters;
-		drop table pgbase_meta.runtime_writer_leases;
-		drop table pgbase_meta.record_membership_capability;
-		delete from pgbase_meta.system_migrations where version > 6`); err != nil {
+	databaseURL := testutil.NewDatabase(t)
+	testutil.ApplySystemMigrationPrefix(t, databaseURL, system.Migrations()[:6])
+	pool, err := database.Open(context.Background(), databaseURL, 5*time.Second)
+	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(pool.Close)
+	administratorID := uuid.MustParse(testAdministratorID)
+	if _, err := pool.Exec(context.Background(), `INSERT INTO pgbase_meta.admins
+		(id, email, password_hash, active, created_at, updated_at)
+		VALUES ($1, 'recordops@example.test', 'test', true, transaction_timestamp(), transaction_timestamp())`, administratorID); err != nil {
+		t.Fatal(err)
+	}
+	schemas := schema.NewService(pool, &schema.Cache{}, nil)
+	records := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
+	principal := Principal{Kind: PrincipalAdministrator, ID: administratorID}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	request := CreateRequest{
 		Principal: principal, RequestID: "release-a-migration-retry", Collection: "records",
 		IdempotencyKey: "release-a-migration-retry-0001",
@@ -199,8 +167,19 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 	if err := pool.QueryRow(ctx, `select max(version) from pgbase_meta.system_migrations`).Scan(&latest); err != nil {
 		t.Fatal(err)
 	}
-	if latest != len(system.Migrations()) {
-		t.Fatalf("migration retry reached version %d, want %d", latest, len(system.Migrations()))
+	wantLatest := int(system.Migrations()[len(system.Migrations())-1].Version)
+	if latest != wantLatest {
+		t.Fatalf("migration retry reached version %d, want %d", latest, wantLatest)
+	}
+	definition := schema.CreateCollectionInput{Name: "records", Fields: []schema.FieldInput{
+		{Name: "title", Type: schema.TypeText, Required: true, Unique: true},
+	}}
+	plan, err := schemas.Preview(ctx, schema.NewCreateChange(definition))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := schemas.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(definition), plan, administratorID)); err != nil {
+		t.Fatal(err)
 	}
 	created, err := records.Create(ctx, request)
 	if err != nil {

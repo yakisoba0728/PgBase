@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "auditBaseSha": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b",
+  "fixBaseSha": "d05452c293764287f8c548dc892414548a74d11e",
+  "fixCommit": "275d2e4e01211f8817c17ceaab84959db2843af5",
+  "generatedArtifactFiles": 74,
+  "status": "all_20_confirmed_fixed_final_validation_passed",
+  "scope": "20 original product findings only; original findings.json is preserved",
+  "migrations": [64, 65],
+  "broadValidation": {
+    "status": "completed",
+    "passed": ["go vet ./...", "go vet -tags=integration ./...", "scripts/test-go-unit.sh -count=1", "all disposable PostgreSQL and MinIO integration functional packages", "final structural-budget policy unit and integration"],
+    "historicalInitialIntegrationRunnerExit": 1,
+    "historicalInitialIntegrationRunnerReason": "old structural-budget assertions only",
+    "finalUnitRunnerExit": 0,
+    "finalBudgetPolicyUnitAndIntegrationExit": 0
+  },
+  "findings": [
+    {"id":"SFM-001","status":"confirmed_fixed","evidence":"integration","tests":["TestMigrationSnapshotReplayPreservesMetadataAndAdvancedIndexes","TestLegacyMigrationSnapshotReplayInheritsAbsentMetadata"]},
+    {"id":"SFM-002","status":"confirmed_fixed","evidence":"integration","tests":["TestMigrationSnapshotIndexPreservesLogicalDefinition","TestMigrationSnapshotReplayPreservesMetadataAndAdvancedIndexes"]},
+    {"id":"SFM-003","status":"confirmed_fixed","evidence":"unit","tests":["TestCollectionLookupNamesShareOneCaseFoldedNamespace","TestResolveCollectionIdentifierRejectsAmbiguousCatalogDeterministically"]},
+    {"id":"RQR-001","status":"confirmed_fixed","evidence":"integration","tests":["TestRuleServiceSetAcceptsPocketBaseRelationRule"]},
+    {"id":"RQR-002","status":"confirmed_fixed","evidence":"unit_and_integration","tests":["TestCompileRelationListReverseRelationsUseIncomingCorrelation","TestListRelationAwareFiltersAndSortsWithPrivateStableCursor"]},
+    {"id":"RQR-003","status":"confirmed_fixed","evidence":"integration","tests":["TestTruncateCountsMultipleRelationsInRelationSchema"]},
+    {"id":"AUTHMAIL-001","status":"confirmed_fixed","evidence":"integration","tests":["TestOAuthDistinctSubjectsWithoutEmailRemainIndependent"]},
+    {"id":"AUTHMAIL-002","status":"confirmed_fixed","evidence":"integration","tests":["TestAuthPolicyIdentityFieldsRequireVisibleDeclaredTextFields","TestAuthCollectionUpdatePreservesPublishedIdentityFieldContract"]},
+    {"id":"EXT-AUD-001","status":"confirmed_fixed","evidence":"unit_and_route","tests":["TestPocketBaseAPIErrorExecutionCarriesOnlyBrandedPublicErrors","TestJavaScriptRoutePreservesPublicApiErrors"]},
+    {"id":"EXT-AUD-002","status":"confirmed_fixed","evidence":"integration","tests":["TestAuthMailDispatcherChecksRealmAndDispatchesEveryKind","TestAdminRecordMailRendersSuppliedPayloadWithoutMintingOTP"]},
+    {"id":"EXT-AUD-003","status":"confirmed_fixed","evidence":"integration","tests":["TestPocketBaseRunInTransactionPassesAppFacadeAndNests","TestPocketBaseRunInTransactionUsesInvocationBoundPostgresTransaction"]},
+    {"id":"EXT-AUD-004","status":"confirmed_fixed","evidence":"integration","tests":["TestRecordLifecyclePublishesFailedTransactionOutcome","TestRecordHooksFollowExternalTransactionOutcomeExactlyOnce"]},
+    {"id":"EXT-AUD-005","status":"confirmed_fixed","evidence":"race_integration","tests":["TestExtensionObjectReplacementPublicationFailurePreservesCommittedBytes","TestExtensionObjectExternalTransactionCommitAndRollbackFinalizePhysicalVersions"]},
+    {"id":"EXT-AUD-006","status":"confirmed_fixed","evidence":"integration","tests":["TestExtensionObjectWriteEntryPointsRunOneVetoHook"]},
+    {"id":"EXT-AUD-007","status":"confirmed_fixed","evidence":"integration","tests":["TestExtensionObjectPrefixIsLiteralAcrossPaginationAndDeletePrefix"]},
+    {"id":"EXT-AUD-008","status":"confirmed_fixed","evidence":"unit_typecheck_and_independent_review","tests":["TestSupportedHookGlobalsAreDeclared","TestJavaScriptTypeDeclarationsCoverInstalledAppInventory","TestJavaScriptTypeDeclarationArtifactIsCurrent"]},
+    {"id":"OPS-F-001","status":"confirmed_fixed","evidence":"race_unit","tests":["TestUpdatePublicationOwnsRateLimitSlicesAcrossInputsSnapshotsAndListeners","TestGetRateLimitSnapshotsAreSafeForConcurrentCallerMutation"]},
+    {"id":"OPS-F-002","status":"confirmed_fixed","evidence":"unit","tests":["TestManagedRestoreDiscardsProvisionedTargetWhenOpeningFails"]},
+    {"id":"SDK-AUDIT-001","status":"confirmed_fixed","evidence":"local_fake_sse","tests":["realtime-terminal.test.mjs","npm test"]},
+    {"id":"SDK-AUDIT-003","status":"confirmed_fixed","evidence":"dart_tests","tests":["oauthStartAndOpen","oauthWithBrowser","dart test","dart analyze"]}
+  ]
+}

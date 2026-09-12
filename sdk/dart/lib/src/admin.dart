@@ -106,8 +106,13 @@ final class PgBaseAdminClient {
       }
       throw pgBaseError(response);
     }
+    // An auth operation increments the generation before it is dispatched.
+    // Do not let an older, slower login replace the cookie that belongs to
+    // the CSRF token adopted by the newer login.
     final setCookie = response.headers['set-cookie'];
-    if (setCookie != null && setCookie.contains('=')) {
+    if (generation == _generation &&
+        setCookie != null &&
+        setCookie.contains('=')) {
       _cookie = setCookie.split(';').first;
     }
     if (response.status == 204 || response.bytes.isEmpty)
@@ -121,6 +126,44 @@ final class PgBaseAdminClient {
 
   Future<JsonObject> catalog({CancellationToken? cancellation}) =>
       _object('GET', '/api/admin/collections', cancellation: cancellation);
+  /// Generates a short-lived Apple OAuth client secret; it is never retained.
+  Future<JsonObject> generateAppleClientSecret({
+    required String clientId,
+    required String teamId,
+    required String keyId,
+    required String privateKey,
+    required int duration,
+    CancellationToken? cancellation,
+  }) => _object(
+    'POST',
+    '/api/admin/settings/apple/generate-client-secret',
+    body: JsonObject({
+      'clientId': JsonString(clientId),
+      'teamId': JsonString(teamId),
+      'keyId': JsonString(keyId),
+      'privateKey': JsonString(privateKey),
+      'duration': JsonNumber('$duration'),
+    }),
+    cancellation: cancellation,
+  );
+  /// Returns server-authored base, auth, and view collection creation templates.
+  Future<JsonObject> collectionScaffolds({CancellationToken? cancellation}) =>
+      _object(
+        'GET',
+        '/api/admin/collections/scaffolds',
+        cancellation: cancellation,
+      );
+
+  /// Removes every record in [name] through the administrator lifecycle.
+  Future<JsonObject> truncateCollection(
+    String name, {
+    CancellationToken? cancellation,
+  }) => _object(
+    'POST',
+    '/api/admin/collections/${Uri.encodeComponent(name)}/truncate',
+    body: JsonObject({'name': JsonString(name)}),
+    cancellation: cancellation,
+  );
 
   /// Freezes one preview's exact apply body and recovery identities.
   Future<ApprovedSchemaPlan> schemaPlan(

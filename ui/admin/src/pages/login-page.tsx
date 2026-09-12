@@ -5,15 +5,20 @@ import type { LoginInput } from "../backend/ports";
 interface LoginPageProps {
   onLogin(input: LoginInput): Promise<void>;
   sessionError?: string | null;
+	onRequestPasswordReset?(email: string): Promise<void>;
+	onConfirmPasswordReset?(token: string, newPassword: string): Promise<void>;
 }
 
-export function LoginPage({ onLogin, sessionError }: LoginPageProps) {
+export function LoginPage({ onLogin, sessionError, onRequestPasswordReset, onConfirmPasswordReset }: LoginPageProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 	const [otpCode, setOTPCode] = useState("");
 	const [otpRequired, setOTPRequired] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
+	const [recovery, setRecovery] = useState<"none" | "request" | "confirm">("none");
+	const [resetToken, setResetToken] = useState("");
+	const [recoveryMessage, setRecoveryMessage] = useState("");
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const formErrorRef = useRef<HTMLParagraphElement>(null);
@@ -54,11 +59,16 @@ export function LoginPage({ onLogin, sessionError }: LoginPageProps) {
       setPending(false);
     }
   }
+	async function recover(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault(); if (pending) return; setPending(true); setRecoveryMessage("");
+		try { if (recovery === "request") { await onRequestPasswordReset?.(email); setRecoveryMessage("If this administrator email exists, a reset link has been sent."); setRecovery("confirm"); } else { await onConfirmPasswordReset?.(resetToken, password); setRecoveryMessage("Password reset. You can now sign in."); setRecovery("none"); setPassword(""); setResetToken(""); } } catch { setRecoveryMessage(recovery === "confirm" ? "The reset link is invalid or expired." : "Unable to request a reset. Try again."); } finally { setPending(false); }
+	}
 
   return <main className="auth-page">
     <section aria-labelledby="login-title" className="auth-card">
       <h1 id="login-title">Sign in to pgBase</h1>
-      <form noValidate onSubmit={submit}>
+      {recovery === "none" && recoveryMessage && <p role="status">{recoveryMessage}</p>}
+      {recovery === "none" ? <form noValidate onSubmit={submit}>
         {sessionError && <p className="form-error" role="alert">{sessionError}</p>}
         {errors.form && <p className="form-error" id="login-form-error" ref={formErrorRef} role="alert" tabIndex={-1}>{errors.form}</p>}
         <label htmlFor="email">Email</label>
@@ -69,7 +79,8 @@ export function LoginPage({ onLogin, sessionError }: LoginPageProps) {
         {errors.password && <p className="field-error" id="password-error">{errors.password}</p>}
 			{otpRequired && <><label htmlFor="otp-code">Authenticator code</label><input id="otp-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} disabled={pending} onChange={(event) => setOTPCode(event.target.value)} value={otpCode} /></>}
         <button disabled={pending} type="submit">{pending ? "Signing in…" : "Sign in"}</button>
-      </form>
+		{onRequestPasswordReset && onConfirmPasswordReset && <button type="button" onClick={() => { setRecovery("request"); setRecoveryMessage(""); }}>Forgot administrator password?</button>}
+      </form> : <form noValidate onSubmit={recover}><h2>{recovery === "request" ? "Reset administrator password" : "Set a new password"}</h2>{recoveryMessage && <p role="status">{recoveryMessage}</p>}<label>Email<input autoComplete="email" type="email" value={email} onChange={event => setEmail(event.target.value)} required /></label>{recovery === "confirm" && <><label>Reset token<input autoComplete="one-time-code" value={resetToken} onChange={event => setResetToken(event.target.value)} required /></label><label>New password<input autoComplete="new-password" type="password" minLength={12} value={password} onChange={event => setPassword(event.target.value)} required /></label></>}<button disabled={pending} type="submit">{pending ? "Submitting…" : recovery === "request" ? "Send reset link" : "Reset password"}</button><button disabled={pending} type="button" onClick={() => setRecovery("none")}>Back to sign in</button></form>}
     </section>
   </main>;
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
@@ -110,6 +111,96 @@ func (s *Service) BeginOAuthLink(ctx context.Context, userID uuid.UUID, currentP
 	return s.beginOAuth(ctx, user.AuthCollectionID, provider, redirectURI, redirectURI, user.ID, hash)
 }
 
+// UnlinkOAuthIdentity removes one linked provider while preserving at least one
+// independent sign-in method.  The check and delete share a row lock so two
+// concurrent unlink requests cannot strand an account.
+func (s *Service) UnlinkOAuthIdentity(ctx context.Context, userID uuid.UUID, provider string) error {
+	if userID == uuid.Nil || !validProviderName(provider) {
+		return ErrValidation
+	}
+	return s.unlinkOAuthIdentity(ctx, uuid.Nil, userID, provider, uuid.Nil)
+}
+
+func (s *Service) unlinkOAuthIdentityByID(ctx context.Context, collectionID, userID, identityID uuid.UUID) error {
+	if collectionID == uuid.Nil || userID == uuid.Nil || identityID == uuid.Nil {
+		return ErrValidation
+	}
+	return s.unlinkOAuthIdentity(ctx, collectionID, userID, "", identityID)
+}
+
+func (s *Service) unlinkOAuthIdentity(ctx context.Context, collectionID, userID uuid.UUID, provider string, identityID uuid.UUID) error {
+	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var actualCollection uuid.UUID
+		var passwordEnabled, otpEnabled bool
+		if err := tx.QueryRow(ctx, `select auth_collection_id,password_enabled from pgbase_meta.users where id=$1 and active for update`, userID).Scan(&actualCollection, &passwordEnabled); errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		} else if err != nil {
+			return err
+		}
+		if collectionID != uuid.Nil && actualCollection != collectionID {
+			return ErrNotFound
+		}
+		if err := tx.QueryRow(ctx, `select otp_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, actualCollection).Scan(&otpEnabled); err != nil {
+			return err
+		}
+		var count int
+		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2`, actualCollection, userID).Scan(&count); err != nil {
+			return err
+		}
+		if !passwordEnabled && !otpEnabled && count <= 1 {
+			return ErrValidation
+		}
+		var tag pgconn.CommandTag
+		var err error
+		if identityID != uuid.Nil {
+			tag, err = tx.Exec(ctx, `delete from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2 and id=$3`, actualCollection, userID, identityID)
+		} else {
+			tag, err = tx.Exec(ctx, `delete from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2 and provider=$3`, actualCollection, userID, provider)
+		}
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrNotFound
+		}
+		return nil
+	})
+}
+
+type OAuthIdentitySummary struct {
+	Provider  string    `json:"provider"`
+	Subject   string    `json:"subject"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (s *Service) ListOAuthIdentities(ctx context.Context, userID uuid.UUID) ([]OAuthIdentitySummary, error) {
+	if userID == uuid.Nil {
+		return nil, ErrValidation
+	}
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.users where id=$1)`, userID).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrNotFound
+	}
+	rows, err := s.pool.Query(ctx, `select provider,subject,created_at from pgbase_meta.user_oauth_identities where user_id=$1 order by provider`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []OAuthIdentitySummary{}
+	for rows.Next() {
+		var v OAuthIdentitySummary
+		if err := rows.Scan(&v.Provider, &v.Subject, &v.CreatedAt); err != nil {
+			return nil, err
+		}
+		v.CreatedAt = v.CreatedAt.UTC()
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 func (s *Service) BeginOAuthLinkWithProviderRedirect(ctx context.Context, userID uuid.UUID, currentPassword, provider, returnURI, providerRedirectURI string) (OAuthAuthorization, error) {
 	user, hash, err := s.verifyUserPassword(ctx, userID, currentPassword, "oauth-link")
 	if err != nil {
@@ -166,7 +257,7 @@ func (s *Service) beginOAuth(ctx context.Context, collectionID uuid.UUID, provid
 	if err != nil {
 		return OAuthAuthorization{}, errors.New("create OAuth authorization URL")
 	}
-	return OAuthAuthorization{AuthorizationURL: authorizationURL, ExpiresAt: expires}, nil
+	return OAuthAuthorization{AuthorizationURL: authorizationURL, ExpiresAt: expires, State: state, CodeVerifier: verifier, CodeChallenge: challenge, CodeChallengeMethod: "S256"}, nil
 }
 
 func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code string) (Session, error) {
@@ -273,16 +364,25 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 					operationErr = ErrInvalidCredentials
 					return nil
 				}
-				var emailExists bool
-				if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.users where auth_collection_id=$2 and email=$1)`, identity.Email, persistedCollectionID).Scan(&emailExists); err != nil {
-					return err
-				}
-				if emailExists {
-					operationErr = ErrConflict
-					return nil
+				if identity.Email != "" {
+					var emailExists bool
+					if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.users where auth_collection_id=$2 and email=$1)`, identity.Email, persistedCollectionID).Scan(&emailExists); err != nil {
+						return err
+					}
+					if emailExists {
+						operationErr = ErrConflict
+						return nil
+					}
 				}
 				user = User{ID: uuid.New(), Email: identity.Email, Verified: identity.EmailVerified, CreatedAt: now}
 				user.AuthCollectionID = persistedCollectionID
+				recordIDPolicy, policyErr := authRecordIDPolicy(ctx, tx, user.AuthCollectionID)
+				if policyErr != nil {
+					return policyErr
+				}
+				if _, reserveErr := s.recordIdentities.ReserveAuth(ctx, tx, user.AuthCollectionID, user.ID, recordIDPolicy, nil); reserveErr != nil {
+					return reserveErr
+				}
 				_, err = tx.Exec(ctx, `insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,password_enabled,active,verified,created_at,updated_at) values($1,$2,$3,'!oauth-only',false,true,$4,$5,$5)`, user.ID, user.AuthCollectionID, user.Email, user.Verified, now)
 				if database.Classify(err) == database.KindConflict {
 					operationErr = ErrConflict
@@ -304,11 +404,14 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 				return err
 			}
 		}
+		if err := s.enforceAuthRuleForSession(ctx, tx, user.AuthCollectionID, user.ID); err != nil {
+			return ErrInvalidCredentials
+		}
 		if _, err := tx.Exec(ctx, `update pgbase_meta.user_oauth_states set consumed_at=CURRENT_TIMESTAMP where id=$1`, stateID); err != nil {
 			return err
 		}
-		var active bool
-		if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.user_totp_factors where user_id=$1 and active)`, user.ID).Scan(&active); err != nil {
+		active, err := s.mfaRequiredTx(ctx, tx, user)
+		if err != nil {
 			return err
 		}
 		if active {
@@ -331,6 +434,7 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 	if newlyCreated && identity.AvatarURL != "" {
 		_ = s.importOAuthAvatar(ctx, issued.User.ID, identity.AvatarURL, identity.AvatarAllowInsecureLoopback)
 	}
+	s.recordIssuedAuthOrigin(ctx, issued, now)
 	return issued, nil
 }
 

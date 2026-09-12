@@ -69,9 +69,10 @@ func RunManaged(ctx context.Context, options Options) error {
 		return err
 	}
 	h.controller, h.controllerPool = controller, controllerPool
+	alerter := newBackupFailureAlerter(controllerPool, normalized)
 	manager, err := backup.NewManager(backup.ManagerOptions{Directory: normalized.Backups.Directory, Repository: controller, Retention: normalized.Backups.Retention, Lifecycle: backupLifecycle(normalized.Hooks), LogError: func(ctx context.Context, err error) {
 		normalized.Logger.ErrorContext(ctx, "backup operation failed", "error", err)
-	}, Create: h.createBackup, Restore: h.restoreBackup})
+	}, OnFailure: func(ctx context.Context, job backup.Job) { alerter.Notify(ctx, job) }, Create: h.createBackup, Restore: h.restoreBackup})
 	if err != nil {
 		controllerPool.Close()
 		return err
@@ -93,18 +94,23 @@ func RunManaged(ctx context.Context, options Options) error {
 		return err
 	}
 	h.app = app
-	listener, err := net.Listen("tcp", normalized.HTTPAddress)
+	listener, err := net.Listen("tcp", managedListenAddress(normalized))
 	if err != nil {
 		_ = app.Close(context.Background())
 		return err
 	}
-	server := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 << 10}
+	server, serve := managedServer(app, h)
+	if err = h.startChallenge(app); err != nil {
+		_ = listener.Close()
+		_ = app.Close(context.Background())
+		return fmt.Errorf("listen for ACME HTTP challenge: %w", err)
+	}
 	served := make(chan error, 1)
-	go func() { served <- server.Serve(listener) }()
+	go func() { served <- serve(listener) }()
 	err = h.wait(ctx, served)
 	shutdown, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
 	defer cancel()
-	err = errors.Join(err, manager.Shutdown(shutdown), server.Shutdown(shutdown))
+	err = errors.Join(err, manager.Shutdown(shutdown), server.Shutdown(shutdown), shutdownManagedChallenge(h.challengeServer, shutdown))
 	h.mu.Lock()
 	current := h.app
 	h.maintenance = true
@@ -113,14 +119,83 @@ func RunManaged(ctx context.Context, options Options) error {
 }
 
 type managedHost struct {
-	options        Options
-	mu             sync.Mutex
-	app            *App
-	active         int
-	maintenance    bool
-	drained        chan struct{}
-	controller     *backup.StorageController
-	controllerPool *database.Pool
+	options         Options
+	restore         managedRestoreDependencies
+	mu              sync.Mutex
+	app             *App
+	active          int
+	maintenance     bool
+	drained         chan struct{}
+	controller      *backup.StorageController
+	controllerPool  *database.Pool
+	challengeServer *http.Server
+}
+
+type managedRestoreDependencies struct {
+	restoreNew   func(context.Context, string, string, string) (backup.Target, error)
+	openDatabase func(context.Context, string, time.Duration, bool) (*database.Pool, error)
+	discard      func(context.Context, backup.Target) error
+}
+
+func (h *managedHost) restoreDependencies() managedRestoreDependencies {
+	deps := h.restore
+	if deps.restoreNew == nil {
+		deps.restoreNew = backup.RestoreNew
+	}
+	if deps.openDatabase == nil {
+		deps.openDatabase = func(ctx context.Context, databaseURL string, statementTimeout time.Duration, allowInsecure bool) (*database.Pool, error) {
+			return database.Open(ctx, databaseURL, statementTimeout, allowInsecure)
+		}
+	}
+	if deps.discard == nil {
+		deps.discard = backup.DiscardTarget
+	}
+	return deps
+}
+
+// managedServer copies the already-normalized application listener settings
+// while keeping its handler stable across restore activation. TLS state belongs
+// to the outer server, so swapping the inner application cannot downgrade an
+// HTTPS listener or discard the ACME certificate cache.
+func managedServer(app *App, handler http.Handler) (*http.Server, func(net.Listener) error) {
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 << 10}
+	if app.httpServer == nil || app.httpServer.TLSConfig == nil {
+		return server, server.Serve
+	}
+	server.TLSConfig = app.httpServer.TLSConfig.Clone()
+	return server, func(listener net.Listener) error { return server.ServeTLS(listener, "", "") }
+}
+
+func managedListenAddress(options Options) string {
+	if options.TLS != nil {
+		return options.TLS.Address
+	}
+	return options.HTTPAddress
+}
+
+func (h *managedHost) startChallenge(app *App) error {
+	if app.startChallenge == nil {
+		return nil
+	}
+	if err := app.startChallenge(); err != nil {
+		return err
+	}
+	h.challengeServer = app.challengeServer
+	// The stable managed listener owns ACME lifecycle. A restored inner App
+	// must be closeable without stopping the challenge endpoint.
+	app.challengeServer = nil
+	return nil
+}
+
+func shutdownManagedChallenge(server *http.Server, ctx context.Context) error {
+	if server == nil {
+		return nil
+	}
+	err := server.Shutdown(ctx)
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
 }
 
 func (h *managedHost) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -159,11 +234,21 @@ func (h *managedHost) restoreBackup(ctx context.Context, directory string) (resu
 	h.mu.Lock()
 	options := h.options
 	h.mu.Unlock()
-	target, err := backup.RestoreNew(ctx, directory, options.DatabaseURL, filepath.Join(options.Backups.Directory, "targets"))
+	deps := h.restoreDependencies()
+	target, err := deps.restoreNew(ctx, directory, options.DatabaseURL, filepath.Join(options.Backups.Directory, "targets"))
 	if err != nil {
 		return err
 	}
-	targetPool, err := database.Open(ctx, target.DatabaseURL, options.StatementTimeout, options.AllowInsecureDatabase)
+	activated := false
+	defer func() {
+		if activated || h.targetReferenced(target) {
+			return
+		}
+		cleanup, cancel := context.WithTimeout(context.Background(), options.ShutdownTimeout)
+		defer cancel()
+		resultErr = errors.Join(resultErr, deps.discard(cleanup, target))
+	}()
+	targetPool, err := deps.openDatabase(ctx, target.DatabaseURL, options.StatementTimeout, options.AllowInsecureDatabase)
 	if err != nil {
 		return err
 	}
@@ -179,15 +264,6 @@ func (h *managedHost) restoreBackup(ctx context.Context, directory string) (resu
 	if _, err = targetPool.Exec(ctx, `delete from pgbase_meta.backup_storage_operations`); err != nil {
 		return err
 	}
-	activated := false
-	defer func() {
-		if activated || h.targetReferenced(target) {
-			return
-		}
-		cleanup, cancel := context.WithTimeout(context.Background(), options.ShutdownTimeout)
-		defer cancel()
-		resultErr = errors.Join(resultErr, backup.DiscardTarget(cleanup, target))
-	}()
 	nextOptions := options
 	nextOptions.DatabaseURL = target.DatabaseURL
 	nextOptions.Files = restoredFileOptions(options.Files, target.FilesDirectory)

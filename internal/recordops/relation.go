@@ -79,7 +79,7 @@ func authorizeRelationTargets(ctx context.Context, tx pgx.Tx, catalog schema.Cat
 		if principal.Kind == identity.Service {
 			continue
 		}
-		allowed, err := recordaccess.AllowsRecords(ctx, tx, policyCollection(target), principal, "view", ids, false)
+		allowed, err := recordaccess.AllowsRecordsInCatalog(ctx, tx, catalog, policyCollection(target), principal, "view", ids, false)
 		if err != nil {
 			return err
 		}

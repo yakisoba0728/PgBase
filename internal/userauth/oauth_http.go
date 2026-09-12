@@ -24,6 +24,8 @@ type HTTPOAuthConfig struct {
 	AuthorizationURL      string
 	TokenURL              string
 	UserInfoURL           string
+	Issuer                string
+	JWKSURL               string
 	ClientID              string
 	ClientSecret          string
 	Scopes                []string
@@ -42,7 +44,7 @@ type HTTPOAuthProvider struct {
 }
 
 func NewHTTPOAuthProvider(config HTTPOAuthConfig) (*HTTPOAuthProvider, error) {
-	if !validEndpoint(config.AuthorizationURL, config.AllowInsecureLoopback) || !validEndpoint(config.TokenURL, config.AllowInsecureLoopback) || !validEndpoint(config.UserInfoURL, config.AllowInsecureLoopback) ||
+	if !validEndpoint(config.AuthorizationURL, config.AllowInsecureLoopback) || !validEndpoint(config.TokenURL, config.AllowInsecureLoopback) || (config.UserInfoURL != "" && !validEndpoint(config.UserInfoURL, config.AllowInsecureLoopback)) || (config.JWKSURL != "" && (!validEndpoint(config.JWKSURL, config.AllowInsecureLoopback) || !validEndpoint(config.Issuer, config.AllowInsecureLoopback))) || (config.JWKSURL == "" && config.UserInfoURL == "") ||
 		config.ClientID == "" || len(config.ClientID) > 1024 || len(config.ClientSecret) > 4096 {
 		return nil, ErrValidation
 	}
@@ -87,8 +89,10 @@ func (p *HTTPOAuthProvider) AuthorizationURL(state, challenge, redirectURI strin
 	q.Set("state", state)
 	q.Set("code_challenge", challenge)
 	q.Set("code_challenge_method", "S256")
-	if p.config.ProviderName == "apple" {
+	if p.config.ProviderName == "apple" || p.config.JWKSURL != "" {
 		q.Set("nonce", challenge)
+	}
+	if p.config.ProviderName == "apple" {
 		q.Set("response_mode", "form_post")
 	}
 	u.RawQuery = q.Encode()
@@ -127,6 +131,13 @@ func (p *HTTPOAuthProvider) Exchange(ctx context.Context, code, verifier, redire
 	if p.config.ProviderName == "apple" {
 		return p.exchangeAppleIdentity(ctx, token.IDToken, verifier)
 	}
+	if p.config.JWKSURL != "" && p.config.UserInfoURL == "" {
+		fields, err := p.verifyOIDCIDToken(ctx, token.IDToken, verifier)
+		if err != nil {
+			return OAuthIdentity{}, err
+		}
+		return p.identityFromFields(fields)
+	}
 	req, err = http.NewRequestWithContext(ctx, http.MethodGet, p.config.UserInfoURL, nil)
 	if err != nil {
 		return OAuthIdentity{}, err
@@ -160,6 +171,10 @@ func (p *HTTPOAuthProvider) Exchange(ctx context.Context, code, verifier, redire
 			return identity, err
 		}
 	}
+	return p.identityFromFields(fields)
+}
+
+func (p *HTTPOAuthProvider) identityFromFields(fields map[string]json.RawMessage) (OAuthIdentity, error) {
 	var identity OAuthIdentity
 	if err := json.Unmarshal(fields[p.config.SubjectField], &identity.Subject); err != nil {
 		return OAuthIdentity{}, errors.New("OAuth subject is invalid")

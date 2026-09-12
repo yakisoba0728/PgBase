@@ -74,6 +74,31 @@ func TestCatalogCacheDoesNotRegressToAnOlderVersion(t *testing.T) {
 	}
 }
 
+func TestCollectionLookupNamesShareOneCaseFoldedNamespace(t *testing.T) {
+	catalog := cacheTestCatalog(1, "alpha")
+	alpha := catalog.Collections["alpha"]
+	alpha.CompatibilityName = "Foo"
+	catalog.Collections["alpha"] = alpha
+
+	definition := PlannedCollection{Name: "foo", TableName: "foo"}
+	if err := validateCreateAgainstCatalog(catalog, definition); err == nil {
+		t.Fatal("create accepted a native name matching an existing compatibility name")
+	}
+
+	foo := cacheTestCatalog(1, "foo").Collections["foo"]
+	catalog.Collections["foo"] = foo
+	if err := validateCatalogIntegrity(catalog); !errors.Is(err, ErrConflict) {
+		t.Fatalf("ambiguous stored catalog error = %v, want ErrConflict", err)
+	}
+
+	delete(catalog.Collections, "foo")
+	alpha.CompatibilityName = "alpha"
+	catalog.Collections["alpha"] = alpha
+	if err := validateCatalogIntegrity(catalog); err != nil {
+		t.Fatalf("one collection using the same native and compatibility lookup name: %v", err)
+	}
+}
+
 func TestCatalogCacheRejectsInvalidPublicationAndCompilesOneSnapshotPerVersion(t *testing.T) {
 	cache := &Cache{}
 	catalog := cacheTestCatalog(8, "posts")

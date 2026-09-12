@@ -63,8 +63,8 @@ func TestRecordServiceCRUDConstraintsPrecisionAndPagination(t *testing.T) {
 	if err != nil || updated["title"] != "updated" || updated["active"] != true || updated["created_at"] == updated["updated_at"] {
 		t.Fatalf("Update() = %#v, %v", updated, err)
 	}
-	if _, err := records.Update(ctx, "records", id, map[string]json.RawMessage{}); err == nil {
-		t.Fatal("Update(empty) error=nil")
+	if autoUpdated, err := records.Update(ctx, "records", id, map[string]json.RawMessage{}); err != nil || autoUpdated["updated_at"] == updated["updated_at"] {
+		t.Fatalf("Update(empty autodate)=%#v %v", autoUpdated, err)
 	}
 	if _, err := records.Update(ctx, "records", uuid.New(), map[string]json.RawMessage{"title": json.RawMessage(`"missing"`)}); !errors.Is(err, ErrRecordNotFound) {
 		t.Fatalf("Update(missing) error=%v", err)
@@ -144,6 +144,39 @@ func TestRecordServiceCRUDConstraintsPrecisionAndPagination(t *testing.T) {
 	cancel()
 	if _, err := records.Get(canceled, GetRequest{Principal: testReadPrincipal, Collection: "records", ID: uuid.New()}); database.Classify(err) != database.KindCanceled {
 		t.Fatalf("Get(canceled) error=%v", err)
+	}
+}
+
+func TestCountUsesOneRepeatableReadSnapshotBeyondPageSize(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{Name: "count_rows", Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText, Required: true}}})
+	ctx := context.Background()
+	ids := make([]uuid.UUID, 250)
+	for i := range ids {
+		record, err := records.Create(ctx, "count_rows", map[string]json.RawMessage{"title": json.RawMessage(fmt.Sprintf(`"match-%03d"`, i))})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[i] = uuid.MustParse(record["id"].(string))
+	}
+	records.countPageHook = func() {
+		records.countPageHook = nil
+		if _, err := pool.Exec(ctx, `DELETE FROM app.count_rows WHERE id=$1`, ids[0]); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 2; i++ {
+			if _, err := pool.Exec(ctx, `INSERT INTO app.count_rows(id,title,created_at,updated_at) VALUES($1,$2,clock_timestamp(),clock_timestamp())`, uuid.New(), fmt.Sprintf("match-new-%d", i)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	total, err := Count(ctx, records, ListRequest{Principal: testReadPrincipal, Collection: "count_rows", Filter: "title ~ 'match-'"})
+	if err != nil || total != 250 {
+		t.Fatalf("snapshot count=%d err=%v", total, err)
+	}
+	var current int64
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM app.count_rows WHERE title LIKE '%match-%'`).Scan(&current); err != nil || current != 251 {
+		t.Fatalf("current=%d err=%v", current, err)
 	}
 }
 

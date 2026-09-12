@@ -1,13 +1,55 @@
 package schema
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
+
+var compatibilityCollectionName = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+
+func normalizeCreateCollectionMetadata(input *CreateCollectionInput) error {
+	if input.Type == "" {
+		if input.View != nil {
+			input.Type = CollectionTypeView
+		} else {
+			input.Type = CollectionTypeBase
+		}
+	}
+	if input.ValidationMode == "" {
+		input.ValidationMode = ValidationModePostgres
+	}
+	if input.CompatibilityName != "" && (len(input.CompatibilityName) > 255 || !compatibilityCollectionName.MatchString(input.CompatibilityName)) {
+		return validation("compatibilityName", "invalid_name")
+	}
+	if input.Type != CollectionTypeBase && input.Type != CollectionTypeAuth && input.Type != CollectionTypeView {
+		return validation("type", "invalid")
+	}
+	if input.ValidationMode != ValidationModePostgres && input.ValidationMode != ValidationModePocketBase {
+		return validation("validationMode", "invalid")
+	}
+	if (input.View != nil) != (input.Type == CollectionTypeView) {
+		return validation("type", "view_mismatch")
+	}
+	if input.View != nil && input.RecordID != nil {
+		return validation("recordId", "view_inherited")
+	}
+	if input.View == nil {
+		policy, err := NormalizeRecordIDPolicy(input.RecordID)
+		if err != nil {
+			return err
+		}
+		input.RecordID = &policy
+	}
+	return nil
+}
 
 const (
 	createCollectionOperation = "collection_create"
@@ -33,7 +75,7 @@ func compilePlan(catalog Catalog, change Change, companions bool) (Plan, error) 
 	case changeCreate:
 		plan, err = planCreate(catalog, change.create, companions)
 	case changeUpdate:
-		current, ok := catalog.Collections[change.update.Name]
+		current, ok := collectionForUpdate(catalog, change.update)
 		if !ok {
 			return Plan{}, ErrCollectionNotFound
 		}
@@ -76,6 +118,9 @@ func compileMixedFleetPlan(catalog Catalog, change Change, companions bool) (Pla
 }
 
 func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (Plan, error) {
+	if err := normalizeCreateCollectionMetadata(&input); err != nil {
+		return Plan{}, err
+	}
 	if err := validateInputName("name", input.Name); err != nil {
 		return Plan{}, err
 	}
@@ -107,11 +152,11 @@ func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (
 		fields = append(fields, planned)
 	}
 
-	indexes, err := planCompoundIndexes(input.Indexes, fields)
+	indexes, err := planCompoundIndexes(input.Name, input.Indexes, fields)
 	if err != nil {
 		return Plan{}, err
 	}
-	definition := PlannedCollection{Name: input.Name, TableName: input.Name, Fields: fields, Indexes: indexes}
+	definition := PlannedCollection{Name: input.Name, CompatibilityName: input.CompatibilityName, Type: input.Type, System: input.System, ValidationMode: input.ValidationMode, RecordID: *input.RecordID, TableName: input.Name, Fields: fields, Indexes: indexes}
 	return Plan{
 		Operation:   createCollectionOperation,
 		BaseVersion: catalog.Version,
@@ -123,20 +168,70 @@ func planCreate(catalog Catalog, input CreateCollectionInput, companions bool) (
 // Field renames are not supported: a name that disappears is a drop and a name
 // that appears is an add.
 func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput) (Plan, error) {
+	if err := validateCollectionUpdateTarget(catalog, current, input); err != nil {
+		return Plan{}, err
+	}
 	if current.IsView() {
+		if plan, handled, err := planViewRename(catalog, current, input); handled {
+			return plan, err
+		}
 		if current.IsSQLView() && input.View != nil && input.View.SQL != "" {
 			return planSQLViewUpdate(catalog, current, input)
+		}
+		if !current.IsSQLView() && input.View != nil && input.View.SQL == "" {
+			return planDeclarativeViewUpdate(catalog, current, input)
 		}
 		return Plan{}, validation("name", "view_read_only")
 	}
 	if input.View != nil {
 		return Plan{}, validation("view", "not_allowed")
 	}
-	if err := validateInputName("name", input.Name); err != nil {
-		return Plan{}, err
-	}
-	if input.Name != current.Name || current.TableName != current.Name {
+	if current.TableName != current.Name {
 		return Plan{}, ErrConflict
+	}
+	if input.Type != nil && *input.Type != current.Type {
+		return Plan{}, validation("type", "immutable")
+	}
+	if input.System != nil && *input.System != current.System {
+		return Plan{}, validation("system", "immutable")
+	}
+	compatibilityName := current.CompatibilityName
+	if input.CompatibilityName != nil {
+		compatibilityName = *input.CompatibilityName
+	}
+	if compatibilityName != "" && (len(compatibilityName) > 255 || !compatibilityCollectionName.MatchString(compatibilityName)) {
+		return Plan{}, validation("compatibilityName", "invalid_name")
+	}
+	validationMode := current.ValidationMode
+	if validationMode == "" {
+		validationMode = ValidationModePostgres
+	}
+	if input.ValidationMode != nil {
+		validationMode = *input.ValidationMode
+	}
+	recordID := current.RecordID
+	if recordID.Kind == "" {
+		recordID = DefaultRecordIDPolicy()
+	}
+	if input.RecordID != nil {
+		requested, err := NormalizeRecordIDPolicy(input.RecordID)
+		if err != nil {
+			return Plan{}, err
+		}
+		if !reflect.DeepEqual(requested, recordID) {
+			return Plan{}, validation("recordId", "immutable")
+		}
+	}
+	if validationMode != ValidationModePostgres && validationMode != ValidationModePocketBase {
+		return Plan{}, validation("validationMode", "invalid")
+	}
+	allowSQLViewRename := input.CollectionID != nil && input.Name != current.Name && input.Fields == nil && input.Indexes == nil
+	if input.Fields == nil && input.CollectionID != nil {
+		var err error
+		input.Fields, err = updateFieldsFromCatalog(catalog, current)
+		if err != nil {
+			return Plan{}, err
+		}
 	}
 	if len(input.Fields) > maximumCollectionFields {
 		return Plan{}, validation("fields", "too_many_fields")
@@ -179,6 +274,12 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		desiredNames[field.Name] = struct{}{}
 
 		previous, exists := currentFields[field.Name]
+		if field.ID == nil && exists {
+			if _, alreadyClaimed := desiredIDs[previous.ID]; alreadyClaimed {
+				exists = false
+				previous = PlannedField{}
+			}
+		}
 		if field.ID != nil {
 			previous, exists = currentFieldsByID[*field.ID]
 			if !exists {
@@ -192,11 +293,6 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 			if _, duplicate := desiredIDs[previous.ID]; duplicate {
 				return Plan{}, validation(namePath, "duplicate_id")
 			}
-		} else if !exists {
-			_, occupied := currentColumns[field.Name]
-			if occupied {
-				return Plan{}, validation(namePath, "physical_name_exists")
-			}
 		}
 		carriedDefault := json.RawMessage(nil)
 		if exists {
@@ -209,10 +305,28 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		if err != nil {
 			return Plan{}, err
 		}
+		if !exists {
+			if _, occupied := currentColumns[planned.ColumnName]; occupied {
+				planned.ColumnName = reusablePhysicalColumn(current.Name, field.Name, currentColumns)
+				if planned.Relation != nil {
+					planned.Relation.Storage.Name = planned.ColumnName
+					if planned.Relation.Cardinality == RelationMultiple {
+						planned.Relation.Storage.Name = NewRelationPhysicalNames(current.TableName, planned.ColumnName).MultiTable
+					}
+				}
+			}
+			currentColumns[planned.ColumnName] = planned
+		}
 		if len(carriedDefault) != 0 {
 			planned.Default = append(json.RawMessage(nil), carriedDefault...)
 		}
 		if exists {
+			if previous.System && (field.System == nil || !*field.System || field.Name != previous.Name) {
+				return Plan{}, validation(namePath, "system_field_immutable")
+			}
+			if !previous.System && field.System != nil && *field.System {
+				return Plan{}, validation(namePath, "system_immutable")
+			}
 			planned.ID = previous.ID
 			planned.ColumnName = previous.ColumnName
 			if previous.ID != uuid.Nil {
@@ -227,7 +341,7 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		}
 		desired = append(desired, planned)
 	}
-	if err := validateViewSourceUpdate(catalog, current.ID, currentFields, desired); err != nil {
+	if err := validateViewSourceUpdate(catalog, current.ID, currentFields, desired, allowSQLViewRename); err != nil {
 		return Plan{}, err
 	}
 
@@ -240,6 +354,9 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		if _, kept := desiredNames[field.Name]; kept {
 			continue
 		}
+		if field.System {
+			return Plan{}, validation("fields", "system_field_immutable")
+		}
 		if field.Type == TypeRelation && field.Relation != nil {
 			statements = append(statements, dropRelationFieldStatements(current, field)...)
 			continue
@@ -247,12 +364,16 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 		if field.Type == TypeFile {
 			continue
 		}
-		statements = append(statements, "ALTER TABLE "+table+" DROP COLUMN "+pgx.Identifier{field.Name}.Sanitize())
+		statements = append(statements, "ALTER TABLE "+table+" DROP COLUMN "+pgx.Identifier{field.ColumnName}.Sanitize())
 	}
 	for ordinal, field := range desired {
 		previous, exists := currentFields[field.Name]
 		if field.ID != uuid.Nil {
 			previous, exists = currentFieldsByID[field.ID]
+		} else if exists {
+			if _, claimed := desiredIDs[previous.ID]; claimed {
+				previous, exists = PlannedField{}, false
+			}
 		}
 		if !exists {
 			if field.Type == TypeFile {
@@ -302,32 +423,49 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 	if input.Indexes == nil {
 		preserved := make([]IndexInput, 0, len(current.Indexes))
 		for _, index := range current.Indexes {
-			preserved = append(preserved, IndexInput{Name: index.Name, Fields: append([]string(nil), index.Fields...), Unique: index.Unique})
+			preserved = append(preserved, indexInputForCollection(index, input.Name))
 		}
 		var err error
-		indexes, err = planCompoundIndexes(preserved, desired)
+		indexes, err = planCompoundIndexes(input.Name, preserved, desired)
 		if err != nil {
 			return Plan{}, validation("indexes", "referenced_field_changed")
 		}
 	} else {
 		var err error
-		indexes, err = planCompoundIndexes(*input.Indexes, desired)
+		indexes, err = planCompoundIndexes(input.Name, *input.Indexes, desired)
 		if err != nil {
 			return Plan{}, err
 		}
 	}
-	statements = append(statements, compoundIndexChangeStatements(current.Name, current.TableName, current.Indexes, indexes, desired)...)
+	renamedFields, renameStatements, err := finalizeCollectionRename(current, input.Name, desired, indexes, statements)
+	if err != nil {
+		return Plan{}, err
+	}
+	desired, statements = renamedFields, renameStatements
 
 	return Plan{
 		Operation:   updateCollectionOperation,
 		BaseVersion: catalog.Version,
-		Definition:  PlannedCollection{Name: input.Name, TableName: current.TableName, Fields: desired, Indexes: indexes},
+		Definition:  PlannedCollection{Name: input.Name, CompatibilityName: compatibilityName, Type: current.Type, System: current.System, ValidationMode: validationMode, RecordID: recordID, TableName: input.Name, Fields: desired, Indexes: indexes},
 		Statements:  statements,
 	}, nil
 }
 
+func reusablePhysicalColumn(collection, logical string, occupied map[string]PlannedField) string {
+	for salt := 0; ; salt++ {
+		digest := sha256.Sum256([]byte(fmt.Sprintf("pgbase:reused-column:v1:%s:%s:%d", collection, logical, salt)))
+		candidate := "pgb_" + hex.EncodeToString(digest[:])[:20]
+		if _, exists := occupied[candidate]; !exists {
+			return candidate
+		}
+	}
+}
+
 // Dependent indexes are dropped with the table.
 func planDelete(catalog Catalog, current Collection) (Plan, error) {
+	if current.System {
+		return Plan{}, validation("system", "immutable")
+	}
 	if current.Name == "" || current.TableName != current.Name {
 		return Plan{}, ErrConflict
 	}
@@ -355,7 +493,13 @@ func planDelete(catalog Catalog, current Collection) (Plan, error) {
 		if field.Type != TypeRelation || field.Relation == nil || field.Relation.Storage.Kind != RelationStorageEdgeTableV1 {
 			continue
 		}
-		statements = append(statements, dropMultiRelationStatements(current.TableName, field.Name)...)
+		// ColumnName is the persisted physical identity across logical renames.
+		// Storage.Name identifies the edge table produced from that identity; the
+		// remaining owned object names are derived from the same physical name.
+		if NewRelationPhysicalNames(current.TableName, field.ColumnName).MultiTable != field.Relation.Storage.Name {
+			return Plan{}, ErrConflict
+		}
+		statements = append(statements, dropMultiRelationStatements(current.TableName, field.ColumnName)...)
 	}
 	statements = append(statements, "DROP TABLE "+pgx.Identifier{"app", current.TableName}.Sanitize())
 	return Plan{
@@ -378,6 +522,7 @@ func plannedFieldFromCatalog(catalog Catalog, field Field) (PlannedField, error)
 		Ordinal:  field.Ordinal,
 		Options:  cloneFieldOptions(field.Options),
 		Hidden:   field.Hidden, Presentable: field.Presentable, Help: field.Help,
+		System: field.System,
 	}
 	if field.Type != TypeRelation {
 		if field.Relation != nil {
@@ -479,6 +624,7 @@ func planInputField(
 		Ordinal:    ordinal,
 		Options:    clonedInputOptions(normalized.Options),
 		Hidden:     normalized.Hidden, Presentable: normalized.Presentable, Help: normalized.Help,
+		System: normalized.System != nil && *normalized.System,
 	}
 	if normalized.Type == TypeEditor {
 		planned.Default = json.RawMessage(`""`)
@@ -651,113 +797,3 @@ func makeCreateStatements(definition PlannedCollection, companions bool) []strin
 	}
 	return statements
 }
-func planCompoundIndexes(inputs []IndexInput, fields []PlannedField) ([]PlannedIndex, error) {
-	available := make(map[string]PlannedField, len(fields))
-	for _, field := range fields {
-		available[field.Name] = field
-	}
-	seen := make(map[string]struct{}, len(inputs))
-	seenFields := make(map[string]struct{}, len(inputs))
-	result := make([]PlannedIndex, 0, len(inputs))
-	for i, input := range inputs {
-		path := fmt.Sprintf("indexes.%d", i)
-		if err := validateInputName(path+".name", input.Name); err != nil {
-			return nil, err
-		}
-		if _, ok := seen[input.Name]; ok {
-			return nil, validation(path+".name", "duplicate_name")
-		}
-		seen[input.Name] = struct{}{}
-		if len(input.Fields) < 2 || len(input.Fields) > 8 {
-			return nil, validation(path+".fields", "invalid_count")
-		}
-		fieldSeen := map[string]struct{}{}
-		for j, name := range input.Fields {
-			field, ok := available[name]
-			if !ok {
-				return nil, validation(fmt.Sprintf("%s.fields.%d", path, j), "unknown_field")
-			}
-			if field.Type == TypeFile || field.Type == TypeRelation || field.Type == TypeJSONB {
-				return nil, validation(fmt.Sprintf("%s.fields.%d", path, j), "unsupported_field")
-			}
-			if _, ok := fieldSeen[name]; ok {
-				return nil, validation(fmt.Sprintf("%s.fields.%d", path, j), "duplicate_name")
-			}
-			fieldSeen[name] = struct{}{}
-		}
-		signature := strings.Join(input.Fields, "\x00")
-		if _, ok := seenFields[signature]; ok {
-			return nil, validation(path+".fields", "duplicate_index")
-		}
-		seenFields[signature] = struct{}{}
-		result = append(result, PlannedIndex{Name: input.Name, Fields: append([]string(nil), input.Fields...), Unique: input.Unique})
-	}
-	return result, nil
-}
-
-func compoundIndexName(collection, name string) string {
-	return indexName(collection, "compound:"+name)
-}
-
-func createCompoundIndexStatement(collection, table string, index PlannedIndex, fields []PlannedField) string {
-	prefix := "CREATE INDEX "
-	if index.Unique {
-		prefix = "CREATE UNIQUE INDEX "
-	}
-	physical := make(map[string]string, len(fields))
-	for _, field := range fields {
-		physical[field.Name] = field.ColumnName
-	}
-	columns := make([]string, len(index.Fields))
-	for i, field := range index.Fields {
-		columns[i] = pgx.Identifier{physical[field]}.Sanitize()
-	}
-	return prefix + pgx.Identifier{compoundIndexName(collection, index.Name)}.Sanitize() + " ON " + pgx.Identifier{"app", table}.Sanitize() + " (" + strings.Join(columns, ", ") + ")"
-}
-
-func compoundIndexChangeStatements(collection, table string, current []Index, desired []PlannedIndex, fields []PlannedField) []string {
-	old := map[string]Index{}
-	next := map[string]PlannedIndex{}
-	for _, index := range current {
-		old[index.Name] = index
-	}
-	for _, index := range desired {
-		next[index.Name] = index
-	}
-	statements := []string{}
-	for _, index := range current {
-		desiredIndex, ok := next[index.Name]
-		if !ok || index.Unique != desiredIndex.Unique || !stringSlicesEqual(index.Fields, desiredIndex.Fields) {
-			statements = append(statements, "DROP INDEX IF EXISTS "+pgx.Identifier{"app", index.IndexName}.Sanitize())
-		}
-	}
-	for _, index := range desired {
-		currentIndex, ok := old[index.Name]
-		if !ok || currentIndex.Unique != index.Unique || !stringSlicesEqual(currentIndex.Fields, index.Fields) {
-			statements = append(statements, createCompoundIndexStatement(collection, table, index, fields))
-		}
-	}
-	return statements
-}
-
-func stringSlicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// The two plan formats a live fleet can hold. v2 differs from v1 in exactly one
-// way — a create plan builds its companion indexes in the same transaction as
-// the table — and the label is part of the digest, so the two never collide.
-// Which one this binary issues is not a constant: migration 8 puts that in the
-// capability row, where only 'ready' means v2.
-const (
-	schemaPlanCompilerV1 = "schema-plan-v1"
-	schemaPlanCompilerV2 = "schema-plan-v2"
-)

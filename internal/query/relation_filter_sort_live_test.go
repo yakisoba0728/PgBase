@@ -21,7 +21,21 @@ func TestListRelationAwareFiltersAndSortsWithPrivateStableCursor(t *testing.T) {
 	ctx := context.Background()
 	fixture := createRelationFilterSortFixture(t, ctx, pool, schemas, records)
 	principal := Principal{Kind: PrincipalAdministrator, ID: uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")}
-
+	for _, testCase := range []struct {
+		filter string
+		want   uuid.UUID
+	}{
+		{filter: "relation_query_posts_via_owner.title = 'post-ada'", want: fixture.ada},
+		{filter: "relation_query_posts_via_reviewers.title = 'post-bob'", want: fixture.ada},
+	} {
+		page, listErr := records.ListRelationAware(ctx, RelationListRequest{Principal: principal, Collection: "relation_query_people", Limit: 20, Filter: testCase.filter})
+		if listErr != nil {
+			t.Fatalf("reverse filter %q: %v", testCase.filter, listErr)
+		}
+		if got := recordIDs(page.Items); !reflect.DeepEqual(got, []string{testCase.want.String()}) {
+			t.Fatalf("reverse filter %q ids=%v", testCase.filter, got)
+		}
+	}
 	assertIDs := func(name, filter, sortText string, want ...uuid.UUID) {
 		t.Helper()
 		page, err := records.ListRelationAware(ctx, RelationListRequest{
@@ -83,6 +97,26 @@ func TestListRelationAwareFiltersAndSortsWithPrivateStableCursor(t *testing.T) {
 	})
 	if !IsInvalidCursor(err) {
 		t.Fatalf("cursor after target sort mutation error = %v, want invalid cursor", err)
+	}
+}
+
+func TestListContainsFilterMatchesLiteralTextAtRootAndRelationTerminal(t *testing.T) {
+	pool, schemas, records := newRecordServiceTest(t)
+	ctx := context.Background()
+	fixture := createRelationFilterSortFixture(t, ctx, pool, schemas, records)
+	principal := Principal{Kind: PrincipalAdministrator, ID: uuid.New()}
+
+	root, err := records.ListRelationAware(ctx, RelationListRequest{
+		Principal: principal, Collection: "relation_query_posts", Limit: 20, Filter: `title ~ 'bob'`, Sort: "title",
+	})
+	if err != nil || !reflect.DeepEqual(recordIDs(root.Items), []string{fixture.postBob.String()}) {
+		t.Fatalf("root contains items=%v err=%v", recordIDs(root.Items), err)
+	}
+	relation, err := records.ListRelationAware(ctx, RelationListRequest{
+		Principal: principal, Collection: "relation_query_posts", Limit: 20, Filter: `owner.name ~ 'Ad'`, Sort: "title",
+	})
+	if err != nil || !reflect.DeepEqual(recordIDs(relation.Items), []string{fixture.postAda.String()}) {
+		t.Fatalf("relation contains items=%v err=%v", recordIDs(relation.Items), err)
 	}
 }
 

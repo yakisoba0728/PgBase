@@ -5,26 +5,36 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 )
 
 type Principal = identity.Subject
 
 type GetRequest struct {
-	Principal  Principal
-	Collection string
-	ID         uuid.UUID
-	Expand     string
+	Principal               Principal
+	Collection              string
+	ID                      uuid.UUID
+	Expand                  string
+	Fields                  string
+	PocketBaseCompatibility bool
+	RuleContext             *accessrule.RequestContext
 }
 
 type ListRequest struct {
-	Principal  Principal
-	Collection string
-	Cursor     string
-	Limit      int
-	Filter     string
-	Sort       string
-	Expand     string
+	Principal               Principal
+	Collection              string
+	Cursor                  string
+	Limit                   int
+	Filter                  string
+	Sort                    string
+	Expand                  string
+	Fields                  string
+	PocketBaseCompatibility bool
+	RuleContext             *accessrule.RequestContext
+	// Offset is used only by the explicit PocketBase page adapter. Native
+	// cursor callers leave it zero and retain keyset pagination.
+	Offset int
 }
 
 // ExpandedRecord keeps expansion outside Root so record validators, ETags,
