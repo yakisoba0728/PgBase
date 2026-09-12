@@ -487,10 +487,6 @@ func (s *ObjectMigrationService) copyOne(ctx context.Context, id uuid.UUID) (boo
 	return true, nil
 }
 
-func copyVerified(ctx context.Context, source, destination ObjectStore, key string) (int64, []byte, bool, error) {
-	return copyVerifiedWithIntent(ctx, source, destination, key, nil)
-}
-
 func copyVerifiedWithIntent(ctx context.Context, source, destination ObjectStore, key string, beforeCreate func() error) (int64, []byte, bool, error) {
 	in, err := source.Open(ctx, key)
 	if err != nil {
