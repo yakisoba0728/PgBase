@@ -107,8 +107,8 @@ func TestBackendWorkflowKeepsLeanAndReleasePostgresMatrices(t *testing.T) {
 	}
 }
 
-func TestRepositoryScopedRunnerRequiresAnExactInternalPullRequestOrMainPushSHA(t *testing.T) {
-	const guardedRunner = "(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha == vars.PGBASE_CI_TRUSTED_SHA)) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04'"
+func TestRepositoryScopedRunnerRequiresAnExactInternalPullRequestOrProtectedMainPush(t *testing.T) {
+	const guardedRunner = "(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04'"
 	for name, wantGuards := range map[string]int{"backend.yml": 3, "frontend.yml": 1, "security.yml": 1} {
 		raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", name))
 		if err != nil {
@@ -116,7 +116,7 @@ func TestRepositoryScopedRunnerRequiresAnExactInternalPullRequestOrMainPushSHA(t
 		}
 		workflow := string(raw)
 		if got := strings.Count(workflow, guardedRunner); got != wantGuards {
-			t.Errorf("%s exact trusted PR-or-main-SHA runner guards = %d, want %d", name, got, wantGuards)
+			t.Errorf("%s trusted PR-or-main runner guards = %d, want %d", name, got, wantGuards)
 		}
 		if !strings.Contains(workflow, "branches: [main]") || !strings.Contains(workflow, "pull_request:") {
 			t.Errorf("%s does not separate main pushes from PR validation", name)
@@ -139,7 +139,8 @@ func TestRepositoryScopedRunnerRequiresAnExactInternalPullRequestOrMainPushSHA(t
 		{name: "fork pull request", event: "pull_request", repository: "owner/repo", headRepo: "fork/repo", headSHA: "trusted", trustedSHA: "trusted", runner: "temporary"},
 		{name: "different pull request SHA", event: "pull_request", repository: "owner/repo", headRepo: "owner/repo", headSHA: "other", trustedSHA: "trusted", runner: "temporary"},
 		{name: "exact main push", event: "push", ref: "refs/heads/main", eventSHA: "trusted", trustedSHA: "trusted", runner: "temporary", want: true},
-		{name: "different main SHA", event: "push", ref: "refs/heads/main", eventSHA: "other", trustedSHA: "trusted", runner: "temporary"},
+		{name: "new protected main SHA", event: "push", ref: "refs/heads/main", eventSHA: "other", trustedSHA: "trusted", runner: "temporary", want: true},
+		{name: "main push without a selected PR SHA", event: "push", ref: "refs/heads/main", eventSHA: "other", runner: "temporary", want: true},
 		{name: "tag push", event: "push", ref: "refs/tags/v0.1.0", eventSHA: "trusted", trustedSHA: "trusted", runner: "temporary"},
 		{name: "other branch push", event: "push", ref: "refs/heads/release", eventSHA: "trusted", trustedSHA: "trusted", runner: "temporary"},
 		{name: "manual dispatch", event: "workflow_dispatch", ref: "refs/heads/main", eventSHA: "trusted", trustedSHA: "trusted", runner: "temporary"},
@@ -170,14 +171,14 @@ func TestRepositoryScopedRunnerRequiresAnExactInternalPullRequestOrMainPushSHA(t
 	}
 }
 
-func temporaryRunnerEligible(event, ref, repository, headRepo, eventSHA, headSHA, trustedSHA, runner string) bool {
-	if trustedSHA == "" || runner == "" {
+func temporaryRunnerEligible(event, ref, repository, headRepo, _ string, headSHA, trustedSHA, runner string) bool {
+	if runner == "" {
 		return false
 	}
 	if event == "pull_request" {
-		return headRepo == repository && headSHA == trustedSHA
+		return trustedSHA != "" && headRepo == repository && headSHA == trustedSHA
 	}
-	return event == "push" && ref == "refs/heads/main" && eventSHA == trustedSHA
+	return event == "push" && ref == "refs/heads/main"
 }
 
 func withoutEnvironment(environment []string, name string) []string {
