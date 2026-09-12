@@ -20,6 +20,7 @@ for argument in "$@"; do
   if [[ "$previous" == "--output" ]]; then output="$argument"; fi
   previous="$argument"
 done
+cat >/dev/null
 [[ "$*" == *'https://api.github.com/user/packages/container/pgbase'* ]] || exit 91
 printf '%s\n' "$MOCK_BODY" > "$output"
 printf '%s' "$MOCK_STATUS"
@@ -32,7 +33,7 @@ printf '%s' "$MOCK_STATUS"
 		cmd := exec.Command(script, mode, "yakisoba0728", "PgBase", filepath.Join(temporary, mode+"-evidence.json"))
 		cmd.Env = append(os.Environ(),
 			"PATH="+temporary+":"+os.Getenv("PATH"),
-			"GH_TOKEN=super-secret",
+			"GH_TOKEN="+strings.Repeat("super-secret", 7000),
 			"MOCK_STATUS="+status,
 			"MOCK_BODY="+body,
 		)

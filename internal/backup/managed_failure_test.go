@@ -14,6 +14,7 @@ func TestManagedCreateFailureNotifiesOnlyManagedJobs(t *testing.T) {
 		Directory: t.TempDir(),
 		Create:    func(context.Context, string) error { return errors.New("fixture failure") },
 		Restore:   func(context.Context, string) error { return nil },
+		Lifecycle: delayedFinalizationLifecycle{delay: 100 * time.Millisecond},
 		OnFailure: func(_ context.Context, job Job) {
 			if !job.Managed || job.Status != "failed" {
 				t.Errorf("unsafe failure callback job=%+v", job)
@@ -43,6 +44,14 @@ func TestManagedCreateFailureNotifiesOnlyManagedJobs(t *testing.T) {
 	}
 }
 
+type delayedFinalizationLifecycle struct {
+	delay time.Duration
+}
+
+func (l delayedFinalizationLifecycle) BeginBackupOperation(context.Context, *LifecycleEvent) (func(error), error) {
+	return func(error) { time.Sleep(l.delay) }, nil
+}
+
 func waitFinalJob(t *testing.T, manager *Manager, id string) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
@@ -52,6 +61,7 @@ func waitFinalJob(t *testing.T, manager *Manager, id string) {
 			t.Fatal(err)
 		}
 		if job.Status != "running" {
+			manager.wg.Wait()
 			return
 		}
 		time.Sleep(time.Millisecond)
