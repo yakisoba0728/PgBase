@@ -59,6 +59,12 @@ function applyOutcome(data: unknown, operationId: string): ApplyOutcome {
   return body.status === "committed" ? { kind: "applied" } : { kind: "undecided", operationId };
 }
 
+function isUncertainImportApplyError(caught: unknown): boolean {
+  if (caught instanceof SchemaError) return caught.code === "invalid_response_body";
+  if (caught instanceof WireError) return caught.wire.code === "invalid_response_body";
+  return true;
+}
+
 export function createSchemaPort(transport: SchemaTransport): AdminBackend["schema"] {
   return {
     catalog: async (signal) => {
@@ -96,8 +102,13 @@ export function createSchemaPort(transport: SchemaTransport): AdminBackend["sche
       try {
         return (await transport.schemaCall({ path: "/api/admin/schema/import/apply", method: "POST", body: { document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum }, headers: { "PgBase-Operation-ID": plan.operationId ?? "", "Idempotency-Key": plan.idempotencyKey ?? "" }, csrf: true, signal })).data as SchemaImportResult;
       } catch (caught) {
-        if (plan.operationId && (!(caught instanceof WireError) || caught.wire.code === "invalid_response_body"))
-          return (await transport.schemaCall({ path: `/api/admin/schema/import/operations/${encodeURIComponent(plan.operationId)}`, signal })).data as SchemaImportResult;
+        if (plan.operationId && isUncertainImportApplyError(caught)) {
+          try {
+            return (await transport.schemaCall({ path: `/api/admin/schema/import/operations/${encodeURIComponent(plan.operationId)}`, signal })).data as SchemaImportResult;
+          } catch {
+            throw caught;
+          }
+        }
         throw caught;
       }
     },

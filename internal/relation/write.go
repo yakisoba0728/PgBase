@@ -20,6 +20,7 @@ type Write struct {
 	mode     WriteMode
 	present  bool
 	scalar   map[string]json.RawMessage
+	tx       pgx.Tx
 	locked   bool
 	stored   bool
 }
@@ -75,11 +76,11 @@ func (w *Write) LocksSource() bool { return w != nil && w.present }
 // the source and target row locks in (collection, record) order. A request
 // that touches no relation field takes neither.
 func (w *Write) Lock(ctx context.Context, tx pgx.Tx, sourceID uuid.UUID) error {
-	if w == nil || tx == nil {
+	if w == nil || tx == nil || w.locked {
 		return ErrInvalidBinding
 	}
-	w.locked = true
 	if !w.present {
+		w.tx, w.locked = tx, true
 		return nil
 	}
 	if err := w.bindings.lockCollections(ctx, tx, w.input); err != nil {
@@ -89,7 +90,11 @@ func (w *Write) Lock(ctx context.Context, tx pgx.Tx, sourceID uuid.UUID) error {
 	if w.mode == CreateWrite {
 		state = sourcePending
 	}
-	return w.bindings.lockRows(ctx, tx, sourceID, state, w.input)
+	if err := w.bindings.lockRows(ctx, tx, sourceID, state, w.input); err != nil {
+		return err
+	}
+	w.tx, w.locked = tx, true
+	return nil
 }
 
 // Snapshot hydrates a stored pre-image's multiple-relation fields. It is
@@ -97,7 +102,7 @@ func (w *Write) Lock(ctx context.Context, tx pgx.Tx, sourceID uuid.UUID) error {
 // bound stays writable, so an operator can shrink it with a PATCH instead of
 // finding it both unreadable through list and frozen.
 func (w *Write) Snapshot(ctx context.Context, tx pgx.Tx, sourceID uuid.UUID, record map[string]any) error {
-	if w == nil || !w.locked {
+	if w == nil || !w.locked || tx == nil || tx != w.tx {
 		return ErrInvalidBinding
 	}
 	return w.bindings.hydrateRecord(ctx, tx, sourceID, record)
@@ -108,16 +113,19 @@ func (w *Write) Snapshot(ctx context.Context, tx pgx.Tx, sourceID uuid.UUID, rec
 // reference it, and the hydrated result is the only point either write path
 // holds the merged record the request produced.
 func (w *Write) Store(ctx context.Context, tx pgx.Tx, sourceID uuid.UUID, record map[string]any) error {
-	if w == nil || !w.locked || w.stored || tx == nil {
+	if w == nil || !w.locked || w.stored || tx == nil || tx != w.tx {
 		return ErrInvalidBinding
 	}
-	w.stored = true
 	if w.present {
 		if err := w.bindings.replaceMulti(ctx, tx, sourceID, w.input); err != nil {
 			return err
 		}
 	}
-	return w.bindings.hydrateRecord(ctx, tx, sourceID, record)
+	if err := w.bindings.hydrateRecord(ctx, tx, sourceID, record); err != nil {
+		return err
+	}
+	w.stored = true
+	return nil
 }
 
 func (b *Bindings) hydrateRecord(ctx context.Context, querier RowsQuerier, recordID uuid.UUID, record map[string]any) error {

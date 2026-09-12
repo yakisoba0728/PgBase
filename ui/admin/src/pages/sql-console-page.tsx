@@ -139,9 +139,19 @@ export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const activeWrite = unresolvedWrite?.scope === sessionIdentity ? unresolvedWrite : null;
-  const retainWrite = useCallback((request: SQLConsoleSubmitInput): PendingWrite => {
+  const retainWrite = useCallback((request: SQLConsoleSubmitInput): PendingWrite | null => {
     const attempt = { scope: sessionIdentity, request };
-    if (sessionIdentity !== undefined && sessionIdentity !== "") try { window.sessionStorage.setItem(pendingWriteStorageKey(sessionIdentity), JSON.stringify(request)); } catch { /* in-memory recovery remains available */ }
+    if (sessionIdentity !== undefined && sessionIdentity !== "") {
+      try {
+        window.sessionStorage.setItem(
+          pendingWriteStorageKey(sessionIdentity),
+          JSON.stringify(request),
+        );
+      } catch {
+        setError("This browser cannot retain recovery information for a transactional write. Free storage or allow session storage before retrying.");
+        return null;
+      }
+    }
     setUnresolvedWrite(attempt);
     return attempt;
   }, [sessionIdentity]);
@@ -215,6 +225,7 @@ export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
       const idempotencyKey = mode === "write" ? crypto.randomUUID() : undefined;
       const request = { operationID, idempotencyKey, mode, dryRun: mode === "write" && dryRun, ...(timeout === undefined ? {} : { timeoutMS: timeout }), statements: draft } as SQLConsoleSubmitInput;
       writeAttempt = mode === "write" ? retainWrite(request) : null;
+      if (mode === "write" && writeAttempt === null) return;
       const next = await port.submit(request);
       setExecution(next); setHistory((current) => [next, ...current.filter((item) => item.id !== next.id)]); setWriteConfirmed(false);
       if (writeAttempt !== null && resolvedWrite(next.status)) releaseWrite(writeAttempt);

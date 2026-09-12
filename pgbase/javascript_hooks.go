@@ -125,23 +125,21 @@ func applyJavaScriptHookPatch(event *HookEvent, raw json.RawMessage) error {
 	}
 	switch data := event.Data.(type) {
 	case *mailer.Message:
-		var patch extensionMailRequest
+		var patch extensionMailPatch
 		if err := decodeStrictJSON(raw, &patch); err != nil {
 			return invalidJavaScriptPatch(event.Kind, err)
 		}
-		purpose := data.Purpose
-		data.To, data.Subject, data.Text, data.HTML = patch.To, patch.Subject, patch.Text, patch.HTML
-		data.Purpose = purpose
+		patch.apply(data)
 	case *MailEvent:
 		var patch struct {
-			Message extensionMailRequest `json:"message"`
+			Message *extensionMailPatch `json:"message"`
 		}
 		if err := decodeStrictJSON(raw, &patch); err != nil {
 			return invalidJavaScriptPatch(event.Kind, err)
 		}
-		purpose := data.Message.Purpose
-		data.Message.To, data.Message.Subject, data.Message.Text, data.Message.HTML = patch.Message.To, patch.Message.Subject, patch.Message.Text, patch.Message.HTML
-		data.Message.Purpose = purpose
+		if patch.Message != nil {
+			patch.Message.apply(&data.Message)
+		}
 	case *api.RecordRequestEvent:
 		var patch struct {
 			Limit  *int                       `json:"limit,omitempty"`

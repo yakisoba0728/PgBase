@@ -216,7 +216,13 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)
 	}
-	var publicHandler http.Handler
+	var publicHandler *publicsite.Handler
+	keepPublicHandler := false
+	defer func() {
+		if !keepPublicHandler && publicHandler != nil {
+			_ = publicHandler.Close()
+		}
+	}()
 	if normalized.PublicDir != "" {
 		publicHandler, err = publicsite.New(normalized.PublicDir, normalized.PublicSPAFallback)
 		if err != nil {
@@ -365,6 +371,7 @@ func newWithCatalogPreflight(
 		records:               recordService,
 		backupGate:            gate,
 		handler:               handler,
+		publicSite:            publicHandler,
 		readiness:             readiness,
 		cleaner:               adminauth.NewCleaner(pool, nil, normalized.Logger),
 		recordCleaner:         recordops.NewIdempotencyCleaner(pool, normalized.Logger),
@@ -436,6 +443,7 @@ func newWithCatalogPreflight(
 	keepGate = true
 	keepJavaScript = true
 	keepSQLConsole = true
+	keepPublicHandler = true
 	return app, nil
 }
 

@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/yakisoba0728/PgBase/internal/durablefile"
 )
 
 const probeLimit = 64 << 10
@@ -568,17 +570,10 @@ func copyRegular(source, target string, mode os.FileMode) error {
 		return err
 	}
 	defer func() { _ = from.Close() }()
-	to, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-	if err != nil {
+	return durablefile.WriteExclusive(target, mode, func(destination *os.File) error {
+		_, err := io.Copy(destination, from)
 		return err
-	}
-	if _, err = io.Copy(to, from); err == nil {
-		err = to.Sync()
-	}
-	if closeErr := to.Close(); err == nil {
-		err = closeErr
-	}
-	return err
+	}, func(_ string, err error) error { return err })
 }
 
 func syncFile(path string) error {
@@ -597,7 +592,8 @@ func runBeforePhase(hook func(string) error, phase string) error {
 }
 
 func sameBuild(left, right Build) bool {
-	return left.Version == right.Version && left.Commit == right.Commit && left.GOOS == right.GOOS && left.GOARCH == right.GOARCH
+	return left.Version == right.Version && left.Commit == right.Commit && left.GOOS == right.GOOS && left.GOARCH == right.GOARCH &&
+		left.SchemaMin == right.SchemaMin && left.SchemaMax == right.SchemaMax
 }
 
 // ProbeBinary executes only the requested path's network-free version command.

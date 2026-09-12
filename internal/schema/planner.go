@@ -551,30 +551,8 @@ func planInputField(
 	creating bool,
 ) (PlannedField, error) {
 	fieldPath := fmt.Sprintf("fields.%d", ordinal)
-	if field.Options != nil {
-		options := cloneFieldOptions(*field.Options)
-		field.Options = &options
-	}
-	if err := normalizeFieldOptionsInput(field.Options); err != nil {
-		return PlannedField{}, validation(fieldPath+".options", "invalid_options")
-	}
-	if len([]rune(field.Help)) > 300 {
-		return PlannedField{}, validation(fieldPath+".help", "too_long")
-	}
-	if field.Hidden && field.Presentable {
-		return PlannedField{}, validation(fieldPath+".presentable", "hidden_field")
-	}
-	if err := validateFieldOptions(field.Type, field.Options); err != nil {
-		return PlannedField{}, validation(fieldPath+".options", "invalid_options")
-	}
-	if !isSupportedType(field.Type) {
-		return PlannedField{}, validation(fieldPath+".type", "unsupported_type")
-	}
-	if field.Type == TypeFile && (field.Unique || field.Indexed || len(field.Default) != 0 || field.Relation != nil) {
-		return PlannedField{}, validation(fieldPath, "invalid_file_field")
-	}
-	if code := validateAdvancedFieldInput(field); code != "" {
-		return PlannedField{}, validation(fieldPath, code)
+	if err := validateFieldInputMetadata(fieldPath, &field); err != nil {
+		return PlannedField{}, err
 	}
 
 	var targetCollectionID *uuid.UUID

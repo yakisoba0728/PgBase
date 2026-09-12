@@ -1,6 +1,7 @@
 {
   "upstream": "5684ee24f1e88f71a2ede73d20cf547fbd509e16",
   "pgbase": "35af64c3e4736af0a8a6d2d3ecb36640e035840a",
+  "evidenceSemantics": "Coverage status and nonblank notes are bookkeeping metadata. Generic template notes are not file-specific proof of human reading or evidence-complete audit coverage.",
   "total": 923,
   "statuses": {
     "read": 734,

@@ -31,6 +31,44 @@ const (
 	newCommit = "2222222222222222222222222222222222222222"
 )
 
+func TestCopyRegularDoesNotRemoveAnExistingDestination(t *testing.T) {
+	directory := t.TempDir()
+	source := filepath.Join(directory, "source")
+	target := filepath.Join(directory, "target")
+	if err := os.WriteFile(source, []byte("source"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("existing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyRegular(source, target, 0o700); err == nil {
+		t.Fatal("copyRegular replaced an existing destination")
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "existing" {
+		t.Fatalf("existing destination = %q", got)
+	}
+}
+
+func TestSameBuildIncludesSchemaCompatibilityRange(t *testing.T) {
+	build := Build{Version: "v1.2.3", Commit: newCommit, GOOS: "linux", GOARCH: "amd64", SchemaMin: "4", SchemaMax: "6"}
+	if !sameBuild(build, build) {
+		t.Fatal("identical builds are different")
+	}
+	for _, candidate := range []Build{
+		{Version: build.Version, Commit: build.Commit, GOOS: build.GOOS, GOARCH: build.GOARCH},
+		{Version: build.Version, Commit: build.Commit, GOOS: build.GOOS, GOARCH: build.GOARCH, SchemaMin: "3", SchemaMax: "6"},
+		{Version: build.Version, Commit: build.Commit, GOOS: build.GOOS, GOARCH: build.GOARCH, SchemaMin: "4", SchemaMax: "7"},
+	} {
+		if sameBuild(candidate, build) {
+			t.Fatalf("candidate range %s..%s matched signed range %s..%s", candidate.SchemaMin, candidate.SchemaMax, build.SchemaMin, build.SchemaMax)
+		}
+	}
+}
+
 func TestVerifyManifestRejectsBadSignatureAndDuplicateArtifact(t *testing.T) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -671,7 +709,11 @@ func buildFixture(t *testing.T, version, commit, failName string) string {
 	if runtime.GOOS == "windows" {
 		output += ".exe"
 	}
-	arguments := []string{"build", "-trimpath", "-ldflags", "-X main.version=" + version + " -X main.commit=" + commit + " -X main.goos=" + runtime.GOOS + " -X main.goarch=" + runtime.GOARCH + " -X main.failName=" + failName, "-o", output, "./internal/selfupdate/testdata/fixture"}
+	linkerFlags := "-X main.version=" + version + " -X main.commit=" + commit + " -X main.goos=" + runtime.GOOS + " -X main.goarch=" + runtime.GOARCH + " -X main.failName=" + failName
+	if version != "v0.1.0" {
+		linkerFlags += " -X main.schemaMin=40 -X main.schemaMax=40"
+	}
+	arguments := []string{"build", "-trimpath", "-ldflags", linkerFlags, "-o", output, "./internal/selfupdate/testdata/fixture"}
 	command := exec.Command("go", arguments...)
 	command.Dir = repositoryRoot(t)
 	if outputBytes, err := command.CombinedOutput(); err != nil {

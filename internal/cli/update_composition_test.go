@@ -57,3 +57,23 @@ func TestExecuteRendersStableRedactedUpdateError(t *testing.T) {
 		t.Fatalf("malformed update exit=%d", code)
 	}
 }
+
+func TestUpdateStatusRendersTargetResolutionFailureAsJSON(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"update", "status", "--json", "--state-dir", "relative"}, emptyEnv, testIO(nil, &stdout, &stderr))
+	if code != 1 || stderr.Len() != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var envelope struct {
+		SchemaVersion int `json:"schemaVersion"`
+		Error         struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("stdout JSON=%q: %v", stdout.String(), err)
+	}
+	if envelope.SchemaVersion != updateJSONSchemaVersion || envelope.Error.Code != "invalid_input" {
+		t.Fatalf("envelope=%+v", envelope)
+	}
+}

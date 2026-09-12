@@ -243,8 +243,14 @@ class HTTPBackend implements AdminBackend {
   readonly files = createFilesPort({
     recordCall: (request) => this.#recordCall(request),
     fileCall: (path, request) =>
-      callFile((value) => this.#recordCall(value), path, request),
+      callFile(
+        (value) => this.#recordCall(value),
+        (input, init) => this.#protectedFetch(input, init),
+        path,
+        request,
+      ),
     csrfToken: () => this.#csrfToken,
+    protectedFetch: (input, init) => this.#protectedFetch(input, init),
   });
 
   readonly adminPorts = createAdminPorts({
@@ -252,6 +258,7 @@ class HTTPBackend implements AdminBackend {
     schemaCall: (request) => this.#schemaCall(request),
     systemFailure: (caught) => this.#systemFailure(caught),
     csrfToken: () => this.#csrfToken,
+    protectedFetch: (input, init) => this.#protectedFetch(input, init),
   });
 
   get system() { return this.adminPorts.system; }
@@ -264,28 +271,6 @@ class HTTPBackend implements AdminBackend {
   get rules() { return this.adminPorts.rules; }
   get authCollections() { return this.adminPorts.authCollections; }
   get serviceTokens() { return this.adminPorts.serviceTokens; }
-
-  #fieldFilePath(collection: string, recordID: string, field: string): string {
-    return `/api/admin/collections/${encodeURIComponent(collection)}/records/${encodeURIComponent(recordID)}/files/${encodeURIComponent(field)}`;
-  }
-  #filePath(id: string): string {
-    return `/api/admin/files/${encodeURIComponent(id)}`;
-  }
-  async #fileCall(path: string, request: Omit<Request, "path">): Promise<any> {
-    if (request.body instanceof FormData) {
-      const response = await fetch(path, {
-        method: request.method,
-        headers: request.headers,
-        body: request.body,
-        credentials: "include",
-        signal: request.signal,
-      });
-      if (!response.ok)
-        throw new RecordError(response.status === 404 ? "not-found" : "failed");
-      return response.status === 204 ? undefined : decode(response);
-    }
-    return (await this.#recordCall({ ...request, path })).data;
-  }
 
   #adopt(reply: Reply): AuthenticatedSession {
     const session = reply.data as AuthenticatedSession & { csrfToken: string };
@@ -421,7 +406,7 @@ class HTTPBackend implements AdminBackend {
     );
     for (const value of parts)
       body.append(value.name, value.file, value.file.name);
-    const response = await fetch("/api/v1/collections/batch", {
+    const response = await this.#protectedFetch("/api/v1/collections/batch", {
       method: "POST",
       body,
       headers: { "X-PgBase-CSRF": this.#csrfToken },
@@ -514,6 +499,18 @@ class HTTPBackend implements AdminBackend {
       code: reported?.code ?? "request_failed",
       details: reported?.details ?? {},
     });
+  }
+
+  async #protectedFetch(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const authGeneration = this.#authGeneration;
+    const response = await fetch(input, init);
+    if (response.status === 401 && authGeneration === this.#authGeneration) {
+      for (const listener of [...this.#expired]) listener();
+    }
+    return response;
   }
 
   readonly sqlConsoleTransport: SQLConsoleTransport = {

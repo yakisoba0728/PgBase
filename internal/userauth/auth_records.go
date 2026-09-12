@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -66,21 +67,65 @@ type UpdateAuthRecordInput struct {
 }
 
 func (s *Service) ListAuthorizedAuthRecords(ctx context.Context, collectionID, principal uuid.UUID, limit int) ([]AuthRecord, error) {
+	if collectionID == uuid.Nil || limit < 1 || limit > 100 {
+		return nil, ErrValidation
+	}
 	fields, rules, err := s.authRecordRules(ctx, collectionID)
 	if err != nil {
 		return nil, err
 	}
-	values, err := s.ListAuthRecords(ctx, collectionID, limit)
+	if rules.IsNull("list") {
+		return []AuthRecord{}, nil
+	}
+	values := []AuthRecord{}
+	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		predicate, args, err := compileAuthRecordRuleInTx(ctx, tx, collectionID, rules.List, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}}, 1)
+		if err != nil {
+			return err
+		}
+		queryArgs := append([]any{collectionID}, args...)
+		limitParameter := "$" + strconv.Itoa(len(queryArgs)+1)
+		queryArgs = append(queryArgs, limit)
+		rows, err := tx.Query(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and (`+predicate+`) order by u.id limit `+limitParameter, queryArgs...)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var value AuthRecord
+			var raw []byte
+			if err := rows.Scan(&value.ID, &value.AuthCollectionID, &value.Email, &value.EmailVisibility, &value.Verified, &value.Active, &raw, &value.CreatedAt, &value.UpdatedAt); err != nil {
+				rows.Close()
+				return err
+			}
+			if json.Unmarshal(raw, &value.Fields) != nil {
+				rows.Close()
+				return errors.New("invalid stored auth profile")
+			}
+			value.Fields = publicAuthFields(value.Fields, fields)
+			values = append(values, value)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		for i := range values {
+			if err := s.projectAuthRelationIdentities(ctx, tx, values[i].Fields, fields); err != nil {
+				return err
+			}
+			if err := s.projectAuthRecord(ctx, tx, &values[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	result := values[:0]
-	for _, value := range values {
-		if !rules.IsNull("list") && s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.List, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
-			result = append(result, s.visibleAuthRecordForPrincipal(ctx, value, fields, principal, rules))
-		}
+	for i := range values {
+		values[i] = s.visibleAuthRecordForPrincipal(ctx, values[i], fields, principal, rules)
 	}
-	return result, nil
+	return values, nil
 }
 func (s *Service) GetAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID) (AuthRecord, error) {
 	fields, rules, err := s.authRecordRules(ctx, collectionID)

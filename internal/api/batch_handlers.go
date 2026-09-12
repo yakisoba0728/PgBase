@@ -393,7 +393,7 @@ func (e recordEndpoints) decodeBatch(r *http.Request, principal identity.Subject
 		if name == "requests" {
 			data, readErr := io.ReadAll(io.LimitReader(part, maximumBatchRequestBytes+1))
 			closeErr := part.Close()
-			if readErr != nil || closeErr != nil || len(data) > maximumBatchRequestBytes || part.FileName() != "" || json.Unmarshal(data, &input) != nil {
+			if readErr != nil || closeErr != nil || len(data) > maximumBatchRequestBytes || part.FileName() != "" || decodeStrictJSONBytes(data, &input) != nil {
 				return batchInput{}, staged, errors.New("invalid requests")
 			}
 			continue

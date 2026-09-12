@@ -195,7 +195,7 @@ func evaluateScalarFields(comparison filterComparison, kind ScalarKind, left, ri
 	case ScalarNumber:
 		return compareScalarNumbers(left.Number, right.Number, comparison.operator)
 	case ScalarTime:
-		return compareScalarNumbers(float64(left.Time.UnixNano()), float64(right.Time.UnixNano()), comparison.operator)
+		return compareScalarTimes(left.Time, right.Time, comparison.operator)
 	}
 	return false
 }
@@ -218,7 +218,25 @@ func evaluateScalarComparison(comparison filterComparison, kind ScalarKind, valu
 		return compareScalarNumbers(value.Number, right, comparison.operator)
 	case ScalarTime:
 		parsed, _ := time.Parse(time.RFC3339Nano, comparison.value.text)
-		return compareScalarNumbers(float64(value.Time.UnixNano()), float64(parsed.UTC().UnixNano()), comparison.operator)
+		return compareScalarTimes(value.Time, parsed, comparison.operator)
+	}
+	return false
+}
+
+func compareScalarTimes(left, right time.Time, operator string) bool {
+	switch operator {
+	case "=":
+		return left.Equal(right)
+	case "!=":
+		return !left.Equal(right)
+	case ">":
+		return left.After(right)
+	case ">=":
+		return left.Equal(right) || left.After(right)
+	case "<":
+		return left.Before(right)
+	case "<=":
+		return left.Equal(right) || left.Before(right)
 	}
 	return false
 }

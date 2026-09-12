@@ -119,3 +119,16 @@ func TestValidateCatalogIntegrityChecksRelationIncomingExactlyAndKeepsScalarComp
 		})
 	}
 }
+
+func TestRequiredRelationAddOrdinalMatchesExistingFieldByID(t *testing.T) {
+	fieldID := uuid.MustParse("0199aa16-e3dd-7000-8000-000000000101")
+	current := Collection{Fields: []Field{{ID: fieldID, Name: "owner", Type: TypeRelation, Required: true}}}
+	desired := PlannedCollection{Fields: []PlannedField{{ID: fieldID, Name: "author", Type: TypeRelation, Required: true}}}
+	if ordinal, added := requiredRelationAddOrdinal(current, desired); added {
+		t.Fatalf("identity-preserving relation rename classified as add at ordinal %d", ordinal)
+	}
+	desired.Fields = append(desired.Fields, PlannedField{Name: "reviewer", Type: TypeRelation, Required: true})
+	if ordinal, added := requiredRelationAddOrdinal(current, desired); !added || ordinal != 1 {
+		t.Fatalf("new required relation classified as ordinal=%d added=%t", ordinal, added)
+	}
+}

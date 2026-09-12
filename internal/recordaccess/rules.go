@@ -67,31 +67,8 @@ func (s *RuleService) Set(ctx context.Context, name string, rules accessrule.Rul
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM pgbase_meta.collection_access WHERE collection_id=$1 FOR UPDATE`, collection.ID); err != nil {
 			return err
 		}
-		for _, action := range []string{"list", "view", "create", "update", "delete"} {
-			rule, _ := rules.Action(action)
-			principal := identity.Subject{Kind: identity.User, ID: uuid.New()}
-			if rule.PocketBase != nil {
-				resolver, resolverErr := accessrule.NewCatalogResolver(catalog, collection, collection.TableName)
-				if resolverErr != nil {
-					return resolverErr
-				}
-				var request *accessrule.RequestContext
-				if action == "create" || action == "update" {
-					request = &accessrule.RequestContext{Present: map[string]bool{}, Changed: map[string]bool{}}
-				}
-				if _, _, compileErr := accessrule.CompilePocketBase(rule, accessrule.PBCompileContext{Resolver: resolver, Principal: principal, Request: request}); compileErr != nil {
-					return compileErr
-				}
-				continue
-			}
-			if _, _, err := accessrule.Compile(rule, collection, collection.TableName, principal, 0, false); err != nil {
-				if action != "create" && action != "update" {
-					return err
-				}
-				if _, _, requestErr := accessrule.CompileWithRequest(rule, collection, collection.TableName, principal, 0, action == "create", accessrule.RequestContext{Present: map[string]bool{}, Changed: map[string]bool{}}); requestErr != nil {
-					return requestErr
-				}
-			}
+		if err := ValidateRules(catalog, collection, rules); err != nil {
+			return err
 		}
 		raw, err := json.Marshal(rules)
 		if err != nil || len(raw) > 16384 {
@@ -102,6 +79,26 @@ func (s *RuleService) Set(ctx context.Context, name string, rules accessrule.Rul
    RETURNING revision`, collection.ID, string(raw)).Scan(&result.Revision)
 	})
 	return result, err
+}
+
+// ValidateRules checks a rule policy against one transaction-pinned catalog.
+// It has no database side effects, so schema migrations can validate their
+// final projected catalog before publishing any policy rows.
+func ValidateRules(catalog schema.Catalog, collection schema.Collection, rules accessrule.Rules) error {
+	for _, action := range []string{"list", "view", "create", "update", "delete"} {
+		rule, _ := rules.Action(action)
+		principal := identity.Subject{Kind: identity.User, ID: uuid.New()}
+		var request *accessrule.RequestContext
+		if action == "create" || action == "update" {
+			request = &accessrule.RequestContext{Present: map[string]bool{}, Changed: map[string]bool{}}
+		}
+		if _, _, err := compileRecordRule(catalog, collection, rule, principal, ruleCompileOptions{
+			request: request, prospectiveOwner: action == "create", requestFallback: request != nil,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // LoadRules pins the current rules to the read/write transaction. Absent rules

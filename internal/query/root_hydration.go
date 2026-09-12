@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/relation"
 	"github.com/yakisoba0728/PgBase/internal/schema"
@@ -18,12 +19,13 @@ type rootStub struct {
 	cursorValues []json.RawMessage
 }
 type rootHydrator struct {
-	querier    relation.RowsQuerier
-	bindings   *relation.Bindings
-	collection schema.Collection
-	bindErr    error
-	catalog    schema.Catalog
-	principal  Principal
+	querier     relation.RowsQuerier
+	bindings    *relation.Bindings
+	collection  schema.Collection
+	bindErr     error
+	catalog     schema.Catalog
+	principal   Principal
+	ruleContext *accessrule.RequestContext
 }
 
 func newRootHydrator(querier relation.RowsQuerier, catalog schema.Catalog, collection schema.Collection, principals ...Principal) *rootHydrator {
@@ -112,7 +114,7 @@ func (h *rootHydrator) replaySequential(ctx context.Context, stubs []rootStub, v
 	for i := range collected {
 		records[i] = collected[i].root
 	}
-	if err := filterRelationValues(ctx, tx, h.catalog, h.collection, records, h.principal); err != nil {
+	if err := filterRelationValues(ctx, tx, h.catalog, h.collection, records, h.principal, h.ruleContext); err != nil {
 		return 0, err
 	}
 	for i := range collected {

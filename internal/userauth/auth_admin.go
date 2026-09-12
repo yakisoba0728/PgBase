@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/authpolicy"
 	"github.com/yakisoba0728/PgBase/internal/mailer"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
@@ -228,20 +229,13 @@ func (s *Service) SetAuthPolicy(ctx context.Context, collectionID uuid.UUID, pol
 		if tag.RowsAffected() != 1 {
 			return ErrNotFound
 		}
-		// A policy tightening takes effect for already-issued sessions too.
-		if (previous.PasswordEnabled && !policy.PasswordEnabled) || policy.MinimumPasswordBytes > previous.MinimumPasswordBytes || (!previous.MFAEnabled && policy.MFAEnabled) || (previous.OTPEnabled && !policy.OTPEnabled) {
-			_, err = tx.Exec(ctx, `update pgbase_meta.user_sessions set revoked_at=coalesce(revoked_at,CURRENT_TIMESTAMP) where user_id in (select id from pgbase_meta.users where auth_collection_id=$1)`, collectionID)
-		}
-		if err == nil && !policy.MFAEnabled {
-			_, err = tx.Exec(ctx, `delete from pgbase_meta.user_totp_recovery_codes where user_id in (select id from pgbase_meta.users where auth_collection_id=$1)`, collectionID)
-			if err == nil {
-				_, err = tx.Exec(ctx, `delete from pgbase_meta.user_totp_factors where user_id in (select id from pgbase_meta.users where auth_collection_id=$1)`, collectionID)
-			}
-		}
-		if err == nil && previous.OTPEnabled && !policy.OTPEnabled {
-			_, err = tx.Exec(ctx, `update pgbase_meta.user_email_otps set consumed_at=CURRENT_TIMESTAMP where auth_collection_id=$1 and consumed_at is null`, collectionID)
-		}
-		return err
+		return authpolicy.ApplyTransition(ctx, tx, collectionID, authpolicy.Policy{
+			PasswordEnabled: previous.PasswordEnabled, MinimumPasswordBytes: previous.MinimumPasswordBytes,
+			MFAEnabled: previous.MFAEnabled, OTPEnabled: previous.OTPEnabled,
+		}, authpolicy.Policy{
+			PasswordEnabled: policy.PasswordEnabled, MinimumPasswordBytes: policy.MinimumPasswordBytes,
+			MFAEnabled: policy.MFAEnabled, OTPEnabled: policy.OTPEnabled,
+		})
 	})
 	return policy, err
 }

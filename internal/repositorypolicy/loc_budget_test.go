@@ -90,7 +90,24 @@ import (
 // The maintainability pass adds 52 lines for executable auth-policy validation
 // and locked token-policy stale checks (IS1-P2-001 and IS2-P2-001). This is the
 // measured ceiling; the package set and source classifier remain unchanged.
-const dataGroupRuntimeLimit = 27768
+//
+// The 2026-09-12 correctness audit then fixes request-aware expansion and rule
+// preview, generated-field replay, relation-write capabilities, auth/schema
+// validation, stable schema checksums, and the SQL-console schema fence. Its
+// final structural pass also splits four data files below 800 lines and
+// consolidates native/PocketBase rule compilation. Against d0c458db the exact
+// all-file data-group accounting is +607/-296, net +311:
+//
+//	internal/database        +0 /  -0 =   +0
+//	internal/query          +62 / -27 =  +35
+//	internal/recordops     +169 / -81 =  +88
+//	internal/recordaccess   +91 / -59 =  +32
+//	internal/relation       +15 /  -7 =   +8
+//	internal/schema        +270 / -122 = +148
+//
+// File moves count on both gross sides; no package or new source is excluded.
+// The exact 27,768 -> 28,079 measurement adds no spare allowance.
+const dataGroupRuntimeLimit = 28079
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -376,14 +393,43 @@ type structuralLimit struct {
 // that accept already-rendered auth payloads. The measured tree has zero
 // production files over 800 lines. Classifiers and source inclusion are
 // unchanged; no excluded source or artificial slack is introduced.
+//
+// The 2026-09-12 repository-wide correctness audit is measured from d0c458db
+// with an isolated index containing every final tracked and formerly untracked
+// source. Runtime accounting is +1,700/-673, net +1,027: Go is +1,517/-615,
+// net +902 (91,728 -> 92,630), and UI is +183/-58, net +125
+// (10,616 -> 10,741). Handwritten runtime therefore moves exactly
+// 102,344 -> 103,371. The positive stack implements bounded auth, storage
+// cancellation/durability, query authorization, schema validation/checksums,
+// SQL cancellation/fencing, and UI recovery/error behavior; the plan permits
+// correctness and migration stacks to be LOC-positive rather than deleting
+// verified guards to recover an obsolete ceiling.
+//
+// The same stack performs the required consolidation before reforecasting:
+// six cohesive file splits restore the zero files-over-800 gate; one shared
+// durable exclusive writer removes both duplicate fault-seam interfaces; one
+// rule compiler replaces repeated native/PocketBase branches; and one typed
+// profile action state replaces three direct state hooks. Interfaces therefore
+// remain 96, constructors remain 64, page hooks remain 180, and UI exports
+// remain 307.
+//
+// Exported declarations move 1,568 -> 1,575. The seven declarations are the
+// reviewed cross-package ownership boundaries required by the fixes:
+// publicsite.Handler and Close own the retained os.Root; recordaccess.ValidateRules
+// shares ordinary and migration validation; authpolicy.Policy and
+// ApplyTransition share transaction-bound cleanup without a schema/userauth
+// cycle; schema.LockCatalogGenerationShared exposes the private advisory key to
+// SQL console; and durablefile.WriteExclusive centralizes exclusive durable
+// publication and partial-file cleanup. The avoidable MigrationRuleValidator
+// type was removed. These exact ceilings contain no future allowance.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 102344, "maintainability pass: UI +3515 physical lines, Go +192 including watch shutdown"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 10616, "measured named UI modules and readable editors; no spare allowance"},
-	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 96, "schema-owned auth-policy validator avoids an import cycle"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1568, "auth-policy interface, startup setter, and three adapter methods"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 103371, "2026-09-12 correctness audit exact all-file measurement"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 10741, "2026-09-12 correctness UI exact measurement; no spare allowance"},
+	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 96, "unchanged after shared durable-file consolidation"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1575, "seven reviewed cross-package correctness boundaries"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 64, "measured final 20-defect correctness constructors"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
-	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 180, "measured final compatibility UI state"},
+	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 180, "profile action-state consolidation preserves the prior ceiling"},
 	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 307, "measured cross-module ports, codecs, and named editors"},
 }
 

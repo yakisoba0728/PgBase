@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -34,6 +35,7 @@ func (s *Service) executeMaterializedExpandPlan(
 	roots []map[string]any,
 	plan expandPlan,
 	principal Principal,
+	ruleContext *accessrule.RequestContext,
 	usage *expansionUsage,
 ) ([]ExpandedRecord, error) {
 	materials := make([]*materializedRecord, len(roots))
@@ -55,9 +57,9 @@ func (s *Service) executeMaterializedExpandPlan(
 				var err error
 				switch job.node.kind {
 				case expandNodeForward:
-					targets, err = s.executeForwardExpandNode(ctx, tx, catalog, job, principal, usage)
+					targets, err = s.executeForwardExpandNode(ctx, tx, catalog, job, principal, ruleContext, usage)
 				case expandNodeReverse:
-					targets, err = s.executeReverseExpandNode(ctx, tx, catalog, job, principal, usage)
+					targets, err = s.executeReverseExpandNode(ctx, tx, catalog, job, principal, ruleContext, usage)
 				default:
 					err = schema.ErrConflict
 				}
@@ -128,6 +130,7 @@ func (s *Service) executeForwardExpandNode(
 	catalog schema.Catalog,
 	job expandLevelJob,
 	principal Principal,
+	ruleContext *accessrule.RequestContext,
 	usage *expansionUsage,
 ) ([]*materializedRecord, error) {
 	if len(job.parents) == 0 {
@@ -145,7 +148,7 @@ func (s *Service) executeForwardExpandNode(
 		allIDs = append(allIDs, reference.ids...)
 	}
 	ids := uniqueSortedIDs(allIDs)
-	targetRecords, err := s.fetchExpansionTargets(ctx, tx, catalog, job.node.target, ids, principal, usage)
+	targetRecords, err := s.fetchExpansionTargets(ctx, tx, catalog, job.node.target, ids, principal, ruleContext, usage)
 	if err != nil {
 		return nil, err
 	}

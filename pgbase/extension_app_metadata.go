@@ -98,6 +98,9 @@ func (control *extensionAppControl) callDatabaseMetadata(ctx context.Context, me
 			}
 			items = append(items, item)
 		}
+		if err := sampleRows.Err(); err != nil {
+			return nil, err
+		}
 		return json.Marshal(map[string]any{"fields": fields, "items": items})
 	case "app-control.databaseFindRecordByViewFile":
 		if strings.TrimSpace(request.Field) == "" || strings.TrimSpace(request.Filename) == "" {

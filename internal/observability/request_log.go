@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
@@ -268,8 +269,11 @@ func (l *RequestLog) Detail(ctx context.Context, id uint64) (RequestEntry, error
 	}
 	var e RequestEntry
 	err := l.pool.QueryRow(ctx, `SELECT id,occurred_at,method,route,status,duration_ms,coalesce(client_ip::text,''),coalesce(auth_kind,''),coalesce(auth_id::text,'') FROM pgbase_meta.request_logs WHERE id=$1`, id).Scan(&e.ID, &e.At, &e.Method, &e.Route, &e.Status, &e.DurationMS, &e.ClientIP, &e.AuthKind, &e.AuthID)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return RequestEntry{}, ErrRequestLogNotFound
+	}
+	if err != nil {
+		return RequestEntry{}, fmt.Errorf("read request log entry %d: %w", id, err)
 	}
 	return e, nil
 }

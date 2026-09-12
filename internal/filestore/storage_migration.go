@@ -34,10 +34,11 @@ type storageSnapshot struct {
 // process exit; only one runner per migration claims ledger rows at a time.
 type ObjectMigrationService struct {
 	controller *StorageController
+	buildStore func(context.Context, storageSnapshot) (ObjectStore, error)
 }
 
 func NewObjectMigrationService(controller *StorageController) *ObjectMigrationService {
-	return &ObjectMigrationService{controller: controller}
+	return &ObjectMigrationService{controller: controller, buildStore: buildSnapshot}
 }
 
 func (s *ObjectMigrationService) Preview(ctx context.Context, destination StorageUpdate) (StorageMigrationStatus, error) {
@@ -150,24 +151,85 @@ func (s *ObjectMigrationService) Run(ctx context.Context) error {
 
 func (s *ObjectMigrationService) Cancel(ctx context.Context, id uuid.UUID) error {
 	return s.controller.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		var destination []byte
 		var status string
-		if err := tx.QueryRow(ctx, `select destination_config_ciphertext,status from pgbase_meta.file_storage_migrations where id=$1 for update`, id).Scan(&destination, &status); err != nil {
+		if err := tx.QueryRow(ctx, `select status from pgbase_meta.file_storage_migrations where id=$1 for update`, id).Scan(&status); err != nil {
 			return err
 		}
 		if status != "copying" && status != "canceling" && status != "ready" && status != "failed" {
 			return ErrStorageConflict
 		}
-		next := "canceled"
-		if status == "copying" || status == "canceling" {
-			next = "canceling"
-		}
-		if _, err := tx.Exec(ctx, `update pgbase_meta.file_storage_migrations set cancel_requested=true,status=$2,updated_at=CURRENT_TIMESTAMP where id=$1`, id, next); err != nil {
+		if _, err := tx.Exec(ctx, `update pgbase_meta.file_storage_migrations set cancel_requested=true,status='canceling',updated_at=CURRENT_TIMESTAMP where id=$1`, id); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `insert into pgbase_meta.file_storage_source_cleanup(migration_id,object_key,source_config_ciphertext,not_before) select $1,object_key,$2,CURRENT_TIMESTAMP+interval '1 hour' from pgbase_meta.file_storage_migration_objects where migration_id=$1 and status='verified' and created_destination on conflict do nothing`, id, destination)
+		_, err := s.finishCancellationTx(ctx, tx, id)
 		return err
 	})
+}
+
+func (s *ObjectMigrationService) finishCancellation(ctx context.Context, id uuid.UUID) (bool, error) {
+	finished := false
+	err := s.controller.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var status string
+		if err := tx.QueryRow(ctx, `select status from pgbase_meta.file_storage_migrations where id=$1 for update`, id).Scan(&status); err != nil {
+			return err
+		}
+		if status == "canceled" {
+			finished = true
+			return nil
+		}
+		if status != "canceling" {
+			return nil
+		}
+		var err error
+		finished, err = s.finishCancellationTx(ctx, tx, id)
+		return err
+	})
+	return finished, err
+}
+
+func (s *ObjectMigrationService) finishCancellationTx(ctx context.Context, tx pgx.Tx, id uuid.UUID) (bool, error) {
+	rows, err := tx.Query(ctx, `select object_key from pgbase_meta.file_storage_migration_objects where migration_id=$1 and status='copying' and claim_token is not null order by object_key`, id)
+	if err != nil {
+		return false, err
+	}
+	keys := make([]string, 0)
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			rows.Close()
+			return false, err
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return false, err
+	}
+	rows.Close()
+	for _, key := range keys {
+		var idle bool
+		if err := tx.QueryRow(ctx, `select pg_try_advisory_xact_lock(hashtextextended($1,0))`, migrationObjectLockName(id, key)).Scan(&idle); err != nil {
+			return false, err
+		}
+		if !idle {
+			return false, nil
+		}
+	}
+	var destination []byte
+	if err := tx.QueryRow(ctx, `select destination_config_ciphertext from pgbase_meta.file_storage_migrations where id=$1`, id).Scan(&destination); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `insert into pgbase_meta.file_storage_source_cleanup(migration_id,object_key,source_config_ciphertext,not_before) select $1,object_key,$2,CURRENT_TIMESTAMP+interval '1 hour' from pgbase_meta.file_storage_migration_objects where migration_id=$1 and created_destination on conflict do nothing`, id, destination); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `update pgbase_meta.file_storage_migrations set status='canceled',updated_at=CURRENT_TIMESTAMP where id=$1 and status='canceling'`, id); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func migrationObjectLockName(id uuid.UUID, key string) string {
+	return "file-storage-migration/" + id.String() + "/" + key
 }
 
 func (s *ObjectMigrationService) Status(ctx context.Context, id uuid.UUID) (StorageMigrationStatus, error) {
@@ -256,8 +318,16 @@ func (s *ObjectMigrationService) run(ctx context.Context, id uuid.UUID) error {
 			return err
 		}
 		if status.Status == "canceling" {
-			_, err = s.controller.pool.Exec(ctx, `update pgbase_meta.file_storage_migrations set status='canceled',updated_at=CURRENT_TIMESTAMP where id=$1 and status='canceling'`, id)
-			return err
+			finished, finishErr := s.finishCancellation(ctx, id)
+			if finishErr != nil || finished {
+				return finishErr
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+			}
+			continue
 		}
 		if status.Status != "copying" && status.Status != "ready" {
 			return nil
@@ -307,6 +377,26 @@ func (s *ObjectMigrationService) copyOne(ctx context.Context, id uuid.UUID) (boo
 	if err != nil {
 		return false, err
 	}
+	coordination, err := s.controller.pool.OpenCoordinationSession(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = coordination.Close(cleanup)
+	}()
+	if _, err = coordination.Exec(ctx, `select pg_advisory_lock(hashtextextended($1,0))`, migrationObjectLockName(id, key)); err != nil {
+		return false, err
+	}
+	var current bool
+	if err = s.controller.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.file_storage_migration_objects o join pgbase_meta.file_storage_migrations m on m.id=o.migration_id where o.migration_id=$1 and o.object_key=$2 and o.status='copying' and o.claim_token=$3 and not m.cancel_requested)`, id, key, claim).Scan(&current); err != nil {
+		return false, err
+	}
+	if !current {
+		_, err = s.controller.pool.Exec(ctx, `update pgbase_meta.file_storage_migration_objects set status='failed',failure='migration canceled',claim_token=null,claim_expires_at=null,updated_at=CURRENT_TIMESTAMP where migration_id=$1 and object_key=$2 and claim_token=$3`, id, key, claim)
+		return true, err
+	}
 	var referenced bool
 	if err = s.controller.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.record_files where status in ('pending','ready') and (object_key=$1 or thumbnail_object_key=$1) union all select 1 from pgbase_meta.record_file_variants where object_key=$1 union all select 1 from pgbase_meta.extension_objects where object_key=$1)`, key).Scan(&referenced); err != nil {
 		return false, err
@@ -339,15 +429,25 @@ func (s *ObjectMigrationService) copyOne(ctx context.Context, id uuid.UUID) (boo
 	if err != nil {
 		return false, err
 	}
-	source, err := buildSnapshot(ctx, sourceConfig)
+	source, err := s.buildStore(ctx, sourceConfig)
 	if err != nil {
 		return false, err
 	}
-	destination, err := buildSnapshot(ctx, destinationConfig)
+	destination, err := s.buildStore(ctx, destinationConfig)
 	if err != nil {
 		return false, err
 	}
-	size, digest, created, err := copyVerified(ctx, source, destination, key)
+	createdIntent := func() error {
+		tag, intentErr := s.controller.pool.Exec(ctx, `update pgbase_meta.file_storage_migration_objects set created_destination=true,updated_at=CURRENT_TIMESTAMP where migration_id=$1 and object_key=$2 and status='copying' and claim_token=$3 and exists(select 1 from pgbase_meta.file_storage_migrations where id=$1 and not cancel_requested)`, id, key, claim)
+		if intentErr != nil {
+			return intentErr
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrStorageConflict
+		}
+		return nil
+	}
+	size, digest, created, err := copyVerifiedWithIntent(ctx, source, destination, key, createdIntent)
 	if err != nil {
 		_, _ = s.controller.pool.Exec(ctx, `update pgbase_meta.file_storage_migration_objects set status='failed',failure='copy or verification failed',claim_token=null,claim_expires_at=null,updated_at=CURRENT_TIMESTAMP where migration_id=$1 and object_key=$2 and claim_token=$3`, id, key, claim)
 		return false, err
@@ -365,7 +465,7 @@ func (s *ObjectMigrationService) copyOne(ctx context.Context, id uuid.UUID) (boo
 		_, err = s.controller.pool.Exec(ctx, `update pgbase_meta.file_storage_migration_objects set status='failed',failure='migration canceled',claim_token=null,claim_expires_at=null,updated_at=CURRENT_TIMESTAMP where migration_id=$1 and object_key=$2 and claim_token=$3`, id, key, claim)
 		return true, err
 	}
-	_, err = s.controller.pool.Exec(ctx, `with changed as (update pgbase_meta.file_storage_migration_objects set status='verified',size_bytes=$3,sha256=$4,created_destination=$6,failure='',claim_token=null,claim_expires_at=null,updated_at=CURRENT_TIMESTAMP where migration_id=$1 and object_key=$2 and status='copying' and claim_token=$5 and exists(select 1 from pgbase_meta.file_storage_migrations where id=$1 and not cancel_requested) returning 1) update pgbase_meta.file_storage_migrations set copied_objects=copied_objects+(select count(*) from changed),updated_at=CURRENT_TIMESTAMP where id=$1`, id, key, size, digest, claim, created)
+	_, err = s.controller.pool.Exec(ctx, `with changed as (update pgbase_meta.file_storage_migration_objects set status='verified',size_bytes=$3,sha256=$4,created_destination=created_destination or $6,failure='',claim_token=null,claim_expires_at=null,updated_at=CURRENT_TIMESTAMP where migration_id=$1 and object_key=$2 and status='copying' and claim_token=$5 and exists(select 1 from pgbase_meta.file_storage_migrations where id=$1 and not cancel_requested) returning 1) update pgbase_meta.file_storage_migrations set copied_objects=copied_objects+(select count(*) from changed),updated_at=CURRENT_TIMESTAMP where id=$1`, id, key, size, digest, claim, created)
 	if err != nil {
 		return false, err
 	}
@@ -378,10 +478,20 @@ func (s *ObjectMigrationService) copyOne(ctx context.Context, id uuid.UUID) (boo
 		defer cancel()
 		_ = destination.Delete(cleanup, key)
 	}
+	if finalStatus != "verified" {
+		_, err = s.controller.pool.Exec(ctx, `update pgbase_meta.file_storage_migration_objects set status='failed',failure='migration canceled',claim_token=null,claim_expires_at=null,updated_at=CURRENT_TIMESTAMP where migration_id=$1 and object_key=$2 and claim_token=$3`, id, key, claim)
+		if err != nil {
+			return false, err
+		}
+	}
 	return true, nil
 }
 
 func copyVerified(ctx context.Context, source, destination ObjectStore, key string) (int64, []byte, bool, error) {
+	return copyVerifiedWithIntent(ctx, source, destination, key, nil)
+}
+
+func copyVerifiedWithIntent(ctx context.Context, source, destination ObjectStore, key string, beforeCreate func() error) (int64, []byte, bool, error) {
 	in, err := source.Open(ctx, key)
 	if err != nil {
 		return 0, nil, false, err
@@ -423,6 +533,11 @@ func copyVerified(ctx context.Context, source, destination ObjectStore, key stri
 	}
 	if !errors.Is(existingErr, ErrNotFound) {
 		return 0, nil, false, existingErr
+	}
+	if beforeCreate != nil {
+		if err := beforeCreate(); err != nil {
+			return 0, nil, false, err
+		}
 	}
 	tmp, err = os.Open(name)
 	if err != nil {
@@ -483,7 +598,7 @@ func (s *ObjectMigrationService) activate(ctx context.Context, id uuid.UUID) (bo
 			return err
 		}
 		if canceled {
-			_, err := tx.Exec(ctx, `update pgbase_meta.file_storage_migrations set status='canceled',updated_at=CURRENT_TIMESTAMP where id=$1`, id)
+			_, err := s.finishCancellationTx(ctx, tx, id)
 			return err
 		}
 		if err := insertMigrationObjects(ctx, tx, id); err != nil {
@@ -531,7 +646,7 @@ func (s *ObjectMigrationService) activate(ctx context.Context, id uuid.UUID) (bo
 }
 
 func (s *ObjectMigrationService) fail(ctx context.Context, id uuid.UUID, cause error) error {
-	_, _ = s.controller.pool.Exec(ctx, `update pgbase_meta.file_storage_migrations set status='failed',failure=$2,updated_at=CURRENT_TIMESTAMP where id=$1 and status not in ('committed','canceled')`, id, "object migration failed")
+	_, _ = s.controller.pool.Exec(ctx, `update pgbase_meta.file_storage_migrations set status='failed',failure=$2,updated_at=CURRENT_TIMESTAMP where id=$1 and not cancel_requested and status not in ('committed','canceled')`, id, "object migration failed")
 	return fmt.Errorf("storage migration: %w", cause)
 }
 
@@ -605,7 +720,7 @@ func (s *ObjectMigrationService) CleanupOne(ctx context.Context) (bool, error) {
 			_, err = tx.Exec(ctx, `update pgbase_meta.file_storage_source_cleanup set not_before=CURRENT_TIMESTAMP+interval '1 hour',failure='source namespace is used by an active migration' where migration_id=$1 and object_key=$2`, migrationID, key)
 			return err
 		}
-		source, err := buildSnapshot(ctx, sourceSnapshot)
+		source, err := s.buildStore(ctx, sourceSnapshot)
 		if err != nil {
 			return err
 		}

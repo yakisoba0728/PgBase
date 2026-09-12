@@ -20,7 +20,7 @@ This addendum resolves 16 disputed causes in the draft register. It preserves th
 | API-RT-001 | Accept | P2 | Static defect | 2 | Synchronous cleanup deliberately detaches from the request but supplies no replacement deadline, so storage can hold the handler indefinitely. |
 | P1/P2-CONFIG-RETENTION-RANGE | Accept | P3 | Static defect | 1 | Environment validation admits a value the persisted storage contract deterministically rejects later. |
 | PASS1/P2-USERMIGRATE-01 | Accept | P2 | Static defect | 1 | `written` rows bypass all artifact verification even though exact repair bytes are durable in the database. |
-| PGB02-003 | Accept | P2 | Static defect | 3 | `gzip;q=0.00` is valid and explicitly refuses gzip, but the parser accepts it. |
+| PGB02-003 | Accept | P3 | Static defect | 3 | `gzip;q=0.00` is valid and explicitly refuses gzip, but the parser accepts it. |
 | ROOTCI-P1-001 / PASS2-ROOTCI-001 | Accept, narrow | P3 | Static defect | 1 | Invalid DNS labels pass local config validation; this is operator-input validation, with no demonstrated security bypass. |
 | PGB02-001 | Narrow | P3 | Maintenance | 4 | `io.ReadAll` defeats streaming, but object-size enforcement bounds allocation; range compatibility needs characterization before redesign. |
 

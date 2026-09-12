@@ -28,6 +28,10 @@ func TestTextAutogeneratePrecedenceRetryReplayAndBatchRollback(t *testing.T) {
 		{Name: "slug", Type: schema.TypeText, Required: true, Unique: true, Options: &schema.FieldOptions{Pattern: `^[a-c]$`, AutogeneratePattern: `[a-c]`}},
 		{Name: "label", Type: schema.TypeText},
 	})
+	if err := records.Validate(ctx, ValidateRequest{Principal: principal, RequestID: "validate-required-autogen", Collection: "generated_text",
+		Input: map[string]json.RawMessage{"label": json.RawMessage(`"valid"`)}}); err != nil {
+		t.Fatalf("Validate(create without required autogenerate field): %v", err)
+	}
 
 	records.random = bytes.NewReader(make([]byte, 64))
 	first, err := records.Create(ctx, CreateRequest{Principal: principal, RequestID: "autogen-first", Collection: "generated_text", IdempotencyKey: "autogen-first-key-0001", Input: map[string]json.RawMessage{"label": json.RawMessage(`"one"`)}})
@@ -233,6 +237,20 @@ func TestGeneratedFieldsRejectOverridesClearAndRollbackBatch(t *testing.T) {
 		{Name: "changed_stamp", Type: schema.TypeAutoDate, Options: &schema.FieldOptions{OnUpdate: true}},
 		{Name: "password", Type: schema.TypePassword},
 	})
+	if err := records.Validate(ctx, ValidateRequest{Principal: principal, RequestID: "validate-generated-create", Collection: "generated_optional",
+		Input: map[string]json.RawMessage{"name": json.RawMessage(`"validated"`)}}); err != nil {
+		t.Fatalf("Validate(create without generated fields): %v", err)
+	}
+	for _, request := range []ValidateRequest{
+		{Principal: principal, RequestID: "validate-autodate-create", Collection: "generated_optional",
+			Input: map[string]json.RawMessage{"name": json.RawMessage(`"override"`), "created_stamp": json.RawMessage(`"2020-01-01T00:00:00Z"`)}},
+		{Principal: principal, RequestID: "validate-autodate-update", Collection: "generated_optional", ID: uuid.New(),
+			Input: map[string]json.RawMessage{"changed_stamp": json.RawMessage(`"2020-01-01T00:00:00Z"`)}},
+	} {
+		if err := records.Validate(ctx, request); err == nil {
+			t.Fatalf("Validate(%s) accepted a client-written autodate", request.RequestID)
+		}
+	}
 	_, err := records.Create(ctx, CreateRequest{Principal: principal, RequestID: "override-autodate", Collection: "generated_optional",
 		Input: map[string]json.RawMessage{"name": json.RawMessage(`"override"`), "created_stamp": json.RawMessage(`"2020-01-01T00:00:00Z"`)}})
 	if err == nil {

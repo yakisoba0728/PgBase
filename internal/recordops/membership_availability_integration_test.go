@@ -19,9 +19,15 @@ func TestReleaseBTraversalControlFailureIsStablyUnavailable(t *testing.T) {
 	if _, err := pool.Exec(ctx, `delete from pgbase_meta.record_membership_capability where singleton`); err != nil {
 		t.Fatal(err)
 	}
-	_, err := records.List(ctx, ListRequest{
-		Principal: principal, RequestID: "availability-traversal-list", Collection: "records", Limit: 1,
-	})
+	request := ListRequest{Principal: principal, Collection: "records", Limit: 1}
+	request.RequestID = "availability-traversal-list"
+	_, err := records.List(ctx, request)
+	assertStableMembershipUnavailable(t, err)
+	request.RequestID = "availability-traversal-pocketbase"
+	_, err = records.ListPocketBase(ctx, PocketBaseListRequest{ListRequest: request, Page: 1, PerPage: 1})
+	assertStableMembershipUnavailable(t, err)
+	request.RequestID = "availability-traversal-count"
+	_, err = records.Count(ctx, request)
 	assertStableMembershipUnavailable(t, err)
 }
 

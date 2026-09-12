@@ -153,14 +153,14 @@ final class RealtimeService {
         }
         await for (final message in _messages(response.stream)) {
           final data = decodeExactJson(utf8.encode(message.data));
-          if (data is! JsonObject) continue;
           if (message.event == 'PB_CONNECT') {
+            if (data is! JsonObject)
+              throw const PgBaseProtocolError('invalid_realtime_connect');
             final id = data['clientId'];
             if (id is! JsonString)
               throw const PgBaseProtocolError('invalid_realtime_connect');
             _clientId = id.value;
             await _sync();
-            reconnects = 0;
             if (!(_ready?.isCompleted ?? true)) _ready!.complete();
             continue;
           }
@@ -171,6 +171,7 @@ final class RealtimeService {
           if (topic.startsWith('@')) {
             event = RealtimeCustomEvent(topic: topic, data: data);
           } else {
+            if (data is! JsonObject) continue;
             final action = data['action'];
             final record = data['record'];
             if (action is! JsonString || record is! JsonObject) continue;
@@ -185,7 +186,10 @@ final class RealtimeService {
             for (final listener in List.of(listeners)) {
               listener(event);
             }
+          if (listeners != null) reconnects = 0;
         }
+        if (!stop.isCancelled)
+          throw const PgBaseProtocolError('realtime_stream_ended');
       } on PgBaseCancellation {
         if (!(_ready?.isCompleted ?? true)) {
           _failReady(const PgBaseCancellation());

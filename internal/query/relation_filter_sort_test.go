@@ -102,6 +102,48 @@ func TestCompileRelationListReverseRelationsUseIncomingCorrelation(t *testing.T)
 	}
 }
 
+func TestCompileRelationListRejectsAmbiguousReverseRelationName(t *testing.T) {
+	t.Parallel()
+	targetID := uuid.MustParse("10000000-0000-4000-8000-000000000001")
+	target := schema.Collection{ID: targetID, Name: "target", TableName: "target"}
+	makeSource := func(idText, fieldIDText, name, fieldName string) schema.Collection {
+		id := uuid.MustParse(idText)
+		fieldID := uuid.MustParse(fieldIDText)
+		return schema.Collection{ID: id, Name: name, TableName: name, Fields: []schema.Field{
+			{ID: fieldID, Name: fieldName, ColumnName: fieldName, Type: schema.TypeRelation, Relation: &schema.RelationSpec{
+				TargetCollectionID: targetID, Cardinality: schema.RelationSingle, MaxSelect: 1,
+				ValueCodecVersion: schema.RelationValueCodecVersion,
+				Storage:           schema.RelationStorage{Kind: schema.RelationStorageInlineFKV1, Name: fieldName},
+			}},
+			{ID: uuid.New(), Name: "name", ColumnName: "name", Type: schema.TypeText, Indexed: true},
+		}}
+	}
+	first := makeSource("20000000-0000-4000-8000-000000000001", "30000000-0000-4000-8000-000000000001", "a_via_b", "c")
+	second := makeSource("20000000-0000-4000-8000-000000000002", "30000000-0000-4000-8000-000000000002", "a", "b_via_c")
+	catalog := schema.Catalog{Collections: map[string]schema.Collection{
+		target.Name: target, first.Name: first, second.Name: second,
+	}, Incoming: map[uuid.UUID][]schema.RelationRef{targetID: {
+		{SourceCollectionID: first.ID, SourceFieldID: first.Fields[0].ID},
+		{SourceCollectionID: second.ID, SourceFieldID: second.Fields[0].ID},
+	}}}
+	for _, testCase := range []struct{ operation, expression string }{
+		{operation: "filter", expression: "a_via_b_via_c.name = 'Ada'"},
+		{operation: "sort", expression: "a_via_b_via_c.name"},
+	} {
+		if testCase.operation == "filter" {
+			_, err := compileRelationListPlan(catalog, target, mustParseFilter(t, testCase.expression), effectiveSortKeys(nil))
+			assertValidationDetail(t, err, "filter", "relation_filter_unsupported")
+			continue
+		}
+		keys, err := parseSort(testCase.expression)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = compileRelationListPlan(catalog, target, nil, effectiveSortKeys(keys))
+		assertValidationDetail(t, err, "sort", "relation_sort_unsupported")
+	}
+}
+
 func TestCompileRelationListRejectsStaticBudgets(t *testing.T) {
 	t.Parallel()
 

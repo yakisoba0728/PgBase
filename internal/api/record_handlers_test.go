@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/yakisoba0728/PgBase/internal/lifecycle"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
 	"github.com/yakisoba0728/PgBase/internal/schema"
@@ -563,6 +564,76 @@ func TestRecordResponsesExposeEntityTagReplayLocationAndCompatibility(t *testing
 		}
 		assertCompatibilityHeaders(t, response, string(recordops.CompatibilityLastWriteWins))
 	})
+}
+
+func TestCommittedRecordMutationEnrichmentFailureReturnsOnlyPublicIdentity(t *testing.T) {
+	id := "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	enrichmentErr := errors.New("presentation enrichment failed")
+
+	for _, test := range []struct {
+		name       string
+		method     string
+		path       string
+		wantStatus int
+	}{
+		{name: "create", method: http.MethodPost, path: "/api/v1/collections/posts/records", wantStatus: http.StatusCreated},
+		{name: "update", method: http.MethodPatch, path: "/api/v1/collections/posts/records/" + id, wantStatus: http.StatusOK},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			registry := &lifecycle.Registry{}
+			var observed error
+			_, err := registry.On("record.enrich", lifecycle.Hook{
+				Before: func(_ context.Context, event *lifecycle.Event) error {
+					payload, ok := event.Data.(*RecordEnrichEvent)
+					if !ok {
+						t.Fatalf("enrich event data = %T", event.Data)
+					}
+					payload.Record["title"] = "partially-enriched"
+					payload.Record["secret"] = "must-not-leak"
+					return enrichmentErr
+				},
+				After: func(_ context.Context, event *lifecycle.Event) { observed = event.Err },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			record := recordops.Record{
+				Data:    map[string]any{"id": id, "title": "stored", "secret": "stored-secret"},
+				ETag:    `"pgb1.committed"`,
+				Version: 2,
+			}
+			records := &fakeRecordService{record: record}
+			dependencies := recordTestDependencies(&fakeAdminAuth{authenticateAdmin: validSession().Administrator}, records)
+			dependencies.LifecycleHooks = registry
+			request := authenticatedRecordRequest(test.method, test.path, `{"title":"changed"}`, true)
+			if test.method == http.MethodPost {
+				request.Header.Set("Idempotency-Key", "enrichment-failure-key-0001")
+			}
+			response := httptest.NewRecorder()
+			mustRouter(t, dependencies).ServeHTTP(response, request)
+
+			if response.Code != test.wantStatus || response.Body.String() != `{"id":"`+id+`"}`+"\n" {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if strings.Contains(response.Body.String(), "title") || strings.Contains(response.Body.String(), "secret") ||
+				response.Header().Get("ETag") != record.ETag || response.Header().Get("PgBase-Enrichment") != "failed" ||
+				!strings.Contains(response.Header().Get("Access-Control-Expose-Headers"), "PgBase-Enrichment") {
+				t.Fatalf("headers=%v body=%s", response.Header(), response.Body.String())
+			}
+			if !errors.Is(observed, enrichmentErr) {
+				t.Fatalf("enrichment lifecycle error = %v", observed)
+			}
+			if test.method == http.MethodPost {
+				if records.createCalls != 1 || records.updateCalls != 0 ||
+					response.Header().Get("Location") != "/api/v1/collections/posts/records/"+id ||
+					response.Header().Get("Idempotency-Replayed") != "false" {
+					t.Fatalf("create=%d update=%d headers=%v", records.createCalls, records.updateCalls, response.Header())
+				}
+			} else if records.createCalls != 0 || records.updateCalls != 1 {
+				t.Fatalf("create=%d update=%d", records.createCalls, records.updateCalls)
+			}
+		})
+	}
 }
 
 func TestRecordRoutesMapStableRecordOperationErrors(t *testing.T) {

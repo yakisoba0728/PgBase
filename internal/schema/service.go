@@ -217,12 +217,18 @@ func validateRequiredRelationAdds(
 }
 
 func requiredRelationAddOrdinal(current Collection, desired PlannedCollection) (int, bool) {
-	existing := make(map[string]struct{}, len(current.Fields))
+	existingNames := make(map[string]struct{}, len(current.Fields))
+	existingIDs := make(map[uuid.UUID]struct{}, len(current.Fields))
 	for _, field := range current.Fields {
-		existing[field.Name] = struct{}{}
+		existingNames[field.Name] = struct{}{}
+		existingIDs[field.ID] = struct{}{}
 	}
 	for ordinal, field := range desired.Fields {
-		if _, exists := existing[field.Name]; !exists && field.Type == TypeRelation && field.Required {
+		_, exists := existingNames[field.Name]
+		if field.ID != uuid.Nil {
+			_, exists = existingIDs[field.ID]
+		}
+		if !exists && field.Type == TypeRelation && field.Required {
 			return ordinal, true
 		}
 	}

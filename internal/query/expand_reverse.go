@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/relation"
@@ -24,6 +25,7 @@ func (s *Service) executeReverseExpandNode(
 	catalog schema.Catalog,
 	job expandLevelJob,
 	principal Principal,
+	ruleContext *accessrule.RequestContext,
 	usage *expansionUsage,
 ) ([]*materializedRecord, error) {
 	if len(job.parents) == 0 {
@@ -56,7 +58,7 @@ func (s *Service) executeReverseExpandNode(
 	if err := usage.takeQuerySteps(1); err != nil {
 		return nil, err
 	}
-	pairs, err := discoverReverseExpand(ctx, tx, catalog, *job.node, parentIDs, discoveryLimit, principal)
+	pairs, err := discoverReverseExpand(ctx, tx, catalog, *job.node, parentIDs, discoveryLimit, principal, ruleContext)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +78,7 @@ func (s *Service) executeReverseExpandNode(
 	if err := usage.takeRows(len(sourceIDs)); err != nil {
 		return nil, err
 	}
-	records, err := s.fetchExpansionTargets(ctx, tx, catalog, job.node.target, sourceIDs, principal, usage)
+	records, err := s.fetchExpansionTargets(ctx, tx, catalog, job.node.target, sourceIDs, principal, ruleContext, usage)
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +119,7 @@ func discoverReverseExpand(
 	parentIDs []uuid.UUID,
 	maximumRows int,
 	principal Principal,
+	ruleContext *accessrule.RequestContext,
 ) ([]reverseExpandPair, error) {
 	if maximumRows < 0 {
 		return nil, expandBudgetError()
@@ -140,7 +143,7 @@ func discoverReverseExpand(
 		if err != nil {
 			return nil, err
 		}
-		predicate, args, err := compilePolicyPredicate(rules.View, node.target, policyTarget, "source_records", principal, len(statement.Args)-1)
+		predicate, args, err := compilePolicyPredicateWithRequest(rules.View, node.target, policyTarget, "source_records", principal, len(statement.Args)-1, catalog, ruleContext)
 		if err != nil {
 			return nil, err
 		}

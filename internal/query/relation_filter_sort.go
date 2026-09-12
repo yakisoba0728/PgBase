@@ -253,6 +253,7 @@ func resolveRelationPath(catalog schema.Catalog, root schema.Collection, text, o
 		field, ok := filterField(current, segment)
 		var reverse bool
 		if !ok {
+			matches := 0
 			for _, ref := range catalog.Incoming[current.ID] {
 				source, found := catalogCollectionByID(catalog, ref.SourceCollectionID)
 				if !found {
@@ -267,8 +268,11 @@ func resolveRelationPath(catalog schema.Catalog, root schema.Collection, text, o
 				}
 				if sourceField.ID != uuid.Nil && segment == source.Name+"_via_"+sourceField.Name {
 					field, current, ok, reverse = sourceField, source, true, true
-					break
+					matches++
 				}
+			}
+			if matches != 1 {
+				return plannedRelationPath{}, relationPathUnsupported(operation)
 			}
 		}
 		if !ok {

@@ -31,7 +31,7 @@ func runJavaScript(ctx context.Context, args []string, env environment, streams 
 		}
 		filename := filepath.Clean(args[1])
 		if err := os.WriteFile(filename, contents, 0o644); err != nil {
-			return operationError(nil, "write JavaScript type declarations", err)
+			return fmt.Errorf("write JavaScript type declarations: %w", err)
 		}
 		_, err := fmt.Fprintln(streams.stdout(), filename)
 		return err

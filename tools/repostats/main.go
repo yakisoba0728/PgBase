@@ -653,6 +653,7 @@ func jsCodeOnly(data []byte) []byte {
 	result := append([]byte(nil), data...)
 	state := jsNormal
 	escaped := false
+	templateExpressions := []int{}
 	for index := 0; index < len(result); index++ {
 		current := result[index]
 		next := byte(0)
@@ -662,6 +663,13 @@ func jsCodeOnly(data []byte) []byte {
 		switch state {
 		case jsNormal:
 			switch {
+			case current == '}' && len(templateExpressions) != 0 && templateExpressions[len(templateExpressions)-1] != 0:
+				templateExpressions[len(templateExpressions)-1]--
+				if templateExpressions[len(templateExpressions)-1] == 0 {
+					state = jsTemplate
+				}
+			case current == '{' && len(templateExpressions) != 0 && templateExpressions[len(templateExpressions)-1] != 0:
+				templateExpressions[len(templateExpressions)-1]++
 			case current == '/' && next == '/':
 				result[index], result[index+1] = ' ', ' '
 				index++
@@ -682,6 +690,7 @@ func jsCodeOnly(data []byte) []byte {
 				result[index] = ' '
 				state = jsTemplate
 				escaped = false
+				templateExpressions = append(templateExpressions, 0)
 			}
 		case jsLineComment:
 			if current == '\n' {
@@ -697,14 +706,29 @@ func jsCodeOnly(data []byte) []byte {
 			} else if current != '\n' {
 				result[index] = ' '
 			}
-		case jsSingleQuote, jsDoubleQuote, jsTemplate:
+		case jsTemplate:
+			if current == '$' && next == '{' && !escaped {
+				state = jsNormal
+				templateExpressions[len(templateExpressions)-1] = 1
+				escaped = false
+				index++
+				continue
+			}
+			result[index] = ' '
+			if escaped {
+				escaped = false
+			} else if current == '\\' {
+				escaped = true
+			} else if current == '`' {
+				templateExpressions = templateExpressions[:len(templateExpressions)-1]
+				state = jsNormal
+			}
+		case jsSingleQuote, jsDoubleQuote:
 			quote := byte('\'')
 			if state == jsDoubleQuote {
 				quote = '"'
-			} else if state == jsTemplate {
-				quote = '`'
 			}
-			if current == '\n' && state != jsTemplate {
+			if current == '\n' {
 				state = jsNormal
 				escaped = false
 				continue

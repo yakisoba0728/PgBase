@@ -67,4 +67,113 @@ func TestSchemaImportRejectsUnsupportedViewFieldMetadata(t *testing.T) {
 	}
 }
 
+func TestSchemaDocumentChecksumSealsOrderedPlans(t *testing.T) {
+	document := SchemaDocument{Format: SchemaDocumentFormat, Collections: []SchemaDocumentCollection{{Name: "posts"}}}
+	first := []Plan{{Operation: createCollectionOperation, BaseVersion: 4, Statements: []string{"create table app.posts(id uuid)"}}}
+	second := []Plan{{Operation: createCollectionOperation, BaseVersion: 4, Statements: []string{"create table app.posts(id uuid, title text)"}}}
+	one, err := schemaDocumentChecksum(4, "policy", document, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := schemaDocumentChecksum(4, "policy", document, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one == two {
+		t.Fatalf("checksums match for different reviewed DDL plans: %s", one)
+	}
+	reordered, err := schemaDocumentChecksum(4, "policy", document, []Plan{
+		{Operation: createCollectionOperation, BaseVersion: 4, Statements: []string{"select 2"}},
+		{Operation: updateCollectionOperation, BaseVersion: 5, Statements: []string{"select 1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reversed, err := schemaDocumentChecksum(4, "policy", document, []Plan{
+		{Operation: updateCollectionOperation, BaseVersion: 5, Statements: []string{"select 1"}},
+		{Operation: createCollectionOperation, BaseVersion: 4, Statements: []string{"select 2"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reordered == reversed {
+		t.Fatalf("checksum does not bind plan order: %s", reordered)
+	}
+}
+
+func TestSchemaDocumentChecksumDistinguishesCompilerGenerations(t *testing.T) {
+	catalog := Catalog{Collections: map[string]Collection{}}
+	document := SchemaDocument{Format: SchemaDocumentFormat, Collections: []SchemaDocumentCollection{{Name: "posts", Fields: []FieldInput{{Name: "title", Type: TypeText, Indexed: true}}}}}
+	change := NewCreateChange(CreateCollectionInput{Name: "posts", Fields: document.Collections[0].Fields})
+	v1, err := compilePlan(catalog, change, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, err := compilePlan(catalog, change, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v1.Statements) == len(v2.Statements) {
+		t.Fatalf("compiler fixtures did not produce different DDL: v1=%#v v2=%#v", v1.Statements, v2.Statements)
+	}
+	first, err := schemaDocumentChecksum(0, "policy", document, []Plan{v1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := schemaDocumentChecksum(0, "policy", document, []Plan{v2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatalf("schema import checksum did not bind compiler generation: %s", first)
+	}
+}
+
+func TestSchemaImportCollectionMetadataChangeIsNotANoOp(t *testing.T) {
+	current := Collection{ID: uuid.New(), Name: "posts", CompatibilityName: "Posts", Type: CollectionTypeBase, ValidationMode: ValidationModePostgres, RecordID: DefaultRecordIDPolicy(), TableName: "posts"}
+	tests := []struct {
+		name     string
+		metadata SchemaDocumentCollection
+	}{
+		{name: "compatibility name", metadata: SchemaDocumentCollection{CompatibilityName: "LegacyPosts"}},
+		{name: "type", metadata: SchemaDocumentCollection{Type: CollectionTypeAuth}},
+		{name: "system", metadata: SchemaDocumentCollection{System: true}},
+		{name: "validation mode", metadata: SchemaDocumentCollection{ValidationMode: ValidationModePocketBase}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			item := test.metadata
+			item.Name = "posts"
+			document := SchemaDocument{Format: SchemaDocumentFormat, Collections: []SchemaDocumentCollection{item}}
+			changes, err := importChanges(Catalog{Collections: map[string]Collection{"posts": current}}, document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(changes) != 1 || changes[0].kind != changeUpdate {
+				t.Fatalf("changes=%#v, want one collection metadata update", changes)
+			}
+		})
+	}
+}
+
+func TestApplyMigrationViewFieldsValidatesOverriddenMetadata(t *testing.T) {
+	tests := []struct {
+		name  string
+		field FieldInput
+	}{
+		{name: "hidden presentable", field: FieldInput{Name: "title", Type: TypeText, Hidden: true, Presentable: true}},
+		{name: "overlong help", field: FieldInput{Name: "title", Type: TypeText, Help: string(make([]rune, 301))}},
+		{name: "incompatible options", field: FieldInput{Name: "title", Type: TypeText, Options: &FieldOptions{Thumbs: []string{"20x20"}}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan := Plan{Definition: PlannedCollection{Name: "report", Fields: []PlannedField{{Name: "title", Type: TypeText}}}}
+			snapshot := MigrationSnapshotCollection{Name: "report", View: &ViewInput{SQL: "select title from app.posts"}, Fields: []FieldInput{test.field}}
+			if err := applyMigrationViewFields(&plan, snapshot); err == nil {
+				t.Fatal("invalid migration view field metadata accepted")
+			}
+		})
+	}
+}
+
 func intPointerString(value string) *string { return &value }

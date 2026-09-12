@@ -87,6 +87,7 @@ type User struct {
 	EmailVisibility  bool
 	Verified         bool
 	CreatedAt        time.Time
+	passwordEnabled  bool
 }
 
 type Session struct {

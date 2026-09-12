@@ -6,10 +6,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +22,218 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/migrate"
 	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
+
+func TestObjectMigrationCancellationWaitsForOwnedCopy(t *testing.T) {
+	for _, phase := range []string{"before_put", "post_put_preledger"} {
+		t.Run(phase, func(t *testing.T) {
+			ctx, pool, controller, migrationID, key, source, destination := newLocalMigrationFixture(t, nil)
+			blocking := &migrationBlockingStore{migrationMemoryStore: destination, phase: phase, reached: make(chan struct{}), release: make(chan struct{})}
+			service := NewObjectMigrationService(controller)
+			service.buildStore = migrationStoreFactory(source, blocking)
+			copied := make(chan error, 1)
+			go func() {
+				_, err := service.copyOne(ctx, migrationID)
+				copied <- err
+			}()
+			select {
+			case <-blocking.reached:
+			case <-time.After(time.Second):
+				t.Fatal("copy did not reach the requested interlock")
+			}
+			if err := service.Cancel(ctx, migrationID); err != nil {
+				t.Fatal(err)
+			}
+			status, err := service.Status(ctx, migrationID)
+			if err != nil || status.Status != "canceling" {
+				t.Fatalf("status while copy owns intent=%#v err=%v", status, err)
+			}
+			var cleanup int
+			if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.file_storage_source_cleanup where migration_id=$1`, migrationID).Scan(&cleanup); err != nil || cleanup != 0 {
+				t.Fatalf("cleanup published before copy reconciled=%d err=%v", cleanup, err)
+			}
+			if worked, err := service.CleanupOne(ctx); err != nil || worked {
+				t.Fatalf("cleanup raced active copy: worked=%t err=%v", worked, err)
+			}
+			close(blocking.release)
+			if err := <-copied; err != nil {
+				t.Fatal(err)
+			}
+			finished, err := service.finishCancellation(ctx, migrationID)
+			if err != nil || !finished {
+				t.Fatalf("finish cancellation=%t err=%v", finished, err)
+			}
+			status, _ = service.Status(ctx, migrationID)
+			if status.Status != "canceled" {
+				t.Fatalf("final status=%s", status.Status)
+			}
+			if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.file_storage_source_cleanup where migration_id=$1`, migrationID).Scan(&cleanup); err != nil || cleanup != 1 {
+				t.Fatalf("durable cleanup after reconciliation=%d err=%v", cleanup, err)
+			}
+			if _, err := destination.Open(ctx, key); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("owned destination remains after canceled copy: %v", err)
+			}
+		})
+	}
+}
+
+func TestObjectMigrationLedgerFailureRetainsOwnedCleanupIntent(t *testing.T) {
+	ctx, pool, controller, migrationID, key, source, destination := newLocalMigrationFixture(t, nil)
+	service := NewObjectMigrationService(controller)
+	service.buildStore = migrationStoreFactory(source, destination)
+	if _, err := pool.Exec(ctx, `create function pgbase_meta.test_fail_migration_verified() returns trigger language plpgsql as $$ begin if new.status='verified' then raise exception 'injected verified ledger failure'; end if; return new; end $$; create trigger test_fail_migration_verified before update on pgbase_meta.file_storage_migration_objects for each row execute function pgbase_meta.test_fail_migration_verified()`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.copyOne(ctx, migrationID); err == nil {
+		t.Fatal("copy succeeded despite injected ledger failure")
+	}
+	var owned bool
+	if err := pool.QueryRow(ctx, `select created_destination from pgbase_meta.file_storage_migration_objects where migration_id=$1 and object_key=$2`, migrationID, key).Scan(&owned); err != nil || !owned {
+		t.Fatalf("pre-Put ownership intent=%t err=%v", owned, err)
+	}
+	if _, err := destination.Open(ctx, key); err != nil {
+		t.Fatalf("fault did not occur after destination publication: %v", err)
+	}
+	if err := service.Cancel(ctx, migrationID); err != nil {
+		t.Fatal(err)
+	}
+	status, _ := service.Status(ctx, migrationID)
+	if status.Status != "canceled" {
+		t.Fatalf("status=%s", status.Status)
+	}
+	if _, err := pool.Exec(ctx, `update pgbase_meta.file_storage_source_cleanup set not_before=CURRENT_TIMESTAMP-interval '1 second' where migration_id=$1`, migrationID); err != nil {
+		t.Fatal(err)
+	}
+	worked, err := service.CleanupOne(ctx)
+	if err != nil || !worked {
+		t.Fatalf("cleanup owned destination=%t err=%v", worked, err)
+	}
+	if _, err := destination.Open(ctx, key); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("untracked destination remains: %v", err)
+	}
+}
+
+func TestObjectMigrationCancellationPreservesPreexistingIdenticalDestination(t *testing.T) {
+	ctx, pool, controller, migrationID, key, source, destination := newLocalMigrationFixture(t, []byte("migration bytes"))
+	service := NewObjectMigrationService(controller)
+	service.buildStore = migrationStoreFactory(source, destination)
+	if copied, err := service.copyOne(ctx, migrationID); err != nil || !copied {
+		t.Fatalf("copy=%t err=%v", copied, err)
+	}
+	var owned bool
+	if err := pool.QueryRow(ctx, `select created_destination from pgbase_meta.file_storage_migration_objects where migration_id=$1 and object_key=$2`, migrationID, key).Scan(&owned); err != nil || owned {
+		t.Fatalf("preexisting object ownership=%t err=%v", owned, err)
+	}
+	if err := service.Cancel(ctx, migrationID); err != nil {
+		t.Fatal(err)
+	}
+	var cleanup int
+	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.file_storage_source_cleanup where migration_id=$1`, migrationID).Scan(&cleanup); err != nil || cleanup != 0 {
+		t.Fatalf("preexisting object cleanup receipts=%d err=%v", cleanup, err)
+	}
+	reader, err := destination.Open(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(reader)
+	_ = reader.Close()
+	if string(got) != "migration bytes" {
+		t.Fatalf("preexisting bytes=%q", got)
+	}
+}
+
+func newLocalMigrationFixture(t *testing.T, destinationBytes []byte) (context.Context, *database.Pool, *StorageController, uuid.UUID, string, *migrationMemoryStore, *migrationMemoryStore) {
+	t.Helper()
+	ctx := context.Background()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := migrate.New(pool, slog.New(slog.NewTextHandler(io.Discard, nil))).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	controller, err := NewStorageController(ctx, pool, bytes.Repeat([]byte{8}, 32), StorageConfig{Driver: "local", LocalDirectory: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	namespace, object := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	key := "extensions/" + namespace + "/" + object
+	source := &migrationMemoryStore{values: map[string][]byte{key: []byte("migration bytes")}}
+	destination := &migrationMemoryStore{values: map[string][]byte{}}
+	if destinationBytes != nil {
+		destination.values[key] = append([]byte(nil), destinationBytes...)
+	}
+	encode := func(snapshot storageSnapshot) []byte {
+		raw, err := json.Marshal(snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		blob, err := controller.encrypt(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return blob
+	}
+	migrationID := uuid.New()
+	sourceBlob := encode(storageSnapshot{Driver: "local", LocalDirectory: "source"})
+	destinationBlob := encode(storageSnapshot{Driver: "local", LocalDirectory: "destination"})
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.extension_objects(namespace_hash,key_hash,object_key,size_bytes) values($1,$2,$3,$4)`, namespace, object, key, len("migration bytes")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.file_storage_migrations(id,status,base_revision,source_config_ciphertext,destination_config_ciphertext,request_hash,total_objects) values($1,'copying',1,$2,$3,$4,1)`, migrationID, sourceBlob, destinationBlob, []byte("request")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.file_storage_migration_objects(migration_id,object_key,object_kind,status) values($1,$2,'extension','pending')`, migrationID, key); err != nil {
+		t.Fatal(err)
+	}
+	return ctx, pool, controller, migrationID, key, source, destination
+}
+
+func migrationStoreFactory(source ObjectStore, destination ObjectStore) func(context.Context, storageSnapshot) (ObjectStore, error) {
+	return func(_ context.Context, snapshot storageSnapshot) (ObjectStore, error) {
+		if snapshot.LocalDirectory == "source" {
+			return source, nil
+		}
+		return destination, nil
+	}
+}
+
+type migrationBlockingStore struct {
+	*migrationMemoryStore
+	phase   string
+	reached chan struct{}
+	release chan struct{}
+	once    sync.Once
+	opens   int
+}
+
+func (s *migrationBlockingStore) Put(ctx context.Context, key string, body io.Reader) error {
+	if s.phase == "before_put" {
+		s.once.Do(func() { close(s.reached) })
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return s.migrationMemoryStore.Put(ctx, key, body)
+}
+
+func (s *migrationBlockingStore) Open(ctx context.Context, key string) (io.ReadCloser, error) {
+	s.mu.Lock()
+	s.opens++
+	opens := s.opens
+	s.mu.Unlock()
+	if s.phase == "post_put_preledger" && opens == 2 {
+		s.once.Do(func() { close(s.reached) })
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return s.migrationMemoryStore.Open(ctx, key)
+}
 
 func TestObjectMigrationLocalToMinIOCutoverAndDelayedCleanup(t *testing.T) {
 	endpoint := os.Getenv("PGBASE_TEST_S3_ENDPOINT")

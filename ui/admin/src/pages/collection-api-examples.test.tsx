@@ -4,8 +4,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { collectionExample } from "./collection-api-examples";
+import { collectionExample, CollectionAPIExamples } from "./collection-api-examples";
 import type { CollectionDefinition } from "../backend/ports";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 const collection: CollectionDefinition = { name: "posts", tableName: "posts", fields: [
   { name: "title", type: "text", required: true, unique: false, indexed: true, ordinal: 0, options: { minLength: 2 } },
@@ -29,5 +30,24 @@ describe("collection API examples", () => {
     expect(collectionExample(collection, "http://localhost", "anonymous")).toContain("/api/v1/public/collections/posts/records");
     expect(collectionExample(collection, "http://localhost", "service")).toContain("Bearer YOUR_SERVICE_TOKEN");
     expect(collectionExample({ ...collection, view: { source: "original", projection: ["title"] } }, "http://localhost", "user")).not.toContain("createWithETag");
+  });
+
+  it("keeps Dart examples aligned with the selected identity", () => {
+    render(<CollectionAPIExamples collection={collection} />);
+    fireEvent.click(screen.getByText("API examples for posts"));
+    fireEvent.change(screen.getByLabelText("Example format"), {
+      target: { value: "dart" },
+    });
+    fireEvent.change(screen.getByLabelText("API identity"), {
+      target: { value: "anonymous" },
+    });
+    expect(screen.getByText(/\/api\/v1\/public\/collections\/posts\/records/)).toBeVisible();
+    expect(screen.getByText(/http\.get/)).toBeVisible();
+    expect(screen.queryByText(/client\.login/)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("API identity"), {
+      target: { value: "service" },
+    });
+    expect(screen.getByText(/Bearer YOUR_SERVICE_TOKEN/)).toBeVisible();
   });
 });

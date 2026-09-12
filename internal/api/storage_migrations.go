@@ -77,8 +77,13 @@ func (e storageMigrationEndpoints) start(w http.ResponseWriter, r *http.Request)
 		writeStorageError(w, r, filestore.ErrInvalid)
 		return
 	}
-	operationID, parseErr := uuid.Parse(r.Header.Get("PgBase-Operation-ID"))
-	if parseErr != nil {
+	operationIDs := r.Header.Values(operationIDHeader)
+	if len(operationIDs) != 1 {
+		writeStorageError(w, r, filestore.ErrInvalid)
+		return
+	}
+	operationID, parseErr := uuid.Parse(operationIDs[0])
+	if parseErr != nil || operationID == uuid.Nil {
 		writeStorageError(w, r, filestore.ErrInvalid)
 		return
 	}

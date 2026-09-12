@@ -53,6 +53,7 @@ type storageLease struct {
 	store    ObjectStore
 	revision int64
 	backend  uint32
+	conn     *pgx.Conn
 }
 
 type StorageController struct {
@@ -106,7 +107,7 @@ func (c *StorageController) BeginStorageOperation(ctx context.Context) (context.
 			<-c.operations
 		})
 	}
-	return context.WithValue(ctx, storageLeaseContextKey{}, storageLease{store: store, revision: settings.Revision, backend: backend}), release, nil
+	return context.WithValue(ctx, storageLeaseContextKey{}, storageLease{store: store, revision: settings.Revision, backend: backend, conn: conn}), release, nil
 }
 
 func NewStorageController(ctx context.Context, pool *database.Pool, tokenSecret []byte, startup StorageConfig) (*StorageController, error) {
@@ -313,7 +314,7 @@ func (c *StorageController) Update(ctx context.Context, in StorageUpdate) (Stora
 		}
 		if location(old) != location(candidate) {
 			var count int
-			if err := tx.QueryRow(ctx, `select (select count(*) from pgbase_meta.record_files)+(select count(*) from pgbase_meta.record_file_variants)+(select count(*) from pgbase_meta.file_object_deletions)`).Scan(&count); err != nil {
+			if err := tx.QueryRow(ctx, `select (select count(*) from pgbase_meta.record_files)+(select count(*) from pgbase_meta.record_file_variants)+(select count(*) from pgbase_meta.extension_objects)+(select count(*) from pgbase_meta.file_object_deletions)`).Scan(&count); err != nil {
 				return err
 			}
 			if count != 0 {

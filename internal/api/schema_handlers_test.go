@@ -104,6 +104,29 @@ func TestCatalogCompatibilityPaginationKeepsNativeEnvelope(t *testing.T) {
 	}
 }
 
+func TestCatalogRejectsMalformedAndDuplicateSingletonQueriesBeforeServiceCall(t *testing.T) {
+	for _, rawQuery := range []string{
+		"compat=pocketbase&sort=%",
+		"compat=pocketbase&compat=pocketbase",
+		"compat=pocketbase&page=1&page=2",
+		"compat=pocketbase&perPage=10&perPage=20",
+		"compat=pocketbase&filter=name%3Dalpha&filter=name%3Dbeta",
+		"compat=pocketbase&sort=name&sort=-name",
+	} {
+		t.Run(rawQuery, func(t *testing.T) {
+			service := &fakeSchemaService{}
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil)
+			request.URL.RawQuery = rawQuery
+			(schemaEndpoints{service: service}).catalog(response, request)
+			if response.Code != http.StatusBadRequest || service.catalogCalls != 0 {
+				t.Fatalf("query=%q status=%d calls=%d body=%s", rawQuery, response.Code, service.catalogCalls, response.Body.String())
+			}
+			assertErrorCode(t, response.Body.Bytes(), "invalid_request")
+		})
+	}
+}
+
 func TestCatalogPocketBaseCompatibilityFiltersAndSortsMetadata(t *testing.T) {
 	created := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
 	catalog := schema.Catalog{Collections: map[string]schema.Collection{

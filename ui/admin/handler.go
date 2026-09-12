@@ -43,7 +43,7 @@ func Handler(configured ...[]UIExtension) (http.Handler, error) {
 	byName := make(map[string]fs.FS, len(extensions))
 	names := make([]string, 0, len(extensions))
 	for _, extension := range extensions {
-		if extension.Name == "" || extension.FS == nil {
+		if !validExtensionName(extension.Name) || extension.FS == nil {
 			return nil, errors.New("administrator extension has an empty name or filesystem")
 		}
 		if _, exists := byName[extension.Name]; exists {
@@ -118,6 +118,10 @@ func Handler(configured ...[]UIExtension) (http.Handler, error) {
 		}
 		serveIndex(w, r, index)
 	}), nil
+}
+
+func validExtensionName(name string) bool {
+	return name != "" && fs.ValidPath(name) && !strings.Contains(name, "/")
 }
 
 func appendExtensionLoader(index []byte) []byte {

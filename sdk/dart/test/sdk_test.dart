@@ -86,6 +86,81 @@ void main() {
     },
   );
 
+  test(
+    'application realtime topics preserve every valid JSON payload shape',
+    () async {
+      const payloads = <String>[
+        '{"ok":true}',
+        '[1,2]',
+        '"text"',
+        '7',
+        'false',
+        'null',
+      ];
+      for (final payload in payloads) {
+        final client = _ApplicationPayloadClient(payload);
+        final pgbase = PgBaseClient(
+          Uri.parse('http://pgbase.test/'),
+          httpClient: client,
+        );
+        final received = Completer<RealtimeCustomEvent>();
+        final stop = await pgbase.realtime.subscribeApplication(
+          'payload',
+          received.complete,
+        );
+        final event = await received.future.timeout(
+          const Duration(milliseconds: 50),
+        );
+        expect(event.topic, 'payload');
+        expect(utf8.decode(encodeExactJson(event.data)), payload);
+        await stop();
+      }
+    },
+  );
+
+  test('clean shared realtime EOF consumes the reconnect budget', () async {
+    final httpClient = _CleanEofThenTerminalClient();
+    final client = PgBaseClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: httpClient,
+    );
+    final realtime = RealtimeService(
+      client,
+      maxReconnects: 0,
+      reconnectDelay: Duration.zero,
+    );
+    final stop = await realtime.subscribe('notes', (_) {});
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(httpClient.getCalls, 1);
+    await stop();
+  });
+
+  test(
+    'malformed optional HTTP error fields retain stable error normalization',
+    () async {
+      for (final body in <String>[
+        '{"error":{"code":7}}',
+        '{"error":{"code":[]}}',
+        '{"error":{"requestId":{}}}',
+      ]) {
+        final pgbase = PgBaseClient(
+          Uri.parse('http://pgbase.test/'),
+          httpClient: _MalformedErrorClient(body),
+        );
+        await expectLater(
+          pgbase.session(),
+          throwsA(
+            isA<PgBaseError>()
+                .having((error) => error.status, 'status', 500)
+                .having((error) => error.code, 'code', 'request_failed')
+                .having((error) => error.requestId, 'requestId', isNull)
+                .having((error) => error.etag, 'etag', '"pgb1.error"'),
+          ),
+        );
+      }
+    },
+  );
+
   test('shared realtime rejects a terminal HTTP handshake without retrying', () async {
     final httpClient = _TerminalSseClient(401, code: 'unauthorized');
     final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: httpClient);
@@ -873,6 +948,73 @@ final class _ApplicationTopicClient extends http.BaseClient {
       return _jsonResponse(204, null);
     }
     throw StateError('unexpected application realtime request ${request.url}');
+  }
+}
+
+final class _ApplicationPayloadClient extends http.BaseClient {
+  _ApplicationPayloadClient(this.payload);
+  final String payload;
+  var getCalls = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    if (request.method == 'POST') return _jsonResponse(204, null);
+    getCalls++;
+    if (getCalls > 1)
+      return _jsonResponse(410, {
+        'error': {'code': 'gone'},
+      });
+    return http.StreamedResponse(
+      http.ByteStream.fromBytes(
+        utf8.encode(
+          'event: PB_CONNECT\ndata: {"clientId":"payload-test"}\n\n'
+          'event: @app/cGF5bG9hZA\ndata: $payload\n\n',
+        ),
+      ),
+      200,
+      headers: const {'content-type': 'text/event-stream'},
+    );
+  }
+}
+
+final class _CleanEofThenTerminalClient extends http.BaseClient {
+  var getCalls = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    if (request.method == 'POST') return _jsonResponse(204, null);
+    getCalls++;
+    if (getCalls > 1)
+      return _jsonResponse(410, {
+        'error': {'code': 'gone'},
+      });
+    return http.StreamedResponse(
+      http.ByteStream.fromBytes(
+        utf8.encode('event: PB_CONNECT\ndata: {"clientId":"eof-test"}\n\n'),
+      ),
+      200,
+      headers: const {'content-type': 'text/event-stream'},
+    );
+  }
+}
+
+final class _MalformedErrorClient extends http.BaseClient {
+  _MalformedErrorClient(this.body);
+  final String body;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    return http.StreamedResponse(
+      http.ByteStream.fromBytes(utf8.encode(body)),
+      500,
+      headers: const {
+        'content-type': 'application/json',
+        'etag': '"pgb1.error"',
+      },
+    );
   }
 }
 

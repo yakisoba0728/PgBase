@@ -26,38 +26,46 @@ type authRuleCollection struct {
 }
 
 func EvaluateAuthRecordRuleInTx(ctx context.Context, tx database.DBTX, collectionID uuid.UUID, rule string, ruleContext AuthRuleContext) (bool, error) {
-	trimmed := strings.TrimSpace(rule)
-	if trimmed == "" || trimmed == "true" {
-		return true, nil
-	}
-	if trimmed == "false" {
-		return false, nil
-	}
-	resolver, err := loadAuthRuleResolver(ctx, tx, collectionID)
+	predicate, args, err := compileAuthRecordRuleInTx(ctx, tx, collectionID, rule, ruleContext, 2)
 	if err != nil {
 		return false, err
-	}
-	parsed, err := query.ParsePocketBaseAccessRule(rule)
-	if err != nil {
-		return false, ErrValidation
-	}
-	request := authPBRequestContext(ruleContext)
-	if err := loadAuthRuleActor(ctx, tx, collectionID, ruleContext.Principal, &request); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return false, nil
-		}
-		return false, err
-	}
-	predicate, args, err := accessrule.CompilePocketBase(parsed, accessrule.PBCompileContext{
-		Resolver: resolver, Principal: ruleContext.Principal, Request: &request, ArgOffset: 2,
-	})
-	if err != nil {
-		return false, ErrValidation
 	}
 	queryArgs := append([]any{collectionID, ruleContext.Current.ID}, args...)
 	var allowed bool
 	err = tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.users AS u left join pgbase_meta.user_auth_profiles AS p on p.user_id=u.id where u.auth_collection_id=$1 and u.id=$2 and (`+predicate+`))`, queryArgs...).Scan(&allowed)
 	return allowed, err
+}
+
+func compileAuthRecordRuleInTx(ctx context.Context, tx database.DBTX, collectionID uuid.UUID, rule string, ruleContext AuthRuleContext, argOffset int) (string, []any, error) {
+	trimmed := strings.TrimSpace(rule)
+	if trimmed == "" || trimmed == "true" {
+		return "true", nil, nil
+	}
+	if trimmed == "false" {
+		return "false", nil, nil
+	}
+	resolver, err := loadAuthRuleResolver(ctx, tx, collectionID)
+	if err != nil {
+		return "", nil, err
+	}
+	parsed, err := query.ParsePocketBaseAccessRule(rule)
+	if err != nil {
+		return "", nil, ErrValidation
+	}
+	request := authPBRequestContext(ruleContext)
+	if err := loadAuthRuleActor(ctx, tx, collectionID, ruleContext.Principal, &request); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "false", nil, nil
+		}
+		return "", nil, err
+	}
+	predicate, args, err := accessrule.CompilePocketBase(parsed, accessrule.PBCompileContext{
+		Resolver: resolver, Principal: ruleContext.Principal, Request: &request, ArgOffset: argOffset,
+	})
+	if err != nil {
+		return "", nil, ErrValidation
+	}
+	return predicate, args, nil
 }
 
 func loadAuthRuleActor(ctx context.Context, db database.DBTX, collectionID uuid.UUID, principal identity.Subject, request *accessrule.RequestContext) error {

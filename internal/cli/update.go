@@ -180,7 +180,7 @@ func runUpdateStatus(args []string, streams IO) error {
 	}
 	target, state, err := updateTarget(*stateDir)
 	if err != nil {
-		return err
+		return updateFailure(err)
 	}
 	status, err := selfupdate.ReadStatus(target, state)
 	if err != nil {

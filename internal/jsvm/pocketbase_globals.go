@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	mathrand "math/rand/v2"
 	"path/filepath"
@@ -157,16 +158,32 @@ func installSecurity(vm *goja.Runtime) error {
 }
 
 func secureRandomString(length int, alphabet string) (string, error) {
+	return secureRandomStringFromReader(rand.Reader, length, alphabet)
+}
+
+func secureRandomStringFromReader(reader io.Reader, length int, alphabet string) (string, error) {
 	if length < 0 || length > 4096 || len(alphabet) < 2 || len(alphabet) > 256 {
 		return "", errors.New("invalid random string parameters")
 	}
 	out := make([]byte, length)
-	sample := make([]byte, length)
-	if _, err := rand.Read(sample); err != nil {
-		return "", err
-	}
-	for i := range out {
-		out[i] = alphabet[int(sample[i])%len(alphabet)]
+	// Rejection sampling avoids making the first alphabet characters more
+	// likely when 256 is not divisible by the alphabet size.
+	limit := 256 - 256%len(alphabet)
+	sample := make([]byte, 128)
+	for written := 0; written < len(out); {
+		if _, err := io.ReadFull(reader, sample); err != nil {
+			return "", err
+		}
+		for _, value := range sample {
+			if int(value) >= limit {
+				continue
+			}
+			out[written] = alphabet[int(value)%len(alphabet)]
+			written++
+			if written == len(out) {
+				break
+			}
+		}
 	}
 	return string(out), nil
 }

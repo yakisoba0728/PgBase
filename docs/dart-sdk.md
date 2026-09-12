@@ -63,9 +63,7 @@ The package is deliberately `publish_to: none`; Dart 3.13 has no `pub pack`
 command. Verify the local consumer instead:
 
 ```sh
-export PGBASE_DART=/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/.runtime/dart-sdk-3.13.3/bin/dart
-export HOME=/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/.runtime/dart-home
-export PUB_CACHE=/Users/yakisoba0728/Documents/GitHub/PgBase-worktrees/n6-n9/.runtime/pub-cache
+export PGBASE_DART="${PGBASE_DART:-dart}"
 (cd sdk/dart && "$PGBASE_DART" pub get && "$PGBASE_DART" analyze && "$PGBASE_DART" test)
 (cd sdk/dart/example/dart_cli && "$PGBASE_DART" pub get && "$PGBASE_DART" analyze)
 ```

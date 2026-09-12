@@ -16,19 +16,33 @@ import (
 )
 
 type extensionAppControl struct {
-	app        *App
-	dataDir    string
-	encryptEnv string
-	dev        bool
-	restart    func(context.Context) error
-	lifecycle  func(context.Context, string) (string, error)
-	mu         sync.RWMutex
-	store      map[string]json.RawMessage
+	app             *App
+	dataDir         string
+	encryptEnv      string
+	dev             bool
+	restart         func(context.Context) error
+	lifecycle       func(context.Context, string) (string, error)
+	mu              sync.RWMutex
+	store           map[string]json.RawMessage
+	storeBytes      int
+	storeLimit      int
+	storeEntryLimit int
 }
 
+const (
+	defaultExtensionAppStoreBytes   = 1 << 20
+	defaultExtensionAppStoreEntries = 1024
+)
+
 func newExtensionAppControl(app *App, options *JavaScriptOptions) *extensionAppControl {
-	control := &extensionAppControl{app: app, store: map[string]json.RawMessage{}}
+	control := &extensionAppControl{app: app, store: map[string]json.RawMessage{}, storeLimit: defaultExtensionAppStoreBytes, storeEntryLimit: defaultExtensionAppStoreEntries}
 	if options != nil {
+		if options.MaximumAppStoreBytes > 0 {
+			control.storeLimit = options.MaximumAppStoreBytes
+		}
+		if options.MaximumAppStoreEntries > 0 {
+			control.storeEntryLimit = options.MaximumAppStoreEntries
+		}
 		control.dataDir = options.PocketBaseCompatibility.DataDirectory
 		control.encryptEnv = options.PocketBaseCompatibility.EncryptionEnvironment
 		control.dev = options.PocketBaseCompatibility.Development
@@ -268,13 +282,32 @@ func (control *extensionAppControl) callStore(method string, raw json.RawMessage
 			return nil, extensionError("invalid_store_value", nil)
 		}
 		control.mu.Lock()
+		previous, exists := control.store[request.Key]
+		if !exists && len(control.store) >= control.storeEntryLimit {
+			control.mu.Unlock()
+			return nil, extensionError("store_limit_exceeded", errors.New("application store entry limit exceeded"))
+		}
+		nextBytes := control.storeBytes + len(request.Value)
+		if exists {
+			nextBytes -= len(previous)
+		} else {
+			nextBytes += len(request.Key)
+		}
+		if nextBytes > control.storeLimit {
+			control.mu.Unlock()
+			return nil, extensionError("store_limit_exceeded", errors.New("application store limit exceeded"))
+		}
 		control.store[request.Key] = append(json.RawMessage(nil), request.Value...)
+		control.storeBytes = nextBytes
 		control.mu.Unlock()
 		return append(json.RawMessage(nil), request.Value...), nil
 	case "app-control.storeDelete":
 		control.mu.Lock()
-		_, ok := control.store[request.Key]
+		value, ok := control.store[request.Key]
 		delete(control.store, request.Key)
+		if ok {
+			control.storeBytes -= len(request.Key) + len(value)
+		}
 		control.mu.Unlock()
 		return json.Marshal(ok)
 	}

@@ -172,3 +172,35 @@ func TestCatalogPreflightDiscardsPreparedSnapshotWhenReadTransactionCannotCommit
 		t.Fatalf("prepared snapshots after rollback = %d, want zero", len(cache.prepared))
 	}
 }
+
+func TestTimestampOptionTighteningAcceptsInRangeExistingValue(t *testing.T) {
+	minimum, maximum := "2026-01-01T00:00:00Z", "2026-12-31T23:59:59.999999Z"
+	if err := applyTimestampOptionTightening(t, "timestamp_preflight_in_range", "2026-09-11 12:34:56.123456+00", minimum, maximum); err != nil {
+		t.Fatalf("in-range timestamp rejected by option tightening: %v", err)
+	}
+}
+
+func TestTimestampOptionTighteningRejectsOutOfRangeExistingValue(t *testing.T) {
+	minimum, maximum := "2026-01-01T00:00:00Z", "2026-12-31T23:59:59.999999Z"
+	if err := applyTimestampOptionTightening(t, "timestamp_preflight_out_of_range", "2025-12-31 23:59:59+00", minimum, maximum); !errors.Is(err, ErrDataConstraint) {
+		t.Fatalf("out-of-range timestamp error=%v, want ErrDataConstraint", err)
+	}
+}
+
+func applyTimestampOptionTightening(t *testing.T, collection, value, minimum, maximum string) error {
+	t.Helper()
+	ctx := context.Background()
+	pool, service, admin := newSchemaServiceTest(t)
+	created := applyFreshPlan(t, service, CreateCollectionInput{Name: collection, Fields: []FieldInput{{Name: "occurred_at", Type: TypeTimestampTZ}}}, admin)
+	if _, err := pool.Exec(ctx, `insert into app.`+collection+`(id,created_at,updated_at,occurred_at) values(gen_random_uuid(),now(),now(),$1::timestamptz)`, value); err != nil {
+		t.Fatal(err)
+	}
+	id := created.Fields[0].ID
+	change := NewUpdateChange(UpdateCollectionInput{Name: created.Name, Fields: []FieldInput{{ID: &id, Name: "occurred_at", Type: TypeTimestampTZ, Options: &FieldOptions{Min: &minimum, Max: &maximum}}}})
+	plan, err := service.Preview(ctx, change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.Apply(ctx, LegacyApply(change, plan, admin))
+	return err
+}

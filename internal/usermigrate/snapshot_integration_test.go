@@ -131,7 +131,7 @@ func TestGeneratedSnapshotMigrationsReplayRenameDownAndRollback(t *testing.T) {
 	failing.ID = "20260909150001_rollback_after_apply"
 	failing.Revision = sha256.Sum256([]byte("rollback-after-apply"))
 	failing.Up = func(ctx context.Context, tx pgx.Tx) error {
-		if err := schema.ApplyMigrationSnapshot(ctx, tx, first, second); err != nil {
+		if err := schema.ApplyMigrationSnapshot(ctx, tx, first, second, acceptSnapshotRulesForTest); err != nil {
 			return err
 		}
 		return context.Canceled
@@ -151,7 +151,7 @@ func TestGeneratedSnapshotRunsFromExternalModuleAgainstFreshPostgres(t *testing.
 		t.Fatal(err)
 	}
 	after, err := schema.MarshalMigrationSnapshot(schema.MigrationSnapshot{Format: schema.MigrationSnapshotFormat, Collections: []schema.MigrationSnapshotCollection{{
-		Name: "notes", Fields: []schema.FieldInput{{ID: &fieldID, Name: "title", Type: schema.TypeText, Options: &schema.FieldOptions{Pattern: "^[a-z]+$"}}}, Rules: []byte(`{}`),
+		Name: "notes", Fields: []schema.FieldInput{{ID: &fieldID, Name: "title", Type: schema.TypeText, Options: &schema.FieldOptions{Pattern: "^[a-z]+$"}}}, Rules: validSnapshotRulesForTest,
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -227,7 +227,7 @@ func TestGeneratedIrreversibleDownFromExternalModuleDoesNotMutatePostgres(t *tes
 		t.Fatal(err)
 	}
 	withNotes, err := schema.MarshalMigrationSnapshot(schema.MigrationSnapshot{Format: schema.MigrationSnapshotFormat, Collections: []schema.MigrationSnapshotCollection{{
-		Name: "notes", Fields: []schema.FieldInput{{ID: &fieldID, Name: "title", Type: schema.TypeText}}, Rules: []byte(`{}`),
+		Name: "notes", Fields: []schema.FieldInput{{ID: &fieldID, Name: "title", Type: schema.TypeText}}, Rules: validSnapshotRulesForTest,
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -426,13 +426,17 @@ func generatedMigration(generated Generated, before, after []byte) Migration {
 	return Migration{
 		ID: generated.ID, Revision: sha256.Sum256(generated.Source), BeforeSnapshot: before, AfterSnapshot: after,
 		Up: func(ctx context.Context, tx pgx.Tx) error {
-			return schema.ApplyMigrationSnapshot(ctx, tx, before, after)
+			return schema.ApplyMigrationSnapshot(ctx, tx, before, after, acceptSnapshotRulesForTest)
 		},
 		Down: func(ctx context.Context, tx pgx.Tx) error {
-			return schema.ApplyMigrationSnapshot(ctx, tx, after, before)
+			return schema.ApplyMigrationSnapshot(ctx, tx, after, before, acceptSnapshotRulesForTest)
 		},
 	}
 }
+
+func acceptSnapshotRulesForTest(schema.Catalog, schema.Collection, json.RawMessage) error { return nil }
+
+var validSnapshotRulesForTest = json.RawMessage(`{"list":{"op":"owner"},"view":{"op":"owner"},"create":{"op":"owner"},"update":{"op":"owner"},"delete":{"op":"owner"}}`)
 
 func snapshotRunner(t *testing.T, pool *database.Pool, migrations []Migration) *Runner {
 	t.Helper()

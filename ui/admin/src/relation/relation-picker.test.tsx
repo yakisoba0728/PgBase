@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CollectionDefinition, FieldDefinition, RecordPage } from "../backend/ports";
-import { callsTo, deferredStep, type BackendScript } from "../test/backend-script";
+import { callsTo, deferredStep, type BackendScript, type ScriptedRecord } from "../test/backend-script";
 import { collection, sessionWrapper, signedInScript, textField } from "../test/harness";
 import { memoryBackend } from "../test/memory-backend";
 import { memoryHistory } from "../test/memory-history";
@@ -161,6 +161,25 @@ describe("relation picker", () => {
     view.unmount();
     await act(async () => { firstPage.settle({ value: { items: [{ id: targetID, name: "Ada" }], nextCursor: "page two" } }); });
     expect(listIgnoringAbort).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not patch an inline target after its picker unmounts", async () => {
+    const script = signedInScript();
+    const loaded = deferredStep<ScriptedRecord>();
+    script.read.push(loaded.step);
+    const view = renderHook(
+      () => useRelationPicker(users, relationField("owner", "single"), "", vi.fn()),
+      { wrapper: wrap(script) },
+    );
+
+    act(() => view.result.current.editTarget(targetID, "Updated Ada"));
+    await waitFor(() => expect(callsTo(script, "read")).toHaveLength(1));
+    view.unmount();
+    await act(async () => {
+      loaded.settle({ value: { data: { id: targetID, name: "Ada" }, etag: '"v1"' } });
+    });
+
+    expect(callsTo(script, "update")).toHaveLength(0);
   });
 
   it("keeps a selected target the collection no longer exposes", async () => {

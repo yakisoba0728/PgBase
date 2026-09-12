@@ -175,7 +175,7 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	if err != nil {
 		return Session{}, err
 	}
-	shapeValid := emailErr == nil && passwordErr == nil && lookupErr == nil
+	shapeValid := emailErr == nil && passwordErr == nil && lookupErr == nil && user.passwordEnabled
 	verifyHash, verifyPassword := hash, password
 	if !shapeValid {
 		verifyHash, verifyPassword = dummyPasswordHash, dummyPassword
@@ -220,7 +220,7 @@ func userByIdentityDB(ctx context.Context, db database.DBTX, collectionID uuid.U
 		}
 		var u User
 		var hash string
-		err := db.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.created_at,u.password_hash from pgbase_meta.users u join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.active and p.attributes ->> $2=$3`, collectionID, field, identity).Scan(&u.ID, &u.AuthCollectionID, &u.Email, &u.EmailVisibility, &u.Verified, &u.CreatedAt, &hash)
+		err := db.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.created_at,u.password_hash,u.password_enabled from pgbase_meta.users u join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.active and p.attributes ->> $2=$3`, collectionID, field, identity).Scan(&u.ID, &u.AuthCollectionID, &u.Email, &u.EmailVisibility, &u.Verified, &u.CreatedAt, &hash, &u.passwordEnabled)
 		if err == nil {
 			u.CreatedAt = u.CreatedAt.UTC()
 			return u, hash, nil
@@ -339,7 +339,7 @@ func (s *Service) issueCheckedSession(ctx context.Context, user User, expectedHa
 		if err != nil {
 			return err
 		}
-		if current.ID != user.ID || !hmac.Equal([]byte(hash), []byte(expectedHash)) {
+		if current.ID != user.ID || !current.passwordEnabled || !hmac.Equal([]byte(hash), []byte(expectedHash)) {
 			opErr = ErrInvalidCredentials
 			return nil
 		}
@@ -406,13 +406,13 @@ func (s *Service) insertSession(ctx context.Context, db database.DBTX, user User
 }
 
 func userByEmailDB(ctx context.Context, db database.DBTX, collectionID uuid.UUID, email string, lock bool) (User, string, error) {
-	q := `select id,auth_collection_id,email,email_visibility,verified,created_at,password_hash from pgbase_meta.users where auth_collection_id=$1 and email=$2 and active`
+	q := `select id,auth_collection_id,email,email_visibility,verified,created_at,password_hash,password_enabled from pgbase_meta.users where auth_collection_id=$1 and email=$2 and active`
 	if lock {
 		q += " for update"
 	}
 	var u User
 	var hash string
-	err := db.QueryRow(ctx, q, collectionID, email).Scan(&u.ID, &u.AuthCollectionID, &u.Email, &u.EmailVisibility, &u.Verified, &u.CreatedAt, &hash)
+	err := db.QueryRow(ctx, q, collectionID, email).Scan(&u.ID, &u.AuthCollectionID, &u.Email, &u.EmailVisibility, &u.Verified, &u.CreatedAt, &hash, &u.passwordEnabled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, "", ErrInvalidCredentials
 	}

@@ -1,6 +1,9 @@
 package query
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestCompileScalarPredicateUsesSharedBoundedGrammar(t *testing.T) {
 	fields := map[string]ScalarKind{"name": ScalarString, "system": ScalarBool, "created": ScalarTime, "fieldCount": ScalarNumber}
@@ -47,5 +50,28 @@ func TestCompileScalarPredicateUsesSharedBoundedGrammar(t *testing.T) {
 	escaped, err := CompileScalarPredicate(`name ~ 'a_b'`, fields)
 	if err != nil || !escaped.Evaluate(map[string]ScalarValue{"name": {String: "a_b"}}) || escaped.Evaluate(map[string]ScalarValue{"name": {String: "axb"}}) {
 		t.Fatalf("underscore escape err=%v", err)
+	}
+}
+
+func TestScalarTimeComparisonsPreserveNanosecondPrecision(t *testing.T) {
+	fields := map[string]ScalarKind{"left": ScalarTime, "right": ScalarTime}
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	later := base.Add(time.Nanosecond)
+	values := map[string]ScalarValue{"left": {Time: base}, "right": {Time: later}}
+	for expression, want := range map[string]bool{
+		"left = right":                   false,
+		"left != right":                  true,
+		"left < right":                   true,
+		"left >= right":                  false,
+		"right > '2026-01-01T00:00:00Z'": true,
+		"right = '2026-01-01T00:00:00Z'": false,
+	} {
+		predicate, err := CompileScalarPredicate(expression, fields)
+		if err != nil {
+			t.Fatalf("CompileScalarPredicate(%q): %v", expression, err)
+		}
+		if got := predicate.Evaluate(values); got != want {
+			t.Errorf("Evaluate(%q) = %v, want %v", expression, got, want)
+		}
 	}
 }

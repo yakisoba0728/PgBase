@@ -958,8 +958,12 @@ PgBaseError pgBaseError(PgBaseResponse response) {
     final body = decodeExactJson(response.bytes);
     final envelope = body is JsonObject ? body['error'] : null;
     if (envelope is JsonObject) {
-      final code = (envelope['code'] as JsonString?)?.value ?? 'request_failed';
-      final requestId = (envelope['requestId'] as JsonString?)?.value;
+      final codeValue = envelope['code'];
+      final code = codeValue is JsonString ? codeValue.value : 'request_failed';
+      final requestIdValue = envelope['requestId'];
+      final requestId = requestIdValue is JsonString
+          ? requestIdValue.value
+          : null;
       final detailsValue = envelope['details'];
       final details = <String, List<String>>{};
       if (detailsValue is JsonObject) {

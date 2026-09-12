@@ -190,6 +190,10 @@ func (body *javaScriptRouteBody) read(_ context.Context, requestedLimit int64) (
 	if strings.HasPrefix(body.contentType, "multipart/form-data") {
 		body.request.Body = http.MaxBytesReader(body.response, body.request.Body, maximum)
 		body.err = body.request.ParseMultipartForm(maximum)
+		var maximumError *http.MaxBytesError
+		if errors.As(body.err, &maximumError) {
+			body.err = errJavaScriptRequestTooLarge
+		}
 	} else {
 		body.body, body.err = io.ReadAll(io.LimitReader(body.request.Body, maximum+1))
 		if body.err != nil || int64(len(body.body)) > maximum {

@@ -12,6 +12,7 @@ export interface AdminPortsTransport {
   schemaCall(request: Request): Promise<Reply>;
   systemFailure(caught: unknown): unknown;
   csrfToken(): string;
+  protectedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 }
 
 export function createAdminPorts(transport: AdminPortsTransport): Pick<AdminBackend, "system" | "settings" | "profile" | "operations" | "storage" | "backupStorage" | "users" | "rules" | "authCollections" | "serviceTokens"> {
@@ -211,7 +212,7 @@ export function createAdminPorts(transport: AdminPortsTransport): Pick<AdminBack
       archive: File,
       signal?: AbortSignal,
     ): Promise<BackupEntry> => {
-      const response = await fetch("/api/admin/backups/upload", {
+      const response = await transport.protectedFetch("/api/admin/backups/upload", {
         method: "POST",
         body: archive,
         headers: {
@@ -227,7 +228,7 @@ export function createAdminPorts(transport: AdminPortsTransport): Pick<AdminBack
     backupDownloadURL: (id: string): string =>
       `/api/admin/backups/${encodeURIComponent(id)}`,
     downloadBackup: async (id: string, signal?: AbortSignal): Promise<Blob> => {
-      const response = await fetch(
+      const response = await transport.protectedFetch(
         `/api/admin/backups/${encodeURIComponent(id)}`,
         { credentials: "include", signal },
       );

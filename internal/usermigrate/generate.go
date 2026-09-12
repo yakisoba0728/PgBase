@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yakisoba0728/PgBase/internal/durablefile"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -167,20 +168,12 @@ func init() {
 }
 
 func writeExclusive(path string, source []byte) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		return fmt.Errorf("create migration file: %w", err)
-	}
-	if _, err := file.Write(source); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("write migration file: %w", err)
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("sync migration file: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close migration file: %w", err)
-	}
-	return nil
+	return durablefile.WriteExclusive(path, 0o644, func(file *os.File) error {
+		_, err := file.Write(source)
+		return err
+	}, migrationWriteFailure)
+}
+
+func migrationWriteFailure(stage string, err error) error {
+	return fmt.Errorf("%s migration file: %w", stage, err)
 }

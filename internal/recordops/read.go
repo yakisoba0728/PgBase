@@ -55,6 +55,9 @@ func (s *Service) ListPocketBase(ctx context.Context, request PocketBaseListRequ
 		Limit: request.Limit, Filter: request.Filter, Sort: request.Sort, Expand: request.Expand, Fields: request.Fields,
 		PocketBaseCompatibility: true, RuleContext: request.RuleContext,
 	}, Page: request.Page, PerPage: request.PerPage, SkipTotal: request.SkipTotal})
+	if errors.Is(err, membership.ErrUnavailable) {
+		return PocketBasePage{}, unavailableMembership(err)
+	}
 	if err != nil {
 		return PocketBasePage{}, err
 	}
@@ -76,7 +79,15 @@ func (s *Service) Count(ctx context.Context, request ListRequest) (int64, error)
 	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
 		return 0, err
 	}
-	return query.Count(ctx, s.reader, query.ListRequest{Principal: request.Principal, Collection: request.Collection, Filter: request.Filter, Sort: request.Sort, PocketBaseCompatibility: request.PocketBaseCompatibility})
+	total, err := query.Count(ctx, s.reader, query.ListRequest{
+		Principal: request.Principal, Collection: request.Collection, Filter: request.Filter,
+		Sort: request.Sort, PocketBaseCompatibility: request.PocketBaseCompatibility,
+		RuleContext: request.RuleContext,
+	})
+	if errors.Is(err, membership.ErrUnavailable) {
+		return 0, unavailableMembership(err)
+	}
+	return total, err
 }
 
 func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, err error) {

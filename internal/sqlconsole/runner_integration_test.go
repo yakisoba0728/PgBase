@@ -6,13 +6,20 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
+	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/migrate"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
 func TestRunnerReturnsExactTaggedValuesAndHardResultLimits(t *testing.T) {
@@ -72,6 +79,244 @@ func TestRunnerReturnsExactTaggedValuesAndHardResultLimits(t *testing.T) {
 	if _, err := fixture.run(context.Background(), tooManyBytes); !errors.Is(err, ErrResultLimit) {
 		t.Fatalf("result bytes error = %v", err)
 	}
+}
+
+func TestRunnerPinsSupportedSchemaViewGenerationAfterCatalogCheck(t *testing.T) {
+	ctx := context.Background()
+	databaseURL := testutil.NewDatabase(t)
+	owner, err := database.Open(ctx, databaseURL, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(owner.Close)
+	if err := migrate.New(owner, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	administratorID := uuid.New()
+	if _, err := owner.Exec(ctx, `insert into pgbase_meta.admins
+		(id,email,password_hash,active,created_at,updated_at)
+		values($1,$2,'n8-test',true,current_timestamp,current_timestamp)`,
+		administratorID, administratorID.String()+"@example.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	schemaService := schema.NewService(owner, &schema.Cache{}, nil)
+	sourceInput := schema.CreateCollectionInput{Name: "generation_source", Fields: []schema.FieldInput{
+		{Name: "public_value", Type: schema.TypeText},
+		{Name: "private_value", Type: schema.TypeText, Hidden: true},
+	}}
+	sourcePlan, err := schemaService.Preview(ctx, schema.NewCreateChange(sourceInput))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := schemaService.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(sourceInput), sourcePlan, administratorID)); err != nil {
+		t.Fatal(err)
+	}
+	oldSQL := `select id,created_at,updated_at,public_value as exposed from app.generation_source`
+	viewInput := schema.CreateCollectionInput{Name: "generation_view", View: &schema.ViewInput{SQL: oldSQL}}
+	viewPlan, err := schemaService.Preview(ctx, schema.NewCreateChange(viewInput))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := schemaService.Apply(ctx, schema.LegacyApply(schema.NewCreateChange(viewInput), viewPlan, administratorID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(ctx, `insert into app.generation_source
+		(id,created_at,updated_at,public_value,private_value)
+		values($1,current_timestamp,current_timestamp,'public-generation','private-generation')`, uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog, err := schemaService.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles := provisionGenerationFenceRoles(t, owner, databaseURL)
+	var versionCalls atomic.Int64
+	var blockCall atomic.Int64
+	versionChecked := make(chan int64, 1)
+	resumeVersionCheck := make(chan struct{})
+	catalogVersion := func(callContext context.Context) (int64, error) {
+		version, versionErr := schema.NewStore(owner).SchemaVersion(callContext)
+		call := versionCalls.Add(1)
+		if versionErr == nil && call == blockCall.Load() {
+			versionChecked <- version
+			select {
+			case <-resumeVersionCheck:
+			case <-callContext.Done():
+				return 0, callContext.Err()
+			}
+		}
+		return version, versionErr
+	}
+	pools, err := OpenPools(ctx, PoolOptions{
+		CompilerURL:    roles.compilerURL,
+		ReadURL:        roles.readURL,
+		WriterURL:      roles.writerURL,
+		Catalog:        catalog,
+		CatalogVersion: catalogVersion,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pools.Close)
+	runner, err := NewRunner(pools, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := runnerFixture{pool: poolFixture{owner: owner, actorID: administratorID}, runner: runner, secret: []byte("n8-generation-fence-test-secret")}
+
+	newSQL := `select id,created_at,updated_at,private_value as exposed from app.generation_source`
+	update := schema.NewUpdateChange(schema.UpdateCollectionInput{Name: "generation_view", View: &schema.ViewInput{SQL: newSQL}})
+	updatePlan, err := schemaService.Preview(ctx, update)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockCall.Store(versionCalls.Load() + 2) // ValidatePlan, then the in-transaction generation check.
+	type runOutcome struct {
+		result Result
+		err    error
+	}
+	runDone := make(chan runOutcome, 1)
+	go func() {
+		request := Request{ExecutionID: uuid.New(), Mode: ModeRead, Timeout: 10 * time.Second,
+			Statements: []Statement{{SQL: `select exposed from app.generation_view`}}}
+		result, runErr := fixture.run(ctx, request)
+		runDone <- runOutcome{result: result, err: runErr}
+	}()
+	select {
+	case version := <-versionChecked:
+		if version != catalog.Version {
+			t.Fatalf("checked version = %d, want %d", version, catalog.Version)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runner did not reach the post-transaction catalog check")
+	}
+
+	applyDone := make(chan error, 1)
+	go func() {
+		_, applyErr := schemaService.Apply(ctx, schema.LegacyApply(update, updatePlan, administratorID))
+		applyDone <- applyErr
+	}()
+	applyErr, appliedBeforeResume := waitForApplyOrAdvisoryWait(t, owner, applyDone)
+	close(resumeVersionCheck)
+	var outcome runOutcome
+	select {
+	case outcome = <-runDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runner did not finish after the catalog check resumed")
+	}
+	if !appliedBeforeResume {
+		select {
+		case applyErr = <-applyDone:
+		case <-time.After(5 * time.Second):
+			t.Fatal("schema update did not finish after the read released its generation lock")
+		}
+	}
+	if applyErr != nil {
+		t.Fatalf("apply supported view update: %v", applyErr)
+	}
+	if outcome.err != nil {
+		t.Fatalf("run generation-pinned read: %v", outcome.err)
+	}
+	if len(outcome.result.Statements) != 1 || len(outcome.result.Statements[0].Rows) != 1 ||
+		len(outcome.result.Statements[0].Rows[0]) != 1 || outcome.result.Statements[0].Rows[0][0].Text != "public-generation" {
+		t.Fatalf("read crossed catalog generation: %#v", outcome.result)
+	}
+	var currentVersion int64
+	if currentVersion, err = schema.NewStore(owner).SchemaVersion(ctx); err != nil || currentVersion != catalog.Version+1 {
+		t.Fatalf("schema version after update = %d, err=%v", currentVersion, err)
+	}
+	stale := Request{ExecutionID: uuid.New(), Mode: ModeRead,
+		Statements: []Statement{{SQL: `select exposed from app.generation_view`}}}
+	if _, err := fixture.run(ctx, stale); !errors.Is(err, ErrCatalogChanged) {
+		t.Fatalf("read after generation release error = %v, want ErrCatalogChanged", err)
+	}
+}
+
+type generationFenceRoles struct {
+	compilerURL string
+	readURL     string
+	writerURL   string
+}
+
+func provisionGenerationFenceRoles(t *testing.T, owner *database.Pool, databaseURL string) generationFenceRoles {
+	t.Helper()
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	compilerRole := "n8_generation_compiler_" + suffix
+	readRole := "n8_generation_read_" + suffix
+	writerRole := "n8_generation_writer_" + suffix
+	password := "n8-generation-password-" + suffix
+	databaseName := strings.TrimPrefix(parsed.Path, "/")
+	identifiers := []string{
+		pgx.Identifier{compilerRole}.Sanitize(),
+		pgx.Identifier{readRole}.Sanitize(),
+		pgx.Identifier{writerRole}.Sanitize(),
+	}
+	if _, err := owner.Exec(context.Background(), fmt.Sprintf(`
+		create role %s login password %s noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+		create role %s login password %s noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+		create role %s login password %s noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+		revoke all on database %s from public;
+		revoke all on schema app from public;
+		grant connect,temp on database %s to %s;
+		grant connect on database %s to %s,%s;
+		grant usage on schema app to %s,%s,%s;
+		grant usage on schema pgbase_meta to %s;
+		grant select (id,created_at,updated_at,public_value) on app.generation_source to %s,%s,%s;
+		grant select on app.generation_view to %s,%s,%s;
+		grant insert (execution_id,administrator_id,idempotency_hash,request_hash,row_count,affected_rows,result_bytes,committed_at)
+			on pgbase_meta.sql_console_write_receipts to %s;
+		alter default privileges in schema app grant select on tables to %s,%s,%s;
+		alter role %s in database %s set default_transaction_read_only=on`,
+		identifiers[0], quoteLiteral(password), identifiers[1], quoteLiteral(password), identifiers[2], quoteLiteral(password),
+		pgx.Identifier{databaseName}.Sanitize(),
+		pgx.Identifier{databaseName}.Sanitize(), identifiers[0],
+		pgx.Identifier{databaseName}.Sanitize(), identifiers[1], identifiers[2],
+		identifiers[0], identifiers[1], identifiers[2], identifiers[2],
+		identifiers[0], identifiers[1], identifiers[2], identifiers[0], identifiers[1], identifiers[2], identifiers[2],
+		identifiers[0], identifiers[1], identifiers[2], identifiers[1], pgx.Identifier{databaseName}.Sanitize(),
+	)); err != nil {
+		t.Fatalf("provision generation-fence roles: %v", err)
+	}
+	t.Cleanup(func() {
+		for _, identifier := range identifiers {
+			_, _ = owner.Exec(context.Background(), "drop owned by "+identifier)
+			_, _ = owner.Exec(context.Background(), "drop role if exists "+identifier)
+		}
+	})
+	return generationFenceRoles{
+		compilerURL: roleURL(parsed, compilerRole, password),
+		readURL:     roleURL(parsed, readRole, password),
+		writerURL:   roleURL(parsed, writerRole, password),
+	}
+}
+
+func waitForApplyOrAdvisoryWait(t *testing.T, owner *database.Pool, applyDone <-chan error) (error, bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-applyDone:
+			return err, true
+		default:
+		}
+		var waiters int
+		if err := owner.QueryRow(context.Background(), `select count(*) from pg_stat_activity
+			where datname=current_database() and wait_event_type='Lock' and wait_event='advisory'`).Scan(&waiters); err != nil {
+			t.Fatal(err)
+		}
+		if waiters > 0 {
+			return nil, false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("schema update neither completed nor waited on the generation lock")
+	return nil, false
 }
 
 func TestRunnerCommitsMultipleWritesAndReconcilesLostCommitResponse(t *testing.T) {

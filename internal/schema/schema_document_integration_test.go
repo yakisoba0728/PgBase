@@ -84,3 +84,38 @@ func TestSchemaDocumentPreviewApplyExportWithNewSQLView(t *testing.T) {
 		t.Fatalf("view presentation=%+v", view.Fields)
 	}
 }
+
+func TestSchemaDocumentImportAppliesCollectionMetadataOnlyChange(t *testing.T) {
+	_, service, actor := newSchemaServiceTest(t)
+	service.SetAuthExecutablePolicyValidator(authExecutableValidator{})
+	ctx := context.Background()
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "metadata_import", CompatibilityName: "MetadataImport"}, actor)
+	document, err := service.ExportSchema(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range document.Collections {
+		if document.Collections[index].Name == "metadata_import" {
+			document.Collections[index].CompatibilityName = "LegacyMetadataImport"
+			document.Collections[index].ValidationMode = ValidationModePocketBase
+		}
+	}
+	plan, err := service.PreviewSchemaImport(ctx, document)
+	if err != nil {
+		t.Fatalf("metadata-only preview: %#v", err)
+	}
+	if len(plan.Changes) != 1 || plan.Changes[0].Operation != updateCollectionOperation {
+		t.Fatalf("metadata-only preview changes=%#v", plan.Changes)
+	}
+	if _, err := service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: uuid.New(), IdempotencyKey: "schema-metadata-import-0001", ValidateRules: func(Collection, json.RawMessage) error { return nil }}); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := service.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := catalog.Collections["metadata_import"]
+	if got.CompatibilityName != "LegacyMetadataImport" || got.ValidationMode != ValidationModePocketBase {
+		t.Fatalf("collection metadata=%+v", got)
+	}
+}

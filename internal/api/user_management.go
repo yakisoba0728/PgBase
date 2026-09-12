@@ -34,6 +34,10 @@ func (e userEndpoints) impersonateUser(w http.ResponseWriter, r *http.Request) {
 	if input.DurationSeconds == 0 {
 		input.DurationSeconds = 300
 	}
+	if input.DurationSeconds < 60 || input.DurationSeconds > 900 {
+		writeUserManagementError(w, r, userauth.ErrValidation)
+		return
+	}
 	admin, ok := AdminPrincipalFromContext(r.Context())
 	if !ok {
 		writeUserManagementError(w, r, userauth.ErrInvalidCredentials)

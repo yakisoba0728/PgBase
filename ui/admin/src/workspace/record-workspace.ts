@@ -395,7 +395,10 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
     duplicate: () => {
       if (state.collection === null || isCreate) return;
       const duplicate = Object.fromEntries(Object.entries(state.draft).filter(([name]) => state.collection?.fields.find((field) => field.name === name)?.type !== "file" && !["password", "autodate"].includes(state.collection?.fields.find((field) => field.name === name)?.type ?? "")));
-      writeDraft({ ...scope, record: "new" }, duplicate, state.collection.fields);
+      if (!writeDraft({ ...scope, record: "new" }, duplicate, state.collection.fields)) {
+        update(identity, { message: "Unable to prepare the duplicate because browser storage is unavailable. The original record is still open." });
+        return;
+      }
       navigate({ kind: "record", collection: collectionName });
     },
   };

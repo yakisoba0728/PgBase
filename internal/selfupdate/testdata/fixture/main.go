@@ -7,11 +7,13 @@ import (
 )
 
 var (
-	version  = "v0.0.0"
-	commit   = "0000000000000000000000000000000000000000"
-	goos     = "darwin"
-	goarch   = "arm64"
-	failName = ""
+	version   = "v0.0.0"
+	commit    = "0000000000000000000000000000000000000000"
+	goos      = "darwin"
+	goarch    = "arm64"
+	schemaMin = ""
+	schemaMax = ""
+	failName  = ""
 )
 
 func main() {
@@ -19,7 +21,12 @@ func main() {
 		os.Exit(17)
 	}
 	if len(os.Args) == 3 && os.Args[1] == "version" && os.Args[2] == "--json" {
-		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"version": version, "commit": commit, "goos": goos, "goarch": goarch})
+		build := map[string]string{"version": version, "commit": commit, "goos": goos, "goarch": goarch}
+		if schemaMin != "" && schemaMax != "" {
+			build["schemaMin"] = schemaMin
+			build["schemaMax"] = schemaMax
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(build)
 		return
 	}
 	os.Exit(2)

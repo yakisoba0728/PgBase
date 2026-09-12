@@ -57,6 +57,43 @@ console.log(await created.json());`;
   return setup + `\n\n// Review sample values against this collection’s constraints.\n// Reuse this idempotency key only when retrying this exact create body.\nconst idempotencyKey = crypto.randomUUID();\nconst created = await records.createWithETag(${JSON.stringify(input, null, 2)}, idempotencyKey);\nconst current = await records.getWithETag(String(created.record.id));\nif (!current.etag) throw new Error("Missing ETag");\nconst updated = await records.updateWithETag(String(current.record.id), ${JSON.stringify(input, null, 2)}, current.etag);\nif (!updated.etag) throw new Error("Missing ETag");\n// Uncomment only when you intend to delete the example record.\n// await records.remove(String(updated.record.id), updated.etag);`;
 }
 
+function dartExample(
+  collection: CollectionDefinition,
+  origin: string,
+  audience: "user" | "anonymous" | "service",
+): string {
+  const collectionName = JSON.stringify(collection.name);
+  if (audience === "user") {
+    return `import 'package:pgbase/pgbase.dart';
+
+final client = PgBaseClient(Uri.parse(${JSON.stringify(origin)}));
+await client.login('person@example.test', 'YOUR_PASSWORD');
+final page = await client.records(${collectionName}).list(
+  const Query(limit: 20, sort: 'id'),
+);
+print(page.items);
+client.close();`;
+  }
+
+  const prefix = audience === "anonymous" ? "public" : "service";
+  const endpoint = `${origin}/api/v1/${prefix}/collections/${encodeURIComponent(collection.name)}/records`;
+  const headers = audience === "service"
+    ? "{'Authorization': 'Bearer YOUR_SERVICE_TOKEN'}"
+    : "const <String, String>{}";
+  return `import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+final endpoint = Uri.parse(${JSON.stringify(endpoint)}).replace(
+  queryParameters: const {'limit': '20', 'sort': 'id'},
+);
+final response = await http.get(endpoint, headers: ${headers});
+if (response.statusCode < 200 || response.statusCode >= 300) {
+  throw StateError('Request failed: \${response.statusCode}');
+}
+final page = jsonDecode(response.body) as Map<String, dynamic>;
+print(page['items']);`;
+}
+
 export function CollectionAPIExamples({ collection }: { collection: CollectionDefinition }) {
   const [audience, setAudience] = useState<"user" | "anonymous" | "service">("user");
   const [format, setFormat] = useState<"typescript" | "dart" | "curl" | "realtime" | "batch" | "auth">("typescript");
@@ -66,7 +103,7 @@ export function CollectionAPIExamples({ collection }: { collection: CollectionDe
   const endpoint = `${window.location.origin}/api/v1/${audience === "anonymous" ? "public" : audience}/collections/${encodeURIComponent(collection.name)}/records`;
   const code = format === "typescript" ? typescript : format === "dart" ? `import 'package:pgbase_client/pgbase_client.dart';\n\nfinal client = PgBaseClient(${JSON.stringify(window.location.origin)});\nawait client.auth.login(${JSON.stringify(audience === "anonymous" ? "" : "person@example.test")}, 'YOUR_PASSWORD');\nfinal page = await client.collection(${JSON.stringify(collection.name)}).list(limit: 20, sort: 'id');\nprint(page.items);` : format === "curl" ? `curl --fail-with-body ${JSON.stringify(endpoint + "?limit=20&sort=id")} \\\n  ${audience === "service" ? '-H "Authorization: Bearer YOUR_SERVICE_TOKEN"' : "# sign in or use public rules"}` : format === "realtime" ? `const subscription = client.realtime.subscribe(${JSON.stringify(collection.name)}, (event) => {\n  // event.action is create, update, or delete; event.record is rule-filtered.\n  console.log(event);\n});\n// Later: subscription.unsubscribe();` : format === "batch" ? `const result = await client.batch([\n  { method: "POST", path: "/collections/${collection.name}/records", body: { /* fields */ } },\n  { method: "PATCH", path: "/collections/${collection.name}/records/RECORD_ID", headers: { "If-Match": "ETAG" }, body: { /* patch */ } },\n]);\nconsole.log(result);` : `// Authenticate an auth collection user before accessing protected records.\nawait client.auth.login("person@example.test", "YOUR_PASSWORD");\n// Password reset and verification actions are configured by the auth collection.\nawait client.auth.requestPasswordReset("person@example.test");`;
   const correctedCode = format === "dart"
-    ? `import 'package:pgbase/pgbase.dart';\n\nfinal client = PgBaseClient(Uri.parse(${JSON.stringify(window.location.origin)}));\nawait client.login('person@example.test', 'YOUR_PASSWORD');\nfinal page = await client.records(${collectionName}).list(const Query(limit: 20, sort: 'id'));\nprint(page.items);\nclient.close();`
+    ? dartExample(collection, window.location.origin, audience)
     : format === "realtime"
       ? `const records = client.records(${collectionName});\nconst controller = new AbortController();\nfor await (const event of records.events({ signal: controller.signal })) {\n  // event.operation is create, update, or delete; access rules filter delivery.\n  console.log(event);\n}\n// Call controller.abort() to close the stream.`
       : format === "batch"

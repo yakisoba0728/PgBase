@@ -73,7 +73,7 @@ describe("HTTP adapter wire contract", () => {
 		expect(mock.mock.calls[1][1]).toMatchObject({ credentials: "include", method: "POST" });
 	});
 
-	it("sends record files and create metadata in one multipart batch", async () => {
+  it("sends record files and create metadata in one multipart batch", async () => {
 		const mock = stub(session(), respond(200, JSON.stringify({ results: [{ status: 201, body: { id: recordID, title: "contract" }, etag: '"pgb1.atomic"' }] })));
 		const backend = await authenticated(mock);
 		const file = new File(["signed"], "contract.txt", { type: "text/plain" });
@@ -88,8 +88,46 @@ describe("HTTP adapter wire contract", () => {
 		const body = options.body as FormData;
 		const requests = JSON.parse(String(body.get("requests")));
 		expect(requests).toEqual({ requests: [{ method: "POST", url: "/api/v1/collections/documents/records", body: { title: "contract", attachment: { $file: "file_0" } }, headers: { "Idempotency-Key": "atomic-create-key" } }] });
-		expect((body.get("file_0") as File).name).toBe("contract.txt");
-	});
+    expect((body.get("file_0") as File).name).toBe("contract.txt");
+  });
+
+  it("announces expiry for every protected raw-body transfer", async () => {
+    const mock = stub(
+      session(),
+      respond(401, envelope("authentication_required")),
+      respond(401, envelope("authentication_required")),
+      respond(401, envelope("authentication_required")),
+      respond(401, envelope("authentication_required")),
+    );
+    const backend = await authenticated(mock);
+    const expired = vi.fn();
+    backend.session.onExpired(expired);
+    const archive = new File(["backup"], "backup.gz", {
+      type: "application/gzip",
+    });
+    const attachment = new File(["record"], "record.txt", {
+      type: "text/plain",
+    });
+
+    await expect(backend.operations!.uploadBackup!(archive)).rejects.toThrow(
+      "backup_upload_401",
+    );
+    await expect(backend.files.downloadBlob("file", "token")).rejects.toMatchObject({
+      reason: "failed",
+    });
+    await expect(
+      backend.files.uploadFile("posts", recordID, "attachment", attachment),
+    ).rejects.toMatchObject({ reason: "failed" });
+    await expect(
+      backend.records.createWithFiles(
+        new CreateAttempt("posts", () => "file-create-key"),
+        { title: "record" },
+        { attachment: [attachment] },
+      ),
+    ).rejects.toMatchObject({ reason: "failed" });
+
+    expect(expired).toHaveBeenCalledTimes(4);
+  });
 
   it("reads and writes bodies losslessly", async () => {
     const mock = stub(session(), respond(200, `{"items":[{"sequence":9007199254740993,"ratio":1.234567890123456789}]}`));
@@ -110,6 +148,101 @@ describe("HTTP adapter wire contract", () => {
 
     expect(String((plan.document.collections[0].fields![0].default))).toBe("9007199254740993");
     expect(String((mock.mock.calls[2][1] as RequestInit).body)).toContain("9007199254740993");
+  });
+
+  it("preserves a deterministic schema-import conflict without status recovery", async () => {
+    const mock = stub(session(), respond(409, envelope("schema_conflict")));
+    const backend = await authenticated(mock);
+    const plan = {
+      document: { format: "pgbase.schema/v1" as const, collections: [] },
+      baseVersion: 1,
+      checksum: "checksum",
+      policyChecksum: "policy-checksum",
+      changes: [],
+      operationId: operationID,
+      idempotencyKey,
+    };
+
+    await expect(backend.schema.applyImport!(plan)).rejects.toMatchObject({
+      reason: "failed",
+      code: "schema_conflict",
+    });
+    expect(mock).toHaveBeenCalledTimes(2);
+  });
+
+  it("recovers the original schema-import operation after an unreadable successful response", async () => {
+    const mock = stub(
+      session(),
+      respond(200, "<html>response lost after apply</html>"),
+      respond(200, JSON.stringify({ operationId: operationID, status: "committed", version: 2, applied: 1 })),
+    );
+    const backend = await authenticated(mock);
+    const plan = {
+      document: { format: "pgbase.schema/v1" as const, collections: [] },
+      baseVersion: 1,
+      checksum: "checksum",
+      policyChecksum: "policy-checksum",
+      changes: [],
+      operationId: operationID,
+      idempotencyKey,
+    };
+
+    await expect(backend.schema.applyImport!(plan)).resolves.toMatchObject({
+      operationId: operationID,
+      status: "committed",
+    });
+    expect(mock).toHaveBeenCalledTimes(3);
+    expect(mock.mock.calls[2][0]).toBe(`/api/admin/schema/import/operations/${operationID}`);
+  });
+
+  it("recovers the original schema-import operation after an interrupted transport", async () => {
+    const mock = vi
+      .fn()
+      .mockResolvedValueOnce(session())
+      .mockRejectedValueOnce(new TypeError("network interrupted"))
+      .mockResolvedValueOnce(respond(200, JSON.stringify({ operationId: operationID, status: "committed", version: 2, applied: 1 })));
+    vi.stubGlobal("fetch", mock);
+    const backend = await authenticated(mock);
+    const plan = {
+      document: { format: "pgbase.schema/v1" as const, collections: [] },
+      baseVersion: 1,
+      checksum: "checksum",
+      policyChecksum: "policy-checksum",
+      changes: [],
+      operationId: operationID,
+      idempotencyKey,
+    };
+
+    await expect(backend.schema.applyImport!(plan)).resolves.toMatchObject({
+      operationId: operationID,
+      status: "committed",
+    });
+    expect(mock).toHaveBeenCalledTimes(3);
+    expect(mock.mock.calls[2][0]).toBe(`/api/admin/schema/import/operations/${operationID}`);
+  });
+
+  it("keeps the original unreadable-response error when import recovery cannot be read", async () => {
+    const mock = stub(
+      session(),
+      respond(200, "<html>response lost after apply</html>"),
+      respond(404, envelope("operation_not_found")),
+    );
+    const backend = await authenticated(mock);
+    const plan = {
+      document: { format: "pgbase.schema/v1" as const, collections: [] },
+      baseVersion: 1,
+      checksum: "checksum",
+      policyChecksum: "policy-checksum",
+      changes: [],
+      operationId: operationID,
+      idempotencyKey,
+    };
+
+    await expect(backend.schema.applyImport!(plan)).rejects.toMatchObject({
+      reason: "failed",
+      code: "invalid_response_body",
+    });
+    expect(mock).toHaveBeenCalledTimes(3);
   });
 
   it("rejects a body that repeats a JSON key instead of keeping the last one", async () => {

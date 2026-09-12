@@ -2,6 +2,7 @@ package schema
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -9,6 +10,13 @@ import (
 
 	"github.com/google/uuid"
 )
+
+func TestApplyMigrationSnapshotRequiresRuleValidator(t *testing.T) {
+	err := ApplyMigrationSnapshot(context.Background(), nil, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "rule validator is required") {
+		t.Fatalf("nil migration rule validator error=%v", err)
+	}
+}
 
 func TestCanonicalMigrationSnapshotRejectsTrailingJSONAndSortsCollections(t *testing.T) {
 	firstID := uuid.MustParse("0199ab10-0000-7000-8000-000000000001")

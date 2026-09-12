@@ -456,12 +456,15 @@ export function useCollectionDesigner(
           });
           return;
         }
+        const outran = live.current !== signature;
         update(identity, {
           pristine: signature,
-          terminal: true,
-          authPlan: null,
+          terminal: !outran,
+          authPlan: outran ? authPreview : null,
+          error: outran ? createdText : null,
         });
-        if (live.current === signature) savedDraft();
+        if (!outran) savedDraft();
+        if (outran) return;
         navigate({ kind: "collections" });
       } catch (caught: unknown) {
         update(identity, {

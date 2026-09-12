@@ -83,6 +83,13 @@ func TestAnalyzeUsesStableMetricDefinitions(t *testing.T) {
 	}
 }
 
+func TestCountDirectPageHooksIncludesTemplateExpressions(t *testing.T) {
+	state, effect := countDirectPageHooks([]byte("const label = `literal useState() ${useState(0)} ${`nested ${useEffect(() => {}, [])}`}`;"))
+	if state != 1 || effect != 1 {
+		t.Fatalf("state=%d effect=%d", state, effect)
+	}
+}
+
 func TestCompareToWorktreeCategorizesGrossChanges(t *testing.T) {
 	root := t.TempDir()
 	git(t, root, "init", "-q")

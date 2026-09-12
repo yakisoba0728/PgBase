@@ -4,6 +4,7 @@ import { decode, type Request } from "./http-transport";
 export interface FilesTransport {
   recordCall(request: Request): Promise<{ data: unknown }>;
   fileCall(path: string, request: Omit<Request, "path">): Promise<unknown>;
+  protectedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
   csrfToken(): string;
 }
 
@@ -38,7 +39,7 @@ export function createFilesPort(transport: FilesTransport): AdminBackend["files"
       const path = new URL(filePath(id), window.location.origin);
       path.searchParams.set("token", token);
       if (variant !== "original") path.searchParams.set("variant", variant);
-      const response = await fetch(path, { credentials: "include", signal });
+      const response = await transport.protectedFetch(path, { credentials: "include", signal });
       if (!response.ok) throw new RecordError(response.status === 404 ? "not-found" : "failed");
       return response.blob();
     },
@@ -47,11 +48,12 @@ export function createFilesPort(transport: FilesTransport): AdminBackend["files"
 
 export async function callFile(
   recordCall: (request: Request) => Promise<{ data: unknown }>,
+  protectedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   path: string,
   request: Omit<Request, "path">,
 ): Promise<unknown> {
   if (!(request.body instanceof FormData)) return (await recordCall({ ...request, path })).data;
-  const response = await fetch(path, {
+  const response = await protectedFetch(path, {
     method: request.method, headers: request.headers, body: request.body,
     credentials: "include", signal: request.signal,
   });

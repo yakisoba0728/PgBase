@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/authpolicy"
 )
 
 type SchemaDocumentAuthCollection struct {
@@ -101,6 +102,9 @@ func validateDocumentAuthCollections(values []SchemaDocumentAuthCollection) erro
 		if v.Policy.MinimumPasswordBytes < 12 || v.Policy.MaximumPasswordBytes < v.Policy.MinimumPasswordBytes || v.Policy.MaximumPasswordBytes > 4096 || v.Policy.MFADurationSeconds < 60 || v.Policy.MFADurationSeconds > 86400 || v.Policy.OTPDurationSeconds < 60 || v.Policy.OTPDurationSeconds > 86400 || v.Policy.OTPMaxAttempts < 1 {
 			return validation("authCollections."+v.Name+".policy", "invalid")
 		}
+		if !documentIdentityFieldsMatchSchema(v.Policy.IdentityFields, v.Fields) {
+			return validation("authCollections."+v.Name+".policy.identityFields", "invalid")
+		}
 		for purpose, ttl := range v.TokenTTLs {
 			if !map[string]bool{"verify": true, "password_reset": true, "email_change": true, "session": true, "otp": true, "impersonation": true}[purpose] || ttl < 60 || ttl > 86400 {
 				return validation("authCollections."+v.Name+".tokenTTLs", "invalid")
@@ -108,6 +112,31 @@ func validateDocumentAuthCollections(values []SchemaDocumentAuthCollection) erro
 		}
 	}
 	return nil
+}
+
+func documentIdentityFieldsMatchSchema(identityFields []string, fields []FieldInput) bool {
+	if len(identityFields) == 0 || len(identityFields) > 8 {
+		return false
+	}
+	available := make(map[string]FieldInput, len(fields))
+	for _, field := range fields {
+		available[field.Name] = field
+	}
+	seen := make(map[string]bool, len(identityFields))
+	for _, name := range identityFields {
+		if seen[name] || name != "email" && !portableAuthName.MatchString(name) {
+			return false
+		}
+		seen[name] = true
+		if name == "email" {
+			continue
+		}
+		field, ok := available[name]
+		if !ok || field.Type != TypeText || field.Hidden {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) validateDocumentAuthExecutables(values []SchemaDocumentAuthCollection) error {
@@ -129,6 +158,24 @@ func (s *Service) validateDocumentAuthExecutables(values []SchemaDocumentAuthCol
 			}
 			if s.authPolicyValidator == nil || !s.authPolicyValidator.ValidateAuthRule(*source, value.Fields) {
 				return validation("authCollections."+value.Name+".rules."+name, "invalid")
+			}
+		}
+	}
+	return nil
+}
+
+func validateDocumentAuthIdentityData(ctx context.Context, tx pgx.Tx, values []SchemaDocumentAuthCollection) error {
+	for _, value := range values {
+		for _, field := range value.Policy.IdentityFields {
+			if field == "email" {
+				continue
+			}
+			var duplicate bool
+			if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id join pgbase_meta.auth_collections c on c.id=u.auth_collection_id where c.name=$1 and coalesce(p.attributes ->> $2,'')<>'' group by p.attributes ->> $2 having count(*)>1)`, value.Name, field).Scan(&duplicate); err != nil {
+				return err
+			}
+			if duplicate {
+				return validation("authCollections."+value.Name+".policy.identityFields", "duplicate")
 			}
 		}
 	}
@@ -157,8 +204,18 @@ func (s *Service) applyDocumentAuthCollections(ctx context.Context, tx pgx.Tx, v
 		if err != nil {
 			return err
 		}
+		var previous authpolicy.Policy
+		if err = tx.QueryRow(ctx, `select password_enabled,minimum_password_bytes,mfa_enabled,otp_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for update`, id).Scan(&previous.PasswordEnabled, &previous.MinimumPasswordBytes, &previous.MFAEnabled, &previous.OTPEnabled); err != nil {
+			return err
+		}
 		_, err = tx.Exec(ctx, `update pgbase_meta.auth_collection_policies set password_enabled=$2,minimum_password_bytes=$3,maximum_password_bytes=$4,password_pattern=$5,identity_fields=$6,mfa_enabled=$7,mfa_duration_seconds=$8,mfa_rule=$9,otp_enabled=$10,otp_duration_seconds=$11,otp_max_attempts=$12,updated_at=clock_timestamp() where auth_collection_id=$1`, id, v.Policy.PasswordEnabled, v.Policy.MinimumPasswordBytes, v.Policy.MaximumPasswordBytes, v.Policy.PasswordPattern, identityRaw, v.Policy.MFAEnabled, v.Policy.MFADurationSeconds, v.Policy.MFARule, v.Policy.OTPEnabled, v.Policy.OTPDurationSeconds, v.Policy.OTPMaxAttempts)
 		if err != nil {
+			return err
+		}
+		if err = authpolicy.ApplyTransition(ctx, tx, id, previous, authpolicy.Policy{
+			PasswordEnabled: v.Policy.PasswordEnabled, MinimumPasswordBytes: v.Policy.MinimumPasswordBytes,
+			MFAEnabled: v.Policy.MFAEnabled, OTPEnabled: v.Policy.OTPEnabled,
+		}); err != nil {
 			return err
 		}
 		for purpose, ttl := range v.TokenTTLs {

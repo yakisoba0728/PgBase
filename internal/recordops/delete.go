@@ -34,9 +34,10 @@ const (
 
 type deleteReadBudget struct{ bytes, rows, fields int64 }
 
-// deleteGroup is one collection's slice of the delete closure. Groups keep the
-// plan's global (collection, record) order, so batching per collection commits
-// artifacts in the same audit sequence the per-record path produced.
+// deleteGroup is one collection's slice of the delete closure. Groups use UUID
+// order, and records retain the plan's UUID order inside each group. That makes
+// audit/outbox sequence deterministic across retries; the public root event is
+// identified by MutationResult.EventID and is not promised the first sequence.
 type deleteGroup struct {
 	collection schema.Collection
 	digest     [32]byte
@@ -210,8 +211,8 @@ func authorizeDeleteClosure(ctx context.Context, tx pgx.Tx, catalog schema.Catal
 
 // groupDeleteClosure splits the plan's closure into per-collection batches
 // while re-verifying the disjointness the plan promises. deletes and updates
-// arrive sorted by (collection, record), so first appearance is already the
-// global collection order.
+// arrive sorted by (collection, record). The final explicit UUID sort is the
+// artifact ordering contract and does not privilege the request root.
 func groupDeleteClosure(
 	catalog schema.Catalog,
 	root relation.RecordRef,

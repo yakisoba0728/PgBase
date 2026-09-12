@@ -67,7 +67,7 @@ func (s *Service) ConfigurePasswordReset(sender mailer.Sender, baseURL string, t
 
 func validPasswordResetURL(raw string) bool {
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" || parsed.ForceQuery {
 		return false
 	}
 	if strings.EqualFold(parsed.Scheme, "https") {

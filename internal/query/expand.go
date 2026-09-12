@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/recordartifact"
@@ -130,7 +131,7 @@ func (s *Service) readGetInTx(
 		if err := usage.takeQuerySteps(1 + multipleRelationFieldCount(collection)); err != nil {
 			return err
 		}
-		if err := hydrateRelationRecordsBounded(ctx, tx, catalog, collection, []map[string]any{root}, request.Principal, usage); err != nil {
+		if err := hydrateRelationRecordsBounded(ctx, tx, catalog, collection, []map[string]any{root}, request.Principal, request.RuleContext, usage); err != nil {
 			return err
 		}
 		if err := validateExpandedRecordSize(ExpandedRecord{Root: root}, usage.limits.maxBytes); err != nil {
@@ -156,10 +157,10 @@ func (s *Service) readGetInTx(
 		if err := usage.takeQuerySteps(multipleRelationFieldCount(collection)); err != nil {
 			return err
 		}
-		if err := hydrateRelationRecordsBounded(ctx, tx, catalog, collection, []map[string]any{root}, request.Principal, usage); err != nil {
+		if err := hydrateRelationRecordsBounded(ctx, tx, catalog, collection, []map[string]any{root}, request.Principal, request.RuleContext, usage); err != nil {
 			return err
 		}
-		expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, collection, []map[string]any{root}, plan, request.Principal, usage)
+		expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, collection, []map[string]any{root}, plan, request.Principal, request.RuleContext, usage)
 		if err != nil {
 			return err
 		}
@@ -325,9 +326,10 @@ func (s *Service) readListInTx(
 	if usage == nil {
 		if multipleRelationFieldCount(collection) != 0 {
 			rootRequest.hydrator = newRootHydrator(tx, catalog, collection, request.Principal)
+			rootRequest.hydrator.ruleContext = request.RuleContext
 		} else if collectionHasRelation(collection) {
 			rootRequest.hydrate = func(items []map[string]any) error {
-				return filterRelationValues(ctx, tx, catalog, collection, items, request.Principal)
+				return filterRelationValues(ctx, tx, catalog, collection, items, request.Principal, request.RuleContext)
 			}
 		}
 	} else {
@@ -339,7 +341,7 @@ func (s *Service) readListInTx(
 			if err := usage.takeQuerySteps(multipleRelationFieldCount(collection)); err != nil {
 				return err
 			}
-			return hydrateRelationRecordsBounded(ctx, tx, catalog, collection, items, request.Principal, usage)
+			return hydrateRelationRecordsBounded(ctx, tx, catalog, collection, items, request.Principal, request.RuleContext, usage)
 		}
 	}
 	root, err := s.readRootPageInTx(ctx, tx, rootRequest)
@@ -358,7 +360,7 @@ func (s *Service) readListInTx(
 		return listResult{page: projection.applyPage(root.page)}, relationOperation, nil
 	}
 
-	expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, collection, root.page.Items, expansion, request.Principal, usage)
+	expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, collection, root.page.Items, expansion, request.Principal, request.RuleContext, usage)
 	if err != nil {
 		return listResult{}, relationOperation, err
 	}
@@ -551,6 +553,7 @@ func (s *Service) fetchExpansionTargets(
 	collection schema.Collection,
 	ids []uuid.UUID,
 	principal Principal,
+	ruleContext *accessrule.RequestContext,
 	usage *expansionUsage,
 ) (map[uuid.UUID]map[string]any, error) {
 	targets := make(map[uuid.UUID]map[string]any, len(ids))
@@ -576,7 +579,7 @@ func (s *Service) fetchExpansionTargets(
 		if err != nil {
 			return nil, err
 		}
-		predicate, args, err := compilePolicyPredicate(rules.View, collection, policyTarget, collection.TableName, principal, len(statement.Args))
+		predicate, args, err := compilePolicyPredicateWithRequest(rules.View, collection, policyTarget, collection.TableName, principal, len(statement.Args), catalog, ruleContext)
 		if err != nil {
 			return nil, err
 		}

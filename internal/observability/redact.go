@@ -10,7 +10,7 @@ import (
 var (
 	urlPassword         = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://[^:\s/@]+:)[^@\s/]+@`)
 	urlQueryParameter   = regexp.MustCompile("([?&])([^=&#\\s]+)=([^&\\r\\n]*)")
-	keywordDSNParameter = regexp.MustCompile("(\\b[^\\s=&?]+)(\\s*=\\s*)('(?:\\\\.|[^'])*'|\"(?:\\\\.|[^\"])*\"|`(?:\\\\.|[^`])*`|(?:\\\\.|[^\\s&])+)")
+	keywordDSNParameter = regexp.MustCompile("(\\b[^\\s:=&?]+)(\\s*[:=]\\s*)('(?:\\\\.|[^'])*'|\"(?:\\\\.|[^\"])*\"|`(?:\\\\.|[^`])*`|(?:\\\\.|[^\\s&])+)")
 	headerSecret        = regexp.MustCompile(`(?i)((?:authorization|cookie|set-cookie)\s*:\s*)[^\r\n]+`)
 	bearerSecret        = regexp.MustCompile(`(?i)(\bbearer\s+)[^\s,;]+`)
 	tokenSecret         = regexp.MustCompile(`(?i)((?:setup|session)[ _-]?token\s*[:=]\s*)[^\s,;]+`)

@@ -39,9 +39,16 @@ function persistentDraft(draft: Draft, fields?: readonly FieldDefinition[]): Dra
   return Object.fromEntries(Object.entries(draft).filter(([name]) => (!allowed || allowed.has(name)) && !/(password|passwd|secret|token|api_?key|credential)/i.test(name)));
 }
 
-export function writeDraft(scope: RecordScope, draft: Draft, fields?: readonly FieldDefinition[]): void {
+export function writeDraft(scope: RecordScope, draft: Draft, fields?: readonly FieldDefinition[]): boolean {
   const safe = persistentDraft(draft, fields);
-  try { localStorage.setItem(key("draft", scope), stringify(safe) ?? "{}"); } catch { /* A denied or full storage area must not interrupt editing. */ }
+  try {
+    localStorage.setItem(key("draft", scope), stringify(safe) ?? "{}");
+    return true;
+  } catch {
+    // Draft autosave is best effort, but callers that navigate to a copied
+    // draft use the return value to avoid claiming a duplicate was prepared.
+    return false;
+  }
 }
 
 export function clearDraft(scope: RecordScope): void { try { localStorage.removeItem(key("draft", scope)); } catch { /* Unavailable storage must not block a successful save. */ } }

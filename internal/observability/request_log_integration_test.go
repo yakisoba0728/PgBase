@@ -4,6 +4,7 @@ package observability
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -48,6 +49,14 @@ func TestPersistentRequestLogRetentionSearchAndShutdown(t *testing.T) {
 	}
 	if _, err := log.Detail(ctx, page.Items[0].ID); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := log.Detail(ctx, page.Items[0].ID+1000); !errors.Is(err, ErrRequestLogNotFound) {
+		t.Fatalf("missing detail error = %v", err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := log.Detail(canceled, page.Items[0].ID); !errors.Is(err, context.Canceled) || errors.Is(err, ErrRequestLogNotFound) {
+		t.Fatalf("canceled detail error = %v", err)
 	}
 	if err := log.Truncate(ctx); err != nil {
 		t.Fatal(err)
