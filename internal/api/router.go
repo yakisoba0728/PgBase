@@ -197,6 +197,7 @@ func declareRoutes(dependencies Dependencies, metricsEnabled bool) []route {
 	}
 	routes = append(routes, authCollectionRoutes(dependencies)...)
 	routes = append(routes, adminProfileRoutes(dependencies)...)
+	routes = append(routes, adminAccountRoutes(dependencies)...)
 	routes = append(routes, schemaDocumentRoutes(dependencies)...)
 	routes = append(routes, authAdministrationRoutes(dependencies)...)
 	routes = append(routes, operationsConsoleRoutes(dependencies)...)

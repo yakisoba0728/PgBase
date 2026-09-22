@@ -143,7 +143,7 @@ export function AuthAdministrationPanel({
       );
       if (!signal.aborted)
         setValue((current) => current && { ...current, policy: saved });
-    }, "Policy saved. Existing sessions are revoked when password authentication is disabled or password requirements tighten.");
+    }, "Policy saved. Existing sessions are revoked when password authentication is disabled or the minimum password length increases.");
   }
   function saveProvider() {
     run(async (signal) => {

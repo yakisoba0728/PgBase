@@ -1,4 +1,5 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { CollectionDefinition, FieldDefinition, RecordPage } from "../backend/ports";
 import { callsTo, deferredStep, type BackendScript, type ScriptedRecord } from "../test/backend-script";
@@ -6,6 +7,7 @@ import { collection, sessionWrapper, signedInScript, textField } from "../test/h
 import { memoryBackend } from "../test/memory-backend";
 import { memoryHistory } from "../test/memory-history";
 import { useRelationPicker } from "./relation-picker";
+import { RelationTargetPicker } from "./relation-target-picker";
 
 const targetID = "11111111-1111-4111-8111-111111111111";
 const otherID = "22222222-2222-4222-8222-222222222222";
@@ -36,6 +38,75 @@ describe("relation picker", () => {
     const view = renderHook(() => useRelationPicker(target, field, draft, onChange), { wrapper: wrap(script) });
     return { script, onChange, ...view };
   }
+
+  it("searches, hydrates, selects and removes text targets without changing identity", async () => {
+    const textUsers: CollectionDefinition = { ...users, fields: [], recordId: { kind: "text", minLength: 1, maxLength: 255, pattern: "(?i)^[a-z0-9]+$" } };
+    const { result, script, onChange } = openPicker(textUsers, relationField("tags", "multiple"), "MixedCase01", { items: [{ id: "MixedCase01" }] });
+    await waitFor(() => expect(callsTo(script, "list")).toHaveLength(1));
+    expect(result.current.selections).toEqual([{ id: "MixedCase01", label: "MixedCase01", available: true }]);
+    expect(callsTo(script, "list")[0].detail).toEqual({ collection: "users", filter: "id = 'MixedCase01'" });
+
+    script.list.push({ value: { items: [{ id: "mixedcase01" }] } });
+    act(() => result.current.setQuery("mixedcase01"));
+    act(() => result.current.search());
+    await waitFor(() => expect(result.current.results).toEqual([{ id: "mixedcase01", label: "mixedcase01" }]));
+    expect(callsTo(script, "list")[1].detail).toEqual({ collection: "users", filter: "id = 'mixedcase01'" });
+    act(() => result.current.select("mixedcase01"));
+    expect(onChange).toHaveBeenLastCalledWith("MixedCase01\nmixedcase01");
+    act(() => result.current.deselect("MixedCase01"));
+    expect(onChange).toHaveBeenLastCalledWith("");
+  });
+
+  it("creates a text target inline with its explicit exact ID", async () => {
+    const target: CollectionDefinition = { ...users, recordId: { kind: "text", minLength: 1, maxLength: 255, pattern: "^[A-Za-z0-9]+$" } };
+    const script = signedInScript();
+    script.create.push({ value: { data: { id: "MixedCase01", name: "Ada" }, etag: '"v1"' } });
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<RelationTargetPicker target={target} field={relationField("owner", "single")} draft="" disabled={false} onChange={onChange} />, { wrapper: wrap(script) });
+
+    await user.click(screen.getByText("Create users inline"));
+    await user.type(screen.getByLabelText("New users record ID"), "MixedCase01");
+    await user.type(screen.getByLabelText("New users name"), "Ada");
+    await user.click(screen.getByRole("button", { name: "Create and select" }));
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("MixedCase01"));
+    expect(callsTo(script, "create")[0].detail).toMatchObject({ collection: "users", input: { id: "MixedCase01", name: "Ada" } });
+  });
+
+  it("hydrates long text IDs within both the filter byte limit and the request budget", async () => {
+    const target: CollectionDefinition = { ...users, recordId: { kind: "text", minLength: 1, maxLength: 255, pattern: "^.+$" } };
+    const ids = Array.from({ length: 50 }, (_ignored, index) => `${"𐐀".repeat(250)}${index}`);
+    const script = signedInScript();
+    for (let index = 0; index < 5; index += 1) script.list.push({ value: { items: [] } });
+    const view = renderHook(() => useRelationPicker(target, relationField("tags", "multiple"), ids.join("\n"), vi.fn()), { wrapper: wrap(script) });
+
+    await waitFor(() => expect(callsTo(script, "list")).toHaveLength(4));
+    await act(async () => { await new Promise((settle) => setTimeout(settle, 0)); });
+    expect(callsTo(script, "list")).toHaveLength(4);
+    for (const call of callsTo(script, "list")) {
+      const filter = (call.detail as { filter: string }).filter;
+      expect(new TextEncoder().encode(filter).length).toBeLessThanOrEqual(4096);
+    }
+    expect(view.result.current.selections.at(-1)).toEqual({ id: ids.at(-1), label: ids.at(-1), available: true });
+  });
+
+  it("keeps hydrating the current text selection after earlier edits used four batches", async () => {
+    const target: CollectionDefinition = { ...users, recordId: { kind: "text", minLength: 1, maxLength: 255, pattern: "^[A-Za-z]+$" } };
+    const script = signedInScript();
+    const ids = ["A", "Al", "Ali", "Alic", "Alice"];
+    for (const id of ids) script.list.push({ value: { items: [{ id, name: "Alice Smith" }] } });
+    const view = renderHook(({ draft }) => useRelationPicker(target, relationField("owner", "single"), draft, vi.fn()), { initialProps: { draft: "" }, wrapper: wrap(script) });
+
+    for (const [index, draft] of ids.entries()) {
+      view.rerender({ draft });
+      await waitFor(() => expect(callsTo(script, "list")).toHaveLength(index + 1));
+      await waitFor(() => expect(view.result.current.selections[0].label).toBe("Alice Smith"));
+    }
+    view.rerender({ draft: "Alice" });
+    await act(async () => { await new Promise((settle) => setTimeout(settle, 0)); });
+    expect(callsTo(script, "list")).toHaveLength(5);
+  });
 
   it("searches only when asked and sends one escaped, indexed lookup", async () => {
     const field = relationField("owner", "single");

@@ -512,14 +512,13 @@ export function createAdminPorts(transport: AdminPortsTransport): Pick<AdminBack
     setRules: async (
       collection: string,
       rules: Record<string, unknown>,
-      revision: number,
       signal?: AbortSignal,
     ): Promise<RecordRules> =>
       (
         await transport.schemaCall({
           path: `/api/admin/collections/${encodeURIComponent(collection)}/rules`,
           method: "PUT",
-          body: { rules, revision },
+          body: { rules },
           csrf: true,
           signal,
         })

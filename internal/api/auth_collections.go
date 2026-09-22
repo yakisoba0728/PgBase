@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -339,10 +340,11 @@ func (e authCollectionEndpoints) credentials(register bool) http.Handler {
 			return
 		}
 		var in struct {
-			Email    string `json:"email"`
-			Password string `json:"password"`
+			Email    string          `json:"email"`
+			Password string          `json:"password"`
+			Fields   json.RawMessage `json:"fields"`
 		}
-		if decodeStrictJSON(r, &in) != nil {
+		if decodeStrictJSON(r, &in) != nil || !register && in.Fields != nil {
 			writeUserAuthError(w, r, userauth.ErrValidation)
 			return
 		}
@@ -353,7 +355,7 @@ func (e authCollectionEndpoints) credentials(register bool) http.Handler {
 		}
 		var session userauth.Session
 		if register {
-			session, err = e.dependencies.AuthCollections.RegisterInCollection(r.Context(), collection.ID, in.Email, in.Password, address)
+			session, err = registerCollectionWithFields(r.Context(), e.dependencies.AuthCollections, collection.ID, in.Email, in.Password, address, in.Fields)
 		} else {
 			session, err = e.dependencies.AuthCollections.LoginInCollection(r.Context(), collection.ID, in.Email, in.Password, address)
 		}

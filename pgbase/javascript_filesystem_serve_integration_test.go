@@ -30,7 +30,7 @@ func runJavaScriptFilesystemSystemServeAndCreateThumb(t *testing.T, s3 bool) {
  {"method":"HEAD","pattern":"/extensions/system/file","access":"public","handler":{"module":"route.js","export":"serve"},"capabilities":["filesystem"],"streamResponse":true},
  {"method":"POST","pattern":"/extensions/system/thumb","access":"public","handler":{"module":"route.js","export":"thumb"},"capabilities":["filesystem"]}
 ]}`
-	source := `const fs=$filesystem.s3("ignored","ignored","ignored","ignored","ignored");
+	source := `const fs=$filesystem.configured();
 exports.serve=(e)=>{fs.serve(e.response,e.request,e.query.thumb?"image-thumb.png":"asset.txt",e.query.thumb?"image-thumb.png":"asset.txt")};
 exports.thumb=()=>{fs.createThumb("image.png","image-thumb.png","1x1");return {status:204}};`
 	for name, content := range map[string]string{"pgbase.scripts.json": manifest, "route.js": source} {

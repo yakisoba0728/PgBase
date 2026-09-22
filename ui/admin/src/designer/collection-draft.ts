@@ -11,6 +11,7 @@ import {
   type PlannedField,
   type RelationCardinality,
   type RelationDeleteAction,
+  type RecordIDPolicy,
   type ViewDefinition,
 } from "../backend/ports";
 import {
@@ -212,6 +213,7 @@ export function buildInput(
   indexes?: CompoundIndex[],
   view?: ViewDefinition,
   type?: CollectionType,
+  recordId?: RecordIDPolicy,
 ): CollectionChange {
   if (indexes !== undefined) {
     for (const index of indexes) {
@@ -246,8 +248,6 @@ export function buildInput(
   }
   if (view !== undefined) {
     if (operation === "update") {
-      if (typeof view.sql !== "string")
-        throw new DraftError("Only SQL view definitions can be updated.");
       return { operation, name, view };
     }
     return { operation, name, fields: [], view };
@@ -288,6 +288,7 @@ export function buildInput(
     fields: fieldInputs,
     ...(indexes === undefined ? {} : { indexes }),
     ...(type === undefined ? {} : { type }),
+    ...(recordId === undefined ? {} : { recordId }),
   };
 }
 
@@ -580,4 +581,5 @@ export const draftSignature = (
   indexes?: CompoundIndex[],
   view?: ViewDefinition,
   type?: CollectionType,
-): string => stringifyJSON({ name, fields, indexes, view, type });
+  recordId?: RecordIDPolicy,
+): string => stringifyJSON({ name, fields, indexes, view, type, recordId });

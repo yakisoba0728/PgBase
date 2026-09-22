@@ -72,7 +72,7 @@ func (s *Service) RequestVerification(ctx context.Context, userID uuid.UUID) err
 	if user.Verified {
 		return nil
 	}
-	raw, err := s.issueEmailAction(ctx, user.ID, "verify", nil, passwordHash)
+	raw, err := s.issueEmailAction(ctx, user.ID, "verify", nil, passwordHash, user.Email)
 	if err != nil {
 		return err
 	}
@@ -124,7 +124,7 @@ func (s *Service) RequestPasswordResetInCollection(ctx context.Context, collecti
 	if lookupErr != nil {
 		return lookupErr
 	}
-	raw, err := s.issueEmailAction(ctx, user.ID, "password_reset", nil, passwordHash)
+	raw, err := s.issueEmailAction(ctx, user.ID, "password_reset", nil, passwordHash, user.Email)
 	if err != nil {
 		return err
 	}
@@ -220,7 +220,7 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID uuid.UUID, curr
 	if existing {
 		return ErrConflict
 	}
-	raw, err := s.issueEmailAction(ctx, user.ID, "email_change", &normalized, hash)
+	raw, err := s.issueEmailAction(ctx, user.ID, "email_change", &normalized, hash, user.Email)
 	if database.Classify(err) == database.KindConflict {
 		return ErrConflict
 	}
@@ -244,7 +244,7 @@ func (s *Service) AdminRequestEmailChange(ctx context.Context, userID uuid.UUID,
 	if err != nil {
 		return ErrNotFound
 	}
-	raw, err := s.issueEmailAction(ctx, user.ID, "email_change", &normalized, hash)
+	raw, err := s.issueEmailAction(ctx, user.ID, "email_change", &normalized, hash, user.Email)
 	if err != nil {
 		return err
 	}
@@ -316,7 +316,7 @@ func (s *Service) emailReady() error {
 	return nil
 }
 
-func (s *Service) issueEmailAction(ctx context.Context, userID uuid.UUID, purpose string, payload *string, passwordHash string) (string, error) {
+func (s *Service) issueEmailAction(ctx context.Context, userID uuid.UUID, purpose string, payload *string, passwordHash, email string) (string, error) {
 	var raw string
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var hash []byte
@@ -329,7 +329,7 @@ func (s *Service) issueEmailAction(ctx context.Context, userID uuid.UUID, purpos
 		if hash == nil {
 			hash = s.actionTokenHash(purpose, raw)
 		}
-		_, err = tx.Exec(ctx, `insert into pgbase_meta.user_email_actions(id,user_id,purpose,token_hash,payload_email,credential_hash,expires_at,created_at) values($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP+$7::interval,CURRENT_TIMESTAMP)`, uuid.New(), userID, purpose, hash, payload, s.credentialHash(passwordHash), postgresInterval(ttl))
+		_, err = tx.Exec(ctx, `insert into pgbase_meta.user_email_actions(id,user_id,purpose,token_hash,payload_email,credential_hash,expires_at,created_at) values($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP+$7::interval,CURRENT_TIMESTAMP)`, uuid.New(), userID, purpose, hash, payload, s.emailActionCredentialHash(purpose, passwordHash, email), postgresInterval(ttl))
 		return err
 	})
 	if err != nil {
@@ -360,15 +360,15 @@ func (s *Service) consumeEmailAction(ctx context.Context, purpose, rawToken stri
 			hash = keyedDigest(key, "user-email-action\x00"+purpose+"\x00", rawToken)
 		}
 		var action emailAction
-		var currentHash string
-		err := tx.QueryRow(ctx, `select a.id,a.user_id,a.purpose,a.payload_email,a.credential_hash,a.expires_at,u.password_hash from pgbase_meta.user_email_actions a join pgbase_meta.users u on u.id=a.user_id where a.token_hash=$1 and a.purpose=$2 and a.consumed_at is null and a.expires_at>CURRENT_TIMESTAMP and u.active for update of a,u`, hash, purpose).Scan(&action.id, &action.userID, &action.purpose, &action.payloadEmail, &action.credentialHash, &action.expiresAt, &currentHash)
+		var currentHash, currentEmail string
+		err := tx.QueryRow(ctx, `select a.id,a.user_id,a.purpose,a.payload_email,a.credential_hash,a.expires_at,u.password_hash,u.email from pgbase_meta.user_email_actions a join pgbase_meta.users u on u.id=a.user_id where a.token_hash=$1 and a.purpose=$2 and a.consumed_at is null and a.expires_at>CURRENT_TIMESTAMP and u.active for update of a,u`, hash, purpose).Scan(&action.id, &action.userID, &action.purpose, &action.payloadEmail, &action.credentialHash, &action.expiresAt, &currentHash, &currentEmail)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrInvalidCredentials
 		}
 		if err != nil {
 			return fmt.Errorf("read user email action: %w", err)
 		}
-		if !hmac.Equal(action.credentialHash, s.credentialHash(currentHash)) {
+		if !hmac.Equal(action.credentialHash, s.emailActionCredentialHash(purpose, currentHash, currentEmail)) {
 			return ErrInvalidCredentials
 		}
 		if err := mutate(ctx, tx, action); err != nil {
@@ -461,6 +461,14 @@ func (s *Service) actionTokenHash(purpose, raw string) []byte {
 func (s *Service) credentialHash(hash string) []byte {
 	return s.digest("user-credential-version\x00", hash)
 }
+
+// Email actions authorize the address and password state observed at issuance.
+// A pending action must not survive an email-only account reassignment. Older
+// password-only bindings deliberately fail closed and require a fresh email.
+func (s *Service) emailActionCredentialHash(purpose, passwordHash, email string) []byte {
+	return s.digest("user-email-credential-v2\x00"+purpose+"\x00", passwordHash+"\x00"+email)
+}
+
 func postgresInterval(ttl time.Duration) string { return fmt.Sprintf("%f seconds", ttl.Seconds()) }
 
 // ConfigureMailerDecorator installs a startup-only transport wrapper for both

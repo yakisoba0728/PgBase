@@ -235,6 +235,9 @@ func (s *Service) planSchemaImport(ctx context.Context, tx pgx.Tx, catalog Catal
 	if _, err := s.compileCatalog(projected); err != nil {
 		return SchemaImportPlan{}, err
 	}
+	if err := validateDocumentAuthRecordIDs(ctx, tx, projected, document.AuthCollections); err != nil {
+		return SchemaImportPlan{}, err
+	}
 	policyChecksum, err := schemaPolicyChecksum(ctx, tx, catalog, document)
 	if err != nil {
 		return SchemaImportPlan{}, err
@@ -717,7 +720,7 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 				return err
 			}
 		}
-		if err := s.applyDocumentAuthCollections(ctx, tx, planned.Document.AuthCollections); err != nil {
+		if err := s.applyDocumentAuthCollections(ctx, tx, catalog, planned.Document.AuthCollections); err != nil {
 			return err
 		}
 		persisted, err := store.ReadCatalog(ctx, catalog.Version)

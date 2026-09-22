@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,12 +14,14 @@ import (
 )
 
 type cursorV5FilterComparison struct {
-	Kind     string          `json:"kind"`
-	Path     []string        `json:"path"`
-	Type     string          `json:"type"`
-	Modifier string          `json:"modifier,omitempty"`
-	Operator string          `json:"operator"`
-	Value    json.RawMessage `json:"value"`
+	Kind           string          `json:"kind"`
+	Path           []string        `json:"path"`
+	Type           string          `json:"type"`
+	Modifier       string          `json:"modifier,omitempty"`
+	Operator       string          `json:"operator"`
+	Value          json.RawMessage `json:"value"`
+	LiteralLeft    bool            `json:"literalLeft,omitempty"`
+	PocketBaseLike bool            `json:"pocketBaseLike,omitempty"`
 }
 
 type cursorV5FilterGroup struct {
@@ -41,6 +44,12 @@ func encodeCursorV5Filter(filter *plannedRelationFilter) (json.RawMessage, error
 	}
 	if filter.comparison != nil {
 		comparison := filter.comparison
+		if comparison.function != nil {
+			return encodeCursorV5FunctionComparison(comparison)
+		}
+		if comparison.otherRootField != nil {
+			return encodeCursorV5FieldComparison(comparison)
+		}
 		field := comparison.rootField
 		var hops []plannedRelationHop
 		if comparison.path != nil {
@@ -58,9 +67,12 @@ func encodeCursorV5Filter(filter *plannedRelationFilter) (json.RawMessage, error
 		if err != nil {
 			return nil, err
 		}
+		contains := strings.TrimPrefix(comparison.input.operator, "?") == "~" || strings.TrimPrefix(comparison.input.operator, "?") == "!~"
 		return json.Marshal(cursorV5FilterComparison{
 			Kind: "comparison", Path: path, Type: string(field.Type),
 			Modifier: comparison.input.modifier, Operator: comparison.input.operator, Value: value,
+			LiteralLeft:    contains && comparison.input.literalLeft,
+			PocketBaseLike: contains && !comparison.input.literalLeft && comparison.input.pocketBaseLike,
 		})
 	}
 	kind := "and"

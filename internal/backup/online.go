@@ -24,9 +24,10 @@ type ObjectSource interface {
 }
 
 // CreateOnline exports one repeatable-read snapshot to pg_dump and reads the
-// object inventory from that exact snapshot. It never includes uncommitted or
-// pending uploads. Holding the GC gate makes concurrently deleted objects remain
-// readable until the copy is complete, for local and S3 stores alike.
+// record and extension object inventory from that exact snapshot. It never
+// includes uncommitted or pending uploads. Holding the GC gate makes concurrently
+// deleted objects remain readable until the copy is complete, for local and S3
+// stores alike.
 func CreateOnline(ctx context.Context, destination, databaseURL string, objects ObjectSource) (resultErr error) {
 	if _, err := os.Lstat(destination); !os.IsNotExist(err) {
 		return errors.New("backup directory already exists")
@@ -157,7 +158,8 @@ func CreateOnline(ctx context.Context, destination, databaseURL string, objects 
 func snapshotObjectKeys(ctx context.Context, tx pgx.Tx) ([]string, error) {
 	rows, err := tx.Query(ctx, `SELECT object_key FROM pgbase_meta.record_files WHERE status = 'ready'
  UNION SELECT thumbnail_object_key FROM pgbase_meta.record_files WHERE status = 'ready' AND thumbnail_object_key IS NOT NULL
- UNION SELECT v.object_key FROM pgbase_meta.record_file_variants v JOIN pgbase_meta.record_files f ON f.id=v.file_id WHERE f.status = 'ready' ORDER BY 1`)
+ UNION SELECT v.object_key FROM pgbase_meta.record_file_variants v JOIN pgbase_meta.record_files f ON f.id=v.file_id WHERE f.status = 'ready'
+ UNION SELECT object_key FROM pgbase_meta.extension_objects ORDER BY 1`)
 	if err != nil {
 		return nil, err
 	}

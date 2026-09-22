@@ -1,0 +1,297 @@
+[
+  {
+    "id": "RULE-01",
+    "category": "rules",
+    "feature": "five CRUD actions",
+    "status": "adapted",
+    "pbContract": "Collections have independent nullable list/view/create/update/delete rule strings; nonempty rules filter the corresponding operation.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L52",
+    "pgImplementation": "Five persisted typed AST actions, PocketBase string import/export adapter, transaction-bound row evaluation, and native owner defaults are implemented. Collection admission remains an additional independent opt-in gate.",
+    "pgSource": [
+      "internal/accessrule/rule.go:47",
+      "internal/accessrule/pocketbase.go:15",
+      "internal/recordaccess/rules.go:86",
+      "internal/recordaccess/subject.go:16",
+      "internal/recordops/access_context.go:27"
+    ],
+    "testSource": [
+      "pgbase/record_rules_integration_test.go:13",
+      "internal/recordaccess/pocketbase_rule_integration_test.go:23"
+    ],
+    "verification": "test-exists",
+    "gap": "Different storage and admission model; absence of stored policy means owner-only, while PB collection rules default to locked. This row establishes five-action capability, not syntax or wire equivalence.",
+    "priority": "none"
+  },
+  {
+    "id": "RULE-02",
+    "category": "rules",
+    "feature": "owner/authenticated/comparison",
+    "status": "partial",
+    "pbContract": "Rules support field comparisons and request auth fields, including arbitrary literal comparisons against @request.auth.id; record ownership is expressed through fields rather than a built-in ownership side table.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_field_resolver_runner.go#L199",
+    "pgImplementation": "Native owner/authenticated/all/any/comparison AST and PB field-to-auth-ID comparisons exist. The parser special-cases auth ID empty-string equality into authenticated/unauthenticated predicates.",
+    "pgSource": [
+      "internal/accessrule/rule.go:150",
+      "internal/accessrule/rule.go:169",
+      "internal/query/access_rule.go:121",
+      "internal/query/access_rule.go:146"
+    ],
+    "testSource": [
+      "internal/query/access_rule_test.go:26",
+      "internal/query/access_rule_test.go:52",
+      "pgbase/record_rules_integration_test.go:13"
+    ],
+    "verification": "test-exists",
+    "gap": "@request.auth.id = 'nonempty-id' is rejected by accessRuleComparison, despite being valid PB. Native owner is intentionally different from id = @request.auth.id; tests correctly keep them distinct. Existing tests cover empty ID/field references, not arbitrary literal ID equality.",
+    "priority": "P1"
+  },
+  {
+    "id": "RULE-03",
+    "category": "rules",
+    "feature": "PocketBase filter syntax/variables",
+    "status": "partial",
+    "pbContract": "PB filter strings support quoted literals, request operands, relation/back-relation/collection references, modifiers, functions, and identifier macros.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_field_resolver.go#L97",
+    "pgImplementation": "Catalog-aware PB AST/compiler supports many comparisons, relations, JSON paths, any/each semantics, geoDistance, strftime and selected UTC macros. A compatibility rules endpoint parses PB strings.",
+    "pgSource": [
+      "internal/query/access_rule.go:17",
+      "internal/query/filter.go:219",
+      "internal/api/rules.go:29",
+      "internal/accessrule/pocketbase_resolver.go:362",
+      "internal/recordaccess/rules.go:86"
+    ],
+    "testSource": [
+      "internal/recordaccess/pocketbase_conformance_integration_test.go:29",
+      "internal/query/pocketbase_rule_conformance_test.go:17",
+      "internal/recordaccess/rules_validation_test.go:13"
+    ],
+    "verification": "test-exists",
+    "gap": "Not full PB grammar: access-rule parsing calls parseFilterRequest without the double-quote normalization used by the record-query compatibility path, so PB double-quoted rule literals fail. Only selected date macros are supported. More critically, ValidateRules supplies nil request context for list/view/delete, so request-variable rules such as @request.method = 'GET' cannot be saved there; create/update use empty request maps and reject auth literals. The broad conformance test directly inserts policy SQL and therefore does not test this save boundary.",
+    "priority": "P1"
+  },
+  {
+    "id": "RULE-04",
+    "category": "rules",
+    "feature": "rule null/empty semantics",
+    "status": "partial",
+    "pbContract": "A null rule locks the action to superusers, an empty string opens it, and a nonempty expression filters records. Locked state is different from an expression that matches no rows.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L52",
+    "pgImplementation": "PB rule adapter round-trips null as deny and empty string as allow. Auth collection rule storage separately preserves nullable strings. Native record execution combines these predicates with collection admission.",
+    "pgSource": [
+      "internal/accessrule/pocketbase.go:15",
+      "internal/accessrule/pocketbase.go:44",
+      "internal/recordaccess/rules.go:104",
+      "internal/recordaccess/subject.go:30"
+    ],
+    "testSource": [
+      "internal/accessrule/pocketbase_test.go:8",
+      "internal/userauth/nullable_rules_integration_test.go:16",
+      "pgbase/record_rules_integration_test.go:57"
+    ],
+    "verification": "test-exists",
+    "gap": "Base-record null is lowered to the same deny AST used for ordinary filtering, losing the locked-versus-filter distinction at execution. A null-derived list rule produces 200 empty when collection admission is enabled; PB returns 403. Empty allow also does not open PgBase without its independent admission opt-in. Auth null/empty tests only demonstrate auth storage and selected session paths.",
+    "priority": "P1"
+  },
+  {
+    "id": "RULE-05",
+    "category": "rules",
+    "feature": "authRule",
+    "status": "partial",
+    "pbContract": "After credentials succeed and on refresh, AuthRule filters the authenticating record using the original HTTP RequestInfo; @request.auth is the preexisting caller, not automatically the authenticating target. Null locks authentication; empty allows. Refusal is 403.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_helpers.go#L53",
+    "pgImplementation": "Nullable persisted authRule is evaluated before transaction-bound session issuance, OAuth/OTP/MFA credential consumption and refresh. Current custom fields and auth-to-auth relations are supported.",
+    "pgSource": [
+      "internal/userauth/auth_rule_resolver.go:168",
+      "internal/userauth/auth_rule_resolver.go:188",
+      "internal/userauth/auth_rule_resolver.go:196",
+      "internal/userauth/session_refresh.go:85",
+      "internal/userauth/mfa.go:265",
+      "internal/userauth/oauth.go:406"
+    ],
+    "testSource": [
+      "internal/userauth/auth_rule_enforcement_integration_test.go:28",
+      "internal/userauth/auth_rule_enforcement_integration_test.go:70",
+      "internal/userauth/auth_rule_enforcement_integration_test.go:108",
+      "internal/userauth/auth_rule_enforcement_integration_test.go:150",
+      "internal/userauth/auth_record_model_integration_test.go:114"
+    ],
+    "verification": "test-exists",
+    "gap": "Session evaluation always makes the authenticating target the principal and supplies no original HTTP method/query/header/body/context. Thus rules involving @request.auth or request metadata differ, including @request.auth.id != '' during an unauthenticated password login. PgBase returns invalid_credentials/401 rather than PB 403. The auth resolver loads only auth collections, so @collection/base-record relation reachability is also narrower. Tests verify target-field allow/deny and rollback, not original-caller/request-context parity.",
+    "priority": "P1"
+  },
+  {
+    "id": "RULE-06",
+    "category": "rules",
+    "feature": "manageRule",
+    "status": "partial",
+    "pbContract": "An authenticated caller satisfying a nonempty manageRule gains auth-record manager privileges after create/update access passes. Empty/null grants no manager access. Ordinary permitted self password updates can use oldPassword without manage privileges; manager rules may inspect auth from another collection.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L732",
+    "pgImplementation": "Delegated update evaluates distinct actor and target, requires update rule plus manage rule for email/password/verified/active changes, revokes affected credentials, and uses deleteRule for deletion. Empty manage grants no privileges.",
+    "pgSource": [
+      "internal/userauth/managed_authorization.go:14",
+      "internal/userauth/auth_records.go:144",
+      "internal/userauth/auth_rule_resolver.go:71",
+      "internal/userauth/auth_records.go:209",
+      "internal/api/auth_records.go:245"
+    ],
+    "testSource": [
+      "internal/userauth/auth_record_model_integration_test.go:184",
+      "internal/userauth/auth_record_model_integration_test.go:239",
+      "internal/userauth/auth_record_model_integration_test.go:259"
+    ],
+    "verification": "test-exists",
+    "gap": "Actor lookup is hard-bound to the target auth collection; tests explicitly assert cross-realm managers are rejected, unlike PB's rule-controlled request auth. Authorized auth-record password updates always require manageRule and do not accept the PB oldPassword alternative through this record mutation path. Separate account password-change APIs are not the same record-update contract.",
+    "priority": "P1"
+  },
+  {
+    "id": "RULE-07",
+    "category": "rules",
+    "feature": "rule administration/preview",
+    "status": "partial",
+    "pbContract": "Collection administration stores and validates PB filter strings through collection rule fields; the resolver evaluates those strings with request and catalog context. PB does not define PgBase's dedicated unsaved-row preview endpoint.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_validate.go#L130",
+    "pgImplementation": "Admin GET/PUT offers native AST and ?compat=pocketbase strings. The preview backend can evaluate an unsaved single rule against up to 50 records, including relations and supplied request context.",
+    "pgSource": [
+      "internal/api/rules.go:21",
+      "internal/recordaccess/preview.go:16",
+      "internal/recordaccess/preview.go:60",
+      "ui/admin/src/pages/record-rules-editor.tsx:25",
+      "ui/admin/src/pages/record-rules-editor.tsx:47",
+      "ui/admin/src/backend/http-admin-ports.ts:518"
+    ],
+    "testSource": [
+      "internal/recordaccess/preview_regression_integration_test.go:21",
+      "pgbase/record_rules_integration_test.go:70",
+      "ui/admin/src/pages/record-rules-editor.test.tsx:19"
+    ],
+    "verification": "test-exists",
+    "gap": "Older claim that backend relation/request preview is absent is stale. UI still edits raw AST and supplies no request context editor. Its save adapter sends {rules, revision}, while native PUT strictly decodes a struct with only rules. Preview sends JSON.parse(draft), the full five-action Rules object, as one rule instead of selecting draft[previewAction]. The UI mock tests do not assert these bodies against actual endpoint decoding. PB text editing and usable end-to-end save/preview are not established.",
+    "priority": "P1"
+  },
+  {
+    "id": "RULE-08",
+    "category": "rules",
+    "feature": "rule denial HTTP status and result contract (omission)",
+    "status": "partial",
+    "pbContract": "Locked action:403; nonmatching list:200 empty; failed create predicate:400; failed view/update/delete predicate:404; failed authRule:403.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L308",
+    "pgImplementation": "Record predicate failures hide existing rows with 404 and list predicates filter before pagination. Create denial maps to ErrDenied/403. Authentication rule failure maps to invalid_credentials/401.",
+    "pgSource": [
+      "internal/recordops/access_context.go:39",
+      "internal/api/record_handlers.go:612",
+      "internal/api/user_handlers.go:229",
+      "internal/userauth/auth_rule_resolver.go:201"
+    ],
+    "testSource": [
+      "pgbase/record_rules_integration_test.go:45",
+      "pgbase/record_rules_integration_test.go:50",
+      "pgbase/record_rules_integration_test.go:61"
+    ],
+    "verification": "test-exists",
+    "gap": "Create predicate and authRule statuses differ from PB, and null-lock distinction is lost for base-row list/view/update/delete. Existing integration test explicitly expects 403 on create predicate denial, so this is a documented implementation difference, not proof of PB conformance.",
+    "priority": "P1"
+  },
+  {
+    "id": "RULE-09",
+    "category": "rules",
+    "feature": "actual request environment and auth projection (omission)",
+    "status": "partial",
+    "pbContract": "@request.context is a scalar with default/expand/realtime/protectedFile/batch/oauth2/otp/password values. @request.auth exposes current auth record fields and relations; method/body/query/normalized headers derive from the real request, and absent values resolve NULL.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/event_request.go#L152",
+    "pgImplementation": "Record HTTP creates method/query/normalized-header maps, four auth fields (id/email/verified/created), and a Context object containing requestId. Compiler supports @request.context.<key> and requires explicit auth-map keys.",
+    "pgSource": [
+      "internal/api/record_handlers.go:37",
+      "internal/accessrule/rule.go:111",
+      "internal/query/access_rule.go:78",
+      "internal/accessrule/pocketbase_resolver.go:434",
+      "internal/accessrule/pocketbase_resolver.go:445"
+    ],
+    "testSource": [
+      "internal/recordaccess/pocketbase_conformance_integration_test.go:141",
+      "internal/query/access_rule_test.go:62"
+    ],
+    "verification": "test-exists",
+    "gap": "PB scalar @request.context = 'default' cannot be represented by the PgBase dotted Context map. Custom auth fields/collection identity/relations are absent from real record HTTP auth context; missing auth keys cause compilation errors instead of PB NULL semantics. Conformance tests manually construct a richer RequestContext and do not establish actual HTTP wiring parity.",
+    "priority": "P1"
+  },
+  {
+    "id": "RULE-10",
+    "category": "rules",
+    "feature": "privileged subject rule bypass (omission)",
+    "status": "adapted",
+    "pbContract": "Authenticated superusers bypass collection record rules, including locked null rules.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L52",
+    "pgImplementation": "Administrator operations bypass row rules. PgBase additionally has scoped service principals: collection/action grants are checked, then service principals bypass user row predicates.",
+    "pgSource": [
+      "internal/recordaccess/subject.go:16",
+      "internal/recordops/access_context.go:27"
+    ],
+    "testSource": [
+      "pgbase/record_rules_integration_test.go:13"
+    ],
+    "verification": "static-only",
+    "gap": "Administrator behavior has a corresponding PB role, but scoped service bypass is a PgBase extension without a PB-equivalent role. The listed integration test uses administrator rule administration; it is not a dedicated bypass conformance test.",
+    "priority": "none"
+  },
+  {
+    "id": "RULE-11",
+    "category": "rules",
+    "feature": "hidden fields in stored API rules (omission)",
+    "status": "partial",
+    "pbContract": "Stored API rules can reference hidden fields; allowHiddenFields=true is used during rule compilation, then restricted only for unprivileged client search filters.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L64",
+    "pgImplementation": "The PB catalog resolver rejects hidden non-relation fields unconditionally. Native typed AST field resolution can still address scalar hidden fields, so the missing portion is PB rule-string/catalog behavior.",
+    "pgSource": [
+      "internal/accessrule/catalog_resolver.go:44",
+      "internal/accessrule/rule.go:346",
+      "internal/recordaccess/rule_compile.go:18"
+    ],
+    "testSource": [],
+    "verification": "static-only",
+    "gap": "A valid PB stored rule such as hidden_status = 'published' cannot be saved/compiled through PgBase's PB rule path. PB explicitly tests a hidden title in a stored listRule; no corresponding PgBase parity assertion was found in inspected tests.",
+    "priority": "P1"
+  },
+  {
+    "id": "RULE-12",
+    "category": "rules",
+    "feature": "collection aliases and shared-row correlation (omission)",
+    "status": "partial",
+    "pbContract": "@collection.<nameOrId>:<alias>.<field> resolves collection identity separately from a stable join alias. Repeated aliases use the same joined row; distinct aliases permit separate joined rows.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_field_resolver_runner.go#L157",
+    "pgImplementation": "Unaliased @collection.name.field resolves a catalog name and compiles per-comparison multi-value EXISTS/NOT EXISTS predicates. Forward and reverse relations are supported.",
+    "pgSource": [
+      "internal/accessrule/catalog_resolver.go:163",
+      "internal/accessrule/pocketbase_resolver.go:424",
+      "internal/accessrule/pocketbase_resolver.go:228"
+    ],
+    "testSource": [
+      "internal/recordaccess/pocketbase_conformance_integration_test.go:126",
+      "internal/recordaccess/pocketbase_rule_integration_test.go:93"
+    ],
+    "verification": "test-exists",
+    "gap": "ResolveCollection performs exact name lookup and has no nameOrId/alias handling. Shared-row correlation across multiple @collection comparisons is not proven by existing tests, which use only one such comparison per policy; compiler structure uses separate subqueries. A PB alias rule cannot be imported as-is. Potential cross-row differences require focused executable differential tests before assigning a security impact.",
+    "priority": "P1"
+  },
+  {
+    "id": "RULE-13",
+    "category": "rules",
+    "feature": "predicate NULL/empty and explicit LIKE wildcard semantics (omission)",
+    "status": "partial",
+    "pbContract": "For ordinary non-JSON operands, PB equality normalizes null and empty string and inequality is NULL-aware; JSON extraction can disable fallback. LIKE wraps unpatterned literal text but preserves explicit unescaped percent wildcard placement.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/filter.go#L334",
+    "pgImplementation": "PB SQL compiler treats null literals as IS NULL/IS NOT NULL and other comparisons as COALESCE(lhs op rhs,false); contains always emits '%' || rhs || '%'.",
+    "pgSource": [
+      "internal/accessrule/pocketbase_resolver.go:188",
+      "internal/accessrule/pocketbase_resolver.go:203",
+      "internal/accessrule/pocketbase_resolver.go:212"
+    ],
+    "testSource": [
+      "internal/query/access_rule_test.go:26",
+      "internal/recordaccess/pocketbase_rule_integration_test.go:23",
+      "internal/accessrule/pocketbase_resolver_test.go:56"
+    ],
+    "verification": "test-exists",
+    "gap": "Ordinary null/empty equality is not PB-compatible; current PgBase test explicitly keeps title=null distinct from title=''. LIKE 'prefix%' becomes '%prefix%' instead of retaining prefix anchoring. Existing tests cover basic contains/null cases, not PB explicit wildcard and NULL fallback fixtures. These differences can change which records a policy grants.",
+    "priority": "P1"
+  }
+]

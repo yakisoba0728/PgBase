@@ -237,7 +237,7 @@ func (s *Service) UpdateAuthCollection(ctx context.Context, id uuid.UUID, input 
 		for rows.Next() {
 			var profileRaw []byte
 			var profile map[string]any
-			if rows.Scan(&profileRaw) != nil || json.Unmarshal(profileRaw, &profile) != nil || !validateTypedProfile(profile, fields, true) {
+			if rows.Scan(&profileRaw) != nil || decodeAuthProfile(profileRaw, &profile) != nil || !validateTypedProfile(profile, fields, true) {
 				return ErrConflict
 			}
 		}
@@ -350,7 +350,7 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 			return err
 		}
 		var fields []schema.FieldInput
-		if json.Unmarshal(fieldsRaw, &fields) != nil || json.Unmarshal(existingRaw, &current.Fields) != nil {
+		if json.Unmarshal(fieldsRaw, &fields) != nil || decodeAuthProfile(existingRaw, &current.Fields) != nil {
 			return ErrValidation
 		}
 		if updateRule == nil {
@@ -375,7 +375,7 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 			return ErrValidation
 		}
 		merged := map[string]any{}
-		if json.Unmarshal(existingRaw, &merged) != nil {
+		if decodeAuthProfile(existingRaw, &merged) != nil {
 			return ErrValidation
 		}
 		for name, value := range changes {
@@ -442,7 +442,7 @@ func (s *Service) GetProfile(ctx context.Context, userID uuid.UUID) (map[string]
 	}
 	var value map[string]any
 	var fields []schema.FieldInput
-	if json.Unmarshal(raw, &value) != nil || json.Unmarshal(fieldsRaw, &fields) != nil {
+	if decodeAuthProfile(raw, &value) != nil || json.Unmarshal(fieldsRaw, &fields) != nil {
 		return nil, errors.New("invalid stored auth profile")
 	}
 	value = publicAuthFields(value, fields)

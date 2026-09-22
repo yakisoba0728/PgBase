@@ -1,11 +1,13 @@
 import {
   CollectionCatalog,
   type AuthCollectionScaffold,
+  type CollectionChange,
   type CollectionDefinition,
   type CollectionType,
   type CompoundIndex,
   type PlannedChange,
   type PlannedField,
+  type RecordIDPolicy,
   type SchemaDocument,
   type SchemaDocumentCollection,
   type SchemaImportPlan,
@@ -35,6 +37,7 @@ export interface State {
   definition: CollectionDefinition | null;
   catalog: CollectionCatalog | null;
   collectionType?: CollectionType;
+  recordId?: RecordIDPolicy;
   authBlueprint?: AuthCollectionScaffold;
   duplicateSource?: string;
   scaffold?: "base" | "auth" | "view";
@@ -116,6 +119,31 @@ export const redrafted = (fields: DraftField[]): Partial<State> => ({
   confirmed: false,
 });
 
+// Both the visible preview and the command sent to the server must describe
+// the same draft, including its view mode and immutable identity policy.
+export function collectionChange(state: State): CollectionChange {
+  return buildInput(
+    state.create ? "create" : "update",
+    state.name,
+    state.fields,
+    state.indexes,
+    state.view,
+    state.collectionType,
+    state.recordId,
+  );
+}
+
+function editableView(definition: CollectionDefinition, catalog: CollectionCatalog): ViewDefinition | undefined {
+  const view = definition.view;
+  if (view === undefined) return undefined;
+  if (typeof view.sql === "string") return { sql: view.sql };
+  return {
+    source: view.sourceCollectionId === undefined ? view.source : catalog.byID(view.sourceCollectionId)?.name ?? view.source,
+    projection: [...view.projection],
+    ...(view.filter === undefined ? {} : { filter: view.filter }),
+  };
+}
+
 export function loadedState(
   current: State,
   catalog: CollectionCatalog,
@@ -151,10 +179,7 @@ export function loadedState(
           fields: [...index.fields],
           unique: index.unique,
         })),
-        view =
-          source.view !== undefined && "sql" in source.view
-            ? ({ sql: source.view.sql } as ViewDefinition)
-            : undefined,
+        view = editableView(source, catalog),
         name = `${source.name}_copy`,
         collectionType = source.type ?? (view === undefined ? "base" : "view");
       return {
@@ -165,7 +190,8 @@ export function loadedState(
         indexes,
         view,
         collectionType,
-        pristine: draftSignature(name, fields, indexes, view, collectionType),
+        recordId: source.recordId,
+        pristine: draftSignature(name, fields, indexes, view, collectionType, source.recordId),
       };
     }
     const template = auth
@@ -204,17 +230,15 @@ export function loadedState(
       indexes,
       view,
       collectionType,
+      recordId: template.recordId,
       authBlueprint,
-      pristine: draftSignature(name, fields, indexes, view, collectionType),
+      pristine: draftSignature(name, fields, indexes, view, collectionType, template.recordId),
     };
   }
   const definition = catalog.get(current.name);
   if (definition === undefined) return { ...base, phase: "missing" };
   const fields = draftFields(definition, catalog);
-  const view =
-    definition.view !== undefined && "sql" in definition.view
-      ? ({ sql: definition.view.sql } as ViewDefinition)
-      : undefined;
+  const view = editableView(definition, catalog);
   return {
     ...base,
     phase: "ready",
@@ -225,12 +249,14 @@ export function loadedState(
     indexes: undefined,
     view,
     collectionType: definition.type,
+    recordId: definition.recordId,
     pristine: draftSignature(
       definition.name,
       fields,
       undefined,
       view,
       definition.type,
+      definition.recordId,
     ),
   };
 }
@@ -245,6 +271,7 @@ export function authImportDocument(state: State): SchemaDocument {
     state.indexes,
     undefined,
     "auth",
+    state.recordId,
   );
   if (!("fields" in change) || change.fields === undefined)
     throw new DraftError("Authentication fields are unavailable.");
@@ -253,11 +280,13 @@ export function authImportDocument(state: State): SchemaDocument {
     name: state.name,
     type: "auth" as const,
     fields: change.fields,
+    recordId: state.recordId,
     ...(change.indexes === undefined ? {} : { indexes: change.indexes }),
   };
   const authCollection = {
     ...state.authBlueprint.authCollection,
     name: state.name,
+    recordId: state.recordId,
     // The auth authority stores custom fields only; its system fields remain
     // in the catalog collection and are joined by userauth at runtime.
     fields: change.fields.filter((field) => field.system !== true),

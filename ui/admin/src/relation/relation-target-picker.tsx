@@ -17,6 +17,7 @@ export function RelationTargetPicker({ disabled, draft, field, onChange, target 
 }) {
   const picker = useRelationPicker(target, field, draft, onChange);
   const [newValue, setNewValue] = useState("");
+  const [newRecordID, setNewRecordID] = useState("");
   const [edits, setEdits] = useState<Record<string, string>>({});
   const searchField = picker.searchField;
   const base = `record-${field.name}-target`;
@@ -45,7 +46,7 @@ export function RelationTargetPicker({ disabled, draft, field, onChange, target 
   return <fieldset>
     <legend>{field.name} target lookup</legend>
     <label htmlFor={`${base}-search`}>
-      {searchField === undefined ? `${field.name} target UUID` : `${field.name} target ${searchField.name}`}
+      {searchField === undefined ? `${field.name} target ${target.recordId?.kind === "text" ? "record ID" : "UUID"}` : `${field.name} target ${searchField.name}`}
     </label>
     <input
       aria-activedescendant={active}
@@ -58,7 +59,7 @@ export function RelationTargetPicker({ disabled, draft, field, onChange, target 
       maxLength={1024}
       onChange={(event) => picker.setQuery(event.target.value)}
       onKeyDown={navigate}
-      placeholder={searchField === undefined ? "Canonical target UUID" : `Exact ${searchField.name}`}
+      placeholder={searchField === undefined ? target.recordId?.kind === "text" ? "Exact target record ID" : "Canonical target UUID" : `Exact ${searchField.name}`}
       role="combobox"
       value={picker.query}
     />
@@ -81,9 +82,13 @@ export function RelationTargetPicker({ disabled, draft, field, onChange, target 
     </button>}
     {searchField !== undefined && target.view === undefined && <details>
       <summary>Create {target.name} inline</summary>
+      {target.recordId?.kind === "text" && <>
+        <label htmlFor={`${base}-new-id`}>New {target.name} record ID</label>
+        <input id={`${base}-new-id`} value={newRecordID} onChange={(event) => setNewRecordID(event.target.value)} placeholder={target.recordId.autogeneratePattern ? "Leave empty to generate an ID" : "Exact record ID (required)"} />
+      </>}
       <label htmlFor={`${base}-new`}>New {target.name} {searchField.name}</label>
       <input id={`${base}-new`} value={newValue} onChange={(event) => setNewValue(event.target.value)} />
-      <button disabled={disabled || picker.mutating || newValue.trim() === ""} onClick={() => { picker.createTarget(newValue); setNewValue(""); }} type="button">Create and select</button>
+      <button disabled={disabled || picker.mutating || newValue.trim() === "" || (target.recordId?.kind === "text" && !target.recordId.autogeneratePattern && newRecordID === "")} onClick={() => { picker.createTarget(newValue, newRecordID); setNewValue(""); }} type="button">Create and select</button>
     </details>}
     {picker.selections.length > 0 && <ul aria-label={`${field.name} selected targets`}>
       {picker.selections.map((selection) => <li key={selection.id}>

@@ -47,17 +47,92 @@ test('administrator impersonation uses CSRF and preserves the explicit origin ma
   assert.deepEqual(JSON.parse(calls.at(-1).init.body),{durationSeconds:120});
 });
 
+test('administrator schema workflows preserve exact text ID policies and preview snapshots', async () => {
+  const calls=[];
+  const recordId={kind:'text',minLength:4,maxLength:24,pattern:'^[A-Za-z0-9_-]+$',autogeneratePattern:'[A-Za-z0-9]{20}'};
+  const collection={id:'collection-id',name:'articles',tableName:'articles',recordId,fields:[]};
+  const definition={name:collection.name,tableName:collection.tableName,recordId,fields:[]};
+  const authPolicy={passwordEnabled:true,minimumPasswordBytes:12,maximumPasswordBytes:128,passwordPattern:'',identityFields:['email'],mfaEnabled:false,mfaDurationSeconds:300,mfaRule:'',otpEnabled:false,otpDurationSeconds:300,otpMaxAttempts:5};
+  const authCollection={name:'members',registrationEnabled:true,recordId,fields:[],rules:{list:null,view:'@request.auth.id = id',create:'',auth:''},policy:authPolicy,tokenTTLs:{session:3600}};
+  const schema={format:'pgbase.schema/v1',collections:[{name:'articles',recordId,fields:[],userAccess:false,rules:{}},{name:'members',type:'auth',recordId,fields:[],userAccess:false,rules:{}}],authCollections:[authCollection]};
+  const client=new PgBaseAdminClient('http://localhost',{fetch:async(url,init)=>{
+    const path=new URL(url).pathname;
+    calls.push({path,init});
+    if(path==='/api/admin/collections') return Response.json({version:7,collections:{articles:collection}});
+    if(path==='/api/admin/collections/plan') return Response.json({baseVersion:7,checksum:'create-checksum',definition,sql:[]});
+    if(path==='/api/admin/collections/apply') return Response.json(collection);
+    if(path==='/api/admin/schema/export') return Response.json(schema);
+    if(path==='/api/admin/schema/import/preview') return Response.json({baseVersion:7,checksum:'import-checksum',policyChecksum:'policy',changes:[],document:schema});
+    if(path==='/api/admin/schema/import/apply') return Response.json({operationId:'import-id',status:'committed'});
+    throw new Error(`unexpected request: ${path}`);
+  }});
+  assert.deepEqual((await client.catalog()).collections.articles.recordId,recordId);
+  const change={operation:'create',name:'articles',recordId:{...recordId},fields:[]};
+  const pending=client.plan(change);
+  change.recordId.pattern='^[a-z]+$';
+  const plan=await pending;
+  assert.deepEqual(plan.preview.definition.recordId,recordId);
+  plan.preview.definition.recordId.maxLength=255;
+  assert.deepEqual((await client.apply(plan)).recordId,recordId);
+  const planned=JSON.parse(calls.find(call=>call.path==='/api/admin/collections/plan').init.body);
+  const applied=JSON.parse(calls.find(call=>call.path==='/api/admin/collections/apply').init.body);
+  assert.deepEqual(planned.recordId,recordId);
+  assert.deepEqual(applied.recordId,recordId);
+  assert.equal(applied.checksum,'create-checksum');
+
+  const exported=await client.exportSchema();
+  assert.deepEqual(exported.collections[0].recordId,recordId);
+  assert.deepEqual(exported.authCollections[0],authCollection);
+  const pendingImport=client.previewSchemaImport(exported);
+  exported.collections[0].recordId.pattern='^[a-z]+$';
+  exported.collections[1].recordId.pattern='^[a-z]+$';
+  exported.authCollections[0].recordId.pattern='^[a-z]+$';
+  exported.authCollections[0].policy.identityFields=['changed'];
+  const importPlan=await pendingImport;
+  importPlan.document.collections[0].recordId.maxLength=255;
+  importPlan.document.authCollections[0].recordId.maxLength=255;
+  await client.applySchemaImport(importPlan);
+  const previewed=JSON.parse(calls.find(call=>call.path==='/api/admin/schema/import/preview').init.body);
+  const imported=JSON.parse(calls.find(call=>call.path==='/api/admin/schema/import/apply').init.body);
+  assert.deepEqual(previewed.collections[0].recordId,recordId);
+  assert.deepEqual(imported.document.collections[0].recordId,recordId);
+  assert.deepEqual(previewed.collections[1],schema.collections[1]);
+  assert.deepEqual(imported.document.collections[1],schema.collections[1]);
+  assert.deepEqual(previewed.authCollections[0],authCollection);
+  assert.deepEqual(imported.document.authCollections[0],authCollection);
+});
+
+test('administrator declarative view updates bind the complete projection and filter', async () => {
+  const calls=[];
+  const client=new PgBaseAdminClient('http://localhost',{fetch:async(url,init)=>{
+    calls.push({url:String(url),init});
+    if(String(url).endsWith('/plan')) return Response.json({baseVersion:3,checksum:'view-checksum',definition:{name:'published_articles',fields:[]},sql:[]});
+    return Response.json({operationId:'view-update',status:'committed'});
+  }});
+  const view={source:'articles',projection:['title','published'],filter:{op:'eq',field:'published',value:true}};
+  const change={operation:'update',name:'published_articles',view:structuredClone(view)};
+  const pending=client.plan(change);
+  change.view.projection.push('private_note');
+  change.view.filter.value=false;
+  await client.apply(await pending);
+  assert.deepEqual(JSON.parse(calls[0].init.body),{operation:'update',name:'published_articles',view});
+  assert.deepEqual(JSON.parse(calls[1].init.body),{operation:'update',name:'published_articles',view,baseVersion:3,checksum:'view-checksum'});
+});
+
 test('administrator schema scaffolds, truncate, and Apple secret generation use exact routes and CSRF', async () => {
   const calls=[];
   const client=new PgBaseAdminClient('http://localhost:8090',{fetch:async(url,init)=>{
     calls.push({url:String(url),init});
     if(String(url).endsWith('/session')) return Response.json({administrator:{id:'admin',email:'a@example.test'},expiresAt:'later',csrfToken:'csrf'});
-    if(String(url).endsWith('/scaffolds')) return Response.json({base:{operation:'create',name:'base'},auth:{operation:'create',name:'auth'},view:{operation:'create',name:'view'}});
+    if(String(url).endsWith('/scaffolds')) return Response.json({base:{name:'base',userAccess:false,rules:{}},auth:{collection:{name:'members',type:'auth',userAccess:false,rules:{}},authCollection:{name:'members',registrationEnabled:false,rules:{},policy:{passwordEnabled:true}}},view:{name:'view',type:'view',userAccess:false,rules:{}}});
     if(String(url).endsWith('/truncate')) return Response.json({name:'posts',truncated:true,recordsDeleted:3,filesDeleted:1,relationsDeleted:2});
     return Response.json({secret:'generated-secret'},{headers:{'Cache-Control':'no-store'}});
   }});
   await client.resume();
-  assert.equal((await client.scaffolds()).auth.name,'auth');
+  const scaffold = (await client.scaffolds()).auth;
+  assert.equal(scaffold.collection.name,'members');
+  assert.equal(scaffold.authCollection.name,scaffold.collection.name);
+  assert.equal(scaffold.authCollection.policy.passwordEnabled,true);
   const truncated=await client.truncateCollection('posts');
   assert.equal(truncated.recordsDeleted,3);
   const generated=await client.generateAppleClientSecret({clientId:'web',teamId:'team',keyId:'key',privateKey:'private',duration:3600});

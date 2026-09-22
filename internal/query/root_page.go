@@ -338,7 +338,7 @@ func scanRootRows(
 	}
 	rows, err := tx.Query(ctx, statement.SQL, statement.Args...)
 	if err != nil {
-		return err
+		return functionFilterQueryError(plan.relation.filter, err)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -352,10 +352,10 @@ func scanRootRows(
 		}
 		if !keepGoing {
 			rows.Close()
-			return rows.Err()
+			return functionFilterQueryError(plan.relation.filter, rows.Err())
 		}
 	}
-	return rows.Err()
+	return functionFilterQueryError(plan.relation.filter, rows.Err())
 }
 
 func isResponseTooLarge(err error) bool {

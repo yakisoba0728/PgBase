@@ -126,6 +126,8 @@ final class Query {
     this.fields,
     this.cursor,
     this.limit,
+    this.requestKey,
+    this.autoCancel = true,
   });
 
   final String? filter;
@@ -136,6 +138,10 @@ final class Query {
   final String? fields;
   final String? cursor;
   final int? limit;
+
+  /// Cancellation metadata is never sent as a query parameter.
+  final String? requestKey;
+  final bool autoCancel;
 
   Map<String, String> toParameters() => {
     if (filter != null) 'filter': filter!,
@@ -155,6 +161,8 @@ final class PocketBaseListOptions {
     this.expand,
     this.fields,
     this.skipTotal,
+    this.requestKey,
+    this.autoCancel = true,
   });
 
   final String? filter;
@@ -162,6 +170,8 @@ final class PocketBaseListOptions {
   final String? expand;
   final String? fields;
   final bool? skipTotal;
+  final String? requestKey;
+  final bool autoCancel;
 
   Map<String, String> toParameters(int page, int perPage) => {
     'compat': 'pocketbase',

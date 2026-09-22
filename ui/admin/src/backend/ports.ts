@@ -40,6 +40,14 @@ export type CollectionType = typeof collectionTypes[number];
 export type RelationCardinality = typeof relationCardinalities[number];
 export type RelationDeleteAction = typeof relationDeleteActions[number];
 
+export interface RecordIDPolicy {
+  kind: "uuid" | "text";
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  autogeneratePattern?: string;
+}
+
 interface RelationInput { targetCollection: string; cardinality: RelationCardinality; minSelect: number; maxSelect: number; onDelete: RelationDeleteAction }
 interface RelationDefinition extends Omit<RelationInput, "targetCollection"> { targetCollectionId: string }
 
@@ -57,11 +65,11 @@ export type SQLViewDefinition = { sql: string; dependencies?: string[]; source?:
 export type ViewDefinition =
 	| { sourceCollectionId?: string; source: string; projection: string[]; filter?: ViewFilter; sql?: never; dependencies?: never }
 	| SQLViewDefinition;
-export interface CollectionDefinition { id?: string; name: string; tableName: string; type?: CollectionType; fields: FieldDefinition[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
+export interface CollectionDefinition { id?: string; name: string; tableName: string; type?: CollectionType; recordId?: RecordIDPolicy; fields: FieldDefinition[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
 export type CollectionChange =
-  | { operation: "create"; name: string; type?: CollectionType; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
-  | { operation: "update"; name: string; type?: CollectionType; fields: FieldInput[]; indexes?: CompoundIndex[]; view?: never }
-  | { operation: "update"; name: string; type?: CollectionType; view: SQLViewDefinition; fields?: never; indexes?: never }
+  | { operation: "create"; name: string; type?: CollectionType; recordId?: RecordIDPolicy; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
+  | { operation: "update"; name: string; type?: CollectionType; recordId?: RecordIDPolicy; fields: FieldInput[]; indexes?: CompoundIndex[]; view?: never }
+  | { operation: "update"; name: string; type?: CollectionType; view: ViewDefinition; fields?: never; indexes?: never }
 	| { operation: "delete"; name: string; fields?: never; indexes?: never; view?: never };
 
 // A Map keyed by own entries, so a collection named `constructor` or
@@ -280,9 +288,9 @@ export interface SchemaPort {
 	/** Removes every record from one base collection after an exact typed confirmation. */
 	truncate?(collection: string, confirmation: string, signal?: AbortSignal): Promise<{ name: string; truncated: true; recordsDeleted: number; filesDeleted: number; relationsDeleted: number }>;
 }
-export interface SchemaDocumentCollection { name: string; type?: CollectionType; system?: boolean; validationMode?: "postgres" | "pocketbase"; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> }
+export interface SchemaDocumentCollection { name: string; type?: CollectionType; system?: boolean; validationMode?: "postgres" | "pocketbase"; recordId?: RecordIDPolicy; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> }
 export interface SchemaDocumentAuthPolicy { passwordEnabled: boolean; minimumPasswordBytes: number; maximumPasswordBytes: number; passwordPattern: string; identityFields: string[]; mfaEnabled: boolean; mfaDurationSeconds: number; mfaRule: string; otpEnabled: boolean; otpDurationSeconds: number; otpMaxAttempts: number }
-export interface SchemaDocumentAuthCollection { name: string; registrationEnabled: boolean; fields: FieldInput[]; rules: Record<string, string | null>; policy: SchemaDocumentAuthPolicy; tokenTTLs?: Record<string, number> }
+export interface SchemaDocumentAuthCollection { name: string; registrationEnabled: boolean; recordId?: RecordIDPolicy; fields: FieldInput[]; rules: Record<string, string | null>; policy: SchemaDocumentAuthPolicy; tokenTTLs?: Record<string, number> }
 export interface AuthCollectionScaffold { collection: SchemaDocumentCollection; authCollection: SchemaDocumentAuthCollection }
 export interface CollectionScaffolds { base: SchemaDocumentCollection; auth: AuthCollectionScaffold; view: SchemaDocumentCollection }
 export interface SchemaDocument { format: "pgbase.schema/v1"; collections: SchemaDocumentCollection[]; authCollections?: SchemaDocumentAuthCollection[] }
@@ -293,11 +301,11 @@ export interface RecordRules { collection: string; rules: Record<string, unknown
 export interface RulePreview { items: Array<{ recordId: string; allowed: boolean }> }
 export interface RecordRulesPort {
   getRules(collection: string, signal?: AbortSignal): Promise<RecordRules>;
-  setRules(collection: string, rules: Record<string, unknown>, revision: number, signal?: AbortSignal): Promise<RecordRules>;
+  setRules(collection: string, rules: Record<string, unknown>, signal?: AbortSignal): Promise<RecordRules>;
   previewRule(collection: string, value: { rule: Record<string, unknown>; action: "list" | "view" | "update" | "delete"; userId?: string; recordIds: string[] }, signal?: AbortSignal): Promise<RulePreview>;
 }
 export interface AuthCollection { id: string; name: string; registrationEnabled: boolean; profileSchema: Record<string, string> }
-export interface AuthPolicy { passwordEnabled: boolean; minimumPasswordBytes: number; mfaEnabled: boolean; otpEnabled: boolean; otpDurationSeconds: number; otpMaxAttempts: number }
+export type AuthPolicy = SchemaDocumentAuthPolicy;
 export interface OAuthProviderSettings { name: string; enabled: boolean; authorizationUrl: string; tokenUrl: string; userInfoUrl: string; clientId: string; clientSecret?: string; secretConfigured: boolean; scopes: string[]; redirectUris: string[]; subjectField: string; emailField: string; emailVerifiedField: string; avatarField: string; allowInsecureLoopback: boolean }
 export interface AuthMailTemplate { purpose: "verify" | "password_reset" | "email_change" | "otp"; subject: string; body: string; htmlBody: string }
 export interface AuthMailPreview { subject: string; text: string; html: string }
@@ -344,6 +352,17 @@ export interface AdminSettings { batch: { enabled: boolean; maxRequests: number;
 export interface SettingsPort { get(signal?: AbortSignal): Promise<AdminSettings>; save(value: AdminSettings, signal?: AbortSignal): Promise<AdminSettings>; reload(signal?: AbortSignal): Promise<void> }
 export interface AdministratorProfile { id: string; email: string; active: boolean; createdAt: string; updatedAt: string }
 export interface AdministratorProfilePort { get(signal?: AbortSignal): Promise<AdministratorProfile>; update(value: { email: string }, signal?: AbortSignal): Promise<AdministratorProfile>; ipAllowlist(signal?: AbortSignal): Promise<string[]>; setIPAllowlist(prefixes: string[], signal?: AbortSignal): Promise<string[]> }
+export interface AdministratorPage { items: AdministratorProfile[]; nextAfter?: string }
+export class AdministratorError extends Error {
+  constructor(readonly reason: "conflict" | "invalid" | "not-found" | "failed") { super(reason); this.name = "AdministratorError"; }
+}
+export interface AdministratorsPort {
+  list(after?: string, signal?: AbortSignal): Promise<AdministratorPage>;
+  create(value: { email: string; password: string }, signal?: AbortSignal): Promise<AdministratorProfile>;
+  setActive(id: string, active: boolean, signal?: AbortSignal): Promise<AdministratorProfile>;
+  resetPassword(id: string, newPassword: string, signal?: AbortSignal): Promise<void>;
+  revokeSessions(id: string, signal?: AbortSignal): Promise<void>;
+}
 
 export interface ManagedUser { id: string; email: string; active: boolean; verified?: boolean; createdAt: string; updatedAt: string }
 export interface OAuthIdentity { provider: string; subject: string; createdAt: string }
@@ -400,6 +419,7 @@ export interface AdminBackend {
   system: SystemPort;
 	settings?: SettingsPort;
 	profile?: AdministratorProfilePort;
+  administrators?: AdministratorsPort;
   users: UsersPort;
   files: FilePort;
   rules: RecordRulesPort;

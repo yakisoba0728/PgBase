@@ -156,8 +156,14 @@ func TestManagerSerializesPersistsAndRecoversJobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	uploaded, err := manager.Upload(context.Background(), stream)
-	_ = stream.Close()
+	archive, readErr := io.ReadAll(stream)
+	closeErr := stream.Close()
+	if err := errors.Join(readErr, closeErr); err != nil {
+		t.Fatal(err)
+	}
+	// Retention may remove the original archive during Upload. Release its
+	// read handle first so the fixture is valid on Windows as well as Unix.
+	uploaded, err := manager.Upload(context.Background(), bytes.NewReader(archive))
 	if err != nil {
 		t.Fatal(err)
 	}

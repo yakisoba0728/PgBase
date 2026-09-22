@@ -44,9 +44,9 @@ function RecordField({ editor, field }: { editor: RecordEditor; field: FieldDefi
       <option value="value">Value</option>
     </select>
     {relation !== undefined && <p id={relationHintID}>
-      Target: {target?.name ?? "unknown collection"}. {multipleRelation
-        ? `Enter one canonical UUID per line; order is preserved (${relation.minSelect}–${relation.maxSelect} selections).`
-        : "Enter one canonical UUID."}
+      Target: {target?.name ?? "unknown collection"}. {target?.recordId?.kind === "text"
+        ? multipleRelation ? `Enter one exact record ID per line; case and order are preserved (${relation.minSelect}–${relation.maxSelect} selections).` : "Enter one exact record ID. Case is preserved."
+        : multipleRelation ? `Enter one canonical UUID per line; order is preserved (${relation.minSelect}–${relation.maxSelect} selections).` : "Enter one canonical UUID."}
     </p>}
     {state.kind === "value" && <>
       <label htmlFor={`record-${field.name}`}>{field.name}</label>
@@ -160,6 +160,12 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
     {editor.stale && <button onClick={editor.reload} type="button">Reload record</button>}
     {!editor.collection && !editor.message && <p aria-live="polite">Loading record…</p>}
 		{editor.collection && <form onSubmit={(event) => { event.preventDefault(); save(); }}>
+      {editor.isCreate && editor.collection.recordId?.kind === "text" && <div className="record-field">
+        <label htmlFor="record-identity">Record ID</label>
+        <input id="record-identity" type="text" autoComplete="off" aria-describedby="record-identity-hint record-identity-error" aria-invalid={editor.errors.id ? "true" : undefined} disabled={editor.pending || editor.stale} required={!editor.collection.recordId.autogeneratePattern} value={editor.recordID} onChange={(event) => editor.setRecordID(event.target.value)} />
+        <p id="record-identity-hint">Case is preserved. The server validates the ID against this collection's identity policy.{editor.collection.recordId.autogeneratePattern ? " Leave empty to generate an ID." : " Enter an ID to create the record."}</p>
+        {editor.errors.id && <p className="field-error" id="record-identity-error">{editor.errors.id}</p>}
+      </div>}
 			{editor.fields.map((field) => field.type === "file" ? <div key={field.name}>
 				<AtomicFileInput disabled={editor.pending || editor.stale} error={fileErrors[field.name] ?? editor.errors[field.name]} field={field} files={files[field.name] ?? []} onChange={(selected) => { setFiles((current) => ({ ...current, [field.name]: selected })); setFileErrors((current) => { const next = { ...current }; delete next[field.name]; return next; }); }} />
 				{id && <FileField collection={collectionName} recordID={id} field={field} />}

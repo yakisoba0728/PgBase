@@ -1,3 +1,5 @@
+import { responseJSON } from "./response.js";
+
 export type FieldType = "boolean" | "integer" | "bigint" | "numeric" | "text" | "timestamptz" | "uuid" | "jsonb" | "relation" | "file" | "editor" | "geoPoint" | "autodate" | "password";
 export type FieldOptions = {
   maxSize?: number; convertURLs?: boolean; onCreate?: boolean; onUpdate?: boolean;
@@ -8,7 +10,15 @@ export type FieldOptions = {
 export type RelationInput = { targetCollection: string; cardinality: "single" | "multiple"; minSelect: number; maxSelect: number; onDelete: "restrict" | "cascade" | "set_null" };
 export type FieldInput = { id?: string; name: string; type: FieldType; required?: boolean; unique?: boolean; indexed?: boolean; hidden?: boolean; presentable?: boolean; help?: string; default?: unknown; relation?: RelationInput; options?: FieldOptions };
 export type FieldDefinition = Omit<FieldInput, "relation"> & { id: string; columnName: string; ordinal: number; relation?: Omit<RelationInput, "targetCollection"> & { targetCollectionId: string } };
-export type CollectionDefinition = { id: string; name: string; tableName: string; fields: FieldDefinition[]; indexes?: CompoundIndex[]; view?: ViewInput };
+/** Omitted policies use UUIDs when creating a collection. A bare text policy
+ * uses 15 lowercase letters/digits. Custom text policies require all validation
+ * options below; without autogeneratePattern, callers supply the record ID.
+ * A collection's policy is immutable: omit it on updates or repeat its value. */
+export type RecordIDPolicy =
+  | { kind: "uuid"; minLength?: never; maxLength?: never; pattern?: never; autogeneratePattern?: never }
+  | { kind: "text"; minLength?: never; maxLength?: never; pattern?: never; autogeneratePattern?: never }
+  | { kind: "text"; minLength: number; maxLength: number; pattern: string; autogeneratePattern?: string };
+export type CollectionDefinition = { id: string; name: string; tableName: string; recordId?: RecordIDPolicy; fields: FieldDefinition[]; indexes?: CompoundIndex[]; view?: ViewInput };
 export type IndexKey = { field?: string; expression?: string; collation?: "C" | "POSIX"; order?: "asc" | "desc" };
 /** fields, keys, and rawSql are mutually exclusive index definitions. */
 export type CompoundIndex = { id?: string; name: string; unique: boolean; fields?: string[]; keys?: IndexKey[]; where?: string; rawSql?: string };
@@ -16,15 +26,26 @@ export type ViewFilter = { op: "all" | "any" | "eq" | "ne" | "lt" | "lte" | "gt"
 export type SQLViewInput = { sql: string; dependencies?: string[]; source?: never; projection?: never; filter?: never };
 export type ViewInput = { source: string; projection: string[]; filter?: ViewFilter; sql?: never } | SQLViewInput;
 export type CollectionChange =
-  | { operation: "create"; name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewInput }
-  | { operation: "update"; name: string; collectionId?: string; fields: FieldInput[]; indexes?: CompoundIndex[]; view?: never }
-  | { operation: "update"; name: string; collectionId?: string; view: SQLViewInput; fields?: never; indexes?: never }
+  | { operation: "create"; name: string; recordId?: RecordIDPolicy; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewInput }
+  | { operation: "update"; name: string; collectionId?: string; recordId?: RecordIDPolicy; fields: FieldInput[]; indexes?: CompoundIndex[]; view?: never }
+  | { operation: "update"; name: string; collectionId?: string; recordId?: RecordIDPolicy; view: ViewInput; fields?: never; indexes?: never }
   | { operation: "delete"; name: string; fields?: never; indexes?: never; view?: never };
-export type SchemaPlan = { baseVersion: number; checksum: string; definition: { name: string; tableName: string; fields: Array<FieldInput & { ordinal: number }>; indexes?: CompoundIndex[]; view?: ViewInput }; sql: string[] };
+export type SchemaPlan = { baseVersion: number; checksum: string; definition: { name: string; tableName: string; recordId?: RecordIDPolicy; fields: Array<FieldInput & { ordinal: number }>; indexes?: CompoundIndex[]; view?: ViewInput }; sql: string[] };
 export type SchemaOperation = { operationId: string; status: "running" | "unknown" | "committed" | "failed"; failureCode?: string };
-export type SchemaDocumentCollection = { name: string; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewInput; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> };
-export type SchemaDocument = { format: "pgbase.schema/v1"; collections: SchemaDocumentCollection[]; deleteMissing?: boolean };
-export type CollectionScaffolds = { base: CollectionChange; auth: CollectionChange; view: CollectionChange };
+export type SchemaDocumentCollection = { name: string; type?: "base" | "auth" | "view"; recordId?: RecordIDPolicy; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewInput; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> };
+export type SchemaDocumentAuthPolicy = {
+  passwordEnabled: boolean; minimumPasswordBytes: number; maximumPasswordBytes: number; passwordPattern: string;
+  identityFields: string[]; mfaEnabled: boolean; mfaDurationSeconds: number; mfaRule: string;
+  otpEnabled: boolean; otpDurationSeconds: number; otpMaxAttempts: number;
+};
+/** Authentication settings paired by name with a type: "auth" collection. */
+export type SchemaDocumentAuthCollection = {
+  name: string; registrationEnabled: boolean; recordId?: RecordIDPolicy; fields?: FieldInput[];
+  rules: Record<string, string | null>; policy: SchemaDocumentAuthPolicy; tokenTTLs?: Record<string, number>;
+};
+export type SchemaDocument = { format: "pgbase.schema/v1"; collections: SchemaDocumentCollection[]; authCollections?: SchemaDocumentAuthCollection[]; deleteMissing?: boolean };
+export type AuthCollectionScaffold = { collection: SchemaDocumentCollection; authCollection: SchemaDocumentAuthCollection };
+export type CollectionScaffolds = { base: SchemaDocumentCollection; auth: AuthCollectionScaffold; view: SchemaDocumentCollection };
 export type CollectionTruncateResult = { name: string; truncated: true; recordsDeleted: number; filesDeleted: number; relationsDeleted: number };
 export type SchemaImportPlan = { baseVersion: number; checksum: string; policyChecksum: string; changes: SchemaPlan[]; document: SchemaDocument; operationId?: string; idempotencyKey?: string };
 export type SchemaImportResult = { operationId: string; status: "running" | "unknown" | "committed" | "failed"; version?: number; applied?: number };
@@ -176,11 +197,10 @@ export class PgBaseAdminClient {
     const response = await this.#fetch(new URL(path, this.baseURL), { ...init, headers, credentials: "include", signal });
     if (!response.ok) {
       if (response.status === 401 && generation === this.#generation) { this.#csrf = ""; this.#generation++; }
-      const data = await response.json().catch(() => undefined) as { error?: { code?: string; details?: Record<string, string[]> } } | undefined;
+      const data = await responseJSON(response, () => undefined) as { error?: { code?: string; details?: Record<string, string[]> } } | undefined;
       throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details);
     }
-    if (response.status === 204) return undefined as T;
-    try { return await response.json() as T; } catch { throw new AdminAPIError(response.status, "invalid_response_body"); }
+    return await responseJSON(response, () => { throw new AdminAPIError(response.status, "invalid_response_body"); }) as T;
   }
   private async requestText(path: string, init: RequestInit, signal?: AbortSignal): Promise<string> {
     const headers = new Headers(init.headers); headers.set("Accept", "application/json");

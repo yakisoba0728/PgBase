@@ -1,7 +1,12 @@
-:root { --accent: #1d4ed8; color: #172033; background: #f5f7fb; font-family: Inter, system-ui, sans-serif; }
-:root[data-theme="dark"] { color: #e5edf9; background: #111827; }
+:root { --accent: #1d4ed8; color-scheme: light; color: #172033; background: #f5f7fb; font-family: Inter, system-ui, sans-serif; }
+:root[data-theme="dark"] { color-scheme: dark; color: #e5edf9; background: #111827; }
 :root[data-theme="dark"] .auth-card, :root[data-theme="dark"] .shell { background: #1f2937; border-color: #475569; }
 :root[data-theme="dark"] input, :root[data-theme="dark"] select, :root[data-theme="dark"] textarea { background: #111827; color: inherit; }
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] { color-scheme: dark; color: #e5edf9; background: #111827; }
+  :root[data-theme="system"] .auth-card, :root[data-theme="system"] .shell { background: #1f2937; border-color: #475569; }
+  :root[data-theme="system"] input, :root[data-theme="system"] select, :root[data-theme="system"] textarea { background: #111827; color: inherit; }
+}
 * { box-sizing: border-box; }
 body { margin: 0; }
 button, input, select, textarea { font: inherit; }

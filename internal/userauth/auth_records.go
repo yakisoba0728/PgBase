@@ -97,7 +97,7 @@ func (s *Service) ListAuthorizedAuthRecords(ctx context.Context, collectionID, p
 				rows.Close()
 				return err
 			}
-			if json.Unmarshal(raw, &value.Fields) != nil {
+			if decodeAuthProfile(raw, &value.Fields) != nil {
 				rows.Close()
 				return errors.New("invalid stored auth profile")
 			}
@@ -260,7 +260,7 @@ func (s *Service) ListAuthRecords(ctx context.Context, collectionID uuid.UUID, l
 		if err := rows.Scan(&v.ID, &v.AuthCollectionID, &v.Email, &v.EmailVisibility, &v.Verified, &v.Active, &raw, &v.CreatedAt, &v.UpdatedAt); err != nil {
 			return nil, err
 		}
-		if json.Unmarshal(raw, &v.Fields) != nil {
+		if decodeAuthProfile(raw, &v.Fields) != nil {
 			return nil, errors.New("invalid stored auth profile")
 		}
 		v.Fields = publicAuthFields(v.Fields, fields)
@@ -291,7 +291,7 @@ func (s *Service) GetAuthRecord(ctx context.Context, collectionID, id uuid.UUID)
 	if err != nil {
 		return AuthRecord{}, err
 	}
-	if json.Unmarshal(raw, &v.Fields) != nil {
+	if decodeAuthProfile(raw, &v.Fields) != nil {
 		return AuthRecord{}, errors.New("invalid stored auth profile")
 	}
 	fields, err := s.authRecordContract(ctx, collectionID)
@@ -431,7 +431,7 @@ func (s *Service) updateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 			return err
 		}
 		merged := map[string]any{}
-		if json.Unmarshal(rawExisting, &merged) != nil {
+		if decodeAuthProfile(rawExisting, &merged) != nil {
 			return errors.New("invalid stored auth profile")
 		}
 		current.Fields = merged

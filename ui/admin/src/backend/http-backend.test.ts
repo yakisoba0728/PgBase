@@ -57,6 +57,15 @@ const session = (csrfToken = "csrf-token") => respond(200, JSON.stringify({
 afterEach(() => vi.unstubAllGlobals());
 
 describe("HTTP adapter wire contract", () => {
+  it.each([[400, "invalid_record_id"], [409, "record_id_conflict"]] as const)("exposes %s %s on the record ID input", async (status, code) => {
+    const mock = stub(session(), respond(status, envelope(code)));
+    const backend = await authenticated(mock);
+
+    await expect(backend.records.create(new CreateAttempt("notes"), { id: "MiXeDNote01" })).rejects.toMatchObject({
+      reason: "rejected", details: { id: [code] },
+    });
+  });
+
 	it("shares the authenticated cookie and CSRF boundary with SQL console requests", async () => {
 		const execution = { id: operationID, mode: "read", dryRun: false, status: "pending", createdAt: "2026-09-10T00:00:00Z" };
 		const mock = stub(session(), respond(202, JSON.stringify(execution)));

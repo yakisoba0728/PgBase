@@ -1,0 +1,815 @@
+[
+  {
+    "id": "REC-01",
+    "category": "records",
+    "feature": "레코드 목록 조회",
+    "status": "adapted",
+    "pbContract": "통합 /api/collections/{collection}/records에서 이름 또는 collection ID를 받아 기본 page/perPage/totalItems/totalPages/items 응답.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L27",
+    "pbAdditionalSources": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L80"
+    ],
+    "pgImplementation": "권한별 /api/v1 경로에 cursor/limit 기본 목록과 명시적 PocketBase offset adapter가 있다.",
+    "pgSource": [
+      "internal/api/router.go:155",
+      "internal/api/record_handlers.go:173",
+      "internal/recordops/read.go:68"
+    ],
+    "testSource": [
+      "internal/api/record_handlers_test.go:103"
+    ],
+    "verification": "executed-now",
+    "verificationDetail": "선별 단위 테스트 실행 PASS; PB 대조 HTTP 실행 아님.",
+    "gap": "compat=pocketbase와 page/perPage/skipTotal 중 하나를 함께 지정해야 PB envelope가 활성화된다. compat만으로는 cursor envelope를 유지한다. PB 원래 경로와 collection ID selector는 없다.",
+    "priority": "P3"
+  },
+  {
+    "id": "REC-02",
+    "category": "records",
+    "feature": "단일 레코드 조회",
+    "status": "adapted",
+    "pbContract": "이름 또는 collection ID와 record ID로 단일 조회하고 fields/expand를 적용한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L144",
+    "pbAdditionalSources": [],
+    "pgImplementation": "UUID 또는 컬렉션별 text public ID를 정확한 대소문자로 resolve하고 fields/expand, ETag를 반환한다.",
+    "pgSource": [
+      "internal/api/record_handlers.go:217",
+      "internal/recordops/read.go:104"
+    ],
+    "testSource": [
+      "internal/api/record_handlers_test.go:58",
+      "internal/recordops/text_identity_integration_test.go:16"
+    ],
+    "verification": "executed-now",
+    "verificationDetail": "CRUD handler 단위 실행 PASS; text ID 통합 테스트는 존재 확인, 이번 감사에서 재실행 안 함.",
+    "gap": "과거 문서의 UUID-only 설명은 틀렸다. text ID는 구현되었으나 PB 원래 경로·collection ID selector·기본 PB metadata envelope는 그대로 호환되지 않는다.",
+    "priority": "P3"
+  },
+  {
+    "id": "REC-03",
+    "category": "records",
+    "feature": "레코드 생성(JSON/multipart)",
+    "status": "partial",
+    "pbContract": "동일 POST record endpoint에서 JSON·multipart와 file modifiers를 받아 200+record를 반환한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L209",
+    "pbAdditionalSources": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L360",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L631"
+    ],
+    "pgImplementation": "POST create JSON 및 UUID/text ID, 감사·revision·outbox·선택적 idempotency가 구현되었다. 파일 포함 원자 생성은 별도 native multipart batch로 제공한다.",
+    "pgSource": [
+      "internal/api/record_handlers.go:264",
+      "internal/api/record_handlers.go:332",
+      "internal/api/admin_handlers.go:364",
+      "internal/recordops/service.go:75"
+    ],
+    "testSource": [
+      "internal/api/record_handlers_test.go:58",
+      "pgbase/batch_integration_test.go:17",
+      "internal/recordops/service_integration_test.go:142"
+    ],
+    "verification": "executed-now",
+    "verificationDetail": "JSON CRUD handler 단위 실행 PASS; 파일·idempotency 실제 DB 테스트는 존재 확인.",
+    "gap": "일반 create는 application/json만 수용하고 multipart를 거절한다. PB 200과 달리 Pg는201+Location/ETag를 반환한다. PB CRUD alias가 없다.",
+    "priority": "P2"
+  },
+  {
+    "id": "REC-04",
+    "category": "records",
+    "feature": "레코드 부분 갱신과 빈 PATCH",
+    "status": "partial",
+    "pbContract": "PATCH nil body 또는 {} 모두200이며 lifecycle hooks를 거친다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L392",
+    "pbAdditionalSources": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud_test.go#L2591",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud_test.go#L2615"
+    ],
+    "pgImplementation": "{} patch는 compiler와 mutation pipeline에서 허용한다. HTTP input decoder는 JSON object를 요구한다.",
+    "pgSource": [
+      "internal/api/record_handlers.go:335",
+      "internal/api/record_handlers.go:582",
+      "internal/api/admin_handlers.go:383",
+      "internal/query/compiler.go:89"
+    ],
+    "testSource": [
+      "internal/query/compiler_test.go:126",
+      "internal/api/record_handlers_test.go:467"
+    ],
+    "verification": "executed-now",
+    "verificationDetail": "{} compiler 단위 실행 PASS; body 없음 mismatch는 decoder와 PB 명시적 테스트의 소스 대조.",
+    "gap": "body가 전혀 없으면 strict JSON decode EOF로400, JSON null은 input==nil로400. 기존 REC-04 완료 표시는 HTTP nil-body 계약까지 증명하지 못했다. 직접 multipart PATCH도 미지원.",
+    "priority": "P2"
+  },
+  {
+    "id": "REC-05",
+    "category": "records",
+    "feature": "레코드 삭제",
+    "status": "adapted",
+    "pbContract": "DELETE 성공204, 권한 및 relation 삭제 처리.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L531",
+    "pbAdditionalSources": [],
+    "pgImplementation": "DELETE 성공204, optional If-Match/ETag와 relation 처리.",
+    "pgSource": [
+      "internal/api/record_handlers.go:431",
+      "internal/api/record_handlers.go:470"
+    ],
+    "testSource": [
+      "internal/api/record_handlers_test.go:58",
+      "pgbase/batch_integration_test.go:270"
+    ],
+    "verification": "executed-now",
+    "verificationDetail": "CRUD handler 단위 실행 PASS; 실제 DB delete batch 테스트는 존재 확인.",
+    "gap": "핵심 삭제 능력은 대응하지만 권한별 URL·ID 정책·에러 envelope가 다르다. 조건부 삭제는 Pg의 추가 기능.",
+    "priority": "P3"
+  },
+  {
+    "id": "REC-06",
+    "category": "records",
+    "feature": "뷰 컬렉션 레코드 읽기 전용",
+    "status": "equivalent",
+    "pbContract": "View는 읽을 수 있고 create/update/delete를 거절한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L216",
+    "pbAdditionalSources": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L399",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L538"
+    ],
+    "pgImplementation": "SQL/builder view 조회를 제공하고 모든 mutation kernel에서 view guard를 적용한다.",
+    "pgSource": [
+      "internal/recordops/service.go:126",
+      "internal/recordops/service.go:336",
+      "internal/recordops/service.go:502"
+    ],
+    "testSource": [
+      "pgbase/sql_view_integration_test.go:12"
+    ],
+    "verification": "test-exists",
+    "verificationDetail": "소스 대조 및 통합 테스트 존재 확인; 이번 감사에서는 view 통합 재실행 안 함.",
+    "gap": "이 행의 좁은 사용자 능력은 대응한다. 응답 오류 코드·경로까지 동일하다는 뜻은 아니다.",
+    "priority": "none"
+  },
+  {
+    "id": "REC-07",
+    "category": "records",
+    "feature": "레코드 JSON metadata·가시성",
+    "status": "partial",
+    "pbContract": "PublicExport는 visible fields와 collectionId/collectionName/expand를 반환하고 DateTime은 공백 구분 millisecond UTC 형식이다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_model.go#L1267",
+    "pbAdditionalSources": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/types/datetime.go#L12",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L673"
+    ],
+    "pgImplementation": "기본 native created_at/updated_at, opt-in 읽기에서 PB alias collectionId/collectionName/created/updated를 추가하고 hidden/email visibility를 적용한다.",
+    "pgSource": [
+      "internal/responseprojection/record.go:5",
+      "internal/query/codec.go:408",
+      "internal/api/record_handlers.go:295",
+      "internal/api/record_handlers.go:373",
+      "internal/recordops/field_visibility.go:10"
+    ],
+    "testSource": [
+      "internal/responseprojection/record_test.go:5",
+      "internal/recordops/field_visibility_test.go:12",
+      "pgbase/field_visibility_integration_test.go:10"
+    ],
+    "verification": "executed-now",
+    "verificationDetail": "projection·hidden input 단위 실행 PASS; serializer 동일성은 미충족을 소스로 확인.",
+    "gap": "compat projection은 native keys를 보존한 shallow copy이며 RFC3339Nano 값을 단순 alias한다. PB 기본 JSON과 date 문자열이 완전히 같지 않다. create/update는 PocketBaseCompatibility flag를 서비스에 전달하지 않는다. 숨긴 입력도 PB는 비관리자 입력에서 제거하지만 Pg는 hidden_field로거절한다.",
+    "priority": "P2"
+  },
+  {
+    "id": "REC-08",
+    "category": "records",
+    "feature": "순서 보장 원자적 batch",
+    "status": "equivalent",
+    "pbContract": "입력 순서 CRUD를 단일 transaction에서 실행하고 실패 시 전체 rollback.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L180",
+    "pbAdditionalSources": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L236"
+    ],
+    "pgImplementation": "PostgreSQL transaction 내부 ordered loop, create/update/delete/upsert와 file participant·검증·감사/outbox가 함께 commit/rollback한다.",
+    "pgSource": [
+      "internal/recordops/batch.go:23",
+      "internal/recordops/batch.go:53",
+      "internal/recordops/batch.go:86"
+    ],
+    "testSource": [
+      "internal/recordops/batch_integration_test.go:56",
+      "internal/recordops/batch_integration_test.go:110",
+      "pgbase/batch_integration_test.go:17"
+    ],
+    "verification": "test-exists",
+    "verificationDetail": "소스 및 실제 DB 회귀 테스트 존재 확인; 이번 감사에서 DB 재실행 안 함.",
+    "gap": "원자성의 핵심 능력은 대응. PB hook middleware recursion 구조와 wire 계약 동일성은 별도 행에서 다룬다.",
+    "priority": "none"
+  },
+  {
+    "id": "REC-09",
+    "category": "records",
+    "feature": "PocketBase batch 요청·응답 wire",
+    "status": "missing",
+    "pbContract": "POST /api/batch; requests의 /api/collections/{nameOrId}/records[/{id}][?query]; 최상위 [{body,status}] 배열.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L26",
+    "pbAdditionalSources": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L38",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L74",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L166"
+    ],
+    "pgImplementation": "Native batch는 구현되었다. /api/v1/{...}/collections/batch, requests 또는 operations; {results:[{status,headers,body,eventId,etag,version}]} 구조.",
+    "pgSource": [
+      "internal/api/router.go:194",
+      "internal/api/batch_handlers.go:57",
+      "internal/api/batch_handlers.go:204"
+    ],
+    "testSource": [
+      "pgbase/batch_integration_test.go:205",
+      "pgbase/batch_integration_test.go:270"
+    ],
+    "verification": "static-only",
+    "verificationDetail": "서로 다른 parser/router/serializer 소스 확인. PB wire adapter의 통합 테스트를 발견하지 못함.",
+    "gap": "PB batch wire adapter 자체가 없다. Pg URL regexp는 /api/(v1|admin)/collections/{name}/records 경로만, per-operation ?fields/?expand도거절. 원래 PB SDK batch 요청을 그대로 처리할 수 없다.",
+    "priority": "P1"
+  },
+  {
+    "id": "REC-10",
+    "category": "records",
+    "feature": "PUT upsert와 조건부 갱신",
+    "status": "adapted",
+    "pbContract": "batch PUT /records body.id가 있으면 조회 후update, 없거나 미존재면create.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L40",
+    "pbAdditionalSources": [],
+    "pgImplementation": "batch PUT /records/{id} 또는 typed upsert의 ID를 resolve하여 create/update; absent If-Match 요청은 update 경로로 실패 처리하여 부활 방지.",
+    "pgSource": [
+      "internal/api/batch_handlers.go:475",
+      "internal/recordops/batch.go:150",
+      "internal/recordops/batch.go:175"
+    ],
+    "testSource": [
+      "internal/recordops/batch_integration_test.go:17",
+      "internal/recordops/batch_integration_test.go:34",
+      "pgbase/batch_integration_test.go:205"
+    ],
+    "verification": "test-exists",
+    "verificationDetail": "구현 및 regression 테스트 존재 확인; 이번 감사에서 DB 실행 안 함.",
+    "gap": "Native upsert는 구현되었지만 PB의 body.id/ID 생략 생성 wire와 다르다. Pg는 URL id필수이고 optional If-Match는 추가 계약이다.",
+    "priority": "P3"
+  },
+  {
+    "id": "REC-11",
+    "category": "records",
+    "feature": "multipart batch와 파일 참조",
+    "status": "adapted",
+    "pbContract": "@jsonPayload에 요청 JSON, requests.N.fileField 또는 requests[N].fileField의 multipart 파일 업로드.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L91",
+    "pbAdditionalSources": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L124"
+    ],
+    "pgImplementation": "requests라는 text part에 batch envelope, 별도 명명 file part와 body의 {$file:name} 참조. file participant와 원자 rollback.",
+    "pgSource": [
+      "internal/api/batch_handlers.go:364",
+      "internal/api/batch_handlers.go:393",
+      "internal/api/batch_file_modifiers.go:200"
+    ],
+    "testSource": [
+      "pgbase/batch_integration_test.go:17"
+    ],
+    "verification": "test-exists",
+    "verificationDetail": "소스 및 실제 파일/DB rollback 테스트 존재 확인; 이번 감사에서 통합 실행 안 함.",
+    "gap": "파일 포함 batch 기능은 있지만 multipart part 이름/참조 방식과 결과 envelope가 달라 PB multipart batch는 직접 미호환.",
+    "priority": "P3"
+  },
+  {
+    "id": "REC-12",
+    "category": "records",
+    "feature": "batch enable·한도·timeout",
+    "status": "adapted",
+    "pbContract": "Batch enabled/maxRequests/timeout(seconds)/maxBodySize 설정으로 admission·transaction 제한.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L95",
+    "pbAdditionalSources": [],
+    "pgImplementation": "persisted runtime enabled/maxRequests/maxBodyBytes/timeoutMs, HTTP+kernel에서 제한. 1~100 requests,100~300000ms validation.",
+    "pgSource": [
+      "internal/runtimesettings/settings.go:25",
+      "internal/runtimesettings/settings.go:95",
+      "internal/api/batch_handlers.go:73",
+      "internal/recordops/batch.go:17"
+    ],
+    "testSource": [
+      "pgbase/runtime_settings_http_integration_test.go:11"
+    ],
+    "verification": "test-exists",
+    "verificationDetail": "소스 및 settings HTTP/DB regression 존재 확인; 이번 감사에서 통합 실행 안 함.",
+    "gap": "능력은 대응하지만 설정명·단위·기본값·상한이 다르다. Disabled의 PB403 대비 Pg503 차이도 있다.",
+    "priority": "P3"
+  },
+  {
+    "id": "REC-13",
+    "category": "records",
+    "feature": "숫자 증가·감소 modifier",
+    "status": "adapted",
+    "pbContract": "number field+/-는 cast.ToFloat64를 이용한 덧셈·뺄셈.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_number.go#L211",
+    "pbAdditionalSources": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_model.go#L1384"
+    ],
+    "pgImplementation": "integer/bigint/numeric에 +/-를 적용하고 PostgreSQL row lock 아래 stored preimage에서 계산한다. bigint/numeric 입력은 문자열이고 rational 계산한다.",
+    "pgSource": [
+      "internal/recordops/modifiers.go:46",
+      "internal/recordops/modifiers.go:126",
+      "internal/recordops/service.go:352"
+    ],
+    "testSource": [
+      "internal/recordops/modifiers_test.go:11",
+      "internal/recordops/modifiers_integration_test.go:17"
+    ],
+    "verification": "executed-now",
+    "verificationDetail": "modifier 단위 실행 PASS; concurrent PostgreSQL 테스트는 존재 확인.",
+    "gap": "더 엄격하고 정밀한 native 숫자 정책이다. PB의 float/coercion 허용과 Pg typed/string 입력은 동일하지 않다. 동시 equal-length modifier key 순서도 PB는 길이만 정렬, Pg는 길이+lexical이다.",
+    "priority": "P3"
+  },
+  {
+    "id": "REC-14",
+    "category": "records",
+    "feature": "select·relation·file prepend/append/remove modifier",
+    "status": "adapted",
+    "pbContract": "+field/field+/field-를 지원하고 단일 선택은 정규화한 마지막 값을 사용. mixed same-length modifier의 순서는 Go map iteration 이후 길이만 stable sort하여 보장되지 않는다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_select.go#L229",
+    "pbAdditionalSources": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_model.go#L1362",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L690"
+    ],
+    "pgImplementation": "select/relation은 ordered dedupe와 마지막 단일값, file은 native batch 참가자에 prepend/append/remove를 제공한다. direct assign 먼저, 같은길이는 lexical 순서로처리.",
+    "pgSource": [
+      "internal/recordops/modifiers.go:46",
+      "internal/recordops/modifiers.go:223",
+      "internal/api/batch_file_modifiers.go:173"
+    ],
+    "testSource": [
+      "internal/recordops/modifiers_test.go:11",
+      "internal/recordops/modifiers_integration_test.go:57",
+      "pgbase/batch_integration_test.go:17"
+    ],
+    "verification": "executed-now",
+    "verificationDetail": "select/direct/mixed modifier 단위 실행 PASS; relation/file DB 테스트는 존재 확인.",
+    "gap": "개별 연산 능력은 구현. PB 동일길이 modifier tie순서와 완전히 동등하다고 주장할 수 없고, 파일 modifier HTTP 입구는 PB direct multipart가 아닌 native batch이다. 각 modifier 입력의 PB coercion과 Pg string-only validation도 차이가 있다.",
+    "priority": "P3"
+  },
+  {
+    "id": "QRY-01",
+    "category": "query",
+    "feature": "불리언 문법과 괄호",
+    "status": "adapted",
+    "pbContract": "&&, ||, 괄호; public search는 3500 bytes/200 expressions 제한.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/filter.go#L119",
+    "pgImplementation": "동일 우선순위 파서와 parameterized SQL. 4096 bytes/100 AST nodes의 별도 한도.",
+    "pgSource": [
+      "internal/query/filter.go:14",
+      "internal/query/filter.go:93",
+      "internal/query/filter.go:126"
+    ],
+    "testSource": [
+      "internal/query/compiler_test.go:478"
+    ],
+    "verification": "test-exists",
+    "gap": "문법의 핵심 능력은 대응한다. PB보다 큰 byte 한도/더 작은 node 한도라 허용하는 긴 식의 집합은 다르다.",
+    "priority": "P3"
+  },
+  {
+    "id": "QRY-02",
+    "category": "query",
+    "feature": "스칼라 비교 연산자와 null 의미론",
+    "status": "partial",
+    "pbContract": "=, !=, <, <=, >, >=. text null/빈문자열을 정규화하고 !=도 NULL에 안전한 IS NOT을 사용.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/filter.go#L340",
+    "pgImplementation": "여섯 연산자를 SQL로 컴파일하지만 compat에서도 일반 text = null은 IS NULL, !=는 PostgreSQL !=.",
+    "pgSource": [
+      "internal/query/relation_filter_sort.go:619",
+      "internal/query/relation_filter_sort.go:644"
+    ],
+    "testSource": [
+      "internal/query/compiler_test.go:225",
+      "docs/audits/2026-09-22-pocketbase-comparison/query-observations_test.go.txt:52"
+    ],
+    "verification": "executed-now",
+    "gap": "title=null에 빈 문자열이 매칭되지 않고 nullable field != nonempty에서 NULL이 제외된다. PB의 text null/empty 및 NULL-safe inequality와 불일치.",
+    "priority": "P1"
+  },
+  {
+    "id": "QRY-03",
+    "category": "query",
+    "feature": "contains / not-contains",
+    "status": "partial",
+    "pbContract": "~ / !~는 LIKE이며 unescaped %가 없으면 escape 후 %로 감싼다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/filter.go#L496",
+    "pgImplementation": "compat는 LIKE/NOT LIKE, native는 strpos. escaped %도 단순 strings.Contains로 wildcard로 간주.",
+    "pgSource": [
+      "internal/query/relation_filter_sort.go:666",
+      "internal/query/scalar_predicate.go:286"
+    ],
+    "testSource": [
+      "internal/query/pocketbase_compat_live_test.go:15",
+      "docs/audits/2026-09-22-pocketbase-comparison/query-observations_test.go.txt:60"
+    ],
+    "verification": "executed-now",
+    "gap": "title ~ 'a\\%b'를 PB처럼 부분 문자열 패턴으로 감싸지 않는다. public SQL LIKE와 별도 in-memory scalarContains 구현도 다르다. SQLite/PG LIKE의 기본 case 처리 역시 동등성 검증이 필요하다.",
+    "priority": "P1"
+  },
+  {
+    "id": "QRY-04",
+    "category": "query",
+    "feature": "any-match 비교 연산자",
+    "status": "partial",
+    "pbContract": "?=, ?!=, ?~, ?!~, ?<, ?<=, ?>, ?>=; MultiValuer :each 및 relation 다중값을 any/all 구분해 평가.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/filter.go#L185",
+    "pgImplementation": "연산자 토큰은 모두 인식하고 scalar·relation EXISTS 일부 지원. public query 경로는 JSONB/file terminal을 거절하고 scalar select로 저장되는 JSONB 배열도 일반 :each 평가가 없다.",
+    "pgSource": [
+      "internal/query/filter.go:299",
+      "internal/query/relation_filter_sort.go:84",
+      "internal/query/relation_filter_sort.go:619"
+    ],
+    "testSource": [
+      "internal/query/pocketbase_filter_completion_test.go:11",
+      "internal/query/relation_codec_test.go:123"
+    ],
+    "verification": "test-exists",
+    "gap": "기존 테스트는 title/large_count 같은 scalar의 토큰 컴파일 중심이다. PB select/file/JSON multi value와 일반 relation comparison의 all-match 대 any-match 의미론까지 완성됐다고 할 수 없다.",
+    "priority": "P1"
+  },
+  {
+    "id": "QRY-05",
+    "category": "query",
+    "feature": "피연산자 배치·field-to-field 비교",
+    "status": "partial",
+    "pbContract": "literal/literal, literal/field, field/field, function operands를 resolver로 해석.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/filter.go#L167",
+    "pgImplementation": "같은 타입의 root field 비교와 literal-left 비교 구현. parser는 literal/literal을 거절하며 양쪽 임의 함수나 relation field 조합은 제한.",
+    "pgSource": [
+      "internal/query/filter.go:170",
+      "internal/query/relation_filter_sort.go:114",
+      "internal/query/relation_filter_sort.go:696"
+    ],
+    "testSource": [
+      "internal/query/pocketbase_compat_live_test.go:32",
+      "docs/audits/2026-09-22-pocketbase-comparison/query-observations_test.go.txt:17"
+    ],
+    "verification": "executed-now",
+    "gap": "PB 테스트가 허용하는 2 < 5도 거절한다. root field=relation.field 조합 및 function-on-right 등 피연산자 조합을 PB oracle로 확대 검증해야 한다.",
+    "priority": "P2"
+  },
+  {
+    "id": "QRY-06",
+    "category": "query",
+    "feature": "문자열·숫자·불리언·null literal",
+    "status": "partial",
+    "pbContract": "fexpr가 single/double quote 문자열과 escape, number/bool/null을 해석하고 field resolver가 null을 정규화.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/filter.go#L273",
+    "pgImplementation": "single quote parser와 compat double quote 정규화, 엄격 typed literal decoder.",
+    "pgSource": [
+      "internal/query/filter.go:226",
+      "internal/query/filter.go:310",
+      "internal/query/service.go:261",
+      "internal/query/compiler.go:394"
+    ],
+    "testSource": [
+      "internal/query/pocketbase_page_test.go:11",
+      "docs/audits/2026-09-22-pocketbase-comparison/query-observations_test.go.txt:16"
+    ],
+    "verification": "executed-now",
+    "gap": "title = 'a \"b\" c'와 backslash apostrophe 문자열을 거절한다. double quote 정규화가 single-quoted literal 내부까지 바꾸는 문제가 있다. 날짜는 RFC3339 timezone을 요구해 PB 날짜 문자열/coercion과도 다르다.",
+    "priority": "P1"
+  },
+  {
+    "id": "QRY-07",
+    "category": "query",
+    "feature": "정방향 relation filter",
+    "status": "partial",
+    "pbContract": "relation 경로를 최대 6단계 따라가고 다중 relation의 multi-match 의미론을 적용.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_field_resolver_runner.go#L441",
+    "pgImplementation": "forward relation을 EXISTS로 계획하며 depth3/joins8, target 정책을 적용.",
+    "pgSource": [
+      "internal/query/relation_filter_sort.go:14",
+      "internal/query/relation_filter_sort.go:127",
+      "internal/query/relation_filter_sort.go:733"
+    ],
+    "testSource": [
+      "internal/query/relation_filter_sort_test.go:18",
+      "internal/query/relation_filter_sort_test.go:50"
+    ],
+    "verification": "test-exists",
+    "gap": "PB가 허용하는 4~6 hop은 거절한다. 일반 relation field 비교가 기본 EXISTS로 컴파일되어 PB multi-match 제약과 세부 결과 차이가 남는다.",
+    "priority": "P2"
+  },
+  {
+    "id": "QRY-08",
+    "category": "query",
+    "feature": "JSON 객체 속성·배열 index filter",
+    "status": "partial",
+    "pbContract": "jsonField.key/index의 JSON_EXTRACT 결과를 비교; JSON null/타입에 맞는 비교.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_field_resolver_runner.go#L461",
+    "pgImplementation": "root/relation terminal JSON path와 index를 jsonb #>>로 추출하고 비교 literal 타입으로 numeric/bool cast.",
+    "pgSource": [
+      "internal/query/relation_filter_sort.go:282",
+      "internal/query/relation_filter_sort.go:602"
+    ],
+    "testSource": [
+      "internal/query/pocketbase_filter_completion_test.go:33",
+      "internal/recordaccess/pocketbase_conformance_integration_test.go:1"
+    ],
+    "verification": "test-exists",
+    "gap": "잘 형성된 동종 scalar path는 지원하지만 mixed JSON 값에 무조건 ::numeric/::boolean cast하므로 PB JSON 비교와 다르다. path-to-path 비교·heterogeneous 값/배열에 대한 public HTTP differential 검증이 없다.",
+    "priority": "P2"
+  },
+  {
+    "id": "QRY-09",
+    "category": "query",
+    "feature": "역방향 relation filter",
+    "status": "partial",
+    "pbContract": "collection name 또는 id의 _via_ 경로와 relation resolver 6 hop.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_field_resolver_runner.go#L492",
+    "pgImplementation": "catalog.Incoming에서 source.Name_via_field를 해석하고 correlation/target 정책 적용.",
+    "pgSource": [
+      "internal/query/relation_filter_sort.go:255",
+      "internal/query/relation_filter_sort.go:733"
+    ],
+    "testSource": [
+      "internal/query/relation_filter_sort_test.go:77",
+      "internal/query/relation_filter_sort_live_test.go:19"
+    ],
+    "verification": "test-exists",
+    "gap": "역방향 filter 자체는 구현됐다. PB collection ID 기반 _via_ selector, 4~6 hop 및 전체 multi-match 조합은 제공되지 않는다.",
+    "priority": "P2"
+  },
+  {
+    "id": "QRY-10",
+    "category": "query",
+    "feature": "lower·length·each·isset·changed modifier",
+    "status": "partial",
+    "pbContract": "문자열 lower, MultiValuer length/each, request body isset/changed를 문맥별 지원.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_field_resolver_runner.go#L736",
+    "pgImplementation": "rule AST/compiler에 request modifiers; public list compiler는 text/editor lower/length와 relation each 일부를 별도로 처리.",
+    "pgSource": [
+      "internal/query/relation_filter_sort.go:632",
+      "internal/query/access_rule.go:14",
+      "internal/accessrule/pocketbase_resolver.go:434"
+    ],
+    "testSource": [
+      "internal/query/n4_modifiers_test.go:12",
+      "internal/query/access_rule_test.go:26",
+      "internal/accessrule/pocketbase_test.go:1"
+    ],
+    "verification": "test-exists",
+    "gap": "rule compiler가 풍부해도 public filter 경로와 같지 않다. select/file JSON 배열 length/each는 public list에서 지원되지 않는다. 두 compiler의 modifier/case/coercion 일치 검증 필요.",
+    "priority": "P1"
+  },
+  {
+    "id": "QRY-11",
+    "category": "query",
+    "feature": "geoDistance·strftime 함수",
+    "status": "partial",
+    "pbContract": "geoDistance 네 인수, strftime 1~10 인수/SQLite format+time-value+modifiers; relation resolver 입력도 지원.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/token_functions.go#L64",
+    "pgImplementation": "root geoPoint Haversine/제한된 strftime to_char. accessrule의 strftime은 일부 modifiers도 지원하지만 public query compiler는 3번째 인수부터 거절.",
+    "pgSource": [
+      "internal/query/compiler.go:315",
+      "internal/query/compiler.go:363",
+      "internal/accessrule/pocketbase_resolver.go:326",
+      "internal/accessrule/pocketbase_resolver.go:391"
+    ],
+    "testSource": [
+      "internal/query/pocketbase_filter_completion_test.go:53",
+      "docs/audits/2026-09-22-pocketbase-comparison/query-observations_test.go.txt:36"
+    ],
+    "verification": "executed-now",
+    "gap": "strftime('…',date,'start of year') public filter 거절. %w를 D로 바꾸어 weekday 기준이 0→1 달라진다. rule %s도 epoch 아닌 SSSS로 치환한다. 모든 SQLite substitutions/time-value/modifiers 및 relation args는 미완성.",
+    "priority": "P1"
+  },
+  {
+    "id": "QRY-12",
+    "category": "query",
+    "feature": "시간 macro와 @request/@collection 식별자",
+    "status": "partial",
+    "pbContract": "UTC @now/day/month/year macros. @request/@collection는 rule에서, HTTP 사용자 filter에서는 superuser에 한해 허용.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/identifier_macros.go#L16",
+    "pgImplementation": "UTC macros와 rule resolver의 request/collection 경로 구현. public list는 @request를 parser에서 거절하고 @collection은 parse 뒤 relation resolver에서 거절.",
+    "pgSource": [
+      "internal/query/filter.go:372",
+      "internal/query/access_rule.go:35",
+      "internal/accessrule/pocketbase_resolver.go:420",
+      "internal/query/relation_filter_sort.go:247"
+    ],
+    "testSource": [
+      "internal/query/pocketbase_rule_conformance_test.go:16",
+      "docs/audits/2026-09-22-pocketbase-comparison/query-observations_test.go.txt:19"
+    ],
+    "verification": "executed-now",
+    "gap": "시간 macro 부분과 rule 특수값은 구현됐다. PB superuser가 쓸 수 있는 public list @request/@collection filter까지는 연결되지 않았다. PB는 일반 사용자에게도 허용한다는 뜻이 아님.",
+    "priority": "P2"
+  },
+  {
+    "id": "QRY-13",
+    "category": "query",
+    "feature": "다중 스칼라 sort·안정 tie-break",
+    "status": "partial",
+    "pbContract": "최대 8 sort fields, whitespace trim, resolver가 허용한 unindexed 필드도 sort 가능.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/sort.go#L25",
+    "pgImplementation": "8개/중복 거절/id tie-break. root 일반 컬렉션은 indexed scalar만 허용.",
+    "pgSource": [
+      "internal/query/filter.go:426",
+      "internal/query/compiler.go:206"
+    ],
+    "testSource": [
+      "internal/query/compiler_test.go:225",
+      "docs/audits/2026-09-22-pocketbase-comparison/query-observations_test.go.txt:69"
+    ],
+    "verification": "executed-now",
+    "gap": "PB가 허용하는 unindexed text field sort를 unindexed_field로 거절한다. 입력 whitespace/중복 처리와 기본 ordering도 다르다. PG 성능 정책을 유지할지 compat에서 완화할지 결정 필요.",
+    "priority": "P2"
+  },
+  {
+    "id": "QRY-14",
+    "category": "query",
+    "feature": "relation sort",
+    "status": "partial",
+    "pbContract": "forward/back relation을 resolver로 정렬하며 relation depth는6.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/sort.go#L37",
+    "pgImplementation": "forward/multi/reverse relation SQL sort와 stable cursor, depth2 및 indexed terminal/100000 root-row cap.",
+    "pgSource": [
+      "internal/query/relation_filter_sort.go:16",
+      "internal/query/relation_filter_sort.go:167",
+      "internal/query/relation_filter_sort.go:210"
+    ],
+    "testSource": [
+      "internal/query/relation_filter_sort_test.go:164",
+      "internal/query/pocketbase_compat_live_test.go:42"
+    ],
+    "verification": "test-exists",
+    "gap": "핵심 relation sort는 있으나 PB가 허용하는 3~6 hop, unindexed terminal, 일부 JSON/다중값 sort는 제한된다.",
+    "priority": "P2"
+  },
+  {
+    "id": "QRY-15",
+    "category": "query",
+    "feature": "@random·@rowid sort",
+    "status": "adapted",
+    "pbContract": "@random은 RANDOM(), @rowid는 SQLite physical _rowid_.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/sort.go#L25",
+    "pgImplementation": "@random은 PostgreSQL random(), @rowid는 durable internal UUID adapter.",
+    "pgSource": [
+      "internal/query/filter.go:444",
+      "internal/query/relation_filter_sort.go:170",
+      "internal/query/record_identity_sql.go:1"
+    ],
+    "testSource": [
+      "internal/query/pocketbase_page_test.go:25",
+      "internal/query/pocketbase_page_integration_test.go:68",
+      "internal/query/text_identity_integration_test.go:15"
+    ],
+    "verification": "test-exists",
+    "gap": "의도적인 엔진 차이다. @rowid가 SQLite 정수 삽입 순서와 같다는 보장은 없다. text public ID lexical 순서도 아니다.",
+    "priority": "P3"
+  },
+  {
+    "id": "QRY-16",
+    "category": "query",
+    "feature": "page 번호 기반 임의 페이지 이동",
+    "status": "adapted",
+    "pbContract": "page/perPage, default1/30/max1000; offset로 임의 페이지 조회.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/provider.go#L282",
+    "pgImplementation": "명시적 compat page adapter, 동일 default/max/offset, overflow 거절.",
+    "pgSource": [
+      "internal/api/record_handlers.go:173",
+      "internal/query/service.go:82",
+      "internal/query/service.go:126"
+    ],
+    "testSource": [
+      "internal/api/record_handlers_test.go:103",
+      "internal/query/pocketbase_page_integration_test.go:15"
+    ],
+    "verification": "test-exists",
+    "gap": "페이지 기능은 구현. /api/v1/...에서 compat=pocketbase와 page/perPage/skipTotal 중 하나를 지정해야 활성화되며 PB 기본 route/drop-in은 아니다.",
+    "priority": "P3"
+  },
+  {
+    "id": "QRY-17",
+    "category": "query",
+    "feature": "totalItems·totalPages·skipTotal",
+    "status": "equivalent",
+    "pbContract": "total count/page 메타데이터; skipTotal이면 -1/-1로 count 생략.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/provider.go#L294",
+    "pgImplementation": "PB adapter 안에서 동일 권한 필터와 repeatable-read snapshot으로 exact count, skipTotal에서 count 생략.",
+    "pgSource": [
+      "internal/query/service.go:107",
+      "internal/query/expand.go:384"
+    ],
+    "testSource": [
+      "internal/query/pocketbase_page_integration_test.go:15",
+      "internal/query/pocketbase_page_integration_test.go:68"
+    ],
+    "verification": "test-exists",
+    "gap": "활성화된 PB page adapter의 이 좁은 계약은 대응한다. PB 전체 route·serializer 동일성을 의미하지 않으며 latest upstream을 상대로 이번 감사에서 DB differential 재실행은 하지 않았다.",
+    "priority": "none"
+  },
+  {
+    "id": "QRY-18",
+    "category": "query",
+    "feature": "fields 응답 projection",
+    "status": "partial",
+    "pbContract": "전체 성공 JSON envelope에 wildcard/dot path/excerpt를 적용; missing field는 조용히 생략.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/router/event.go#L191",
+    "pgImplementation": "레코드 projection, nested wildcard/array/excerpt 구현. schema root validation 및 자체 regex HTML stripper.",
+    "pgSource": [
+      "internal/query/projection.go:26",
+      "internal/responseprojection/projection.go:40",
+      "internal/responseprojection/projection.go:207"
+    ],
+    "testSource": [
+      "internal/query/projection_test.go:47",
+      "docs/audits/2026-09-22-pocketbase-comparison/query-observations_test.go.txt:74"
+    ],
+    "verification": "executed-now",
+    "gap": "fields=missing은 PB의 {} 대신 오류. list envelope의 items.id/page 선택과 record-field 선택을 동일하게 지원하지 않는다. inline HTML 'Hello<b>world</b>'가 'Hello world'로 바뀌어 PB DOM text 처리와 다르다.",
+    "priority": "P2"
+  },
+  {
+    "id": "QRY-19",
+    "category": "query",
+    "feature": "정방향·중첩 expand",
+    "status": "adapted",
+    "pbContract": "comma relation path를 최대6단계 확장하고 대상 view 권한을 적용.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_query_expand.go#L54",
+    "pgImplementation": "forward/sibling/nested expand depth6, breadth-first hydration, target 권한, nodes20/rows10000/query64/response bytes budget.",
+    "pgSource": [
+      "internal/query/expand_plan.go:35",
+      "internal/query/expand_types.go:88",
+      "internal/query/expand.go:140"
+    ],
+    "testSource": [
+      "internal/query/expand_nested_live_test.go:16",
+      "internal/query/expand_nested_live_test.go:209"
+    ],
+    "verification": "test-exists",
+    "gap": "주요 기능은 구현됐고 PB보다 추가적인 자원 한도가 있다. budget 초과/empty expand 응답 차이는 QRY-21에서 따로 분류한다.",
+    "priority": "P3"
+  },
+  {
+    "id": "QRY-20",
+    "category": "query",
+    "feature": "역방향 _via_ expand",
+    "status": "partial",
+    "pbContract": "collection name/id _via_field 및 deprecated collection(field) syntax를 확장; root당 최대1000개, unique 관계면 단일값.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_query_expand.go#L75",
+    "pgImplementation": "catalog source.Name_via_field를 reverse node로 확장, job-wide reverse row budget1000.",
+    "pgSource": [
+      "internal/query/expand_plan.go:191",
+      "internal/query/expand_types.go:90",
+      "internal/query/expand_reverse.go:1"
+    ],
+    "testSource": [
+      "internal/query/expand_nested_live_test.go:88",
+      "internal/query/expand_nested_live_test.go:158"
+    ],
+    "verification": "test-exists",
+    "gap": "현행 name_via_field 핵심은 구현됐다. collection ID selector/아직 PB가 받는 legacy syntax는 없고, PB root당 limit와 Pg job-wide 예산·에러 처리도 다르다. PB는 unique back-relation을 단일 object로 만들지만 Pg executeReverseExpandNode는 항상 plural:true 배열을 붙인다.",
+    "priority": "P2"
+  },
+  {
+    "id": "QRY-21",
+    "category": "query",
+    "feature": "expand JSON·invalid path 처리",
+    "status": "partial",
+    "pbContract": "invalid path 오류는 비치명이며 성공 응답 계속; depth6 초과는 잘라내고, 유효 관계 expand 요청은 대상이 없어도 expand:{} 키를 초기화.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_query_expand.go#L65",
+    "pgImplementation": "compat에서 missing/invalid path skip. budget/depth 오류는 그대로 반환하고 empty Expand map은 JSON 키를 생략.",
+    "pgSource": [
+      "internal/query/expand_plan.go:95",
+      "internal/query/expand_types.go:63"
+    ],
+    "testSource": [
+      "internal/query/pocketbase_compat_live_test.go:52",
+      "docs/audits/2026-09-22-pocketbase-comparison/query-observations_test.go.txt:86"
+    ],
+    "verification": "executed-now",
+    "gap": "PB는 7단계 요청을6단계까지 처리하지만 Pg는 expand_budget_exceeded로 전체 오류. 정상 empty 관계를 요청한 경우 PB expand:{}와 Pg key omission이 다르다.",
+    "priority": "P2"
+  },
+  {
+    "id": "QRY-22",
+    "category": "query",
+    "feature": "숨김 필드의 모든 query 피연산자 검증 (추가 감사 항목)",
+    "status": "partial",
+    "pbContract": "resolver는 양쪽 operands를 각각 해석하고 non-superuser의 hidden field를 거절.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_field_resolver_runner.go#L750",
+    "pgImplementation": "non-admin query guard와 relation plan guard가 주 field/rootField/path를 검사하지만 otherField/otherRootField와 function argument를 빠뜨린다.",
+    "pgSource": [
+      "internal/query/field_visibility.go:9",
+      "internal/query/field_visibility.go:47",
+      "internal/query/relation_filter_sort.go:498",
+      "internal/query/expand.go:245"
+    ],
+    "testSource": [
+      "internal/query/field_visibility_test.go:1",
+      "docs/audits/2026-09-22-pocketbase-comparison/query-observations_test.go.txt:100"
+    ],
+    "verification": "executed-now",
+    "gap": "실제 unit repro에서 non-admin title = secret(Hidden:true)이 두 guard를 모두 통과하고 SQL에 secret을 포함했다. 응답 자체에서 hidden을 제거해도 필터 결과/건수로 추론될 여지가 있어 우선 수정 필요. DB/HTTP 공격은 실행하지 않았으며 원격 누출 확정으로 과장하지 않는다.",
+    "priority": "P1"
+  }
+]

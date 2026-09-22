@@ -1,3 +1,4 @@
+import { responseJSON } from "./response.js";
 export class AdminAPIError extends Error {
     status;
     code;
@@ -155,17 +156,10 @@ export class PgBaseAdminClient {
                 this.#csrf = "";
                 this.#generation++;
             }
-            const data = await response.json().catch(() => undefined);
+            const data = await responseJSON(response, () => undefined);
             throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details);
         }
-        if (response.status === 204)
-            return undefined;
-        try {
-            return await response.json();
-        }
-        catch {
-            throw new AdminAPIError(response.status, "invalid_response_body");
-        }
+        return await responseJSON(response, () => { throw new AdminAPIError(response.status, "invalid_response_body"); });
     }
     async requestText(path, init, signal) {
         const headers = new Headers(init.headers);

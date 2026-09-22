@@ -11,6 +11,24 @@ import { SettingsPage } from "./settings-page";
 const settings: AdminSettings = { batch: { enabled: true, maxRequests: 10, maxBodyBytes: 1000, timeoutMs: 1000 }, logs: { retentionDays: 30, level: "info", includeIP: false, includeAuth: false }, proxy: { trustedProxyCIDRs: [] }, backups: { schedule: "@every 24h", timezone: "UTC", enabled: true, keep: 7 }, application: { theme: "system", accent: "#1d4ed8", branding: "pgBase" }, rateLimits: { admin: { accountMaxFailures: 5, networkMaxFailures: 20, windowSeconds: 900, blockSeconds: 900 }, user: { accountMaxFailures: 5, networkMaxFailures: 20, registrationNetworkMaxFailures: 5, windowSeconds: 900, blockSeconds: 900 }, enabled: false, rules: [], excludedIPs: [] }, revision: 1 };
 
 describe("application settings", () => {
+  it("requires an explicit bounded retention count and explains that zero keeps all archives", async () => {
+    const backend = memoryBackend(backendScript());
+    const save = vi.fn().mockImplementation(async (value: AdminSettings) => ({ ...value, revision: 2 }));
+    backend.settings = { get: vi.fn().mockResolvedValue(settings), save, reload: vi.fn() };
+    const user = userEvent.setup();
+    render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) });
+    const keep = await screen.findByLabelText("Backups to keep");
+    expect(keep).toHaveValue(7);
+    expect(keep).toHaveAccessibleDescription("Counts all archives: manual, uploaded, and scheduled. Use 0 to keep every archive.");
+    await user.clear(keep);
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(save).not.toHaveBeenCalled();
+    expect(await screen.findByText("Backups to keep must be a whole number from 0 through 10000.")).toBeVisible();
+    await user.type(keep, "0");
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ backups: { ...settings.backups, keep: 0 } })));
+  });
+
   it("saves log capture controls and backup schedule as one revision", async () => {
     const backend = memoryBackend(backendScript()); const save = vi.fn().mockImplementation(async (value: AdminSettings) => ({ ...value, revision: 2 })); backend.settings = { get: vi.fn().mockResolvedValue(settings), save, reload: vi.fn() };
     const user = userEvent.setup(); render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) });
@@ -103,6 +121,6 @@ describe("application settings", () => {
 
   it("does not submit an invalid global API rule", async () => {
     const backend = memoryBackend(backendScript()); const save = vi.fn(); backend.settings = { get: vi.fn().mockResolvedValue(settings), save, reload: vi.fn() };
-    const user = userEvent.setup(); render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) }); await screen.findByText("API request rate limits"); await user.click(screen.getByRole("button", { name: "Add API rate rule" })); await user.click(screen.getByRole("button", { name: "Save settings" })); expect(await screen.findByText(/Each rule label must/)).toBeVisible(); expect(save).not.toHaveBeenCalled();
+    const user = userEvent.setup(); render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) }); await screen.findByText("API request rate limits"); await user.click(screen.getByRole("button", { name: "Add API rate rule" })); await user.click(screen.getByRole("button", { name: "Save settings" })); expect(await screen.findByText(/Use a route pattern or METHOD/)).toBeVisible(); expect(save).not.toHaveBeenCalled();
   });
 });

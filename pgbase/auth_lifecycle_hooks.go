@@ -2,6 +2,7 @@ package pgbase
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -67,11 +68,17 @@ func (h hookedUserAuth) action(ctx context.Context, kind, flow string, realm, us
 }
 
 func (h hookedUserAuth) Register(ctx context.Context, email, password, address string) (userauth.Session, error) {
-	return h.session(ctx, HookAuthPassword, "register", userauth.DefaultCollectionID, uuid.Nil, "", func() (userauth.Session, error) { return h.Service.Register(ctx, email, password, address) })
+	return h.RegisterWithFields(ctx, email, password, address, nil)
 }
 func (h hookedUserAuth) RegisterInCollection(ctx context.Context, realm uuid.UUID, email, password, address string) (userauth.Session, error) {
+	return h.RegisterInCollectionWithFields(ctx, realm, email, password, address, nil)
+}
+func (h hookedUserAuth) RegisterWithFields(ctx context.Context, email, password, address string, fields map[string]json.RawMessage) (userauth.Session, error) {
+	return h.RegisterInCollectionWithFields(ctx, userauth.DefaultCollectionID, email, password, address, fields)
+}
+func (h hookedUserAuth) RegisterInCollectionWithFields(ctx context.Context, realm uuid.UUID, email, password, address string, fields map[string]json.RawMessage) (userauth.Session, error) {
 	return h.session(ctx, HookAuthPassword, "register", realm, uuid.Nil, "", func() (userauth.Session, error) {
-		return h.Service.RegisterInCollection(ctx, realm, email, password, address)
+		return h.Service.RegisterInCollectionWithFields(ctx, realm, email, password, address, fields)
 	})
 }
 func (h hookedUserAuth) Login(ctx context.Context, email, password, address string) (userauth.Session, error) {

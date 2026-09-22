@@ -1,0 +1,13 @@
+2026-09-22 native Windows, active remaining-development worktree
+Command:
+go test ./internal/api ./internal/recordops ./internal/query ./internal/responseprojection -run 'TestRecordRoutesExposeFiveCRUDContracts|TestPocketBasePageAdapterHasExactEnvelopeAndInputs|TestRecordRoutesRejectMalformedInputs|TestResolveInputModifiersPocketBaseOrderAndTypes|TestResolveInputModifiersRejectsUnsupportedAndUnknown|TestValidateMixedDirectModifierChecksResolvedValue|TestCompileUpdateAcceptsEmptyPatchAndRejectsUnknownFields|TestPocketBaseRecordAddsMetadataWithoutMutatingNativeRecord|TestHiddenInputIsAdministratorOnly' -count=1
+
+Result (exit 0):
+ok github.com/yakisoba0728/PgBase/internal/api 0.148s
+ok github.com/yakisoba0728/PgBase/internal/recordops 0.111s
+ok github.com/yakisoba0728/PgBase/internal/query 0.674s
+ok github.com/yakisoba0728/PgBase/internal/responseprojection 0.301s
+
+These are 9 selected PgBase unit tests, not a live PocketBase differential suite.
+Integration tests linked from records-only.json were inspected but not re-run by this audit worker.
+Read-only source comparison baseline: PocketBase 5cec579da984436a258602a46a96302fbd31f77c.

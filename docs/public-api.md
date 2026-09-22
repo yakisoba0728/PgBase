@@ -6,7 +6,8 @@ The source branch implements the contracts below. Use `Content-Type: application
 
 | Method and route | JSON request / result |
 | --- | --- |
-| POST `/api/v1/auth/register` or `/login` | `{email,password}` → `{token,user,expiresAt}` |
+| POST `/api/v1/auth/register` | `{email,password,fields?}` → `{token,user,expiresAt}`; optional `fields` is a custom profile object |
+| POST `/api/v1/auth/login` | `{email,password}` → `{token,user,expiresAt}` |
 | GET `/api/v1/auth/session` | Current bearer identity; any auth collection |
 | POST `/api/v1/auth/logout` | Revoke current bearer session |
 | POST `/api/v1/auth/change-password` | `{currentPassword,newPassword}`; revokes sessions and pending MFA challenges |
@@ -22,11 +23,15 @@ The source branch implements the contracts below. Use `Content-Type: application
 | POST `/api/v1/auth/mfa/complete` | `{challengeToken,code}` → user session |
 | POST `/api/v1/auth/oauth/start` | `{provider,redirectUri}` → authorization URL and expiry |
 | POST `/api/v1/auth/oauth/link` | `{currentPassword,provider,redirectUri}` with bearer |
-| POST `/api/v1/auth/oauth/complete` | `{provider,state,code}` → user session |
+| POST `/api/v1/auth/oauth/complete` | `{provider,state,code,fields?}` → user session; profile input applies only to a new account |
 | POST `/api/v1/auth/otp/request` | `{email}` → opaque OTP id and expiry without disclosing account existence |
 | POST `/api/v1/auth/otp/complete` | `{otpId,code}` → user session or MFA challenge |
 
 The TypeScript SDK accepts a browser callback directly with `realm.oauthCompleteFromURL(provider, window.location.href)`. It reports provider cancellation and callback errors as `OAuthCallbackError` without sending an incomplete callback to the server. OAuth providers that do not return a verified email can only be used after the authenticated, current-password account-link flow; PgBase never invents an email or merges by an unverified address.
+
+Password signup, including `/api/v1/auth/{authCollection}/register`, and new OAuth signup accept collection-defined values in body `fields`, for example `{ "display_name": "Ada", "age": 37 }`. Required fields, type/option constraints, relation targets, custom identity uniqueness, and the collection create rule are checked in the same transaction. Omission or `{}` retains the previous behavior; null, arrays, and scalars are invalid. System/security fields and caller-supplied autodates are rejected. Custom password fields are hashed and omitted from profile responses. Exact JSON numeric values are preserved by the server through storage, reads, and unrelated profile patches. The session response stays unchanged; GET `/api/v1/auth/{authCollection}/profile` returns the profile as `{attributes:...}`.
+
+The TypeScript and Dart SDKs expose this body input as `profile`; their existing `fields` option continues to select response fields in the query string. Signup rules can inspect the saved candidate with bare field names and test `@request.body.fields:isset`; the request retains its nested `fields` object rather than flattening custom names. Nested `@request.body.fields.<name>` value selectors are outside the current rule grammar. Nonempty profile input for an existing OAuth login or explicit link is rejected before changing its identity, profile, session, or PgBase state consumption. Provider code exchange precedes validation, so retrying a rejected signup can require a fresh authorization code. Login, OAuth start/link, MFA, and OTP requests do not accept profile input.
 
 Apple uses the configured client secret as Apple's signed client-secret JWT. Rotate it before its expiry. The provider's user-info URL is the Apple JWKS endpoint (`https://appleid.apple.com/auth/keys`); PgBase verifies RS256 signatures and the issuer, audience, expiry, issued-at, not-before, and PKCE-bound nonce claims before accepting an identity. Apple returns scoped callbacks with `form_post`. PgBase sends that response through its public `/api/v1/auth/oauth/apple/callback` bridge, atomically validates the state, and redirects once to the registered application callback. Browser code can then call `oauthCompleteFromURL` just like other providers.
 
@@ -44,6 +49,22 @@ Administrator user lifecycle routes are GET `/api/admin/users?after={uuid}&limit
 
 Impersonation returns a temporary user bearer session with `impersonated:true` and `impersonatingAdministratorId`. It expires after five minutes by default, never later than the administrator session that created it, and stops authenticating when that administrator session is revoked or its administrator is deactivated. Impersonated sessions carry no MFA proof and cannot change passwords, verification state, email, TOTP, or OAuth links. Custom Go routes receive the same origin fields through `CustomPrincipalFromContext`, so application-specific sensitive actions can reject impersonation explicitly.
 
+## Administrator accounts
+
+Administrator accounts are separate from auth-collection users. Every active administrator can manage other administrator accounts; these endpoints do not introduce limited administrator roles. Reads require the administrator cookie and same-origin admission. Writes also require `X-PgBase-CSRF`.
+
+| Method and route | Request / result |
+| --- | --- |
+| GET `/api/admin/administrators?limit=50&after={uuid}` | `{items:[{id,email,active,createdAt,updatedAt}],nextAfter?}`; ID-ordered pages, limit 1–100 |
+| POST `/api/admin/administrators` | `{email,password}` → HTTP 201 account; does not sign in as that account |
+| PATCH `/api/admin/administrators/{id}` | `{active}` → account; self-deactivation is rejected |
+| POST `/api/admin/administrators/{id}/password-reset` | `{newPassword}` → HTTP 204; directly replaces the password, without sending email |
+| POST `/api/admin/administrators/{id}/revoke-sessions` | `{}` → HTTP 204; invalidates all of that account's sessions |
+
+Deactivation and password replacement invalidate existing sessions and pending password-reset/email-OTP credentials in the same transaction. Password replacement preserves the account's active state, TOTP configuration and IP restrictions. Reactivation does not restore old sessions. Changing your own password or revoking your own sessions requires signing in again; the management UI clears its session after success. Self-deactivation and removing the last active administrator are rejected, including concurrent lifecycle operations. Account deletion remains a local recovery CLI operation; editing your own email and IP policy uses the existing `/api/admin/profile` routes.
+
+Malformed requests return HTTP 400 `invalid_administrator`, an unknown account returns 404 `administrator_not_found`, and duplicate email or protected lifecycle changes return 409 `administrator_conflict`. The response never includes password hashes, session tokens or pending credentials.
+
 ## Records and permissions
 
 User CRUD is `/api/v1/user/collections/{collection}/records[/{id}]`. Anonymous and service-scoped variants use `/api/v1/public/collections/...` and `/api/v1/service/collections/...`. Collection opt-in and typed action rules govern user/anonymous access. Service tokens carry explicit collection/action grants. Target view permission applies to relation IDs, filters, sorting and expansion; cascade writes require each affected target's write permission. Rules apply before pagination. A changed policy invalidates dependent cursors and subscription delivery.
@@ -51,6 +72,8 @@ User CRUD is `/api/v1/user/collections/{collection}/records[/{id}]`. Anonymous a
 List query parameters are `filter`, `sort`, `expand`, `cursor` and `limit`. Filters combine literal comparisons with `&&`, `||`, and parentheses. Text/editor terminals also accept field-left `~` literal containment, for example `title ~ 'draft'`; it is a case-sensitive literal substring match, so `%` and `_` have no wildcard meaning. `:lower ~ 'draft'` performs the same match after lowercasing the field. `~` rejects reverse operands, null/non-string literals, and every non-text/editor terminal. Text/editor filter terminals accept `:lower`; geoPoint filter and indexed-sort terminals accept only `.lon` and `.lat`, including the documented bounded relation paths. API system fields use `created_at`, `updated_at` and `id`; they are not camel-cased sort identifiers. Records and mutation responses carry strong ETag headers. Use `If-Match` for update/delete and a stable `Idempotency-Key` for create retries. The SDK's `getWithETag`, `createWithETag` and `updateWithETag` return `{record,etag}`.
 
 If a create or update commits but its response-enrichment hook fails, the mutation still returns its normal success status and headers, plus the exposed header `PgBase-Enrichment: failed`. Its JSON body is intentionally limited to `{id}` because the failed hook may have been responsible for redacting or changing visible fields. Treat that body as a partial record and refetch the ID to recover the current representation; the refetch can continue to fail while the hook problem persists. Retrying the mutation is not a recovery step because the write already committed.
+
+Native list filters also support `geoDistance(place.lon, place.lat, 1, 2) < 5` (distance in kilometres) and `strftime('%Y', published) = '2026'`. Distance takes four root numeric fields, geographic coordinates, or numeric literals. Time formatting takes a literal format and an optional root timestamp/autodate field or timestamp string; omitting the time uses PostgreSQL's current clock. It translates `%Y`, `%m`, `%d`, `%H`, `%M`, `%S`, and `%w` to PostgreSQL formatting (`%w` is Sunday=1 through Saturday=7). This is a bounded PostgreSQL function contract, not full SQLite/POSIX formatting. Nested functions, relation arguments, time modifiers, function-to-field comparisons, and function operands on the right are rejected. Hidden fields stay unavailable to public callers. Use the same filter when following its signed cursor; changing a function argument, field, format, operator, or comparison value invalidates that cursor.
 
 Read-only views are created through the existing schema plan/apply endpoints. A `view` may contain a typed source collection, projection, and static filter, or one bounded `sql` SELECT whose output fields and collection dependencies PostgreSQL infers during preview. Declarative view reads use source admission, ownership, and action rules even when a rule field is not projected. SQL views apply their own collection policy. Views reject create, update, delete, and relation-target use.
 

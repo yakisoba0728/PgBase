@@ -1,0 +1,695 @@
+[
+  {
+    "id": "FIL-01",
+    "category": "files",
+    "feature": "record multipart의 여러 attachment part",
+    "status": "adapted",
+    "pbContract": "Record create/update extracts every upload under field, +field, field+ names before saving.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L690",
+    "pgImplementation": "A multipart batch uses a requests JSON part and named file parts referenced through $file. It stages all bytes, then commits record changes and attachment metadata in one PostgreSQL transaction.",
+    "pgSource": [
+      "internal/api/batch_handlers.go:364",
+      "internal/api/batch_file_modifiers.go:155",
+      "internal/filestore/staging.go:170"
+    ],
+    "testSource": [
+      "pgbase/batch_integration_test.go:17",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_file_test.go#L832"
+    ],
+    "verification": "test-exists",
+    "gap": "Complete atomic batch capability with a different request protocol; the standalone upload endpoint accepts one file part.",
+    "priority": "none"
+  },
+  {
+    "id": "FIL-02",
+    "category": "files",
+    "feature": "file field 최대 선택 수/cardinality",
+    "status": "equivalent",
+    "pbContract": "MaxSelect <=1 means one file; larger values allow multiple files; Required requires at least one. PocketBase has no FileField minSelect.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_file.go#L101",
+    "pgImplementation": "Field MaximumCount and Required are checked under a per-record/field advisory lock. Both staged batch removals and standalone deletion reject an empty required field.",
+    "pgSource": [
+      "internal/filestore/service.go:288",
+      "internal/filestore/service.go:478",
+      "internal/filestore/staging.go:202",
+      "internal/filestore/staging.go:245"
+    ],
+    "testSource": [
+      "pgbase/batch_integration_test.go:17",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_file_test.go#L227"
+    ],
+    "verification": "test-exists",
+    "gap": "",
+    "priority": "none"
+  },
+  {
+    "id": "FIL-03",
+    "category": "files",
+    "feature": "파일 크기와 MIME 정책",
+    "status": "adapted",
+    "pbContract": "Default maxSize is 5 MiB; field MIME list is optional; configured MIME types are checked by detected file type.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_file.go#L279",
+    "pgImplementation": "Enforces field and global size/type ceilings, declared size and SHA-256, MIME sniffing and image pixel limits. Global maximum is 100 MiB and the default MIME list is restrictive.",
+    "pgSource": [
+      "internal/filestore/service.go:257",
+      "internal/filestore/image.go:112",
+      "pgbase/file_options.go:25",
+      "pgbase/file_services.go:151"
+    ],
+    "testSource": [
+      "internal/filestore/service_integration_test.go:22",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_file_test.go#L227"
+    ],
+    "verification": "test-exists",
+    "gap": "Intentional additional global budgets and MIME declaration checks; empty configuration is not PocketBase's allow-any MIME mode.",
+    "priority": "none"
+  },
+  {
+    "id": "FIL-04",
+    "category": "files",
+    "feature": "record 변경과 파일 attach/remove",
+    "status": "adapted",
+    "pbContract": "Record file setters support replace, append field+, prepend +field and filename removal field-. Upload failure cleans previously uploaded files; successful saves delete detached objects.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_file.go#L336",
+    "pgImplementation": "Batch field modifiers now support replace/append/prepend/remove and preserve order. Metadata changes share the record transaction; physical deletion is deferred through durable object GC.",
+    "pgSource": [
+      "internal/api/batch_file_modifiers.go:45",
+      "internal/api/batch_file_modifiers.go:250",
+      "internal/filestore/staging.go:210"
+    ],
+    "testSource": [
+      "pgbase/batch_integration_test.go:17",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_file_test.go#L715",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_file_test.go#L969"
+    ],
+    "verification": "test-exists",
+    "gap": "The old comparison's unsupported-modifier claim is stale. Physical deletion timing differs intentionally; see FIL-19 for the separate standalone malformed-upload edge.",
+    "priority": "none"
+  },
+  {
+    "id": "FIL-05",
+    "category": "files",
+    "feature": "보호 파일 field",
+    "status": "adapted",
+    "pbContract": "Protected files evaluate the collection view rule using auth derived from a file token. An invalid/missing token supplies nil auth, which may still pass an explicitly public view rule. Protected defaults false.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/file.go#L108",
+    "pgImplementation": "Fields default protected; explicit protected=false enables the public file-ID URL. Authenticated access checks current record/field policy; hiding or protecting a field revokes access through existing URLs/tokens.",
+    "pgSource": [
+      "internal/filestore/service.go:69",
+      "internal/filestore/service.go:380",
+      "internal/filestore/public.go:14",
+      "pgbase/file_services.go:100"
+    ],
+    "testSource": [
+      "pgbase/file_integration_test.go:131",
+      "pgbase/file_integration_test.go:191",
+      "internal/filestore/policy_test.go:11",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/file_test.go#L92"
+    ],
+    "verification": "test-exists",
+    "gap": "Secure default and authenticated-token policy intentionally differ from PocketBase; do not claim identical public/protected semantics.",
+    "priority": "none"
+  },
+  {
+    "id": "FIL-06",
+    "category": "files",
+    "feature": "원본 download URL·filename 응답",
+    "status": "adapted",
+    "pbContract": "GET /api/files/{collection name or ID}/{recordId}/{filename} resolves a record file and supplies its download filename.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/file.go#L85",
+    "pgImplementation": "Exposes UUID file-ID URLs and Content-Disposition filenames, plus file metadata/publicUrl. Authenticated and public paths differ.",
+    "pgSource": [
+      "internal/api/file_handlers.go:47",
+      "internal/api/file_handlers.go:84",
+      "internal/api/file_handlers.go:211"
+    ],
+    "testSource": [
+      "pgbase/file_integration_test.go:23",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/file_test.go#L92"
+    ],
+    "verification": "test-exists",
+    "gap": "URL identity and wire format differ. Range/conditional/inline behavior is separately missing in FIL-14.",
+    "priority": "none"
+  },
+  {
+    "id": "FIL-07",
+    "category": "files",
+    "feature": "단기 download token",
+    "status": "adapted",
+    "pbContract": "POST /api/files/token creates an auth-record file token; URL token identifies that auth record, which is then checked against each file's view rule.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_tokens.go#L145",
+    "pgImplementation": "Per-file token includes principal ID/kind, variant and expiry; minting and opening reauthorize current policy. TTL defaults 5 minutes, capped at 15. The private HTTP URL also needs caller authentication.",
+    "pgSource": [
+      "internal/filestore/service.go:529",
+      "internal/filestore/service.go:563",
+      "internal/api/file_handlers.go:211",
+      "pgbase/file_options.go:41"
+    ],
+    "testSource": [
+      "internal/filestore/local_test.go:73",
+      "pgbase/file_integration_test.go:23",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/file_test.go#L19"
+    ],
+    "verification": "test-exists",
+    "gap": "Token-only links suitable for unauthenticated image elements are not the private PgBase contract; use the SDK/authenticated route or explicitly public fields.",
+    "priority": "none"
+  },
+  {
+    "id": "FIL-08",
+    "category": "files",
+    "feature": "thumb WxH/t/b/f 문법",
+    "status": "adapted",
+    "pbContract": "Supports centered WxH, top/bottom crop, fit and zero-axis aspect-preserving resize.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/filesystem/filesystem.go#L598",
+    "pgImplementation": "Parses the same principal size modes as variant values, with explicit declared field variants and stricter dimension/pixel/byte bounds. Rendering uses nearest-neighbor sampling.",
+    "pgSource": [
+      "internal/filestore/variants.go:19",
+      "internal/filestore/variants.go:140"
+    ],
+    "testSource": [
+      "internal/filestore/variants_test.go:15",
+      "internal/filestore/variants_test.go:79",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/filesystem/filesystem_test.go#L1005"
+    ],
+    "verification": "test-exists",
+    "gap": "Request parameter is variant, not thumb. No pixel-identical rendering claim: PocketBase uses imaging.Linear; current PgBase crop test mainly checks dimensions.",
+    "priority": "none"
+  },
+  {
+    "id": "FIL-09",
+    "category": "files",
+    "feature": "이미지 transform format 범위",
+    "status": "adapted",
+    "pbContract": "Record HTTP thumbnails accept PNG/JPEG/GIF/WebP. Generic CreateThumb also understands TIFF/BMP; output follows supported encoder or falls back to PNG.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/file.go#L22",
+    "pgImplementation": "Record transforms decode PNG/JPEG/GIF/WebP. PNG remains PNG; JPEG/GIF/WebP become JPEG, using a single frame. GIF/WebP require explicit allowed MIME configuration.",
+    "pgSource": [
+      "internal/filestore/image.go:65",
+      "internal/filestore/variants.go:140",
+      "internal/api/file_handlers.go:117"
+    ],
+    "testSource": [
+      "internal/filestore/variants_test.go:28",
+      "internal/filestore/variants_test.go:54",
+      "internal/api/file_handlers_test.go:31",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/filesystem/filesystem_test.go#L1005"
+    ],
+    "verification": "test-exists",
+    "gap": "Output encoding/transparency differs intentionally. Generic TIFF/BMP transforms are not implemented; EXIF orientation is a separate missing behavior in FIL-15.",
+    "priority": "none"
+  },
+  {
+    "id": "FIL-10",
+    "category": "files",
+    "feature": "thumbnail cache/concurrent generation",
+    "status": "adapted",
+    "pbContract": "Caches thumbnails by path; singleflight deduplicates one key and a configurable semaphore bounds simultaneous generation and wait.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/file.go#L219",
+    "pgImplementation": "Caches variant receipts and bytes; PostgreSQL advisory locks serialize generation across processes; publication fencing and reference-aware cleanup handle failed metadata commits.",
+    "pgSource": [
+      "internal/filestore/variants.go:33",
+      "internal/filestore/variants.go:81"
+    ],
+    "testSource": [
+      "internal/filestore/variants_integration_test.go:20",
+      "internal/filestore/variants_integration_test.go:61",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/file_test.go#L539"
+    ],
+    "verification": "test-exists",
+    "gap": "Cross-process DB locking replaces local singleflight; PocketBase's PB_THUMBS_MAX_WORKERS/MAX_WAIT knobs are not exposed.",
+    "priority": "none"
+  },
+  {
+    "id": "FIL-11",
+    "category": "files",
+    "feature": "로컬 object store",
+    "status": "adapted",
+    "pbContract": "Local filesystem stores objects under its configured root and supports read/write/delete operations.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/filesystem/filesystem.go#L96",
+    "pgImplementation": "Validated physical object keys stay under a configured root. Writes use a same-directory temporary file then rename; canceled writes remove temporary files and delete is idempotent.",
+    "pgSource": [
+      "internal/filestore/local.go:13",
+      "internal/filestore/local.go:38",
+      "internal/filestore/local.go:91"
+    ],
+    "testSource": [
+      "internal/filestore/local_test.go:17",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/filesystem/filesystem_test.go#L432"
+    ],
+    "verification": "test-exists",
+    "gap": "Opaque object keys and metadata-backed publication differ from PocketBase's record-directory layout; neither cited test establishes power-loss durability.",
+    "priority": "none"
+  },
+  {
+    "id": "FIL-12",
+    "category": "files",
+    "feature": "S3 backend와 runtime 설정",
+    "status": "adapted",
+    "pbContract": "NewFilesystem selects local or S3 using runtime app settings including endpoint, bucket, region, credentials and path style.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/base.go#L750",
+    "pgImplementation": "Configured S3 backend supports put/open/delete; runtime settings redact/encrypt credentials, test connectivity, rotate credentials and fence storage cutovers. Location changes with existing inventory require migration.",
+    "pgSource": [
+      "internal/filestore/s3.go:33",
+      "internal/filestore/storage_settings.go:284",
+      "internal/filestore/storage_settings.go:377"
+    ],
+    "testSource": [
+      "internal/filestore/storage_settings_integration_test.go:22",
+      "pgbase/storage_settings_http_integration_test.go:14",
+      "internal/filestore/storage_migration_integration_test.go:238"
+    ],
+    "verification": "test-exists",
+    "gap": "Configured storage support is complete within the stricter migration contract. This does not establish arbitrary $filesystem.s3(...) targets; see FIL-17.",
+    "priority": "none"
+  },
+  {
+    "id": "FIL-13",
+    "category": "files",
+    "feature": "extension용 generic filesystem facade",
+    "status": "partial",
+    "pbContract": "System exposes local/S3 selection, readers/writers, copy, complete List, DeletePrefix, Serve, CreateThumb and context control.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/filesystem/filesystem.go#L41",
+    "pgImplementation": "Namespace-scoped extension object storage supports immutable versions, transactional publication, streaming, pagination, copy/delete and a JS System-shaped facade. Some facade methods do not implement the PB contract.",
+    "pgSource": [
+      "pgbase/extension_objects.go:256",
+      "pgbase/extension_objects.go:364",
+      "pgbase/extension_objects.go:499",
+      "internal/jsvm/pocketbase_filesystem_globals.go:12"
+    ],
+    "testSource": [
+      "pgbase/extension_objects_integration_test.go:24",
+      "pgbase/extension_objects_integration_test.go:119",
+      "pgbase/extension_objects_integration_test.go:391",
+      "pgbase/javascript_filesystem_serve_integration_test.go:18"
+    ],
+    "verification": "test-exists",
+    "gap": "$filesystem.s3 ignores its arguments; System.list truncates at 100; setContext is a no-op. DeletePrefix itself paginates all keys, then deletes serially and stops at the first error rather than returning PB's collected errors.",
+    "priority": "P1"
+  },
+  {
+    "id": "RT-01",
+    "category": "realtime",
+    "feature": "SSE connection endpoint/headers",
+    "status": "equivalent",
+    "pbContract": "GET /api/realtime returns text/event-stream, no-store, X-Accel-Buffering:no, and a PB_CONNECT event containing clientId.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime.go#L60",
+    "pgImplementation": "The multiplex route exposes the same endpoint, headers and connect envelope.",
+    "pgSource": [
+      "internal/api/realtime_sessions.go:102",
+      "internal/api/realtime_sessions.go:216"
+    ],
+    "testSource": [
+      "pgbase/realtime_integration_test.go:133",
+      "internal/api/realtime_sessions_test.go:53",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime_test.go#L23"
+    ],
+    "verification": "test-exists",
+    "gap": "This narrow row does not assert connection lifetime or reconnect-ID equivalence; see RT-07.",
+    "priority": "none"
+  },
+  {
+    "id": "RT-02",
+    "category": "realtime",
+    "feature": "subscribe/unsubscribe API",
+    "status": "adapted",
+    "pbContract": "POST replaces a client's subscriptions; empty list unsubscribes all; maximum 1000 topics; validates originating IP and permits guest-to-auth upgrade only.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime.go#L173",
+    "pgImplementation": "POST performs atomic subscription replacement under a delivery mutex, validates client/IP/principal, permits empty lists and preserves cursors for unchanged subscriptions.",
+    "pgSource": [
+      "internal/api/realtime_sessions.go:345",
+      "internal/api/realtime_sessions.go:411"
+    ],
+    "testSource": [
+      "internal/api/realtime_sessions_test.go:203",
+      "pgbase/realtime_integration_test.go:133",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime_test.go#L112"
+    ],
+    "verification": "test-exists",
+    "gap": "PgBase validates collection access/options at subscription time, rejects duplicate/empty entries and requires JSON; PocketBase stores generic topic strings and authenticates at delivery.",
+    "priority": "none"
+  },
+  {
+    "id": "RT-03",
+    "category": "realtime",
+    "feature": "arbitrary subscription topics",
+    "status": "partial",
+    "pbContract": "Subscriptions are arbitrary strings; application code can send a named message through the subscriptions broker, including names unrelated to collections.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/subscriptions/client.go#L176",
+    "pgImplementation": "Custom topics use a reserved @ namespace; PublishApplication reversibly encodes arbitrary bounded UTF-8 topics. An exact-match broker delivers JSON payloads with bounded queues.",
+    "pgSource": [
+      "internal/api/realtime_broker.go:86",
+      "internal/api/realtime_broker.go:124",
+      "internal/api/realtime_sessions.go:509",
+      "internal/api/realtime_sessions.go:255"
+    ],
+    "testSource": [
+      "internal/api/realtime_sessions_test.go:53",
+      "internal/api/realtime_sessions_test.go:141",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/subscriptions/client_test.go#L97"
+    ],
+    "verification": "static-only",
+    "gap": "Static lifecycle defect: replace skips collection validation for application topics, but the 1-second delivery loop does not skip them and calls ReadFor with an empty collection. The real reader rejects it, producing PB_ERROR and disconnect. The existing custom-topic test publishes immediately and uses a stub; it does not cover this tick.",
+    "priority": "P1"
+  },
+  {
+    "id": "RT-04",
+    "category": "realtime",
+    "feature": "guest/user/superuser/service SSE availability",
+    "status": "adapted",
+    "pbContract": "Connect is public; subscribe may associate a guest or auth record, including superusers. PocketBase has no PgBase service principal type.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime.go#L218",
+    "pgImplementation": "Optional admission supports guest, user bearer, administrator cookie and scoped service bearer; records are checked under the principal's current rules/scopes.",
+    "pgSource": [
+      "internal/api/realtime_sessions.go:114",
+      "internal/api/realtime_sessions.go:150",
+      "internal/realtime/service.go:86"
+    ],
+    "testSource": [
+      "pgbase/realtime_integration_test.go:19",
+      "pgbase/realtime_integration_test.go:133",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime_test.go#L321"
+    ],
+    "verification": "test-exists",
+    "gap": "Administrator credential protocol differs and service principals are a PgBase extension.",
+    "priority": "none"
+  },
+  {
+    "id": "RT-05",
+    "category": "realtime",
+    "feature": "subscription filter/expand와 access 재판정",
+    "status": "partial",
+    "pbContract": "Each topic carries options.query and options.headers; record topics use ViewRule, collection topics ListRule. Filter, expand, fields and enrichment apply before sending; delete delivery is prepared before deletion.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime.go#L606",
+    "pgImplementation": "Reads committed events under current ACLs, filters scalar fields and projects output. Relation filters query the current record; expand is fetched for non-delete events.",
+    "pgSource": [
+      "internal/realtime/service.go:212",
+      "internal/api/realtime_sessions.go:266",
+      "internal/api/realtime_sessions.go:279",
+      "internal/api/realtime_sessions.go:289"
+    ],
+    "testSource": [
+      "pgbase/realtime_integration_test.go:133",
+      "pgbase/realtime_integration_test.go:336",
+      "internal/realtime/service_integration_test.go:28"
+    ],
+    "verification": "test-exists",
+    "gap": "Relation-filtered delete events are explicitly skipped and deleted records never expand. List AND view rules are combined for every topic. PB options.headers/custom query context are unsupported; see RT-08/09.",
+    "priority": "P1"
+  },
+  {
+    "id": "RT-06",
+    "category": "realtime",
+    "feature": "event envelope",
+    "status": "adapted",
+    "pbContract": "Record messages use the subscription string as SSE event name and {action,record} as data; SSE id is the client ID.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime.go#L715",
+    "pgImplementation": "Multiplex messages use the same action/record envelope and subscription event name, but numeric durable delivery IDs. The legacy per-collection endpoint has its own record/cursor envelopes.",
+    "pgSource": [
+      "internal/api/realtime_sessions.go:317",
+      "internal/api/realtime.go:151",
+      "internal/realtime/service.go:51"
+    ],
+    "testSource": [
+      "pgbase/realtime_integration_test.go:133",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/subscriptions/message.go#L20"
+    ],
+    "verification": "test-exists",
+    "gap": "Envelope shape matches on the multiplex route; field enrichment and ID/replay semantics do not fully match.",
+    "priority": "none"
+  },
+  {
+    "id": "RT-07",
+    "category": "realtime",
+    "feature": "connection lifetime과 reconnect recovery",
+    "status": "partial",
+    "pbContract": "Disables server write deadline; defaults to 5-minute idle and 30-minute maximum lifetime. Reconnect creates a fresh client and requires subscription resubmission; no durable replay is promised.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime.go#L43",
+    "pgImplementation": "Legacy stream has a 30-minute context, refreshed write deadlines and durable cursor events. Multiplex stream polls each second, retains per-topic cursors and accepts numeric Last-Event-ID.",
+    "pgSource": [
+      "internal/api/realtime_sessions.go:171",
+      "internal/api/realtime_sessions.go:220",
+      "internal/api/realtime.go:190",
+      "pgbase/app_construct.go:409",
+      "pgbase/managed.go:161"
+    ],
+    "testSource": [
+      "pgbase/realtime_integration_test.go:282",
+      "internal/realtime/service_integration_test.go:181",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime_test.go#L23"
+    ],
+    "verification": "static-only",
+    "gap": "Multiplex never clears the production 30-second WriteTimeout or implements PB idle/max timers. PB_CONNECT writes a UUID SSE id that its numeric reconnect parser rejects before the first record event. Expired multiplex cursors become generic PB_ERROR on polling. Existing legacy replay tests do not prove multiplex recovery.",
+    "priority": "P1"
+  },
+  {
+    "id": "FIL-14",
+    "category": "files",
+    "feature": "추가: record file Range·conditional·inline/download 응답",
+    "status": "partial",
+    "pbContract": "Record downloads call System.Serve, which uses http.ServeContent for Range and conditional requests, serves allowed media inline and accepts download=true to force attachment.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/filesystem/filesystem.go#L544",
+    "pgImplementation": "Record file handlers copy the whole stream using io.Copy, set no-store and always use attachment disposition. Query validation rejects download.",
+    "pgSource": [
+      "internal/api/file_handlers.go:84",
+      "internal/api/file_handlers.go:211"
+    ],
+    "testSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/filesystem/filesystem_test.go#L934",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/filesystem/filesystem_test.go#L972",
+      "pgbase/file_integration_test.go:23"
+    ],
+    "verification": "static-only",
+    "gap": "No partial-content/conditional behavior or inline-versus-download toggle on record files. Extension System.serve has a separate implementation and must not be used as evidence for these routes.",
+    "priority": "P2"
+  },
+  {
+    "id": "FIL-15",
+    "category": "files",
+    "feature": "추가: EXIF orientation을 반영하는 thumbnail",
+    "status": "missing",
+    "pbContract": "CreateThumb decodes with imaging.AutoOrientation(true), then resizes the oriented image.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/filesystem/filesystem.go#L643",
+    "pgImplementation": "Decodes standard image pixels and resamples them without processing EXIF orientation.",
+    "pgSource": [
+      "internal/filestore/image.go:90",
+      "internal/filestore/variants.go:140"
+    ],
+    "testSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/filesystem/filesystem_test.go#L1005",
+      "internal/filestore/variants_test.go:79"
+    ],
+    "verification": "static-only",
+    "gap": "Phone JPEGs whose display orientation is stored in EXIF can produce rotated thumbnails. No PgBase orientation fixture was found/read; no runtime reproduction was performed.",
+    "priority": "P2"
+  },
+  {
+    "id": "FIL-16",
+    "category": "files",
+    "feature": "추가: default 100x100 thumb와 original fallback",
+    "status": "partial",
+    "pbContract": "100x100 is allowed independently of configured thumbs. Invalid/unconfigured sizes, unsupported formats or generation failure fall back to the original and expose ThumbError to the download hook.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/file.go#L164",
+    "pgImplementation": "Open requires a permitted variant and propagates transform/open errors. The legacy thumbnail variant is configured separately; arbitrary 100x100 is not automatically permitted.",
+    "pgSource": [
+      "internal/filestore/service.go:380",
+      "internal/filestore/service.go:416",
+      "internal/filestore/variants.go:104"
+    ],
+    "testSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/file_test.go#L92",
+      "internal/filestore/variants_test.go:15"
+    ],
+    "verification": "static-only",
+    "gap": "PocketBase-compatible fallback and implicit 100x100 behavior are absent. This affects old file URLs that rely on fallback rather than errors.",
+    "priority": "P2"
+  },
+  {
+    "id": "FIL-17",
+    "category": "files",
+    "feature": "추가: $filesystem.s3 인자로 독립 storage 선택",
+    "status": "missing",
+    "pbContract": "NewS3 constructs a filesystem for the supplied bucket, region, endpoint, credentials and path-style flag.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/filesystem/filesystem.go#L66",
+    "pgImplementation": "The JS s3 function accepts those arguments but returns objectSystem() without using any of them. Operations use the configured namespace-backed object store.",
+    "pgSource": [
+      "internal/jsvm/pocketbase_filesystem_globals.go:15",
+      "pgbase/extension_objects.go:424"
+    ],
+    "testSource": [
+      "pgbase/javascript_filesystem_serve_integration_test.go:22"
+    ],
+    "verification": "static-only",
+    "gap": "Calling the method with another target does not access that target and can instead affect current configured storage. Existing on-S3 tests verify configured backend operation, not argument handling.",
+    "priority": "P1"
+  },
+  {
+    "id": "FIL-18",
+    "category": "files",
+    "feature": "추가: System.list 전체 prefix inventory",
+    "status": "partial",
+    "pbContract": "System.List iterates until EOF and returns every matching object.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/filesystem/filesystem.go#L233",
+    "pgImplementation": "Go ExtensionObjects.List and top-level $filesystem.list expose pagination; System.list requests only the first 100 and returns the object array without nextCursor.",
+    "pgSource": [
+      "internal/jsvm/pocketbase_filesystem_globals.go:12",
+      "internal/jsvm/pocketbase_filesystem_globals.go:17",
+      "pgbase/extension_objects.go:364"
+    ],
+    "testSource": [
+      "pgbase/extension_objects_integration_test.go:391"
+    ],
+    "verification": "static-only",
+    "gap": "The System-shaped method silently truncates inventories above 100 objects. DeletePrefix is a separate host path that does paginate; this finding does not allege its 100-object truncation.",
+    "priority": "P2"
+  },
+  {
+    "id": "FIL-19",
+    "category": "files",
+    "feature": "추가: 잘못된 standalone multipart upload의 publication 원자성",
+    "status": "partial",
+    "pbContract": "Record request parsing gathers multipart files before record saving; FileField interceptors clean up uploaded bytes on execution failure.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L690",
+    "pgImplementation": "Standalone file upload publishes through service.Upload before checking that the multipart body has reached EOF. An extra/malformed part triggers compensating Delete whose error is ignored.",
+    "pgSource": [
+      "internal/api/file_handlers.go:192",
+      "internal/api/file_handlers.go:200",
+      "internal/filestore/service.go:447"
+    ],
+    "testSource": [
+      "pgbase/file_integration_test.go:23",
+      "pgbase/batch_integration_test.go:17",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_file_test.go#L832"
+    ],
+    "verification": "static-only",
+    "gap": "A deletion veto or changed authorization can leave a published attachment despite a rejected malformed request. This is a source-derived failure path, not a reproduced failure, and does not invalidate the separate atomic batch implementation.",
+    "priority": "P2"
+  },
+  {
+    "id": "RT-08",
+    "category": "realtime",
+    "feature": "추가: record topic은 viewRule, collection topic은 listRule",
+    "status": "partial",
+    "pbContract": "The subscription rule map selects ViewRule for collection/recordId and ListRule for collection/* or collection.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime.go#L606",
+    "pgImplementation": "eventQuery compiles List AND View regardless of request.PublicID/RecordID.",
+    "pgSource": [
+      "internal/realtime/service.go:233",
+      "internal/realtime/service.go:243"
+    ],
+    "testSource": [
+      "internal/realtime/service_integration_test.go:42",
+      "pgbase/realtime_integration_test.go:336"
+    ],
+    "verification": "static-only",
+    "gap": "A record with a public/allowed view rule but locked list rule cannot emit to its record topic; a collection subscription can also be stricter than PB when only list allows access. No test covering distinct list/view permission combinations was found in the cited realtime tests.",
+    "priority": "P1"
+  },
+  {
+    "id": "RT-09",
+    "category": "realtime",
+    "feature": "추가: subscription options의 query·headers request context",
+    "status": "partial",
+    "pbContract": "Client.Subscribe parses options={query:{...},headers:{...}}, normalizes header names and supplies both maps to realtime access checks.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/subscriptions/client.go#L176",
+    "pgImplementation": "Topic parser permits only direct filter,expand,fields query keys. Delivery uses the connection HTTP request's rule context.",
+    "pgSource": [
+      "internal/api/realtime_sessions.go:509",
+      "internal/api/realtime_sessions.go:266"
+    ],
+    "testSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/subscriptions/client_test.go#L116",
+      "pgbase/realtime_integration_test.go:133"
+    ],
+    "verification": "static-only",
+    "gap": "PB SDK subscription options/header-dependent rules cannot be represented per topic. Direct filter/expand/fields alone do not establish equivalent request context.",
+    "priority": "P2"
+  },
+  {
+    "id": "RT-10",
+    "category": "realtime",
+    "feature": "추가: durable replay와 multiplex 전역 cursor 순서",
+    "status": "partial",
+    "pbContract": "PocketBase sends live client-channel messages with client IDs and does not provide a durable ordered replay cursor.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/subscriptions/message.go#L20",
+    "pgImplementation": "PgBase adds a durable outbox, fenced delivery sequence and 24-hour retention. Database readers order each topic separately; multiplex emits each subscription's whole batch before proceeding to the next.",
+    "pgSource": [
+      "internal/realtime/outbox.go:62",
+      "internal/realtime/outbox.go:99",
+      "internal/realtime/service.go:280",
+      "internal/api/realtime_sessions.go:255",
+      "internal/api/realtime_sessions.go:318"
+    ],
+    "testSource": [
+      "internal/realtime/service_integration_test.go:136",
+      "internal/realtime/service_integration_test.go:181",
+      "pgbase/realtime_integration_test.go:282"
+    ],
+    "verification": "static-only",
+    "gap": "Added PgBase capability has an unverified global resume guarantee: e.g. first topic emits seq20 before second topic's pending seq10; disconnect at20 and reconnect with one shared cursor can skip10. Conversely later smaller IDs can replay already delivered higher events. DB single-topic ordering tests do not cover this multiplex case.",
+    "priority": "P1"
+  },
+  {
+    "id": "RT-11",
+    "category": "realtime",
+    "feature": "추가: 인증 해제 후 연결·재인증 semantics",
+    "status": "adapted",
+    "pbContract": "Auth-record deletion/token-key/collection-secret change clears client auth but leaves the socket active; subsequent subscribe can authenticate again.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime.go#L251",
+    "pgImplementation": "Multiplex revalidates its credential each polling tick and disconnects on loss; reconnect obtains a fresh client. Broker enqueue also checks credentials.",
+    "pgSource": [
+      "internal/api/realtime_sessions.go:247",
+      "internal/api/realtime_sessions.go:488",
+      "internal/api/realtime_sessions.go:59"
+    ],
+    "testSource": [
+      "pgbase/realtime_integration_test.go:133",
+      "internal/api/realtime_sessions_test.go:160",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime_test.go#L675"
+    ],
+    "verification": "test-exists",
+    "gap": "Intentional disconnect rather than downgrade-to-guest. Authorization is checked before broker enqueue, not again in the custom-message write branch; do not infer a stronger immediate post-revocation wire guarantee from the enqueue-only test.",
+    "priority": "none"
+  },
+  {
+    "id": "RT-12",
+    "category": "realtime",
+    "feature": "추가: collection ID alias로 realtime 구독",
+    "status": "partial",
+    "pbContract": "Record broadcast matches both collection name and collection ID topic prefixes.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime.go#L606",
+    "pgImplementation": "ReadFor looks up collections WHERE name=$1 and the topic parser passes the raw first segment through.",
+    "pgSource": [
+      "internal/api/realtime_sessions.go:516",
+      "internal/realtime/service.go:94"
+    ],
+    "testSource": [
+      "internal/realtime/service_integration_test.go:42",
+      "pgbase/realtime_integration_test.go:133"
+    ],
+    "verification": "static-only",
+    "gap": "UUID collection IDs are not resolved as collection aliases even though PB accepts IDs. Exact text record identity tests exercise record identity, not collection aliases.",
+    "priority": "P2"
+  },
+  {
+    "id": "RT-13",
+    "category": "realtime",
+    "feature": "추가: superuser realtime hidden-field enrichment",
+    "status": "partial",
+    "pbContract": "Before serialization, superusers explicitly unhide collection fields; auth owner/superuser/manager email visibility rules and enrich hooks are applied.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime.go#L667",
+    "pgImplementation": "Administrator bypasses event ACL and hidden-field projection validation, but publicSnapshot unconditionally removes every hidden field before any output projection.",
+    "pgSource": [
+      "internal/realtime/service.go:245",
+      "internal/realtime/service.go:304",
+      "internal/realtime/service.go:348"
+    ],
+    "testSource": [
+      "internal/realtime/snapshot_test.go:13",
+      "internal/realtime/snapshot_test.go:34",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/realtime_test.go#L560"
+    ],
+    "verification": "static-only",
+    "gap": "Administrator subscribers cannot receive hidden fields like PB superusers; accepting a requested hidden field in validation does not restore it in the payload. Auth-record-specific enrich parity also is not established by the snapshot tests.",
+    "priority": "P2"
+  }
+]

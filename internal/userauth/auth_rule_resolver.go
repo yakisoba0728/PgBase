@@ -80,7 +80,7 @@ func loadAuthRuleActor(ctx context.Context, db database.DBTX, collectionID uuid.
 		return err
 	}
 	attributes := map[string]any{}
-	if json.Unmarshal(raw, &attributes) != nil {
+	if decodeAuthProfile(raw, &attributes) != nil {
 		return ErrValidation
 	}
 	request.Auth["id"] = principal.ID.String()
@@ -179,7 +179,7 @@ func (s *Service) authorizeSessionTx(ctx context.Context, db database.DBTX, user
 	if err != nil {
 		return false, err
 	}
-	if json.Unmarshal(raw, &current.Fields) != nil {
+	if decodeAuthProfile(raw, &current.Fields) != nil {
 		return false, ErrValidation
 	}
 	if rule == nil {

@@ -107,7 +107,14 @@ import (
 //
 // File moves count on both gross sides; no package or new source is excluded.
 // The exact 27,768 -> 28,079 measurement adds no spare allowance.
-const dataGroupRuntimeLimit = 28079
+// The 2026-09-22 auth identity transfer fix adds exactly 80 schema lines for
+// paired/standalone policy resolution, immutable validation, and export/import.
+// All other data-group packages and the source classifier remain unchanged.
+// Native hidden-operand enforcement adds +67/-46 query lines (net +21).
+// View rename preserves the ID policy in-place. No group boundary changed.
+// Function cursor binding and input errors add another exact 160 query lines.
+// Field comparison signatures and typed operator checks add 129 query lines.
+const dataGroupRuntimeLimit = 28469
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -422,15 +429,46 @@ type structuralLimit struct {
 // SQL console; and durablefile.WriteExclusive centralizes exclusive durable
 // publication and partial-file cleanup. The avoidable MigrationRuleValidator
 // type was removed. These exact ceilings contain no future allowance.
+//
+// The 2026-09-22 completion stack includes extension objects in online backups,
+// exposes existing text-identity and declarative-view contracts in the UI, and
+// removes the obsolete relation-access restriction. All new source files are
+// included through an isolated Git index; the existing classifier is unchanged.
+// Consolidating designer command construction keeps every runtime file under
+// 800 lines. Five UI exports carry the identity policy/editor, shared designer
+// command, and byte-bounded relation hydration operations across their existing
+// module boundaries. Page hooks and all Go declaration ceilings are unchanged.
+// Auth schema transfer additionally preserves standalone identity policies and
+// rejects paired/immutable conflicts at preview and apply; this adds 80 Go lines.
+// Exact measurements and validation are in docs/development-completion-2026-09-22.md.
+// The independent-product correctness stack fixes credential-address binding,
+// public signup policy, durable multiplex delivery, hidden query operands,
+// JS filesystem errors, operational labels and UI rule/theme/retention flows.
+// Function cursors add typed operand binding and precise invalid-input errors.
+// Including the preceding completion stack, HEAD 6993744 measures +1133/-387
+// runtime lines, net +746: 103346 -> 104092 (Go 93160, UI 10932). Compared with
+// the prior all-file checkpoint 103590, this stack adds 502 lines. One UI effect
+// clears a preview after its draft changes; Go declarations/UI exports do not
+// grow. See docs/workstreams/independent-product-2026-09-22/README.md. All new
+// files are measured with the unchanged classifier and isolated Git index.
+// The next native feature slice adds administrator account management, typed
+// signup profiles with lifecycle wrappers, and field-comparison cursor checks.
+// Exact all-file runtime is 105112 (Go 93955, UI 11157): +1020 from the prior
+// 104092 checkpoint. Relative to 6993744 it is +2230/-464, net +1766. Four
+// optional transport interfaces preserve existing injected implementations;
+// reviewed service/wrapper exports total 1586. The administrator page adds
+// nine direct hooks and five UI boundaries. No constructors, long files,
+// classifier changes, excluded files or spare allowance are introduced.
+// Evidence: docs/workstreams/independent-product-2026-09-22/continuation-validation.md.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 103371, "2026-09-12 correctness audit exact all-file measurement"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 10741, "2026-09-12 correctness UI exact measurement; no spare allowance"},
-	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 96, "unchanged after shared durable-file consolidation"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1575, "seven reviewed cross-package correctness boundaries"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 105112, "2026-09-22 continuation exact all-file measurement including lifecycle wrappers"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 11157, "native administrator management and auth policy forms; no spare allowance"},
+	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 100, "three optional signup capabilities and administrator account transport"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1586, "reviewed signup, lifecycle wrapper and administrator service boundaries"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 64, "measured final 20-defect correctness constructors"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
-	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 180, "profile action-state consolidation preserves the prior ceiling"},
-	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 307, "measured cross-module ports, codecs, and named editors"},
+	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 190, "administrator page state, operation forms and account-list lifecycle"},
+	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 317, "administrator account types, port, transport and page boundaries"},
 }
 
 type repositoryMetrics struct {

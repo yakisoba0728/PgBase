@@ -118,7 +118,7 @@ export function BackupStoragePage() {
       <label><input type="checkbox" checked={form.usePathStyle} onChange={(event) => set("usePathStyle", event.target.checked)} />Use path-style addressing</label>
     </fieldset>}
     <label>Backups to retain<input type="number" min={0} step={1} disabled={busy} value={retentionInput} aria-invalid={!retentionValid} aria-describedby="backup-retention-help" onChange={(event) => { setRetentionInput(event.target.value); setMessage(undefined); }} /></label>
-    <p id="backup-retention-help">Use 0 to keep every backup.</p>
+    <p id="backup-retention-help">This is the repository fallback. Managed apps use Settings &gt; Backups to keep instead, even when automatic backups are disabled. Both count manual, uploaded, and scheduled archives; 0 keeps every archive.</p>
     {!retentionValid && <p role="alert">Retention must be a whole number from 0 through 2147483647.</p>}
     <button type="button" disabled={busy || !dirty || !retentionValid} onClick={() => void save()}>Save backup storage</button>
     <button type="button" disabled={busy || dirty || !retentionValid} onClick={() => void test()}>Test backup storage</button>

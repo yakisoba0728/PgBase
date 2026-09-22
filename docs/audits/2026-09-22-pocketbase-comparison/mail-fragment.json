@@ -1,0 +1,402 @@
+[
+  {
+    "id": "AUTH-20",
+    "category": "auth",
+    "feature": "password reset request",
+    "status": "partial",
+    "pbContract": "Public POST /api/collections/{collection}/request-password-reset accepts a validated email only when collection PasswordAuth.Enabled is true. Unknown accounts and recently sent requests receive 204; successful sends establish an in-memory two-minute resend suppression. Delivery runs in the background.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_password_reset_request.go#L16",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_password_reset_request.go#L41"
+    ],
+    "pgImplementation": "Public default/named-realm request-password-reset endpoints normalize email, apply account/network buckets, issue a hashed opaque action token, attempt mail synchronously, and suppress unknown-account/delivery failure disclosure.",
+    "pgSource": [
+      "internal/api/email_actions.go:28",
+      "internal/api/auth_collections.go:68",
+      "internal/userauth/email_actions.go:93",
+      "internal/userauth/service.go:408"
+    ],
+    "testSource": [
+      "internal/userauth/email_actions_integration_test.go:219",
+      "internal/userauth/email_actions_integration_test.go:287",
+      "pgbase/email_actions_integration_test.go:126",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_password_reset_request_test.go#L45"
+    ],
+    "verification": "test-exists",
+    "gap": "Collection path and error/throttling behavior differ. The reviewed PgBase request path has no collection PasswordEnabled check; unlike PB it can issue a reset while password authentication is disabled. Invalid email is nondisclosing success rather than PB validation error. PB's two-minute resend suppression and asynchronous delivery are absent from this path.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-21",
+    "category": "auth",
+    "feature": "password reset confirmation",
+    "status": "partial",
+    "pbContract": "Public collection-scoped confirmation requires token, password and matching passwordConfirm; validates token purpose and collection, saves the new password, and marks an unverified record verified only if its current email still matches the token email claim. Saving password rotates the record token key.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_password_reset_confirm.go#L39",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_password_reset_confirm.go#L65",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_model.go#L1443"
+    ],
+    "pgImplementation": "Confirmation accepts token/newPassword, validates the realm password policy, consumes a purpose-bound, expiring, password-hash-bound database token once, updates password_hash and revokes sessions.",
+    "pgSource": [
+      "internal/api/email_actions.go:42",
+      "internal/userauth/email_actions.go:137",
+      "internal/userauth/email_actions.go:341"
+    ],
+    "testSource": [
+      "internal/userauth/email_actions_integration_test.go:219",
+      "pgbase/email_actions_integration_test.go:129",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_password_reset_confirm_test.go#L102"
+    ],
+    "verification": "test-exists",
+    "gap": "PgBase does not set verified=true after a successful reset, so PB workflows that use password reset as email proof remain unverified. It has no passwordConfirm field or collection-scoped confirm URL, and opaque database tokens are not PB JWTs.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-22",
+    "category": "auth",
+    "feature": "verification request/confirm",
+    "status": "partial",
+    "pbContract": "Public collection-scoped request accepts email, validates it, conceals missing accounts with 204, suppresses repeat sends for two minutes and skips already-verified records; public confirmation requires a collection-bound verification token, checks its email claim, and returns 204. Superuser verification routes reject because superusers are already verified.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_verification_request.go#L16",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_verification_request.go#L34",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_verification_confirm.go#L83"
+    ],
+    "pgImplementation": "Request requires an authenticated non-impersonated user session; public confirmation consumes an opaque single-use token and sets that user verified. Already verified users do not receive another verification mail. Native action page supports explicit submit.",
+    "pgSource": [
+      "internal/api/email_actions.go:20",
+      "internal/api/email_actions.go:54",
+      "internal/userauth/email_actions.go:55"
+    ],
+    "testSource": [
+      "internal/userauth/email_actions_integration_test.go:144",
+      "internal/userauth/email_actions_integration_test.go:177",
+      "pgbase/email_actions_integration_test.go:117",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_verification_confirm_test.go#L90"
+    ],
+    "verification": "test-exists",
+    "gap": "No public email-address verification-request contract or collection-scoped confirmation path. Reusing a consumed token fails, while PB accepts a still-valid verification token for an already-verified record. Additional verification trust-transition and email-binding checks are isolated in AUTH-35/36 below; their PgBase consequences are static observations, not executed reproductions.",
+    "priority": "P1"
+  },
+  {
+    "id": "AUTH-23",
+    "category": "auth",
+    "feature": "email change request/confirm",
+    "status": "adapted",
+    "pbContract": "Authenticated record requests a unique different newEmail without a password; public confirmation requires token plus current password, verifies token collection and newEmail, then saves the new email and verified=true. Email changes rotate the record token key.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_email_change_request.go#L22",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_email_change_request.go#L61",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_email_change_confirm.go#L63",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_model.go#L1451"
+    ],
+    "pgImplementation": "Authenticated non-impersonated user supplies currentPassword and newEmail at request time; the new email receives a purpose-bound, password-hash-bound token. Public token-only confirmation updates email/verified and revokes sessions.",
+    "pgSource": [
+      "internal/api/email_actions.go:54",
+      "internal/userauth/email_actions.go:173",
+      "internal/userauth/email_actions.go:289"
+    ],
+    "testSource": [
+      "internal/userauth/email_actions_integration_test.go:258",
+      "pgbase/email_actions_integration_test.go:133",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_email_change_confirm_test.go#L12"
+    ],
+    "verification": "test-exists",
+    "gap": "Password proof is moved from confirmation to request, so PB request/confirmation payloads and user flow cannot be used unchanged. PgBase checks collisions with other users but does not reject requesting the user's same current email as PB does. Confirm endpoints and token formats differ.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-24",
+    "category": "auth",
+    "feature": "verified/active account management",
+    "status": "partial",
+    "pbContract": "PB record CRUD restricts direct verified/email changes to superusers or callers allowed by a nonempty manageRule, in addition to normal record access. A matching manageRule is evaluated against any authenticated record; PB's built-in auth fields do not include a separate active boolean.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/forms/record_upsert.go#L148",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L729",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L108",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model.go#L941"
+    ],
+    "pgImplementation": "PgBase provides administrator verified/active/session-revoke operations and typed auth-record CRUD. Sensitive user-driven updates require both update rule and a nonempty manage rule evaluated with distinct actor/target; tests reject a manager from another realm. Native active=false revokes sessions.",
+    "pgSource": [
+      "internal/userauth/auth_admin.go:428",
+      "internal/userauth/lifecycle.go:51",
+      "internal/userauth/auth_records.go:144",
+      "internal/userauth/managed_authorization.go:65"
+    ],
+    "testSource": [
+      "internal/userauth/auth_record_model_integration_test.go:184",
+      "pgbase/user_management_integration_test.go:25"
+    ],
+    "verification": "test-exists",
+    "gap": "The old report's claim that delegated manageRule was absent is obsolete. Current PgBase has it, but same-realm actor policy is narrower than PB's authenticated-record rule context; native active/session administration is an adaptation rather than a PB built-in active-field equivalent.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-25",
+    "category": "auth",
+    "feature": "new-device auth alert/auth origins",
+    "status": "partial",
+    "pbContract": "When collection AuthAlert.Enabled and a real auth method is present, PB fingerprints real IP plus truncated User-Agent, skips alert on first origin, alerts subsequent new origins, records or updates origin only after the helper succeeds, and keeps up to five origins. Alert delivery failure is logged without failing authentication.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_helpers.go#L121",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_helpers.go#L587",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L56"
+    ],
+    "pgImplementation": "Successful auth flows record an HMAC fingerprint of network address, atomically deduplicate concurrent origins, update last-seen, and send best-effort mail when an auth_alert template exists. User auxiliary list/get/delete routes and administrator extension queries exist.",
+    "pgSource": [
+      "internal/userauth/auth_auxiliary.go:38",
+      "internal/userauth/auth_auxiliary.go:55",
+      "internal/userauth/email_actions.go:430",
+      "internal/userauth/service.go:109",
+      "internal/api/auth_collections.go:77"
+    ],
+    "testSource": [
+      "internal/userauth/email_actions_integration_test.go:63",
+      "internal/userauth/auth_record_model_integration_test.go:22",
+      "pgbase/extension_app_auth_exact_integration_test.go:23"
+    ],
+    "verification": "test-exists",
+    "gap": "Same-IP devices with different User-Agents are not distinguished. Template presence replaces PB's enabled flag/default template. The reviewed insertion path has no first-origin suppression or five-origin pruning, records an origin even when mail fails, and exposes a different auxiliary record/route schema. The old statement that users cannot list origins is obsolete.",
+    "priority": "P2"
+  },
+  {
+    "id": "MAIL-01",
+    "category": "mail",
+    "feature": "SMTP configuration",
+    "status": "partial",
+    "pbContract": "Global SMTP settings expose enabled, host, port, username/password, TLS, AUTH PLAIN or LOGIN, and optional EHLO/HELO localName; sender display name/address and app metadata are global settings. SMTP-disabled fallback is assessed separately in MAIL-06.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/settings_model.go#L356",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/settings_model.go#L521",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/mailer/smtp.go#L64"
+    ],
+    "pgImplementation": "Process-wide SMTP options and per-auth-collection encrypted SMTP credentials support address/from, username/password, serverName, implicit TLS, timeout and explicitly local insecure development mode. Blank submitted passwords preserve existing stored secrets; API reads redact them.",
+    "pgSource": [
+      "pgbase/email_options.go:12",
+      "internal/userauth/auth_admin.go:390",
+      "internal/userauth/auth_admin.go:472",
+      "internal/mailer/smtp.go:20"
+    ],
+    "testSource": [
+      "pgbase/email_actions_integration_test.go:151",
+      "internal/mailer/smtp_test.go:12",
+      "internal/mailer/smtp_test.go:28"
+    ],
+    "verification": "test-exists",
+    "gap": "The transport implements smtp.PlainAuth only and exposes no AUTH LOGIN selector or custom EHLO localName. TLS policy is deliberately stricter off-loopback. Global settings JSON, sender display-name metadata and realm configuration are not interchangeable with PB.",
+    "priority": "P2"
+  },
+  {
+    "id": "MAIL-02",
+    "category": "mail",
+    "feature": "auth mail templates",
+    "status": "adapted",
+    "pbContract": "Each auth collection stores five configurable HTML email templates: verification, password reset, email change, OTP and auth alert, with subject/body and built-in defaults.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L121",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L145",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_templates.go#L13"
+    ],
+    "pgImplementation": "Per-auth-collection mail templates accept verify/password_reset/email_change/otp/auth_alert, each with subject, required text body and optional HTML body. All five have active service send paths; HTML is wrapped and ordinary attachments can be supplied through hooks.",
+    "pgSource": [
+      "internal/userauth/auth_admin.go:95",
+      "internal/userauth/auth_admin.go:341",
+      "internal/userauth/email_actions.go:388",
+      "internal/userauth/email_actions.go:437",
+      "internal/userauth/email_otp.go:191"
+    ],
+    "testSource": [
+      "internal/userauth/auth_admin_integration_test.go:15",
+      "internal/userauth/email_actions_integration_test.go:100",
+      "pgbase/email_actions_integration_test.go:133"
+    ],
+    "verification": "test-exists",
+    "gap": "PB template fields/default HTML/layout are not drop-in compatible with PgBase's purpose identifiers and required text/placeholder validation. No-template actions use simple native text fallbacks; auth alerts require an explicitly stored template. Placeholder capability is separately partial in MAIL-03.",
+    "priority": "P2"
+  },
+  {
+    "id": "MAIL-03",
+    "category": "mail",
+    "feature": "placeholders/action links",
+    "status": "partial",
+    "pbContract": "PB resolves {APP_NAME}, {APP_URL}, {TOKEN}, {OTP}, {OTP_ID}, {ALERT_INFO} and nonhidden {RECORD:field} values in both subject and HTML body; string record values are escaped. Default action links target /_/#/auth/confirm-*/<token>.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/mails/record.go#L251",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L257",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_templates.go#L3"
+    ],
+    "pgImplementation": "Templates interpolate native {{action_url}}, {{otp}}, {{otp_id}} or {{alert}} into body/HTML. Generated action links point to /auth/action#action=...&token=...; page clears the fragment and sends confirmation only on explicit submission.",
+    "pgSource": [
+      "internal/userauth/auth_admin.go:341",
+      "internal/userauth/auth_admin.go:369",
+      "internal/userauth/email_actions.go:393",
+      "internal/userauth/email_otp.go:191",
+      "internal/api/email_actions.go:88"
+    ],
+    "testSource": [
+      "internal/userauth/email_actions_integration_test.go:100",
+      "pgbase/email_actions_integration_test.go:133",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/mails/record_test.go#L48"
+    ],
+    "verification": "test-exists",
+    "gap": "App metadata, arbitrary nonhidden record placeholders, raw token placeholder and all subject substitution are absent from reviewed rendering paths. Native placeholder/action-link/token syntax differs; copying a PB template does not produce an equivalent rendered message.",
+    "priority": "P2"
+  },
+  {
+    "id": "MAIL-04",
+    "category": "mail",
+    "feature": "template preview/SMTP test",
+    "status": "partial",
+    "pbContract": "The settings test-email form takes recipient, a selected one of five auth templates, and optional auth collection (default _superusers), builds a synthetic record, and sends the chosen real rendered template through the normal mail lifecycle.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/forms/test_email_send.go#L21",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/forms/test_email_send.go#L77"
+    ],
+    "pgImplementation": "Separate administrator endpoints preview a submitted native template using a supplied action URL/sample OTP/alert, and send a fixed 'PgBase SMTP test' message through the collection transport.",
+    "pgSource": [
+      "internal/api/auth_admin.go:50",
+      "internal/userauth/auth_admin.go:369",
+      "internal/userauth/auth_admin.go:416"
+    ],
+    "testSource": [
+      "pgbase/email_actions_integration_test.go:151",
+      "internal/api/auth_admin_test.go:25",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/forms/test_email_send_test.go#L13"
+    ],
+    "verification": "test-exists",
+    "gap": "SMTP test does not accept a template selector or exercise stored auth-template rendering/record placeholders. Preview and transport smoke test therefore do not implement PB's selected-template test-email contract. A preview-specific regression test was not located in the inspected tests.",
+    "priority": "P2"
+  },
+  {
+    "id": "MAIL-05",
+    "category": "mail",
+    "feature": "auth mail hooks",
+    "status": "partial",
+    "pbContract": "Each of five auth mails raises MailerRecordEvent with App, Record, replaceable Mailer, mutable Message and action metadata (token/newEmail, otpId/password, info); the generic OnMailerSend hook runs inside the selected client's Send call after the purpose event.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/mails/record.go#L37",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/mails/record.go#L75",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/mails/record.go#L153",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/mails/record.go#L229",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/base.go#L673"
+    ],
+    "pgImplementation": "Generic mail.send and purpose-specific hooks can veto or mutate delivery and receive paired outcomes; MailEvent provides Purpose, Message and Meta. OTP and alert services supply metadata, and the decorator wraps both configured SMTP and injected senders.",
+    "pgSource": [
+      "pgbase/lifecycle_hooks.go:190",
+      "pgbase/lifecycle_hooks.go:228",
+      "internal/userauth/email_actions.go:423",
+      "internal/userauth/email_actions.go:455",
+      "internal/userauth/email_otp.go:211",
+      "internal/userauth/auth_admin.go:472"
+    ],
+    "testSource": [
+      "pgbase/lifecycle_hooks_test.go:39",
+      "pgbase/extension_runtime_regression_test.go:149",
+      "internal/userauth/email_actions_integration_test.go:100"
+    ],
+    "verification": "test-exists",
+    "gap": "Purpose events do not expose PB Record or replaceable Mailer/App. Verification/reset/email-change sends do not populate token/newEmail Meta. Generic hook precedes purpose hooks, reversing PB order. These are behavioral hook-contract gaps beyond naming differences.",
+    "priority": "P2"
+  },
+  {
+    "id": "MAIL-06",
+    "category": "mail",
+    "feature": "automatic sendmail fallback when SMTP is disabled",
+    "status": "missing",
+    "pbContract": "App.NewMailClient returns the built-in Sendmail transport when global SMTP.Enabled is false; Sendmail locates and invokes the system sendmail executable.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/base.go#L653",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/mailer/sendmail.go#L43"
+    ],
+    "pgImplementation": "Mailer selection uses a per-realm SMTP configuration or an explicitly configured process sender; absence of both returns 'user email actions unavailable'. No built-in sendmail selection/transport was found in internal/mailer, email options or sender setup.",
+    "pgSource": [
+      "internal/userauth/auth_admin.go:472",
+      "pgbase/email_options.go:27",
+      "internal/mailer/mailer.go:26"
+    ],
+    "testSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/base_test.go#L180"
+    ],
+    "verification": "static-only",
+    "gap": "Deployments relying on the host sendmail command require custom sender integration or SMTP configuration. This omitted transport feature cannot be inferred from generic SMTP support.",
+    "priority": "P3"
+  },
+  {
+    "id": "MAIL-07",
+    "category": "mail",
+    "feature": "generic mail envelope, inline attachments and HTML-only messages",
+    "status": "partial",
+    "pbContract": "PB Message supports per-message named From, multiple To/Cc/Bcc, arbitrary headers, regular and inline attachment readers, text and/or HTML; SMTP derives plain text from HTML when Text is empty.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/mailer/mailer.go#L12",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/mailer/smtp.go#L93"
+    ],
+    "pgImplementation": "Native Message and script mail bridge support one recipient, subject, required text, optional HTML and bounded ordinary attachments; sender is transport-owned. SMTP encodes multipart alternative/mixed and limits total attachment bytes to 8 MiB.",
+    "pgSource": [
+      "internal/mailer/mailer.go:6",
+      "internal/mailer/smtp.go:62",
+      "internal/mailer/smtp.go:139",
+      "pgbase/extension_bridge_mail.go:12"
+    ],
+    "testSource": [
+      "internal/mailer/smtp_test.go:55",
+      "internal/mailer/smtp_test.go:76",
+      "pgbase/javascript_file_mail_integration_test.go:22"
+    ],
+    "verification": "test-exists",
+    "gap": "No native Cc/Bcc/multiple recipients, per-message From, custom headers or inline attachment fields. HTML-only messages are rejected because Text is mandatory, instead of PB's HTML-to-text fallback. Ordinary attachment tests do not establish these missing envelope capabilities.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-35",
+    "category": "auth",
+    "feature": "verification token invalidation after an email-only account update",
+    "status": "unverified",
+    "pbContract": "PB verification confirmation rejects a token whose email claim no longer matches the record; record saves also rotate tokenKey on email changes, invalidating existing signed record tokens.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_verification_confirm.go#L89",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_model.go#L1451"
+    ],
+    "pgImplementation": "Verification token issuance stores no email payload; confirmation matches active user, purpose, expiry, unused state and a digest of current password hash, then sets verified. Email-only typed auth-record updates delete sessions but the reviewed path does not invalidate pending email-action rows.",
+    "pgSource": [
+      "internal/userauth/email_actions.go:75",
+      "internal/userauth/email_actions.go:82",
+      "internal/userauth/email_actions.go:364",
+      "internal/userauth/auth_records.go:469",
+      "migrations/system/000012_user_email_actions.sql:4"
+    ],
+    "testSource": [
+      "internal/userauth/email_actions_integration_test.go:144",
+      "internal/userauth/email_actions_integration_test.go:177"
+    ],
+    "verification": "static-only",
+    "gap": "Static concern, not an executed reproduction or confirmed vulnerability: after issuing a still-valid verification token, an administrator/authorized manager changes only the email without changing the password; old-token confirmation appears able to verify the new address because no original-email comparison/invalidation is visible in the reviewed path. No regression test for that exact sequence was located. Reproduce under controlled fixtures before treating impact as established.",
+    "priority": "P1"
+  },
+  {
+    "id": "AUTH-36",
+    "category": "auth",
+    "feature": "verification trust-transition cleanup of old password and OAuth links",
+    "status": "partial",
+    "pbContract": "When verification changes an existing record from unverified to verified, PB randomizes the password if password auth is disabled. Its verified-upgrade model hook deletes pre-existing external auth links transactionally and rotates tokenKey when links existed.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_verification_confirm.go#L44",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/external_auth_model.go#L141"
+    ],
+    "pgImplementation": "ConfirmVerification updates only verified and updated_at inside email-token consumption. No password randomization, pre-existing OAuth identity cleanup or session revocation is visible in that operation; the existing successful verification test intentionally retains the session.",
+    "pgSource": [
+      "internal/userauth/email_actions.go:82",
+      "internal/userauth/email_actions.go:341",
+      "internal/userauth/auth_admin.go:428"
+    ],
+    "testSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_verification_confirm_test.go#L156",
+      "internal/userauth/email_actions_integration_test.go:144"
+    ],
+    "verification": "static-only",
+    "gap": "The reviewed verification transition does not implement PB's password and pre-existing external-auth cleanup. This is a static contract difference; exploitability or resulting account compromise has not been reproduced. PgBase tests cover verified state and single-use token handling, not these cleanup conditions.",
+    "priority": "P1"
+  }
+]

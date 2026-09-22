@@ -31,6 +31,9 @@ func (s *Service) ResetAdministratorPassword(ctx context.Context, email, passwor
 	now := s.clock.Now().UTC()
 	var administrator Administrator
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, administratorLifecycleLock); err != nil {
+			return err
+		}
 		var resetErr error
 		store := NewStore(tx)
 		administrator, resetErr = store.ResetAdministratorPassword(ctx, normalizedEmail, passwordHash, now)
@@ -118,20 +121,27 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email, clientAddress
 	if emailErr != nil {
 		return nil
 	}
-	administratorID, err := NewStore(s.pool).AdministratorID(ctx, normalized)
-	if errors.Is(err, ErrInvalidCredentials) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
 	raw, err := GenerateToken()
 	if err != nil {
 		return err
 	}
-	if err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		return NewStore(tx).CreatePasswordReset(ctx, hashPasswordResetToken(s.tokenSecret, raw), administratorID, now.Add(s.resetTTL))
-	}); err != nil {
+	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		// Recheck active state after any concurrent account mutation, and keep
+		// that decision serialized until the recovery credential is persisted.
+		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, administratorLifecycleLock); err != nil {
+			return err
+		}
+		store := NewStore(tx)
+		administratorID, err := store.AdministratorID(ctx, normalized)
+		if err != nil {
+			return err
+		}
+		return store.CreatePasswordReset(ctx, hashPasswordResetToken(s.tokenSecret, raw), administratorID, now.Add(s.resetTTL))
+	})
+	if errors.Is(err, ErrInvalidCredentials) {
+		return nil
+	}
+	if err != nil {
 		return err
 	}
 	message := mailer.Message{
@@ -162,6 +172,11 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, password s
 	}
 	now := s.clock.Now().UTC()
 	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		// Account management locks admins before deleting recovery credentials.
+		// Enter that same lifecycle fence before locking a recovery token.
+		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, administratorLifecycleLock); err != nil {
+			return err
+		}
 		store := NewStore(tx)
 		administratorID, err := store.ConsumePasswordReset(ctx, hashPasswordResetToken(s.tokenSecret, rawToken), now)
 		if err != nil {

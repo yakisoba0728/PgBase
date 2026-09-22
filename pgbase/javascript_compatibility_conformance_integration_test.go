@@ -58,10 +58,10 @@ func TestPocketBaseLocalFilesystemSystemMethods(t *testing.T) {
 	}
 }
 
-func TestPocketBaseS3FilesystemSystemMethods(t *testing.T) {
+func TestJavaScriptConfiguredS3FilesystemSystemMethods(t *testing.T) {
 	endpoint := testS3Endpoint(t)
 	directory := t.TempDir()
-	writeJavaScriptFixture(t, directory, `{"format":"pgbase.scripts/v1","routes":[{"method":"POST","pattern":"/system","access":"public","handler":{"module":"route.js","export":"run"},"capabilities":["filesystem"]}]}`, `exports.run=()=>{const fs=$filesystem.s3("pgbase-test","us-east-1","configured", "", "",true);fs.deletePrefix("system/");const f=$filesystem.fileFromBytes([98,101,116,97],"beta.txt");fs.uploadFile(f,"system/beta.txt");const a=fs.attributes("system/beta.txt");const r=fs.getReader("system/beta.txt");r.seek(1);const chunk=r.read(2);r.close();const source=fs.getReader("system/beta.txt"),writer=fs.newWriter("system/reader-copy.txt");const copied=writer.readFrom(source);fs.copy("system/beta.txt","system/copy.txt");const exists=fs.exists("system/copy.txt");fs.deletePrefix("system/");return {status:200,json:{size:a.size,exists,empty:fs.isEmptyDir("system/"),chunk:chunk.data,copied}}}`)
+	writeJavaScriptFixture(t, directory, `{"format":"pgbase.scripts/v1","routes":[{"method":"POST","pattern":"/system","access":"public","handler":{"module":"route.js","export":"run"},"capabilities":["filesystem"]}]}`, `exports.run=()=>{const fs=$filesystem.configured();fs.deletePrefix("system/");const f=$filesystem.fileFromBytes([98,101,116,97],"beta.txt");fs.uploadFile(f,"system/beta.txt");const a=fs.attributes("system/beta.txt");const r=fs.getReader("system/beta.txt");r.seek(1);const chunk=r.read(2);r.close();const source=fs.getReader("system/beta.txt"),writer=fs.newWriter("system/reader-copy.txt");const copied=writer.readFrom(source);fs.copy("system/beta.txt","system/copy.txt");const exists=fs.exists("system/copy.txt");fs.deletePrefix("system/");return {status:200,json:{size:a.size,exists,empty:fs.isEmptyDir("system/"),chunk:chunk.data,copied}}}`)
 	fixture := newPublicUsersAppOptions(t, false, func(options *Options) {
 		options.Files = FileOptions{Driver: "s3", S3Bucket: "pgbase-test", S3Region: "us-east-1", S3Endpoint: endpoint, S3AccessKey: "pgbase-test-access", S3SecretKey: "pgbase-test-secret-0123456789", S3UsePathStyle: true, S3AllowInsecureLoopback: true, MaximumBytes: 1024}
 		options.JavaScript = &JavaScriptOptions{Directory: directory, Capabilities: map[string]bool{"filesystem": true}}

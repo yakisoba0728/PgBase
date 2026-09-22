@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yakisoba0728/PgBase/internal/adminauth"
 	"github.com/yakisoba0728/PgBase/internal/filestore"
 	"github.com/yakisoba0728/PgBase/internal/jobs"
 	"github.com/yakisoba0728/PgBase/internal/observability"
@@ -30,6 +31,7 @@ func allOptionalRouteDependencies() Dependencies {
 		panic(err)
 	}
 	return completeDependencies(Dependencies{
+		AdminAuth:                   (*adminauth.Service)(nil),
 		BackupStorageAdministration: &struct{ BackupStorageAdministration }{}, StorageAdministration: &struct{ StorageAdministration }{}, StorageMigrations: &struct{ StorageMigrationAdministration }{}, Schema: (*schema.Service)(nil), Backups: &struct{ ManagedBackups }{}, AdminUI: http.NotFoundHandler(),
 		AuthAdministration: (*userauth.Service)(nil), Jobs: (*jobs.Service)(nil), RequestLog: &observability.RequestLog{},
 		RuntimeSettings: &runtimesettings.Controller{},

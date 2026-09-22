@@ -1,0 +1,688 @@
+[
+  {
+    "id": "AUTH-01",
+    "category": "auth",
+    "feature": "superuser/administrator",
+    "status": "partial",
+    "pbContract": "_superusers는 시스템 auth collection이다. 공통 record CRUD/인증과 collection auth 설정을 쓰며 JWT와 전역 SuperuserIPs 정책을 사용한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/migrations/1640988000_init.go#L291",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_helpers.go#L44",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_tokens.go#L48"
+    ],
+    "pgImplementation": "별도 admins/admin_sessions 모델, 일회 setup token, Argon2id 비밀번호, 서버 저장 opaque cookie/bearer session, CSRF와 관리자별 CIDR 허용목록을 제공한다.",
+    "pgSource": [
+      "internal/adminauth/service.go:79",
+      "internal/adminauth/service.go:266",
+      "internal/adminauth/service.go:395",
+      "internal/adminauth/mfa.go:134"
+    ],
+    "testSource": [
+      "internal/adminauth/service_integration_test.go:17",
+      "internal/adminauth/mfa_integration_test.go:16"
+    ],
+    "verification": "test-exists",
+    "gap": "관리자 기능은 존재하지만 _superusers record CRUD/collection OAuth·OTP·MFA 설정 모델이나 정적 superuser JWT를 대체하지 않는다. 별도 관리자 모델은 의도적 구조 차이이며 PB API 1:1은 아니다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-02",
+    "category": "auth",
+    "feature": "administrator MFA",
+    "status": "partial",
+    "pbContract": "_superusers도 일반 auth MFA 흐름을 사용한다. 첫 password/OAuth2/OTP 인증 후 mfaId를 발급하고 다른 인증 방식으로 동일 사용자임을 확인한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_helpers.go#L182",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_with_password_test.go#L392"
+    ],
+    "pgImplementation": "관리자 password login은 등록된 TOTP를 함께 검증한다. 관리자 email OTP는 CLI 발급 코드의 별도 로그인 경로다.",
+    "pgSource": [
+      "internal/adminauth/service.go:273",
+      "internal/adminauth/mfa.go:92",
+      "internal/adminauth/email_otp.go:82"
+    ],
+    "testSource": [
+      "internal/adminauth/mfa_integration_test.go:16",
+      "internal/adminauth/email_otp_integration_test.go:12"
+    ],
+    "verification": "test-exists",
+    "gap": "PB의 mfaId와 두 로그인 방식 조합, 조건부 _superusers MFA 설정이 없다. CLI-issued OTP 로그인은 TOTP를 호출하지 않는 별도 관리 경로로, 무권한 원격 우회가 확인된 것은 아니다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-03",
+    "category": "auth",
+    "feature": "named auth collection/realm",
+    "status": "adapted",
+    "pbContract": "서로 독립적인 auth collection에 record와 collection별 인증 정책을 둔다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L100",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth.go#L73"
+    ],
+    "pgImplementation": "auth_collections별 사용자 identity/session/policy를 분리한다. metadata users+profile 저장과 collection 공개 record ID 정책으로 구현한다.",
+    "pgSource": [
+      "internal/userauth/collections.go:158",
+      "internal/userauth/collections.go:305",
+      "internal/userauth/service.go:246"
+    ],
+    "testSource": [
+      "internal/userauth/collections_integration_test.go:26",
+      "internal/schema/auth_record_id_document_integration_test.go:16"
+    ],
+    "verification": "test-exists",
+    "gap": "PostgreSQL 공유 metadata 모델과 UUID 내부 identity가 PB collection table 모델을 대체한다. 이름별 격리는 테스트가 있으나 이름/ID 라우팅 차이는 AUTH-13에 별도 기록한다.",
+    "priority": "none"
+  },
+  {
+    "id": "AUTH-04",
+    "category": "auth",
+    "feature": "arbitrary auth record fields",
+    "status": "partial",
+    "pbContract": "Auth record는 일반 collection field 타입·제약·인덱스·relation/file을 가진다. OAuth createData와 일반 CRUD도 동일 record validation을 따른다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L100",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_with_oauth2.go#L260"
+    ],
+    "pgImplementation": "최대64 custom typed fields를 JSON profile에 저장하며 scalar/JSON/geo/relation/file/password 등을 검증하고 CRUD·규칙을 적용한다.",
+    "pgSource": [
+      "internal/userauth/auth_record_model.go:25",
+      "internal/userauth/auth_records.go:311",
+      "internal/userauth/auth_records.go:390"
+    ],
+    "testSource": [
+      "internal/userauth/auth_record_model_integration_test.go:22",
+      "internal/userauth/auth_record_model_integration_test.go:328",
+      "internal/userauth/auth_record_model_integration_test.go:365"
+    ],
+    "verification": "test-exists",
+    "gap": "custom field ID, Unique, Default를 거부하며 auth field 타입·옵션 모델이 PB와 같지 않다. 공통 record index/field 변경 모델이 아니며 public 가입 payload에 custom fields를 전달할 수 없다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-05",
+    "category": "auth",
+    "feature": "self registration",
+    "status": "partial",
+    "pbContract": "일반 POST collection records가 auth 가입이다. createRule와 전체 record field validation, password/passwordConfirm 및 custom data를 적용하고 생성 record를 반환한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L209",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/forms/record_upsert.go#L16"
+    ],
+    "pgImplementation": "별도 /register가 email/password만 받아 registrationEnabled와 createRule를 검사하고 사용자 및 session을 생성한다.",
+    "pgSource": [
+      "internal/api/auth_collections.go:330",
+      "internal/userauth/service.go:42",
+      "internal/userauth/service.go:306"
+    ],
+    "testSource": [
+      "internal/userauth/collections_integration_test.go:62",
+      "internal/userauth/auth_record_model_integration_test.go:94"
+    ],
+    "verification": "test-exists",
+    "gap": "custom fields/명시적 공개 id/passwordConfirm/emailVisibility 등 PB 가입 record payload를 지원하지 않는다. 가입과 로그인 session 발급이 결합되고 OAuth 가입의 createRule 경로는 AUTH-34에 별도 기록한다.",
+    "priority": "P1"
+  },
+  {
+    "id": "AUTH-06",
+    "category": "auth",
+    "feature": "password identity fields",
+    "status": "partial",
+    "pbContract": "설정된 identityFields에서 검색하며 요청 identityField로 특정 필드를 선택할 수 있다. single-column unique index의 NOCASE collation을 존중한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_with_password.go#L115",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_with_password_test.go#L267",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_with_password_test.go#L561"
+    ],
+    "pgImplementation": "email 및 선언된 visible text profile field를 순서대로 검색하고 identity uniqueness를 service에서 검증한다.",
+    "pgSource": [
+      "internal/userauth/service.go:209",
+      "internal/userauth/auth_records.go:494",
+      "internal/userauth/auth_admin.go:176"
+    ],
+    "testSource": [
+      "internal/userauth/identity_policy_schema_integration_test.go:16",
+      "internal/userauth/auth_admin_integration_test.go:69"
+    ],
+    "verification": "test-exists",
+    "gap": "요청별 identityField 선택이 없고 text profile 비교는 고정 exact comparison이다. PB unique-index/collation 계약과 hidden field 허용 범위를 그대로 제공하지 않는다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-07",
+    "category": "auth",
+    "feature": "비밀번호 최소 길이 정책",
+    "status": "partial",
+    "pbContract": "PasswordField.Min은 문자(rune) 수 기준이고 설정 범위는 1..71이다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_password.go#L179",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_password.go#L211"
+    ],
+    "pgImplementation": "collection minimumPasswordBytes를 12..128 bytes로 제한하고 자격 증명 작성·로그인에 적용한다.",
+    "pgSource": [
+      "internal/userauth/auth_admin.go:176",
+      "internal/userauth/service.go:235",
+      "internal/userauth/service.go:663"
+    ],
+    "testSource": [
+      "internal/userauth/auth_admin_integration_test.go:15",
+      "internal/adminauth/password_test.go:42"
+    ],
+    "verification": "test-exists",
+    "gap": "짧은 비밀번호를 허용하는 PB 정책을 표현할 수 없으며 다중바이트 문자열의 길이 의미가 다르다. 강한 기본 정책과 호환 범위 차이를 구별해야 한다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-08",
+    "category": "auth",
+    "feature": "password login",
+    "status": "adapted",
+    "pbContract": "identity/password 검증 후 authRule·MFA를 적용하고 JWT와 record를 반환한다. 알려지지 않은 identity에도 비밀번호 검증을 수행한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_with_password.go#L15",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_helpers.go#L35"
+    ],
+    "pgImplementation": "계정·네트워크 제한, dummy Argon2id 검증, 잠긴 최신 사용자 상태 재확인 후 authRule·MFA와 opaque session 발급을 적용한다.",
+    "pgSource": [
+      "internal/userauth/service.go:120",
+      "internal/userauth/service.go:330",
+      "internal/adminauth/password.go:22"
+    ],
+    "testSource": [
+      "internal/userauth/service_integration_test.go:69",
+      "internal/userauth/auth_fix_regression_integration_test.go:17",
+      "internal/userauth/auth_rule_enforcement_integration_test.go:28"
+    ],
+    "verification": "test-exists",
+    "gap": "기본 비밀번호 로그인 기능은 구현되어 있지만 wire 응답(user/expiresAt), Argon2id, DB session 방식은 의도적으로 다르다. identity 선택·정책·MFA 범위는 AUTH-06/07/18/30에 따로 기록한다.",
+    "priority": "none"
+  },
+  {
+    "id": "AUTH-09",
+    "category": "auth",
+    "feature": "session refresh",
+    "status": "adapted",
+    "pbContract": "refreshable JWT는 새 JWT를 발급하되 이전 JWT를 개별 폐기하지 않는다. static token은 그대로 반환하고 authRule를 재검사한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_refresh.go#L9",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_tokens.go#L48",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_refresh_test.go#L87"
+    ],
+    "pgImplementation": "일반 session row의 token hash를 원자적으로 교체하며 이전 bearer는 즉시 무효화된다. 같은 session ID를 유지하며 sliding TTL을 연장하고 authRule를 재검사한다.",
+    "pgSource": [
+      "internal/userauth/session_refresh.go:15"
+    ],
+    "testSource": [
+      "internal/userauth/auth_methods_integration_test.go:49"
+    ],
+    "verification": "test-exists",
+    "gap": "refresh 기능은 stateful rotation으로 의도적으로 변경되었다. 이전 token 재시도와 병렬 refresh가 PB처럼 동작하지 않으며 impersonation refresh는 거절한다(AUTH-26).",
+    "priority": "none"
+  },
+  {
+    "id": "AUTH-10",
+    "category": "auth",
+    "feature": "logout and revoke",
+    "status": "adapted",
+    "pbContract": "auth endpoint 목록에 session logout/revoke가 없다. JWT는 record tokenKey/collection secret/expiry에 묶이며 key 변경으로 기존 token들을 무효화한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth.go#L10",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_tokens.go#L48",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_query.go#L483"
+    ],
+    "pgImplementation": "logout은 해당 session을 revoke하고 관리자/사용자 lifecycle은 session 목록 전체 폐기와 credential 변경 시 폐기를 지원한다.",
+    "pgSource": [
+      "internal/userauth/service.go:286",
+      "internal/userauth/lifecycle.go:86",
+      "internal/adminauth/service.go:417"
+    ],
+    "testSource": [
+      "internal/userauth/service_integration_test.go:33",
+      "internal/userauth/lifecycle_integration_test.go:79",
+      "internal/userauth/lifecycle_integration_test.go:209"
+    ],
+    "verification": "test-exists",
+    "gap": "명시적 서버 session revoke는 PB의 stateless 토큰 모델보다 추가된 기능이다. PB tokenKey와 session 단위 폐기는 같은 단위가 아니다.",
+    "priority": "none"
+  },
+  {
+    "id": "AUTH-11",
+    "category": "auth",
+    "feature": "auth methods",
+    "status": "partial",
+    "pbContract": "password enabled/identityFields, OTP·MFA enabled/duration, OAuth displayName/logo/state/authURL/PKCE 값과 legacy 필드를 공개한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_methods.go#L13",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_methods.go#L83"
+    ],
+    "pgImplementation": "public methods에 password/OTP/MFA enabled, identityFields 및 provider name/startEndpoint를 제공하고 민감 설정을 숨긴다.",
+    "pgSource": [
+      "internal/userauth/auth_methods.go:15",
+      "internal/userauth/auth_admin.go:19"
+    ],
+    "testSource": [
+      "internal/userauth/auth_methods_integration_test.go:16",
+      "internal/api/auth_collections_methods_test.go:66"
+    ],
+    "verification": "test-exists",
+    "gap": "OTP/MFA duration과 provider 표시명/logo가 없다. authURL·state·PKCE는 별도 시작 endpoint 구조로 바뀌며 PB auth-methods 응답을 그대로 제공하지 않는다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-12",
+    "category": "auth",
+    "feature": "provider catalog/config",
+    "status": "partial",
+    "pbContract": "collection OAuth2.Providers는 공식 provider factories와 custom endpoints/scopes/PKCE/extra 설정, mappedFields를 가진다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L407",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L527",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/auth/auth.go#L16"
+    ],
+    "pgImplementation": "realm별 encrypted client secret, endpoints/scopes/redirect allowlist/claim names/issuer/JWKS 설정을 저장한다. HTTP exchange와 여러 provider profile normalizer가 있다.",
+    "pgSource": [
+      "internal/userauth/auth_admin.go:56",
+      "internal/userauth/oauth_http.go:46",
+      "internal/userauth/oauth_profiles.go:20"
+    ],
+    "testSource": [
+      "internal/userauth/auth_admin_integration_test.go:236",
+      "internal/userauth/oauth_http_test.go:47",
+      "internal/userauth/oauth_profiles_test.go:12"
+    ],
+    "verification": "test-exists",
+    "gap": "PB provider factory 설정 전체를 구현한 것이 아니다. PKCE를 항상 보내고 PB provider별 extra/PKCE toggle/mappedFields와 일부 token/userInfo 교환 특성은 없다. 명칭이 존재하는 normalizer만으로 실제 provider login parity를 입증할 수 없다.",
+    "priority": "P1"
+  },
+  {
+    "id": "AUTH-13",
+    "category": "auth",
+    "feature": "realm routing",
+    "status": "partial",
+    "pbContract": "collection 경로는 auth collection 이름 또는 ID를 받으며 refresh는 같은 collection의 auth만 허용한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth.go#L73"
+    ],
+    "pgImplementation": "공개 /api/v1/auth/{authCollection} 경로는 validated collection name으로 찾고 session의 collection을 확인한다. OAuth state에도 realm을 저장한다.",
+    "pgSource": [
+      "internal/api/auth_collections.go:327",
+      "internal/userauth/collections.go:305",
+      "internal/userauth/oauth.go:251"
+    ],
+    "testSource": [
+      "internal/userauth/collections_integration_test.go:26",
+      "internal/userauth/collections_integration_test.go:100",
+      "internal/userauth/auth_methods_integration_test.go:49"
+    ],
+    "verification": "test-exists",
+    "gap": "이름 경로의 격리는 구현됐지만 PB name-or-ID 라우팅과 동일하지 않다. UUID collection ID를 public realm 경로로 사용할 수 없다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-14",
+    "category": "auth",
+    "feature": "signup and link",
+    "status": "partial",
+    "pbContract": "기존 provider 관계, 로그인한 동일 collection 사용자, provider email의 기존 사용자 순서로 연결한다. createData로 신규 record를 만들고 검증 상태에 따라 password/external links 보호 처리를 한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_with_oauth2.go#L118",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_with_oauth2.go#L260"
+    ],
+    "pgImplementation": "provider+subject+realm에 묶은 stateful PKCE 흐름, 신규 OAuth 사용자 생성, 현재 비밀번호에 묶인 명시적 link를 구현한다. 같은 email의 기존 사용자는 충돌로 처리한다.",
+    "pgSource": [
+      "internal/userauth/oauth.go:105",
+      "internal/userauth/oauth.go:262",
+      "internal/userauth/oauth.go:350"
+    ],
+    "testSource": [
+      "internal/userauth/collections_integration_test.go:100",
+      "internal/userauth/oauth_empty_email_integration_test.go:14",
+      "internal/userauth/oauth_apple_integration_test.go:22"
+    ],
+    "verification": "test-exists",
+    "gap": "이메일 기반 자동 연결, 로그인 session만으로 OAuth-only 사용자 추가 link, createData 및 기존 사용자 empty-email/verified 동기화가 PB와 다르다. 명시적 연결 정책 자체는 의도적인 보안 선택이나 PB 전체 사용 흐름은 누락된다.",
+    "priority": "P1"
+  },
+  {
+    "id": "AUTH-15",
+    "category": "auth",
+    "feature": "OAuth unlink",
+    "status": "partial",
+    "pbContract": "_externalAuths record list/view/delete 규칙에 따라 자신의 연결을 조회·삭제할 수 있으며 일반 system-record CRUD를 사용한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/external_auth_model.go#L18",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud_external_auth_test.go#L12",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/migrations/1640988000_init.go#L20"
+    ],
+    "pgImplementation": "현재 사용자 provider 목록과 unlink, 관리자 auxiliary 삭제를 제공하며 계정 row lock과 마지막 로그인 수단 보존 검사를 적용한다.",
+    "pgSource": [
+      "internal/userauth/oauth.go:113",
+      "internal/userauth/oauth.go:175",
+      "internal/userauth/auth_auxiliary.go:136"
+    ],
+    "testSource": [
+      "internal/userauth/auth_admin_integration_test.go:98",
+      "internal/userauth/auth_rule_enforcement_integration_test.go:176"
+    ],
+    "verification": "test-exists",
+    "gap": "마지막 OAuth 로그인 수단 삭제를 거부하는 추가 정책이 있고 PB _externalAuths 범용 CRUD/filter 응답 계약은 없다. PB의 연결 record providerId/collectionRef/recordRef 정보도 축약된다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-16",
+    "category": "auth",
+    "feature": "profile mapping/avatar",
+    "status": "partial",
+    "pbContract": "OAuth mappedFields로 provider id/name/username/avatarURL을 custom field에 넣고 createData가 우선한다. avatar 대상이 file이면 내려받아 일반 record file로 저장한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_with_oauth2.go#L285",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/auth/auth.go#L142"
+    ],
+    "pgImplementation": "provider별 subject/verified email/avatar URL 정규화와 신규 가입 시 제한된 avatar download/storage를 제공한다.",
+    "pgSource": [
+      "internal/userauth/oauth_profiles.go:20",
+      "internal/userauth/oauth.go:436",
+      "internal/userauth/oauth_avatar.go:32"
+    ],
+    "testSource": [
+      "internal/userauth/oauth_profiles_test.go:12",
+      "internal/userauth/oauth_profiles_test.go:40",
+      "internal/userauth/oauth_avatar_test.go:9"
+    ],
+    "verification": "test-exists",
+    "gap": "name/username/id를 임의 collection field로 매핑하거나 createData로 덮어쓰는 기능이 없다. avatar는 별도 blob 저장(2MiB,4096px)이며 일반 auth file field로 매핑되지 않는다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-17",
+    "category": "auth",
+    "feature": "email OTP login",
+    "status": "partial",
+    "pbContract": "가변 길이 OTP(default8), 10..86400초 TTL, 실패 횟수 제한, 단회 소모를 제공한다. 성공 시 보낸 주소와 현재 email이 같으면 verified로 전환하며 MFA 비활성 시 password를 무작위화한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_otp_request.go#L16",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_with_otp.go#L15",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L314"
+    ],
+    "pgImplementation": "고정6자리 HMAC OTP, 신규 발급 시 이전 코드 consume, realm 정책 TTL/최대시도, 잠금·단회 소모 및 등록된 TOTP challenge를 제공한다.",
+    "pgSource": [
+      "internal/userauth/email_otp.go:27",
+      "internal/userauth/email_otp.go:113",
+      "internal/userauth/auth_admin.go:176"
+    ],
+    "testSource": [
+      "internal/userauth/email_otp_integration_test.go:16",
+      "internal/userauth/email_otp_integration_test.go:147",
+      "internal/userauth/email_otp_integration_test.go:180"
+    ],
+    "verification": "test-exists",
+    "gap": "코드 길이·TTL·재발급 의미가 다르며 OTP 성공 경로에는 PB의 verified 갱신/조건부 password 무작위화가 보이지 않는다. 코드가 특정 email snapshot에 묶여 있지 않은 점도 별도 회귀 검증이 필요하다.",
+    "priority": "P1"
+  },
+  {
+    "id": "AUTH-18",
+    "category": "auth",
+    "feature": "MFA challenge completion",
+    "status": "partial",
+    "pbContract": "password/OAuth2/OTP 중 서로 다른 두 authMethod를 동일 collection/record에서 성공하면 mfaId를 소비하고 token을 발급한다. TOTP enrollment가 전제되지 않는다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_helpers.go#L182",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_helpers_test.go#L467"
+    ],
+    "pgImplementation": "비밀번호/OAuth/OTP 첫 단계 후 활성 TOTP factor가 있을 때 challenge를 발급하고 TOTP 또는 recovery code로 완료한다. challenge/코드 재사용을 막는다.",
+    "pgSource": [
+      "internal/userauth/mfa.go:53",
+      "internal/userauth/mfa.go:220",
+      "internal/userauth/mfa.go:353"
+    ],
+    "testSource": [
+      "internal/userauth/mfa_integration_test.go:15",
+      "internal/userauth/auth_rule_enforcement_integration_test.go:144"
+    ],
+    "verification": "test-exists",
+    "gap": "TOTP/recovery 방식은 구현되어 있으나 PB password+email OTP, OAuth+password 등 조합은 없다. MFAEnabled여도 활성 factor가 없는 사용자에게 challenge가 생기지 않는 코드 계약이며 이를 미등록 사용자에 대한 PB식 강제 MFA와 혼동하면 안 된다.",
+    "priority": "P1"
+  },
+  {
+    "id": "AUTH-19",
+    "category": "auth",
+    "feature": "MFA conditional policy",
+    "status": "partial",
+    "pbContract": "MFA.Rule은 full record filter이며 requestInfo·record·relation을 평가한다. 비어 있으면 전체 사용자에게 MFA를 요구한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_helpers.go#L145",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L348"
+    ],
+    "pgImplementation": "빈 규칙 또는 {field,equals} JSON scalar equality만 허용하고 verified/custom profile field를 비교한다. 활성 factor가 있을 때만 평가한다.",
+    "pgSource": [
+      "internal/userauth/mfa.go:26",
+      "internal/userauth/mfa.go:53"
+    ],
+    "testSource": [
+      "internal/userauth/auth_admin_integration_test.go:69",
+      "internal/userauth/mfa_integration_test.go:15"
+    ],
+    "verification": "test-exists",
+    "gap": "PB filter 문법, 복합식/관계/request 조건을 지원하지 않는다. 빈 규칙의 의미도 등록 factor 조건에 의해 더 좁다. 현재 테스트는 full PB 조건 정책을 검증하지 않는다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-26",
+    "category": "auth",
+    "feature": "impersonation",
+    "status": "partial",
+    "pbContract": "superuser가 대상 auth record의 nonrefreshable static JWT를 발급한다. duration>=0이며0은 collection 기본값, 별도 짧은 최대값이 없고 관리자 session에 종속되지 않는다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_impersonate.go#L13",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_tokens.go#L39",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_refresh.go#L9"
+    ],
+    "pgImplementation": "1..15분 impersonation session을 발급하며 actor admin session과 target에 묶고 admin expiry/정책 TTL로 상한을 제한한다.",
+    "pgSource": [
+      "internal/userauth/impersonation.go:16",
+      "internal/userauth/session_refresh.go:15"
+    ],
+    "testSource": [
+      "internal/userauth/impersonation_integration_test.go:17",
+      "internal/userauth/impersonation_integration_test.go:92",
+      "internal/userauth/impersonation_integration_test.go:101"
+    ],
+    "verification": "test-exists",
+    "gap": "장기간 static token/0 duration 기본값/관리자 session 독립 사용과 refresh 반환 계약을 제공하지 않는다. actor-bound 짧은 세션은 의도적 정책이지만 PB impersonation 전체 범위와 같지 않다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-27",
+    "category": "auth",
+    "feature": "OAuth provider inventory helper",
+    "status": "partial",
+    "pbContract": "meta/oauth2-providers는 등록된 모든 provider를 order/name으로 정렬하여 name, displayName, logo를 반환한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/collection.go#L217",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/auth/auth.go#L16"
+    ],
+    "pgImplementation": "helper는 google/github/microsoft 세 starter configuration의 endpoint와 scope를 items envelope로 반환한다.",
+    "pgSource": [
+      "internal/userauth/auth_admin.go:77",
+      "internal/api/auth_collections.go:91"
+    ],
+    "testSource": [],
+    "verification": "static-only",
+    "gap": "공식 전체 provider inventory가 아니며 displayName/logo/order가 없다. 30여 profile normalizer가 있다는 사실과 helper inventory 범위를 구별해야 한다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-28",
+    "category": "auth",
+    "feature": "Apple client-secret helper",
+    "status": "adapted",
+    "pbContract": "입력 clientId/teamId/keyId/PKCS8 privateKey/duration(1..15777000)으로 Apple audience ES256 JWT를 만들어 secret 필드로 반환한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/forms/apple_client_secret_create.go#L18",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/settings.go#L122"
+    ],
+    "pgImplementation": "동일 claim·ES256·최대 lifetime의 secret 생성 helper가 있다. Team/Key ID는10자리 영숫자, P256 PKCS8만 허용하며 비밀키를 저장하지 않는다.",
+    "pgSource": [
+      "internal/userauth/apple_client_secret.go:27",
+      "internal/api/auth_admin.go:62"
+    ],
+    "testSource": [
+      "internal/userauth/apple_client_secret_test.go:18",
+      "internal/userauth/apple_client_secret_test.go:61",
+      "internal/api/auth_apple_client_secret_test.go:17"
+    ],
+    "verification": "test-exists",
+    "gap": "핵심 secret 생성 기능은 구현됐다. endpoint/envelope와 stricter key/id validation은 의도적 차이다. 서명 검증 테스트가 있으나 Apple 외부 인증 서버에 실제 교환한 검증은 아니다.",
+    "priority": "none"
+  },
+  {
+    "id": "AUTH-29",
+    "category": "auth",
+    "feature": "PB auth auxiliary system record handling",
+    "status": "partial",
+    "pbContract": "_externalAuths/_mfas/_otps/_authOrigins는 system collection record/proxy이며 공통 CRUD/filter/pagination과 record hooks를 사용한다. MFA record는 진행 중인 첫 인증 challenge다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/external_auth_model.go#L18",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/mfa_model.go#L17",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/otp_model.go#L18",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/auth_origin_model.go#L15"
+    ],
+    "pgImplementation": "관리자·manage-rule 사용자용 auxiliary list/get/delete와 bounded helper query를 제공한다. secrets를 숨기고 PostgreSQL metadata row를 요약한다.",
+    "pgSource": [
+      "internal/userauth/auth_auxiliary.go:18",
+      "internal/userauth/auth_auxiliary.go:80",
+      "internal/userauth/auth_auxiliary.go:165"
+    ],
+    "testSource": [
+      "internal/userauth/auth_record_model_integration_test.go:22",
+      "internal/userauth/auth_rule_enforcement_integration_test.go:176"
+    ],
+    "verification": "test-exists",
+    "gap": "mfas는 PB 진행 challenge 대신 TOTP enrollment factor를 가리킨다. 범용 system record CRUD/filter/pagination/필드·hook 모델과 동일하지 않으며 select summary로 제한된다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-30",
+    "category": "auth",
+    "feature": "사용자 암호의 최대 길이·pattern·hash cost 옵션",
+    "status": "partial",
+    "pbContract": "PasswordField Max(default71), Pattern, bcrypt Cost를 field 설정으로 제공하고 길이는 rune 단위다. bcrypt 입력 바이트는 잘라 사용한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_password.go#L39",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_password.go#L179",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_password.go#L211"
+    ],
+    "pgImplementation": "realm maximumPasswordBytes/pattern을 지원하며 기본 credential hash는 고정 Argon2id다. service 정책 상한4096이지만 public validatePassword는1024 bytes를 허용한다.",
+    "pgSource": [
+      "internal/userauth/auth_admin.go:176",
+      "internal/userauth/service.go:235",
+      "internal/userauth/service.go:663",
+      "internal/adminauth/password.go:22"
+    ],
+    "testSource": [
+      "internal/userauth/auth_admin_integration_test.go:69",
+      "internal/adminauth/password_test.go:9"
+    ],
+    "verification": "test-exists",
+    "gap": "credential hash cost를 realm별 설정할 수 없고 byte/rune 및 최대값 의미가 다르다. 설정 가능한4096과 public 경로 실제1024 상한도 일치하지 않는다. custom password field의 bcrypt 설정은 계정 로그인 credential cost와 별개다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-31",
+    "category": "auth",
+    "feature": "목적별 token secret·duration 설정",
+    "status": "partial",
+    "pbContract": "auth/reset/emailChange/verification/file 목적별 secret과10..94670856초 duration을 collection에 저장하고 record tokenKey와 결합해 JWT를 만든다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L292",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_tokens.go#L48",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_tokens.go#L145"
+    ],
+    "pgImplementation": "session/verify/password_reset/email_change/otp/impersonation 목적별 암호화 key/version과60..86400초 TTL을 제공한다. rotation과 duration-only update를 구분한다.",
+    "pgSource": [
+      "internal/userauth/token_policy.go:20",
+      "internal/userauth/token_policy.go:49",
+      "internal/userauth/token_policy.go:116"
+    ],
+    "testSource": [
+      "internal/userauth/auth_admin_integration_test.go:123",
+      "internal/userauth/auth_admin_integration_test.go:157",
+      "internal/userauth/email_otp_integration_test.go:96"
+    ],
+    "verification": "test-exists",
+    "gap": "realm별 file-token secret/TTL 목적이 없고 TTL 범위가 PB의 기본5일 auth token도 표현하지 못한다. record tokenKey·JWT와 versioned stateful token 의미가 다르다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-32",
+    "category": "auth",
+    "feature": "인증 레코드 emailVisibility 공개 제어",
+    "status": "partial",
+    "pbContract": "emailVisibility=false일 때 일반 공개 record에서 email을 숨기되 owner/superuser/실행된 manageRule에 해당하는 actor는 볼 수 있다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_model.go#L1266",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_helpers.go#L437"
+    ],
+    "pgImplementation": "record의 visibility flag와 owner/admin/active same-realm manager 공개 예외를 구현하고 응답 email을 제거한다.",
+    "pgSource": [
+      "internal/userauth/auth_records.go:198",
+      "internal/userauth/managed_authorization.go:1",
+      "internal/api/auth_records.go:194"
+    ],
+    "testSource": [
+      "internal/userauth/auth_record_model_integration_test.go:259",
+      "internal/userauth/text_record_identity_integration_test.go:16"
+    ],
+    "verification": "test-exists",
+    "gap": "same-realm manager로 제한되어 PB의 cross-collection auth manageRule와 다르다. 익명 공개 record 경로는 Anonymous principal fallback으로 존재하므로 부재로 판단하지 않았다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-33",
+    "category": "auth",
+    "feature": "OIDC userInfo 없는 id_token 기반 로그인",
+    "status": "partial",
+    "pbContract": "userinfo URL이 없으면 id_token claims를 사용한다. audience/time 검증과 선택적 issuer allowlist/JWKS 서명 검증을 지원하고 표준 name/username/picture 및 bool-like verified를 추출한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/auth/oidc.go#L75",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/auth/oidc.go#L120",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/auth/oidc.go#L133"
+    ],
+    "pgImplementation": "userinfo 미설정 시 mandatory issuer/JWKS, RS256 signature/kid/audience/azp/expiry/nonce를 검사한 뒤 generic claim mapping으로 로그인한다.",
+    "pgSource": [
+      "internal/userauth/oauth_http.go:46",
+      "internal/userauth/oauth_http.go:102",
+      "internal/userauth/oauth_oidc.go:22"
+    ],
+    "testSource": [
+      "internal/userauth/oauth_http_test.go:93",
+      "internal/userauth/oauth_http_test.go:131"
+    ],
+    "verification": "test-exists",
+    "gap": "안전한 제한적 fallback은 존재하지만 mandatory JWKS/nonce, RS256-only와 bool-only generic email_verified, 필수 email decode, name/username 미매핑으로 PB의 지원 provider/claim 범위를 전부 표현하지 못한다.",
+    "priority": "P2"
+  },
+  {
+    "id": "AUTH-34",
+    "category": "auth",
+    "feature": "OAuth 신규 가입 createRule·required field 적용",
+    "status": "partial",
+    "pbContract": "OAuth 신규 사용자는 createData/mapped fields로 내부 POST collection records를 수행해 createRule와 동일 field validation을 통과해야 한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_with_oauth2.go#L260",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_auth_with_oauth2.go#L412"
+    ],
+    "pgImplementation": "신규 OAuth identity는 registration flags와 email collision을 검사한 뒤 users와 identity를 직접 insert하고 authRule를 검사한다.",
+    "pgSource": [
+      "internal/userauth/oauth.go:355",
+      "internal/userauth/oauth.go:385",
+      "internal/userauth/oauth.go:405"
+    ],
+    "testSource": [
+      "internal/userauth/collections_integration_test.go:100",
+      "internal/userauth/auth_rule_enforcement_integration_test.go:68"
+    ],
+    "verification": "static-only",
+    "gap": "정적 경로상 registrationEnabled=true 및 허용 authRule일 때 createRule=false/required custom field가 OAuth 신규 가입에 적용되지 않는 것으로 보인다. 이 조합을 실행 재현한 결과는 없으며 기존 테스트는 authRule과 realm 격리만 검사한다.",
+    "priority": "P1"
+  }
+]

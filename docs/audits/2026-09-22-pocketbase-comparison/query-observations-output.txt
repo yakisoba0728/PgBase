@@ -1,0 +1,49 @@
+=== RUN   TestPBAuditObservations
+=== RUN   TestPBAuditObservations/quoted_string_contains_double_quotes
+    zz_pb_audit_observations_test.go:26: current PgBase rejects title = 'a "b" c': validation failed
+=== RUN   TestPBAuditObservations/single_quote_backslash_escape
+    zz_pb_audit_observations_test.go:26: current PgBase rejects title = 'it\'s': validation failed
+=== RUN   TestPBAuditObservations/literal_to_literal
+    zz_pb_audit_observations_test.go:26: current PgBase rejects 2 < 5: validation failed
+=== RUN   TestPBAuditObservations/public_request_identifier
+    zz_pb_audit_observations_test.go:26: current PgBase rejects title = @request.query.title: validation failed
+=== RUN   TestPBAuditObservations/collection_identifier_parse_without_query_resolution
+    zz_pb_audit_observations_test.go:34: @collection parses but query resolver rejects: validation failed
+=== RUN   TestPBAuditObservations/strftime_modifiers
+    zz_pb_audit_observations_test.go:41: valid PB strftime modifier rejected
+=== RUN   TestPBAuditObservations/strftime_weekday_format
+    zz_pb_audit_observations_test.go:50: PB Sunday=0 is compiled using PostgreSQL D Sunday=1: (to_char("created_at",$1) = $2) []interface {}{"D", "0"}
+=== RUN   TestPBAuditObservations/null_only_semantics
+    zz_pb_audit_observations_test.go:58: PB text null/empty equivalence is absent: ("title" IS NULL)
+=== RUN   TestPBAuditObservations/escaped_percent_not_wrapped
+    zz_pb_audit_observations_test.go:67: escaped % still prevents PB contains wrapping: ("title" LIKE $1 ESCAPE '\') []interface {}{"a\\%b"}
+=== RUN   TestPBAuditObservations/unindexed_sort
+    zz_pb_audit_observations_test.go:72: PB allowed unindexed scalar sort rejected
+=== RUN   TestPBAuditObservations/unknown_projection
+    zz_pb_audit_observations_test.go:77: PB silent missing-field projection rejected
+=== RUN   TestPBAuditObservations/excerpt_inline_markup
+    zz_pb_audit_observations_test.go:84: inline markup introduces whitespace unlike PB DOM picker: Hello world
+=== RUN   TestPBAuditObservations/expand_over_depth_is_fatal
+    zz_pb_audit_observations_test.go:92: PB truncates expand at level 6; PgBase rejects the whole request
+=== RUN   TestPBAuditObservations/empty_expand_key_omitted
+    zz_pb_audit_observations_test.go:98: empty requested expansion serializes without PB expand:{}
+=== RUN   TestPBAuditObservations/hidden_right_operand_passes_user_guards
+    zz_pb_audit_observations_test.go:113: non-admin hidden-field guards accept right operand and compile it: ("title" = "secret")
+--- PASS: TestPBAuditObservations (0.00s)
+    --- PASS: TestPBAuditObservations/quoted_string_contains_double_quotes (0.00s)
+    --- PASS: TestPBAuditObservations/single_quote_backslash_escape (0.00s)
+    --- PASS: TestPBAuditObservations/literal_to_literal (0.00s)
+    --- PASS: TestPBAuditObservations/public_request_identifier (0.00s)
+    --- PASS: TestPBAuditObservations/collection_identifier_parse_without_query_resolution (0.00s)
+    --- PASS: TestPBAuditObservations/strftime_modifiers (0.00s)
+    --- PASS: TestPBAuditObservations/strftime_weekday_format (0.00s)
+    --- PASS: TestPBAuditObservations/null_only_semantics (0.00s)
+    --- PASS: TestPBAuditObservations/escaped_percent_not_wrapped (0.00s)
+    --- PASS: TestPBAuditObservations/unindexed_sort (0.00s)
+    --- PASS: TestPBAuditObservations/unknown_projection (0.00s)
+    --- PASS: TestPBAuditObservations/excerpt_inline_markup (0.00s)
+    --- PASS: TestPBAuditObservations/expand_over_depth_is_fatal (0.00s)
+    --- PASS: TestPBAuditObservations/empty_expand_key_omitted (0.00s)
+    --- PASS: TestPBAuditObservations/hidden_right_operand_passes_user_guards (0.00s)
+PASS
+ok  	github.com/yakisoba0728/PgBase/internal/query	0.657s

@@ -69,8 +69,8 @@ type RateLimits struct {
 	ExcludedIPs []string       `json:"excludedIPs"`
 }
 
-// APIRateRule deliberately follows PocketBase's persisted settings contract.
-// Label is a tag, an exact path, or a path prefix ending in '/'.
+// APIRateRule matches a registered route pattern, optionally prefixed by an
+// uppercase method. A trailing slash matches a route-pattern prefix.
 type APIRateRule struct {
 	Label       string `json:"label"`
 	Audience    string `json:"audience"`
@@ -96,6 +96,20 @@ func Default() Settings {
 }
 
 func validate(v Settings) error {
+	if err := validateStored(v); err != nil {
+		return err
+	}
+	for _, rule := range v.RateLimits.Rules {
+		if !validAPIRateLabel(rule.Label) {
+			return ErrInvalid
+		}
+	}
+	return nil
+}
+
+// Preserve reload compatibility with previously accepted labels. New writes
+// must repair them, but upgrading must leave settings readable to operators.
+func validateStored(v Settings) error {
 	if v.Batch.MaxRequests < 1 || v.Batch.MaxRequests > 100 || v.Batch.MaxBodyBytes < 1024 || v.Batch.MaxBodyBytes > MaximumBatchBodyBytes || v.Batch.TimeoutMS < 100 || v.Batch.TimeoutMS > 300000 {
 		return ErrInvalid
 	}
@@ -214,7 +228,7 @@ func (c *Controller) Reload(ctx context.Context) error {
 	// The database revision is the concurrency authority.  A document copied
 	// from an older process must never overwrite it during JSON decoding.
 	v.Revision = revision
-	if err := validate(v); err != nil {
+	if err := validateStored(v); err != nil {
 		return err
 	}
 	c.mu.RLock()

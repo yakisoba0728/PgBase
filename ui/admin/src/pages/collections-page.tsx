@@ -21,7 +21,7 @@ function TruncateCollection({ collection }: { collection: CollectionDefinition }
   return <span className="truncate-control"><label>Type {collection.name} to permanently remove every record <input aria-label={`Confirm truncate ${collection.name}`} autoComplete="off" disabled={state.pending} value={state.typed} onChange={(event) => setState({ ...state, typed: event.target.value })} /></label><button className="danger" disabled={state.pending || state.typed !== collection.name || schema.truncate === undefined} type="button" onClick={() => void truncate()}>{state.pending ? "Truncating…" : "Confirm truncate"}</button><button className="secondary" disabled={state.pending} type="button" onClick={() => setState({ ...state, confirming: false, typed: "" })}>Cancel</button>{state.failed && <span role="alert"> Unable to truncate this collection.</span>}</span>;
 }
 
-function UserAccess({ collection, relationBound }: { collection: CollectionDefinition; relationBound: boolean }) {
+function UserAccess({ collection }: { collection: CollectionDefinition }) {
   const { schema } = useBackend();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [loadingFailed, setLoadingFailed] = useState(false);
@@ -52,15 +52,15 @@ function UserAccess({ collection, relationBound }: { collection: CollectionDefin
     pending.current = false;
     setBusy(false);
     setUpdateFailed(false);
-    if (!relationBound) load();
+    load();
     return () => {
       generation.current += 1;
       request.current?.abort();
     };
-  }, [load, relationBound]);
+  }, [load]);
 
   async function toggle() {
-    if (enabled === null || pending.current || relationBound) return;
+    if (enabled === null || pending.current) return;
     pending.current = true;
     const issued = generation.current;
     setBusy(true);
@@ -78,7 +78,6 @@ function UserAccess({ collection, relationBound }: { collection: CollectionDefin
     }
   }
 
-  if (relationBound) return <span>Public user records are blocked while this collection has incoming or outgoing relations.</span>;
   if (loadingFailed) return <span role="alert">Unable to load user access. <button type="button" onClick={() => load()}>Retry user access</button></span>;
   return <span>
     <button type="button" disabled={busy || enabled === null} onClick={() => void toggle()}>{enabled ? "Disable user access" : "Enable user access"}</button>
@@ -107,9 +106,6 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
   }, [schema]);
 
   const collections = catalog?.all() ?? [];
-  const relationTargets = new Set(collections.flatMap((collection) =>
-    collection.fields.flatMap((field) => field.relation ? [field.relation.targetCollectionId] : []),
-  ));
   return <section>
       <div className="page-heading">
       <div><h2>Collections</h2>{catalog && <p>Catalog version {catalog.version}</p>}</div>
@@ -124,7 +120,7 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
         return <li key={collection.name}>
           <AdminLink className="text-button" navigate={navigate} route={{ kind: "records", collection: collection.name }}>{collection.name}</AdminLink>
           <span>{collection.fields.length} fields{relationCount > 0 ? ` · ${relationCount} ${relationCount === 1 ? "relation" : "relations"}` : ""}</span>
-          <UserAccess collection={collection} relationBound={relationCount > 0 || (collection.id !== undefined && relationTargets.has(collection.id))} />
+          <UserAccess collection={collection} />
           <AdminLink className="text-button" navigate={navigate} route={{ kind: "collection-edit", collection: collection.name }}>Edit</AdminLink>
           <AdminLink className="text-button" navigate={navigate} route={{ kind: "collection-duplicate", collection: collection.name }}>Duplicate</AdminLink>
           <TruncateCollection collection={collection} />

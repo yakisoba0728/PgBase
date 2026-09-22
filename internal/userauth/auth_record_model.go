@@ -2,7 +2,6 @@ package userauth
 
 import (
 	"encoding/json"
-	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -131,12 +130,8 @@ func validAuthFieldValue(field schema.FieldInput, value any, storedPasswords boo
 	case schema.TypeBoolean:
 		_, ok := value.(bool)
 		return ok
-	case schema.TypeInteger:
-		n, ok := value.(float64)
-		return ok && n == math.Trunc(n) && n >= math.MinInt32 && n <= math.MaxInt32 && fieldvalue.ValidateNumeric(strings.TrimSuffix(strings.TrimSuffix(jsonNumber(n), ".0"), "."), options) == ""
-	case schema.TypeBigInt, schema.TypeNumeric:
-		n, ok := value.(float64)
-		return ok && fieldvalue.ValidateNumeric(jsonNumber(n), options) == ""
+	case schema.TypeInteger, schema.TypeBigInt, schema.TypeNumeric:
+		return validAuthNumeric(value, field.Type, options)
 	case schema.TypeText, schema.TypeEditor:
 		v, ok := value.(string)
 		if !ok {
@@ -183,8 +178,8 @@ func validAuthFieldValue(field schema.FieldInput, value any, storedPasswords boo
 		if !ok || len(m) != 2 {
 			return false
 		}
-		lat, a := m["lat"].(float64)
-		lon, b := m["lon"].(float64)
+		lat, a := authCoordinate(m["lat"])
+		lon, b := authCoordinate(m["lon"])
 		return a && b && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
 	case schema.TypeRelation:
 		if field.Relation == nil {

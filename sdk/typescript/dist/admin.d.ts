@@ -49,10 +49,34 @@ export type FieldDefinition = Omit<FieldInput, "relation"> & {
         targetCollectionId: string;
     };
 };
+/** Omitted policies use UUIDs when creating a collection. A bare text policy
+ * uses 15 lowercase letters/digits. Custom text policies require all validation
+ * options below; without autogeneratePattern, callers supply the record ID.
+ * A collection's policy is immutable: omit it on updates or repeat its value. */
+export type RecordIDPolicy = {
+    kind: "uuid";
+    minLength?: never;
+    maxLength?: never;
+    pattern?: never;
+    autogeneratePattern?: never;
+} | {
+    kind: "text";
+    minLength?: never;
+    maxLength?: never;
+    pattern?: never;
+    autogeneratePattern?: never;
+} | {
+    kind: "text";
+    minLength: number;
+    maxLength: number;
+    pattern: string;
+    autogeneratePattern?: string;
+};
 export type CollectionDefinition = {
     id: string;
     name: string;
     tableName: string;
+    recordId?: RecordIDPolicy;
     fields: FieldDefinition[];
     indexes?: CompoundIndex[];
     view?: ViewInput;
@@ -95,6 +119,7 @@ export type ViewInput = {
 export type CollectionChange = {
     operation: "create";
     name: string;
+    recordId?: RecordIDPolicy;
     fields?: FieldInput[];
     indexes?: CompoundIndex[];
     view?: ViewInput;
@@ -102,6 +127,7 @@ export type CollectionChange = {
     operation: "update";
     name: string;
     collectionId?: string;
+    recordId?: RecordIDPolicy;
     fields: FieldInput[];
     indexes?: CompoundIndex[];
     view?: never;
@@ -109,7 +135,8 @@ export type CollectionChange = {
     operation: "update";
     name: string;
     collectionId?: string;
-    view: SQLViewInput;
+    recordId?: RecordIDPolicy;
+    view: ViewInput;
     fields?: never;
     indexes?: never;
 } | {
@@ -125,6 +152,7 @@ export type SchemaPlan = {
     definition: {
         name: string;
         tableName: string;
+        recordId?: RecordIDPolicy;
         fields: Array<FieldInput & {
             ordinal: number;
         }>;
@@ -140,6 +168,8 @@ export type SchemaOperation = {
 };
 export type SchemaDocumentCollection = {
     name: string;
+    type?: "base" | "auth" | "view";
+    recordId?: RecordIDPolicy;
     fields?: FieldInput[];
     indexes?: CompoundIndex[];
     view?: ViewInput;
@@ -147,15 +177,43 @@ export type SchemaDocumentCollection = {
     userAccess: boolean;
     rules: Record<string, unknown>;
 };
+export type SchemaDocumentAuthPolicy = {
+    passwordEnabled: boolean;
+    minimumPasswordBytes: number;
+    maximumPasswordBytes: number;
+    passwordPattern: string;
+    identityFields: string[];
+    mfaEnabled: boolean;
+    mfaDurationSeconds: number;
+    mfaRule: string;
+    otpEnabled: boolean;
+    otpDurationSeconds: number;
+    otpMaxAttempts: number;
+};
+/** Authentication settings paired by name with a type: "auth" collection. */
+export type SchemaDocumentAuthCollection = {
+    name: string;
+    registrationEnabled: boolean;
+    recordId?: RecordIDPolicy;
+    fields?: FieldInput[];
+    rules: Record<string, string | null>;
+    policy: SchemaDocumentAuthPolicy;
+    tokenTTLs?: Record<string, number>;
+};
 export type SchemaDocument = {
     format: "pgbase.schema/v1";
     collections: SchemaDocumentCollection[];
+    authCollections?: SchemaDocumentAuthCollection[];
     deleteMissing?: boolean;
 };
+export type AuthCollectionScaffold = {
+    collection: SchemaDocumentCollection;
+    authCollection: SchemaDocumentAuthCollection;
+};
 export type CollectionScaffolds = {
-    base: CollectionChange;
-    auth: CollectionChange;
-    view: CollectionChange;
+    base: SchemaDocumentCollection;
+    auth: AuthCollectionScaffold;
+    view: SchemaDocumentCollection;
 };
 export type CollectionTruncateResult = {
     name: string;

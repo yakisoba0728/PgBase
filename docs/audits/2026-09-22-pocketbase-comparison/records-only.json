@@ -1,0 +1,401 @@
+[
+  {
+    "id": "REC-01",
+    "feature": "레코드 목록 조회",
+    "status": "adapted",
+    "pb": "통합 /api/collections/{collection}/records에서 이름 또는 collection ID를 받아 기본 page/perPage/totalItems/totalPages/items 응답.",
+    "pg": "권한별 /api/v1 경로에 cursor/limit 기본 목록과 명시적 PocketBase offset adapter가 있다.",
+    "gap": "compat=pocketbase와 page/perPage/skipTotal 중 하나를 함께 지정해야 PB envelope가 활성화된다. compat만으로는 cursor envelope를 유지한다. PB 원래 경로와 collection ID selector는 없다.",
+    "nextAction": "직접 PB SDK 호환이 목표라면 통합 경로·collection name/ID resolver·기본 page adapter를 별도 구현.",
+    "pbEvidence": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L27",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L80"
+    ],
+    "pgEvidence": [
+      "internal/api/router.go:155",
+      "internal/api/record_handlers.go:173",
+      "internal/recordops/read.go:68"
+    ],
+    "testEvidence": [
+      "internal/api/record_handlers_test.go:103"
+    ],
+    "verification": "선별 단위 테스트 실행 PASS; PB 대조 HTTP 실행 아님.",
+    "domain": "record-crud",
+    "pbSHA": "5cec579da984436a258602a46a96302fbd31f77c",
+    "category": "records",
+    "verificationDate": "2026-09-22",
+    "classificationNote": "equivalent는 이 행의 좁은 기능 의미론 대응만 뜻하며 PB 전체 wire drop-in 호환을 뜻하지 않는다."
+  },
+  {
+    "id": "REC-02",
+    "feature": "단일 레코드 조회",
+    "status": "adapted",
+    "pb": "이름 또는 collection ID와 record ID로 단일 조회하고 fields/expand를 적용한다.",
+    "pg": "UUID 또는 컬렉션별 text public ID를 정확한 대소문자로 resolve하고 fields/expand, ETag를 반환한다.",
+    "gap": "과거 문서의 UUID-only 설명은 틀렸다. text ID는 구현되었으나 PB 원래 경로·collection ID selector·기본 PB metadata envelope는 그대로 호환되지 않는다.",
+    "nextAction": "PB API adapter와 collection ID selector 대조 테스트 추가.",
+    "pbEvidence": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L144"
+    ],
+    "pgEvidence": [
+      "internal/api/record_handlers.go:217",
+      "internal/recordops/read.go:104"
+    ],
+    "testEvidence": [
+      "internal/api/record_handlers_test.go:58",
+      "internal/recordops/text_identity_integration_test.go:16"
+    ],
+    "verification": "CRUD handler 단위 실행 PASS; text ID 통합 테스트는 존재 확인, 이번 감사에서 재실행 안 함.",
+    "domain": "record-crud",
+    "pbSHA": "5cec579da984436a258602a46a96302fbd31f77c",
+    "category": "records",
+    "verificationDate": "2026-09-22",
+    "classificationNote": "equivalent는 이 행의 좁은 기능 의미론 대응만 뜻하며 PB 전체 wire drop-in 호환을 뜻하지 않는다."
+  },
+  {
+    "id": "REC-03",
+    "feature": "레코드 생성(JSON/multipart)",
+    "status": "partial",
+    "pb": "동일 POST record endpoint에서 JSON·multipart와 file modifiers를 받아 200+record를 반환한다.",
+    "pg": "POST create JSON 및 UUID/text ID, 감사·revision·outbox·선택적 idempotency가 구현되었다. 파일 포함 원자 생성은 별도 native multipart batch로 제공한다.",
+    "gap": "일반 create는 application/json만 수용하고 multipart를 거절한다. PB 200과 달리 Pg는201+Location/ETag를 반환한다. PB CRUD alias가 없다.",
+    "nextAction": "동일 record endpoint의 multipart admission/원자 파일 연결과 PB200 응답을 호환 adapter로 연결.",
+    "pbEvidence": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L209",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L360",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L631"
+    ],
+    "pgEvidence": [
+      "internal/api/record_handlers.go:264",
+      "internal/api/record_handlers.go:332",
+      "internal/api/admin_handlers.go:364",
+      "internal/recordops/service.go:75"
+    ],
+    "testEvidence": [
+      "internal/api/record_handlers_test.go:58",
+      "pgbase/batch_integration_test.go:17",
+      "internal/recordops/service_integration_test.go:142"
+    ],
+    "verification": "JSON CRUD handler 단위 실행 PASS; 파일·idempotency 실제 DB 테스트는 존재 확인.",
+    "domain": "record-crud",
+    "pbSHA": "5cec579da984436a258602a46a96302fbd31f77c",
+    "category": "records",
+    "verificationDate": "2026-09-22",
+    "classificationNote": "equivalent는 이 행의 좁은 기능 의미론 대응만 뜻하며 PB 전체 wire drop-in 호환을 뜻하지 않는다."
+  },
+  {
+    "id": "REC-04",
+    "feature": "레코드 부분 갱신과 빈 PATCH",
+    "status": "partial",
+    "pb": "PATCH nil body 또는 {} 모두200이며 lifecycle hooks를 거친다.",
+    "pg": "{} patch는 compiler와 mutation pipeline에서 허용한다. HTTP input decoder는 JSON object를 요구한다.",
+    "gap": "body가 전혀 없으면 strict JSON decode EOF로400, JSON null은 input==nil로400. 기존 REC-04 완료 표시는 HTTP nil-body 계약까지 증명하지 못했다. 직접 multipart PATCH도 미지원.",
+    "nextAction": "호환 route에서 body 없음/null의 처리 정책을 PB 테스트와 대조하여 통일하고 HTTP 회귀 테스트 추가.",
+    "pbEvidence": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L392",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud_test.go#L2591",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud_test.go#L2615"
+    ],
+    "pgEvidence": [
+      "internal/api/record_handlers.go:335",
+      "internal/api/record_handlers.go:582",
+      "internal/api/admin_handlers.go:383",
+      "internal/query/compiler.go:89"
+    ],
+    "testEvidence": [
+      "internal/query/compiler_test.go:126",
+      "internal/api/record_handlers_test.go:467"
+    ],
+    "verification": "{} compiler 단위 실행 PASS; body 없음 mismatch는 decoder와 PB 명시적 테스트의 소스 대조.",
+    "domain": "record-crud",
+    "pbSHA": "5cec579da984436a258602a46a96302fbd31f77c",
+    "category": "records",
+    "verificationDate": "2026-09-22",
+    "classificationNote": "equivalent는 이 행의 좁은 기능 의미론 대응만 뜻하며 PB 전체 wire drop-in 호환을 뜻하지 않는다."
+  },
+  {
+    "id": "REC-05",
+    "feature": "레코드 삭제",
+    "status": "adapted",
+    "pb": "DELETE 성공204, 권한 및 relation 삭제 처리.",
+    "pg": "DELETE 성공204, optional If-Match/ETag와 relation 처리.",
+    "gap": "핵심 삭제 능력은 대응하지만 권한별 URL·ID 정책·에러 envelope가 다르다. 조건부 삭제는 Pg의 추가 기능.",
+    "nextAction": "직접 PB route 호환이 필요하면 경로와 오류 mapping만 별도 검증.",
+    "pbEvidence": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L531"
+    ],
+    "pgEvidence": [
+      "internal/api/record_handlers.go:431",
+      "internal/api/record_handlers.go:470"
+    ],
+    "testEvidence": [
+      "internal/api/record_handlers_test.go:58",
+      "pgbase/batch_integration_test.go:270"
+    ],
+    "verification": "CRUD handler 단위 실행 PASS; 실제 DB delete batch 테스트는 존재 확인.",
+    "domain": "record-crud",
+    "pbSHA": "5cec579da984436a258602a46a96302fbd31f77c",
+    "category": "records",
+    "verificationDate": "2026-09-22",
+    "classificationNote": "equivalent는 이 행의 좁은 기능 의미론 대응만 뜻하며 PB 전체 wire drop-in 호환을 뜻하지 않는다."
+  },
+  {
+    "id": "REC-06",
+    "feature": "뷰 컬렉션 레코드 읽기 전용",
+    "status": "equivalent",
+    "pb": "View는 읽을 수 있고 create/update/delete를 거절한다.",
+    "pg": "SQL/builder view 조회를 제공하고 모든 mutation kernel에서 view guard를 적용한다.",
+    "gap": "이 행의 좁은 사용자 능력은 대응한다. 응답 오류 코드·경로까지 동일하다는 뜻은 아니다.",
+    "nextAction": "완전 wire compatibility 점수와 구분하여 유지.",
+    "pbEvidence": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L216",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L399",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L538"
+    ],
+    "pgEvidence": [
+      "internal/recordops/service.go:126",
+      "internal/recordops/service.go:336",
+      "internal/recordops/service.go:502"
+    ],
+    "testEvidence": [
+      "pgbase/sql_view_integration_test.go:12"
+    ],
+    "verification": "소스 대조 및 통합 테스트 존재 확인; 이번 감사에서는 view 통합 재실행 안 함.",
+    "domain": "record-crud",
+    "pbSHA": "5cec579da984436a258602a46a96302fbd31f77c",
+    "category": "records",
+    "verificationDate": "2026-09-22",
+    "classificationNote": "equivalent는 이 행의 좁은 기능 의미론 대응만 뜻하며 PB 전체 wire drop-in 호환을 뜻하지 않는다."
+  },
+  {
+    "id": "REC-07",
+    "feature": "레코드 JSON metadata·가시성",
+    "status": "partial",
+    "pb": "PublicExport는 visible fields와 collectionId/collectionName/expand를 반환하고 DateTime은 공백 구분 millisecond UTC 형식이다.",
+    "pg": "기본 native created_at/updated_at, opt-in 읽기에서 PB alias collectionId/collectionName/created/updated를 추가하고 hidden/email visibility를 적용한다.",
+    "gap": "compat projection은 native keys를 보존한 shallow copy이며 RFC3339Nano 값을 단순 alias한다. PB 기본 JSON과 date 문자열이 완전히 같지 않다. create/update는 PocketBaseCompatibility flag를 서비스에 전달하지 않는다. 숨긴 입력도 PB는 비관리자 입력에서 제거하지만 Pg는 hidden_field로거절한다.",
+    "nextAction": "PB record serializer를 read/mutation 공통 적용하고 날짜·hidden input·extra key 계약의 명시적 fixture 추가.",
+    "pbEvidence": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_model.go#L1267",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/types/datetime.go#L12",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L673"
+    ],
+    "pgEvidence": [
+      "internal/responseprojection/record.go:5",
+      "internal/query/codec.go:408",
+      "internal/api/record_handlers.go:295",
+      "internal/api/record_handlers.go:373",
+      "internal/recordops/field_visibility.go:10"
+    ],
+    "testEvidence": [
+      "internal/responseprojection/record_test.go:5",
+      "internal/recordops/field_visibility_test.go:12",
+      "pgbase/field_visibility_integration_test.go:10"
+    ],
+    "verification": "projection·hidden input 단위 실행 PASS; serializer 동일성은 미충족을 소스로 확인.",
+    "domain": "serialization",
+    "pbSHA": "5cec579da984436a258602a46a96302fbd31f77c",
+    "category": "records",
+    "verificationDate": "2026-09-22",
+    "classificationNote": "equivalent는 이 행의 좁은 기능 의미론 대응만 뜻하며 PB 전체 wire drop-in 호환을 뜻하지 않는다."
+  },
+  {
+    "id": "REC-08",
+    "feature": "순서 보장 원자적 batch",
+    "status": "equivalent",
+    "pb": "입력 순서 CRUD를 단일 transaction에서 실행하고 실패 시 전체 rollback.",
+    "pg": "PostgreSQL transaction 내부 ordered loop, create/update/delete/upsert와 file participant·검증·감사/outbox가 함께 commit/rollback한다.",
+    "gap": "원자성의 핵심 능력은 대응. PB hook middleware recursion 구조와 wire 계약 동일성은 별도 행에서 다룬다.",
+    "nextAction": "기존 rollback/concurrency 회귀를 유지.",
+    "pbEvidence": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L180",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L236"
+    ],
+    "pgEvidence": [
+      "internal/recordops/batch.go:23",
+      "internal/recordops/batch.go:53",
+      "internal/recordops/batch.go:86"
+    ],
+    "testEvidence": [
+      "internal/recordops/batch_integration_test.go:56",
+      "internal/recordops/batch_integration_test.go:110",
+      "pgbase/batch_integration_test.go:17"
+    ],
+    "verification": "소스 및 실제 DB 회귀 테스트 존재 확인; 이번 감사에서 DB 재실행 안 함.",
+    "domain": "batch",
+    "pbSHA": "5cec579da984436a258602a46a96302fbd31f77c",
+    "category": "records",
+    "verificationDate": "2026-09-22",
+    "classificationNote": "equivalent는 이 행의 좁은 기능 의미론 대응만 뜻하며 PB 전체 wire drop-in 호환을 뜻하지 않는다."
+  },
+  {
+    "id": "REC-09",
+    "feature": "PocketBase batch 요청·응답 wire",
+    "status": "missing",
+    "pb": "POST /api/batch; requests의 /api/collections/{nameOrId}/records[/{id}][?query]; 최상위 [{body,status}] 배열.",
+    "pg": "Native batch는 구현되었다. /api/v1/{...}/collections/batch, requests 또는 operations; {results:[{status,headers,body,eventId,etag,version}]} 구조.",
+    "gap": "PB batch wire adapter 자체가 없다. Pg URL regexp는 /api/(v1|admin)/collections/{name}/records 경로만, per-operation ?fields/?expand도거절. 원래 PB SDK batch 요청을 그대로 처리할 수 없다.",
+    "nextAction": "PB /api/batch alias, URL grammar/name-or-ID/query 해석, status/body array, 오류 envelope를 별도 adapter로 구현.",
+    "pbEvidence": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L26",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L38",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L74",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L166"
+    ],
+    "pgEvidence": [
+      "internal/api/router.go:194",
+      "internal/api/batch_handlers.go:57",
+      "internal/api/batch_handlers.go:204"
+    ],
+    "testEvidence": [
+      "pgbase/batch_integration_test.go:205",
+      "pgbase/batch_integration_test.go:270"
+    ],
+    "verification": "서로 다른 parser/router/serializer 소스 확인. PB wire adapter의 통합 테스트를 발견하지 못함.",
+    "domain": "batch",
+    "pbSHA": "5cec579da984436a258602a46a96302fbd31f77c",
+    "category": "records",
+    "verificationDate": "2026-09-22",
+    "classificationNote": "equivalent는 이 행의 좁은 기능 의미론 대응만 뜻하며 PB 전체 wire drop-in 호환을 뜻하지 않는다."
+  },
+  {
+    "id": "REC-10",
+    "feature": "PUT upsert와 조건부 갱신",
+    "status": "adapted",
+    "pb": "batch PUT /records body.id가 있으면 조회 후update, 없거나 미존재면create.",
+    "pg": "batch PUT /records/{id} 또는 typed upsert의 ID를 resolve하여 create/update; absent If-Match 요청은 update 경로로 실패 처리하여 부활 방지.",
+    "gap": "Native upsert는 구현되었지만 PB의 body.id/ID 생략 생성 wire와 다르다. Pg는 URL id필수이고 optional If-Match는 추가 계약이다.",
+    "nextAction": "PB batch adapter에서 body.id를 native operation ID로 변환하고 ID 없으면 create로 변환.",
+    "pbEvidence": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L40"
+    ],
+    "pgEvidence": [
+      "internal/api/batch_handlers.go:475",
+      "internal/recordops/batch.go:150",
+      "internal/recordops/batch.go:175"
+    ],
+    "testEvidence": [
+      "internal/recordops/batch_integration_test.go:17",
+      "internal/recordops/batch_integration_test.go:34",
+      "pgbase/batch_integration_test.go:205"
+    ],
+    "verification": "구현 및 regression 테스트 존재 확인; 이번 감사에서 DB 실행 안 함.",
+    "domain": "batch",
+    "pbSHA": "5cec579da984436a258602a46a96302fbd31f77c",
+    "category": "records",
+    "verificationDate": "2026-09-22",
+    "classificationNote": "equivalent는 이 행의 좁은 기능 의미론 대응만 뜻하며 PB 전체 wire drop-in 호환을 뜻하지 않는다."
+  },
+  {
+    "id": "REC-11",
+    "feature": "multipart batch와 파일 참조",
+    "status": "adapted",
+    "pb": "@jsonPayload에 요청 JSON, requests.N.fileField 또는 requests[N].fileField의 multipart 파일 업로드.",
+    "pg": "requests라는 text part에 batch envelope, 별도 명명 file part와 body의 {$file:name} 참조. file participant와 원자 rollback.",
+    "gap": "파일 포함 batch 기능은 있지만 multipart part 이름/참조 방식과 결과 envelope가 달라 PB multipart batch는 직접 미호환.",
+    "nextAction": "PB multipart 이름을 native staged-file 참조로 번역하는 adapter 추가.",
+    "pbEvidence": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L91",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L124"
+    ],
+    "pgEvidence": [
+      "internal/api/batch_handlers.go:364",
+      "internal/api/batch_handlers.go:393",
+      "internal/api/batch_file_modifiers.go:200"
+    ],
+    "testEvidence": [
+      "pgbase/batch_integration_test.go:17"
+    ],
+    "verification": "소스 및 실제 파일/DB rollback 테스트 존재 확인; 이번 감사에서 통합 실행 안 함.",
+    "domain": "batch",
+    "pbSHA": "5cec579da984436a258602a46a96302fbd31f77c",
+    "category": "records",
+    "verificationDate": "2026-09-22",
+    "classificationNote": "equivalent는 이 행의 좁은 기능 의미론 대응만 뜻하며 PB 전체 wire drop-in 호환을 뜻하지 않는다."
+  },
+  {
+    "id": "REC-12",
+    "feature": "batch enable·한도·timeout",
+    "status": "adapted",
+    "pb": "Batch enabled/maxRequests/timeout(seconds)/maxBodySize 설정으로 admission·transaction 제한.",
+    "pg": "persisted runtime enabled/maxRequests/maxBodyBytes/timeoutMs, HTTP+kernel에서 제한. 1~100 requests,100~300000ms validation.",
+    "gap": "능력은 대응하지만 설정명·단위·기본값·상한이 다르다. Disabled의 PB403 대비 Pg503 차이도 있다.",
+    "nextAction": "PB settings adapter를 만든다면 단위·범위·오류 status를 명시적으로변환.",
+    "pbEvidence": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/batch.go#L95"
+    ],
+    "pgEvidence": [
+      "internal/runtimesettings/settings.go:25",
+      "internal/runtimesettings/settings.go:95",
+      "internal/api/batch_handlers.go:73",
+      "internal/recordops/batch.go:17"
+    ],
+    "testEvidence": [
+      "pgbase/runtime_settings_http_integration_test.go:11"
+    ],
+    "verification": "소스 및 settings HTTP/DB regression 존재 확인; 이번 감사에서 통합 실행 안 함.",
+    "domain": "batch",
+    "pbSHA": "5cec579da984436a258602a46a96302fbd31f77c",
+    "category": "records",
+    "verificationDate": "2026-09-22",
+    "classificationNote": "equivalent는 이 행의 좁은 기능 의미론 대응만 뜻하며 PB 전체 wire drop-in 호환을 뜻하지 않는다."
+  },
+  {
+    "id": "REC-13",
+    "feature": "숫자 증가·감소 modifier",
+    "status": "adapted",
+    "pb": "number field+/-는 cast.ToFloat64를 이용한 덧셈·뺄셈.",
+    "pg": "integer/bigint/numeric에 +/-를 적용하고 PostgreSQL row lock 아래 stored preimage에서 계산한다. bigint/numeric 입력은 문자열이고 rational 계산한다.",
+    "gap": "더 엄격하고 정밀한 native 숫자 정책이다. PB의 float/coercion 허용과 Pg typed/string 입력은 동일하지 않다. 동시 equal-length modifier key 순서도 PB는 길이만 정렬, Pg는 길이+lexical이다.",
+    "nextAction": "PB coercion이 필요한 adapter 범위를 결정하고 직접값+증감·극단숫자의 differential fixture 추가.",
+    "pbEvidence": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_number.go#L211",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_model.go#L1384"
+    ],
+    "pgEvidence": [
+      "internal/recordops/modifiers.go:46",
+      "internal/recordops/modifiers.go:126",
+      "internal/recordops/service.go:352"
+    ],
+    "testEvidence": [
+      "internal/recordops/modifiers_test.go:11",
+      "internal/recordops/modifiers_integration_test.go:17"
+    ],
+    "verification": "modifier 단위 실행 PASS; concurrent PostgreSQL 테스트는 존재 확인.",
+    "domain": "write-modifier",
+    "pbSHA": "5cec579da984436a258602a46a96302fbd31f77c",
+    "category": "records",
+    "verificationDate": "2026-09-22",
+    "classificationNote": "equivalent는 이 행의 좁은 기능 의미론 대응만 뜻하며 PB 전체 wire drop-in 호환을 뜻하지 않는다."
+  },
+  {
+    "id": "REC-14",
+    "feature": "select·relation·file prepend/append/remove modifier",
+    "status": "adapted",
+    "pb": "+field/field+/field-를 지원하고 단일 선택은 정규화한 마지막 값을 사용. mixed same-length modifier의 순서는 Go map iteration 이후 길이만 stable sort하여 보장되지 않는다.",
+    "pg": "select/relation은 ordered dedupe와 마지막 단일값, file은 native batch 참가자에 prepend/append/remove를 제공한다. direct assign 먼저, 같은길이는 lexical 순서로처리.",
+    "gap": "개별 연산 능력은 구현. PB 동일길이 modifier tie순서와 완전히 동등하다고 주장할 수 없고, 파일 modifier HTTP 입구는 PB direct multipart가 아닌 native batch이다. 각 modifier 입력의 PB coercion과 Pg string-only validation도 차이가 있다.",
+    "nextAction": "mixed prepend/append/remove의 Pg 결정적 순서를 문서화하고 PB migration/differential fixture 추가. direct file multipart adapter는 REC-03 범위.",
+    "pbEvidence": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_select.go#L229",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_model.go#L1362",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/record_crud.go#L690"
+    ],
+    "pgEvidence": [
+      "internal/recordops/modifiers.go:46",
+      "internal/recordops/modifiers.go:223",
+      "internal/api/batch_file_modifiers.go:173"
+    ],
+    "testEvidence": [
+      "internal/recordops/modifiers_test.go:11",
+      "internal/recordops/modifiers_integration_test.go:57",
+      "pgbase/batch_integration_test.go:17"
+    ],
+    "verification": "select/direct/mixed modifier 단위 실행 PASS; relation/file DB 테스트는 존재 확인.",
+    "domain": "write-modifier",
+    "pbSHA": "5cec579da984436a258602a46a96302fbd31f77c",
+    "category": "records",
+    "verificationDate": "2026-09-22",
+    "classificationNote": "equivalent는 이 행의 좁은 기능 의미론 대응만 뜻하며 PB 전체 wire drop-in 호환을 뜻하지 않는다."
+  }
+]

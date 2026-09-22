@@ -7,6 +7,7 @@ import {
   type CollectionDefinition,
   type FieldDefinition,
   type RecordPage,
+  type RecordIDPolicy,
   type VersionedRecord,
 } from "../backend/ports";
 import { adminRouteIdentity, useResourceState, useRouteGuard, type AdminRoute } from "../routing/admin-location";
@@ -30,6 +31,21 @@ const alwaysSortable = new Set(["id", "created_at"]);
 
 function ordered(collection: CollectionDefinition | null): FieldDefinition[] {
   return collection === null ? [] : collection.fields.slice().sort((left, right) => left.ordinal - right.ordinal);
+}
+
+// An explicit ID participates in draft recovery and unsaved-change protection,
+// but is offered only while creating records in a text-identity collection.
+const recordIDField: FieldDefinition = { name: "id", type: "text", required: false, unique: false, indexed: false, ordinal: -1 };
+function draftFields(collection: CollectionDefinition, isCreate: boolean): FieldDefinition[] {
+  return isCreate && collection.recordId?.kind === "text" ? [recordIDField, ...collection.fields] : collection.fields;
+}
+
+function relationPolicies(catalog: CollectionCatalog | null): ReadonlyMap<string, RecordIDPolicy> {
+  const policies = new Map<string, RecordIDPolicy>();
+  for (const collection of catalog?.all() ?? []) {
+    if (collection.id !== undefined) policies.set(collection.id, collection.recordId ?? { kind: "uuid" });
+  }
+  return policies;
 }
 
 function rejected(caught: unknown): boolean {
@@ -235,6 +251,8 @@ export interface RecordEditor {
   message: string | null;
   pending: boolean;
   stale: boolean;
+  recordID: string;
+  setRecordID(value: string): void;
   targetOf(field: FieldDefinition): CollectionDefinition | undefined;
   stateOf(field: FieldDefinition): FieldState;
   setKind(field: FieldDefinition, kind: FieldState["kind"]): void;
@@ -245,15 +263,22 @@ export interface RecordEditor {
   duplicate(): void;
 }
 
-function saveFailure(caught: unknown, collection: CollectionDefinition): Partial<EditorState> {
+function saveFailure(caught: unknown, collection: CollectionDefinition, catalog: CollectionCatalog | null): Partial<EditorState> {
   if (!(caught instanceof RecordError)) return { message: "Unable to save the record." };
   if (caught.reason === "not-found") return { message: missingText };
   if (caught.reason === "stale") return { stale: true, message: staleText };
   if (caught.reason !== "rejected") return { message: "Unable to save the record." };
+  // The server uses this code for the primary ID and for relation IDs. It
+  // cannot be pinned to one field, and an update has no editable primary ID.
+  if (caught.details.id?.includes("invalid_record_id")) return { message: "A record ID is invalid. Check the record ID and any related record IDs against their collection policies." };
   const errors: Record<string, string> = {};
   for (const [name, codes] of Object.entries(caught.details)) {
+    if (name === "id") {
+      errors.id = codes.includes("record_id_conflict") ? "This record ID is already in use." : "The record ID does not match this collection's identity policy.";
+      continue;
+    }
     const field = collection.fields.find((candidate) => candidate.name === name);
-    if (field !== undefined) errors[name] = validationText(field, codes[0]);
+    if (field !== undefined) errors[name] = validationText(field, codes[0], field.relation === undefined ? undefined : catalog?.byID(field.relation.targetCollectionId)?.recordId);
   }
   return Object.keys(errors).length === 0 ? { message: "Record input is invalid." } : { errors };
 }
@@ -279,7 +304,9 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
   const [state, update] = useResourceState(identity, initialEditor);
   const attempt = useRef(new CreateAttempt(collectionName));
   if (attempt.current.collection !== collectionName) attempt.current = new CreateAttempt(collectionName);
-  const scope: RecordScope = { administrator: session.kind === "authenticated" ? session.administrator.id : "", collection: collectionName, record: id ?? "new" };
+  // Keep established draft keys, reserving NUL (forbidden in server IDs) to
+  // distinguish an existing text record named `new` from the creation draft.
+  const scope: RecordScope = { administrator: session.kind === "authenticated" ? session.administrator.id : "", collection: collectionName, record: id === "new" ? "\0new" : id ?? "new" };
 
   // A reload asked for after a failed precondition keeps the unsaved draft;
   // every other load starts the editor over.
@@ -297,8 +324,9 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
       if (collection === undefined) throw new Error("missing collection");
       const record = id === undefined ? null : await records.get(collectionName, id, controller.signal);
       if (controller.signal.aborted) return;
-      const clean = initialDraft(collection.fields, record?.data ?? {}, isCreate);
-      const restored = state.reloads === 0 ? readDraft(scope, collection.fields) : null;
+      const fields = draftFields(collection, isCreate);
+      const clean = initialDraft(fields, record?.data ?? {}, isCreate, relationPolicies(catalog));
+      const restored = state.reloads === 0 ? readDraft(scope, fields) : null;
       const draft = preserve ? state.draft : restored === null ? clean : { ...clean, ...restored };
       update(identity, { loadedResource: identity, collection, catalog, draft, initial: clean, loaded: record, stale: false, errors: {} });
     }).catch((caught: unknown) => {
@@ -316,8 +344,8 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
   const savedDraft = useUnsavedDraft(identity, dirty.size > 0);
   useEffect(() => {
     if (state.collection === null || scope.administrator === "") return;
-    if (dirty.size === 0) clearDraft(scope); else writeDraft(scope, state.draft, state.collection.fields);
-  }, [dirty.size, scope.administrator, scope.collection, scope.record, state.collection, state.draft]);
+    if (dirty.size === 0) clearDraft(scope); else writeDraft(scope, state.draft, draftFields(state.collection, isCreate));
+  }, [dirty.size, isCreate, scope.administrator, scope.collection, scope.record, state.collection, state.draft]);
   // The draft as it stands now, readable from a response handler that closed
   // over the draft it sent: the two differ exactly when editing continued.
   const live = useRef(state.draft);
@@ -326,7 +354,9 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
 	const save = useCallback(async (files: Record<string, File[]> = {}) => {
     const collection = state.collection;
     if (collection === null) return;
-    const { input, errors } = encodeDraft(collection.fields, state.draft, dirty, isCreate);
+    const fields = draftFields(collection, isCreate);
+    const { input, errors } = encodeDraft(fields, state.draft, dirty, isCreate, relationPolicies(state.catalog));
+    if (isCreate && collection.recordId?.kind === "text" && !collection.recordId.autogeneratePattern && input.id === undefined) errors.id = "Enter a record ID.";
     update(identity, { errors });
     if (Object.keys(errors).length > 0) return;
     update(identity, { pending: true, message: null });
@@ -342,17 +372,17 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
       // and its answer is the version a further save builds on. A draft edited
       // since is unsaved work of its own, so it keeps the guard and this page.
       const outran = dirtyNames(live.current, state.draft).size > 0;
-      update(identity, { ...acceptedDraft(collection.fields, state.draft, live.current), loaded: isCreate ? null : stored, message: outran ? (isCreate ? createdText : savedText) : null });
+      update(identity, { ...acceptedDraft(fields, state.draft, live.current), loaded: isCreate ? null : stored, message: outran ? (isCreate ? createdText : savedText) : null });
       if (outran) return;
       savedDraft();
       clearDraft(scope);
       navigate({ kind: "records", collection: collectionName });
     } catch (caught: unknown) {
-      update(identity, saveFailure(caught, collection));
+      update(identity, saveFailure(caught, collection, state.catalog));
     } finally {
       update(identity, { pending: false });
     }
-  }, [active, collectionName, dirty, identity, isCreate, navigate, records, savedDraft, state.collection, state.draft, state.loaded, update]);
+  }, [active, collectionName, dirty, identity, isCreate, navigate, records, savedDraft, state.catalog, state.collection, state.draft, state.loaded, update]);
 
   const remove = useCallback(async () => {
     const record = state.loaded;
@@ -385,6 +415,10 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
     message: state.message,
     pending: state.pending,
     stale: state.stale,
+    recordID: state.draft.id?.kind === "value" ? String(state.draft.id.value) : "",
+    setRecordID: (value) => {
+      if (isCreate && state.collection?.recordId?.kind === "text") setField(recordIDField, value === "" ? { kind: "unset" } : { kind: "value", value });
+    },
     targetOf: (field) => state.catalog === null || field.relation === undefined ? undefined : state.catalog.byID(field.relation.targetCollectionId),
     stateOf: (field) => state.draft[field.name] ?? { kind: "unset" },
     setKind: (field, kind) => setField(field, blankState(field, kind)),

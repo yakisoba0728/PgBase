@@ -1,5 +1,7 @@
 > Current artifact: filename date, embedded JSON date, and this heading all use 2026-09-11.
 
+> 2026-09-22 재검증: 이 문서는 과거 수용 기록이다. PocketBase v0.40.4 실제 소스와 현재 작업 트리의 세부 동작 대조는 [최신 1:1 비교 감사](audits/2026-09-22-pocketbase-comparison/README.md)를 따른다. 아래 `구현 232`를 전체 호환 완료로 해석하지 않는다.
+
 # PocketBase와 현재 PgBase — 기능별 1:1 비교 (Round 3 최종 통합 갱신)
 
 PocketBase 비교 원본은 [공식 v0.40.3 소스](https://github.com/pocketbase/pocketbase/tree/5684ee24f1e88f71a2ede73d20cf547fbd509e16) (`5684ee24f1e88f71a2ede73d20cf547fbd509e16`)이며, 비교는 그 고정 revision의 로컬 checkout을 사용했다.

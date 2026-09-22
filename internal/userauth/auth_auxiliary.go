@@ -322,13 +322,10 @@ func (s *Service) AdminFindAuthRecordByToken(ctx context.Context, administrator 
 		}
 		var id, collection uuid.UUID
 		var credential []byte
-		err := s.pool.QueryRow(ctx, `select u.id,u.auth_collection_id,a.credential_hash from pgbase_meta.user_email_actions a join pgbase_meta.users u on u.id=a.user_id where a.token_hash=$1 and a.purpose=$2 and a.consumed_at is null and a.expires_at>CURRENT_TIMESTAMP and u.active`, hash, purpose).Scan(&id, &collection, &credential)
-		if err == nil {
-			// credentialHash is HMAC based, so re-read the encoded password rather than compare SQL digest.
-			var encoded string
-			if s.pool.QueryRow(ctx, `select password_hash from pgbase_meta.users where id=$1`, id).Scan(&encoded) == nil && hmac.Equal(credential, s.credentialHash(encoded)) {
-				return s.GetAuthRecord(ctx, collection, id)
-			}
+		var encoded, email string
+		err := s.pool.QueryRow(ctx, `select u.id,u.auth_collection_id,a.credential_hash,u.password_hash,u.email from pgbase_meta.user_email_actions a join pgbase_meta.users u on u.id=a.user_id where a.token_hash=$1 and a.purpose=$2 and a.consumed_at is null and a.expires_at>CURRENT_TIMESTAMP and u.active`, hash, purpose).Scan(&id, &collection, &credential, &encoded, &email)
+		if err == nil && hmac.Equal(credential, s.emailActionCredentialHash(purpose, encoded, email)) {
+			return s.GetAuthRecord(ctx, collection, id)
 		}
 	}
 	return AuthRecord{}, ErrInvalidCredentials

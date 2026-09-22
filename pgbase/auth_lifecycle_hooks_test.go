@@ -2,6 +2,7 @@ package pgbase
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -18,7 +19,19 @@ func TestEveryAuthLifecycleVetoPreventsDelegationAndPairsAfter(t *testing.T) {
 		call func(h hookedUserAuth) error
 	}{
 		{HookAuthPassword, func(h hookedUserAuth) error {
+			_, err := h.Register(context.Background(), "secret@example.test", "plaintext", "network")
+			return err
+		}},
+		{HookAuthPassword, func(h hookedUserAuth) error {
 			_, err := h.RegisterInCollection(context.Background(), realm, "secret@example.test", "plaintext", "network")
+			return err
+		}},
+		{HookAuthPassword, func(h hookedUserAuth) error {
+			_, err := h.RegisterWithFields(context.Background(), "secret@example.test", "plaintext", "network", map[string]json.RawMessage{"display_name": json.RawMessage(`"profile-secret"`)})
+			return err
+		}},
+		{HookAuthPassword, func(h hookedUserAuth) error {
+			_, err := h.RegisterInCollectionWithFields(context.Background(), realm, "secret@example.test", "plaintext", "network", map[string]json.RawMessage{"display_name": json.RawMessage(`"profile-secret"`)})
 			return err
 		}},
 		{HookAuthOAuthBegin, func(h hookedUserAuth) error {
@@ -27,6 +40,10 @@ func TestEveryAuthLifecycleVetoPreventsDelegationAndPairsAfter(t *testing.T) {
 		}},
 		{HookAuthOAuthComplete, func(h hookedUserAuth) error {
 			_, err := h.CompleteOAuth(context.Background(), "provider", "state-secret", "code-secret")
+			return err
+		}},
+		{HookAuthOAuthComplete, func(h hookedUserAuth) error {
+			_, err := h.CompleteOAuthWithFields(context.Background(), "provider", "state-secret", "code-secret", map[string]json.RawMessage{"display_name": json.RawMessage(`"profile-secret"`)})
 			return err
 		}},
 		{HookAuthOTPRequest, func(h hookedUserAuth) error {

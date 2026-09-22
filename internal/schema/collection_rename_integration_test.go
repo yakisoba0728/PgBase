@@ -183,6 +183,54 @@ func TestCollectionRenamePreservesSQLViewOIDBindingAndRefreshesExport(t *testing
 	}
 }
 
+func TestViewRenamePreservesInheritedTextRecordIDPolicy(t *testing.T) {
+	pool, service, admin := newSchemaServiceTest(t)
+	ctx := context.Background()
+	policy := RecordIDPolicy{Kind: RecordIDText, MinLength: 1, MaxLength: 32, Pattern: `^[A-Za-z0-9]+$`, AutogeneratePattern: `[A-Z]{8}`}
+	source := applyFreshPlan(t, service, CreateCollectionInput{
+		Name: "text_view_source", RecordID: &policy, Fields: []FieldInput{{Name: "title", Type: TypeText}},
+	}, admin)
+	view := applyFreshPlan(t, service, CreateCollectionInput{
+		Name: "text_view", View: &ViewInput{Source: source.Name, Projection: []string{"title"}},
+	}, admin)
+	if view.RecordID != policy {
+		t.Fatalf("created view record ID policy = %#v, want %#v", view.RecordID, policy)
+	}
+	change := NewUpdateChange(UpdateCollectionInput{Name: "renamed_text_view", CollectionID: &view.ID})
+	plan, err := service.Preview(ctx, change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Definition.RecordID != policy {
+		t.Fatalf("rename preview record ID policy = %#v, want %#v", plan.Definition.RecordID, policy)
+	}
+	result, err := service.Apply(ctx, LegacyApply(change, plan, admin))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Collection.ID != view.ID || result.Collection.RecordID != policy {
+		t.Fatalf("renamed view identity = %#v", result.Collection)
+	}
+	reloaded := NewService(pool, &Cache{}, nil)
+	catalog, err := reloaded.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.Collections["renamed_text_view"].RecordID != policy || catalog.Collections[source.Name].RecordID != policy {
+		t.Fatalf("reloaded record ID policies = %#v", catalog.Collections)
+	}
+	document, err := reloaded.ExportSchema(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{source.Name, "renamed_text_view"} {
+		item, ok := documentCollection(document, name)
+		if !ok || item.RecordID == nil || *item.RecordID != policy {
+			t.Fatalf("exported %s record ID policy = %#v, want %#v", name, item.RecordID, policy)
+		}
+	}
+}
+
 func TestCollectionRenameRollsBackTableAndSQLViewRefreshOnMetadataFailure(t *testing.T) {
 	pool, service, admin := newSchemaServiceTest(t)
 	ctx := context.Background()

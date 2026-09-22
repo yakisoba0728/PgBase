@@ -22,6 +22,7 @@ import { ServiceTokensPage } from "./pages/service-tokens-page";
 import { SchemaTransferPage } from "./pages/schema-transfer-page";
 import { SQLConsolePage } from "./pages/sql-console-page";
 import { SettingsPage } from "./pages/settings-page";
+import { AdministratorsPage } from "./pages/administrators-page";
 import { useAdminExtensionScreens, extensionScreen } from "./extensions/admin-extensions";
 import { ExtensionScreen } from "./extensions/extension-screen";
 
@@ -40,6 +41,7 @@ function outlet(route: AdminRoute, key: string, navigate: Navigate, sqlConsole?:
   if (route.kind === "system") return <SystemPage key={key} />;
   if (route.kind === "settings") return <SettingsPage key={key} />;
   if (route.kind === "users") return <UsersPage key={key} />;
+  if (route.kind === "administrators") return <AdministratorsPage key={key} />;
   if (route.kind === "auth-collections") return <AuthCollectionsPage key={key} />;
   if (route.kind === "service-tokens") return <ServiceTokensPage key={key} />;
   if (route.kind === "schema-transfer") return <SchemaTransferPage key={key} />;
@@ -102,7 +104,7 @@ function AuthenticatedShell({ history, sqlConsole }: { history?: AdminHistory; s
     </header>
     <fieldset aria-label="Administrator workspace" className="shell-workspace" disabled={logoutPending} inert={logoutPending}>
       {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
-      <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "storage" }}>File storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "backup-storage" }}>Backup storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "schema-transfer" }}>Schema transfer</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "users" }}>Users</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "auth-collections" }}>Auth collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "service-tokens" }}>Service tokens</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "operations" }}>Schema operations</AdminLink>{extensionScreens.map((screen) => <AdminLink className="text-button" key={screen.id} navigate={navigate} route={{ kind: "extension", id: screen.id, path: screen.path }}>{screen.label}</AdminLink>)}{state.sqlConsoleEnabled === true && sqlConsole !== undefined && <AdminLink className="text-button" navigate={navigate} route={{ kind: "sql-console" }}>SQL console</AdminLink>}<AdminLink className="text-button" navigate={navigate} route={{ kind: "settings" }}>Settings</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
+      <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "storage" }}>File storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "backup-storage" }}>Backup storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "schema-transfer" }}>Schema transfer</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "users" }}>Users</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "administrators" }}>Administrators</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "auth-collections" }}>Auth collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "service-tokens" }}>Service tokens</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "operations" }}>Schema operations</AdminLink>{extensionScreens.map((screen) => <AdminLink className="text-button" key={screen.id} navigate={navigate} route={{ kind: "extension", id: screen.id, path: screen.path }}>{screen.label}</AdminLink>)}{state.sqlConsoleEnabled === true && sqlConsole !== undefined && <AdminLink className="text-button" navigate={navigate} route={{ kind: "sql-console" }}>SQL console</AdminLink>}<AdminLink className="text-button" navigate={navigate} route={{ kind: "settings" }}>Settings</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
       <UnsavedDrafts ledger={drafts}>{outlet(route, identity, navigate, state.sqlConsoleEnabled === true ? sqlConsole : undefined)}</UnsavedDrafts>
     </fieldset>
   </main>;

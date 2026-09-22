@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/mail"
@@ -20,7 +21,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
 	"github.com/yakisoba0728/PgBase/internal/database"
-	authidentity "github.com/yakisoba0728/PgBase/internal/identity"
 )
 
 const (
@@ -40,6 +40,14 @@ func (s *Service) Register(ctx context.Context, email, password, clientAddress s
 }
 
 func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UUID, email, password, clientAddress string) (Session, error) {
+	return s.RegisterInCollectionWithFields(ctx, collectionID, email, password, clientAddress, nil)
+}
+
+func (s *Service) RegisterWithFields(ctx context.Context, email, password, clientAddress string, fields map[string]json.RawMessage) (Session, error) {
+	return s.RegisterInCollectionWithFields(ctx, DefaultCollectionID, email, password, clientAddress, fields)
+}
+
+func (s *Service) RegisterInCollectionWithFields(ctx context.Context, collectionID uuid.UUID, email, password, clientAddress string, fields map[string]json.RawMessage) (Session, error) {
 	if err := s.ready(); err != nil {
 		return Session{}, err
 	}
@@ -71,17 +79,12 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 	}
 	ratePolicy := s.currentRatePolicy()
 	var registrationEnabled bool
-	var createRule *string
-	if err := s.pool.QueryRow(ctx, `select registration_enabled,create_rule from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&registrationEnabled, &createRule); errors.Is(err, pgx.ErrNoRows) {
+	if err := s.pool.QueryRow(ctx, `select registration_enabled from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&registrationEnabled); errors.Is(err, pgx.ErrNoRows) {
 		return Session{}, ErrNotFound
 	} else if err != nil {
 		return Session{}, err
 	}
 	if !registrationEnabled {
-		return Session{}, ErrInvalidCredentials
-	}
-	fields, contractErr := s.authRecordContract(ctx, collectionID)
-	if contractErr != nil || createRule == nil || !EvaluateAuthRecordRule(*createRule, fields, AuthRuleContext{Principal: authidentity.Subject{Kind: authidentity.Anonymous}, Request: map[string]any{"email": normalized}}) {
 		return Session{}, ErrInvalidCredentials
 	}
 	if collectionID == DefaultCollectionID && !s.defaultRegistration {
@@ -101,7 +104,7 @@ func (s *Service) RegisterInCollection(ctx context.Context, collectionID uuid.UU
 		return Session{}, err
 	}
 	user := User{ID: uuid.New(), AuthCollectionID: collectionID, Email: normalized, CreatedAt: now}
-	issued, err := s.createUserAndSession(ctx, user, passwordHash, now)
+	issued, err := s.createUserAndSession(ctx, user, passwordHash, now, fields)
 	if database.Classify(err) == database.KindConflict {
 		return Session{}, ErrConflict
 	}
@@ -303,7 +306,7 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	return nil
 }
 
-func (s *Service) createUserAndSession(ctx context.Context, user User, passwordHash string, now time.Time) (Session, error) {
+func (s *Service) createUserAndSession(ctx context.Context, user User, passwordHash string, now time.Time, fields map[string]json.RawMessage) (Session, error) {
 	var issued Session
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if user.AuthCollectionID == uuid.Nil {
@@ -319,6 +322,9 @@ func (s *Service) createUserAndSession(ctx context.Context, user User, passwordH
 		_, err = tx.Exec(ctx, `insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,active,created_at,updated_at) values($1,$2,$3,$4,true,$5,$5)`, user.ID, user.AuthCollectionID, user.Email, passwordHash, now)
 		if err != nil {
 			return fmt.Errorf("create user: %w", err)
+		}
+		if err := s.completePublicRegistration(ctx, tx, user, fields); err != nil {
+			return err
 		}
 		var e error
 		issued, e = s.insertSession(ctx, tx, user, now)

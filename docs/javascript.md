@@ -82,6 +82,25 @@ Generate the exact TypeScript declaration with `pgbase js types`. The runtime ex
 
 Host arguments and results use a strict JSON codec. `undefined`, cycles, non-finite numbers, unsupported objects, and integers outside JavaScript's safe range are rejected. Omit optional properties instead of assigning `undefined`. Use `pgbase.exact("9007199254740993.125")` for exact output and keep exact input values as the opaque exact-number object supplied by PgBase.
 
+## Extension object storage
+
+Descriptors with the `filesystem` capability can use `$filesystem.configured()` for the operator-selected local or S3 storage. Objects remain scoped to the extension module's namespace. Scripts cannot select a bucket, endpoint, region, credentials, or another backend. The deprecated `$filesystem.s3()` call is a no-argument alias; passing any argument to it or to `configured()` throws `filesystem_configuration_unsupported` before a storage operation runs.
+
+Use `system.listPage(prefix, cursor, limit)` to walk configured storage. The default limit is 100; accepted limits are integers from 1 to 1000. Each page is `{objects, nextCursor}`, with object metadata `{Key, Size, UpdatedAt}` matching the existing storage bridge. Pass `nextCursor` with the same prefix until it is empty. `system.list(prefix)` remains an array convenience for at most 100 objects: if more exist it throws `filesystem_list_requires_pagination`, so a caller cannot mistake a truncated list for a complete one. The existing top-level `$filesystem.list(prefix, cursor, limit)` retains its bridge result shape.
+
+All filesystem operations inherit the invocation's cancellation and deadline. Calling `setContext()` on either configured storage or a rooted `$filesystem.local(root)` system throws `filesystem_context_unsupported`; scripts cannot replace or extend that context. Local filesystem roots remain separately restricted by the operator's `PocketBaseCompatibility.FilesystemRoot` option.
+
+```js
+const storage = $filesystem.configured();
+let cursor = "";
+let objectCount = 0;
+do {
+  const page = storage.listPage("reports/", cursor, 100);
+  objectCount += page.objects.length;
+  cursor = page.nextCursor;
+} while (cursor);
+```
+
 ## Routes and authority
 
 Route access is `public`, `user`, `admin`, or `service` and follows the native custom-route admission contract. The request contains method, path, path values, query values, a small allowlist of non-secret headers, an admitted principal when present, and either JSON or a text body. Authorization, cookies, bearer tokens, passwords, OTPs, and raw session material are never passed to JavaScript.

@@ -1,7 +1,7 @@
 package userauth
 
 import (
-	"reflect"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -153,6 +153,8 @@ func authRuleScalarValue(kind query.ScalarKind, raw any) query.ScalarValue {
 		switch number := raw.(type) {
 		case float64:
 			value.Number = number
+		case json.Number:
+			value.Number, _ = number.Float64()
 		case int:
 			value.Number = float64(number)
 		case int64:
@@ -168,7 +170,5 @@ func authRuleScalarValue(kind query.ScalarKind, raw any) query.ScalarValue {
 	}
 	return value
 }
-
-func authRuleValuesEqual(left, right any) bool { return reflect.DeepEqual(left, right) }
 
 func normalizeAuthRule(rule string) string { return strings.ReplaceAll(rule, "@request.", "request.") }
