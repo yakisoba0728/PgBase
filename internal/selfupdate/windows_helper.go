@@ -12,7 +12,7 @@ import (
 
 // RunWindowsHelper waits for the parent process, reacquires the installation
 // and executable locks, then finishes the already journalled replacement.
-// Native Windows execution remains unavailable on this Darwin host.
+// The stable coordination lock remains held through publication and health checks.
 func RunWindowsHelper(request WindowsHelperRequest) error {
 	if request.ParentPID == 0 || !filepath.IsAbs(request.StateDir) || !filepath.IsAbs(request.Target) || filepath.Base(request.Candidate) != request.Candidate {
 		return ErrInvalidInput

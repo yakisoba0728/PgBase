@@ -36,14 +36,14 @@ Cross-review and real execution found defects beyond the initial feature tests. 
 | Handwritten Go + UI runtime | 106,112 lines |
 | Go runtime | 94,955 |
 | UI runtime | 11,157 |
-| Delta from checkpoint | +1,115 / −115, net +1,000 |
+| Delta from checkpoint | +1,116 / −116, net +1,000 |
 | Data-group runtime | 28,540 |
 | Query runtime | 7,904 |
 | Go interfaces / exports / constructors | 104 / 1,595 / 64 |
 | UI direct page hooks / exports | 190 / 317 |
 | Runtime files over 800 lines | 0 |
 
-The data group grows by 71 lines: query +29 and schema +42, including the three-line helper-file overhead. SDKs, generated outputs, tests, and documents keep their existing classifications; the Go/UI number is not an all-language total. Ratchets are set to the measured values without unused growth allowance.
+The data group grows by 71 lines: query +29 and schema +42, including the three-line helper-file overhead. The final completion audit also replaces one stale Windows-helper comment about an unavailable Darwin-host test environment with the current coordination contract; this accounts for one additional addition/deletion without changing runtime behavior or the total. SDKs, generated outputs, tests, and documents keep their existing classifications; the Go/UI number is not an all-language total. Ratchets are set to the measured values without unused growth allowance.
 
 ## External and operational limits
 
@@ -54,5 +54,7 @@ The SDK acceptance's synthetic uploaded archive proves binary transport only; it
 The only module-level advisory reported by the local Go scan is `GO-2026-5932` for the unmaintained `golang.org/x/crypto/openpgp` package. PgBase neither imports nor calls that package; its required `x/crypto` module supplies other functionality. The scan reports no affected imported package or reachable symbol, and no advisory is suppressed.
 
 The existing [scheduled GitHub security run](https://github.com/yakisoba0728/PgBase/actions/runs/35581319166) could not start because GitHub reported failed account payments or an exhausted spending limit. Local checks do not substitute for a successful remote run, and no billing settings, required checks, or branch protections were changed to bypass it.
+
+The same restriction was confirmed on [draft PR #54](https://github.com/yakisoba0728/PgBase/pull/54) for the implementation commit `e956cc28682aa496da44d5cc1e06a422a489c7f4`: [Backend](https://github.com/yakisoba0728/PgBase/actions/runs/35735119298), [Frontend](https://github.com/yakisoba0728/PgBase/actions/runs/35735117510), and [Security](https://github.com/yakisoba0728/PgBase/actions/runs/35735117506) all terminated before starting their jobs. The PR remains unmerged. Successful remote validation and the real-environment acceptance requirements are incomplete.
 
 Automatic command review rejected cleanup of one task-owned diagnostic fixture with the reason `blocked by policy`, including a narrowed literal-path cleanup attempt. The ignored `.local/remaining-goal/windows-update/diag/fixture.exe` was left in place. It is not tracked or included in build/release assets. Shared validation fixtures and unrelated installations/containers were not removed.
