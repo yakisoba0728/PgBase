@@ -14,6 +14,30 @@ func acquireLock(file *os.File) error {
 	return acquireExclusiveExecutableLock(file)
 }
 
+func acquireServeExecutableLock(path string) (*os.File, error) {
+	file, err := openExistingRegularFile(path, os.O_RDONLY)
+	if err != nil {
+		return nil, ErrReplaceFailed
+	}
+	if err = acquireSharedExecutableLock(file); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
+}
+
+func acquireUpdateExecutableLockFile(path string) (*os.File, error) {
+	file, err := openExistingRegularFile(path, os.O_RDONLY)
+	if err != nil {
+		return nil, ErrReplaceFailed
+	}
+	if err = acquireExclusiveExecutableLock(file); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
+}
+
 func releaseLock(file *os.File) error { return unix.Flock(int(file.Fd()), unix.LOCK_UN) }
 
 func acquireSharedExecutableLock(file *os.File) error {

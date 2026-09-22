@@ -176,6 +176,12 @@ export class PgBaseClient {
     confirmTOTPEnrollment(code, signal) {
         return this.request("/api/v1/auth/totp/confirm", { method: "POST", body: JSON.stringify({ code }) }, signal);
     }
+    disableTOTP(currentPassword, code, signal) {
+        return this.request("/api/v1/auth/totp/disable", {
+            method: "POST",
+            body: JSON.stringify({ currentPassword, code }),
+        }, signal);
+    }
     async *iterate(collection, query = {}, signal) {
         let cursor = query.cursor;
         do {

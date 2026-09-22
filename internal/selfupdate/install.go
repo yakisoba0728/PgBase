@@ -113,13 +113,20 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 	}
 	keyFingerprint := checksumBytes(options.TrustKey)
 	candidateName := "." + filepath.Base(target) + ".pgbase-candidate-" + suffix
+	if runtime.GOOS == "windows" {
+		candidateName += ".exe"
+	}
 	candidatePath := filepath.Join(filepath.Dir(target), candidateName)
 	if _, err = os.Lstat(candidatePath); !os.IsNotExist(err) {
 		return Status{}, ErrRecoveryRequired
 	}
+	backupName := "backup-" + suffix
+	if runtime.GOOS == "windows" {
+		backupName += ".exe"
+	}
 	entry := journal{
 		SchemaVersion: 1, Phase: "manifest_verified", CreatedAt: time.Now().UTC(),
-		Target: filepath.Base(target), Candidate: candidateName, Backup: "backup-" + suffix,
+		Target: filepath.Base(target), Candidate: candidateName, Backup: backupName,
 		Old: oldBuild, New: Build{Version: options.Fetched.Candidate.Release.Version, Commit: options.Fetched.Candidate.Release.Commit, GOOS: options.Fetched.Candidate.Artifact.GOOS, GOARCH: options.Fetched.Candidate.Artifact.GOARCH, SchemaMin: strconv.FormatInt(options.Fetched.Candidate.Release.Schema.Min, 10), SchemaMax: strconv.FormatInt(options.Fetched.Candidate.Release.Schema.Max, 10)},
 		OldSHA256: targetDigest, ManifestSHA256: manifestSHA, SignatureSHA256: signatureSHA, TrustFingerprint: keyFingerprint,
 	}
@@ -133,9 +140,11 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	if err = os.Chmod(candidatePath, targetMode.Perm()); err != nil {
-		_ = os.Remove(candidatePath)
-		return Status{}, ErrReplaceFailed
+	if runtime.GOOS != "windows" {
+		if err = os.Chmod(candidatePath, targetMode.Perm()); err != nil {
+			_ = os.Remove(candidatePath)
+			return Status{}, ErrReplaceFailed
+		}
 	}
 	if err = syncFile(candidatePath); err != nil {
 		_ = os.Remove(candidatePath)
@@ -507,12 +516,12 @@ func validateInstallation(target, stateDir string, createState bool) (string, st
 		return "", "", err
 	}
 	targetInfo, targetErr := os.Lstat(canonical)
-	if targetErr != nil || !validInstallationTarget(targetInfo) {
+	if targetErr != nil || !validInstallationTarget(targetInfo) || !validPathSecurity(canonical) {
 		return "", "", ErrInvalidInput
 	}
 	directory := filepath.Dir(canonical)
 	directoryInfo, statErr := os.Lstat(directory)
-	if statErr != nil || !directoryInfo.IsDir() || directoryInfo.Mode()&os.ModeSymlink != 0 || !validInstallationDirectory(directoryInfo) {
+	if statErr != nil || !directoryInfo.IsDir() || directoryInfo.Mode()&os.ModeSymlink != 0 || !validInstallationDirectory(directoryInfo) || !validPathSecurity(directory) {
 		return "", "", ErrInvalidInput
 	}
 	requestedParent, err := os.Stat(filepath.Dir(stateDir))
@@ -528,7 +537,10 @@ func validateInstallation(target, stateDir string, createState bool) (string, st
 		if err = os.Mkdir(stateDir, 0700); err != nil {
 			return "", "", ErrReplaceFailed
 		}
-	} else if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !validPrivateStateDirectory(info) {
+	} else if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !validPrivateStateDirectory(info) || !validPathSecurity(stateDir) {
+		return "", "", ErrInvalidInput
+	}
+	if !validPathSecurity(stateDir) {
 		return "", "", ErrInvalidInput
 	}
 	return stateDir, canonical, nil
@@ -577,7 +589,7 @@ func copyRegular(source, target string, mode os.FileMode) error {
 }
 
 func syncFile(path string) error {
-	file, err := os.Open(path)
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
 		return err
 	}

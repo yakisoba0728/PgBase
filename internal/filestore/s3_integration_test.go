@@ -40,6 +40,15 @@ func TestS3StoreAgainstLocalMinIO(t *testing.T) {
 	if err != nil || string(data) != "minio object" {
 		t.Fatalf("S3 object = %q, %v", data, err)
 	}
+	ranged, err := store.OpenRange(context.Background(), key, ByteRange{Start: 6, End: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rangeData, err := io.ReadAll(ranged.Body)
+	_ = ranged.Body.Close()
+	if err != nil || string(rangeData) != "object" || ranged.Start != 6 || ranged.End != 11 || ranged.Size != 12 {
+		t.Fatalf("S3 range=%q metadata=%d-%d/%d err=%v", rangeData, ranged.Start, ranged.End, ranged.Size, err)
+	}
 	if err := store.Delete(context.Background(), key); err != nil {
 		t.Fatal(err)
 	}

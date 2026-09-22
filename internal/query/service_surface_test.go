@@ -139,7 +139,10 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// precise invalid-input errors, retaining existing scalar descriptors.
 	// Field-to-field cursors bind both typed identities and contains direction;
 	// the measured 129-line addition preserves scalar/function golden hashes.
-	if runtimeLines > 7875 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 7875", runtimeLines)
+	// Literal-left any-match normalization and the shared scalar predicate
+	// boundary add exactly 29 lines after the abc94ef checkpoint. SQL cursor
+	// descriptors retain their modifiers; no package boundary or slack changes.
+	if runtimeLines > 7904 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 7904", runtimeLines)
 	}
 }

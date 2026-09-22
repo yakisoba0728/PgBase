@@ -26,3 +26,5 @@ func validPrivateStateFile(file *os.File) bool {
 	info, err := file.Stat()
 	return err == nil && info.Mode().IsRegular() && validPrivateStateDirectory(info)
 }
+
+func validPathSecurity(string) bool { return true }

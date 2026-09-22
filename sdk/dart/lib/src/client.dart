@@ -287,8 +287,15 @@ final class PgBaseClient {
     JsonObject({'currentPassword': JsonString(currentPassword)}),
     cancellation,
   );
+
+  /// Confirms enrollment and returns the server-authored recovery codes.
+  ///
+  /// [fields] predates the native confirmation contract and is ignored. It is
+  /// retained temporarily for source compatibility; confirmation does not
+  /// support response projection.
   Future<JsonObject> confirmTotpEnrollment(
     String code, {
+    @Deprecated('TOTP confirmation does not support response projection.')
     String? fields,
     CancellationToken? cancellation,
   }) => _objectRequest(
@@ -296,6 +303,19 @@ final class PgBaseClient {
     '/api/v1/auth/totp/confirm',
     JsonObject({'code': JsonString(code)}),
     cancellation,
+  );
+  Future<void> disableTOTP(
+    String currentPassword,
+    String code, {
+    CancellationToken? cancellation,
+  }) async => request(
+    'POST',
+    '/api/v1/auth/totp/disable',
+    body: JsonObject({
+      'currentPassword': JsonString(currentPassword),
+      'code': JsonString(code),
+    }),
+    cancellation: cancellation,
   );
 
   Future<JsonObject> oauthStart(

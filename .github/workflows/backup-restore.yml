@@ -40,6 +40,8 @@ jobs:
           # The restore drill is a release-gate harness and can postdate the
           # candidate it exercises. The candidate itself stays digest-pinned.
           ref: ${{ github.sha }}
+          # Source-only upgrade acceptance archives a pinned historical commit.
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -70,11 +72,25 @@ jobs:
           set -o pipefail
           go test -tags=restore ./tests/restore -v -count=1 -timeout 40m 2>&1 | tee restore-drill.log
 
+      # Historical source compatibility is distinct from the candidate-image
+      # restore gate. It builds a pinned old commit, upgrades a populated
+      # fixture, then restores the pre-upgrade recovery set for rollback.
+      - name: Run the historical source upgrade and rollback drill
+        if: inputs.candidate_image == ''
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -tags='restore upgrade' ./tests/restore \
+            -run '^TestHistoricalUpgradeAndRollback$' -v -count=1 -timeout 20m \
+            2>&1 | tee historical-upgrade-drill.log
+
       - name: Upload restore drill log
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: restore-drill-${{ inputs.expected_version || github.run_id }}
-          path: restore-drill.log
+          path: |
+            restore-drill.log
+            historical-upgrade-drill.log
           if-no-files-found: warn
           retention-days: 30

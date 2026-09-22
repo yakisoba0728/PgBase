@@ -148,6 +148,9 @@ func newCandidate(t *testing.T) *candidate {
 		}
 	} else {
 		drill.binary = filepath.Join(t.TempDir(), "pgbase")
+		if runtime.GOOS == "windows" {
+			drill.binary += ".exe"
+		}
 		build := exec.Command("go", "build", "-o", drill.binary, "./cmd/pgbase")
 		build.Dir = repositoryRoot(t)
 		if output, err := build.CombinedOutput(); err != nil {
@@ -274,8 +277,9 @@ func (c *candidate) serve(t *testing.T, ctx context.Context, databaseURL, name s
 	return instance
 }
 
-// stop drains the instance the same way an orchestrator would, so a later dump
-// never observes a half-written transaction from a killed process.
+// stop waits until the instance cannot write before taking a dump. Unix uses
+// graceful termination; Windows has no SIGTERM and exercises crash recovery
+// after the completed fixture requests instead.
 func (s *server) stop(t *testing.T) {
 	t.Helper()
 	if s.stopped {
@@ -294,8 +298,14 @@ func (s *server) stop(t *testing.T) {
 	if s.process == nil || s.process.Process == nil {
 		return
 	}
-	if err := s.process.Process.Signal(syscall.SIGTERM); err != nil {
-		t.Errorf("signal the candidate server: %v", err)
+	var stopErr error
+	if runtime.GOOS == "windows" {
+		stopErr = s.process.Process.Kill()
+	} else {
+		stopErr = s.process.Process.Signal(syscall.SIGTERM)
+	}
+	if stopErr != nil {
+		t.Errorf("stop the candidate server: %v", stopErr)
 		return
 	}
 	done := make(chan error, 1)

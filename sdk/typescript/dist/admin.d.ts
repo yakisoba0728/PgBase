@@ -336,6 +336,35 @@ export type AppleClientSecretInput = {
     privateKey: string;
     duration: number;
 };
+export type AdministratorAccount = {
+    id: string;
+    email: string;
+    active: boolean;
+    createdAt: string;
+    updatedAt: string;
+};
+export type AdministratorAccountPage = {
+    items: AdministratorAccount[];
+    nextAfter?: string;
+};
+export type BackupEntry = {
+    id: string;
+    createdAt: string;
+    size: number;
+    postgresqlMajor: number;
+    sha256?: string;
+    storageFormat?: string;
+};
+export type BackupJob = {
+    id: string;
+    operation: "create" | "restore";
+    backupId: string;
+    status: "running" | "completed" | "failed";
+    phase: "create" | "restore" | "completed" | "failed" | "interrupted";
+    error?: string;
+    createdAt: string;
+    updatedAt: string;
+};
 export declare class AdminAPIError extends Error {
     readonly status: number;
     readonly code: string;
@@ -403,6 +432,7 @@ export declare class PgBaseAdminClient {
     previewSchemaImport(document: SchemaDocument, signal?: AbortSignal): Promise<ApprovedSchemaImportPlan>;
     previewSchemaImportJSON(documentJSON: string, signal?: AbortSignal): Promise<ApprovedSchemaImportPlan>;
     applySchemaImport(plan: SchemaImportPlan, signal?: AbortSignal): Promise<SchemaImportResult>;
+    schemaImportOperation(id: string, signal?: AbortSignal): Promise<SchemaImportResult>;
     logs(options?: {
         before?: number;
         statusClass?: number;
@@ -419,6 +449,23 @@ export declare class PgBaseAdminClient {
     backupStorageSettings(signal?: AbortSignal): Promise<BackupStorageSettings>;
     updateBackupStorage(input: BackupStorageUpdate, signal?: AbortSignal): Promise<BackupStorageSettings>;
     testBackupStorage(signal?: AbortSignal): Promise<void>;
+    administratorAccounts(options?: {
+        limit?: number;
+        after?: string;
+    }, signal?: AbortSignal): Promise<AdministratorAccountPage>;
+    createAdministrator(email: string, password: string, signal?: AbortSignal): Promise<AdministratorAccount>;
+    setAdministratorActive(id: string, active: boolean, signal?: AbortSignal): Promise<AdministratorAccount>;
+    setAdministratorPassword(id: string, newPassword: string, signal?: AbortSignal): Promise<void>;
+    revokeAdministratorSessions(id: string, signal?: AbortSignal): Promise<void>;
+    backups(signal?: AbortSignal): Promise<{
+        items: BackupEntry[];
+    }>;
+    createBackup(signal?: AbortSignal): Promise<BackupJob>;
+    uploadBackup(archive: Blob, signal?: AbortSignal): Promise<BackupEntry>;
+    downloadBackup(id: string, signal?: AbortSignal): Promise<Blob>;
+    deleteBackup(id: string, signal?: AbortSignal): Promise<void>;
+    restoreBackup(id: string, signal?: AbortSignal): Promise<BackupJob>;
+    backupJob(id: string, signal?: AbortSignal): Promise<BackupJob>;
     previewFileStorageMigration(input: FileStorageMigrationInput, signal?: AbortSignal): Promise<FileStorageMigration>;
     startFileStorageMigration(input: FileStorageMigrationInput, operationID: string, signal?: AbortSignal): Promise<FileStorageMigration>;
     fileStorageMigration(id: string, signal?: AbortSignal): Promise<FileStorageMigration>;
@@ -429,4 +476,5 @@ export declare class PgBaseAdminClient {
     private adopt;
     private request;
     private requestText;
+    private requestBlob;
 }

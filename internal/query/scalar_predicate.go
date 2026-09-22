@@ -42,6 +42,7 @@ func CompileScalarPredicate(expression string, fields map[string]ScalarKind) (Sc
 	if err != nil || node == nil {
 		return ScalarPredicate{}, err
 	}
+	node = normalizeScalarAnyMatch(node)
 	if err := validateScalarNode(node, fields); err != nil {
 		return ScalarPredicate{}, err
 	}
@@ -50,6 +51,26 @@ func CompileScalarPredicate(expression string, fields map[string]ScalarKind) (Sc
 		copyFields[name] = kind
 	}
 	return ScalarPredicate{node: node, fields: copyFields}, nil
+}
+
+func normalizeScalarAnyMatch(node filterNode) filterNode {
+	switch value := node.(type) {
+	case filterComparison:
+		value.operator = strings.TrimPrefix(value.operator, "?")
+		return value
+	case filterAnd:
+		for i := range value.children {
+			value.children[i] = normalizeScalarAnyMatch(value.children[i])
+		}
+		return value
+	case filterOr:
+		for i := range value.children {
+			value.children[i] = normalizeScalarAnyMatch(value.children[i])
+		}
+		return value
+	default:
+		return node
+	}
 }
 
 // Evaluate reports whether values match the compiled predicate.
@@ -206,6 +227,9 @@ func evaluateScalarComparison(comparison filterComparison, kind ScalarKind, valu
 		left, right := value.String, comparison.value.text
 		if comparison.modifier == "lower" {
 			left = strings.ToLower(left)
+		}
+		if comparison.literalLeft {
+			left, right = right, left
 		}
 		return compareScalarStrings(left, right, comparison.operator)
 	case ScalarBool:

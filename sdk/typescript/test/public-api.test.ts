@@ -1,6 +1,6 @@
 import type { AuthMethods, AuthRealm, BatchOperation, BatchOptions, CollectionChange, CollectionDefinition, CollectionScaffolds, OAuthLaunchOptions, PocketBaseListOptions, PocketBasePage, Query, RecordIDPolicy, RecordJSONResult, RecordModifiers, RealtimeEvent, Records, RecordWriteOptions, SchemaDocument, SchemaDocumentAuthCollection, SchemaDocumentAuthPolicy, SchemaDocumentCollection, SchemaPlan } from "../src/index.js";
 import { AuthStore, browserAuthStorage } from "../dist/index.js";
-import type { AuthStateStorage, PgBaseClient } from "../dist/index.js";
+import type { AdministratorAccountPage, AuthStateStorage, BackupEntry, BackupJob, PgBaseAdminClient, PgBaseClient, SchemaImportResult } from "../dist/index.js";
 import type { AuthCreationOptions, RealtimeStatus } from "../dist/index.js";
 
 declare const stateStorage: AuthStateStorage;
@@ -14,6 +14,16 @@ const signup: AuthCreationOptions<{ displayName: string; newsletter: boolean }> 
 void client.register("a@test", "password", signup);
 void client.realm("members").register("a@test", "password", signup);
 void client.realm("members").oauthComplete("github", "state", "code", signup);
+void client.disableTOTP("password", "123456", new AbortController().signal);
+declare const adminClient: PgBaseAdminClient;
+const administratorPage: Promise<AdministratorAccountPage> = adminClient.administratorAccounts({ limit: 25, after: "id" });
+const schemaImportReceipt: Promise<SchemaImportResult> = adminClient.schemaImportOperation("id");
+const backupList: Promise<{ items: BackupEntry[] }> = adminClient.backups();
+const backupCreate: Promise<BackupJob> = adminClient.createBackup();
+const backupUpload: Promise<BackupEntry> = adminClient.uploadBackup(new Blob());
+const backupDownload: Promise<Blob> = adminClient.downloadBackup("id");
+const interruptedBackupJob: BackupJob = { id: "job", operation: "restore", backupId: "backup", status: "failed", phase: "interrupted", createdAt: "created", updatedAt: "updated" };
+void [administratorPage, schemaImportReceipt, backupList, backupCreate, backupUpload, backupDownload, interruptedBackupJob];
 // @ts-expect-error A typed profile preserves its declared value types.
 const badSignup: AuthCreationOptions<{ newsletter: boolean }> = { profile: { newsletter: "yes" } };
 // @ts-expect-error Login is not a profile creation/update operation.

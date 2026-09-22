@@ -114,7 +114,11 @@ import (
 // View rename preserves the ID policy in-place. No group boundary changed.
 // Function cursor binding and input errors add another exact 160 query lines.
 // Field comparison signatures and typed operator checks add 129 query lines.
-const dataGroupRuntimeLimit = 28469
+// The remaining-goal slice adds 29 query lines for any-match/scalar direction
+// and 42 schema lines for validated existing-view imports and presentation-only
+// updates (including a three-line same-package helper split). The exact group
+// total is 28,540; package membership and classification are unchanged.
+const dataGroupRuntimeLimit = 28540
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -460,11 +464,19 @@ type structuralLimit struct {
 // nine direct hooks and five UI boundaries. No constructors, long files,
 // classifier changes, excluded files or spare allowance are introduced.
 // Evidence: docs/workstreams/independent-product-2026-09-22/continuation-validation.md.
+// The remaining-goal slice adds exactly 1,000 Go runtime lines over abc94ef:
+// managed file ranges, bounded image metadata/animation handling, corrected
+// scalar queries and view imports, and native Windows update integrity and
+// coordination. Four optional range/capability interfaces and nine exported
+// boundaries account for the new surface. The measured total is 106,112
+// (Go 94,955 + unchanged UI 11,157); no constructors, UI surface, classifier
+// exclusions, >800-line files, or unused allowance are introduced. Evidence:
+// docs/workstreams/remaining-goal-2026-09-22/README.md.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 105112, "2026-09-22 continuation exact all-file measurement including lifecycle wrappers"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 106112, "2026-09-22 remaining-goal exact all-file measurement"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 11157, "native administrator management and auth policy forms; no spare allowance"},
-	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 100, "three optional signup capabilities and administrator account transport"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1586, "reviewed signup, lifecycle wrapper and administrator service boundaries"},
+	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 104, "optional range transport/store and runtime capability boundaries"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1595, "reviewed managed byte-range service and store boundaries"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 64, "measured final 20-defect correctness constructors"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
 	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 190, "administrator page state, operation forms and account-list lifecycle"},

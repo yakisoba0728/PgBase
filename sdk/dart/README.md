@@ -9,6 +9,20 @@ appropriate secure persistence mechanism. The default `AuthStore` is memory
 only. Administrator sessions use cookies and in-memory CSRF state through a
 separate `PgBaseAdminClient`; never pass a user bearer token to it.
 
+The public client exposes the complete TOTP lifecycle through
+`beginTotpEnrollment`, `confirmTotpEnrollment`, and `disableTOTP`. The admin
+client exposes native administrator-account and managed-backup routes. Backup
+uploads accept an `UploadSource` so the archive is streamed with its declared
+length and `application/gzip`; downloads return the exact response bytes.
+Mutating admin helpers retain the login cookie and CSRF token. A restore starts
+the server's native restore job and does not invent an approval or idempotency
+contract; inspect it with `backupJob`.
+
+`confirmTotpEnrollment` always returns the server-authored recovery-code
+object. Its older named `fields` parameter is deprecated and ignored for source
+compatibility because the native confirmation route does not support response
+projection. New callers should omit it.
+
 The existing `AuthStorage` interface persists only the opaque token. To restore
 the cached user as well, implement `AuthStateStorage` and configure
 `AuthStore(stateStorage: storage)`, then `await auth.restore()` on startup.

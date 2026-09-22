@@ -60,6 +60,10 @@ export type FileStorageMigration = { id: string; status: "preview" | "copying" |
 export type BackupStorageSettings = { driver: "local" | "s3"; bucket: string; prefix: string; region: string; endpoint: string; accessKey: string; usePathStyle: boolean; retention: number; secretConfigured: boolean; revision: number };
 export type BackupStorageUpdate = Omit<BackupStorageSettings, "secretConfigured"> & { secretKey?: string; clearSecret?: boolean };
 export type AppleClientSecretInput = { clientId: string; teamId: string; keyId: string; privateKey: string; duration: number };
+export type AdministratorAccount = { id: string; email: string; active: boolean; createdAt: string; updatedAt: string };
+export type AdministratorAccountPage = { items: AdministratorAccount[]; nextAfter?: string };
+export type BackupEntry = { id: string; createdAt: string; size: number; postgresqlMajor: number; sha256?: string; storageFormat?: string };
+export type BackupJob = { id: string; operation: "create" | "restore"; backupId: string; status: "running" | "completed" | "failed"; phase: "create" | "restore" | "completed" | "failed" | "interrupted"; error?: string; createdAt: string; updatedAt: string };
 
 export class AdminAPIError extends Error {
   constructor(readonly status: number, readonly code: string, readonly details: Record<string, string[]> = {}) { super(code); this.name = "AdminAPIError"; }
@@ -156,6 +160,9 @@ export class PgBaseAdminClient {
     const request = plan instanceof ApprovedSchemaImportPlan ? plan.request() : { headers: { "PgBase-Operation-ID": plan.operationId ?? "", "Idempotency-Key": plan.idempotencyKey ?? "" }, body: JSON.stringify({ document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum }) };
     return this.request("/api/admin/schema/import/apply", { method: "POST", ...request }, signal);
   }
+  schemaImportOperation(id: string, signal?: AbortSignal): Promise<SchemaImportResult> {
+    return this.request(`/api/admin/schema/import/operations/${encodeURIComponent(id)}`, {}, signal);
+  }
   logs(options: { before?: number; statusClass?: number } = {}, signal?: AbortSignal): Promise<RequestLogPage> {
     const query = new URLSearchParams();
     if (options.before !== undefined) query.set("before", String(options.before));
@@ -171,6 +178,42 @@ export class PgBaseAdminClient {
   backupStorageSettings(signal?: AbortSignal): Promise<BackupStorageSettings> { return this.request("/api/admin/storage/backups", {}, signal); }
   updateBackupStorage(input: BackupStorageUpdate, signal?: AbortSignal): Promise<BackupStorageSettings> { return this.request("/api/admin/storage/backups", { method: "PUT", body: JSON.stringify(input) }, signal); }
   async testBackupStorage(signal?: AbortSignal): Promise<void> { await this.request("/api/admin/storage/backups/test", { method: "POST" }, signal); }
+  administratorAccounts(options: { limit?: number; after?: string } = {}, signal?: AbortSignal): Promise<AdministratorAccountPage> {
+    const query = new URLSearchParams();
+    if (options.limit !== undefined) query.set("limit", String(options.limit));
+    if (options.after !== undefined) query.set("after", options.after);
+    const suffix = query.size === 0 ? "" : `?${query}`;
+    return this.request(`/api/admin/administrators${suffix}`, {}, signal);
+  }
+  createAdministrator(email: string, password: string, signal?: AbortSignal): Promise<AdministratorAccount> {
+    return this.request("/api/admin/administrators", { method: "POST", body: JSON.stringify({ email, password }) }, signal);
+  }
+  setAdministratorActive(id: string, active: boolean, signal?: AbortSignal): Promise<AdministratorAccount> {
+    return this.request(`/api/admin/administrators/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ active }) }, signal);
+  }
+  async setAdministratorPassword(id: string, newPassword: string, signal?: AbortSignal): Promise<void> {
+    await this.request(`/api/admin/administrators/${encodeURIComponent(id)}/password-reset`, { method: "POST", body: JSON.stringify({ newPassword }) }, signal);
+  }
+  async revokeAdministratorSessions(id: string, signal?: AbortSignal): Promise<void> {
+    await this.request(`/api/admin/administrators/${encodeURIComponent(id)}/revoke-sessions`, { method: "POST", body: "{}" }, signal);
+  }
+  backups(signal?: AbortSignal): Promise<{ items: BackupEntry[] }> { return this.request("/api/admin/backups", {}, signal); }
+  createBackup(signal?: AbortSignal): Promise<BackupJob> { return this.request("/api/admin/backups", { method: "POST" }, signal); }
+  uploadBackup(archive: Blob, signal?: AbortSignal): Promise<BackupEntry> {
+    return this.request("/api/admin/backups/upload", { method: "POST", body: archive, headers: { "Content-Type": "application/gzip" } }, signal);
+  }
+  downloadBackup(id: string, signal?: AbortSignal): Promise<Blob> {
+    return this.requestBlob(`/api/admin/backups/${encodeURIComponent(id)}`, {}, signal);
+  }
+  async deleteBackup(id: string, signal?: AbortSignal): Promise<void> {
+    await this.request(`/api/admin/backups/${encodeURIComponent(id)}`, { method: "DELETE" }, signal);
+  }
+  restoreBackup(id: string, signal?: AbortSignal): Promise<BackupJob> {
+    return this.request(`/api/admin/backups/${encodeURIComponent(id)}/restore`, { method: "POST" }, signal);
+  }
+  backupJob(id: string, signal?: AbortSignal): Promise<BackupJob> {
+    return this.request(`/api/admin/backup-jobs/${encodeURIComponent(id)}`, {}, signal);
+  }
   previewFileStorageMigration(input: FileStorageMigrationInput, signal?: AbortSignal): Promise<FileStorageMigration> { return this.request("/api/admin/storage/files/migrations/preview", { method: "POST", body: JSON.stringify(input) }, signal); }
   startFileStorageMigration(input: FileStorageMigrationInput, operationID: string, signal?: AbortSignal): Promise<FileStorageMigration> { return this.request("/api/admin/storage/files/migrations", { method: "POST", body: JSON.stringify(input), headers: { "PgBase-Operation-ID": operationID } }, signal); }
   fileStorageMigration(id: string, signal?: AbortSignal): Promise<FileStorageMigration> { return this.request(`/api/admin/storage/files/migrations/${encodeURIComponent(id)}`, {}, signal); }
@@ -192,7 +235,7 @@ export class PgBaseAdminClient {
     const generation = this.#generation;
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
-    if (init.body !== undefined) headers.set("Content-Type", "application/json");
+    if (init.body !== undefined && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
     if (!anonymous && init.method && init.method !== "GET") headers.set("X-PgBase-CSRF", this.#csrf);
     const response = await this.#fetch(new URL(path, this.baseURL), { ...init, headers, credentials: "include", signal });
     if (!response.ok) {
@@ -210,5 +253,17 @@ export class PgBaseAdminClient {
     const text = await response.text();
     if (!response.ok) throw new AdminAPIError(response.status, "request_failed");
     return text;
+  }
+  private async requestBlob(path: string, init: RequestInit, signal?: AbortSignal): Promise<Blob> {
+    const generation = this.#generation;
+    const headers = new Headers(init.headers); headers.set("Accept", "application/gzip");
+    if (init.method && init.method !== "GET") headers.set("X-PgBase-CSRF", this.#csrf);
+    const response = await this.#fetch(new URL(path, this.baseURL), { ...init, headers, credentials: "include", signal });
+    if (!response.ok) {
+      if (response.status === 401 && generation === this.#generation) { this.#csrf = ""; this.#generation++; }
+      const data = await responseJSON(response, () => undefined) as { error?: { code?: string; details?: Record<string, string[]> } } | undefined;
+      throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details);
+    }
+    return response.blob();
   }
 }

@@ -130,6 +130,50 @@ final class PgBaseTransport {
     return _collect(request, cancellation);
   }
 
+  /// Streams an exact-length request body without taking ownership of [source].
+  Future<PgBaseResponse> upload(
+    String method,
+    String path, {
+    required UploadSource source,
+    required String contentType,
+    Map<String, String> headers = const {},
+    Map<String, String>? query,
+    CancellationToken? cancellation,
+  }) async {
+    final request = http.AbortableStreamedRequest(
+      method,
+      uri(path, query),
+      abortTrigger: cancellation?.whenCancelled,
+    );
+    request.headers.addAll({
+      'accept': 'application/json',
+      'content-type': contentType,
+      ...headers,
+    });
+    request.contentLength = source.length;
+    final uploadStream = source.open();
+    final sending = _client.send(request);
+    try {
+      final results = await Future.wait<Object?>([
+        sending,
+        _pipeUpload(request.sink, uploadStream, cancellation),
+      ], eagerError: false);
+      final response = results.first as http.StreamedResponse;
+      final bytes = await response.stream.toBytes();
+      return PgBaseResponse(
+        status: response.statusCode,
+        headers: _headers(response.headers),
+        bytes: Uint8List.fromList(bytes),
+      );
+    } on PgBaseCancellation {
+      rethrow;
+    } on http.RequestAbortedException {
+      throw const PgBaseCancellation();
+    } on http.ClientException catch (error) {
+      throw PgBaseNetworkError(error);
+    }
+  }
+
   Future<http.StreamedResponse> eventStream(
     String path, {
     required Map<String, String> headers,
@@ -173,6 +217,33 @@ final class PgBaseTransport {
   Map<String, String> _headers(Map<String, String> headers) => Map.unmodifiable(
     {for (final entry in headers.entries) entry.key.toLowerCase(): entry.value},
   );
+}
+
+Future<void> _pipeUpload(
+  StreamSink<List<int>> sink,
+  Stream<List<int>> source,
+  CancellationToken? cancellation,
+) {
+  final done = Completer<void>();
+  late final StreamSubscription<List<int>> subscription;
+  subscription = source.listen(
+    sink.add,
+    onError: (Object error, StackTrace stackTrace) async {
+      await sink.close();
+      if (!done.isCompleted) done.completeError(error, stackTrace);
+    },
+    onDone: () async {
+      await sink.close();
+      if (!done.isCompleted) done.complete();
+    },
+    cancelOnError: true,
+  );
+  cancellation?.whenCancelled.then((_) async {
+    await subscription.cancel();
+    unawaited(sink.close());
+    if (!done.isCompleted) done.completeError(const PgBaseCancellation());
+  });
+  return done.future;
 }
 
 MediaType? _mediaType(String? source) {

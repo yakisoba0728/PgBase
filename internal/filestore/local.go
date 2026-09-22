@@ -88,6 +88,43 @@ func (s *LocalStore) Open(ctx context.Context, key string) (io.ReadCloser, error
 	return file, nil
 }
 
+func (s *LocalStore) OpenRange(ctx context.Context, key string, requested ByteRange) (RangeRead, error) {
+	path, err := s.path(key)
+	if err != nil {
+		return RangeRead{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return RangeRead{}, err
+	}
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return RangeRead{}, ErrNotFound
+	}
+	if err != nil {
+		return RangeRead{}, fmt.Errorf("open object range: %w", err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return RangeRead{}, fmt.Errorf("stat object range: %w", err)
+	}
+	start, end, err := ResolveByteRange(requested, info.Size())
+	if err != nil {
+		_ = file.Close()
+		return RangeRead{Size: info.Size()}, err
+	}
+	if _, err := file.Seek(start, io.SeekStart); err != nil {
+		_ = file.Close()
+		return RangeRead{}, err
+	}
+	return RangeRead{Body: &limitedReadCloser{Reader: io.LimitReader(file, end-start+1), Closer: file}, Start: start, End: end, Size: info.Size()}, nil
+}
+
+type limitedReadCloser struct {
+	io.Reader
+	io.Closer
+}
+
 func (s *LocalStore) Delete(ctx context.Context, key string) error {
 	path, err := s.path(key)
 	if err != nil {

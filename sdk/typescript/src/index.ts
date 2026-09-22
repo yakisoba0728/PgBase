@@ -192,6 +192,13 @@ export class PgBaseClient {
     return this.request("/api/v1/auth/totp/confirm", { method: "POST", body: JSON.stringify({ code }) }, signal);
   }
 
+  disableTOTP(currentPassword: string, code: string, signal?: AbortSignal): Promise<void> {
+    return this.request("/api/v1/auth/totp/disable", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, code }),
+    }, signal);
+  }
+
   async *iterate<T extends RecordData>(
     collection: string,
     query: Query = {},

@@ -32,9 +32,12 @@ func (s *Service) buildThumbnail(ctx context.Context, file File) ([]byte, error)
 	if err != nil || config.Width < 1 || config.Height < 1 || int64(config.Width) > s.options.MaximumImagePixels/int64(config.Height) || !matchesImageFormat(file.ContentType, format) {
 		return nil, ErrInvalid
 	}
-	source, _, err := decodeImage(bytes.NewReader(data), file.ContentType)
+	source, format, err := decodeImage(bytes.NewReader(data), file.ContentType, s.options.MaximumImagePixels)
 	if err != nil {
 		return nil, ErrInvalid
+	}
+	if format == "jpeg" {
+		source = orientImage(source, jpegEXIFOrientation(data))
 	}
 	width, height, maximum := source.Bounds().Dx(), source.Bounds().Dy(), s.options.ThumbnailDimension
 	if width <= maximum && height <= maximum {
@@ -44,18 +47,14 @@ func (s *Service) buildThumbnail(ctx context.Context, file File) ([]byte, error)
 	if height > width {
 		newWidth, newHeight = max(1, width*maximum/height), maximum
 	}
-	thumbnail := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+	thumbnail := image.NewNRGBA(image.Rect(0, 0, newWidth, newHeight))
 	for y := range newHeight {
 		for x := range newWidth {
 			thumbnail.Set(x, y, source.At(source.Bounds().Min.X+x*width/newWidth, source.Bounds().Min.Y+y*height/newHeight))
 		}
 	}
 	var output bytes.Buffer
-	if file.ContentType == "image/png" {
-		err = png.Encode(&output, thumbnail)
-	} else {
-		err = jpeg.Encode(&output, thumbnail, &jpeg.Options{Quality: 82})
-	}
+	err = encodeThumbnail(&output, thumbnail, format)
 	if err != nil || int64(output.Len()) > s.options.MaximumBytes {
 		return nil, ErrInvalid
 	}
@@ -69,9 +68,7 @@ func thumbnailImageType(contentType string) bool {
 // decodeImageConfig and decodeImage select decoders by the already validated
 // declared type. image.Decode alone does not register WebP, and accepting a
 // mismatched decoder would let a claimed image type choose an unintended output
-// format. GIF and WebP thumbnails intentionally encode as JPEG: PocketBase
-// treats animation as a still-image transform rather than attempting to encode
-// animated output.
+// format.
 func decodeImageConfig(r io.Reader, contentType string) (image.Config, string, error) {
 	switch contentType {
 	case "image/jpeg", "image/png":
@@ -87,7 +84,18 @@ func decodeImageConfig(r io.Reader, contentType string) (image.Config, string, e
 	}
 }
 
-func decodeImage(r io.Reader, contentType string) (image.Image, string, error) {
+func encodeThumbnail(output io.Writer, thumbnail image.Image, sourceFormat string) error {
+	switch sourceFormat {
+	case "png", "gif", "webp":
+		return png.Encode(output, thumbnail)
+	case "jpeg":
+		return jpeg.Encode(output, thumbnail, &jpeg.Options{Quality: 82})
+	default:
+		return ErrInvalid
+	}
+}
+
+func decodeImage(r io.Reader, contentType string, maximumImagePixels int64) (image.Image, string, error) {
 	switch contentType {
 	case "image/jpeg", "image/png":
 		return image.Decode(r)
@@ -95,7 +103,15 @@ func decodeImage(r io.Reader, contentType string) (image.Image, string, error) {
 		decoded, err := gif.Decode(r)
 		return decoded, "gif", err
 	case "image/webp":
-		decoded, err := webp.Decode(r)
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return nil, "webp", err
+		}
+		decoded, err := webp.Decode(bytes.NewReader(data))
+		if err == nil {
+			return decoded, "webp", nil
+		}
+		decoded, err = decodeAnimatedWebPFirstFrame(data, maximumImagePixels)
 		return decoded, "webp", err
 	default:
 		return nil, "", ErrInvalid

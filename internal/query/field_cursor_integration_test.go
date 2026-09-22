@@ -169,4 +169,26 @@ func TestPublicFieldComparisonsBindBothCursorOperands(t *testing.T) {
 			})
 		}
 	})
+	t.Run("literal_left_any_match_operators", func(t *testing.T) {
+		for _, tc := range []struct {
+			filter string
+			count  int
+		}{
+			{`1 ?< amount`, 2}, {`1 ?<= amount`, 2}, {`1 ?> amount`, 1}, {`1 ?>= amount`, 1},
+			{`'match' ?= label`, 2}, {`'match' ?!= label`, 1},
+			{`'match' ?~ label`, 2}, {`'match' ?!~ label`, 1},
+		} {
+			t.Run(tc.filter, func(t *testing.T) {
+				request := ListRequest{Principal: Principal{Kind: identity.Anonymous}, Collection: name, Filter: tc.filter, Limit: 10, PocketBaseCompatibility: true}
+				page, err := records.List(ctx, request)
+				if err != nil || len(page.Items) != tc.count {
+					t.Fatalf("literal-left any-match list: got %d err=%v want %d", len(page.Items), err, tc.count)
+				}
+				total, err := Count(ctx, records, request)
+				if err != nil || total != int64(tc.count) {
+					t.Fatalf("literal-left any-match count: got %d err=%v want %d", total, err, tc.count)
+				}
+			})
+		}
+	})
 }

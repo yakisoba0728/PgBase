@@ -220,6 +220,9 @@ func (s *Service) planSchemaImport(ctx context.Context, tx pgx.Tx, catalog Catal
 			if err := applyImportedViewPresentation(&plan, item); err != nil {
 				return SchemaImportPlan{}, err
 			}
+			if err := omitUnchangedDeclarativeViewDDL(projected, change, item, &plan, companions); err != nil {
+				return SchemaImportPlan{}, err
+			}
 		}
 		plans = append(plans, plan)
 		for _, statement := range plan.Statements {
@@ -342,7 +345,11 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 				continue
 			}
 			if !current.IsSQLView() || item.View.SQL == "" {
-				if current.View != nil && item.View.SQL == "" && sameDeclarativeView(current.View, item.View) && sameViewPresentation(current, item.Fields) {
+				if current.View != nil && !current.IsSQLView() && item.View.SQL == "" && sameDeclarativeView(current.View, item.View) && sameViewPresentation(current, item.Fields) {
+					continue
+				}
+				if current.View != nil && !current.IsSQLView() && item.View.SQL == "" {
+					changes = append(changes, NewUpdateChange(UpdateCollectionInput{Name: item.Name, View: item.View}))
 					continue
 				}
 				return nil, validation("collections", "view_update_unsupported")
@@ -400,23 +407,6 @@ func pointerInt(value *int) int {
 	return *value
 }
 
-func sameDeclarativeView(current *ViewSpec, imported *ViewInput) bool {
-	return current.SQL == "" && current.Source == imported.Source && reflect.DeepEqual(current.Projection, imported.Projection) && reflect.DeepEqual(current.Filter, imported.Filter)
-}
-
-func sameViewPresentation(current Collection, imported []FieldInput) bool {
-	if len(current.Fields) != len(imported) {
-		return false
-	}
-	for i, field := range current.Fields {
-		provided := imported[i]
-		if provided.ID != nil || field.Name != provided.Name || field.Type != provided.Type || field.Required != provided.Required || field.Unique != provided.Unique || field.Indexed != provided.Indexed || string(field.Default) != string(provided.Default) || !reflect.DeepEqual(cloneFieldOptionsPointer(field.Options), provided.Options) || (field.Relation != nil) != (provided.Relation != nil) || field.Hidden != provided.Hidden || field.Presentable != provided.Presentable || field.Help != provided.Help {
-			return false
-		}
-	}
-	return true
-}
-
 func documentCollection(document SchemaDocument, name string) (SchemaDocumentCollection, bool) {
 	for _, item := range document.Collections {
 		if item.Name == name {
@@ -424,23 +414,6 @@ func documentCollection(document SchemaDocument, name string) (SchemaDocumentCol
 		}
 	}
 	return SchemaDocumentCollection{}, false
-}
-
-func applyImportedViewPresentation(plan *Plan, item SchemaDocumentCollection) error {
-	if item.View == nil || len(item.Fields) == 0 {
-		return nil
-	}
-	if len(item.Fields) != len(plan.Definition.Fields) {
-		return validation("collections."+item.Name+".fields", "view_field_mismatch")
-	}
-	for i := range plan.Definition.Fields {
-		provided, inferred := item.Fields[i], &plan.Definition.Fields[i]
-		if provided.ID != nil || provided.Name != inferred.Name || provided.Type != inferred.Type || provided.Required != inferred.Required || provided.Unique != inferred.Unique || provided.Indexed != inferred.Indexed || string(provided.Default) != string(inferred.Default) || !reflect.DeepEqual(provided.Options, cloneFieldOptionsPointer(inferred.Options)) || (provided.Relation != nil) != (inferred.Relation != nil) {
-			return validation("collections."+item.Name+".fields", "view_field_mismatch")
-		}
-		inferred.Hidden, inferred.Presentable, inferred.Help = provided.Hidden, provided.Presentable, provided.Help
-	}
-	return nil
 }
 
 func orderImportedViews(views []SchemaDocumentCollection) ([]SchemaDocumentCollection, error) {
@@ -677,6 +650,9 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 			}
 			if item, ok := documentCollection(planned.Document, currentPlan.Definition.Name); ok {
 				if err := applyImportedViewPresentation(&currentPlan, item); err != nil {
+					return err
+				}
+				if err := omitUnchangedDeclarativeViewDDL(catalog, change, item, &currentPlan, companions); err != nil {
 					return err
 				}
 			}

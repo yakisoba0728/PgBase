@@ -161,54 +161,80 @@ void main() {
     },
   );
 
-  test('shared realtime rejects a terminal HTTP handshake without retrying', () async {
-    final httpClient = _TerminalSseClient(401, code: 'unauthorized');
-    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: httpClient);
-    final realtime = RealtimeService(client, maxReconnects: 3);
+  test(
+    'shared realtime rejects a terminal HTTP handshake without retrying',
+    () async {
+      final httpClient = _TerminalSseClient(401, code: 'unauthorized');
+      final client = PgBaseClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: httpClient,
+      );
+      final realtime = RealtimeService(client, maxReconnects: 3);
 
-    await expectLater(
-      realtime.subscribe('notes', (_) {}),
-      throwsA(isA<PgBaseError>().having((error) => error.status, 'status', 401)),
-    );
-    expect(httpClient.calls, 1);
-  });
+      await expectLater(
+        realtime.subscribe('notes', (_) {}),
+        throwsA(
+          isA<PgBaseError>().having((error) => error.status, 'status', 401),
+        ),
+      );
+      expect(httpClient.calls, 1);
+    },
+  );
 
   test('shared realtime bounds recoverable handshake retries', () async {
     final httpClient = _TerminalSseClient(500, code: 'server_error');
-    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: httpClient);
+    final client = PgBaseClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: httpClient,
+    );
     final realtime = RealtimeService(
       client,
       maxReconnects: 1,
       reconnectDelay: Duration.zero,
     );
 
-    await expectLater(realtime.subscribe('notes', (_) {}), throwsA(isA<PgBaseError>()));
+    await expectLater(
+      realtime.subscribe('notes', (_) {}),
+      throwsA(isA<PgBaseError>()),
+    );
     expect(httpClient.calls, 2);
   });
 
-  test('unsubscribing during a pending shared handshake settles readiness', () async {
-    final httpClient = _BlockingSseClient();
-    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: httpClient);
-    final realtime = RealtimeService(client);
-    final pending = realtime.subscribe('notes', (_) {});
-    await httpClient.started.future;
-    await realtime.unsubscribe();
+  test(
+    'unsubscribing during a pending shared handshake settles readiness',
+    () async {
+      final httpClient = _BlockingSseClient();
+      final client = PgBaseClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: httpClient,
+      );
+      final realtime = RealtimeService(client);
+      final pending = realtime.subscribe('notes', (_) {});
+      await httpClient.started.future;
+      await realtime.unsubscribe();
 
-    await expectLater(pending, throwsA(isA<PgBaseCancellation>()));
-    await httpClient.aborted.future;
-  });
+      await expectLater(pending, throwsA(isA<PgBaseCancellation>()));
+      await httpClient.aborted.future;
+    },
+  );
 
-  test('a non-cancellation body error after unsubscribe settles readiness', () async {
-    final httpClient = _BodyAbortErrorSseClient();
-    final client = PgBaseClient(Uri.parse('http://pgbase.test/'), httpClient: httpClient);
-    final realtime = RealtimeService(client);
-    final pending = realtime.subscribe('notes', (_) {});
-    await httpClient.started.future;
-    await realtime.unsubscribe();
+  test(
+    'a non-cancellation body error after unsubscribe settles readiness',
+    () async {
+      final httpClient = _BodyAbortErrorSseClient();
+      final client = PgBaseClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: httpClient,
+      );
+      final realtime = RealtimeService(client);
+      final pending = realtime.subscribe('notes', (_) {});
+      await httpClient.started.future;
+      await realtime.unsubscribe();
 
-    await expectLater(pending, throwsA(isA<PgBaseCancellation>()));
-    await httpClient.aborted.future;
-  });
+      await expectLater(pending, throwsA(isA<PgBaseCancellation>()));
+      await httpClient.aborted.future;
+    },
+  );
 
   group('exact JSON', () {
     test(
@@ -420,6 +446,155 @@ void main() {
     await admin.configureJob('daily', '0 0 * * *', true);
     expect(client.requests.last.headers['x-pgbase-csrf'], 'csrf-token');
     expect(client.requests.last.headers.containsKey('authorization'), isFalse);
+  });
+
+  test('TOTP disable sends the native password and code body', () async {
+    final client = _ScriptedClient();
+    final pgbase = PgBaseClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: client,
+      auth: AuthStore(initialToken: 'user-token'),
+    );
+
+    await pgbase.disableTOTP('current-password', '123456');
+
+    final request = client.requests.single;
+    expect(request.method, 'POST');
+    expect(request.path, '/api/v1/auth/totp/disable');
+    expect(request.headers['authorization'], 'Bearer user-token');
+    expect(jsonDecode(utf8.decode(request.body)), {
+      'currentPassword': 'current-password',
+      'code': '123456',
+    });
+  });
+
+  test(
+    'administrator account helpers preserve native routes and bodies',
+    () async {
+      final client = _AdminSurfaceClient();
+      final admin = PgBaseAdminClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: client,
+      );
+      await admin.login('admin@example.test', 'password');
+      await admin.administratorAccounts(limit: 25, after: 'cursor');
+      await admin.createAdministrator('next@example.test', 'new-password');
+      await admin.setAdministratorActive('administrator/id', false);
+      await admin.setAdministratorPassword('administrator/id', 'replacement');
+      await admin.revokeAdministratorSessions('administrator/id');
+
+      expect(client.requests[1].url.queryParameters, {
+        'limit': '25',
+        'after': 'cursor',
+      });
+      expect(client.requests[2].jsonBody, {
+        'email': 'next@example.test',
+        'password': 'new-password',
+      });
+      expect(
+        client.requests[3].url.path,
+        '/api/admin/administrators/administrator%2Fid',
+      );
+      expect(client.requests[3].jsonBody, {'active': false});
+      expect(
+        client.requests[4].url.path,
+        '/api/admin/administrators/administrator%2Fid/password-reset',
+      );
+      expect(client.requests[4].jsonBody, {'newPassword': 'replacement'});
+      expect(client.requests[5].jsonBody, <String, Object?>{});
+      for (final request in client.requests.skip(2)) {
+        expect(request.headers['cookie'], 'admin-session=surface');
+        expect(request.headers['x-pgbase-csrf'], 'csrf-surface');
+      }
+    },
+  );
+
+  test(
+    'backup helpers stream gzip and return exact downloaded bytes',
+    () async {
+      final client = _AdminSurfaceClient();
+      final admin = PgBaseAdminClient(
+        Uri.parse('http://pgbase.test/'),
+        httpClient: client,
+      );
+      await admin.login('admin@example.test', 'password');
+      final opened = <int>[];
+      await admin.backups();
+      await admin.createBackup();
+      await admin.uploadBackup(
+        UploadSource(
+          open: () {
+            opened.add(1);
+            return Stream.value([0x1f, 0x8b, 0x08]);
+          },
+          length: 3,
+          filename: 'backup.tar.gz',
+        ),
+      );
+      expect(await admin.downloadBackup('archive/id'), [0x1f, 0x8b, 0x08, 0]);
+      await admin.deleteBackup('archive/id');
+      await admin.restoreBackup('archive/id');
+      await admin.backupJob('job/id');
+
+      expect(opened, [1]);
+      final upload = client.requests[3];
+      expect(upload.url.path, '/api/admin/backups/upload');
+      expect(upload.headers['content-type'], 'application/gzip');
+      expect(upload.contentLength, 3);
+      expect(upload.body, [0x1f, 0x8b, 0x08]);
+      expect(client.requests[4].url.path, '/api/admin/backups/archive%2Fid');
+      expect(client.requests[5].method, 'DELETE');
+      expect(
+        client.requests[6].url.path,
+        '/api/admin/backups/archive%2Fid/restore',
+      );
+      expect(client.requests[7].url.path, '/api/admin/backup-jobs/job%2Fid');
+    },
+  );
+
+  test('backup upload preserves structured administrator errors', () async {
+    final admin = PgBaseAdminClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: _AdminUploadFailureClient(),
+    );
+    await admin.login('admin@example.test', 'password');
+    await expectLater(
+      admin.uploadBackup(
+        UploadSource(
+          open: () => Stream.value([0x1f, 0x8b]),
+          length: 2,
+          filename: 'bad.tar.gz',
+        ),
+      ),
+      throwsA(
+        isA<PgBaseError>()
+            .having((error) => error.status, 'status', 415)
+            .having((error) => error.code, 'code', 'invalid_backup_archive')
+            .having((error) => error.requestId, 'requestId', 'upload-request'),
+      ),
+    );
+  });
+
+  test('backup upload cancellation stops its caller-owned source', () async {
+    final client = _AdminUploadCancellationClient();
+    final admin = PgBaseAdminClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: client,
+    );
+    await admin.login('admin@example.test', 'password');
+    final source = StreamController<List<int>>();
+    final token = CancellationToken();
+    final upload = admin.uploadBackup(
+      UploadSource(open: () => source.stream, length: 10, filename: 'wait.gz'),
+      cancellation: token,
+    );
+    await client.uploadStarted.future;
+    token.cancel();
+    await expectLater(
+      upload.timeout(const Duration(seconds: 1)),
+      throwsA(isA<PgBaseCancellation>()),
+    );
+    expect(source.hasListener, isFalse);
   });
 
   test(
@@ -886,6 +1061,111 @@ final class _CapturedRequest {
   final List<int> body;
 }
 
+final class _SurfaceRequest {
+  const _SurfaceRequest(
+    this.method,
+    this.url,
+    this.headers,
+    this.body,
+    this.contentLength,
+  );
+  final String method;
+  final Uri url;
+  final Map<String, String> headers;
+  final List<int> body;
+  final int? contentLength;
+  Object? get jsonBody => body.isEmpty ? null : jsonDecode(utf8.decode(body));
+}
+
+final class _AdminSurfaceClient extends http.BaseClient {
+  final List<_SurfaceRequest> requests = [];
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final body = await request.finalize().toBytes();
+    requests.add(
+      _SurfaceRequest(
+        request.method,
+        request.url,
+        Map.unmodifiable(request.headers),
+        body,
+        request.contentLength,
+      ),
+    );
+    final path = request.url.path;
+    if (path == '/api/admin/auth/login') {
+      return _jsonResponse(
+        200,
+        {'csrfToken': 'csrf-surface'},
+        headers: {'set-cookie': 'admin-session=surface; HttpOnly'},
+      );
+    }
+    if (path == '/api/admin/backups/upload') {
+      return _jsonResponse(201, {'id': 'uploaded'});
+    }
+    if (path.startsWith('/api/admin/backups/') && request.method == 'GET') {
+      return http.StreamedResponse(
+        http.ByteStream.fromBytes(const [0x1f, 0x8b, 0x08, 0]),
+        200,
+        headers: const {'content-type': 'application/gzip'},
+      );
+    }
+    if (request.method == 'POST' && path == '/api/admin/backups') {
+      return _jsonResponse(202, {'id': 'create-job'});
+    }
+    if (path.endsWith('/restore')) {
+      return _jsonResponse(202, {'id': 'restore-job'});
+    }
+    if (path.startsWith('/api/admin/backup-jobs/')) {
+      return _jsonResponse(200, {'id': 'job'});
+    }
+    if (request.method == 'DELETE' ||
+        path.endsWith('/password-reset') ||
+        path.endsWith('/revoke-sessions')) {
+      return _jsonResponse(204, null);
+    }
+    return _jsonResponse(200, {'items': <Object?>[]});
+  }
+}
+
+final class _AdminUploadFailureClient extends http.BaseClient {
+  var calls = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    calls++;
+    if (calls == 1) return _adminLoginResponse('failure');
+    return _jsonResponse(
+      415,
+      {
+        'error': {
+          'code': 'invalid_backup_archive',
+          'requestId': 'upload-request',
+        },
+      },
+    );
+  }
+}
+
+final class _AdminUploadCancellationClient extends http.BaseClient {
+  var calls = 0;
+  final uploadStarted = Completer<void>();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    calls++;
+    if (calls == 1) {
+      await request.finalize().drain<void>();
+      return _adminLoginResponse('cancel');
+    }
+    uploadStarted.complete();
+    final abortable = request as http.Abortable;
+    await abortable.abortTrigger;
+    throw http.RequestAbortedException(request.url);
+  }
+}
+
 final class _ProjectionClient extends http.BaseClient {
   final List<Uri> urls = [];
 
@@ -1130,7 +1410,8 @@ final class _BlockingSseClient extends http.BaseClient {
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    if (!request.url.path.endsWith('/events') && request.url.path != '/api/realtime') {
+    if (!request.url.path.endsWith('/events') &&
+        request.url.path != '/api/realtime') {
       throw StateError('unexpected request ${request.url}');
     }
     final stream = StreamController<List<int>>();
@@ -1347,9 +1628,7 @@ final class _TerminalSseClient extends http.BaseClient {
     calls++;
     await request.finalize().drain<void>();
     return http.StreamedResponse(
-      http.ByteStream.fromBytes(
-        utf8.encode('{"error":{"code":"$code"}}'),
-      ),
+      http.ByteStream.fromBytes(utf8.encode('{"error":{"code":"$code"}}')),
       status,
       headers: const {'content-type': 'application/json'},
     );
@@ -1382,14 +1661,17 @@ final class _ProfileClient extends http.BaseClient {
   }
 }
 
-http.StreamedResponse _jsonResponse(int status, Object? body) =>
-    http.StreamedResponse(
-      http.ByteStream.fromBytes(
-        body == null ? const [] : utf8.encode(jsonEncode(body)),
-      ),
-      status,
-      headers: const {'content-type': 'application/json'},
-    );
+http.StreamedResponse _jsonResponse(
+  int status,
+  Object? body, {
+  Map<String, String> headers = const {},
+}) => http.StreamedResponse(
+  http.ByteStream.fromBytes(
+    body == null ? const [] : utf8.encode(jsonEncode(body)),
+  ),
+  status,
+  headers: {'content-type': 'application/json', ...headers},
+);
 
 final class _AdminStale401Client extends http.BaseClient {
   final List<_CapturedRequest> requests = [];

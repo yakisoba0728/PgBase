@@ -67,6 +67,7 @@ export declare class PgBaseClient {
     confirmTOTPEnrollment(code: string, signal?: AbortSignal): Promise<{
         codes: string[];
     }>;
+    disableTOTP(currentPassword: string, code: string, signal?: AbortSignal): Promise<void>;
     iterate<T extends RecordData>(collection: string, query?: Query, signal?: AbortSignal): AsyncGenerator<T>;
     _request<T>(path: string, init?: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<T>;
     /** Cancels an in-flight request started with this key. */

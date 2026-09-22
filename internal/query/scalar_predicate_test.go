@@ -75,3 +75,30 @@ func TestScalarTimeComparisonsPreserveNanosecondPrecision(t *testing.T) {
 		}
 	}
 }
+
+func TestScalarAnyMatchOperatorsNormalizeForSingleValueOperands(t *testing.T) {
+	fields := map[string]ScalarKind{"count": ScalarNumber, "other": ScalarNumber, "name": ScalarString}
+	values := map[string]ScalarValue{"count": {Number: 3}, "other": {Number: 2}, "name": {String: "alphabet"}}
+	for _, test := range []struct {
+		expression string
+		want       bool
+	}{
+		{`count ?= 3`, true}, {`count ?!= 3`, false},
+		{`count ?< 4`, true}, {`count ?<= 3`, true}, {`count ?> 2`, true}, {`count ?>= 3`, true},
+		{`count ?> other`, true}, {`count ?<= other`, false},
+		{`3 ?= count`, true}, {`3 ?!= count`, false},
+		{`2 ?< count`, true}, {`3 ?<= count`, true}, {`4 ?> count`, true}, {`3 ?>= count`, true},
+		{`name ?~ 'alpha%'`, true}, {`name ?!~ 'omega'`, true},
+		{`'alphabet soup' ?~ name`, true}, {`'omega' ?!~ name`, true},
+	} {
+		t.Run(test.expression, func(t *testing.T) {
+			predicate, err := CompileScalarPredicate(test.expression, fields)
+			if err != nil {
+				t.Fatalf("CompileScalarPredicate: %v", err)
+			}
+			if got := predicate.Evaluate(values); got != test.want {
+				t.Fatalf("Evaluate() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}

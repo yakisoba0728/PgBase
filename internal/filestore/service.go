@@ -66,6 +66,16 @@ type Service struct {
 	allowed   map[string]struct{}
 }
 
+// SupportsRanges reports whether the configured object backend can select a
+// byte range without reading the complete object.
+func (s *Service) SupportsRanges() bool {
+	if s == nil {
+		return false
+	}
+	_, ok := s.objects.(ObjectRangeStore)
+	return ok
+}
+
 func (s *Service) policy(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID, field string) (FieldPolicy, error) {
 	protected := true
 	policy := FieldPolicy{MaximumBytes: s.options.MaximumBytes, MaximumCount: 1, MimeTypes: append([]string(nil), s.options.AllowedTypes...), Protected: &protected}
@@ -378,11 +388,19 @@ func mimeAllowed(value string, allowed []string) bool {
 }
 
 func (s *Service) Open(ctx context.Context, principal identity.Subject, id uuid.UUID, variant Variant, token string) (File, io.ReadCloser, error) {
+	file, err := s.authorizeOpen(ctx, principal, id, variant, token)
+	if err != nil {
+		return File{}, nil, err
+	}
+	return s.openAuthorizedObject(ctx, file, principal, variant)
+}
+
+func (s *Service) authorizeOpen(ctx context.Context, principal identity.Subject, id uuid.UUID, variant Variant, token string) (File, error) {
 	if !principal.Valid() || id == uuid.Nil || !validVariant(variant) {
-		return File{}, nil, ErrInvalid
+		return File{}, ErrInvalid
 	}
 	if token != "" && !s.verifyToken(token, principal, id, variant, s.options.Now()) {
-		return File{}, nil, ErrDenied
+		return File{}, ErrDenied
 	}
 	var file File
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
@@ -408,9 +426,65 @@ func (s *Service) Open(ctx context.Context, principal identity.Subject, id uuid.
 		return nil
 	})
 	if err != nil {
-		return File{}, nil, err
+		return File{}, err
 	}
-	return s.openAuthorizedObject(ctx, file, principal, variant)
+	return file, nil
+}
+
+func (s *Service) OpenRange(ctx context.Context, principal identity.Subject, id uuid.UUID, variant Variant, token string, requested ByteRange) (File, RangeRead, error) {
+	file, err := s.authorizeOpen(ctx, principal, id, variant, token)
+	if err != nil {
+		return File{}, RangeRead{}, err
+	}
+	return s.openAuthorizedRange(ctx, file, principal, variant, requested)
+}
+
+func (s *Service) openAuthorizedRange(ctx context.Context, file File, principal identity.Subject, variant Variant, requested ByteRange) (File, RangeRead, error) {
+	key := file.ObjectKey
+	var err error
+	if variant == Thumbnail {
+		key = file.ThumbnailKey
+		if key == "" {
+			return File{}, RangeRead{}, ErrNotFound
+		}
+	}
+	if variant != Original && variant != Thumbnail {
+		err = s.options.Hooks.Run(ctx, &lifecycle.Event{Kind: "file.transform", Data: publicFileAccessEvent(file, principal, variant)}, func() error { key, err = s.variantObject(ctx, file, string(variant)); return err })
+		if err != nil {
+			return File{}, RangeRead{}, err
+		}
+	}
+	store, ok := s.objects.(ObjectRangeStore)
+	if !ok {
+		return File{}, RangeRead{}, ErrInvalid
+	}
+	finish, err := s.options.Hooks.Begin(ctx, &lifecycle.Event{Kind: "file.download", Data: publicFileAccessEvent(file, principal, variant)})
+	if err != nil {
+		finish(err)
+		return File{}, RangeRead{}, err
+	}
+	result, err := store.OpenRange(ctx, key, requested)
+	if err != nil {
+		finish(err)
+		return File{}, result, err
+	}
+	if variant != Original {
+		prefix, prefixErr := store.OpenRange(ctx, key, ByteRange{Start: 0, End: 511})
+		if prefixErr != nil {
+			_ = result.Body.Close()
+			finish(prefixErr)
+			return File{}, RangeRead{}, prefixErr
+		}
+		result.Prefix, prefixErr = io.ReadAll(prefix.Body)
+		_ = prefix.Body.Close()
+		if prefixErr != nil {
+			_ = result.Body.Close()
+			finish(prefixErr)
+			return File{}, RangeRead{}, prefixErr
+		}
+	}
+	result.Body = newLifecycleReadCloser(ctx, result.Body, finish)
+	return file, result, nil
 }
 
 func (s *Service) openAuthorizedObject(ctx context.Context, file File, principal identity.Subject, variant Variant) (File, io.ReadCloser, error) {
