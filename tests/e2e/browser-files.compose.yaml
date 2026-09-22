@@ -1,0 +1,5 @@
+services:
+  pgbase:
+    environment:
+      PGBASE_FILES_DRIVER: local
+      PGBASE_FILES_LOCAL_DIRECTORY: /tmp/pgbase-files

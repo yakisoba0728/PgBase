@@ -22,12 +22,12 @@ Cross-review found additional defects after initial focused tests: scalar predic
 
 Feature records contain focused test commands and observed results. [The real HTTP SDK harness](../../../tests/sdk-acceptance/README.md) exercises external consumers against an isolated server. CI now includes native Windows updater tests and bounded multi-process acceptance on main/manual source runs; the source-only historical upgrade drill remains separate from digest-pinned release-candidate restore validation.
 
-[Final local verification](validation.md) records the combined test results, exact source accounting, review corrections, and the remote CI/environment limits.
+[Implementation verification](validation.md) records the combined test results, exact source accounting, review corrections, and the initial remote CI/environment limits. [Completion verification](completion-verification.md) records the final verification pass and the user's revised completion scope.
 
-The previous UI slice's 624 unit tests and eight Chromium flows are recorded in [the checkpoint validation](../independent-product-2026-09-22/continuation-validation.md). This goal adds backend, SDK, and operational work; it does not replace those historical results with claims of a fresh UI run.
+The previous UI slice's 624 unit tests and eight Chromium flows remain recorded in [the checkpoint validation](../independent-product-2026-09-22/continuation-validation.md). The completion record distinguishes the newly executed checks from those historical results.
 
 ## Environment limits
 
-The user confirmed that no real previous-installation copy, backup, or SMTP/OAuth/S3 provider configuration is available on this Windows host. No production credentials were requested in chat. Local mail/OAuth fixtures, MinIO, and historical-source recovery fixtures establish reproducible local behavior, not external delivery, provider-account acceptance, or recovery of a real installation.
+The user confirmed that no real previous-installation copy, backup, or SMTP/OAuth/S3 provider configuration is available on this Windows host, and explicitly excluded those real-environment checks from goal completion. No production credentials were requested in chat. Local mail/OAuth fixtures, MinIO, and historical-source recovery fixtures remain part of verification; they establish reproducible local behavior, not external delivery, provider-account acceptance, or recovery of a real installation.
 
-Public npm/pub packages, release images, production deployment, external-provider acceptance, and production load/RPO/RTO certification are separate release or deployment activities. They are not claimed as completed development tests. The remaining real-environment acceptance requires an actual deployment and its provider configuration; it is not an unimplemented replacement for the delivered local feature paths.
+Public npm/pub packages, release images, production deployment, external-provider acceptance, and production load/RPO/RTO certification are separate release or deployment activities. They are not claimed as completed development tests and do not block the revised development goal. The development goal ends with implemented features, executable local acceptance, applicable self-hosted PR checks, and a reviewable pull request.

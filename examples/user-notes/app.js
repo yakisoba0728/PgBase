@@ -1,4 +1,4 @@
-import { PgBaseClient } from "/sdk.js";
+import { PgBaseClient } from "/sdk/index.js";
 
 const byID = (id) => document.getElementById(id);
 const status = byID("status");

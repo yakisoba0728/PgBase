@@ -126,7 +126,10 @@ jobs:
           PGBASE_HTTP_PORT=18091 \
           PGBASE_POSTGRES_PORT=15433 \
           PGBASE_PUBLIC_URL=http://127.0.0.1:18091 \
-            docker compose -f deployments/docker-compose.yml up -d --wait $BUILD_FLAG
+            docker compose \
+              -f deployments/docker-compose.yml \
+              -f tests/e2e/browser-files.compose.yaml \
+              up -d --wait $BUILD_FLAG
 
       # Setup is same-origin protected, so the bootstrap request carries the
       # Origin the instance was configured with.
@@ -185,7 +188,10 @@ jobs:
         run: |
           docker compose -f deployments/docker-compose.yml logs --no-color > compose.log 2>&1
           COMPOSE_PROJECT_NAME="$PGBASE_AUTH_PROJECT_NAME" \
-            docker compose -f deployments/docker-compose.yml logs --no-color > compose-auth.log 2>&1
+            docker compose \
+              -f deployments/docker-compose.yml \
+              -f tests/e2e/browser-files.compose.yaml \
+              logs --no-color > compose-auth.log 2>&1
 
       - name: Upload failed E2E logs
         if: failure()
@@ -204,4 +210,7 @@ jobs:
         run: |
           docker compose -f deployments/docker-compose.yml down --volumes --remove-orphans --rmi local
           COMPOSE_PROJECT_NAME="$PGBASE_AUTH_PROJECT_NAME" \
-            docker compose -f deployments/docker-compose.yml down --volumes --remove-orphans
+            docker compose \
+              -f deployments/docker-compose.yml \
+              -f tests/e2e/browser-files.compose.yaml \
+              down --volumes --remove-orphans

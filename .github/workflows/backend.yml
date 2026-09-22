@@ -292,6 +292,10 @@ jobs:
           npm --prefix sdk/typescript test
           go test -tags='integration sdkconformance' ./pgbase -run '^TestSDKPublicRecordHTTPConformance$' -count=1
 
+      - name: Verify browser SDK example modules
+        if: inputs.source_commit == ''
+        run: npm --prefix examples/user-notes test
+
       - name: Test administrator SDKs against a real server
         if: inputs.candidate_image == '' && inputs.source_commit == '' && (github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && matrix.postgres.version == '17.9'
         run: >-
