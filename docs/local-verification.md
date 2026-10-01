@@ -17,7 +17,7 @@ PGBASE_TEST_ADMIN_URL=... GOTOOLCHAIN=go1.26.8 \
   go test -tags='integration load' ./pgbase -run TestLocalLoadStages -v -count=1
 ```
 
-The S3 fixture is `tests/filestore/compose.yaml`. Start its MinIO service and run its `create-bucket` service before the integration suite. The suite rejects unapproved skips, including omission of this fixture. The cross-build command writes six executables and `SHA256SUMS` under `.local/artifacts`; it does not sign, upload, tag, or publish them. Cross-compilation does not demonstrate execution on all six target systems.
+The S3 fixture is `tests/filestore/compose.yaml`. `scripts/test-s3-fixture.sh up` starts its MinIO service, runs its `create-bucket` service and prints the `PGBASE_TEST_S3_ENDPOINT` to use (port 59000 unless `PGBASE_TEST_S3_HOST_PORT` overrides it; `0` picks a free port); `scripts/test-s3-fixture.sh down` removes it. Set a distinct `PGBASE_TEST_S3_PROJECT` per concurrent run. The suite rejects unapproved skips, including omission of this fixture. The cross-build command writes six executables and `SHA256SUMS` under `.local/artifacts`; it does not sign, upload, tag, or publish them. Cross-compilation does not demonstrate execution on all six target systems.
 
 ## Observed short workload, 2026-09-08
 

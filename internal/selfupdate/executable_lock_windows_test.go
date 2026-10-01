@@ -123,8 +123,67 @@ func TestWindowsCoordinationLockSurvivesExecutableReplacement(t *testing.T) {
 	_ = serveLock.Close()
 }
 
+func currentUserSIDString(t *testing.T) string {
+	t.Helper()
+	var token windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = token.Close() }()
+	user, err := token.GetTokenUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return user.User.Sid.String()
+}
+
+// The writer policy must not depend on which allowed principal owns the
+// object: an elevated administrator's files are owned by Administrators while
+// their inherited grant names the invoking user.
+func TestWindowsSecurityDescriptorWriterPolicy(t *testing.T) {
+	user := currentUserSIDString(t)
+	const foreign = "S-1-5-21-111111111-222222222-333333333-1234"
+	for _, test := range []struct {
+		name  string
+		sddl  string
+		valid bool
+	}{
+		{name: "administrators_owner_with_current_user_grant", sddl: "O:BAD:PAI(A;;FA;;;" + user + ")(A;;FA;;;SY)(A;;FA;;;BA)", valid: true},
+		{name: "current_user_owner_with_current_user_grant", sddl: "O:" + user + "D:PAI(A;;FA;;;" + user + ")(A;;FA;;;SY)(A;;FA;;;BA)", valid: true},
+		{name: "current_user_owner_with_read_only_users", sddl: "O:" + user + "D:PAI(A;;FA;;;" + user + ")(A;;FR;;;BU)", valid: true},
+		{name: "users_write_grant", sddl: "O:BAD:PAI(A;;FA;;;" + user + ")(A;;FA;;;BU)", valid: false},
+		{name: "authenticated_users_write_grant", sddl: "O:BAD:PAI(A;;FA;;;BA)(A;;FW;;;AU)", valid: false},
+		{name: "everyone_write_grant", sddl: "O:BAD:PAI(A;;FA;;;BA)(A;;GA;;;WD)", valid: false},
+		{name: "foreign_owner", sddl: "O:" + foreign + "D:PAI(A;;FA;;;BA)", valid: false},
+		{name: "foreign_user_write_grant", sddl: "O:" + user + "D:PAI(A;;FA;;;" + user + ")(A;;FA;;;" + foreign + ")", valid: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			descriptor, err := windows.SecurityDescriptorFromString(test.sddl)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := validSecurityDescriptor(descriptor); got != test.valid {
+				t.Fatalf("validSecurityDescriptor(%s)=%v want %v", test.sddl, got, test.valid)
+			}
+		})
+	}
+}
+
 func TestWindowsRejectsBroadlyWritableInstallationACL(t *testing.T) {
 	directory := t.TempDir()
+	// Do not depend on the host's inherited temp ACL; grant BUILTIN\Users
+	// write access explicitly so every runner exercises the same rejection.
+	broad, err := windows.SecurityDescriptorFromString("D:PAI(A;OICI;FA;;;" + currentUserSIDString(t) + ")(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;BU)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dacl, _, err := broad.DACL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = windows.SetNamedSecurityInfo(directory, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
+		t.Fatal(err)
+	}
 	target := filepath.Join(directory, "pgbase.exe")
 	copyFixture(t, buildFixture(t, "v0.1.0", oldCommit, ""), target)
 	if _, _, err := validateInstallation(target, filepath.Join(directory, ".pgbase-update"), false); !errors.Is(err, ErrInvalidInput) {
