@@ -19,7 +19,21 @@ compose=(docker compose --project-name "$project" --file "$repository_root/tests
 case "${1:-}" in
 	up)
 		# Only the endpoint line belongs on stdout; callers append it to a
-		# GitHub step output or eval it.
+		# GitHub step output or eval it. The image is built from source (see
+		# tests/filestore/Dockerfile) and labelled with that file's digest, so
+		# an existing image (including one restored by `docker load`) is
+		# reused only while the Dockerfile is unchanged.
+		dockerfile="$repository_root/tests/filestore/Dockerfile"
+		if command -v sha256sum >/dev/null; then
+			digest="$(sha256sum "$dockerfile" | cut -d' ' -f1)"
+		else
+			digest="$(shasum -a 256 "$dockerfile" | cut -d' ' -f1)"
+		fi
+		image="$("${compose[@]}" config --images | sort -u)"
+		built="$(docker image inspect --format '{{ index .Config.Labels "org.pgbase.test-s3.dockerfile-sha256" }}' "$image" 2>/dev/null || true)"
+		if [[ "$built" != "$digest" ]]; then
+			"${compose[@]}" build --quiet --build-arg "DOCKERFILE_SHA256=$digest" minio >&2
+		fi
 		"${compose[@]}" up --detach minio >&2
 		"${compose[@]}" run --rm create-bucket >&2
 		address="$("${compose[@]}" port minio 9000)"
