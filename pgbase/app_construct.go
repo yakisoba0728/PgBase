@@ -141,10 +141,8 @@ func newWithCatalogPreflight(
 	if err := preflight(ctx, pool, schemaCache); err != nil {
 		return nil, fmt.Errorf("verify schema catalog rollout: %w", err)
 	}
-	if metrics != nil {
-		metrics.Record(ctx, observability.ReadinessEvent(observability.ReadinessDatabase, true))
-		metrics.Record(ctx, observability.ReadinessEvent(observability.ReadinessMigrations, true))
-	}
+	metrics.Record(ctx, observability.ReadinessEvent(observability.ReadinessDatabase, true))
+	metrics.Record(ctx, observability.ReadinessEvent(observability.ReadinessMigrations, true))
 
 	readiness := &readinessState{recorder: metrics, dependencies: []api.Readiness{
 		namedReadiness{name: "database", check: readinessFunc(pool.Ping)},
@@ -217,6 +215,7 @@ func newWithCatalogPreflight(
 		return nil, fmt.Errorf("initialize administrator UI: %w", err)
 	}
 	var publicHandler *publicsite.Handler
+	var publicStatic http.Handler // stays a nil interface, not a typed nil, without PublicDir
 	keepPublicHandler := false
 	defer func() {
 		if !keepPublicHandler && publicHandler != nil {
@@ -228,6 +227,7 @@ func newWithCatalogPreflight(
 		if err != nil {
 			return nil, fmt.Errorf("initialize public static site: %w", err)
 		}
+		publicStatic = publicHandler
 	}
 	systemStatus := newSystemStatusSampler(pool, runner, schemaCache, schemaListener)
 	schemaHealth := newSchemaHealthSampler(pool, runner)
@@ -293,7 +293,7 @@ func newWithCatalogPreflight(
 		System:                    systemStatus,
 		SchemaHealth:              schemaHealth,
 		AdminUI:                   adminHandler,
-		PublicStatic:              publicHandler,
+		PublicStatic:              publicStatic,
 		Metrics:                   metrics,
 		MetricsExposition:         metricsExposition,
 		SchemaApplyTimeout:        normalized.SchemaApplyTimeout,
