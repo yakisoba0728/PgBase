@@ -5,6 +5,7 @@ package pgbase
 import (
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestJavaScriptFilesystemRejectsStorageConfiguration(t *testing.T) {
@@ -70,7 +71,11 @@ func TestJavaScriptFilesystemListingRequiresContinuation(t *testing.T) {
 	}`)
 	fixture := newPublicUsersAppOptions(t, false, func(options *Options) {
 		options.Files = FileOptions{Driver: "local", LocalDirectory: t.TempDir(), MaximumBytes: 1024}
-		options.JavaScript = &JavaScriptOptions{Directory: directory, Capabilities: map[string]bool{"filesystem": true}}
+		// 102 durable uploads in one invocation exceeded the 5s default on a
+		// GitHub-hosted runner (run 36850658087); this test checks paging, not
+		// latency, so allow the 30s maximum.
+		options.JavaScript = &JavaScriptOptions{Directory: directory, Capabilities: map[string]bool{"filesystem": true},
+			DefaultTimeout: 30 * time.Second}
 	})
 	response := publicUsersRequest(t, fixture, http.MethodPost, "/filesystem-pages", map[string]any{}, "", nil, nil)
 	want := `{"code":"filesystem_list_requires_pagination","cursor":"items/099","done":true,"first":100,"firstKey":"items/000","invalid":["filesystem_invalid_page_limit","filesystem_invalid_page_limit","filesystem_invalid_page_limit"],"last":1,"lastKey":"items/100","small":1}`
