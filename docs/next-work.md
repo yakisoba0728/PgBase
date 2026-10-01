@@ -1,6 +1,6 @@
 # 다음 작업과 완료 기준
 
-2026-10-01 갱신: 2026-09-22 로드맵의 구현은 [PR #54](https://github.com/yakisoba0728/PgBase/pull/54)로 main `8e78392`에 병합됐고, 의존성 통합 [PR #58](https://github.com/yakisoba0728/PgBase/pull/58) `5ccab67`과 CI Node 24.21.0 정렬 [PR #59](https://github.com/yakisoba0728/PgBase/pull/59) `bf7e5f2`가 뒤따랐다. 그 전에 Round 3·감사 결함 수정은 [PR #36](https://github.com/yakisoba0728/PgBase/pull/36) `5cb721f`, 유지보수 45개 항목은 [PR #39](https://github.com/yakisoba0728/PgBase/pull/39) `9a02663`로 병합됐다. main은 schema 65이고 설치 기록은 N1–N5/schema40으로 남아 있다(2026-10-01 재확인 안 함). 남은 일은 아래 "2026-10-01 열린 항목"과 [현재 상태](project-status.md) §9를 따른다.
+2026-10-01 갱신: 2026-09-22 로드맵의 구현은 [PR #54](https://github.com/yakisoba0728/PgBase/pull/54)로 main `8e78392`에 병합됐고, 의존성 통합 [PR #58](https://github.com/yakisoba0728/PgBase/pull/58) `5ccab67`과 CI Node 24.21.0 정렬 [PR #59](https://github.com/yakisoba0728/PgBase/pull/59) `bf7e5f2`가 뒤따랐다. 그 전에 Round 3·감사 결함 수정은 [PR #36](https://github.com/yakisoba0728/PgBase/pull/36) `5cb721f`, 유지보수 45개 항목은 [PR #39](https://github.com/yakisoba0728/PgBase/pull/39) `9a02663`로 병합됐다. main은 schema 65이고, 2026-10-01 문서 작성 Mac에 schema 65 fresh install(`8568458`)을 만들었다(이전 schema40 설치는 이 Mac에 없었음). 남은 일은 아래 "2026-10-01 열린 항목"과 [현재 상태](project-status.md) §9를 따른다.
 
 2026-09-22 현재 실행 기준: [PgBase 자체 제품 로드맵](workstreams/independent-product-2026-09-22/README.md)의 재현 가능한 결함, API·관리 화면·SDK의 사용 흐름, 설치·복구 인수를 우선한다. [PocketBase 비교 감사](audits/2026-09-22-pocketbase-comparison/README.md)의 차이는 설계 참고이며 전부 구현해야 하는 작업 목록이 아니다. 아래 N 단계는 당시 실행 이력이다.
 
@@ -12,13 +12,13 @@
 
 | ID | 작업 | 완료 증거 |
 | --- | --- | --- |
-| O1 | GitHub-hosted 예약 workflow 복구. Security 예약 실행은 2026-09-07부터, Backup restore drill은 2026-09-16부터 step 0개·runner 미할당으로 실패. 2026-10-01 GitHub-hosted `ubuntu-24.04` PR job은 실제로 시작됐으나 MinIO image pull이 `unauthorized`로 실패 | 원인 확인 기록, MinIO fixture image 접근 복구, 두 예약 workflow의 성공 실행 |
+| O1 | **부분 완료(2026-10-01).** GitHub-hosted 예약 workflow 복구. 원인은 계정 결제/지출 한도(check-run annotation)이며 MinIO image pull `unauthorized`는 [PR #66](https://github.com/yakisoba0728/PgBase/pull/66) `31a9694`으로 해소 | 남은 증거: 저장소 소유자의 Billing & plans 확인 후 다음 주간 예약 실행(Security·Backup restore drill) 성공. branch dispatch 실행은 2026-10-01 통과 |
 | O2 | **완료(2026-10-01).** main push의 `windows-2025` Windows self-update job 실패(`8e78392`, `5ccab67`, `bf7e5f2`) | [PR #62](https://github.com/yakisoba0728/PgBase/pull/62) `c1cd442`: 관리자 권한 실행 시 실행 사용자 본인의 쓰기 ACE를 거부하던 제품 결함 수정. `c1cd442`·`60cc908` main push에서 통과 |
 | O3 | **완료(2026-10-01).** 같은 Docker host를 공유하는 self-hosted runner의 동시 job 충돌(공용 compose project `pgbase-ci-files`, PostgreSQL service port) | [PR #61](https://github.com/yakisoba0728/PgBase/pull/61) `4f7fbfa`: job별 compose project·임시 port·Docker 할당 PostgreSQL port. 이후 PR #62·#63과 main 실행이 같은 runner 군에서 통과 |
-| O4 | main schema 65 소스의 기존 설치 rollout | 설치 전 백업, schema40→65 적용, doctor/readiness·관리자 로그인 등 설치 인수 기록. 별도 승인 필요 |
+| O4 | **완료(2026-10-01, fresh install).** main schema 65 소스의 로컬 설치 | 이전 schema40 설치가 문서 작성 Mac에 없어 사용자 승인에 따라 새로 설치: `8568458`, PostgreSQL 17.9, `migrate up` 0→65, doctor 0 finding·readiness·관리자 UI·404 확인. 관리자 생성과 실제 사용 데이터 인수는 남음 |
 | O5 | 공개 release·npm/pub.dev 배포 | 아래 "외부 환경이 정해진 뒤 할 일"의 증거. 별도 승인 필요 |
 
-O1–O3은 처음 작성 시점에 열려 있었다. 같은 날 O2·O3을 PR #62·#61로 닫았고, 시간 의존 test 2건도 [PR #63](https://github.com/yakisoba0728/PgBase/pull/63) `60cc908`으로 고쳤다. O1은 열려 있다. O4·O5는 2026-10-01 기준 수행하지 않았다. 제품 코드는 구조 예산 상한(handwritten runtime 106,112줄)에 도달해 있어, 순증가 변경은 상쇄나 근거 있는 예산 조정이 필요하다([현재 상태](project-status.md) §9).
+O1–O3은 처음 작성 시점에 열려 있었다. 같은 날 O2·O3을 PR #62·#61로 닫았고, 시간 의존 test 2건도 [PR #63](https://github.com/yakisoba0728/PgBase/pull/63) `60cc908`으로 고쳤다. O1은 원인을 확인하고 MinIO 부분을 PR #66으로 고쳤으며 결제 설정만 남았다. O4는 fresh install로 마쳤고, 그 과정에서 찾은 알 수 없는 경로 500 결함을 [PR #65](https://github.com/yakisoba0728/PgBase/pull/65)로 고쳤다. O5는 수행하지 않았다. 제품 코드는 구조 예산 상한(handwritten runtime 106,112줄)에 도달해 있어, 순증가 변경은 상쇄나 근거 있는 예산 조정이 필요하다([현재 상태](project-status.md) §9).
 
 ## 우선순위와 의존성
 

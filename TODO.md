@@ -2,7 +2,7 @@
 
 ## 2026-10-01 현재 — main 병합 이력 정리와 남은 운영 항목
 
-main은 `60cc908`([PR #63](https://github.com/yakisoba0728/PgBase/pull/63))이고 system migration은 `000065`(schema 65)까지다. 설치 기록은 여전히 N1–N5/PostgreSQL 17/schema40(`127.0.0.1:8090`)이며 2026-10-01 재확인하지 못했다(문서 작성 호스트에서 연결 불가). 이후 병합분은 설치·공개 배포하지 않았고 공개 릴리스는 v0.1.0뿐이다. 아래 병합은 각 PR의 필수 CI 통과 후 merge commit으로 반영됐다.
+main은 `31a9694`([PR #66](https://github.com/yakisoba0728/PgBase/pull/66))이고 system migration은 `000065`(schema 65)까지다. 이전 N1–N5/schema40 설치 기록은 문서 작성 Mac에 존재하지 않아, 2026-10-01 같은 Mac에 `8568458` binary와 PostgreSQL 17.9 새 DB로 schema 65 fresh install을 만들었다(`127.0.0.1:8090`). 공개 배포는 하지 않았고 공개 릴리스는 v0.1.0뿐이다. 아래 병합은 각 PR의 필수 CI 통과 후 merge commit으로 반영됐다.
 
 - [x] [PR #36](https://github.com/yakisoba0728/PgBase/pull/36) `5cb721f`(2026-09-11): PocketBase Round 3 범위, 2026-09-11 감사의 20개 제품 결함 수정(`275d2e4`), migration `000042`–`000065`. [결함 수정 ledger](docs/audits/2026-09-11/defect-fixes.md).
 - [x] [PR #39](https://github.com/yakisoba0728/PgBase/pull/39) `9a02663`(2026-09-12): 유지보수 45개 항목(`0228716`)과 감사된 parity remediation(`d996b9c`). [유지보수 구현 결과](docs/audits/2026-09-11-maintainability-implementation/README.md).
@@ -14,7 +14,11 @@ main은 `60cc908`([PR #63](https://github.com/yakisoba0728/PgBase/pull/63))이�
 - [x] [PR #61](https://github.com/yakisoba0728/PgBase/pull/61) `4f7fbfa`(2026-10-01): self-hosted runner가 공유하는 Docker host에서 integration job의 PostgreSQL port·MinIO compose project/port를 job별로 분리(`scripts/test-s3-fixture.sh`).
 - [x] [PR #62](https://github.com/yakisoba0728/PgBase/pull/62) `c1cd442`(2026-10-01): Windows self-update 권한 검사가 관리자 권한 실행(Administrators 소유 파일)에서 실행 사용자 본인의 쓰기 ACE를 거부하던 제품 결함 수정과 회귀 test. main push Windows self-update 통과.
 - [x] [PR #63](https://github.com/yakisoba0728/PgBase/pull/63) `60cc908`(2026-10-01): `TestArtifactShortContentLengthAndBodyDeadlineCleanup`과 storage settings UI test의 타이밍 경합 수정(test 파일만 변경).
-- [ ] 예약 workflow 복구: GitHub-hosted `ubuntu-24.04`의 Security 예약 실행은 2026-09-07부터, Backup restore drill은 2026-09-16부터 job이 step 0개·runner 미할당으로 실패한다. 원인 미확정. 2026-10-01 GitHub-hosted PR job은 시작됐지만 MinIO image pull이 `unauthorized`로 실패했다.
+- [x] [PR #64](https://github.com/yakisoba0728/PgBase/pull/64) `e03c6f1`(2026-10-01): PR #61–#63 결과 문서화.
+- [x] [PR #65](https://github.com/yakisoba0728/PgBase/pull/65) `8568458`(2026-10-01): `PublicDir` 미설정 시 알 수 없는 경로가 typed-nil panic으로 500을 반환하던 결함 수정(순증가 0줄)과 integration 회귀 test.
+- [x] [PR #66](https://github.com/yakisoba0728/PgBase/pull/66) `31a9694`(2026-10-01): MinIO/mc test fixture를 고정 upstream commit에서 source build, hosted runner Actions cache. JS filesystem paging test timeout 30초.
+- [x] 로컬 설치(2026-10-01): 문서 작성 Mac에 이전 설치가 없어 schema 65 fresh install. `8568458`, PostgreSQL 17.9, doctor 0 finding, readiness·관리자 UI 200, 알 수 없는 경로 404. 관리자 미생성.
+- [ ] 예약 workflow 복구: Security(2026-09-07~)·Backup restore drill(2026-09-16~) 예약 job의 원인은 check-run annotation상 계정 결제 실패/지출 한도다. MinIO pull 문제는 PR #66으로 해소했고 두 workflow의 branch dispatch는 GitHub-hosted에서 통과했다. 저장소 소유자의 Billing & plans 확인과 다음 예약 실행 성공이 남았다.
 - [x] main push의 GitHub-hosted `windows-2025` Windows self-update job 실패(`8e78392`, `5ccab67`, `bf7e5f2`). PR #62로 해소, `c1cd442`·`60cc908` main push 통과.
 - [x] 같은 Docker host를 공유하는 self-hosted runner의 동시 job 충돌(`5ccab67` main Backend integration 실패와 PR #59 첫 실행 실패). PR #61로 해소.
 
@@ -764,6 +768,8 @@ Sol 에이전트 3명과 Root가 PocketBase v0.40.3 원본 계약을 PgBase의 P
 - 2026-10-01: 2026-09-11 이후 병합(PR #36·#39·#41·#42·#54·#58·#59)과 남은 CI 운영 항목을 상단 "2026-10-01 현재" 절, `docs/project-status.md`, `docs/next-work.md`에 반영했다. N1–N5 후속 공백 5개와 PB-A16 후속 체크박스를 실제 완료 근거(PR #34·#35)로 갱신했다. 설치 상태는 schema40 기록을 유지하며 재확인하지 않았다.
 
 - 2026-10-01: CI 열린 항목 중 Windows self-update(PR #62), self-hosted Docker 충돌(PR #61), 시간 의존 test 2건(PR #63)을 해소하고 상단 절·`docs/project-status.md` §9·`docs/next-work.md` O1–O3을 갱신했다. 예약 workflow(O1)는 열려 있다.
+
+- 2026-10-01: PR #64–#66 병합, 예약 workflow 원인(계정 결제/지출 한도) 확인과 MinIO source build, 알 수 없는 경로 500 결함 수정, 문서 작성 Mac의 schema 65 fresh install을 상단 절·`docs/project-status.md`·`docs/next-work.md`·README에 반영했다.
 
 ## PocketBase 전체 소스 대조 감사 (2026-09-09)
 
