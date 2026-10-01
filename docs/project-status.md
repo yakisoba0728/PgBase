@@ -1,6 +1,6 @@
 # PgBase 구현 이력과 현재 상태
 
-2026-10-01 현재 기준: main은 `60cc908`([PR #63](https://github.com/yakisoba0728/PgBase/pull/63))이며 system migration은 `000065`(schema 65)까지다. 2026-09-11 이후의 병합은 §2 표의 PR #36–#63 행, CI·운영 항목은 §9에 기록한다. 실제 로컬 설치는 여전히 N1–N5/PostgreSQL 17.9/schema40 기록이다. 2026-10-01 문서 작성 호스트에서 `127.0.0.1:8090`에 연결되지 않아 이 기록은 재확인하지 않았다. N6–N9와 PR #36–#63 병합분은 설치·공개 배포하지 않았고 공개 릴리스는 v0.1.0뿐이다.
+2026-10-01 현재 기준: main은 `31a9694`([PR #66](https://github.com/yakisoba0728/PgBase/pull/66))이며 system migration은 `000065`(schema 65)까지다. 2026-09-11 이후의 병합은 §2 표의 PR #36–#66 행, CI·운영 항목은 §9에 기록한다. 실제 로컬 설치는 2026-10-01 문서 작성 Mac(Darwin ARM64)에 새로 만든 설치다. 기존 기록의 N1–N5/schema40 설치(`.local/pgbase`, `pgbase-local_data` volume)는 이 Mac에 존재하지 않아 40→65 upgrade가 아니라 fresh install로 진행했다. `scripts/dev-local.sh` 구성(PostgreSQL 17.9 `pgbase-local-postgres-1`/`127.0.0.1:55440`, HTTP `127.0.0.1:8090`, devmail `8025`)에서 `pgbase migrate up`으로 schema 0→65를 적용했고, binary는 main `8568458`(PR #65, `vcs.modified=false`, Go 1.26.8)이다. doctor finding 0, `/health/live`·`/health/ready` 200, 관리자 UI 200, 알 수 없는 경로 404를 확인했다. 새 DB이므로 관리자는 아직 없다(setup token으로 생성). 이전 기록의 데이터 보존이나 공개 배포를 주장하지 않으며 공개 릴리스는 v0.1.0뿐이다.
 
 2026-09-22 현재 기준: PgBase는 PocketBase에서 아이디어를 얻은 독립 PostgreSQL 제품이다. 현재 구현·검증과 후속 우선순위는 [자체 제품 보완 기록](workstreams/independent-product-2026-09-22/README.md)을 따른다. [PocketBase 비교 감사](audits/2026-09-22-pocketbase-comparison/README.md)는 당시 소스 차이를 보존하는 참고 자료이며, 차이 개수를 결함 수·완성률·자동 구현 목록으로 사용하지 않는다. 과거 `232/0/0`도 전체 품질 판정이 아니다.
 
@@ -10,7 +10,7 @@
 
 ## Status applicability
 
-This document has a current status section and historical sections. Baseline SHA: `0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b`; verification SHA: `60cc9085944a443b05dd82e535e90bd83bae0a43`. Historical entries are scoped to their own dated evidence. Run `python3 docs/check-status-index.py` from the repository root to check the applicability index.
+This document has a current status section and historical sections. Baseline SHA: `0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b`; verification SHA: `31a9694aff133eda7404c304d4a970acdb324fe6`. Historical entries are scoped to their own dated evidence. Run `python3 docs/check-status-index.py` from the repository root to check the applicability index.
 
 기록일: 2026-09-11. 이 문서는 지금까지의 작업을 통합한 현재 상태 문서다. 세부 작업 기록은 [TODO](../TODO.md), 다음 실행 순서와 완료 기준은 [후속 작업](next-work.md), PocketBase와의 차이는 [현재 기능 비교](pocketbase-feature-comparison-current-2026-09-10.md)를 따른다. 과거 감사·마일스톤 문서는 당시 증거를 보존하는 기록이다.
 
@@ -23,12 +23,12 @@ This document has a current status section and historical sections. Baseline SHA
 | 항목 | 확인된 상태 |
 | --- | --- |
 | 현재 저장소 | [yakisoba0728/PgBase](https://github.com/yakisoba0728/PgBase) |
-| 최신 main 병합 기준 | 2026-10-01 [PR #63](https://github.com/yakisoba0728/PgBase/pull/63), `60cc9085944a443b05dd82e535e90bd83bae0a43`. main schema 65(`000065_optional_auth_email_uniqueness.sql`). 2026-09-11 기록의 최신 제품 병합은 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) `2939f1543e4889c0ffa967eae398c91d0ecbb6ce` |
+| 최신 main 병합 기준 | 2026-10-01 [PR #66](https://github.com/yakisoba0728/PgBase/pull/66), `31a9694aff133eda7404c304d4a970acdb324fe6`. main schema 65(`000065_optional_auth_email_uniqueness.sql`). 2026-09-11 기록의 최신 제품 병합은 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) `2939f1543e4889c0ffa967eae398c91d0ecbb6ce` |
 | N1–N5 개발 기준 | 구현·독립 검토·전체 로컬 인수 및 필수 원격 CI5/5·정상 병합 완료. [기존 설치·인수](workstreams/n1-n5/release-install.md) 완료 |
 | N6–N9 소스 기준 | **구현·독립 검토·G5 로컬 인수 및 원격 병합 완료**. 최종 제품/UI `b7674f704e14b07104ebf6f1c9ee5e53092f367e`, 후속 수정은 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)로 main `53a474143e117251d9b322441508ac85d776ef2a`에 병합. [인수 증거](workstreams/n6-n9/acceptance.md) |
 | PocketBase Round 3 검증 소스 | `codex/round3-integration`의 `bd76b1d1aaf28839072fa71e6b05cf39219053e9`. 고정 232행은 구현 232·부분 0·미구현 0. [21행 완료 ledger](pocketbase-unimplemented-completion-round3-2026-09-11.md). 이후 [PR #36](https://github.com/yakisoba0728/PgBase/pull/36)으로 main `5cb721f`에 병합(2026-09-11) |
-| 설치 제품 커밋 | `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`. 설치 기록 문서의 후속 커밋과 구분 |
-| 실제 로컬 설치 | N1–N5, PostgreSQL17.9, schema40, `http://127.0.0.1:8090/admin`. 2026-10-01 재확인하지 않음(문서 작성 호스트에서 연결 불가). main schema 65와 다름 |
+| 설치 제품 커밋 | 2026-10-01 fresh install: `85684581177d3a7b56b015a01be6163d4a94a1dd`([PR #65](https://github.com/yakisoba0728/PgBase/pull/65)). 이후 PR #66은 test·CI fixture만 바꿔 설치 binary와 동작이 같다. 이전 기록의 설치 제품은 `2939f1543e4889c0ffa967eae398c91d0ecbb6ce` |
+| 실제 로컬 설치 | 2026-10-01 문서 작성 Mac에 fresh install. PostgreSQL 17.9, schema 65, `http://127.0.0.1:8090/admin`. 이전 기록의 N1–N5/schema40 설치는 이 Mac에 없었다. doctor 0 finding·readiness·관리자 UI·알 수 없는 경로 404 확인. 관리자 미생성 |
 | P8 개발 DB | migration 33–38, 임시 PostgreSQL 18/MinIO 및 populated 복사본 인수 완료 |
 | 공개 릴리스 | README에 기록된 최초 v0.1.0과 현재 개발 소스를 구분. 2026-10-01 기준 v0.1.0 이후 공개 릴리스는 없음 |
 | 비교 대상 | 로컬 PocketBase v0.40.3, `5684ee24f1e88f71a2ede73d20cf547fbd509e16` |
@@ -63,6 +63,9 @@ N1–N5 구현·로컬 통합 인수·필수 원격 CI 5개·PR 병합·기존 �
 | self-hosted job 격리 | integration job의 PostgreSQL service를 Docker 할당 host port로, MinIO fixture를 job별 compose project·임시 port로 실행(`scripts/test-s3-fixture.sh`). 정리는 자기 project만 제거. Security audit image tag를 run별로 분리 | [PR #61](https://github.com/yakisoba0728/PgBase/pull/61) `4f7fbfa`(2026-10-01) 병합. self-hosted 필수 5개 통과 |
 | Windows self-update 권한 검사 | `validSecurityDescriptor`가 소유자가 Administrators인 파일(관리자 권한 실행)에서 실행 사용자 본인의 쓰기 ACE를 거부하던 제품 결함 수정. 다른 사용자·Users·Authenticated Users·Everyone 쓰기와 알 수 없는 소유자는 계속 거부. 회귀 test 추가 | [PR #62](https://github.com/yakisoba0728/PgBase/pull/62) `c1cd442`(2026-10-01) 병합. 브랜치 dispatch와 병합 후 main push의 `windows-2025` Windows self-update 통과 |
 | 타이밍 test 안정화 | `TestArtifactShortContentLengthAndBodyDeadlineCleanup`의 정지 응답을 test가 직접 해제하도록 변경, storage settings UI test가 recovery 확인 완료(입력 활성화) 후 조작하도록 변경. test 파일만 변경 | [PR #63](https://github.com/yakisoba0728/PgBase/pull/63) `60cc908`(2026-10-01) 병합. self-hosted 필수 5개 통과, 병합 후 main Backend·Frontend·Security 통과 |
+| CI 수정 문서화 | PR #61–#63 결과를 상태 문서에 반영 | [PR #64](https://github.com/yakisoba0728/PgBase/pull/64) `e03c6f1`(2026-10-01) 병합 |
+| 알 수 없는 경로 404 | `PublicDir` 미설정 시 nil `*publicsite.Handler`가 `http.Handler` 필드에 typed nil로 들어가 라우터 nil 검사를 통과하고 panic(500)하던 PR #34 이후 결함 수정. 순증가 0줄. 실제 app wiring integration 회귀 test 추가 | [PR #65](https://github.com/yakisoba0728/PgBase/pull/65) `8568458`(2026-10-01) 병합. 수정 전 6개 경로 500 재현, 수정 후 router 404와 동일. 로컬 설치에서 `/foo` 등 404 확인 |
+| MinIO fixture source build | 익명 pull이 401인 upstream MinIO image 대신 같은 MinIO/mc release를 고정 upstream commit에서 Go module proxy로 빌드(`tests/filestore/Dockerfile`), hosted runner는 Actions cache 사용. hosted runner에서 5초 기본 timeout을 넘긴 JS filesystem paging test의 timeout을 30초로 조정 | [PR #66](https://github.com/yakisoba0728/PgBase/pull/66) `31a9694`(2026-10-01) 병합. hosted dispatch로 Security·Backup restore drill 통과, hosted Backend PR integration cache miss/hit 통과, self-hosted 필수 5개 통과 |
 
 M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 항목을 후속 단계가 구현한 경우 후속 기록을 우선한다. 예를 들어 과거 M6의 'JS runtime 범위 결정 완료'는 JSVM 구현 완료가 아니다.
 
@@ -171,7 +174,7 @@ N6–N9 구현·독립 검토·전체 G5 로컬 인수는 `b7674f7`에서 완료
 
 | 항목 | 확인된 사실 | 상태 |
 | --- | --- | --- |
-| 예약 workflow | Security 예약 실행과 Backup restore drill은 GitHub-hosted `ubuntu-24.04`에서 실행된다. Security 예약 실행은 2026-09-07부터(마지막 성공 2026-08-31), Backup restore drill은 2026-09-16부터(마지막 성공 2026-09-09) 매회 job이 step 0개, runner 미할당 상태로 실패했다. 같은 기간 self-hosted runner의 PR·main job은 실행됐다. 2026-10-01 main push의 GitHub-hosted `windows-2025` job은 실제로 실행됐다. 2026-10-01 PR #61의 신뢰되지 않은 head 실행은 GitHub-hosted `ubuntu-24.04`에서 실제로 시작됐고, PostgreSQL integration job이 MinIO image pull `unauthorized: access to the requested resource is not authorized`로 S3 fixture 단계에서 실패했다. 따라서 GitHub-hosted runner 전체가 막힌 것은 아니며, 예약 실행이 시작되더라도 MinIO fixture를 쓰는 job은 image 접근 문제로 실패할 수 있다 | 원인 미확정. 미해결 |
+| 예약 workflow | Security 예약 실행은 2026-09-07부터(마지막 성공 2026-08-31), Backup restore drill은 2026-09-16부터(마지막 성공 2026-09-09) 매회 job이 step 0개, runner 미할당으로 실패했다. 실패 job의 check-run annotation은 "The job was not started because recent account payments have failed or your spending limit needs to be increased"이며, 같은 annotation이 같은 기간 GitHub-hosted PR·push job에도 있다. self-hosted runner job은 과금 대상이 아니어서 실행됐다. 2026-10-01에는 GitHub-hosted job이 다시 시작됐고, 그때 드러난 MinIO image pull `unauthorized`는 PR #66이 source build로 해소했다. 같은 날 branch dispatch에서 Security·Backup restore drill이 GitHub-hosted runner로 통과했다 | 원인 확인: 계정 결제/지출 한도. MinIO 문제는 해소. 결제 설정은 workflow로 고칠 수 없어 저장소 소유자가 Billing & plans에서 확인해야 하며, 그 전까지 예약 실행은 다시 막힐 수 있다 |
 | main push의 Windows self-update | `8e78392`, `5ccab67`, `bf7e5f2` main push Backend의 GitHub-hosted `windows-2025` job에서 `internal/selfupdate` test(`TestExecutableLockAllowsProbe`, `TestWindowsNativeUpdateLifecycle` 등)가 `update replacement failed`, `invalid update input`으로 세 번 같은 형태로 실패했다. 이 job은 PR에서 실행되지 않으며 필수 check가 아니다. PR #54 본문은 별도 native Windows 환경의 test 통과를 기록한다 | 해소. [PR #62](https://github.com/yakisoba0728/PgBase/pull/62) `c1cd442`: 원인은 관리자 권한 실행 시 Administrators 소유 파일에서 실행 사용자 본인의 쓰기 ACE를 거부한 제품 결함. `c1cd442`·`60cc908` main push에서 Windows self-update 통과 |
 | self-hosted 동시 job 충돌 | `5ccab67` main push Backend의 PostgreSQL integration에서 `TestAdministratorS3SettingsHTTPRedactionTestAndRotation`이 503 `storage_unavailable`로 실패했다(08:23:19 UTC). 26초 전 같은 Docker host에서 실행된 PR #59 job이 공용 compose project `pgbase-ci-files`를 정리하며 MinIO container를 제거했다. 그 PR job은 PostgreSQL service container의 port 연결 설정 실패로 시작하지 못했고, 실패 job 재실행은 통과했다 | 해소. [PR #61](https://github.com/yakisoba0728/PgBase/pull/61) `4f7fbfa`: PostgreSQL service는 Docker 할당 port, MinIO fixture는 job별 compose project·임시 port를 사용하고 자기 project만 정리 |
 | 의존성 audit | `8e78392` main push Security의 frontend `npm audit --audit-level=high`가 undici high severity advisory로 실패했다. PR #58 병합 후 `5ccab67` main push Security는 통과했다 | 해소 |
@@ -179,4 +182,4 @@ N6–N9 구현·독립 검토·전체 G5 로컬 인수는 `b7674f7`에서 완료
 | 타이밍 의존 test | PR #60 첫 실행의 `TestArtifactShortContentLengthAndBodyDeadlineCleanup`(20ms client timeout)과 PR #59 첫 실행의 `storage-settings-page.test.tsx`(5초 timeout)가 부하 중 실패했다. 각각 client timeout이 test server의 정지 응답을 정상 종료시키는 경합, recovery 확인 완료 전 비활성 버튼을 누르는 경합이었다 | 해소. [PR #63](https://github.com/yakisoba0728/PgBase/pull/63) `60cc908`. 재현되지 않은 시간 의존 test 후보는 PR #63 본문에 목록만 남김 |
 | 구조 예산 | `internal/repositorypolicy/loc_budget_test.go`의 handwritten runtime 상한은 106,112줄이며 main은 이 상한에 도달해 있다. PR #62 작업 중 제품 코드에 3줄 주석을 더한 첫 버전이 `TestRuntimeStructuralBudgetsDoNotDrift`에서 실패했다. 제품 코드를 순증가시키는 변경은 다른 곳을 줄이거나 근거와 함께 예산을 조정해야 한다 | 관측 기록 |
 
-설치 상태는 §1 표를 따른다. main schema 65와 설치 기록 schema40의 차이는 rollout 전까지 유지되며 이 문서는 새 설치를 주장하지 않는다.
+설치 상태는 §1 표를 따른다. 2026-10-01 설치는 기존 schema40 설치의 upgrade가 아니라 새 DB의 fresh install이다.
