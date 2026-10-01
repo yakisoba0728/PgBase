@@ -2,7 +2,7 @@
 
 ## 2026-10-01 현재 — main 병합 이력 정리와 남은 운영 항목
 
-main은 `bf7e5f2`([PR #59](https://github.com/yakisoba0728/PgBase/pull/59))이고 system migration은 `000065`(schema 65)까지다. 설치 기록은 여전히 N1–N5/PostgreSQL 17/schema40(`127.0.0.1:8090`)이며 2026-10-01 재확인하지 못했다(문서 작성 호스트에서 연결 불가). 이후 병합분은 설치·공개 배포하지 않았고 공개 릴리스는 v0.1.0뿐이다. 아래 병합은 각 PR의 필수 CI 통과 후 merge commit으로 반영됐다.
+main은 `60cc908`([PR #63](https://github.com/yakisoba0728/PgBase/pull/63))이고 system migration은 `000065`(schema 65)까지다. 설치 기록은 여전히 N1–N5/PostgreSQL 17/schema40(`127.0.0.1:8090`)이며 2026-10-01 재확인하지 못했다(문서 작성 호스트에서 연결 불가). 이후 병합분은 설치·공개 배포하지 않았고 공개 릴리스는 v0.1.0뿐이다. 아래 병합은 각 PR의 필수 CI 통과 후 merge commit으로 반영됐다.
 
 - [x] [PR #36](https://github.com/yakisoba0728/PgBase/pull/36) `5cb721f`(2026-09-11): PocketBase Round 3 범위, 2026-09-11 감사의 20개 제품 결함 수정(`275d2e4`), migration `000042`–`000065`. [결함 수정 ledger](docs/audits/2026-09-11/defect-fixes.md).
 - [x] [PR #39](https://github.com/yakisoba0728/PgBase/pull/39) `9a02663`(2026-09-12): 유지보수 45개 항목(`0228716`)과 감사된 parity remediation(`d996b9c`). [유지보수 구현 결과](docs/audits/2026-09-11-maintainability-implementation/README.md).
@@ -10,9 +10,13 @@ main은 `bf7e5f2`([PR #59](https://github.com/yakisoba0728/PgBase/pull/59))이�
 - [x] [PR #54](https://github.com/yakisoba0728/PgBase/pull/54) `8e78392`(2026-10-01): 관리자 계정·auth 정책 UI, query/cursor, 파일 byte range, EXIF/GIF/WebP 썸네일, view import, TS/Dart SDK helper, Windows self-update, multi-process 인수. [근거](docs/workstreams/remaining-goal-2026-09-22/README.md).
 - [x] [PR #58](https://github.com/yakisoba0728/PgBase/pull/58) `5ccab67`(2026-10-01): Dependabot PR 12개를 대체하는 의존성 통합. #56(@types/node 26)은 Node 24 runtime과 맞지 않아 닫았다.
 - [x] PR #59 `bf7e5f2`(2026-10-01): CI `setup-node`를 Docker admin-ui stage와 같은 Node 24.21.0으로 맞췄다. `ui/admin/dist`는 Node 24.21.0 clean build 2회가 기존과 byte 동일해 변경하지 않았다.
-- [ ] 예약 workflow 복구: GitHub-hosted `ubuntu-24.04`의 Security 예약 실행은 2026-09-07부터, Backup restore drill은 2026-09-16부터 job이 step 0개·runner 미할당으로 실패한다. 원인 미확정.
-- [ ] main push의 GitHub-hosted `windows-2025` Windows self-update job 실패(`8e78392`, `5ccab67`, `bf7e5f2` 모두 `internal/selfupdate` test 실패). 원인 미확정. `bf7e5f2` main push는 이 job을 빼면 Backend·Frontend·Security가 통과했다.
-- [ ] 같은 Docker host를 공유하는 self-hosted runner의 동시 job 충돌 확인(`5ccab67` main Backend integration 실패와 PR #59 첫 실행 실패 참조).
+- [x] [PR #60](https://github.com/yakisoba0728/PgBase/pull/60) `0efa4ff`(2026-10-01): 이 절과 상태 문서 갱신.
+- [x] [PR #61](https://github.com/yakisoba0728/PgBase/pull/61) `4f7fbfa`(2026-10-01): self-hosted runner가 공유하는 Docker host에서 integration job의 PostgreSQL port·MinIO compose project/port를 job별로 분리(`scripts/test-s3-fixture.sh`).
+- [x] [PR #62](https://github.com/yakisoba0728/PgBase/pull/62) `c1cd442`(2026-10-01): Windows self-update 권한 검사가 관리자 권한 실행(Administrators 소유 파일)에서 실행 사용자 본인의 쓰기 ACE를 거부하던 제품 결함 수정과 회귀 test. main push Windows self-update 통과.
+- [x] [PR #63](https://github.com/yakisoba0728/PgBase/pull/63) `60cc908`(2026-10-01): `TestArtifactShortContentLengthAndBodyDeadlineCleanup`과 storage settings UI test의 타이밍 경합 수정(test 파일만 변경).
+- [ ] 예약 workflow 복구: GitHub-hosted `ubuntu-24.04`의 Security 예약 실행은 2026-09-07부터, Backup restore drill은 2026-09-16부터 job이 step 0개·runner 미할당으로 실패한다. 원인 미확정. 2026-10-01 GitHub-hosted PR job은 시작됐지만 MinIO image pull이 `unauthorized`로 실패했다.
+- [x] main push의 GitHub-hosted `windows-2025` Windows self-update job 실패(`8e78392`, `5ccab67`, `bf7e5f2`). PR #62로 해소, `c1cd442`·`60cc908` main push 통과.
+- [x] 같은 Docker host를 공유하는 self-hosted runner의 동시 job 충돌(`5ccab67` main Backend integration 실패와 PR #59 첫 실행 실패). PR #61로 해소.
 
 ## N6–N9 — **구현·G5 인수·원격 병합 완료** (2026-09-10)
 
@@ -758,6 +762,8 @@ Sol 에이전트 3명과 Root가 PocketBase v0.40.3 원본 계약을 PgBase의 P
 - 2026-09-09: 첫 CI의 gofmt 검사에서 View 파일 포맷 누락 발견·수정. 형식 변경 3줄을 구조 측정에 반영하고 최신 HEAD 검증 재실행.
 
 - 2026-10-01: 2026-09-11 이후 병합(PR #36·#39·#41·#42·#54·#58·#59)과 남은 CI 운영 항목을 상단 "2026-10-01 현재" 절, `docs/project-status.md`, `docs/next-work.md`에 반영했다. N1–N5 후속 공백 5개와 PB-A16 후속 체크박스를 실제 완료 근거(PR #34·#35)로 갱신했다. 설치 상태는 schema40 기록을 유지하며 재확인하지 않았다.
+
+- 2026-10-01: CI 열린 항목 중 Windows self-update(PR #62), self-hosted Docker 충돌(PR #61), 시간 의존 test 2건(PR #63)을 해소하고 상단 절·`docs/project-status.md` §9·`docs/next-work.md` O1–O3을 갱신했다. 예약 workflow(O1)는 열려 있다.
 
 ## PocketBase 전체 소스 대조 감사 (2026-09-09)
 
