@@ -6,7 +6,7 @@ services:
       MINIO_ROOT_USER: pgbase-test-access
       MINIO_ROOT_PASSWORD: pgbase-test-secret-0123456789
     ports:
-      - "127.0.0.1:59000:9000"
+      - "127.0.0.1:${PGBASE_TEST_S3_HOST_PORT:-59000}:9000"
   create-bucket:
     image: quay.io/minio/mc:RELEASE.2025-07-21T05-28-08Z
     depends_on:
