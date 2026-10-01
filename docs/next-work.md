@@ -1,10 +1,24 @@
 # 다음 작업과 완료 기준
 
+2026-10-01 갱신: 2026-09-22 로드맵의 구현은 [PR #54](https://github.com/yakisoba0728/PgBase/pull/54)로 main `8e78392`에 병합됐고, 의존성 통합 [PR #58](https://github.com/yakisoba0728/PgBase/pull/58) `5ccab67`과 CI Node 24.21.0 정렬 [PR #59](https://github.com/yakisoba0728/PgBase/pull/59) `bf7e5f2`가 뒤따랐다. 그 전에 Round 3·감사 결함 수정은 [PR #36](https://github.com/yakisoba0728/PgBase/pull/36) `5cb721f`, 유지보수 45개 항목은 [PR #39](https://github.com/yakisoba0728/PgBase/pull/39) `9a02663`로 병합됐다. main은 schema 65이고 설치 기록은 N1–N5/schema40으로 남아 있다(2026-10-01 재확인 안 함). 남은 일은 아래 "2026-10-01 열린 항목"과 [현재 상태](project-status.md) §9를 따른다.
+
 2026-09-22 현재 실행 기준: [PgBase 자체 제품 로드맵](workstreams/independent-product-2026-09-22/README.md)의 재현 가능한 결함, API·관리 화면·SDK의 사용 흐름, 설치·복구 인수를 우선한다. [PocketBase 비교 감사](audits/2026-09-22-pocketbase-comparison/README.md)의 차이는 설계 참고이며 전부 구현해야 하는 작업 목록이 아니다. 아래 N 단계는 당시 실행 이력이다.
 
 2026-09-22 갱신: 이후 로컬 스냅샷에서 확인된 다섯 제품 공백의 구현과 검증은 [개발 공백 보완 기록](development-completion-2026-09-22.md)에 정리했다. 아래 N 단계 및 설치 기록은 당시 실행 이력으로 보존한다.
 
 기준: 2026-09-10. N1–N5는 구현·독립 검토·전체 로컬 인수 및 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) 필수 CI5/5·merge `2939f15`를 완료했고 기존 PG17.9/schema38→40 설치·인수도03:24 KST 마쳤다. N6–N9는 제품 `b7674f7`에서 구현·독립 검토·전체 G5 로컬 인수를 완료하고, 후속 수정까지 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)로 main `53a4741`에 병합됐다. 공개 배포·live 교체는 수행하지 않았다. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
+
+## 2026-10-01 열린 항목
+
+| ID | 작업 | 완료 증거 |
+| --- | --- | --- |
+| O1 | GitHub-hosted 예약 workflow 복구. Security 예약 실행은 2026-09-07부터, Backup restore drill은 2026-09-16부터 step 0개·runner 미할당으로 실패 | 원인 확인 기록과 두 예약 workflow의 성공 실행 |
+| O2 | main push의 `windows-2025` Windows self-update job 실패(`8e78392`, `5ccab67`, `bf7e5f2`) | 실패 원인 기록, 수정 PR, main push의 Windows self-update 성공 |
+| O3 | 같은 Docker host를 공유하는 self-hosted runner의 동시 job 충돌(공용 compose project `pgbase-ci-files`, PostgreSQL service port) | 충돌 원인 확인과 main·PR 동시 실행에서 integration 통과 |
+| O4 | main schema 65 소스의 기존 설치 rollout | 설치 전 백업, schema40→65 적용, doctor/readiness·관리자 로그인 등 설치 인수 기록. 별도 승인 필요 |
+| O5 | 공개 release·npm/pub.dev 배포 | 아래 "외부 환경이 정해진 뒤 할 일"의 증거. 별도 승인 필요 |
+
+O1–O3은 이 문서 작성 시점에 고치지 않았다. O4·O5는 2026-10-01 기준 수행하지 않았다.
 
 ## 우선순위와 의존성
 

@@ -5,7 +5,7 @@
   "documents": [
     {"path": "docs/pocketbase-unimplemented-completion-round3-2026-09-11.md", "applicability": "historical_snapshot", "baselineSha": "a3a329356cf3efa1fe9f56228930d4e3ba0d0444", "verificationSha": "bd76b1d1aaf28839072fa71e6b05cf39219053e9"},
     {"path": "docs/production-kernel-handoff.md", "applicability": "historical_handoff", "baselineSha": "03a0fc1", "verificationSha": "53a474143e117251d9b322441508ac85d776ef2a"},
-    {"path": "docs/project-status.md", "applicability": "current_status_with_historical_sections", "baselineSha": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b", "verificationSha": "53a474143e117251d9b322441508ac85d776ef2a"}
+    {"path": "docs/project-status.md", "applicability": "current_status_with_historical_sections", "baselineSha": "0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b", "verificationSha": "bf7e5f285144b1abbc06bef12bb9691f485168ea"}
   ],
   "interpretation": {"historical_snapshot": "Do not treat prior verdicts as current failures; compare only within the declared baseline.", "current_status_with_historical_sections": "Current status is the document's explicit current section; dated history remains narrative evidence."}
 }

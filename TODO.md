@@ -1,5 +1,19 @@
 # pgBase 구현 현황 / TODO
 
+## 2026-10-01 현재 — main 병합 이력 정리와 남은 운영 항목
+
+main은 `bf7e5f2`([PR #59](https://github.com/yakisoba0728/PgBase/pull/59))이고 system migration은 `000065`(schema 65)까지다. 설치 기록은 여전히 N1–N5/PostgreSQL 17/schema40(`127.0.0.1:8090`)이며 2026-10-01 재확인하지 못했다(문서 작성 호스트에서 연결 불가). 이후 병합분은 설치·공개 배포하지 않았고 공개 릴리스는 v0.1.0뿐이다. 아래 병합은 각 PR의 필수 CI 통과 후 merge commit으로 반영됐다.
+
+- [x] [PR #36](https://github.com/yakisoba0728/PgBase/pull/36) `5cb721f`(2026-09-11): PocketBase Round 3 범위, 2026-09-11 감사의 20개 제품 결함 수정(`275d2e4`), migration `000042`–`000065`. [결함 수정 ledger](docs/audits/2026-09-11/defect-fixes.md).
+- [x] [PR #39](https://github.com/yakisoba0728/PgBase/pull/39) `9a02663`(2026-09-12): 유지보수 45개 항목(`0228716`)과 감사된 parity remediation(`d996b9c`). [유지보수 구현 결과](docs/audits/2026-09-11-maintainability-implementation/README.md).
+- [x] [PR #41](https://github.com/yakisoba0728/PgBase/pull/41) `7ee5fd6`, [PR #42](https://github.com/yakisoba0728/PgBase/pull/42) `6993744`(2026-09-12): self-hosted Linux CI의 test 동기화 flake 수정, self-update test 고정 port 제거, main push의 self-hosted runner 라우팅.
+- [x] [PR #54](https://github.com/yakisoba0728/PgBase/pull/54) `8e78392`(2026-10-01): 관리자 계정·auth 정책 UI, query/cursor, 파일 byte range, EXIF/GIF/WebP 썸네일, view import, TS/Dart SDK helper, Windows self-update, multi-process 인수. [근거](docs/workstreams/remaining-goal-2026-09-22/README.md).
+- [x] [PR #58](https://github.com/yakisoba0728/PgBase/pull/58) `5ccab67`(2026-10-01): Dependabot PR 12개를 대체하는 의존성 통합. #56(@types/node 26)은 Node 24 runtime과 맞지 않아 닫았다.
+- [x] PR #59 `bf7e5f2`(2026-10-01): CI `setup-node`를 Docker admin-ui stage와 같은 Node 24.21.0으로 맞췄다. `ui/admin/dist`는 Node 24.21.0 clean build 2회가 기존과 byte 동일해 변경하지 않았다.
+- [ ] 예약 workflow 복구: GitHub-hosted `ubuntu-24.04`의 Security 예약 실행은 2026-09-07부터, Backup restore drill은 2026-09-16부터 job이 step 0개·runner 미할당으로 실패한다. 원인 미확정.
+- [ ] main push의 GitHub-hosted `windows-2025` Windows self-update job 실패(`8e78392`, `5ccab67`, `bf7e5f2` 모두 `internal/selfupdate` test 실패). 원인 미확정. `bf7e5f2` main push는 이 job을 빼면 Backend·Frontend·Security가 통과했다.
+- [ ] 같은 Docker host를 공유하는 self-hosted runner의 동시 job 충돌 확인(`5ccab67` main Backend integration 실패와 PR #59 첫 실행 실패 참조).
+
 ## N6–N9 — **구현·G5 인수·원격 병합 완료** (2026-09-10)
 
 최종 제품·UI는 `b7674f704e14b07104ebf6f1c9ee5e53092f367e`이며, 후속 수정까지 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)로 병합되어 main merge commit은 `53a474143e117251d9b322441508ac85d776ef2a`다. [최종 인수 증거](docs/workstreams/n6-n9/acceptance.md)와 [단계 기록](docs/workstreams/n6-n9/integration.md)에 초기 실패·좁은 수정·최종 검증을 보존했다. **공개 배포·live 교체는 수행하지 않았다.** 설치는 계속 N1–N5/schema40이다.
@@ -186,11 +200,11 @@ Sol 에이전트 3명과 Root가 PocketBase v0.40.3 원본 계약을 PgBase의 P
 
 현재 소스와 Sol 독립 확인 근거는 `docs/pocketbase-current-reassessment.md`에 기록한다. 아래는 P8 구현 완료와 별도로 추적한다.
 
-- [ ] 관리자 스키마 변경의 migration source 자동 diff·collection snapshot·history-sync 계약 및 구현.
-- [ ] 사용자 public 정적 디렉터리와 SPA fallback 지원.
-- [ ] 관리자 CLI upsert/update/delete·OTP·IP 관리의 대응 범위와 구현.
-- [ ] 문자열 자동 생성 패턴 및 email/URL 도메인 차단 목록.
-- [ ] 세부 CRUD/batch/import 요청 hooks, 목적별 mail 및 파일 token/download/transform hooks의 대응 범위와 구현.
+- [x] 관리자 스키마 변경의 migration source 자동 diff·collection snapshot·history-sync 계약 및 구현. (2026-10-01 체크 갱신: `docs/next-work.md` N1, [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) `2939f15` 병합·schema40 설치 완료)
+- [x] 사용자 public 정적 디렉터리와 SPA fallback 지원. (2026-10-01 체크 갱신: N2, PR #34 `2939f15` 병합·schema40 설치 완료)
+- [x] 관리자 CLI upsert/update/delete·OTP·IP 관리의 대응 범위와 구현. (2026-10-01 체크 갱신: N3, PR #34 `2939f15` 병합·schema40 설치 완료)
+- [x] 문자열 자동 생성 패턴 및 email/URL 도메인 차단 목록. (2026-10-01 체크 갱신: N4, PR #34 `2939f15` 병합·schema40 설치 완료)
+- [x] 세부 CRUD/batch/import 요청 hooks, 목적별 mail 및 파일 token/download/transform hooks의 대응 범위와 구현. (2026-10-01 체크 갱신: N5, PR #34 `2939f15` 병합·schema40 설치 완료)
 
 
 ## P6 — PocketBase 비교의 부분 구현 영역 마무리 (구현·로컬 인수 완료)
@@ -743,6 +757,8 @@ Sol 에이전트 3명과 Root가 PocketBase v0.40.3 원본 계약을 PgBase의 P
 
 - 2026-09-09: 첫 CI의 gofmt 검사에서 View 파일 포맷 누락 발견·수정. 형식 변경 3줄을 구조 측정에 반영하고 최신 HEAD 검증 재실행.
 
+- 2026-10-01: 2026-09-11 이후 병합(PR #36·#39·#41·#42·#54·#58·#59)과 남은 CI 운영 항목을 상단 "2026-10-01 현재" 절, `docs/project-status.md`, `docs/next-work.md`에 반영했다. N1–N5 후속 공백 5개와 PB-A16 후속 체크박스를 실제 완료 근거(PR #34·#35)로 갱신했다. 설치 상태는 schema40 기록을 유지하며 재확인하지 않았다.
+
 ## PocketBase 전체 소스 대조 감사 (2026-09-09)
 
 - [x] 공식 전체 Git 저장소 다운로드, v0.40.3/commit 고정.
@@ -783,7 +799,7 @@ Sol 에이전트 3명과 Root가 PocketBase v0.40.3 원본 계약을 PgBase의 P
 - [x] PB-A14: SMTP/S3 설정 시험 및 schema import/export 검토·적용 UI. SMTP는 P3/P6-B, schema 입출력은 P7, 파일·백업 S3 설정/API/UI/SDK와 실제 MinIO 시험은 P8 로컬 인수 완료.
 - [x] PB-A15: 실제 지원 SDK/OpenAPI 기반 collection별 API preview와 실행 가능한 예제 검증. P5 완료.
 - [x] PB-A16: Go custom routes·compiled migration authoring은 P7/P8, 세부 request/file/mail hooks와 자동 snapshot/diff/history-sync는 N5/N1 로컬 통합·인수까지 완료했다.
-- [ ] PB-A16 후속: JSVM·Dart SDK는 N6/N7로 분리하며 아직 구현하지 않았다.
+- [x] PB-A16 후속: JSVM·Dart SDK는 N6/N7로 분리하며 아직 구현하지 않았다. (2026-10-01 체크 갱신: N6 JSVM·N7 Dart SDK는 구현·G5 로컬 인수 후 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35) `53a4741`로 병합됐다. 설치·공개 배포는 하지 않았다)
 
 - 2026-09-09 P8: file migration 시작 응답 유실을 client operation UUID로 복구하고 동일 입력 재시도/다른 입력 충돌을 검증. 실제 파일 local→S3→local 왕복 다운로드 및 유실 응답 브라우저 통과. File storage 전체 PG18+MinIO integration/race와 SDK tests 통과, skip 없음 (`phase4-storage-final.log`). 사용자 인증 옵션과 독립된 관리자 저장소 routes 회귀 추가.
 
