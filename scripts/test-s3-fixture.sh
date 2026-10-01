@@ -19,7 +19,10 @@ compose=(docker compose --project-name "$project" --file "$repository_root/tests
 case "${1:-}" in
 	up)
 		# Only the endpoint line belongs on stdout; callers append it to a
-		# GitHub step output or eval it.
+		# GitHub step output or eval it. The image is built from source (see
+		# tests/filestore/Dockerfile); after the first build this is a cache
+		# hit, and building once here keeps `up`/`run` from rebuilding.
+		"${compose[@]}" build --quiet minio >&2
 		"${compose[@]}" up --detach minio >&2
 		"${compose[@]}" run --rm create-bucket >&2
 		address="$("${compose[@]}" port minio 9000)"
