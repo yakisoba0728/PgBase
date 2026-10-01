@@ -12,13 +12,13 @@
 
 | ID | 작업 | 완료 증거 |
 | --- | --- | --- |
-| O1 | GitHub-hosted 예약 workflow 복구. Security 예약 실행은 2026-09-07부터, Backup restore drill은 2026-09-16부터 step 0개·runner 미할당으로 실패 | 원인 확인 기록과 두 예약 workflow의 성공 실행 |
-| O2 | main push의 `windows-2025` Windows self-update job 실패(`8e78392`, `5ccab67`, `bf7e5f2`) | 실패 원인 기록, 수정 PR, main push의 Windows self-update 성공 |
-| O3 | 같은 Docker host를 공유하는 self-hosted runner의 동시 job 충돌(공용 compose project `pgbase-ci-files`, PostgreSQL service port) | 충돌 원인 확인과 main·PR 동시 실행에서 integration 통과 |
+| O1 | GitHub-hosted 예약 workflow 복구. Security 예약 실행은 2026-09-07부터, Backup restore drill은 2026-09-16부터 step 0개·runner 미할당으로 실패. 2026-10-01 GitHub-hosted `ubuntu-24.04` PR job은 실제로 시작됐으나 MinIO image pull이 `unauthorized`로 실패 | 원인 확인 기록, MinIO fixture image 접근 복구, 두 예약 workflow의 성공 실행 |
+| O2 | **완료(2026-10-01).** main push의 `windows-2025` Windows self-update job 실패(`8e78392`, `5ccab67`, `bf7e5f2`) | [PR #62](https://github.com/yakisoba0728/PgBase/pull/62) `c1cd442`: 관리자 권한 실행 시 실행 사용자 본인의 쓰기 ACE를 거부하던 제품 결함 수정. `c1cd442`·`60cc908` main push에서 통과 |
+| O3 | **완료(2026-10-01).** 같은 Docker host를 공유하는 self-hosted runner의 동시 job 충돌(공용 compose project `pgbase-ci-files`, PostgreSQL service port) | [PR #61](https://github.com/yakisoba0728/PgBase/pull/61) `4f7fbfa`: job별 compose project·임시 port·Docker 할당 PostgreSQL port. 이후 PR #62·#63과 main 실행이 같은 runner 군에서 통과 |
 | O4 | main schema 65 소스의 기존 설치 rollout | 설치 전 백업, schema40→65 적용, doctor/readiness·관리자 로그인 등 설치 인수 기록. 별도 승인 필요 |
 | O5 | 공개 release·npm/pub.dev 배포 | 아래 "외부 환경이 정해진 뒤 할 일"의 증거. 별도 승인 필요 |
 
-O1–O3은 이 문서 작성 시점에 고치지 않았다. O4·O5는 2026-10-01 기준 수행하지 않았다.
+O1–O3은 처음 작성 시점에 열려 있었다. 같은 날 O2·O3을 PR #62·#61로 닫았고, 시간 의존 test 2건도 [PR #63](https://github.com/yakisoba0728/PgBase/pull/63) `60cc908`으로 고쳤다. O1은 열려 있다. O4·O5는 2026-10-01 기준 수행하지 않았다. 제품 코드는 구조 예산 상한(handwritten runtime 106,112줄)에 도달해 있어, 순증가 변경은 상쇄나 근거 있는 예산 조정이 필요하다([현재 상태](project-status.md) §9).
 
 ## 우선순위와 의존성
 
