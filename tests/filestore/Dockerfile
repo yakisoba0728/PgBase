@@ -39,5 +39,10 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 # The bucket bootstrap needs a shell, seq and sleep; both binaries are static.
 FROM alpine@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
 
+# scripts/test-s3-fixture.sh passes this file's digest and rebuilds when the
+# existing image's label differs.
+ARG DOCKERFILE_SHA256=unknown
+LABEL org.pgbase.test-s3.dockerfile-sha256=${DOCKERFILE_SHA256}
+
 COPY --from=build /out/minio /out/mc /usr/local/bin/
 ENTRYPOINT ["minio"]

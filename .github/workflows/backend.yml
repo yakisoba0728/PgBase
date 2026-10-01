@@ -273,9 +273,31 @@ jobs:
         if: env.PGBASE_FULL_INTEGRATION_RACE == 'true'
         run: go vet -tags=integration ./...
 
+      # The S3 fixture image is built from pinned MinIO source
+      # (tests/filestore/Dockerfile), which takes about four minutes cold.
+      # Self-hosted runners keep the image in their Docker daemon; hosted
+      # runners carry it between runs in the Actions cache instead.
+      - name: Restore cached S3 fixture image
+        id: s3-fixture-cache
+        if: runner.environment == 'github-hosted'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/pgbase-test-s3-image.tar
+          key: pgbase-test-s3-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tests/filestore/Dockerfile') }}
+
+      - name: Load cached S3 fixture image
+        if: steps.s3-fixture-cache.outputs.cache-hit == 'true'
+        run: docker load --input "$RUNNER_TEMP/pgbase-test-s3-image.tar"
+
       - name: Start local S3 integration fixture
         id: s3-fixture
         run: scripts/test-s3-fixture.sh up >> "$GITHUB_OUTPUT"
+
+      - name: Export S3 fixture image for the cache
+        if: runner.environment == 'github-hosted' && steps.s3-fixture-cache.outputs.cache-hit != 'true'
+        run: >-
+          docker save --output "$RUNNER_TEMP/pgbase-test-s3-image.tar"
+          "$(docker compose --file tests/filestore/compose.yaml config --images | sort -u)"
 
       - name: Test PostgreSQL integration suite with skip policy
         shell: bash
