@@ -87,7 +87,8 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "$PGBASE_SECURITY_CANDIDATE_IMAGE" && -z "$PGBASE_SECURITY_EXPECTED_VERSION" ]]; then
-            echo "image_ref=pgbase:audit" >> "$GITHUB_OUTPUT"
+            # Run-scoped so a job sharing the Docker daemon cannot retag it.
+            echo "image_ref=pgbase:audit-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
             echo "release=false" >> "$GITHUB_OUTPUT"
           else
             scripts/support/validate-release-candidate.sh \
@@ -108,7 +109,9 @@ jobs:
 
       - name: Build the production image in local CI mode
         if: steps.image.outputs.release == 'false'
-        run: docker build --file deployments/Dockerfile --tag pgbase:audit .
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.image_ref }}
+        run: docker build --file deployments/Dockerfile --tag "$IMAGE_REF" .
 
       - name: Generate SPDX SBOM
         if: steps.image.outputs.image_ref != ''
