@@ -38,6 +38,7 @@ describe("file storage settings", () => {
       wrapper: sessionWrapper(harness.backend, harness.history),
     });
     await screen.findByDisplayValue("pgbase-test");
+    await waitFor(() => expect(screen.getByLabelText("Driver")).toBeEnabled());
     fireEvent.change(screen.getByLabelText("Access key"), {
       target: { value: "rotated" },
     });
@@ -47,7 +48,7 @@ describe("file storage settings", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Save storage settings" }),
     );
-    await screen.findByText(/saved and active/i, {}, { timeout: 5000 });
+    await screen.findByText(/saved and active/i);
     const sent = callsTo(harness.script, "saveStorageSettings")[0]?.detail;
     expect(sent).not.toHaveProperty("secretKey");
     expect(sent).toMatchObject({ revision: 2, accessKey: "rotated" });
@@ -105,7 +106,8 @@ it("invalidates a preview when its destination or secret changes and reports sta
   vi.spyOn(harness.backend.storage, "previewMigration").mockResolvedValue({ ...copying, id: "00000000-0000-0000-0000-000000000000", status: "preview" });
   const start = vi.spyOn(harness.backend.storage, "startMigration").mockRejectedValue(new Error("offline"));
   render(<StorageSettingsPage />, { wrapper: sessionWrapper(harness.backend, harness.history) });
-  fireEvent.change(await screen.findByLabelText("Driver"), { target: { value: "s3" } });
+  await waitFor(() => expect(screen.getByLabelText("Driver")).toBeEnabled());
+  fireEvent.change(screen.getByLabelText("Driver"), { target: { value: "s3" } });
   fireEvent.click(screen.getByRole("button", { name: "Preview migration" }));
   await screen.findByRole("button", { name: "Start migration of 1 objects" });
   fireEvent.change(screen.getByLabelText("Secret key"), { target: { value: "changed-secret" } });
