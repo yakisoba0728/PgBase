@@ -69,6 +69,44 @@ func TestN2PublicStaticRoutesKeepPgBaseAndCustomRoutesAuthoritative(t *testing.T
 	}
 }
 
+// Without PublicDir the router must not see a typed-nil *publicsite.Handler as
+// a configured static site: unknown non-API paths get the ordinary router 404
+// instead of a recovered nil-receiver panic (HTTP 500).
+func TestN2WithoutPublicDirUnknownPathsUseRouterNotFound(t *testing.T) {
+	app := newPublicUsersApp(t, false)
+	if app.app.options.PublicDir != "" {
+		t.Fatalf("fixture PublicDir=%q, want empty", app.app.options.PublicDir)
+	}
+	// serve returns the status, content type and body with the per-request ID
+	// removed so router 404 bodies from different requests compare equal.
+	serve := func(path string) (int, string, string) {
+		response := httptest.NewRecorder()
+		app.app.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		var body map[string]map[string]any
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body["error"] == nil {
+			return response.Code, response.Header().Get("Content-Type"), response.Body.String()
+		}
+		delete(body["error"], "requestId")
+		normalized, _ := json.Marshal(body)
+		return response.Code, response.Header().Get("Content-Type"), string(normalized)
+	}
+	apiStatus, apiType, apiBody := serve("/api/not-a-route")
+	if apiStatus != http.StatusNotFound || !strings.Contains(apiBody, `"code":"not_found"`) {
+		t.Fatalf("API 404 status=%d body=%q", apiStatus, apiBody)
+	}
+	for _, path := range []string{"/foo", "/healthz", "/livez", "/readyz", "/zz", "/dashboard/one"} {
+		t.Run(path, func(t *testing.T) {
+			status, contentType, body := serve(path)
+			if status != apiStatus || contentType != apiType || body != apiBody {
+				t.Fatalf("status=%d type=%q body=%q, want router 404 %d %q %q", status, contentType, body, apiStatus, apiType, apiBody)
+			}
+		})
+	}
+	if status, _, body := serve("/health/ready"); status != http.StatusOK {
+		t.Fatalf("/health/ready status=%d body=%q", status, body)
+	}
+}
+
 func TestN3AdministratorOTPAndIPPoliciesEnforceHTTPLoginAndSessions(t *testing.T) {
 	app := newPublicUsersApp(t, false)
 	_, _ = setupPublicUsersAdministrator(t, app)
