@@ -879,6 +879,10 @@ func TestCopyBoundedPropagatesNoSpace(t *testing.T) {
 }
 
 func TestArtifactShortContentLengthAndBodyDeadlineCleanup(t *testing.T) {
+	// The stalled body is released only by the test, never by the client's
+	// own deadline: ending it on r.Context() let the server send a clean
+	// chunked EOF that the timed-out client could still read as success.
+	release := make(chan struct{})
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/short" {
 			w.Header().Set("Content-Length", "5")
@@ -888,9 +892,10 @@ func TestArtifactShortContentLengthAndBodyDeadlineCleanup(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("x"))
 		w.(http.Flusher).Flush()
-		<-r.Context().Done()
+		<-release
 	}))
 	defer server.Close()
+	defer close(release)
 	url, _ := url.Parse(server.URL + "/short")
 	fetched := Fetched{Candidate: Candidate{Artifact: Artifact{URL: url.String(), Size: 5, SHA256: strings.Repeat("a", 64)}}, remote: &remoteSource{origin: originOf(url), client: server.Client()}}
 	destination := filepath.Join(t.TempDir(), "short")
