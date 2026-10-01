@@ -80,7 +80,7 @@ func validSecurityDescriptor(descriptor *windows.SECURITY_DESCRIPTOR) bool {
 			continue
 		}
 		sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
-		if !sid.Equals(owner) && !sid.Equals(system) && !sid.Equals(administrators) && !sid.Equals(trustedInstaller) {
+		if !sid.Equals(owner) && !sid.Equals(user.User.Sid) && !sid.Equals(system) && !sid.Equals(administrators) && !sid.Equals(trustedInstaller) {
 			return false
 		}
 	}
