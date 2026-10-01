@@ -1,5 +1,7 @@
 # PgBase 구현 이력과 현재 상태
 
+2026-10-01 현재 기준: main은 `bf7e5f2`([PR #59](https://github.com/yakisoba0728/PgBase/pull/59))이며 system migration은 `000065`(schema 65)까지다. 2026-09-11 이후의 병합은 §2 표의 PR #36–#59 행, 남은 CI·운영 문제는 §9에 기록한다. 실제 로컬 설치는 여전히 N1–N5/PostgreSQL 17.9/schema40 기록이다. 2026-10-01 문서 작성 호스트에서 `127.0.0.1:8090`에 연결되지 않아 이 기록은 재확인하지 않았다. N6–N9와 PR #36–#59 병합분은 설치·공개 배포하지 않았고 공개 릴리스는 v0.1.0뿐이다.
+
 2026-09-22 현재 기준: PgBase는 PocketBase에서 아이디어를 얻은 독립 PostgreSQL 제품이다. 현재 구현·검증과 후속 우선순위는 [자체 제품 보완 기록](workstreams/independent-product-2026-09-22/README.md)을 따른다. [PocketBase 비교 감사](audits/2026-09-22-pocketbase-comparison/README.md)는 당시 소스 차이를 보존하는 참고 자료이며, 차이 개수를 결함 수·완성률·자동 구현 목록으로 사용하지 않는다. 과거 `232/0/0`도 전체 품질 판정이 아니다.
 
 같은 날 후속 구현: 관리자 계정 관리 API·화면, auth 정책 편집, 가입 프로필 입력, 양 SDK 실시간 상태 알림, 필드 비교 커서 보완을 완료했다. 전체 앱 PostgreSQL/MinIO 통합·race 및 실제 브라우저 8개 흐름을 검증했으며, [후속 검증 기록](workstreams/independent-product-2026-09-22/continuation-validation.md)에 범위와 남은 작업을 명시했다. 아직 로컬 변경이며 설치·공개 배포는 별도다.
@@ -8,7 +10,7 @@
 
 ## Status applicability
 
-This document has a current status section and historical sections. Baseline SHA: `0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b`; verification SHA: `53a474143e117251d9b322441508ac85d776ef2a`. Historical entries are scoped to their own dated evidence. Run `python3 docs/check-status-index.py` from the repository root to check the applicability index.
+This document has a current status section and historical sections. Baseline SHA: `0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b`; verification SHA: `bf7e5f285144b1abbc06bef12bb9691f485168ea`. Historical entries are scoped to their own dated evidence. Run `python3 docs/check-status-index.py` from the repository root to check the applicability index.
 
 기록일: 2026-09-11. 이 문서는 지금까지의 작업을 통합한 현재 상태 문서다. 세부 작업 기록은 [TODO](../TODO.md), 다음 실행 순서와 완료 기준은 [후속 작업](next-work.md), PocketBase와의 차이는 [현재 기능 비교](pocketbase-feature-comparison-current-2026-09-10.md)를 따른다. 과거 감사·마일스톤 문서는 당시 증거를 보존하는 기록이다.
 
@@ -21,14 +23,14 @@ This document has a current status section and historical sections. Baseline SHA
 | 항목 | 확인된 상태 |
 | --- | --- |
 | 현재 저장소 | [yakisoba0728/PgBase](https://github.com/yakisoba0728/PgBase) |
-| 최신 제품 병합 기준 | [PR #34](https://github.com/yakisoba0728/PgBase/pull/34), `2939f1543e4889c0ffa967eae398c91d0ecbb6ce` |
+| 최신 main 병합 기준 | 2026-10-01 [PR #59](https://github.com/yakisoba0728/PgBase/pull/59), `bf7e5f285144b1abbc06bef12bb9691f485168ea`. main schema 65(`000065_optional_auth_email_uniqueness.sql`). 2026-09-11 기록의 최신 제품 병합은 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) `2939f1543e4889c0ffa967eae398c91d0ecbb6ce` |
 | N1–N5 개발 기준 | 구현·독립 검토·전체 로컬 인수 및 필수 원격 CI5/5·정상 병합 완료. [기존 설치·인수](workstreams/n1-n5/release-install.md) 완료 |
 | N6–N9 소스 기준 | **구현·독립 검토·G5 로컬 인수 및 원격 병합 완료**. 최종 제품/UI `b7674f704e14b07104ebf6f1c9ee5e53092f367e`, 후속 수정은 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)로 main `53a474143e117251d9b322441508ac85d776ef2a`에 병합. [인수 증거](workstreams/n6-n9/acceptance.md) |
-| PocketBase Round 3 검증 소스 | `codex/round3-integration`의 `bd76b1d1aaf28839072fa71e6b05cf39219053e9`. 고정 232행은 구현 232·부분 0·미구현 0. [21행 완료 ledger](pocketbase-unimplemented-completion-round3-2026-09-11.md) |
+| PocketBase Round 3 검증 소스 | `codex/round3-integration`의 `bd76b1d1aaf28839072fa71e6b05cf39219053e9`. 고정 232행은 구현 232·부분 0·미구현 0. [21행 완료 ledger](pocketbase-unimplemented-completion-round3-2026-09-11.md). 이후 [PR #36](https://github.com/yakisoba0728/PgBase/pull/36)으로 main `5cb721f`에 병합(2026-09-11) |
 | 설치 제품 커밋 | `2939f1543e4889c0ffa967eae398c91d0ecbb6ce`. 설치 기록 문서의 후속 커밋과 구분 |
-| 실제 로컬 설치 | N1–N5, PostgreSQL17.9, schema40, `http://127.0.0.1:8090/admin` |
+| 실제 로컬 설치 | N1–N5, PostgreSQL17.9, schema40, `http://127.0.0.1:8090/admin`. 2026-10-01 재확인하지 않음(문서 작성 호스트에서 연결 불가). main schema 65와 다름 |
 | P8 개발 DB | migration 33–38, 임시 PostgreSQL 18/MinIO 및 populated 복사본 인수 완료 |
-| 공개 릴리스 | README에 기록된 최초 v0.1.0과 현재 개발 소스를 구분. P8/N1–N5 추가 공개 릴리스는 없음 |
+| 공개 릴리스 | README에 기록된 최초 v0.1.0과 현재 개발 소스를 구분. 2026-10-01 기준 v0.1.0 이후 공개 릴리스는 없음 |
 | 비교 대상 | 로컬 PocketBase v0.40.3, `5684ee24f1e88f71a2ede73d20cf547fbd509e16` |
 | 승인된 범위 | 로컬에서 구현·검증 가능한 제품 기능. 외부 서버·도메인·실제 provider 계정·공개 패키지 배포는 대기 |
 
@@ -51,6 +53,12 @@ N1–N5 구현·로컬 통합 인수·필수 원격 CI 5개·PR 병합·기존 �
 | P8 | 고급 필드, 저장된 S3 설정·파일 이전·백업 저장소, 사용자 Go migration, 추가 hooks | [PR #32](https://github.com/yakisoba0728/PgBase/pull/32), `0d28446` 병합, 필수 CI 5개·로컬 v32→v38 인수 완료 |
 | N1–N5 | 자동 migration, public 정적 사이트/SPA, 관리자 CLI, 필드·조회 세부 계약, request/file/mail hooks | 전체 로컬 인수·독립 검토와 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) 필수 CI5/5·merge `2939f15` 완료. 03:24 KST 기존 PG17/schema38→40 설치·인수 완료 |
 | PocketBase Round 2/3 | source audit의 부분·미구현 행을 actual route/service/SDK/UI 효과와 거절·rollback·동시성 근거로 닫음 | Round 2 `211/0/21`, Round 3 최종 `bd76b1d1`에서 `232/0/0`. [current comparison](pocketbase-feature-comparison-current-2026-09-10.md)과 [Round 3 ledger](pocketbase-unimplemented-completion-round3-2026-09-11.md) 참조 |
+| Round 3·감사 결함 병합 | Round 3 범위, 2026-09-11 감사의 20개 제품 결함 수정(`275d2e4`), migration `000042`–`000065` | [PR #36](https://github.com/yakisoba0728/PgBase/pull/36), head `7842832` 필수 CI 통과 후 `5cb721f`(2026-09-11) 병합. [결함 수정 ledger](audits/2026-09-11/defect-fixes.md). 설치 안 함 |
+| 유지보수·parity remediation | 유지보수 45개 항목(`0228716`), 감사된 PocketBase parity remediation(`d996b9c`), MinIO fixture를 Quay에서 받도록 CI 변경 | [PR #39](https://github.com/yakisoba0728/PgBase/pull/39), head `673ce38` 필수 CI 통과 후 `9a02663`(2026-09-12) 병합. PR 본문 기록: finding 95개 ID, UI 44파일/552 tests, Dart 37 tests. [유지보수 구현 결과](audits/2026-09-11-maintainability-implementation/README.md). 설치 안 함 |
+| CI 안정화 | backup 알림 test 동기화와 privacy mock SIGPIPE flake 수정, self-update test 고정 TLS port 제거, main push를 self-hosted runner로 라우팅 | [PR #41](https://github.com/yakisoba0728/PgBase/pull/41) `7ee5fd6`, [PR #42](https://github.com/yakisoba0728/PgBase/pull/42) `6993744`(2026-09-12) 병합. `6993744` main push의 Backend/Frontend/Security 통과 |
+| 자체 제품 보완 | 관리자 계정·auth 정책 UI, query/cursor 수정, 파일 단일 byte range, EXIF 방향·GIF/WebP 정지 썸네일, 기존 view import, TS/Dart SDK helper, native Windows self-update, 2-process 실패 인수 | [PR #54](https://github.com/yakisoba0728/PgBase/pull/54), head `35eb230` 필수 CI 통과 후 `8e78392`(2026-10-01) 병합. PR 본문 기록: UI 624 tests, Dart 61 tests, populated schema 40→65 upgrade/recovery. [작업 기록](workstreams/remaining-goal-2026-09-22/README.md), [완료 검증](workstreams/remaining-goal-2026-09-22/completion-verification.md). 설치 안 함. merge commit의 main CI는 §9 |
+| 의존성 통합 | Dependabot PR 12개(#43–#46, #48–#53, #55, #57)를 대체: Go module, React/React DOM 19.3.0·vite 8.3.0·jsdom 30.1.0, Docker admin-ui Node 24.21.0·golang digest, sbom-action 0.24.2. #56(@types/node 26)은 Node 24 runtime과 맞지 않아 닫음 | [PR #58](https://github.com/yakisoba0728/PgBase/pull/58), head `c5e9442` 필수 CI 통과 후 `5ccab67`(2026-10-01) 병합. `5ccab67` main push의 Security·Frontend 통과, Backend 실패(§9) |
+| CI Node 정렬 | Backend·E2E·Frontend·Security workflow의 `setup-node`를 24.18.0→24.21.0으로 맞춤. `ui/admin` engines `>=24 <25`와 Dockerfile digest는 그대로 | [PR #59](https://github.com/yakisoba0728/PgBase/pull/59) `bf7e5f2`(2026-10-01) 병합. Node 24.21.0 container clean build 2회 결과가 기존 `ui/admin/dist`와 byte 동일해 dist 변경 없음. 같은 실행에서 UI 50파일/624 tests 통과. 첫 PR CI는 runner 충돌(§9)로 실패했고 실패 job 재실행 후 필수 5개 통과 |
 
 M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 항목을 후속 단계가 구현한 경우 후속 기록을 우선한다. 예를 들어 과거 M6의 'JS runtime 범위 결정 완료'는 JSVM 구현 완료가 아니다.
 
@@ -152,3 +160,17 @@ N6–N9 구현·독립 검토·전체 G5 로컬 인수는 `b7674f7`에서 완료
 3. 실행 결과는 [TODO](../TODO.md)에 기록하고 이 문서의 상태와 함께 갱신한다.
 4. PB 세부 차이는 [현재 기능 비교](pocketbase-feature-comparison-current-2026-09-10.md)와 [Round 3 완료 ledger](pocketbase-unimplemented-completion-round3-2026-09-11.md), 동작 규약은 각 기능 문서를 따른다.
 5. 과거 감사의 미구현/미해결 표시는 해당 커밋의 기록으로 읽고 현재 코드와 대조한다.
+
+## 9. 2026-10-01 CI·운영 미해결 항목
+
+기록일: 2026-10-01. `gh run list/view`로 확인한 사실만 적는다. 고치지 않은 열린 항목이다.
+
+| 항목 | 확인된 사실 | 상태 |
+| --- | --- | --- |
+| 예약 workflow | Security 예약 실행과 Backup restore drill은 GitHub-hosted `ubuntu-24.04`에서 실행된다. Security 예약 실행은 2026-09-07부터(마지막 성공 2026-08-31), Backup restore drill은 2026-09-16부터(마지막 성공 2026-09-09) 매회 job이 step 0개, runner 미할당 상태로 실패했다. 같은 기간 self-hosted runner의 PR·main job은 실행됐다. 2026-10-01 main push의 GitHub-hosted `windows-2025` job은 실제로 실행됐다 | 원인 미확정(GitHub-hosted runner billing/quota 가능성). 미해결 |
+| main push의 Windows self-update | `8e78392`, `5ccab67`, `bf7e5f2` main push Backend의 GitHub-hosted `windows-2025` job에서 `internal/selfupdate` test(`TestExecutableLockAllowsProbe`, `TestWindowsNativeUpdateLifecycle` 등)가 `update replacement failed`, `invalid update input`으로 세 번 같은 형태로 실패했다. 이 job은 PR에서 실행되지 않으며 필수 check가 아니다. PR #54 본문은 별도 native Windows 환경의 test 통과를 기록한다 | 원인 미확정. 미해결 |
+| self-hosted 동시 job 충돌 | `5ccab67` main push Backend의 PostgreSQL integration에서 `TestAdministratorS3SettingsHTTPRedactionTestAndRotation`이 503 `storage_unavailable`로 실패했다(08:23:19 UTC). 26초 전 같은 Docker host에서 실행된 PR #59 job이 공용 compose project `pgbase-ci-files`를 정리하며 MinIO container를 제거했다. 그 PR job은 PostgreSQL service container의 port 연결 설정 실패로 시작하지 못했고, 실패 job 재실행은 통과했다 | 관측 기록. 동일 host를 공유하는 runner의 고정 project 이름·port 사용은 아직 조사하지 않음 |
+| 의존성 audit | `8e78392` main push Security의 frontend `npm audit --audit-level=high`가 undici high severity advisory로 실패했다. PR #58 병합 후 `5ccab67` main push Security는 통과했다 | 해소 |
+| main CI 상태 | `5ccab67`: Backend 실패(Windows self-update와 동시 job 충돌), Frontend·Security 통과. `bf7e5f2`: Frontend·Security 통과, Backend는 Go unit·Observability·PostgreSQL integration 17.9 통과, Windows self-update만 실패 | Windows self-update로 인한 Backend main 실패는 미해결 |
+
+설치 상태는 §1 표를 따른다. main schema 65와 설치 기록 schema40의 차이는 rollout 전까지 유지되며 이 문서는 새 설치를 주장하지 않는다.
