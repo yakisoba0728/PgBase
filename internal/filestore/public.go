@@ -12,8 +12,16 @@ import (
 // and still resolves the file and field policy transactionally, so changing a
 // field back to protected immediately revokes public URLs.
 func (s *Service) OpenPublic(ctx context.Context, id uuid.UUID, variant Variant) (File, io.ReadCloser, error) {
+	file, err := s.authorizePublicOpen(ctx, id, variant)
+	if err != nil {
+		return File{}, nil, err
+	}
+	return s.openAuthorizedObject(ctx, file, identity.Subject{Kind: identity.Anonymous}, variant)
+}
+
+func (s *Service) authorizePublicOpen(ctx context.Context, id uuid.UUID, variant Variant) (File, error) {
 	if id == uuid.Nil || !validVariant(variant) {
-		return File{}, nil, ErrInvalid
+		return File{}, ErrInvalid
 	}
 	var file File
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
@@ -33,7 +41,15 @@ func (s *Service) OpenPublic(ctx context.Context, id uuid.UUID, variant Variant)
 		return nil
 	})
 	if err != nil {
-		return File{}, nil, err
+		return File{}, err
 	}
-	return s.openAuthorizedObject(ctx, file, identity.Subject{Kind: identity.Anonymous}, variant)
+	return file, nil
+}
+
+func (s *Service) OpenPublicRange(ctx context.Context, id uuid.UUID, variant Variant, requested ByteRange) (File, RangeRead, error) {
+	file, err := s.authorizePublicOpen(ctx, id, variant)
+	if err != nil {
+		return File{}, RangeRead{}, err
+	}
+	return s.openAuthorizedRange(ctx, file, identity.Subject{Kind: identity.Anonymous}, variant, requested)
 }

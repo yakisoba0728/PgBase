@@ -18,6 +18,8 @@ import (
 const serveLockHelperEnv = "PGBASE_N9_SERVE_LOCK_HELPER"
 const serveLockTargetEnv = "PGBASE_N9_SERVE_LOCK_TARGET"
 
+func secureFixtureDirectory(string) {}
+
 // TestServeLockHelper runs only in a separately spawned test process. Its
 // lifetime models serve: keep the executable FD locked until stdin closes.
 func TestServeLockHelper(t *testing.T) {
@@ -36,7 +38,7 @@ func TestServeLockHelper(t *testing.T) {
 }
 
 func TestServeLifetimeLockRejectsUpdateAcrossProcesses(t *testing.T) {
-	target := filepath.Join(t.TempDir(), "pgbase")
+	target := fixtureTargetPath(t.TempDir())
 	copyFixture(t, buildFixture(t, "v0.1.0", oldCommit, ""), target)
 
 	command := exec.Command(os.Args[0], "-test.run=^TestServeLockHelper$")

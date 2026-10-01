@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { FieldDefinition, FieldType, RecordData } from "../backend/ports";
+import type { FieldDefinition, FieldType, RecordData, RecordIDPolicy } from "../backend/ports";
 import {
   dirtyNames,
   encodeDraft,
@@ -137,6 +137,44 @@ describe("record validation messages", () => {
 });
 
 describe("relation values", () => {
+  const textPolicy: RecordIDPolicy = { kind: "text", minLength: 1, maxLength: 255, pattern: "(?i)^[a-z0-9-]+$" };
+  const textPolicies = new Map([["target-id", textPolicy]]);
+
+  it("round trips text relation identities exactly, including UUID-shaped text", () => {
+    const fields = [relation("owner", "single"), relation("tags", "multiple")];
+    const id = "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF";
+    const record = { owner: id, tags: ["MixedCase01", "mixedcase01"] };
+    const draft = initialDraft(fields, record, false, textPolicies);
+
+    expect(draft.owner).toEqual({ kind: "value", value: id });
+    expect(encodeDraft(fields, draft, new Set(["owner", "tags"]), false, textPolicies)).toEqual({ input: record, errors: {} });
+  });
+
+  it("does not trim text relation identities into another valid target", () => {
+    const fields = [relation("owner", "single"), relation("tags", "multiple")];
+    const draft = values(fields, { owner: " MixedCase01", tags: "MixedCase01\nMixedCase02 " });
+    const result = encodeDraft(fields, draft, new Set(), true, textPolicies);
+
+    expect(result.input).toEqual({});
+    expect(result.errors).toEqual({ owner: "Enter an exact target record ID.", tags: "Enter one exact target record ID per line." });
+  });
+
+  it("keeps case-distinct text selections and rejects exact duplicates", () => {
+    const tags = relation("tags", "multiple");
+    expect(selectRelationTarget(tags, "MixedCase01", "mixedcase01", textPolicy)).toEqual({ draft: "MixedCase01\nmixedcase01", status: "selected" });
+    expect(selectRelationTarget(tags, "MixedCase01", "MixedCase01", textPolicy)).toEqual({ draft: "MixedCase01", status: "duplicate" });
+    const result = encodeDraft([tags], values([tags], { tags: "MixedCase01\nMixedCase01" }), new Set(), true, textPolicies);
+    expect(result.errors.tags).toBe("Related record IDs must be unique.");
+  });
+
+  it("checks text identity length as Unicode characters and leaves server regex syntax to the server", () => {
+    const owner = relation("owner", "single");
+    const policy: RecordIDPolicy = { kind: "text", minLength: 2, maxLength: 2, pattern: "(?i)^.+$" };
+    const policies = new Map([["target-id", policy]]);
+    expect(encodeDraft([owner], values([owner], { owner: "𐐀A" }), new Set(), true, policies)).toEqual({ input: { owner: "𐐀A" }, errors: {} });
+    expect(encodeDraft([owner], values([owner], { owner: "ABC" }), new Set(), true, policies).errors.owner).toBe("Enter an exact target record ID.");
+  });
+
   it("encodes a single relation and an ordered multiple relation", () => {
     const fields = [relation("owner", "single"), relation("tags", "multiple")];
     expect(created(fields, { owner: first, tags: `${second}\n${first}` }).input).toEqual({ owner: first, tags: [second, first] });

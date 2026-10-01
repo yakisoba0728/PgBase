@@ -52,7 +52,7 @@ func checksum(ctx context.Context, path, name string) (result File, resultErr er
 }
 
 func cleanRelative(name string) (string, error) {
-	if name == "" || name == "." || filepath.IsAbs(name) || strings.ContainsRune(name, '\\') {
+	if name == "" || name == "." || strings.HasPrefix(name, "/") || filepath.IsAbs(name) || strings.ContainsRune(name, '\\') {
 		return "", errors.New("invalid backup path")
 	}
 	clean := filepath.Clean(filepath.FromSlash(name))

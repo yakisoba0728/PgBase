@@ -243,7 +243,7 @@ func (s *Service) readListInTx(
 	filterNode filterNode,
 	requestedSort []SortKey,
 ) (listResult, bool, error) {
-	if err := rejectHiddenQueryFields(collection, request.Principal, filterNode, requestedSort); err != nil {
+	if err := rejectHiddenQueryFields(catalog, collection, request.Principal, filterNode, requestedSort); err != nil {
 		return listResult{}, false, err
 	}
 	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "list"); err != nil {
@@ -397,7 +397,7 @@ func (s *Service) readListInTx(
 
 func (s *Service) countListInTx(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, request ListRequest, filterNode filterNode) (int64, error) {
 	stableSort := []SortKey{{Field: systemFieldID}}
-	if err := rejectHiddenQueryFields(collection, request.Principal, filterNode, stableSort); err != nil {
+	if err := rejectHiddenQueryFields(catalog, collection, request.Principal, filterNode, stableSort); err != nil {
 		return 0, err
 	}
 	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "list"); err != nil {
@@ -450,7 +450,7 @@ func (s *Service) countListInTx(ctx context.Context, tx pgx.Tx, catalog schema.C
 	}
 	var total int64
 	err = tx.QueryRow(ctx, statement.SQL, statement.Args...).Scan(&total)
-	return total, err
+	return total, functionFilterQueryError(plan.relation.filter, err)
 }
 
 func collectionHasRelation(collection schema.Collection) bool {

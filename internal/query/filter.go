@@ -184,29 +184,36 @@ func (p *filterParser) buildComparison(left filterOperand, operator string, righ
 	switch {
 	case left.function != nil && right.field == "" && right.function == nil:
 		return filterComparison{function: left.function, operator: operator, value: right.literal}, nil
+	case left.function != nil || right.function != nil:
+		return nil, validation("filter", "invalid_filter")
 	case left.field != "" && right.field != "":
 		return filterComparison{field: left.field, modifier: left.modifier, otherField: right.field, otherModifier: right.modifier, operator: operator}, nil
 	case left.field != "" && right.field == "":
 		return filterComparison{field: left.field, modifier: left.modifier, operator: operator, value: right.literal}, nil
 	case left.field == "" && right.field != "":
-		return filterComparison{field: right.field, modifier: right.modifier, operator: flipComparisonOperator(operator), value: left.literal, literalLeft: operator == "~" || operator == "!~"}, nil
+		baseOperator := strings.TrimPrefix(operator, "?")
+		return filterComparison{field: right.field, modifier: right.modifier, operator: flipComparisonOperator(operator), value: left.literal, literalLeft: baseOperator == "~" || baseOperator == "!~"}, nil
 	default:
 		return nil, validation("filter", "invalid_filter")
 	}
 }
 
 func flipComparisonOperator(operator string) string {
+	prefix := ""
+	if strings.HasPrefix(operator, "?") {
+		prefix, operator = "?", strings.TrimPrefix(operator, "?")
+	}
 	switch operator {
 	case ">":
-		return "<"
+		return prefix + "<"
 	case ">=":
-		return "<="
+		return prefix + "<="
 	case "<":
-		return ">"
+		return prefix + ">"
 	case "<=":
-		return ">="
+		return prefix + ">="
 	default:
-		return operator
+		return prefix + operator
 	}
 }
 

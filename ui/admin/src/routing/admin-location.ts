@@ -15,6 +15,7 @@ export type AdminRoute =
 	| { kind: "system" }
 	| { kind: "settings" }
   | { kind: "users" }
+  | { kind: "administrators" }
   | { kind: "auth-collections" }
   | { kind: "service-tokens" }
   | { kind: "schema-transfer" }
@@ -64,6 +65,7 @@ export function parseAdminRoute(path: string): AdminRoute {
 	if (path === "/admin/system") return { kind: "system" };
 	if (path === "/admin/settings") return { kind: "settings" };
 	if (path === "/admin/users") return { kind: "users" };
+  if (path === "/admin/administrators") return { kind: "administrators" };
   if (path === "/admin/auth-collections") return { kind: "auth-collections" };
 	if (path === "/admin/service-tokens") return { kind: "service-tokens" };
 	if (path === "/admin/schema-transfer") return { kind: "schema-transfer" };
@@ -103,6 +105,7 @@ export function adminRoutePath(route: AdminRoute): string {
 	if (route.kind === "system") return "/admin/system";
 	if (route.kind === "settings") return "/admin/settings";
 	if (route.kind === "users") return "/admin/users";
+  if (route.kind === "administrators") return "/admin/administrators";
   if (route.kind === "auth-collections") return "/admin/auth-collections";
   if (route.kind === "service-tokens") return "/admin/service-tokens";
   if (route.kind === "schema-transfer") return "/admin/schema-transfer";
@@ -111,7 +114,11 @@ export function adminRoutePath(route: AdminRoute): string {
 	if (route.kind === "collection-duplicate") return `${base}/duplicate`;
   if (route.kind === "collection-edit") return `${base}/edit`;
   if (route.kind === "records") return `${base}/records`;
-  return `${base}/records/${route.id === undefined ? "new" : encodeURIComponent(route.id)}`;
+  // The parser reserves only the literal `new` segment for creation. Escape
+  // its first character when it is an actual text ID so both routes survive
+  // browser history and reloads without changing the public identity.
+  const record = route.id === undefined ? "new" : route.id === "new" ? "%6Eew" : encodeURIComponent(route.id);
+  return `${base}/records/${record}`;
 }
 
 // NUL separates the parts and an id carries a marker, because a collection

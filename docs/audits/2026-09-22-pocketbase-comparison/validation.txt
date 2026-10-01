@@ -1,0 +1,4 @@
+PASS: 232/232 historical IDs present exactly once; 61 added; 293 rows.
+PASS: required fields/status/verification enums; pinned official source paths/line ranges; local source/test paths/line ranges.
+Official cited file count: 181 (not a claim all lines were audited).
+Source snapshot: 80f900c08bbf28650fe1f8d338a86c48ac3f63e51bac53fb02e78b57a5b3e514

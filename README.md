@@ -2,6 +2,8 @@
 
 pgBase is a PostgreSQL-backed application backend with an embedded administrator UI. It provides schema planning, typed records and relations, authentication and record rules, local/S3 files, realtime events, TypeScript and Dart SDKs, trusted JavaScript extensions, an opt-in SQL console, self-update tooling, and administrator tools for data, logs, jobs, and backups. Current development remains early v0.x with evolving contracts; the initial v0.1.0 release and the current source have different feature sets.
 
+PgBase is an independent project inspired by PocketBase. Its PostgreSQL data model, authentication, APIs, and operational contracts guide development. See the [2026-09-22 implementation and next steps](docs/workstreams/independent-product-2026-09-22/README.md); the PocketBase comparison is reference material, not a requirement for identical behavior.
+
 As of 2026-09-11, N1–N5 is merged through [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) and installed in the existing local project (PostgreSQL 17, schema v40). N6–N9 JSVM, Dart SDK, SQL console, and self-update work (schema v41) is merged through [PR #35](https://github.com/yakisoba0728/PgBase/pull/35) at `53a4741`, but has not been installed in that project or publicly released. The separate PocketBase Round 3 integration is locally verified at `bd76b1d1` and is not recorded as installed or released. Start with [implementation history and current status](docs/project-status.md), [next work and acceptance criteria](docs/next-work.md), and the [current PocketBase comparison](docs/pocketbase-feature-comparison-current-2026-09-10.md).
 
 The feature-acceptance comparison is historical evidence, not a current quality verdict. The independent fixed-head audit at `0ea07ff` found 20 product findings and 2 documentation findings; see the [2026-09-11 audit](docs/codebase-audit-2026-09-11.md).
@@ -25,7 +27,7 @@ The bundled Compose file is a development convenience and sets `PGBASE_AUTO_MIGR
 
 - [Implementation history, current status, and verification evidence](docs/project-status.md)
 - [Next work: priorities, dependencies, and completion criteria](docs/next-work.md)
-- [Current PocketBase comparison and remaining gaps](docs/pocketbase-current-reassessment.md)
+- [PocketBase comparison reference (dated evidence)](docs/pocketbase-current-reassessment.md)
 - [Public user management and password changes](docs/user-management.md)
 - [Historical Production Kernel handoff](docs/production-kernel-handoff.md)
 - [Production Kernel tradeoffs and decision triggers](docs/production-kernel-tradeoffs.md)

@@ -79,6 +79,7 @@ test("uses the local browser SDK example for registration, notes and files", asy
     const enabled = await page.request.put("/api/admin/collections/notes/user-access", { data: { enabled: true }, headers: { Origin: origin, "X-PgBase-CSRF": session.csrfToken } });
     expect(enabled.ok()).toBe(true);
     await page.goto("http://127.0.0.1:5173");
+    await page.getByLabel("PgBase URL").fill(origin);
     await page.getByLabel("Email", { exact: true }).fill(`browser-sdk-${Date.now()}@example.test`);
     await page.getByLabel("Password", { exact: true }).fill("browser-sdk-password-0123456789");
     await page.getByRole("button", { name: "Register", exact: true }).click();

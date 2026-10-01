@@ -160,10 +160,13 @@ func TestSelectRejectsUnverifiableSourceMinimumAndOrdersLargePrereleases(t *test
 }
 
 func TestHTTPSFetchDownloadApplyAndRollbackNativeFixture(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows post-exit replacement is covered by the native helper acceptance test")
+	}
 	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
 	newBinary := buildFixture(t, "v0.2.0", newCommit, "")
 	install := t.TempDir()
-	target := filepath.Join(install, "pgbase")
+	target := fixtureTargetPath(install)
 	copyFixture(t, oldBinary, target)
 	newBytes, err := os.ReadFile(newBinary)
 	if err != nil {
@@ -234,10 +237,13 @@ func TestHTTPSFetchDownloadApplyAndRollbackNativeFixture(t *testing.T) {
 }
 
 func TestLocalSignedArtifactApplyAndRollbackFixture(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file URL syntax and replacement timing are platform-specific")
+	}
 	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
 	newBinary := buildFixture(t, "v0.2.0", newCommit, "")
 	install := t.TempDir()
-	target := filepath.Join(install, "pgbase")
+	target := fixtureTargetPath(install)
 	copyFixture(t, oldBinary, target)
 	artifact, err := os.ReadFile(newBinary)
 	if err != nil {
@@ -315,7 +321,7 @@ func TestApplyRejectsCandidateNotBoundToSignedManifestBeforeEffects(t *testing.T
 	}
 	candidate.Artifact.URL = "file://" + filepath.Join(directory, "unsigned-artifact")
 	state := filepath.Join(directory, ".pgbase-update")
-	target := filepath.Join(directory, "pgbase")
+	target := fixtureTargetPath(directory)
 	if err := os.WriteFile(target, []byte("existing executable"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -332,6 +338,9 @@ func TestApplyRejectsCandidateNotBoundToSignedManifestBeforeEffects(t *testing.T
 }
 
 func TestApplyCrashPhasesRecoverDeterministically(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("synchronous replacement phases are Unix-specific")
+	}
 	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
 	newBinary := buildFixture(t, "v0.2.0", newCommit, "")
 	artifact, err := os.ReadFile(newBinary)
@@ -347,7 +356,7 @@ func TestApplyCrashPhasesRecoverDeterministically(t *testing.T) {
 	} {
 		t.Run(test.phase, func(t *testing.T) {
 			directory := t.TempDir()
-			target := filepath.Join(directory, "pgbase")
+			target := fixtureTargetPath(directory)
 			copyFixture(t, oldBinary, target)
 			manifest := fixtureManifest("v0.2.0", newCommit, "file://"+newBinary, int64(len(artifact)), checksum(artifact))
 			raw, _ := json.Marshal(manifest)
@@ -382,10 +391,13 @@ func TestApplyCrashPhasesRecoverDeterministically(t *testing.T) {
 }
 
 func TestApplyRollsBackCanonicalProbeFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows rollback-after-health-check is covered by the native helper acceptance test")
+	}
 	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
 	newBinary := buildFixture(t, "v0.2.0", newCommit, "pgbase")
 	install := t.TempDir()
-	target := filepath.Join(install, "pgbase")
+	target := fixtureTargetPath(install)
 	copyFixture(t, oldBinary, target)
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -430,6 +442,9 @@ func TestApplyRollsBackCanonicalProbeFailure(t *testing.T) {
 }
 
 func TestInterruptedDownloadAndRecoveryNeverReplaceOriginal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local file URL syntax is platform-specific")
+	}
 	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
 	newBinary := buildFixture(t, "v0.2.0", newCommit, "")
 	newBytes, err := os.ReadFile(newBinary)
@@ -437,7 +452,7 @@ func TestInterruptedDownloadAndRecoveryNeverReplaceOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 	install := t.TempDir()
-	target := filepath.Join(install, "pgbase")
+	target := fixtureTargetPath(install)
 	copyFixture(t, oldBinary, target)
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -480,7 +495,7 @@ func TestApplyRejectsSymlinkAndConcurrentLock(t *testing.T) {
 		t.Skip("symlink permission differs on Windows")
 	}
 	directory := t.TempDir()
-	target := filepath.Join(directory, "pgbase")
+	target := fixtureTargetPath(directory)
 	if err := os.Symlink("missing", target); err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +555,7 @@ func TestRecoverRollbackStartedAtEveryPublicationEdge(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			directory := t.TempDir()
-			target := filepath.Join(directory, "pgbase")
+			target := fixtureTargetPath(directory)
 			if test.targetIsOld {
 				copyFixture(t, oldBinary, target)
 			} else {
@@ -551,6 +566,9 @@ func TestRecoverRollbackStartedAtEveryPublicationEdge(t *testing.T) {
 				t.Fatal(err)
 			}
 			backup := "backup-test"
+			if runtime.GOOS == "windows" {
+				backup += ".exe"
+			}
 			copyFixture(t, oldBinary, filepath.Join(state, backup))
 			oldDigest, _, err := fileDigestAndMode(oldBinary)
 			if err != nil {
@@ -560,7 +578,7 @@ func TestRecoverRollbackStartedAtEveryPublicationEdge(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			entry := journal{SchemaVersion: 1, Phase: "rollback_started", Target: "pgbase", Candidate: ".pgbase-candidate-test", Backup: backup,
+			entry := journal{SchemaVersion: 1, Phase: "rollback_started", Target: filepath.Base(target), Candidate: ".pgbase-candidate-test", Backup: backup,
 				Old: Build{Version: "v0.1.0", Commit: oldCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}, New: Build{Version: "v0.2.0", Commit: newCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH},
 				OldSHA256: oldDigest, NewSHA256: newDigest, ManifestSHA256: strings.Repeat("a", 64), SignatureSHA256: strings.Repeat("b", 64), TrustFingerprint: strings.Repeat("c", 64)}
 			if test.rollbackStage {
@@ -589,7 +607,7 @@ func TestPrepareInstallationRejectsWorldWritableExistingState(t *testing.T) {
 		t.Skip("POSIX state permissions are exercised on Unix")
 	}
 	directory := t.TempDir()
-	target := filepath.Join(directory, "pgbase")
+	target := fixtureTargetPath(directory)
 	copyFixture(t, buildFixture(t, "v0.1.0", oldCommit, ""), target)
 	state := filepath.Join(directory, ".pgbase-update")
 	if err := os.Mkdir(state, 0700); err != nil {
@@ -605,7 +623,7 @@ func TestPrepareInstallationRejectsWorldWritableExistingState(t *testing.T) {
 
 func TestReadStatusFirstUseReturnsIdleWithoutCreatingState(t *testing.T) {
 	directory := t.TempDir()
-	target := filepath.Join(directory, "pgbase")
+	target := fixtureTargetPath(directory)
 	copyFixture(t, buildFixture(t, "v0.1.0", oldCommit, ""), target)
 	state := filepath.Join(directory, ".pgbase-update")
 	status, err := ReadStatus(target, state)
@@ -632,7 +650,7 @@ func TestPrepareInstallationRejectsWritableTargetAndDirectory(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			directory := t.TempDir()
-			target := filepath.Join(directory, "pgbase")
+			target := fixtureTargetPath(directory)
 			copyFixture(t, fixture, target)
 			if err := os.Chmod(target, test.targetMode); err != nil {
 				t.Fatal(err)
@@ -649,7 +667,12 @@ func TestPrepareInstallationRejectsWritableTargetAndDirectory(t *testing.T) {
 
 func TestRollbackRejectsJournalForAnotherTarget(t *testing.T) {
 	directory := t.TempDir()
+	secureFixtureDirectory(directory)
 	first, second := filepath.Join(directory, "pgbase-a"), filepath.Join(directory, "pgbase-b")
+	if runtime.GOOS == "windows" {
+		first += ".exe"
+		second += ".exe"
+	}
 	fixture := buildFixture(t, "v0.1.0", oldCommit, "")
 	copyFixture(t, fixture, first)
 	copyFixture(t, fixture, second)
@@ -720,6 +743,15 @@ func buildFixture(t *testing.T, version, commit, failName string) string {
 		t.Fatalf("build fixture: %v\n%s", err, outputBytes)
 	}
 	return output
+}
+
+func fixtureTargetPath(directory string) string {
+	secureFixtureDirectory(directory)
+	name := "pgbase"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(directory, name)
 }
 
 func repositoryRoot(t *testing.T) string {
@@ -881,7 +913,7 @@ func TestApplyPermissionFailurePreservesOriginal(t *testing.T) {
 	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
 	newBinary := buildFixture(t, "v0.2.0", newCommit, "")
 	directory := t.TempDir()
-	target := filepath.Join(directory, "pgbase")
+	target := fixtureTargetPath(directory)
 	copyFixture(t, oldBinary, target)
 	state := filepath.Join(directory, ".pgbase-update")
 	if err := os.Mkdir(state, 0700); err != nil {

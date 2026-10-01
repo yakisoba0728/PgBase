@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -87,10 +88,11 @@ func (e userEndpoints) credentials(register bool) http.Handler {
 			return
 		}
 		var input struct {
-			Email    string `json:"email"`
-			Password string `json:"password"`
+			Email    string          `json:"email"`
+			Password string          `json:"password"`
+			Fields   json.RawMessage `json:"fields"`
 		}
-		if err := decodeStrictJSON(r, &input); err != nil {
+		if err := decodeStrictJSON(r, &input); err != nil || !register && input.Fields != nil {
 			writeUserAuthError(w, r, userauth.ErrValidation)
 			return
 		}
@@ -108,7 +110,7 @@ func (e userEndpoints) credentials(register bool) http.Handler {
 		var err error
 		status := http.StatusOK
 		if register {
-			session, err = auth.Register(r.Context(), input.Email, input.Password, address)
+			session, err = registerWithFields(r.Context(), auth, input.Email, input.Password, address, input.Fields)
 			status = http.StatusCreated
 		} else {
 			session, err = auth.Login(r.Context(), input.Email, input.Password, address)

@@ -1,0 +1,115 @@
+package query
+
+// Audit-only reproducer. Copy to internal/query/zz_pb_audit_observations_test.go,
+// run go test ./internal/query -run TestPBAuditObservations -v -count=1,
+// then remove the temporary copy. These assertions describe current differences,
+// not the desired PocketBase-compatible behavior.
+import (
+ "strings"
+ "testing"
+ "github.com/google/uuid"
+ "github.com/yakisoba0728/PgBase/internal/identity"
+ "github.com/yakisoba0728/PgBase/internal/schema"
+)
+
+func TestPBAuditObservations(t *testing.T) {
+ collection := compilerCollection()
+ for name, source := range map[string]string{
+  "quoted_string_contains_double_quotes": `title = 'a "b" c'`,
+  "single_quote_backslash_escape": `title = 'it\'s'`,
+  "literal_to_literal": `2 < 5`,
+  "public_request_identifier": `title = @request.query.title`,
+ } {
+  t.Run(name, func(t *testing.T) {
+   _, err := parsePocketBaseFilterRequest(source)
+   if err == nil { t.Fatalf("expected current parser rejection: %s", source) }
+   t.Logf("current PgBase rejects %s: %v", source, err)
+  })
+ }
+ t.Run("collection_identifier_parse_without_query_resolution", func(t *testing.T) {
+  node, err := parsePocketBaseFilterRequest(`@collection.records.title = 'x'`)
+  if err != nil { t.Fatal(err) }
+  _, err = compileRelationListPlan(schema.Catalog{Collections: map[string]schema.Collection{collection.Name:collection}}, collection,node,nil)
+  if err == nil { t.Fatal("expected current query resolver rejection") }
+  t.Logf("@collection parses but query resolver rejects: %v", err)
+ })
+ t.Run("strftime_modifiers",func(t *testing.T){
+  node,err:=parsePocketBaseFilterRequest(`strftime('%Y', created_at, 'start of year') = '2026'`)
+  if err!=nil {t.Fatal(err)}
+  _,err=compileFilter(collection,node,&statementBuilder{})
+  assertValidationDetail(t,err,"filter","unsupported_modifier")
+  t.Log("valid PB strftime modifier rejected")
+ })
+ t.Run("strftime_weekday_format",func(t *testing.T){
+  node,err:=parsePocketBaseFilterRequest(`strftime('%w', created_at) = '0'`)
+  if err!=nil {t.Fatal(err)}
+  builder:=&statementBuilder{}
+  sql,err:=compileFilter(collection,node,builder)
+  if err!=nil {t.Fatal(err)}
+  if builder.args[0]!="D" {t.Fatalf("args=%#v",builder.args)}
+  t.Logf("PB Sunday=0 is compiled using PostgreSQL D Sunday=1: %s %#v",sql,builder.args)
+ })
+ t.Run("null_only_semantics",func(t *testing.T){
+  node,err:=parsePocketBaseFilterRequest(`title = null`)
+  if err!=nil {t.Fatal(err)}
+  sql,err:=compileFilter(collection,markPocketBaseLike(node),&statementBuilder{})
+  if err!=nil {t.Fatal(err)}
+  if sql!=`("title" IS NULL)` {t.Fatalf("sql=%s",sql)}
+  t.Logf("PB text null/empty equivalence is absent: %s",sql)
+ })
+ t.Run("escaped_percent_not_wrapped",func(t *testing.T){
+  node,err:=parsePocketBaseFilterRequest(`title ~ 'a\%b'`)
+  if err!=nil {t.Fatal(err)}
+  builder:=&statementBuilder{}
+  sql,err:=compileFilter(collection,markPocketBaseLike(node),builder)
+  if err!=nil {t.Fatal(err)}
+  if builder.args[0]!=`a\%b` {t.Fatalf("args=%#v",builder.args)}
+  t.Logf("escaped %% still prevents PB contains wrapping: %s %#v",sql,builder.args)
+ })
+ t.Run("unindexed_sort",func(t *testing.T){
+  _,err:=compileRelationListPlan(schema.Catalog{},collection,nil,[]SortKey{{Field:"optional_note"}})
+  assertValidationDetail(t,err,"sort","unindexed_field")
+  t.Log("PB allowed unindexed scalar sort rejected")
+ })
+ t.Run("unknown_projection",func(t *testing.T){
+  _,err:=compileRecordProjection(collection,Principal{Kind:identity.Administrator,ID:uuid.New()},"missing")
+  assertValidationDetail(t,err,"fields","unknown_field")
+  t.Log("PB silent missing-field projection rejected")
+ })
+ t.Run("excerpt_inline_markup",func(t *testing.T){
+  p,err:=CompileProjection("title:excerpt(100)")
+  if err!=nil {t.Fatal(err)}
+  got:=p.Apply(map[string]any{"title":"Hello<b>world</b>"}).(map[string]any)["title"]
+  if got!="Hello world" {t.Fatalf("got=%v",got)}
+  t.Logf("inline markup introduces whitespace unlike PB DOM picker: %v",got)
+ })
+ t.Run("expand_over_depth_is_fatal",func(t *testing.T){
+  catalog,root:=relationFilterSortCatalog()
+  catalog=expandPlanTestCatalog(root,catalog.Collections["relation_people"])
+  root=catalog.Collections[root.Name]
+  _,err:=compilePocketBaseExpandPlan(catalog,root,"owner."+strings.Repeat("manager.",5)+"manager",defaultExpandLimits)
+  assertValidationDetail(t,err,"expand","expand_budget_exceeded")
+  t.Log("PB truncates expand at level 6; PgBase rejects the whole request")
+ })
+ t.Run("empty_expand_key_omitted",func(t *testing.T){
+  flat,err:=(ExpandedRecord{Root:map[string]any{"id":"one"},Expand:map[string]any{}}).Flatten()
+  if err!=nil {t.Fatal(err)}
+  if _,ok:=flat["expand"];ok {t.Fatal("expected omission")}
+  t.Log("empty requested expansion serializes without PB expand:{}")
+ })
+ t.Run("hidden_right_operand_passes_user_guards",func(t *testing.T){
+  hiddenCollection:=collection
+  hiddenCollection.Fields=append(append([]schema.Field(nil),collection.Fields...),schema.Field{Name:"secret",ColumnName:"secret",Type:schema.TypeText,Hidden:true})
+  node,err:=parsePocketBaseFilterRequest(`title = secret`)
+  if err!=nil {t.Fatal(err)}
+  user:=Principal{Kind:identity.User,ID:uuid.New()}
+  if err:=rejectHiddenQueryFields(hiddenCollection,user,node,nil);err!=nil {t.Fatalf("unexpected root guard rejection: %v",err)}
+  plan,err:=compileRelationListPlan(schema.Catalog{},hiddenCollection,node,nil)
+  if err!=nil {t.Fatal(err)}
+  if err:=rejectHiddenRelationPlan(user,plan);err!=nil {t.Fatalf("unexpected plan guard rejection: %v",err)}
+  sql,err:=compileFilter(hiddenCollection,node,&statementBuilder{})
+  if err!=nil {t.Fatal(err)}
+  if !strings.Contains(sql,`"secret"`) {t.Fatalf("sql=%s",sql)}
+  t.Logf("non-admin hidden-field guards accept right operand and compile it: %s",sql)
+ })
+}

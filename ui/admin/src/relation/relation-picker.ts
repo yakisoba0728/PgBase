@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBackend } from "../auth/session";
 import { CreateAttempt, type CollectionDefinition, type FieldDefinition } from "../backend/ports";
-import { encodeDraft, initialDraft, selectRelationTarget } from "../workspace/record-codec";
+import { canonicalRelationID, encodeDraft, initialDraft, selectRelationTarget } from "../workspace/record-codec";
 import {
   deselectRelationTarget,
   relationDraftSelection,
-  relationHydrationBatch,
+  relationHydrationBatchIDs,
   relationHydrationFilter,
-  relationHydrationLimit,
+  relationHydrationSelection,
   relationTargetOption,
   relationTargetSearch,
   relationTargetSearchField,
@@ -37,7 +37,7 @@ export interface RelationPicker {
   chooseActive(): void;
   dismiss(): void;
   mutating: boolean;
-  createTarget(value: string): void;
+  createTarget(value: string, recordID?: string): void;
   editTarget(id: string, value: string): void;
 }
 
@@ -95,15 +95,15 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
   }, []);
 
   const displayField = useMemo(() => relationTargetSearchField(target), [target]);
-  const selected = useMemo(() => relationDraftSelection(draft), [draft]);
+  const selected = useMemo(() => relationDraftSelection(draft, target.recordId), [draft, target.recordId]);
   const pending = useMemo(
-    () => selected.slice(0, relationHydrationLimit).filter((id) => !state.claimed.has(id)),
+    () => relationHydrationSelection(selected).filter((id) => !state.claimed.has(id)),
     [selected, state.claimed],
   );
-  const pendingKey = pending.join(",");
+  const pendingKey = JSON.stringify(pending);
 
   useEffect(() => {
-    const batch = pending.slice(0, relationHydrationBatch);
+    const batch = relationHydrationBatchIDs(pending);
     if (batch.length === 0) return;
     const controller = new AbortController();
     hydrationFlights.current.add(controller);
@@ -117,7 +117,7 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
       for (let pageNumber = 0; pageNumber < batch.length && !controller.signal.aborted; pageNumber += 1) {
         const page = await records.list(target.name, { filter, cursor }, controller.signal);
         for (const record of page.items) {
-          const option = relationTargetOption(record, displayField);
+          const option = relationTargetOption(record, displayField, target.recordId);
           if (option !== undefined) found.set(option.id, option.label);
         }
         if (page.nextCursor === undefined || found.size === batch.length) return { found, conclusive: true };
@@ -135,13 +135,13 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
             : current.missing,
         }));
       })
-      // A hydration that could not run leaves the id showing its own UUID,
+      // A hydration that could not run leaves the id showing its own identity,
       // which is stable and true, rather than an error the draft cannot act on.
       .catch(() => undefined)
       .finally(() => hydrationFlights.current.delete(controller));
     // `pendingKey` is the identity of `pending`; both change together, and
     // depending on the array itself would re-run this on every render.
-  }, [displayField, pendingKey, records, target.name]);
+  }, [displayField, pendingKey, records, target.name, target.recordId]);
 
   const openPage = useCallback(async (plan: RelationTargetPlan, cursor: string | undefined, existing: RelationCandidate[]) => {
     pageFlight.current?.abort();
@@ -153,7 +153,7 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
       if (controller.signal.aborted) return;
       const merged = [...existing];
       for (const record of page.items) {
-        const option = relationTargetOption(record, plan.displayField);
+        const option = relationTargetOption(record, plan.displayField, target.recordId);
         if (option !== undefined && !merged.some((candidate) => candidate.id === option.id)) merged.push(option);
       }
       patch({
@@ -164,7 +164,7 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
     } catch {
       if (!controller.signal.aborted) patch({ busy: null, status: "Unable to search target records." });
     }
-  }, [patch, records, state.activeIndex, target.name]);
+  }, [patch, records, state.activeIndex, target.name, target.recordId]);
 
   const search = useCallback(async () => {
     const request = relationTargetSearch(target, state.query);
@@ -174,6 +174,7 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
         results: null, plan: null, cursor: undefined, activeIndex: -1, busy: null,
         status: request.problem === "invalid-uuid"
           ? "Enter a canonical, non-zero target UUID to search."
+          : request.problem === "invalid-id" ? "Enter an exact target record ID to search."
           : "The target search value is too long or unsupported.",
       });
       return;
@@ -182,7 +183,7 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
   }, [openPage, patch, state.query, target]);
 
   const select = useCallback((id: string) => {
-    const selection = selectRelationTarget(field, draft, id);
+    const selection = selectRelationTarget(field, draft, id, target.recordId);
     if (selection.status === "duplicate") { patch({ status: "That target is already selected." }); return; }
     if (selection.status === "max") { patch({ status: `Select no more than ${field.relation?.maxSelect ?? 0} related records.` }); return; }
     onChange(selection.draft);
@@ -195,7 +196,7 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
       labels: label === undefined ? current.labels : new Map([...current.labels, [id, label]]),
       claimed: label === undefined ? current.claimed : new Set([...current.claimed, id]),
     }));
-  }, [draft, field, onChange, patch, state.results]);
+  }, [draft, field, onChange, patch, state.results, target.recordId]);
 
   return {
     query: state.query,
@@ -216,7 +217,7 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
     },
     select,
     deselect: (id) => {
-      onChange(deselectRelationTarget(draft, id));
+      onChange(deselectRelationTarget(draft, id, target.recordId));
       patch({ status: `Removed ${state.labels.get(id) ?? id}.` });
     },
     moveActive: (step) => patch({ activeIndex: nextActive(step, state.activeIndex, state.results?.length ?? 0) }),
@@ -225,17 +226,22 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
       if (candidate !== undefined) select(candidate.id);
     },
     dismiss: () => patch({ results: null, plan: null, cursor: undefined, activeIndex: -1, status: null }),
-    createTarget: (value) => {
+    createTarget: (value, recordID = "") => {
       if (displayField === undefined || state.mutating) return;
+      if (target.recordId?.kind === "text" && (recordID !== "" || !target.recordId.autogeneratePattern) && canonicalRelationID(recordID, target.recordId) === null) {
+        patch({ status: "Enter an exact target record ID." });
+        return;
+      }
       patch({ mutating: true, status: null });
       const attempt = new CreateAttempt(target.name);
       const draft = { ...initialDraft(target.fields, {}, true), [displayField.name]: { kind: "value" as const, value } };
       const encoded = encodeDraft(target.fields, draft, new Set([displayField.name]), true);
       if (Object.keys(encoded.errors).length > 0) { patch({ mutating: false, status: encoded.errors[displayField.name] ?? "The target record is invalid." }); return; }
+      if (target.recordId?.kind === "text" && recordID !== "") encoded.input.id = recordID;
       void records.create(attempt, encoded.input).then((record) => {
         if (!alive.current) return;
         const id = String(record.data.id);
-        const candidate = relationTargetOption(record.data, displayField);
+        const candidate = relationTargetOption(record.data, displayField, target.recordId);
         select(id);
         if (candidate !== undefined) setState((current) => ({ ...current, results: [...(current.results ?? []), candidate], status: `Created and selected ${candidate.label}.`, labels: new Map([...current.labels, [id, candidate.label]]), claimed: new Set([...current.claimed, id]) }));
       }).catch(() => { if (alive.current) patch({ status: `Unable to create the ${target.name} record.` }); })
@@ -253,7 +259,7 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
       }).then((record) => {
         if (record === undefined) return;
         if (!alive.current) return;
-        const candidate = relationTargetOption(record.data, displayField);
+        const candidate = relationTargetOption(record.data, displayField, target.recordId);
         if (candidate === undefined) return;
         setState((current) => ({ ...current, mutating: false, status: `Updated ${candidate.label}.`, results: current.results?.map((item) => item.id === id ? candidate : item) ?? null, labels: new Map([...current.labels, [id, candidate.label]]) }));
       }).catch(() => { if (alive.current) patch({ mutating: false, status: `Unable to update the ${target.name} record.` }); });

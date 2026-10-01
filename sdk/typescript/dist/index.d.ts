@@ -1,258 +1,26 @@
+export * from "./types.js";
+export * from "./auth-store.js";
+export { RealtimeService } from "./realtime.js";
+import { AuthStore } from "./auth-store.js";
+import { RealtimeService } from "./realtime.js";
+import type { AuthCreationOptions } from "./types.js";
+import type { UserSession, RecordData, FilterParams, RecordPage, PocketBaseListOptions, PocketBasePage, RecordModifiers, RecordMutation, RecordResult, RecordJSONResult, Query, RecordGetOptions, RecordWriteOptions, BatchOptions, RecordEvent, EventOptions, RequestOptions, OAuthLaunchOptions, OAuthBrowserAdapter, BatchOperation, BatchResult, BatchHTTPRequest, BatchHTTPResult, BatchFilePart, FileInfo, AuthMethods, OAuthStart } from "./types.js";
 export * from "./admin.js";
-export type User = {
-    id: string;
-    email: string;
-    createdAt: string;
-    verified?: boolean;
-    emailVisibility?: boolean;
-    authCollectionId?: string;
-    authCollection?: string;
-};
-export type UserSession = {
-    token?: string;
-    user: User;
-    expiresAt: string;
-    impersonated?: boolean;
-    impersonatingAdministratorId?: string;
-};
-export type GeoPoint = {
-    lon: number;
-    lat: number;
-};
-export type RecordData = Record<string, unknown>;
-/** Values accepted by [PgBaseClient.filter] placeholder substitution. */
-export type FilterParams = Record<string, unknown>;
-export type RecordPage<T extends RecordData> = {
-    items: T[];
-    nextCursor?: string;
-};
-/** Options for the PocketBase offset-pagination compatibility endpoint. */
-export type PocketBaseListOptions = Pick<Query, "filter" | "sort" | "expand" | "fields"> & {
-    skipTotal?: boolean;
-};
-/** PocketBase's page-number list envelope. A skipped count is represented by -1. */
-export type PocketBasePage<T extends RecordData> = {
-    page: number;
-    perPage: number;
-    totalItems: number;
-    totalPages: number;
-    items: T[];
-};
-/** Record input may include PocketBase mutation keys such as `score+`, `+tags`, and `tags-`. */
-export type RecordModifiers = {
-    [key: `${string}+`]: unknown;
-    [key: `+${string}`]: unknown;
-    [key: `${string}-`]: unknown;
-};
-export type RecordMutation<T extends RecordData> = Omit<T, "id"> & RecordModifiers;
-export type RecordResult<T extends RecordData> = {
-    record: T;
-    etag?: string;
-};
-export type Query = {
-    filter?: string;
-    sort?: string;
-    expand?: string;
-    /** Comma-separated record fields to return. */
-    fields?: string;
-    cursor?: string;
-    limit?: number;
-};
-/** Options accepted by a single-record read. */
-export type RecordGetOptions = Pick<Query, "expand" | "fields">;
-/** Options accepted by record mutations. */
-export type RecordWriteOptions = Pick<Query, "fields">;
-export type BatchOptions = Pick<Query, "fields">;
-export type RecordEvent = {
-    /** Durable outbox event UUID, distinct from the SSE delivery cursor. */
-    eventId: string;
-    /** Monotonic decimal SSE delivery cursor. */
-    deliveryId: string;
-    collection: string;
-    recordId: string;
-    operation: string;
-    version: number;
-};
-export type EventOptions = {
-    /** Comma-separated record fields requested for realtime payloads. */
-    fields?: string;
-    lastEventId?: string | number;
-    signal?: AbortSignal;
-    maxReconnects?: number;
-    reconnectDelayMs?: number;
-};
-/** Reconnect policy for the shared PocketBase-compatible realtime session. */
-export type RealtimeSubscriptionOptions = Pick<EventOptions, "maxReconnects" | "reconnectDelayMs">;
-/** A collection record event, retained for existing PocketBase subscriptions. */
-export type RealtimeEvent<T extends RecordData = RecordData> = {
-    action: "create" | "update" | "delete";
-    record: T;
-    topic: string;
-};
-/** An application topic event. Its payload is arbitrary valid JSON. */
-export type RealtimeCustomEvent = {
-    topic: string;
-    data: unknown;
-};
-export type RealtimeSubscriptionEvent<T extends RecordData = RecordData> = RealtimeEvent<T> | RealtimeCustomEvent;
-export type RequestOptions = {
-    signal?: AbortSignal;
-    requestKey?: string;
-};
-/** Opens the provider URL using a browser popup, redirect, or mobile launcher. */
-export type OAuthLaunchOptions = {
-    open(url: string): void | Promise<void>;
-};
-export type OAuthBrowserAdapter = OAuthLaunchOptions & {
-    waitForCallback(signal?: AbortSignal): Promise<string | URL>;
-    close?(): void;
-};
-export type BatchOperation<T extends RecordData = RecordData> = {
-    operation: "create";
-    collection: string;
-    input: Omit<T, "id">;
-    idempotencyKey?: string;
-} | {
-    operation: "update";
-    collection: string;
-    id: string;
-    input: Partial<T>;
-    ifMatch?: string;
-} | BatchUpsertOperation<T> | {
-    operation: "delete";
-    collection: string;
-    id: string;
-    ifMatch?: string;
-};
-/** An atomic PUT-equivalent batch operation: creates the ID when absent, otherwise updates it. */
-export type BatchUpsertOperation<T extends RecordData = RecordData> = {
-    operation: "upsert";
-    collection: string;
-    id: string;
-    input: Partial<T>;
-    ifMatch?: string;
-};
-export type BatchResult<T extends RecordData = RecordData> = {
-    eventId: string;
-    record?: T;
-    etag?: string;
-    version?: number;
-};
-export type BatchHTTPRequest<T extends RecordData = RecordData> = {
-    method: "POST" | "PATCH" | "PUT" | "DELETE";
-    url: string;
-    body?: Partial<T>;
-    headers?: Record<string, string>;
-};
-export type BatchHTTPResult<T extends RecordData = RecordData> = {
-    status: number;
-    headers?: Record<string, string>;
-    body?: T;
-    eventId: string;
-    etag?: string;
-    version?: number;
-};
-export type BatchFilePart = {
-    blob: Blob;
-    filename: string;
-};
-export type FileInfo = {
-    id: string;
-    field: string;
-    filename: string;
-    contentType: string;
-    size: number;
-    thumbnail: boolean;
-};
-export type MFAChallenge = {
-    challengeToken: string;
-    expiresAt: string;
-};
-/** Enabled sign-in methods for one explicit public auth collection. */
-export type AuthMethods = {
-    passwordEnabled: boolean;
-    otpEnabled: boolean;
-    mfaEnabled: boolean;
-    oauthProviders: string[];
-    oauth2: {
-        enabled: boolean;
-        providers: Array<{
-            name: string;
-            startEndpoint: string;
-        }>;
-    };
-};
-export type OAuthStart = {
-    authorizationUrl: string;
-    expiresAt: string;
-    state: string;
-    codeVerifier: string;
-    codeChallenge: string;
-    codeChallengeMethod: string;
-};
-export declare class PgBaseError extends Error {
-    readonly status: number;
-    readonly code: string;
-    readonly details: Record<string, string[]>;
-    readonly etag?: string | undefined;
-    constructor(status: number, code: string, details?: Record<string, string[]>, etag?: string | undefined);
-}
-export declare class MFAChallengeError extends PgBaseError {
-    readonly challenge: MFAChallenge;
-    constructor(status: number, code: string, details: Record<string, string[]>, challenge: MFAChallenge);
-}
-export interface TokenStorage {
-    get(): string | null;
-    set(token: string): void;
-    clear(): void;
-}
-/** A serialized PocketBase-compatible auth state for SSR hand-off. */
-export type AuthState = {
-    token: string | null;
-    record: RecordData | null;
-};
-export declare class AuthStore {
-    #private;
-    private readonly storage?;
-    constructor(storage?: TokenStorage | undefined);
-    get token(): string | null;
-    get record(): RecordData | null;
-    get isValid(): boolean;
-    get generation(): number;
-    save(token: string, record?: RecordData | null): void;
-    clear(): void;
-    /** Encodes token and cached auth record for a server-rendered response cookie. */
-    exportToCookie(options?: {
-        key?: string;
-        httpOnly?: boolean;
-        secure?: boolean;
-        sameSite?: "Lax" | "Strict" | "None";
-        path?: string;
-    }): string;
-    /** Loads a state exported by [exportToCookie]; malformed cookies clear state. */
-    loadFromCookie(cookie: string, key?: string): void;
-    _onChange(listener: (generation: number) => void): () => void;
-    private notify;
-}
-/**
- * Wrap browser storage only when the caller deliberately supplies it. This
- * keeps token persistence opt-in and makes the storage lifecycle visible at
- * client construction.
- */
-export declare function browserTokenStorage(storage: Storage, key?: string): TokenStorage;
+export { browserAuthStorage } from "./state-storage.js";
+export type { AuthState, AuthStateStorage } from "./state-storage.js";
 export declare class PgBaseClient {
     readonly baseURL: string;
     readonly auth: AuthStore;
     readonly realtime: RealtimeService;
     private readonly fetcher;
     private readonly requestControllers;
-    /** Matches PocketBase's opt-out switch for duplicate request cancellation. */
+    /** Cancel older reads with the same request URL, or requests with an explicit key. */
     autoCancellation: boolean;
     constructor(baseURL: string, options?: {
         fetch?: typeof fetch;
         auth?: AuthStore;
     });
-    register(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession>;
+    register<T extends RecordData = RecordData>(email: string, password: string, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<UserSession>;
     /** Binds authentication calls to an explicit auth realm without changing record APIs. */
     realm(name: string): AuthRealm;
     login(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession>;
@@ -299,51 +67,29 @@ export declare class PgBaseClient {
     confirmTOTPEnrollment(code: string, signal?: AbortSignal): Promise<{
         codes: string[];
     }>;
+    disableTOTP(currentPassword: string, code: string, signal?: AbortSignal): Promise<void>;
     iterate<T extends RecordData>(collection: string, query?: Query, signal?: AbortSignal): AsyncGenerator<T>;
-    _request<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T>;
+    _request<T>(path: string, init?: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<T>;
     /** Cancels an in-flight request started with this key. */
     cancelRequest(requestKey: string): void;
     /** Cancels every keyed in-flight request. */
     cancelAllRequests(): void;
-    /** Low-level request with PocketBase-style request-key auto-cancellation. */
+    /** Low-level request; null disables cancellation and a string supplies an explicit key. */
     send<T>(path: string, init?: RequestInit, options?: RequestOptions): Promise<T>;
-    _response<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<{
+    _response<T>(path: string, init?: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<{
         body: T;
         etag?: string;
     }>;
+    _responseText(path: string, init?: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<{
+        body: string;
+        etag?: string;
+    }>;
+    private readResponse;
     _eventStream(path: string, lastEventId: string | undefined, signal?: AbortSignal): Promise<Response>;
     private authenticate;
     private request;
     private fetchResponse;
     private keyedSignal;
-}
-/** Multiplexes PocketBase-compatible realtime topics over one durable SSE connection. */
-export declare class RealtimeService {
-    private readonly client;
-    private readonly listeners;
-    private controller?;
-    private clientId?;
-    private lastEventId?;
-    private running?;
-    private ready?;
-    private resolveReady?;
-    private rejectReady?;
-    private readySettled;
-    private maxReconnects;
-    private reconnectDelayMs;
-    constructor(client: PgBaseClient);
-    subscribe(topic: `@${string}`, listener: (event: RealtimeCustomEvent) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
-    subscribe<T extends RecordData = RecordData>(topic: string, listener: (event: RealtimeEvent<T>) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
-    /**
-     * Subscribes to an application-owned topic without exposing its reserved
-     * realtime wire name. The callback receives the original UTF-8 topic.
-     */
-    subscribeApplication(topic: string, listener: (event: RealtimeCustomEvent) => void): Promise<() => Promise<void>>;
-    unsubscribe(topic?: string, listener?: (event: any) => void): Promise<void>;
-    private ensureRunning;
-    private sync;
-    private run;
-    private fail;
 }
 export declare class AuthRealm {
     private readonly client;
@@ -351,7 +97,7 @@ export declare class AuthRealm {
     constructor(client: PgBaseClient, name: string);
     private path;
     private authenticate;
-    register(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession>;
+    register<T extends RecordData = RecordData>(email: string, password: string, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<UserSession>;
     login(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession>;
     /** Returns the sign-in methods enabled for this auth collection. */
     methods(signal?: AbortSignal): Promise<AuthMethods>;
@@ -373,10 +119,10 @@ export declare class AuthRealm {
         authorizationUrl: string;
         expiresAt: string;
     }>;
-    oauthWithBrowser(provider: string, redirectUri: string, adapter: OAuthBrowserAdapter, signal?: AbortSignal): Promise<UserSession>;
+    oauthWithBrowser<T extends RecordData = RecordData>(provider: string, redirectUri: string, adapter: OAuthBrowserAdapter, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<UserSession>;
     oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<OAuthStart>;
-    oauthComplete(provider: string, state: string, code: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
-    oauthCompleteFromURL(provider: string, callbackURL: string | URL, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
+    oauthComplete<T extends RecordData = RecordData>(provider: string, state: string, code: string, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
+    oauthCompleteFromURL<T extends RecordData = RecordData>(provider: string, callbackURL: string | URL, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
 }
 export declare class OAuthCallbackError extends Error {
     readonly code: string;
@@ -387,6 +133,8 @@ export declare class Records<T extends RecordData> {
     private readonly collection;
     constructor(client: PgBaseClient, collection: string);
     list(query?: Query, signal?: AbortSignal): Promise<RecordPage<T>>;
+    /** Returns the complete { items, nextCursor? } JSON envelope without parsing numbers. */
+    listJSON(query?: Query, signal?: AbortSignal): Promise<string>;
     /**
      * Lists a numbered PocketBase-compatible page. This is intentionally
      * separate from [list], whose cursor contract remains native PgBase.
@@ -396,15 +144,24 @@ export declare class Records<T extends RecordData> {
     get(id: string, options?: RecordGetOptions, signal?: AbortSignal): Promise<T>;
     getWithETag(id: string, signal?: AbortSignal): Promise<RecordResult<T>>;
     getWithETag(id: string, options?: RecordGetOptions, signal?: AbortSignal): Promise<RecordResult<T>>;
+    /** Returns the complete record JSON and ETag without parsing numbers. */
+    getJSON(id: string, signal?: AbortSignal): Promise<RecordJSONResult>;
+    getJSON(id: string, options?: RecordGetOptions, signal?: AbortSignal): Promise<RecordJSONResult>;
     create(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
     createWithETag(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>>;
+    /** Sends a JSON object verbatim; retry an uncertain create with the same body and key. */
+    createJSON(recordJSON: string, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordJSONResult>;
     update(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
     updateWithETag(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>>;
+    /** Sends a record update JSON object verbatim with the current record ETag. */
+    updateJSON(id: string, recordJSON: string, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordJSONResult>;
     remove(id: string, etag: string, signal?: AbortSignal): Promise<void>;
     events(options?: EventOptions): AsyncGenerator<RecordEvent>;
+    private listPath;
     private path;
     private eventsPath;
     private recordResponse;
+    private recordJSONResponse;
 }
 export declare class Files {
     private readonly client;

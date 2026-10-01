@@ -1,5 +1,9 @@
 # 다음 작업과 완료 기준
 
+2026-09-22 현재 실행 기준: [PgBase 자체 제품 로드맵](workstreams/independent-product-2026-09-22/README.md)의 재현 가능한 결함, API·관리 화면·SDK의 사용 흐름, 설치·복구 인수를 우선한다. [PocketBase 비교 감사](audits/2026-09-22-pocketbase-comparison/README.md)의 차이는 설계 참고이며 전부 구현해야 하는 작업 목록이 아니다. 아래 N 단계는 당시 실행 이력이다.
+
+2026-09-22 갱신: 이후 로컬 스냅샷에서 확인된 다섯 제품 공백의 구현과 검증은 [개발 공백 보완 기록](development-completion-2026-09-22.md)에 정리했다. 아래 N 단계 및 설치 기록은 당시 실행 이력으로 보존한다.
+
 기준: 2026-09-10. N1–N5는 구현·독립 검토·전체 로컬 인수 및 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) 필수 CI5/5·merge `2939f15`를 완료했고 기존 PG17.9/schema38→40 설치·인수도03:24 KST 마쳤다. N6–N9는 제품 `b7674f7`에서 구현·독립 검토·전체 G5 로컬 인수를 완료하고, 후속 수정까지 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)로 main `53a4741`에 병합됐다. 공개 배포·live 교체는 수행하지 않았다. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
 
 ## 우선순위와 의존성

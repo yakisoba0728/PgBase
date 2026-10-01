@@ -133,7 +133,16 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// relation filters at the existing relation SQL renderer.
 	// The 2026-09-12 query audit adds exact timestamp comparison, ambiguous
 	// reverse-path rejection, and request-aware expansion policy propagation.
-	if runtimeLines > 7565 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 7565", runtimeLines)
+	// The 2026-09-22 native visibility fix inspects both operands and nested
+	// function/relation paths (+67/-46, net +21); stored policies stay separate.
+	// Native function cursors add 160 lines for typed operand binding and
+	// precise invalid-input errors, retaining existing scalar descriptors.
+	// Field-to-field cursors bind both typed identities and contains direction;
+	// the measured 129-line addition preserves scalar/function golden hashes.
+	// Literal-left any-match normalization and the shared scalar predicate
+	// boundary add exactly 29 lines after the abc94ef checkpoint. SQL cursor
+	// descriptors retain their modifiers; no package boundary or slack changes.
+	if runtimeLines > 7904 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 7904", runtimeLines)
 	}
 }

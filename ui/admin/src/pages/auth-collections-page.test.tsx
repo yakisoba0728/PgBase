@@ -58,7 +58,7 @@ describe("auth collections page", () => {
     const smtp = { address: "localhost:1025", from: "mailer@example.test", username: "mailer", passwordConfigured: true, serverName: "localhost", implicitTls: false, allowInsecureLoopback: true };
     const harness = scriptedAdmin("/admin/auth-collections");
     harness.script.listAuthCollections.push({ value: [users] });
-    harness.script.getAuthAdministration.push({ value: { policy: { passwordEnabled: true, minimumPasswordBytes: 12, mfaEnabled: true, otpEnabled: false, otpDurationSeconds: 300, otpMaxAttempts: 5 }, providers: [], templates: [], smtp } });
+    harness.script.getAuthAdministration.push({ value: { policy: { passwordEnabled: true, minimumPasswordBytes: 12, maximumPasswordBytes: 72, passwordPattern: "", identityFields: ["email"], mfaDurationSeconds: 1800, mfaRule: "", mfaEnabled: true, otpEnabled: false, otpDurationSeconds: 300, otpMaxAttempts: 5 }, providers: [], templates: [], smtp } });
     harness.script.putAuthSMTP.push({ value: smtp });
     harness.script.testAuthSMTP.push({ value: undefined });
     renderAdmin(harness);
@@ -79,7 +79,7 @@ describe("auth collections page", () => {
   });
 
   it("replaces a mail-template draft after a normalized save and a settings reload", async () => {
-    const policy = { passwordEnabled: true, minimumPasswordBytes: 12, mfaEnabled: true, otpEnabled: false, otpDurationSeconds: 300, otpMaxAttempts: 5 };
+    const policy = { passwordEnabled: true, minimumPasswordBytes: 12, maximumPasswordBytes: 72, passwordPattern: "", identityFields: ["email"], mfaDurationSeconds: 1800, mfaRule: "", mfaEnabled: true, otpEnabled: false, otpDurationSeconds: 300, otpMaxAttempts: 5 };
     const initial = { purpose: "verify" as const, subject: "Initial subject", body: "Initial body", htmlBody: "<p>Initial</p>" };
     const normalized = { ...initial, subject: "Normalized subject", body: "Normalized body", htmlBody: "<p>Normalized</p>" };
     const reloaded = { ...initial, subject: "Reloaded subject", body: "Reloaded body", htmlBody: "<p>Reloaded</p>" };

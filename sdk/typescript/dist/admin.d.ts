@@ -49,10 +49,34 @@ export type FieldDefinition = Omit<FieldInput, "relation"> & {
         targetCollectionId: string;
     };
 };
+/** Omitted policies use UUIDs when creating a collection. A bare text policy
+ * uses 15 lowercase letters/digits. Custom text policies require all validation
+ * options below; without autogeneratePattern, callers supply the record ID.
+ * A collection's policy is immutable: omit it on updates or repeat its value. */
+export type RecordIDPolicy = {
+    kind: "uuid";
+    minLength?: never;
+    maxLength?: never;
+    pattern?: never;
+    autogeneratePattern?: never;
+} | {
+    kind: "text";
+    minLength?: never;
+    maxLength?: never;
+    pattern?: never;
+    autogeneratePattern?: never;
+} | {
+    kind: "text";
+    minLength: number;
+    maxLength: number;
+    pattern: string;
+    autogeneratePattern?: string;
+};
 export type CollectionDefinition = {
     id: string;
     name: string;
     tableName: string;
+    recordId?: RecordIDPolicy;
     fields: FieldDefinition[];
     indexes?: CompoundIndex[];
     view?: ViewInput;
@@ -95,6 +119,7 @@ export type ViewInput = {
 export type CollectionChange = {
     operation: "create";
     name: string;
+    recordId?: RecordIDPolicy;
     fields?: FieldInput[];
     indexes?: CompoundIndex[];
     view?: ViewInput;
@@ -102,6 +127,7 @@ export type CollectionChange = {
     operation: "update";
     name: string;
     collectionId?: string;
+    recordId?: RecordIDPolicy;
     fields: FieldInput[];
     indexes?: CompoundIndex[];
     view?: never;
@@ -109,7 +135,8 @@ export type CollectionChange = {
     operation: "update";
     name: string;
     collectionId?: string;
-    view: SQLViewInput;
+    recordId?: RecordIDPolicy;
+    view: ViewInput;
     fields?: never;
     indexes?: never;
 } | {
@@ -125,6 +152,7 @@ export type SchemaPlan = {
     definition: {
         name: string;
         tableName: string;
+        recordId?: RecordIDPolicy;
         fields: Array<FieldInput & {
             ordinal: number;
         }>;
@@ -140,6 +168,8 @@ export type SchemaOperation = {
 };
 export type SchemaDocumentCollection = {
     name: string;
+    type?: "base" | "auth" | "view";
+    recordId?: RecordIDPolicy;
     fields?: FieldInput[];
     indexes?: CompoundIndex[];
     view?: ViewInput;
@@ -147,15 +177,43 @@ export type SchemaDocumentCollection = {
     userAccess: boolean;
     rules: Record<string, unknown>;
 };
+export type SchemaDocumentAuthPolicy = {
+    passwordEnabled: boolean;
+    minimumPasswordBytes: number;
+    maximumPasswordBytes: number;
+    passwordPattern: string;
+    identityFields: string[];
+    mfaEnabled: boolean;
+    mfaDurationSeconds: number;
+    mfaRule: string;
+    otpEnabled: boolean;
+    otpDurationSeconds: number;
+    otpMaxAttempts: number;
+};
+/** Authentication settings paired by name with a type: "auth" collection. */
+export type SchemaDocumentAuthCollection = {
+    name: string;
+    registrationEnabled: boolean;
+    recordId?: RecordIDPolicy;
+    fields?: FieldInput[];
+    rules: Record<string, string | null>;
+    policy: SchemaDocumentAuthPolicy;
+    tokenTTLs?: Record<string, number>;
+};
 export type SchemaDocument = {
     format: "pgbase.schema/v1";
     collections: SchemaDocumentCollection[];
+    authCollections?: SchemaDocumentAuthCollection[];
     deleteMissing?: boolean;
 };
+export type AuthCollectionScaffold = {
+    collection: SchemaDocumentCollection;
+    authCollection: SchemaDocumentAuthCollection;
+};
 export type CollectionScaffolds = {
-    base: CollectionChange;
-    auth: CollectionChange;
-    view: CollectionChange;
+    base: SchemaDocumentCollection;
+    auth: AuthCollectionScaffold;
+    view: SchemaDocumentCollection;
 };
 export type CollectionTruncateResult = {
     name: string;
@@ -278,6 +336,35 @@ export type AppleClientSecretInput = {
     privateKey: string;
     duration: number;
 };
+export type AdministratorAccount = {
+    id: string;
+    email: string;
+    active: boolean;
+    createdAt: string;
+    updatedAt: string;
+};
+export type AdministratorAccountPage = {
+    items: AdministratorAccount[];
+    nextAfter?: string;
+};
+export type BackupEntry = {
+    id: string;
+    createdAt: string;
+    size: number;
+    postgresqlMajor: number;
+    sha256?: string;
+    storageFormat?: string;
+};
+export type BackupJob = {
+    id: string;
+    operation: "create" | "restore";
+    backupId: string;
+    status: "running" | "completed" | "failed";
+    phase: "create" | "restore" | "completed" | "failed" | "interrupted";
+    error?: string;
+    createdAt: string;
+    updatedAt: string;
+};
 export declare class AdminAPIError extends Error {
     readonly status: number;
     readonly code: string;
@@ -345,6 +432,7 @@ export declare class PgBaseAdminClient {
     previewSchemaImport(document: SchemaDocument, signal?: AbortSignal): Promise<ApprovedSchemaImportPlan>;
     previewSchemaImportJSON(documentJSON: string, signal?: AbortSignal): Promise<ApprovedSchemaImportPlan>;
     applySchemaImport(plan: SchemaImportPlan, signal?: AbortSignal): Promise<SchemaImportResult>;
+    schemaImportOperation(id: string, signal?: AbortSignal): Promise<SchemaImportResult>;
     logs(options?: {
         before?: number;
         statusClass?: number;
@@ -361,6 +449,23 @@ export declare class PgBaseAdminClient {
     backupStorageSettings(signal?: AbortSignal): Promise<BackupStorageSettings>;
     updateBackupStorage(input: BackupStorageUpdate, signal?: AbortSignal): Promise<BackupStorageSettings>;
     testBackupStorage(signal?: AbortSignal): Promise<void>;
+    administratorAccounts(options?: {
+        limit?: number;
+        after?: string;
+    }, signal?: AbortSignal): Promise<AdministratorAccountPage>;
+    createAdministrator(email: string, password: string, signal?: AbortSignal): Promise<AdministratorAccount>;
+    setAdministratorActive(id: string, active: boolean, signal?: AbortSignal): Promise<AdministratorAccount>;
+    setAdministratorPassword(id: string, newPassword: string, signal?: AbortSignal): Promise<void>;
+    revokeAdministratorSessions(id: string, signal?: AbortSignal): Promise<void>;
+    backups(signal?: AbortSignal): Promise<{
+        items: BackupEntry[];
+    }>;
+    createBackup(signal?: AbortSignal): Promise<BackupJob>;
+    uploadBackup(archive: Blob, signal?: AbortSignal): Promise<BackupEntry>;
+    downloadBackup(id: string, signal?: AbortSignal): Promise<Blob>;
+    deleteBackup(id: string, signal?: AbortSignal): Promise<void>;
+    restoreBackup(id: string, signal?: AbortSignal): Promise<BackupJob>;
+    backupJob(id: string, signal?: AbortSignal): Promise<BackupJob>;
     previewFileStorageMigration(input: FileStorageMigrationInput, signal?: AbortSignal): Promise<FileStorageMigration>;
     startFileStorageMigration(input: FileStorageMigrationInput, operationID: string, signal?: AbortSignal): Promise<FileStorageMigration>;
     fileStorageMigration(id: string, signal?: AbortSignal): Promise<FileStorageMigration>;
@@ -371,4 +476,5 @@ export declare class PgBaseAdminClient {
     private adopt;
     private request;
     private requestText;
+    private requestBlob;
 }

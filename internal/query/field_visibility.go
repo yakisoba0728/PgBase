@@ -1,48 +1,80 @@
 package query
 
 import (
+	"strings"
+
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/schema"
-	"strings"
 )
 
-func rejectHiddenQueryFields(collection schema.Collection, principal Principal, filter filterNode, sort []SortKey) error {
+func rejectHiddenQueryFields(catalog schema.Catalog, collection schema.Collection, principal Principal, filter filterNode, sort []SortKey) error {
 	if principal.Kind == identity.Administrator {
 		return nil
 	}
-	hidden := map[string]bool{}
-	for _, field := range collection.Fields {
-		hidden[field.Name] = field.Hidden
-	}
-	var visit func(filterNode) bool
-	visit = func(node filterNode) bool {
-		switch value := node.(type) {
-		case filterComparison:
-			return hidden[strings.Split(value.field, ".")[0]]
-		case filterAnd:
-			for _, child := range value.children {
-				if visit(child) {
-					return true
-				}
-			}
-		case filterOr:
-			for _, child := range value.children {
-				if visit(child) {
-					return true
-				}
-			}
+	hidden := func(name string) bool {
+		if field, ok := filterField(collection, strings.SplitN(name, ".", 2)[0]); ok && field.Hidden {
+			return true
 		}
-		return false
+		if !strings.Contains(name, ".") {
+			return false
+		}
+		path, err := resolveRelationPath(catalog, collection, name, "filter")
+		return err == nil && hiddenRelationPath(&path)
 	}
-	if visit(filter) {
+	// Inspect only the caller's filter. Stored authorization rules deliberately
+	// retain access to hidden fields and are compiled separately by the kernel.
+	if filterReferencesField(filter, hidden) {
 		return validation("filter", "hidden_field")
 	}
 	for _, key := range sort {
-		if hidden[strings.Split(key.Field, ".")[0]] {
+		if hidden(key.Field) {
 			return validation("sort", "hidden_field")
 		}
 	}
 	return nil
+}
+
+func filterReferencesField(node filterNode, matches func(string) bool) bool {
+	switch value := node.(type) {
+	case filterComparison:
+		return matches(value.field) || matches(value.otherField) || filterFunctionReferencesField(value.function, matches)
+	case filterAnd:
+		for _, child := range value.children {
+			if filterReferencesField(child, matches) {
+				return true
+			}
+		}
+	case filterOr:
+		for _, child := range value.children {
+			if filterReferencesField(child, matches) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func filterFunctionReferencesField(function *filterFunction, matches func(string) bool) bool {
+	if function != nil {
+		for _, argument := range function.args {
+			if matches(argument.field) || filterFunctionReferencesField(argument.function, matches) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hiddenRelationPath(path *plannedRelationPath) bool {
+	if path == nil {
+		return false
+	}
+	for _, hop := range path.hops {
+		if hop.field.Hidden {
+			return true
+		}
+	}
+	return path.terminal.Hidden
 }
 
 func rejectHiddenRelationPlan(principal Principal, plan relationListPlan) error {
@@ -58,15 +90,11 @@ func rejectHiddenRelationPlan(principal Principal, plan relationListPlan) error 
 			if node.comparison.rootField != nil && node.comparison.rootField.Hidden {
 				return true
 			}
-			if path := node.comparison.path; path != nil {
-				for _, hop := range path.hops {
-					if hop.field.Hidden {
-						return true
-					}
-				}
-				if path.terminal.Hidden {
-					return true
-				}
+			if field := node.comparison.otherRootField; field != nil && field.Hidden {
+				return true
+			}
+			if hiddenRelationPath(node.comparison.path) {
+				return true
 			}
 		}
 		for _, child := range node.children {
@@ -83,15 +111,8 @@ func rejectHiddenRelationPlan(principal Principal, plan relationListPlan) error 
 		if term.cursorField.Hidden {
 			return validation("sort", "hidden_field")
 		}
-		if term.relationPath != nil {
-			for _, hop := range term.relationPath.hops {
-				if hop.field.Hidden {
-					return validation("sort", "hidden_field")
-				}
-			}
-			if term.relationPath.terminal.Hidden {
-				return validation("sort", "hidden_field")
-			}
+		if hiddenRelationPath(term.relationPath) {
+			return validation("sort", "hidden_field")
 		}
 	}
 	return nil

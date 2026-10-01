@@ -208,8 +208,8 @@ func TestReleaseGateBindsTheCandidateSourceWithoutRewindingNewerGateHarnesses(t 
 	if releaseArtifacts < 0 || !strings.Contains(backend[releaseArtifacts:], "if: inputs.source_commit == ''") {
 		t.Fatal("historical source gates can recursively run the release-phase artifact matrix")
 	}
-	if strings.Count(backend, sourceCheckout) != 3 || strings.Count(backend, "ref: ${{ github.sha }}") != 2 {
-		t.Fatal("backend must test the phase source while keeping observability and artifact harnesses at the gate revision")
+	if strings.Count(backend, sourceCheckout) != 3 || strings.Count(backend, "ref: ${{ github.sha }}") != 3 {
+		t.Fatal("backend must test the phase source while keeping observability, artifact harnesses, and source-only Windows acceptance at the gate revision")
 	}
 
 	for _, name := range []string{"frontend.yml", "e2e.yml"} {

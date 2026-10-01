@@ -23,6 +23,8 @@ final class Records {
       _base,
       query: query.toParameters(),
       cancellation: cancellation,
+      requestKey: query.requestKey,
+      autoCancel: query.autoCancel,
     );
     if (result is! JsonObject || result['items'] is! JsonArray)
       throw const PgBaseProtocolError('invalid_record_page');
@@ -48,6 +50,8 @@ final class Records {
       _base,
       query: options.toParameters(page, perPage),
       cancellation: cancellation,
+      requestKey: options.requestKey,
+      autoCancel: options.autoCancel,
     );
     if (result is! JsonObject || result['items'] is! JsonArray) {
       throw const PgBaseProtocolError('invalid_pocketbase_record_page');
@@ -66,9 +70,11 @@ final class Records {
     }
     int integer(JsonNumber value) {
       final parsed = int.tryParse(value.source);
-      if (parsed == null) throw const PgBaseProtocolError('invalid_pocketbase_record_page');
+      if (parsed == null)
+        throw const PgBaseProtocolError('invalid_pocketbase_record_page');
       return parsed;
     }
+
     return PocketBaseRecordPage(
       page: integer(resultPage),
       perPage: integer(resultPerPage),
@@ -82,18 +88,29 @@ final class Records {
     String id, {
     String? fields,
     CancellationToken? cancellation,
-  }) async =>
-      (await getWithEtag(id, fields: fields, cancellation: cancellation)).record;
+    String? requestKey,
+    bool autoCancel = true,
+  }) async => (await getWithEtag(
+    id,
+    fields: fields,
+    cancellation: cancellation,
+    requestKey: requestKey,
+    autoCancel: autoCancel,
+  )).record;
 
   Future<RecordResult<JsonObject>> getWithEtag(
     String id, {
     String? fields,
     CancellationToken? cancellation,
+    String? requestKey,
+    bool autoCancel = true,
   }) => _client.recordRequest(
     'GET',
     _path(id),
     query: {if (fields != null) 'fields': fields},
     cancellation: cancellation,
+    requestKey: requestKey,
+    autoCancel: autoCancel,
   );
 
   Future<JsonObject> create(
@@ -183,6 +200,8 @@ final class Records {
           sort: query.sort,
           expand: query.expand,
           fields: query.fields,
+          requestKey: query.requestKey,
+          autoCancel: query.autoCancel,
           cursor: next,
           limit: query.limit,
         ),

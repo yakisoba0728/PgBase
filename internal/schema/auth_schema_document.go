@@ -22,6 +22,7 @@ type SchemaDocumentAuthCollection struct {
 	Name                string                   `json:"name"`
 	RegistrationEnabled bool                     `json:"registrationEnabled"`
 	Fields              []FieldInput             `json:"fields,omitempty"`
+	RecordID            *RecordIDPolicy          `json:"recordId,omitempty"`
 	Rules               json.RawMessage          `json:"rules"`
 	Policy              SchemaDocumentAuthPolicy `json:"policy"`
 	TokenTTLs           map[string]int           `json:"tokenTTLs,omitempty"`
@@ -43,20 +44,27 @@ type SchemaDocumentAuthPolicy struct {
 var portableAuthName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 
 func exportDocumentAuthCollections(ctx context.Context, tx pgx.Tx) ([]SchemaDocumentAuthCollection, error) {
-	rows, err := tx.Query(ctx, `select c.name,c.registration_enabled,c.fields_json,jsonb_build_object('list',c.list_rule,'view',c.view_rule,'create',c.create_rule,'update',c.update_rule,'delete',c.delete_rule,'auth',c.auth_rule,'manage',c.manage_rule),p.password_enabled,p.minimum_password_bytes,p.maximum_password_bytes,p.password_pattern,p.identity_fields,p.mfa_enabled,p.mfa_duration_seconds,p.mfa_rule,p.otp_enabled,p.otp_duration_seconds,p.otp_max_attempts,coalesce((select jsonb_object_agg(t.purpose,t.ttl_seconds) from pgbase_meta.auth_token_policies t where t.auth_collection_id=c.id),'{}') from pgbase_meta.auth_collections c join pgbase_meta.auth_collection_policies p on p.auth_collection_id=c.id order by c.name`)
+	rows, err := tx.Query(ctx, `select c.name,c.registration_enabled,c.fields_json,jsonb_build_object('list',c.list_rule,'view',c.view_rule,'create',c.create_rule,'update',c.update_rule,'delete',c.delete_rule,'auth',c.auth_rule,'manage',c.manage_rule),p.password_enabled,p.minimum_password_bytes,p.maximum_password_bytes,p.password_pattern,p.identity_fields,p.mfa_enabled,p.mfa_duration_seconds,p.mfa_rule,p.otp_enabled,p.otp_duration_seconds,p.otp_max_attempts,coalesce((select jsonb_object_agg(t.purpose,t.ttl_seconds) from pgbase_meta.auth_token_policies t where t.auth_collection_id=c.id),'{}'),c.record_id from pgbase_meta.auth_collections c join pgbase_meta.auth_collection_policies p on p.auth_collection_id=c.id order by c.name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	result := []SchemaDocumentAuthCollection{}
 	for rows.Next() {
-		var fields, rules, identities, tokens []byte
+		var fields, rules, identities, tokens, recordIDRaw []byte
 		var v SchemaDocumentAuthCollection
-		if err := rows.Scan(&v.Name, &v.RegistrationEnabled, &fields, &rules, &v.Policy.PasswordEnabled, &v.Policy.MinimumPasswordBytes, &v.Policy.MaximumPasswordBytes, &v.Policy.PasswordPattern, &identities, &v.Policy.MFAEnabled, &v.Policy.MFADurationSeconds, &v.Policy.MFARule, &v.Policy.OTPEnabled, &v.Policy.OTPDurationSeconds, &v.Policy.OTPMaxAttempts, &tokens); err != nil {
+		if err := rows.Scan(&v.Name, &v.RegistrationEnabled, &fields, &rules, &v.Policy.PasswordEnabled, &v.Policy.MinimumPasswordBytes, &v.Policy.MaximumPasswordBytes, &v.Policy.PasswordPattern, &identities, &v.Policy.MFAEnabled, &v.Policy.MFADurationSeconds, &v.Policy.MFARule, &v.Policy.OTPEnabled, &v.Policy.OTPDurationSeconds, &v.Policy.OTPMaxAttempts, &tokens, &recordIDRaw); err != nil {
 			return nil, err
 		}
 		if json.Unmarshal(fields, &v.Fields) != nil || json.Unmarshal(identities, &v.Policy.IdentityFields) != nil || json.Unmarshal(tokens, &v.TokenTTLs) != nil {
 			return nil, ErrCatalogInvalid
+		}
+		var recordID RecordIDPolicy
+		if json.Unmarshal(recordIDRaw, &recordID) != nil {
+			return nil, ErrCatalogInvalid
+		}
+		if recordID.Kind == RecordIDText {
+			v.RecordID = &recordID
 		}
 		v.Rules = append(json.RawMessage(nil), rules...)
 		result = append(result, v)
@@ -71,6 +79,9 @@ func validateDocumentAuthCollections(values []SchemaDocumentAuthCollection) erro
 			return validation("authCollections", "invalid")
 		}
 		seen[v.Name] = true
+		if _, err := NormalizeRecordIDPolicy(v.RecordID); err != nil {
+			return validation("authCollections."+v.Name+".recordId", "invalid")
+		}
 		fieldNames := map[string]bool{}
 		for _, field := range v.Fields {
 			if validateInputName("field", field.Name) != nil || fieldNames[field.Name] || validateFieldOptions(field.Type, field.Options) != nil {
@@ -182,7 +193,7 @@ func validateDocumentAuthIdentityData(ctx context.Context, tx pgx.Tx, values []S
 	return nil
 }
 
-func (s *Service) applyDocumentAuthCollections(ctx context.Context, tx pgx.Tx, values []SchemaDocumentAuthCollection) error {
+func (s *Service) applyDocumentAuthCollections(ctx context.Context, tx pgx.Tx, catalog Catalog, values []SchemaDocumentAuthCollection) error {
 	for _, v := range values {
 		var rules map[string]*string
 		if json.Unmarshal(v.Rules, &rules) != nil {
@@ -194,10 +205,19 @@ func (s *Service) applyDocumentAuthCollections(ctx context.Context, tx pgx.Tx, v
 		fieldRaw, _ := json.Marshal(v.Fields)
 		identityRaw, _ := json.Marshal(v.Policy.IdentityFields)
 		var id uuid.UUID
-		err := tx.QueryRow(ctx, `select id from pgbase_meta.auth_collections where name=$1 for update`, v.Name).Scan(&id)
+		var currentRecordIDRaw []byte
+		err := tx.QueryRow(ctx, `select id,record_id from pgbase_meta.auth_collections where name=$1 for update`, v.Name).Scan(&id, &currentRecordIDRaw)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		recordID, policyErr := documentAuthRecordID(catalog, v, currentRecordIDRaw)
+		if policyErr != nil {
+			return policyErr
+		}
 		if errors.Is(err, pgx.ErrNoRows) {
 			id = uuid.New()
-			_, err = tx.Exec(ctx, `insert into pgbase_meta.auth_collections(id,name,registration_enabled,profile_schema,fields_json,list_rule,view_rule,create_rule,update_rule,delete_rule,auth_rule,manage_rule,created_at,updated_at) values($1,$2,$3,'{}',$4,$5,$6,$7,$8,$9,$10,$11,clock_timestamp(),clock_timestamp())`, id, v.Name, v.RegistrationEnabled, fieldRaw, rules["list"], rules["view"], rules["create"], rules["update"], rules["delete"], rules["auth"], rules["manage"])
+			recordIDRaw, _ := json.Marshal(recordID)
+			_, err = tx.Exec(ctx, `insert into pgbase_meta.auth_collections(id,name,registration_enabled,profile_schema,fields_json,list_rule,view_rule,create_rule,update_rule,delete_rule,auth_rule,manage_rule,record_id,created_at,updated_at) values($1,$2,$3,'{}',$4,$5,$6,$7,$8,$9,$10,$11,$12,clock_timestamp(),clock_timestamp())`, id, v.Name, v.RegistrationEnabled, fieldRaw, rules["list"], rules["view"], rules["create"], rules["update"], rules["delete"], rules["auth"], rules["manage"], recordIDRaw)
 		} else if err == nil {
 			_, err = tx.Exec(ctx, `update pgbase_meta.auth_collections set registration_enabled=$2,fields_json=$3,list_rule=$4,view_rule=$5,create_rule=$6,update_rule=$7,delete_rule=$8,auth_rule=$9,manage_rule=$10,updated_at=clock_timestamp() where id=$1`, id, v.RegistrationEnabled, fieldRaw, rules["list"], rules["view"], rules["create"], rules["update"], rules["delete"], rules["auth"], rules["manage"])
 		}

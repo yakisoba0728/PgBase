@@ -211,7 +211,7 @@ export function memoryBackend(script: BackendScript): AdminBackend {
 	},
 	rules: {
 		getRules: (collection, signal) => guard(signal, () => take<RecordRules>("getRules", { collection }, "schema")),
-		setRules: (collection, rules, revision, signal) => guard(signal, () => take<RecordRules>("setRules", { collection, rules, revision }, "schema")),
+		setRules: (collection, rules, signal) => guard(signal, () => take<RecordRules>("setRules", { collection, rules }, "schema")),
 		previewRule: (collection, value, signal) => guard(signal, () => take<RulePreview>("previewRule", { collection, value }, "schema")),
 	},
 	authCollections: {

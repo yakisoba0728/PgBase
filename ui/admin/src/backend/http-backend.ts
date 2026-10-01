@@ -20,6 +20,7 @@ import { createSessionPort } from "./http-session-port";
 import { createSchemaPort } from "./http-schema-port";
 import { callFile, createFilesPort } from "./http-files-port";
 import { createAdminPorts } from "./http-admin-ports";
+import { createAdministratorsPort } from "./http-administrators-port";
 import {
   decode,
   envelope,
@@ -183,6 +184,8 @@ function definitions(raw: unknown): CollectionDefinition[] {
 function recordFailure(wire: Wire): RecordError {
   if (wire.status === 404) return new RecordError("not-found");
   if (wire.status === 412) return new RecordError("stale");
+  if (wire.code === "invalid_record_id" || wire.code === "record_id_conflict")
+    return new RecordError("rejected", { id: [wire.code] });
   if (wire.code === "validation_failed")
     return new RecordError("rejected", wire.details);
   return new RecordError("failed");
@@ -202,6 +205,7 @@ function sessionFailure(wire: Wire): SessionError {
 class HTTPBackend implements AdminBackend {
   #csrfToken = "";
   #authGeneration = 0;
+  #administratorID = "";
   readonly #expired = new Set<() => void>();
 
   /*
@@ -217,6 +221,7 @@ class HTTPBackend implements AdminBackend {
     clearSession: (generation) => {
       if (generation === this.#authGeneration) {
         this.#csrfToken = "";
+        this.#administratorID = "";
         this.#authGeneration += 1;
       }
     },
@@ -261,6 +266,18 @@ class HTTPBackend implements AdminBackend {
     protectedFetch: (input, init) => this.#protectedFetch(input, init),
   });
 
+  readonly administrators = createAdministratorsPort({
+    send: (request) => this.#send(request),
+    authGeneration: () => this.#authGeneration,
+    sessionsRevoked: (id, generation) => {
+      if (generation !== this.#authGeneration || id !== this.#administratorID) return;
+      this.#csrfToken = "";
+      this.#administratorID = "";
+      this.#authGeneration += 1;
+      for (const listener of [...this.#expired]) listener();
+    },
+  });
+
   get system() { return this.adminPorts.system; }
   get settings() { return this.adminPorts.settings; }
   get profile() { return this.adminPorts.profile; }
@@ -275,6 +292,7 @@ class HTTPBackend implements AdminBackend {
   #adopt(reply: Reply): AuthenticatedSession {
     const session = reply.data as AuthenticatedSession & { csrfToken: string };
     this.#csrfToken = session.csrfToken;
+    this.#administratorID = session.administrator.id;
     this.#authGeneration += 1;
     return {
       administrator: session.administrator,

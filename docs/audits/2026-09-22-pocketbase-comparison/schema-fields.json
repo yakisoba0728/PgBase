@@ -1,0 +1,1156 @@
+[
+  {
+    "id": "SCH-01",
+    "category": "schema",
+    "feature": "base collection CRUD",
+    "status": "adapted",
+    "pbContract": "관리자 collection create/update/delete가 모델과 레코드 테이블을 함께 변경한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/collection.go#L18",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_record_table_sync.go#L21"
+    ],
+    "pgImplementation": "생성·수정·삭제를 preview/checksum/guarded apply로 제공하며 PostgreSQL DDL·메타데이터·감사·버전·영수증을 같은 트랜잭션으로 처리한다.",
+    "pgSource": [
+      "internal/api/schema_handlers.go:209",
+      "internal/schema/planner.go:120",
+      "internal/schema/operation_apply.go:196"
+    ],
+    "testSource": [
+      "internal/schema/service_integration_test.go:29",
+      "internal/schema/service_integration_test.go:264",
+      "internal/schema/service_integration_test.go:901",
+      "internal/schema/service_integration_test.go:1115"
+    ],
+    "verification": "test-exists",
+    "gap": "PB 직접 POST/PATCH wire가 아닌 PgBase 계획/적용 API를 사용하는 완성된 native CRUD. 세부 제약 차이는 다른 SCH 행에 별도 기록한다.",
+    "priority": "none"
+  },
+  {
+    "id": "SCH-02",
+    "category": "schema",
+    "feature": "auth collection data model",
+    "status": "partial",
+    "pbContract": "auth collection 한 모델에 일반 필드/7개 규칙, OAuth2, passwordAuth, MFA, OTP(length/template 포함), authAlert, token 설정 및 이메일 템플릿을 둔다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L99",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model.go#L381"
+    ],
+    "pgImplementation": "auth authority와 catalog를 분리하고 nullable 7개 규칙, typed profile fields, recordId, password/MFA/OTP policy, token TTL을 관리·전송한다. 최근 auth recordId paired/standalone import/export 수정도 현재 코드에 포함되어 있다.",
+    "pgSource": [
+      "internal/userauth/collections.go:23",
+      "internal/schema/auth_schema_document.go:21",
+      "internal/schema/auth_schema_document.go:191"
+    ],
+    "testSource": [
+      "internal/schema/auth_collection_document_integration_test.go:28",
+      "internal/schema/auth_record_id_document_integration_test.go:14",
+      "ui/admin/e2e/authenticated/remaining-development.spec.ts:152"
+    ],
+    "verification": "prior-run",
+    "gap": "SchemaDocumentAuthCollection/Policy에는 OAuth2 설정·auth alert·메일 템플릿·OTP length·PB token secrets/file-token configuration이 없다. 다른 settings API에 존재하는 기능까지 없다고 단정하지 않지만 auth collection aggregate/schema 이동이 PB 전체 모델을 보존하지는 않는다.",
+    "priority": "P1"
+  },
+  {
+    "id": "SCH-03",
+    "category": "schema",
+    "feature": "catalog list and single lookup",
+    "status": "partial",
+    "pbContract": "collection 목록은 id/created/updated/name/system/type으로 filter/sort하고 search pagination 및 skipTotal을 지원하며 id/name 단건 조회를 제공한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/collection.go#L34",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/collection.go#L61",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/provider.go#L27",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/search/provider.go#L191"
+    ],
+    "pgImplementation": "native map 및 compat=pocketbase pagination envelope, scalar filter/sort, case-insensitive id/name/compatibilityName 조회가 구현되어 있다.",
+    "pgSource": [
+      "internal/api/schema_handlers.go:421",
+      "internal/api/schema_handlers.go:539",
+      "internal/api/schema_handlers.go:619"
+    ],
+    "testSource": [
+      "internal/api/schema_handlers_test.go:52",
+      "internal/api/schema_handlers_test.go:69",
+      "internal/api/schema_handlers_test.go:130"
+    ],
+    "verification": "test-exists",
+    "gap": "compat 목록에는 updated 필터/정렬 필드가 없고 skipTotal을 처리하지 않는다. perPage는 200 초과를 거절하며 PB는 최대 1000으로 정규화한다. 단건 DTO도 native shape다.",
+    "priority": "P2"
+  },
+  {
+    "id": "SCH-04",
+    "category": "schema",
+    "feature": "name, system and type invariants",
+    "status": "partial",
+    "pbContract": "collection name은 1..255의 word 문자 및 case-insensitive 유일성을 요구한다. 기존 type/system flag, system 이름/규칙은 변경할 수 없다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_validate.go#L100",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_validate.go#L166",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_validate.go#L505"
+    ],
+    "pgImplementation": "type/system flag 및 system rename/delete 보호, native identifier 규칙과 compatibilityName 별칭, case-insensitive 별칭 중복 검증이 있다.",
+    "pgSource": [
+      "internal/schema/planner.go:18",
+      "internal/schema/planner.go:192",
+      "internal/schema/names.go:10",
+      "internal/schema/service.go:309",
+      "internal/schema/collection_rename.go:101",
+      "internal/recordaccess/rules.go:49"
+    ],
+    "testSource": [
+      "internal/schema/compatibility_integration_test.go:12",
+      "internal/schema/planner_test.go:224"
+    ],
+    "verification": "test-exists",
+    "gap": "native 이름은 소문자 48자 제한(별칭은 PB 범위)이다. 추가로 RuleService.Set/ValidateRules 경로에는 collection.System에 따른 rule 변경 금지 검사가 없어 PB system-rule 불변조건과 다르다(정적 경로 확인; 실행 재현은 하지 않음).",
+    "priority": "P2"
+  },
+  {
+    "id": "SCH-05",
+    "category": "schema",
+    "feature": "collection rename lifecycle",
+    "status": "partial",
+    "pbContract": "같은 collection ID를 유지하며 table/index schema를 갱신하고 rename과 field 변경을 한 update에서 처리한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_record_table_sync.go#L50",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_record_table_sync_test.go#L29"
+    ],
+    "pgImplementation": "collectionId로 rename 대상을 선택하고 physical table/index/relation objects 및 view/rule 참조를 같은 schema transaction에서 갱신한다.",
+    "pgSource": [
+      "internal/schema/collection_rename.go:48",
+      "internal/schema/collection_rename.go:77",
+      "internal/schema/collection_reference_rename.go:13"
+    ],
+    "testSource": [
+      "internal/schema/collection_rename_integration_test.go:12",
+      "internal/schema/collection_rename_integration_test.go:102",
+      "internal/schema/collection_rename_integration_test.go:146"
+    ],
+    "verification": "test-exists",
+    "gap": "rename 자체는 구현되어 있으나 DDL을 추가 발생시키는 필드/인덱스 변경과 rename을 한 번에 요청하면 rename_requires_unchanged_definition으로 거절한다. PB 해당 결합 update는 지원한다.",
+    "priority": "P2"
+  },
+  {
+    "id": "SCH-06",
+    "category": "schema",
+    "feature": "dependency-aware collection delete",
+    "status": "equivalent",
+    "pbContract": "다른 collection relation 참조가 있으면 일반 collection delete를 거절하며 system collection을 보호한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model.go#L687"
+    ],
+    "pgImplementation": "incoming relation과 view 의존성을 계획 단계에서 거절하고 안전한 경우 소유 table/view/edge objects를 삭제한다.",
+    "pgSource": [
+      "internal/schema/planner.go:465",
+      "internal/schema/field_options.go:103"
+    ],
+    "testSource": [
+      "internal/schema/sql_view_service_integration_test.go:11",
+      "internal/schema/relation_planner_test.go:392",
+      "internal/schema/service_integration_test.go:1115"
+    ],
+    "verification": "test-exists",
+    "gap": "이 행은 참조 보호와 안전한 삭제만 비교한다. PB IntegrityChecks(false) 내부 우회 및 import 전용 semantics는 SCH-24 범위다.",
+    "priority": "none"
+  },
+  {
+    "id": "SCH-07",
+    "category": "schema",
+    "feature": "truncate collection records",
+    "status": "partial",
+    "pbContract": "view를 제외한 collection을 한 트랜잭션에서 비우며 ordinary delete의 cascade/file lifecycle을 수행한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/collection.go#L183",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_query.go#L221"
+    ],
+    "pgImplementation": "관리자 truncate는 stable collection lock 아래 일반 record delete graph를 호출하여 hooks, files, audit/outbox를 보존한다.",
+    "pgSource": [
+      "internal/recordops/truncate.go:27",
+      "internal/recordops/truncate.go:59",
+      "internal/api/schema_handlers.go:175"
+    ],
+    "testSource": [
+      "internal/recordops/truncate_integration_test.go:16",
+      "internal/recordops/truncate_concurrency_integration_test.go:40"
+    ],
+    "verification": "test-exists",
+    "gap": "system collection은 PB truncate의 일반 precondition과 달리 일괄 거절한다. 전체 root ID를 메모리에 모으므로 PB 500개씩 조회보다 메모리 사용이 collection 크기에 비례한다. relation cascade 의미 차이는 FLD-12가 추가로 적용된다.",
+    "priority": "P2"
+  },
+  {
+    "id": "SCH-08",
+    "category": "schema",
+    "feature": "schema scaffolds",
+    "status": "adapted",
+    "pbContract": "base/auth/view의 시스템 필드·타입별 옵션·인덱스가 포함된 collection 시작 모델을 반환한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/collection.go#L201",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model.go#L398",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L50"
+    ],
+    "pgImplementation": "base/view portable document 및 auth의 paired catalog/authority scaffold를 반환한다. auth system 필드와 기본 password/MFA/OTP/rules가 포함되고 import로 생성된다.",
+    "pgSource": [
+      "internal/schema/scaffolds.go:22",
+      "internal/api/schema_handlers.go:169",
+      "ui/admin/src/designer/collection-designer-state.ts:264"
+    ],
+    "testSource": [
+      "internal/schema/scaffolds_test.go:10",
+      "internal/schema/scaffolds_test.go:38",
+      "internal/schema/scaffolds_integration_test.go:12",
+      "ui/admin/e2e/authenticated/remaining-development.spec.ts:152"
+    ],
+    "verification": "executed-now",
+    "gap": "PgBase wire, owner rules, UUID 기본 ID, password 12-byte 기본 정책은 의도된 native 기본값이다. PB auth 옵션 전체 이식의 한계는 SCH-02에 별도 기록한다.",
+    "priority": "none"
+  },
+  {
+    "id": "SCH-09",
+    "category": "schema",
+    "feature": "collection record rules",
+    "status": "adapted",
+    "pbContract": "list/view/create/update/delete의 null(잠김), 빈 문자열(허용), filter 문자열을 collection schema에 보존·검증한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model.go#L358",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_validate.go#L131",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_validate.go#L477"
+    ],
+    "pgImplementation": "typed AST rule 저장·preview API와 compat PocketBaseRules 변환이 있으며 null/empty/expression source를 보존한다.",
+    "pgSource": [
+      "internal/api/rules.go:20",
+      "internal/accessrule/pocketbase.go:15",
+      "internal/recordaccess/rules.go:49"
+    ],
+    "testSource": [
+      "internal/recordaccess/pocketbase_rule_integration_test.go:173",
+      "internal/recordaccess/rules_validation_test.go:13"
+    ],
+    "verification": "test-exists",
+    "gap": "이 행은 5개 규칙의 schema 저장/변환만 판정한다. 별도 userAccess opt-in 및 전체 규칙 표현식의 실행 범위는 records/query audit, system rule 보호는 SCH-04 범위다.",
+    "priority": "none"
+  },
+  {
+    "id": "SCH-10",
+    "category": "schema",
+    "feature": "common field metadata and system protection",
+    "status": "adapted",
+    "pbContract": "stable field id/name/system/hidden/presentable/help metadata를 저장하며 system field 삭제/rename을 금지한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field.go#L69",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_validate.go#L425"
+    ],
+    "pgImplementation": "UUID field ID, logical Name/physical ColumnName, system/hidden/presentable/help를 저장·export하며 system 필드 rename/delete를 거절한다.",
+    "pgSource": [
+      "internal/schema/types.go:33",
+      "internal/schema/planner.go:323",
+      "internal/schema/planner.go:357",
+      "internal/schema/schema_document.go:108"
+    ],
+    "testSource": [
+      "internal/schema/compatibility_integration_test.go:12",
+      "internal/schema/field_presentation_test.go:26",
+      "internal/schema/field_contract_integration_test.go:14"
+    ],
+    "verification": "test-exists",
+    "gap": "UUID 및 별도 physical identity로 구현된 대응 기능. collection 이름/필드 이름 범위 차이는 native 식별자 정책이다.",
+    "priority": "none"
+  },
+  {
+    "id": "SCH-11",
+    "category": "schema",
+    "feature": "required blank and zero-value semantics",
+    "status": "equivalent",
+    "pbContract": "required bool은 true, number는 nonzero, text는 nonempty, JSON은 빈 JSON 값 이외를 요구한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_bool.go#L115",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_number.go#L150",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_text.go#L224",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_json.go#L190"
+    ],
+    "pgImplementation": "validationMode=pocketbase에서 false/0/빈 text/빈 JSON을 required 위반으로 거절하고 mode/옵션 강화 때 저장된 값도 검사한다.",
+    "pgSource": [
+      "internal/query/codec.go:145",
+      "internal/query/codec.go:171",
+      "internal/query/codec.go:295",
+      "internal/schema/field_preflight.go:18"
+    ],
+    "testSource": [
+      "internal/query/codec_test.go:127",
+      "internal/schema/compatibility_integration_test.go:70"
+    ],
+    "verification": "test-exists",
+    "gap": "이 판정은 명시적 pocketbase mode와 올바른 입력 타입의 required 검사에 한정한다. 기본 postgres mode는 NULL 기준이고 PB coercion/defaults 전체는 FLD/SCH-12에서 partial이다.",
+    "priority": "none"
+  },
+  {
+    "id": "SCH-12",
+    "category": "schema",
+    "feature": "field defaults",
+    "status": "partial",
+    "pbContract": "bool=false, number=0, text='' 등 타입별 implicit non-null zero default를 사용한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_bool.go#L99",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_number.go#L129",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_text.go#L162",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_json.go#L116"
+    ],
+    "pgImplementation": "typed explicit SQL DEFAULT를 제공하고 editor/geoPoint에는 고정 zero default를 설정하지만 일반 optional scalar에는 implicit zero를 넣지 않는다.",
+    "pgSource": [
+      "internal/schema/planner.go:606",
+      "internal/schema/planner.go:626",
+      "internal/schema/defaults.go:23"
+    ],
+    "testSource": [
+      "internal/schema/planner_test.go:246",
+      "internal/schema/defaults_test.go:9",
+      "internal/schema/advanced_fields_integration_test.go:13"
+    ],
+    "verification": "executed-now",
+    "gap": "일반 optional text/bool/number의 누락 값은 명시 default가 없으면 NULL이 가능하다. pocketbase validationMode도 PB 기본값을 자동 설치하지 않는다. 따라서 omitted/null/empty의 PB 계약과 같지 않다.",
+    "priority": "P1"
+  },
+  {
+    "id": "SCH-13",
+    "category": "schema",
+    "feature": "single-field index and uniqueness",
+    "status": "adapted",
+    "pbContract": "collection raw indexes로 일반 단일 필드 index/unique constraint를 생성·검증한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_validate.go#L525",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_record_table_sync.go#L325"
+    ],
+    "pgImplementation": "field Indexed/Unique flag와 structured/raw index로 단일 scalar index 생성·변경·삭제 및 기존 데이터 위반 처리를 지원한다.",
+    "pgSource": [
+      "internal/schema/planner.go:673",
+      "internal/schema/planner_indexes.go:41"
+    ],
+    "testSource": [
+      "internal/schema/planner_test.go:388",
+      "internal/schema/planner_test.go:411",
+      "internal/schema/service_integration_test.go:1210",
+      "internal/schema/service_integration_test.go:1292"
+    ],
+    "verification": "executed-now",
+    "gap": "일반 scalar 단일 index 기능의 대응 판정. nullable unique, index 물리 이름, SQL 표현식/타입 범위 차이는 PostgreSQL 정책 및 SCH-12/SCH-15 범위다.",
+    "priority": "none"
+  },
+  {
+    "id": "SCH-14",
+    "category": "schema",
+    "feature": "compound indexes",
+    "status": "partial",
+    "pbContract": "CREATE INDEX 정의의 여러 column 및 unique 복합 인덱스를 제공한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_validate.go#L538",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_record_table_sync_test.go#L45"
+    ],
+    "pgImplementation": "2..8개 fields 또는 최대 8개 structured/raw keys를 갖는 named compound/unique index와 lifecycle이 구현되어 있다.",
+    "pgSource": [
+      "internal/schema/planner_indexes.go:41",
+      "internal/schema/planner_indexes.go:56",
+      "internal/schema/planner_indexes.go:118"
+    ],
+    "testSource": [
+      "internal/schema/compound_index_test.go:9",
+      "internal/schema/compound_index_test.go:30",
+      "internal/schema/compound_index_integration_test.go:16"
+    ],
+    "verification": "executed-now",
+    "gap": "최대 8개 key 제한이 PB raw index 계약보다 좁다. relation/file/JSON 등 indexable type 제한은 SCH-15에 함께 기록한다.",
+    "priority": "P3"
+  },
+  {
+    "id": "SCH-15",
+    "category": "schema",
+    "feature": "expression, partial and raw SQL indexes",
+    "status": "partial",
+    "pbContract": "SQLite에서 유효한 raw CREATE INDEX의 expression/collation/order/WHERE 정의를 검증·적용한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_validate.go#L538",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_record_table_sync.go#L325"
+    ],
+    "pgImplementation": "fields/keys/rawSql 세 형태로 PostgreSQL btree expression/partial index를 안전하게 compile/export/import한다. SQL AST를 검사한다.",
+    "pgSource": [
+      "internal/schema/planner_indexes.go:41",
+      "internal/schema/planner_indexes.go:154",
+      "internal/schema/planner_indexes.go:171",
+      "internal/schema/planner_indexes.go:271"
+    ],
+    "testSource": [
+      "internal/schema/advanced_index_test.go:9",
+      "internal/schema/advanced_index_test.go:31",
+      "internal/schema/advanced_index_integration_test.go:15"
+    ],
+    "verification": "executed-now",
+    "gap": "함수는 lower/upper/length/btrim/abs, collation은 C/POSIX로 제한된다. JSON/relation/file/geo/password는 index key에서 거절한다. PB에서 가능한 다른 유효 expression이나 NOCASE collation/raw index를 그대로 대응하지 않는다. PostgreSQL 전용 INCLUDE/CONCURRENTLY 미지원은 PB gap으로 세지 않았다.",
+    "priority": "P2"
+  },
+  {
+    "id": "SCH-16",
+    "category": "schema",
+    "feature": "scalar field rename then drop/name reuse",
+    "status": "adapted",
+    "pbContract": "stable field ID로 rename된 값을 보존하고 옛 이름의 새 필드 추가/삭제를 처리한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_record_table_sync.go#L94"
+    ],
+    "pgImplementation": "field UUID와 고정 physical ColumnName을 사용하며 이름 재사용 시 별도 physical 이름을 배정하므로 retained 값/인덱스를 보존한다.",
+    "pgSource": [
+      "internal/schema/planner.go:281",
+      "internal/schema/planner.go:309",
+      "internal/schema/planner.go:454"
+    ],
+    "testSource": [
+      "internal/schema/field_contract_integration_test.go:14",
+      "internal/schema/field_contract_integration_test.go:36",
+      "internal/schema/planner_test.go:374"
+    ],
+    "verification": "test-exists",
+    "gap": "논리 이름/물리 이름 분리 방식의 완성된 rename/reuse 기능. 서로 점유 중인 두 이름의 동시 교환은 SCH-25의 별도 미지원 동작이다.",
+    "priority": "none"
+  },
+  {
+    "id": "SCH-17",
+    "category": "schema",
+    "feature": "renamed multi-relation collection delete",
+    "status": "adapted",
+    "pbContract": "relation 필드를 rename한 collection도 이후 삭제할 수 있으며 해당 record table을 제거한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_record_table_sync.go#L111",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model.go#L721"
+    ],
+    "pgImplementation": "edge table 방식의 relation도 보존된 ColumnName/Storage.Name에서 소유 object 이름을 계산하여 삭제한다.",
+    "pgSource": [
+      "internal/schema/planner.go:490",
+      "internal/schema/relation_types.go:10"
+    ],
+    "testSource": [
+      "internal/schema/field_contract_integration_test.go:205",
+      "internal/schema/relation_planner_test.go:392"
+    ],
+    "verification": "test-exists",
+    "gap": "PB JSON relation column과 PostgreSQL edge table 저장방식이 다르며 사용자 삭제 기능은 대응한다.",
+    "priority": "none"
+  },
+  {
+    "id": "SCH-18",
+    "category": "schema",
+    "feature": "field add, drop and type change policy",
+    "status": "partial",
+    "pbContract": "field 추가/삭제를 지원하며 기존 field ID의 타입 변경은 금지한다. 추가 필드는 타입별 zero/default로 채운다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_validate.go#L220",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_record_table_sync.go#L80"
+    ],
+    "pgImplementation": "필드 추가/삭제와 integer→bigint/numeric widening을 지원한다. 나머지 타입 변경은 거절한다.",
+    "pgSource": [
+      "internal/schema/planner.go:348",
+      "internal/schema/planner.go:379",
+      "internal/schema/planner.go:637",
+      "internal/schema/type_changes.go:12"
+    ],
+    "testSource": [
+      "internal/schema/planner_test.go:342",
+      "internal/schema/planner_test.go:441",
+      "internal/schema/planner_test.go:486"
+    ],
+    "verification": "executed-now",
+    "gap": "required scalar를 나중에 추가할 때 테이블이 비어 있어도 명시 default가 없으면 missing_default로 거절한다. PB는 implicit default를 사용한다. numeric widening은 native 확장이나 pocketbase mode에도 별도 금지 분기가 없다.",
+    "priority": "P2"
+  },
+  {
+    "id": "SCH-19",
+    "category": "schema",
+    "feature": "view creation and field inference",
+    "status": "partial",
+    "pbContract": "SELECT query로 view fields를 추론하며 id는 text로 정규화한다. ROW_NUMBER() 같은 계산 id도 허용한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/view.go#L82",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/view.go#L117",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_query.go#L253"
+    ],
+    "pgImplementation": "declarative source/projection/filter 및 inspected PostgreSQL SQL view를 제공하며 의존성·타입·현재 결과의 non-null/unique id를 검사한다. builder view는 source recordId 정책을 상속한다.",
+    "pgSource": [
+      "internal/schema/view.go:16",
+      "internal/schema/view.go:58",
+      "internal/schema/sql_view_inspect.go:35",
+      "internal/schema/sql_view_inspect.go:136"
+    ],
+    "testSource": [
+      "internal/schema/sql_view_inspect_integration_test.go:14",
+      "internal/schema/sql_view_inspect_integration_test.go:43",
+      "internal/schema/view_integration_test.go:12"
+    ],
+    "verification": "test-exists",
+    "gap": "SQL view id는 UUID만 허용하므로 PB 문자열/숫자/ROW_NUMBER id view를 표현하지 못한다. SQL 출력은 제한된 scalar 타입·최대 128 fields, 함수는 안전한 pg_catalog 범위다. file/relation inference는 SCH-27에서 별도 분류한다.",
+    "priority": "P1"
+  },
+  {
+    "id": "SCH-20",
+    "category": "schema",
+    "feature": "dry-run view sample",
+    "status": "adapted",
+    "pbContract": "관리자 dry-run은 길이 제한된 SELECT query의 inferred fields와 최대 10개 sample record를 반환한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/collection.go#L262",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/view.go#L138"
+    ],
+    "pgImplementation": "SampleView는 query 5000-byte 제한, 검사 후 최대 10행/fields/dependencies를 반환하고 inspection savepoint를 정리한다.",
+    "pgSource": [
+      "internal/schema/view_sample.go:9",
+      "internal/schema/view_sample.go:17",
+      "internal/schema/sql_view_inspect.go:35",
+      "internal/api/schema_handlers.go:655"
+    ],
+    "testSource": [
+      "internal/schema/compatibility_integration_test.go:49",
+      "internal/api/schema_operations_live_test.go:106"
+    ],
+    "verification": "test-exists",
+    "gap": "지원 SQL 집합 내에 대응하는 preview 기능. PB sample 대신 native items/dependencies shape, bytes 길이 제한을 사용하며 SQL 지원 제약은 SCH-19에 기록한다.",
+    "priority": "none"
+  },
+  {
+    "id": "SCH-21",
+    "category": "schema",
+    "feature": "view update and dependency guards",
+    "status": "adapted",
+    "pbContract": "viewQuery update는 새 query로 필드를 다시 추론하고 view를 갱신한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/collection.go#L118",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_validate.go#L77",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model.go#L877"
+    ],
+    "pgImplementation": "직접 계획/적용 API는 SQL view와 builder view의 projection/filter 수정을 처리하고 source field/view 의존성을 보호한다. 최신 UI도 기존 builder state를 hydrate하고 수정 preview/apply를 수행한다.",
+    "pgSource": [
+      "internal/schema/view.go:101",
+      "internal/schema/view.go:132",
+      "internal/schema/view.go:277",
+      "internal/api/schema_handlers.go:244"
+    ],
+    "testSource": [
+      "internal/schema/compatibility_integration_test.go:49",
+      "internal/schema/sql_view_service_integration_test.go:11",
+      "ui/admin/e2e/authenticated/remaining-development.spec.ts:104"
+    ],
+    "verification": "prior-run",
+    "gap": "지원되는 view 모델의 직접 수정 기능은 완료. dependent SQL view가 있는 수정은 거절하는 native guard이며 import의 builder 수정 누락은 SCH-26이다.",
+    "priority": "none"
+  },
+  {
+    "id": "SCH-22",
+    "category": "schema",
+    "feature": "schema export",
+    "status": "partial",
+    "pbContract": "dashboard는 collection list JSON을 export하며 created/updated 및 OAuth2 provider secrets를 제외하고 ID/fields/indexes/auth options를 유지한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/settings/sync/pageExportCollections.js#L24",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_model_auth_options.go#L99"
+    ],
+    "pgImplementation": "repeatable-read snapshot으로 정렬된 pgbase.schema/v1 논리 schema를 내보낸다. field metadata, indexes, rules, auth policy/TTLs 및 text recordId를 양쪽 auth/catalog에 보존한다.",
+    "pgSource": [
+      "internal/schema/schema_document.go:19",
+      "internal/schema/schema_document.go:71",
+      "internal/schema/schema_document.go:102",
+      "internal/schema/auth_schema_document.go:46"
+    ],
+    "testSource": [
+      "internal/schema/schema_document_integration_test.go:13",
+      "internal/schema/auth_collection_document_integration_test.go:28",
+      "internal/schema/auth_record_id_document_integration_test.go:14",
+      "ui/admin/e2e/authenticated/remaining-development.spec.ts:152"
+    ],
+    "verification": "prior-run",
+    "gap": "DB/field identity 생략은 native portable format의 의도된 변화다. 그러나 OAuth2 enabled/mappedFields 등 비밀이 아닌 설정과 authAlert/메일 template/OTP length도 export schema 모델에 없어서 PB 전체 설정 이동에 못 미친다.",
+    "priority": "P1"
+  },
+  {
+    "id": "SCH-23",
+    "category": "schema",
+    "feature": "atomic schema import and preview",
+    "status": "partial",
+    "pbContract": "ID 우선, 이름 fallback으로 기존 collection에 merge하고 views를 뒤로 정렬하여 한 트랜잭션으로 import한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_import.go#L31",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_import.go#L51",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_import.go#L136"
+    ],
+    "pgImplementation": "savepoint 기반 preview, projected catalog, baseVersion/checksum/idempotency로 DDL·rules·auth policy를 원자 적용한다. 현재 fields/indexes를 name으로 merge한다.",
+    "pgSource": [
+      "internal/schema/schema_document.go:156",
+      "internal/schema/schema_document.go:262",
+      "internal/schema/schema_document.go:480",
+      "internal/schema/schema_document.go:531"
+    ],
+    "testSource": [
+      "internal/schema/schema_document_integration_test.go:13",
+      "internal/schema/schema_document_ledger_integration_test.go:162",
+      "internal/schema/auth_record_id_document_integration_test.go:112"
+    ],
+    "verification": "test-exists",
+    "gap": "portable 문서에 collection ID가 없고 name 기준 매칭이어서 PB처럼 같은 ID+새 name을 가져와 기존 collection을 rename하지 못한다. 기존 declarative view update 및 deleteMissing의 field/realm 한계는 SCH-26/SCH-24에 별도 기록한다.",
+    "priority": "P2"
+  },
+  {
+    "id": "SCH-24",
+    "category": "schema",
+    "feature": "import deleteMissing",
+    "status": "partial",
+    "pbContract": "deleteMissing=true는 누락된 모든 non-system collections 및 non-system schema fields를 제거하고 system은 보존한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_import.go#L34",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_import.go#L85",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_import.go#L155"
+    ],
+    "pgImplementation": "문서에 없는 catalog collection을 dependency-safe 순서로 삭제하지만 누락 system collection/auth authority는 preview blocker로 보호한다.",
+    "pgSource": [
+      "internal/schema/schema_delete_missing.go:10",
+      "internal/schema/schema_delete_missing.go:53",
+      "internal/schema/schema_document.go:282",
+      "internal/schema/schema_document.go:498"
+    ],
+    "testSource": [
+      "internal/schema/delete_missing_integration_test.go:14",
+      "internal/schema/delete_missing_integration_test.go:31",
+      "internal/schema/delete_missing_integration_test.go:52"
+    ],
+    "verification": "test-exists",
+    "gap": "importedFields는 DeleteMissing와 무관하게 기존 누락 필드를 항상 추가하므로 PB의 필드 삭제가 구현되지 않는다. PB는 system을 건너뛰지만 PG는 전체 요청을 거절하고, non-system auth realm의 missing 삭제도 거절한다.",
+    "priority": "P1"
+  },
+  {
+    "id": "SCH-25",
+    "category": "schema",
+    "feature": "atomic swap of existing field names",
+    "status": "missing",
+    "pbContract": "기존 두 field ID의 name/title→title/name 교환을 임시 column 이름을 써서 한 schema update로 처리한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_record_table_sync.go#L97"
+    ],
+    "pgImplementation": "stable ID rename은 지원하지만 목표 이름이 다른 기존 field에 점유되어 있으면 계획 단계에서 중단한다.",
+    "pgSource": [
+      "internal/schema/planner.go:281",
+      "internal/schema/planner.go:288"
+    ],
+    "testSource": [
+      "internal/schema/field_contract_integration_test.go:36"
+    ],
+    "verification": "static-only",
+    "gap": "동시 name swap 작업은 rename_target_exists로 거절된다. 기존 테스트는 한 field rename+옛 이름 재사용만 검증하며 두 기존 ID의 교환은 검증하지 않는다.",
+    "priority": "P2"
+  },
+  {
+    "id": "SCH-26",
+    "category": "schema",
+    "feature": "declarative view changes through schema import",
+    "status": "partial",
+    "pbContract": "기존 view collection의 새 viewQuery를 import하여 갱신할 수 있다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_import.go#L63",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_import.go#L170",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/collection_validate.go#L77"
+    ],
+    "pgImplementation": "native import는 view 신규 생성·동일 정의 no-op·SQL view 수정은 처리하나 기존 declarative view의 바뀐 projection/filter/source는 거절한다.",
+    "pgSource": [
+      "internal/schema/schema_document.go:339",
+      "internal/schema/schema_document.go:345",
+      "internal/schema/view.go:132"
+    ],
+    "testSource": [
+      "internal/schema/schema_document_integration_test.go:13",
+      "internal/schema/compatibility_integration_test.go:49",
+      "ui/admin/e2e/authenticated/remaining-development.spec.ts:104"
+    ],
+    "verification": "static-only",
+    "gap": "직접 UI/API update가 가능한 builder view를 export→정의 변경→import하면 view_update_unsupported다. 직접 update 회귀 테스트 통과를 import 지원 증거로 사용하지 않았다.",
+    "priority": "P2"
+  },
+  {
+    "id": "SCH-27",
+    "category": "schema",
+    "feature": "relation and file semantics in views",
+    "status": "missing",
+    "pbContract": "source relation/file field를 view alias로 추론하고 view file 요청을 원본 record/file로 해결한다.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/view.go#L202",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/view.go#L457",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/view.go#L470"
+    ],
+    "pgImplementation": "declarative view projection은 relation/file/password를 거절한다. SQL view는 scalar type만 추론하며 Relation/Options를 지운다.",
+    "pgSource": [
+      "internal/schema/view.go:38",
+      "internal/schema/view.go:68",
+      "internal/schema/sql_view_inspect.go:142"
+    ],
+    "testSource": [
+      "internal/schema/sql_view_inspect_integration_test.go:14"
+    ],
+    "verification": "static-only",
+    "gap": "relation expansion 및 source file download metadata를 유지하는 view field 작업이 없다. scalar SQL로 ID/filename 값을 흉내 내는 것과 PB view relation/file 계약은 다르다.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-01",
+    "category": "fields",
+    "feature": "bool field",
+    "status": "partial",
+    "pbContract": "PrepareValue casts supported input to bool; storage defaults false and required accepts only true.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_bool.go#L99-L119",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_bool_test.go#L29-L44"
+    ],
+    "pgImplementation": "boolean codec accepts JSON true/false only. PocketBase validation mode now rejects required false; optional null remains SQL NULL and omitted optional fields have no automatic false default.",
+    "pgSource": [
+      "internal/query/codec.go:145",
+      "internal/query/codec.go:166",
+      "internal/schema/planner.go:607"
+    ],
+    "testSource": [
+      "internal/query/codec_test.go:66",
+      "internal/query/codec_test.go:127",
+      "internal/query/codec_test.go:161"
+    ],
+    "verification": "executed-now",
+    "gap": "P2: PB coercion (for example string true) and false default/optional-null normalization are not implemented, including in PocketBase validation mode. Required false behavior is implemented; the old row's suggestion that this is still missing is stale.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-02",
+    "category": "fields",
+    "feature": "number field",
+    "status": "partial",
+    "pbContract": "A float64 number is prepared by cast.ToFloat64, rejects nonfinite numbers, supports Min/Max and OnlyInt, and rejects required zero.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_number.go#L129-L169",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_number.go#L198-L208",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_number_test.go#L30-L46"
+    ],
+    "pgImplementation": "Separate int32, bigint and exact decimal PostgreSQL types enforce min/max and PB-mode required nonzero. Bigint/numeric accept and emit strings; integer accepts only plain JSON integer spelling.",
+    "pgSource": [
+      "internal/query/codec.go:175",
+      "internal/query/codec.go:203",
+      "internal/fieldvalue/options.go:178",
+      "internal/schema/types.go:52"
+    ],
+    "testSource": [
+      "internal/query/codec_test.go:19",
+      "internal/query/codec_test.go:127",
+      "internal/query/codec_test.go:161",
+      "internal/fieldvalue/options_test.go:11"
+    ],
+    "verification": "executed-now",
+    "gap": "P2: Exact typed numbers are useful native adaptations, but PB number wire coercion is absent, as is an independent OnlyInt flag over the full PB numeric range. JSON decimal 1.2 is rejected by numeric (expects string), numeric strings are rejected by integer, and optional null is not normalized to zero.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-03",
+    "category": "fields",
+    "feature": "text validators and autogenerate",
+    "status": "partial",
+    "pbContract": "Text casts inputs to string; optional empty text bypasses min/pattern; nonempty values use rune min/max (default max 5000), regex, and create-time regex autogeneration for a zero/empty value.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_text.go#L173-L175",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_text.go#L222-L256",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_text.go#L348-L373"
+    ],
+    "pgImplementation": "Strict JSON string codec supports rune min/max, regex and bounded cryptographic generation. Generation happens only when create input omits the field; explicit empty/null are not replaced. Unindexed text has a 1 MiB byte cap and indexed/unique text a 2048-byte cap.",
+    "pgSource": [
+      "internal/fieldvalue/options.go:100",
+      "internal/fieldvalue/random_pattern.go:16",
+      "internal/query/codec.go:109",
+      "internal/query/codec.go:219",
+      "internal/recordops/generated_fields.go:29"
+    ],
+    "testSource": [
+      "internal/fieldvalue/options_test.go:57",
+      "internal/recordops/generated_fields_integration_test.go:24",
+      "internal/recordops/generated_fields_integration_test.go:59",
+      "internal/query/codec_test.go:207"
+    ],
+    "verification": "executed-now",
+    "gap": "P2: No PB default 5000-rune limit, no optional-empty validator bypass, no string coercion; explicit empty text does not trigger PB autogeneration. The PG random regex subset/2048-byte generation bound is intentionally narrower. Explicit-empty mismatch is asserted by an existing integration test.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-04",
+    "category": "fields",
+    "feature": "custom text primary key",
+    "status": "adapted",
+    "pbContract": "Record id is immutable primary-key text with pattern/min/max/autogeneration and forbidden/reserved filesystem names. For custom patterns PB also checks duplicates using COLLATE NOCASE.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_text.go#L161-L175",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_text.go#L185-L215",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_text.go#L259-L277"
+    ],
+    "pgImplementation": "Text record identity is a durable exact-case alias to internal UUID with default 15-character lowercase generation, custom length/pattern bounds, forbidden/reserved names, transactional uniqueness, CRUD/relation/auth projection and no UUID fallback. Case-distinct IDs are intentionally separate.",
+    "pgSource": [
+      "internal/schema/record_id.go:12",
+      "internal/schema/record_id.go:87",
+      "internal/recordidentity/service.go:41",
+      "internal/recordidentity/service.go:99",
+      "internal/userauth/record_identity.go:28"
+    ],
+    "testSource": [
+      "internal/schema/record_id_test.go:5",
+      "internal/recordidentity/service_integration_test.go:19",
+      "internal/recordops/text_identity_integration_test.go:16",
+      "internal/recordops/text_identity_integration_test.go:55",
+      "internal/userauth/text_record_identity_integration_test.go:16",
+      "ui/admin/e2e/authenticated/remaining-development.spec.ts:4",
+      "ui/admin/e2e/authenticated/remaining-development.spec.ts:152"
+    ],
+    "verification": "executed-now",
+    "gap": "P2 for a PB wire-compatibility promise: PB rejects custom IDs differing only by case, whereas PgBase deliberately accepts them; PG limits IDs to 255 runes and defaults native collections to UUID. Functional custom-ID capability is present, but identity policy is an explicit adaptation, not 1:1 equivalence. Only policy unit tests were run now; identity integration tests were inspected.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-05",
+    "category": "fields",
+    "feature": "email field and domain constraints",
+    "status": "partial",
+    "pbContract": "Optional empty email is allowed; nonempty email is syntax checked. OnlyDomains/ExceptDomains match the extracted domain exactly and cannot both be configured.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_email.go#L117-L170"
+    ],
+    "pgImplementation": "text format=email uses net/mail, lowercases/normalizes configured domains, matches parent domain and subdomains, and supports simultaneous allow/deny with deny precedence.",
+    "pgSource": [
+      "internal/fieldvalue/options.go:56",
+      "internal/fieldvalue/options.go:120",
+      "internal/fieldvalue/options.go:238",
+      "internal/schema/field_options.go:70"
+    ],
+    "testSource": [
+      "internal/fieldvalue/options_test.go:11",
+      "internal/fieldvalue/options_test.go:35",
+      "internal/query/field_options_test.go:11"
+    ],
+    "verification": "executed-now",
+    "gap": "P2: allow example.com accepts user@sub.example.com in PG but fails PB's exact membership; both allow+deny may coexist only in PG; optional empty string is rejected by PG's mail parser instead of accepted. No compatibility-mode switch changes these semantics.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-06",
+    "category": "fields",
+    "feature": "URL field and domain constraints",
+    "status": "partial",
+    "pbContract": "Optional empty URL is allowed; nonempty values use the PB URL validator. Domain restrictions compare exact parsed u.Host, including any port, and only/except lists are mutually exclusive.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_url.go#L117-L172"
+    ],
+    "pgImplementation": "text format=url accepts only http/https URLs with a hostname; domain matching uses lowercased Hostname(), ignoring port, and includes subdomains with deny precedence.",
+    "pgSource": [
+      "internal/fieldvalue/options.go:128",
+      "internal/fieldvalue/options.go:238",
+      "internal/fieldvalue/options.go:250"
+    ],
+    "testSource": [
+      "internal/fieldvalue/options_test.go:35",
+      "internal/query/field_options_test.go:11"
+    ],
+    "verification": "executed-now",
+    "gap": "P2: optional empty input is rejected; parent-domain/subdomain and port matching differ from PB exact u.Host membership. For example allow example.com accepts https://example.com:8080 in PG but not PB. Scheme coercion and mutually-exclusive PB option names are not adapted.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-07",
+    "category": "fields",
+    "feature": "date field min/max",
+    "status": "partial",
+    "pbContract": "DateTime accepts PB's UTC space-separated millisecond layout and common cast-supported inputs, permits zero/empty optional values, rejects required zero and enforces min/max. It serializes UTC as YYYY-MM-DD HH:mm:ss.SSSZ or empty string for zero.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_date.go#L113-L146",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/types/datetime.go#L11-L12",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/types/datetime.go#L96-L110",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/types/datetime.go#L129-L157"
+    ],
+    "pgImplementation": "timestamptz decoder and option bounds require RFC3339Nano; values are normalized to UTC and min/max are validated, including existing-row tightening. Encoder emits RFC3339Nano and optional null remains null.",
+    "pgSource": [
+      "internal/query/codec.go:252",
+      "internal/query/codec.go:527",
+      "internal/schema/file_options.go:40",
+      "internal/schema/field_preflight.go:55"
+    ],
+    "testSource": [
+      "internal/query/codec_test.go:145",
+      "internal/query/codec_test.go:161",
+      "internal/query/codec_test.go:250",
+      "internal/schema/compatibility_integration_test.go:70"
+    ],
+    "verification": "executed-now",
+    "gap": "P2: PB's own date wire string (space between date/time), empty date, numeric timestamp/common-date coercion and required-zero handling are not matched. The previous row's claim that PB wire date formatting is applied is contradicted by the current encoder and canonical JSON test.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-08",
+    "category": "fields",
+    "feature": "single and multiple select values",
+    "status": "partial",
+    "pbContract": "MaxSelect<=1 selects the last normalized unique string; MaxSelect>1 emits a unique string array. Empty optional selection is allowed. Values and max count are checked, and changing MaxSelect switches scalar/multiple mode.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_select.go#L136-L207",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_select.go#L214-L225"
+    ],
+    "pgImplementation": "text+allowedValues models scalar select and jsonb+allowedValues models multiple select with min/max validation. Direct writes require the exact chosen scalar/array shape and reject duplicates; modifier paths separately deduplicate.",
+    "pgSource": [
+      "internal/query/codec.go:219",
+      "internal/query/codec.go:288",
+      "internal/fieldvalue/options.go:116",
+      "internal/fieldvalue/options.go:149",
+      "internal/recordops/modifiers.go:214",
+      "internal/schema/type_changes.go:12"
+    ],
+    "testSource": [
+      "internal/query/field_options_test.go:11",
+      "internal/fieldvalue/options_test.go:11",
+      "internal/recordops/modifiers_test.go:11"
+    ],
+    "verification": "executed-now",
+    "gap": "P2: PB's scalar/list input normalization, duplicate elimination and optional empty scalar are absent on direct writes. PG text/jsonb type-change prohibition prevents an in-place scalar↔multiple select switch that PB supports through MaxSelect.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-09",
+    "category": "fields",
+    "feature": "JSON field required and maxSize",
+    "status": "partial",
+    "pbContract": "JSON strings containing JSON-looking content normalize to those JSON values; validation enforces a default 1 MiB byte maximum (also when MaxSize=0). Required rejects null, empty string/array/object.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_json.go#L25-L25",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_json.go#L120-L194",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_json.go#L207-L214"
+    ],
+    "pgImplementation": "JSONB supports all JSON shapes, explicit byte MaxSize, PB-mode required blank predicate and tightening preflight; strict PostgreSQL-safe JSON validation rejects NUL, malformed Unicode and numbers outside PostgreSQL range.",
+    "pgSource": [
+      "internal/query/codec.go:288",
+      "internal/query/codec.go:319",
+      "internal/jsonvalue/json.go:117",
+      "internal/schema/field_preflight.go:83"
+    ],
+    "testSource": [
+      "internal/query/codec_test.go:49",
+      "internal/query/codec_test.go:127",
+      "internal/query/codec_test.go:145",
+      "internal/query/codec_test.go:161",
+      "internal/schema/compatibility_integration_test.go:70"
+    ],
+    "verification": "executed-now",
+    "gap": "P2: No implicit JSON 1 MiB maximum when MaxSize is absent; explicit MaxSize=0 rejects nonempty bytes instead of selecting PB's default. JSON string \"true\" remains a string instead of becoming boolean true. JSONB representability differences are additional documented engine adaptations.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-10",
+    "category": "fields",
+    "feature": "file count, size, MIME and thumbs",
+    "status": "partial",
+    "pbContract": "Single/multiple files enforce count, per-file byte size, MIME and required. Thumbnail generation auto-orients EXIF images, preserves GIF, writes WebP thumbnails as PNG, always allows 100x100 and falls back to original on unsupported/failed thumbnail.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_file.go#L226-L307",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/filesystem/filesystem.go#L640-L691",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/file.go#L178-L223"
+    ],
+    "pgImplementation": "Metadata-backed file policy enforces count, size, MIME and required; supports configured bounded variants and PNG/JPEG/GIF/WebP decode. File cap is 100 MiB/100 items; non-PNG thumbnails are JPEG and image decode has no EXIF auto-orientation.",
+    "pgSource": [
+      "internal/schema/file_options.go:12",
+      "internal/schema/file_options.go:63",
+      "pgbase/file_services.go:152",
+      "internal/filestore/image.go:75",
+      "internal/filestore/variants.go:163",
+      "internal/filestore/service.go:403"
+    ],
+    "testSource": [
+      "internal/schema/file_options_test.go:9",
+      "internal/filestore/variants_test.go:15",
+      "internal/filestore/variants_test.go:28",
+      "internal/filestore/variants_test.go:54",
+      "pgbase/file_integration_test.go:23"
+    ],
+    "verification": "executed-now",
+    "gap": "P2: Missing EXIF auto-orientation and GIF/WebP alpha-preserving thumbnail encoding change image results. PB original fallback/default 100x100 behavior is not reproduced. Zero options and larger PB count/size configurations are rejected; PG also applies a global MIME allowlist. Schema accepts e.g. 5000x1 yet renderer caps dimensions at 4096.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-11",
+    "category": "fields",
+    "feature": "per-field protected file toggle",
+    "status": "adapted",
+    "pbContract": "File fields default public (Protected=false); protected delivery checks collection ViewRule and can restore the authenticated record from the supplied file token.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_file.go#L128-L135",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/apis/file.go#L113-L141"
+    ],
+    "pgImplementation": "Per-field protected/public metadata controls delivery and revokes existing public access when toggled. Native default is protected=true. Private delivery requires a current user/admin session plus a token bound to file, variant, user and expiry.",
+    "pgSource": [
+      "internal/schema/types.go:78",
+      "pgbase/file_services.go:165",
+      "internal/api/file_handlers.go:56",
+      "internal/api/file_handlers.go:211",
+      "internal/filestore/service.go:563"
+    ],
+    "testSource": [
+      "internal/filestore/policy_test.go:11",
+      "internal/filestore/local_test.go:73",
+      "pgbase/file_integration_test.go:131",
+      "pgbase/file_integration_test.go:191"
+    ],
+    "verification": "executed-now",
+    "gap": "P2 for PB wire compatibility: default visibility is reversed, and a PB-style protected-image URL with only a file token does not satisfy PG's additional session requirement. The toggle capability exists; stricter token/session authorization is an explicit delivery adaptation.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-12",
+    "category": "fields",
+    "feature": "relation cardinality, bounds and delete action",
+    "status": "partial",
+    "pbContract": "Relations normalize unique string IDs and last-value scalar selection, permit optional empty even with MinSelect>0, and support CascadeDelete. On target deletion, cascade deletes the source only when no linked IDs remain; otherwise it removes only the deleted link.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_relation.go#L169-L214",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/record_model.go#L1613-L1643"
+    ],
+    "pgImplementation": "Single relations use FK and multiple relations ordered edges with transactional graph deletion. Bounds cap at 1000 and require Required==(MinSelect>0). onDelete offers restrict/cascade/set_null; cascade places any source referencing a deleted target in the deletion closure.",
+    "pgSource": [
+      "internal/schema/relation_types.go:130",
+      "internal/schema/relation_types.go:193",
+      "internal/schema/relation_types.go:207",
+      "internal/relation/codec.go:66",
+      "internal/relation/delete.go:339"
+    ],
+    "testSource": [
+      "internal/relation/codec_test.go:89",
+      "internal/schema/relation_types_test.go:234",
+      "internal/relation/delete_live_test.go:18"
+    ],
+    "verification": "executed-now",
+    "gap": "P1: source->[A,B], deleting A with cascade deletes source in PG, while PB retains source->[B]; mapping CascadeDelete to cascade can therefore over-delete. P2: optional+positive-min schemas are rejected, duplicate/single-array/empty-string normalization differs, and PG's default restrict differs from PB noncascade link removal.",
+    "priority": "P1"
+  },
+  {
+    "id": "FLD-13",
+    "category": "fields",
+    "feature": "password field",
+    "status": "partial",
+    "pbContract": "Password field hides plaintext, stores bcrypt, validates required/min/max/pattern and per-field Cost, and exposes trusted hash getter/raw-hash assignment for existing hashes.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_password.go#L89-L94",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_password.go#L146-L239",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_password.go#L287-L307"
+    ],
+    "pgImplementation": "General collection password fields are write-only; preparePassword validates then hashes with fixed Argon2id and verify helper. Responses/artifacts omit secrets. Default max length is 71, but explicit greater max is allowed.",
+    "pgSource": [
+      "internal/schema/types.go:51",
+      "internal/schema/file_options.go:108",
+      "internal/recordops/generated_fields.go:158",
+      "internal/passwordfield/password.go:16"
+    ],
+    "testSource": [
+      "internal/recordops/generated_fields_test.go:13",
+      "internal/recordops/generated_fields_test.go:35",
+      "internal/recordops/generated_fields_integration_test.go:150",
+      "internal/recordops/generated_fields_integration_test.go:231"
+    ],
+    "verification": "executed-now",
+    "gap": "P2: No per-field bcrypt Cost option or verification/import of PB bcrypt hashes. Submitted hash text is treated as plaintext and rehashed, so PB password-field data cannot be migrated losslessly through this interface. Argon2id is an intentional algorithm adaptation, but cost/raw-hash contract remains absent.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-14",
+    "category": "fields",
+    "feature": "autodate field",
+    "status": "partial",
+    "pbContract": "At least OnCreate or OnUpdate is enabled; record.Set(field,value) is a no-op; configured create/update interceptors set the current DateTime. Trusted SetRaw can override the automatic date.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_autodate.go#L123-L150",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_autodate.go#L153-L205"
+    ],
+    "pgImplementation": "Read-only autodate fields use statement_timestamp() on configured create/update operations; schema requires at least one flag.",
+    "pgSource": [
+      "internal/recordops/generated_fields.go:51",
+      "internal/recordops/generated_fields.go:70",
+      "internal/schema/file_options.go:87"
+    ],
+    "testSource": [
+      "internal/recordops/generated_fields_integration_test.go:150",
+      "internal/recordops/generated_fields_integration_test.go:231",
+      "internal/schema/advanced_fields_test.go:8"
+    ],
+    "verification": "test-exists",
+    "gap": "P2: Supplying an autodate value causes field_read_only and rejects the mutation instead of PB's no-op; timestamp wire/default semantics also differ (FLD-07). No evidence of PB's trusted SetRaw override seam for this field.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-15",
+    "category": "fields",
+    "feature": "editor field",
+    "status": "partial",
+    "pbContract": "Editor casts input to HTML string; default empty value, required nonempty, 5 MiB default byte maximum, configurable MaxSize up to max-safe JSON integer and ConvertURLs presentation option.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_editor.go#L115-L166",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_editor.go#L55-L71"
+    ],
+    "pgImplementation": "Editor is nonnull text with default empty, required-empty rejection, 5 MiB default/per-field byte maximum and ConvertURLs metadata. Schema limits MaxSize to the overall 8 MiB record budget.",
+    "pgSource": [
+      "internal/query/codec.go:219",
+      "internal/query/codec.go:456",
+      "internal/schema/planner.go:607",
+      "internal/schema/file_options.go:96",
+      "internal/schema/types.go:72",
+      "internal/schema/record_size.go:18"
+    ],
+    "testSource": [
+      "internal/query/advanced_fields_test.go:26",
+      "internal/schema/advanced_fields_integration_test.go:13",
+      "internal/schema/field_contract_integration_test.go:85"
+    ],
+    "verification": "executed-now",
+    "gap": "P2: Core string validation matches for normal inputs, but PB cast-to-string inputs (including null→empty) are rejected by PG's strict string decoder. Configured PB editor values above PG's 8 MiB record budget cannot be represented; 1:1 equivalence is therefore not established.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-16",
+    "category": "fields",
+    "feature": "geoPoint field",
+    "status": "partial",
+    "pbContract": "GeoPoint is normalized through types.GeoPoint.Scan into lon/lat with zero defaults. PB tests nil, empty string and empty object→{lon:0,lat:0}; coordinate bounds and required Null Island rejection apply.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_geo_point.go#L109-L143",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/tools/types/geo_point.go#L40-L83",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_geo_point_test.go#L31-L50"
+    ],
+    "pgImplementation": "GeoPoint JSONB defaults to zero point, requires an object with exactly lon and lat keys, rejects nonfinite/out-of-range coordinates and required zero point; query filter/sort support exists.",
+    "pgSource": [
+      "internal/query/codec.go:463",
+      "internal/schema/planner.go:610"
+    ],
+    "testSource": [
+      "internal/query/advanced_fields_test.go:12",
+      "internal/query/advanced_fields_integration_test.go:15",
+      "internal/schema/advanced_fields_integration_test.go:13"
+    ],
+    "verification": "executed-now",
+    "gap": "P2: PB accepts empty and partial objects through zero-filled struct normalization; PG requires exactly two keys (test explicitly rejects {lon:1}) and rejects nil/empty input. The previous statement that PB also requires an exact two-key input object was inaccurate.",
+    "priority": "P2"
+  },
+  {
+    "id": "FLD-17",
+    "category": "fields",
+    "feature": "text :autogenerate write modifier",
+    "status": "missing",
+    "pbContract": "fieldName:autogenerate casts the supplied prefix to string and appends a generated value when AutogeneratePattern is configured; this setter can be used explicitly during create/update.",
+    "pbSource": [
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_text.go#L376-L393",
+      "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/core/field_text_test.go#L675-L720"
+    ],
+    "pgImplementation": "Write modifier parser recognizes only prefix + and suffix +/-; unknown field:autogenerate is rejected before typed write. Existing omitted-on-create generation does not expose the modifier.",
+    "pgSource": [
+      "internal/recordops/modifiers.go:24",
+      "internal/recordops/modifiers.go:55",
+      "internal/recordops/generated_fields.go:42"
+    ],
+    "testSource": [
+      "internal/recordops/modifiers_test.go:11",
+      "internal/recordops/generated_fields_integration_test.go:24"
+    ],
+    "verification": "static-only",
+    "gap": "P2: Explicit PB text regeneration/prefix generation modifier is absent and was omitted from the earlier feature denominator. Add adapter behavior and vectors if PB mutation compatibility is promised.",
+    "priority": "P2"
+  }
+]

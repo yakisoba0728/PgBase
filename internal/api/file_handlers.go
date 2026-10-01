@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -35,6 +36,21 @@ type FileService interface {
 // supply a test or extension file service do not accidentally expose bytes.
 type publicFileService interface {
 	OpenPublic(context.Context, uuid.UUID, filestore.Variant) (filestore.File, io.ReadCloser, error)
+}
+
+type rangedPublicFileService interface {
+	OpenPublicRange(context.Context, uuid.UUID, filestore.Variant, filestore.ByteRange) (filestore.File, filestore.RangeRead, error)
+}
+
+type rangedFileService interface {
+	OpenRange(context.Context, identity.Subject, uuid.UUID, filestore.Variant, string, filestore.ByteRange) (filestore.File, filestore.RangeRead, error)
+}
+
+type rangeCapability interface{ SupportsRanges() bool }
+
+func supportsFileRanges(service any) bool {
+	capability, ok := service.(rangeCapability)
+	return ok && capability.SupportsRanges()
 }
 
 type fileRecordIDResolver interface {
@@ -89,14 +105,28 @@ func (e fileEndpoints) publicDownload(w http.ResponseWriter, r *http.Request) {
 		writeFileError(w, r, filestore.ErrInvalid)
 		return
 	}
+	if raw := r.Header.Get("Range"); raw != "" && r.Header.Get("If-Range") == "" {
+		if ranged, ok := e.service.(rangedPublicFileService); ok && supportsFileRanges(e.service) {
+			requested, parseErr := parseSingleByteRange(raw)
+			if parseErr != nil {
+				requested = filestore.ByteRange{Start: 0, End: -2}
+			}
+			file, result, openErr := ranged.OpenPublicRange(r.Context(), id, variant, requested)
+			serveFileRange(w, r, file, variant, result, openErr, false)
+			return
+		}
+	}
 	file, reader, err := service.OpenPublic(r.Context(), id, variant)
 	if err != nil {
 		writeFileError(w, r, err)
 		return
 	}
 	defer func() { _ = reader.Close() }()
+	if _, ok := e.service.(rangedPublicFileService); ok && supportsFileRanges(e.service) {
+		w.Header().Set("Accept-Ranges", "bytes")
+	}
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", downloadContentType(file, variant))
+	reader = setDownloadContentType(w, reader, file, variant)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.Filename}))
 	_, _ = io.Copy(w, reader)
 }
@@ -222,16 +252,119 @@ func (e fileEndpoints) download(w http.ResponseWriter, r *http.Request) {
 		writeFileError(w, r, filestore.ErrInvalid)
 		return
 	}
+	if raw := r.Header.Get("Range"); raw != "" && r.Header.Get("If-Range") == "" {
+		if ranged, ok := e.service.(rangedFileService); ok && supportsFileRanges(e.service) {
+			requested, parseErr := parseSingleByteRange(raw)
+			if parseErr != nil {
+				requested = filestore.ByteRange{Start: 0, End: -2}
+			}
+			file, result, openErr := ranged.OpenRange(r.Context(), principal, id, variant, values.Get("token"), requested)
+			serveFileRange(w, r, file, variant, result, openErr, true)
+			return
+		}
+	}
 	file, reader, err := e.service.Open(r.Context(), principal, id, variant, values.Get("token"))
 	if err != nil {
 		writeFileError(w, r, err)
 		return
 	}
 	defer func() { _ = reader.Close() }()
+	if _, ok := e.service.(rangedFileService); ok && supportsFileRanges(e.service) {
+		w.Header().Set("Accept-Ranges", "bytes")
+	}
 	w.Header().Set("Cache-Control", "private, no-store")
-	w.Header().Set("Content-Type", downloadContentType(file, variant))
+	reader = setDownloadContentType(w, reader, file, variant)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.Filename}))
 	_, _ = io.Copy(w, reader)
+}
+
+func parseSingleByteRange(raw string) (filestore.ByteRange, error) {
+	if !strings.HasPrefix(raw, "bytes=") || strings.Contains(raw, ",") {
+		return filestore.ByteRange{}, filestore.ErrRangeNotSatisfiable
+	}
+	parts := strings.Split(strings.TrimPrefix(raw, "bytes="), "-")
+	if len(parts) != 2 || parts[0] == "" && parts[1] == "" {
+		return filestore.ByteRange{}, filestore.ErrRangeNotSatisfiable
+	}
+	if parts[0] == "" {
+		n, err := parseUnsignedRangeDecimal(parts[1])
+		if err != nil || n <= 0 {
+			return filestore.ByteRange{}, filestore.ErrRangeNotSatisfiable
+		}
+		return filestore.ByteRange{Start: -n, End: -1}, nil
+	}
+	start, err := parseUnsignedRangeDecimal(parts[0])
+	if err != nil || start < 0 {
+		return filestore.ByteRange{}, filestore.ErrRangeNotSatisfiable
+	}
+	end := int64(-1)
+	if parts[1] != "" {
+		end, err = parseUnsignedRangeDecimal(parts[1])
+		if err != nil || end < start {
+			return filestore.ByteRange{}, filestore.ErrRangeNotSatisfiable
+		}
+	}
+	return filestore.ByteRange{Start: start, End: end}, nil
+}
+
+func parseUnsignedRangeDecimal(value string) (int64, error) {
+	if value == "" {
+		return 0, filestore.ErrRangeNotSatisfiable
+	}
+	for _, digit := range value {
+		if digit < '0' || digit > '9' {
+			return 0, filestore.ErrRangeNotSatisfiable
+		}
+	}
+	return strconv.ParseInt(value, 10, 64)
+}
+
+func serveFileRange(w http.ResponseWriter, r *http.Request, file filestore.File, variant filestore.Variant, result filestore.RangeRead, err error, private bool) {
+	w.Header().Set("Accept-Ranges", "bytes")
+	cache := "no-store"
+	if private {
+		cache = "private, no-store"
+	}
+	w.Header().Set("Cache-Control", cache)
+	if errors.Is(err, filestore.ErrRangeNotSatisfiable) {
+		writeUnsatisfiableRange(w, result.Size)
+		return
+	}
+	if err != nil {
+		writeFileError(w, r, err)
+		return
+	}
+	defer func() { _ = result.Body.Close() }()
+	contentType := downloadContentType(file, variant)
+	if variant != filestore.Original && len(result.Prefix) > 0 {
+		contentType = http.DetectContentType(result.Prefix)
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.Filename}))
+	w.Header().Set("Content-Range", "bytes "+strconv.FormatInt(result.Start, 10)+"-"+strconv.FormatInt(result.End, 10)+"/"+strconv.FormatInt(result.Size, 10))
+	w.Header().Set("Content-Length", strconv.FormatInt(result.End-result.Start+1, 10))
+	w.WriteHeader(http.StatusPartialContent)
+	_, _ = io.Copy(w, result.Body)
+}
+
+func setDownloadContentType(w http.ResponseWriter, reader io.ReadCloser, file filestore.File, variant filestore.Variant) io.ReadCloser {
+	if variant == filestore.Original {
+		w.Header().Set("Content-Type", file.ContentType)
+		return reader
+	}
+	buffered := bufio.NewReader(reader)
+	prefix, _ := buffered.Peek(512)
+	w.Header().Set("Content-Type", http.DetectContentType(prefix))
+	return struct {
+		io.Reader
+		io.Closer
+	}{Reader: buffered, Closer: reader}
+}
+
+func writeUnsatisfiableRange(w http.ResponseWriter, size int64) {
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Content-Range", "bytes */"+strconv.FormatInt(max(size, 0), 10))
+	w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 }
 
 func (e fileEndpoints) delete(w http.ResponseWriter, r *http.Request) {

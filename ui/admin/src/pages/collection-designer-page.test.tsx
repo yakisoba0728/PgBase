@@ -8,6 +8,41 @@ const users = collection("users", "users-id");
 const posts = collection("posts", "posts-id", [textField("title", 0, { required: true })]);
 
 describe("collection designer page", () => {
+  it("edits an existing builder view through preview and apply while preserving its definition mode", async () => {
+    const source = collection("posts", "posts-id", [textField("title", 0), textField("subtitle", 1)]);
+    const view = {
+      ...collection("published_posts", "view-id", source.fields),
+      type: "view" as const,
+      view: { sourceCollectionId: "posts-id", source: "posts", projection: ["title", "subtitle"], filter: { op: "eq" as const, field: "title", value: "published" } },
+    };
+    const changedView = { source: "posts", projection: ["title"], filter: { op: "eq" as const, field: "title", value: "released" } };
+    const updated = { ...view, fields: [source.fields[0]], view: changedView };
+    const harness = scriptedAdmin("/admin/collections/published_posts/edit");
+    harness.script.catalog.push({ value: { version: 7, collections: [source, view] } });
+    harness.script.plan.push({ value: { baseVersion: 7, checksum: "view-change", fields: [{ name: "title", type: "text", required: false, unique: false, indexed: true }], sql: ["DROP VIEW published_posts", "CREATE VIEW published_posts AS SELECT title FROM posts"] } });
+    harness.script.apply.push({ value: { collection: updated } });
+    harness.script.catalog.push({ value: { version: 8, collections: [source, updated] } });
+    harness.script.list.push({ value: { items: [] } });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+
+    expect(await screen.findByLabelText("Source collection")).toHaveValue("posts");
+    expect(screen.getByLabelText("Definition mode")).toBeDisabled();
+    expect(screen.getByLabelText("Project title")).toBeChecked();
+    expect(screen.getByLabelText("Filter value")).toHaveValue("published");
+    await user.click(screen.getByLabelText("Project subtitle"));
+    await user.clear(screen.getByLabelText("Filter value"));
+    await user.type(screen.getByLabelText("Filter value"), "released");
+    await user.click(screen.getByRole("button", { name: "Preview change" }));
+
+    expect(await screen.findByRole("region", { name: "Collection change preview" })).toHaveTextContent("CREATE VIEW published_posts");
+    expect(callsTo(harness.script, "plan")[0].detail.change).toEqual({ operation: "update", name: "published_posts", view: changedView });
+    expect(screen.queryByRole("alert", { name: "Permanent data loss warning" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Apply change" }));
+    await waitFor(() => expect(harness.history.path()).toBe("/admin/collections/published_posts/records"));
+    expect(callsTo(harness.script, "apply")[0].detail.request).toEqual({ operation: "update", name: "published_posts", view: changedView, checksum: "view-change", baseVersion: 7 });
+  });
+
   it("previews a self relation built from the live catalog", async () => {
     const harness = scriptedAdmin("/admin/collections/new");
     harness.script.catalog.push({ value: { version: 4, collections: [users] } });

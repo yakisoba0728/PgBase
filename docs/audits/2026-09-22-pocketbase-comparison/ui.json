@@ -1,0 +1,808 @@
+[
+  {
+    "id": "UI-01",
+    "category": "ui",
+    "feature": "최초 설치·첫 관리자·백업 초기화",
+    "status": "adapted",
+    "pbContract": "설치 화면에서 첫 _superusers 레코드 생성 후 로그인하거나 백업 파일을 업로드하여 복구한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/auth/pageInstaller.js#L28",
+    "pgImplementation": "설치 토큰으로 최초 관리자 생성, 백업 업로드·복구와 비동기 작업 상태 확인을 제공한다. PostgreSQL 백업 형식과 setup 인증 절차를 사용한다.",
+    "pgSource": [
+      "ui/admin/src/pages/setup-page.tsx:43",
+      "ui/admin/src/pages/setup-page.tsx:89"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/setup-page.test.tsx:29",
+      "ui/admin/src/pages/setup-page.test.tsx:134"
+    ],
+    "verification": "prior-run",
+    "gap": "목적은 충족한다. PB의 ZIP 교체 방식과 동일한 포맷·복구 프로토콜은 아니다.",
+    "priority": "none"
+  },
+  {
+    "id": "UI-02",
+    "category": "ui",
+    "feature": "관리자 로그인·MFA·로그아웃",
+    "status": "partial",
+    "pbContract": "관리자 인증 메서드를 조회하고 password 또는 email OTP 로그인 및 MFA를 처리하며 헤더에서 로그아웃한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/auth/pageSuperuserLogin.js#L28",
+    "pgImplementation": "이메일·비밀번호, 서버가 요구하는 authenticator OTP, 로그아웃, 비밀번호 복구 요청과 수동 토큰 확인 화면이 있다.",
+    "pgSource": [
+      "ui/admin/src/pages/login-page.tsx:35",
+      "ui/admin/src/pages/login-page.tsx:63",
+      "ui/admin/src/app.tsx:98"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/login-page.test.tsx:68",
+      "ui/admin/src/pages/login-page.test.tsx:88"
+    ],
+    "verification": "prior-run",
+    "gap": "PB의 관리자 email OTP 단독 로그인/메서드 선택과 메일 링크의 전용 확인 라우트는 없다. TOTP 지원을 PB MFA UI 전체 동등으로 세면 안 된다.",
+    "priority": "P1"
+  },
+  {
+    "id": "UI-03",
+    "category": "ui",
+    "feature": "라우팅·미저장 편집 이탈 보호",
+    "status": "adapted",
+    "pbContract": "hash 라우트로 설치·로그인·컬렉션 화면을 연결하고 컬렉션/레코드 변경 상태를 추적한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/router.js#L130",
+    "pgImplementation": "typed history 라우트, 리소스별 draft 식별, 앱 이동·뒤로가기·beforeunload 이탈 보호가 있다. text ID new도 생성 라우트와 구분한다.",
+    "pgSource": [
+      "ui/admin/src/routing/admin-location.ts:1",
+      "ui/admin/src/routing/unsaved-draft.tsx:1"
+    ],
+    "testSource": [
+      "ui/admin/src/routing/admin-location.test.tsx:178",
+      "ui/admin/src/routing/unsaved-draft.test.tsx:61",
+      "ui/admin/e2e/authenticated/remaining-development.spec.ts:4"
+    ],
+    "verification": "prior-run",
+    "gap": "hash 대신 /admin history 경로를 사용하는 설계 차이다.",
+    "priority": "none"
+  },
+  {
+    "id": "UI-04",
+    "category": "ui",
+    "feature": "theme·responsive·a11y",
+    "status": "partial",
+    "pbContract": "light/dark/자동 OS 테마를 저장하고 matchMedia 변경을 반영한다. 작은 화면에 맞춰 레이아웃과 버튼을 바꾼다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/store.js#L297",
+    "pgImplementation": "명시적 light/dark, accent, branding 설정과 label/ARIA, 가로 스크롤 테이블, 좁은 화면 CSS가 있다.",
+    "pgSource": [
+      "ui/admin/src/pages/settings-page.tsx:84",
+      "ui/admin/src/styles.css:1",
+      "ui/admin/src/styles.css:71",
+      "ui/admin/src/app.tsx:67"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/settings-page.test.tsx:14",
+      "ui/admin/src/relation/relation-picker.test.tsx:291"
+    ],
+    "verification": "prior-run",
+    "gap": "system 옵션은 dataset.theme에만 저장되며 CSS는 dark만 처리한다. OS 테마 연동이 없다. 모바일 전체 흐름/스크린리더 parity는 이번 조사에서 실행 검증하지 않았다.",
+    "priority": "P1"
+  },
+  {
+    "id": "UI-05",
+    "category": "ui",
+    "feature": "admin UI extension 등록·화면",
+    "status": "partial",
+    "pbContract": "extensions.js를 기본 라우트 이전에 로드하고 superuserOnly/guestOnly/blank 경로, headerLinks 및 pbEvent/component 확장을 제공한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/router.js#L44",
+    "pgImplementation": "등록된 extension의 id/label/path/mount를 인증된 /admin/ext/{id} 화면과 내비게이션에 연결하고 unmount 정리를 실행한다.",
+    "pgSource": [
+      "ui/admin/src/extensions/admin-extensions.ts:2",
+      "ui/admin/src/extensions/extension-screen.tsx:1",
+      "ui/admin/src/app.tsx:45"
+    ],
+    "testSource": [
+      "pgbase/ui_extension_integration_test.go:18"
+    ],
+    "verification": "test-exists",
+    "gap": "PB guest/blank 공개 extension 라우트, 기존 화면의 pbEvent/component 재정의, 임의 헤더 링크와 동등한 공개 인터페이스는 없다.",
+    "priority": "P2"
+  },
+  {
+    "id": "UI-06",
+    "category": "ui",
+    "feature": "create/edit/delete",
+    "status": "adapted",
+    "pbContract": "컬렉션 생성/변경/삭제를 확인 모달과 서버 컬렉션 API로 수행한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/collections/collectionUpsertModal.js#L133",
+    "pgImplementation": "별도 designer 페이지에서 변경 preview 후 apply하고 파괴적 삭제는 대상 이름·계획 확인을 거친다. 결과 미확정 시 작업 원장을 확인한다.",
+    "pgSource": [
+      "ui/admin/src/pages/collection-designer-page.tsx:22",
+      "ui/admin/src/designer/collection-designer.ts:1"
+    ],
+    "testSource": [
+      "ui/admin/src/designer/collection-designer.test.tsx:165",
+      "ui/admin/src/designer/collection-designer.test.tsx:242"
+    ],
+    "verification": "prior-run",
+    "gap": "PostgreSQL 스키마 계획/원장 모델로 같은 관리 목적을 충족한다.",
+    "priority": "none"
+  },
+  {
+    "id": "UI-07",
+    "category": "ui",
+    "feature": "duplicate/truncate/scaffold",
+    "status": "adapted",
+    "pbContract": "컬렉션 복제 시 ID를 제거하고 이름·인덱스를 조정하며 base/auth/view scaffold와 truncate를 제공한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/collections/collectionUpsertModal.js#L226",
+    "pgImplementation": "복제·base/auth/view scaffold·확인 후 truncate가 있다. 신규 text ID 정책과 인증 scaffold 양쪽 정책 복사도 현재 트리에 연결됐다.",
+    "pgSource": [
+      "ui/admin/src/pages/collections-page.tsx:12",
+      "ui/admin/src/pages/collections-page.tsx:108",
+      "ui/admin/src/designer/collection-designer-state.ts:122"
+    ],
+    "testSource": [
+      "ui/admin/src/designer/collection-identity.test.ts:7",
+      "ui/admin/e2e/authenticated/remaining-development.spec.ts:152"
+    ],
+    "verification": "prior-run",
+    "gap": "UUID 기본값과 선택적 exact text ID는 PB의 기본 text ID 모델과 의도적으로 다르다.",
+    "priority": "none"
+  },
+  {
+    "id": "UI-08",
+    "category": "ui",
+    "feature": "type·view SQL dry-run",
+    "status": "adapted",
+    "pbContract": "base/auth/view 타입과 SQL view 편집기를 제공하고 SQL dry-run으로 샘플과 필드를 확인한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/collections/collectionViewQueryTab.js#L20",
+    "pgImplementation": "SQL view 또는 declarative builder를 생성·편집하고 명시적 preview/apply 및 최대 10개 샘플을 제공한다. 기존 builder 수정과 큰 numeric 필터 보존이 구현됐다.",
+    "pgSource": [
+      "ui/admin/src/pages/view-definition-editor.tsx:1",
+      "ui/admin/src/pages/view-sample-preview.tsx:8",
+      "ui/admin/src/designer/collection-designer-state.ts:122"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/collection-designer-page.test.tsx:11",
+      "ui/admin/src/pages/view-definition-editor.test.tsx:18",
+      "ui/admin/e2e/authenticated/remaining-development.spec.ts:104"
+    ],
+    "verification": "prior-run",
+    "gap": "PB의 debounce 자동 SQL 샘플 대신 명시적 preview이며 SQL dialect는 PostgreSQL이다.",
+    "priority": "none"
+  },
+  {
+    "id": "UI-09",
+    "category": "ui",
+    "feature": "field type·validation editor",
+    "status": "partial",
+    "pbContract": "타입별 설정 화면에 일반 제약 외에 protected file, JSON maxSize, 날짜 min/max 등 세부 옵션을 노출한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/fields/file/settings.js#L305",
+    "pgImplementation": "네이티브 PostgreSQL 타입 및 text/select/numeric/file/editor/geo/password/autodate 옵션, 필드 hidden/presentable을 편집한다.",
+    "pgSource": [
+      "ui/admin/src/pages/collection-field-editor.tsx:32",
+      "ui/admin/src/pages/field-options-editor.tsx:14"
+    ],
+    "testSource": [
+      "ui/admin/src/designer/field-options.test.ts:6",
+      "ui/admin/src/pages/field-options-editor.test.tsx:15"
+    ],
+    "verification": "prior-run",
+    "gap": "디자이너에 파일 protected, JSON 최대 크기, 날짜 min/max 입력이 없다. backend 기능 존재 여부와 별개인 UI 노출 공백이다.",
+    "priority": "P1"
+  },
+  {
+    "id": "UI-10",
+    "category": "ui",
+    "feature": "relation 제약·index",
+    "status": "partial",
+    "pbContract": "관계 대상/선택 개수/삭제 동작과 인덱스 설정을 제공하며 인덱스 raw SQL 편집도 가능하다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/collections/indexUpsertModal.js#L209",
+    "pgImplementation": "관계 대상·cardinality·min/max·onDelete와 이름/ordered fields/unique 구조형 인덱스를 편집한다.",
+    "pgSource": [
+      "ui/admin/src/pages/collection-field-editor.tsx:60",
+      "ui/admin/src/pages/collection-designer-page.tsx:72"
+    ],
+    "testSource": [
+      "ui/admin/src/designer/collection-designer.test.tsx:106",
+      "ui/admin/src/designer/collection-draft.test.ts:48"
+    ],
+    "verification": "prior-run",
+    "gap": "PB raw SQL 표현식/부분 인덱스에 대응하는 designer UI는 없다. PostgreSQL 관계 제약 자체는 더 명시적이다.",
+    "priority": "P2"
+  },
+  {
+    "id": "UI-11",
+    "category": "ui",
+    "feature": "CRUD 권한 규칙 편집·미리보기",
+    "status": "partial",
+    "pbContract": "list/view/create/update/delete 규칙 편집기에 필드·request 키 자동완성 및 null/공개 구분을 제공한다. authRule/manageRule도 별도 편집한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/collections/collectionRulesTab.js#L13",
+    "pgImplementation": "5개 CRUD action의 JSON AST와 preset, 사용자/레코드 ID 입력 및 preview 화면이 있다. 관계 컬렉션 user-access 저장은 별도 API로 실제 연결됐다. 다만 rules 저장/preview의 실제 서버 계약은 일치하지 않는다.",
+    "pgSource": [
+      "ui/admin/src/pages/record-rules-editor.tsx:4",
+      "ui/admin/src/pages/collections-page.tsx:64",
+      "ui/admin/src/backend/http-admin-ports.ts:522",
+      "internal/api/rules.go:52",
+      "internal/api/admin_handlers.go:384",
+      "internal/recordaccess/preview.go:16"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/record-rules-editor.test.tsx:1",
+      "ui/admin/src/pages/collections-page.test.tsx:54",
+      "ui/admin/e2e/authenticated/remaining-development.spec.ts:78"
+    ],
+    "verification": "static-only",
+    "gap": "우선 수정할 자체 계약 오류: setRules가 {rules,revision}을 전송하지만 서버 strict PUT DTO는 rules만 받아 revision을 거절한다. preview는 단일 Rule 자리로 전체 5-action rules 객체를 보낸다. memoryBackend 테스트는 이 불일치를 잡지 못한다. 이와 별도로 필드/request 자동완성, auth/manage 규칙 UI, create preview가 없다.",
+    "priority": "P1"
+  },
+  {
+    "id": "UI-12",
+    "category": "ui",
+    "feature": "schema export/import/diff",
+    "status": "partial",
+    "pbContract": "컬렉션 선택 export, JSON 미리보기, import의 old/new diff와 deleteMissing 확인을 제공한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/settings/sync/importCollectionsReviewModal.js#L38",
+    "pgImplementation": "전체 schema JSON export, JSON 붙여넣기, 계획·SQL·변경 컬렉션 요약 preview와 apply/recovery가 있다. 생략한 컬렉션은 유지한다고 명시한다.",
+    "pgSource": [
+      "ui/admin/src/pages/schema-transfer-page.tsx:74",
+      "ui/admin/src/pages/schema-transfer-page.tsx:133"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/schema-transfer-page.test.tsx:24",
+      "ui/admin/src/pages/schema-transfer-page.test.tsx:79"
+    ],
+    "verification": "prior-run",
+    "gap": "선택한 컬렉션만 export, 파일 선택 import, old/new 나란히 diff, deleteMissing UX는 없다. SQL 계획 표시는 구조 diff와 같지 않다.",
+    "priority": "P1"
+  },
+  {
+    "id": "UI-14",
+    "category": "ui",
+    "feature": "collection API preview",
+    "status": "partial",
+    "pbContract": "컬렉션별 CRUD/realtime/batch와 auth methods/password/OAuth/OTP/refresh/verification/reset/email-change 예제를 탭으로 제공한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/apiPreview/apiPreviewModal.js#L34",
+    "pgImplementation": "collection 필드와 여러 언어·호출 audience 예제를 제공하며 view의 변경 예제 제외, Dart audience, 파일 multipart 경로가 검사된다.",
+    "pgSource": [
+      "ui/admin/src/pages/collection-api-examples.tsx:115"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/collection-api-examples.test.tsx:29",
+      "ui/admin/src/pages/collection-api-examples.test.tsx:35"
+    ],
+    "verification": "prior-run",
+    "gap": "PB 수준의 인증 컬렉션별 모든 auth 메서드 예제가 없다. 관계 설명이 여전히 UUID라고 안내하여 text ID 컬렉션 설명이 부정확하다.",
+    "priority": "P2"
+  },
+  {
+    "id": "UI-15",
+    "category": "ui",
+    "feature": "list/filter/sort/cursor paging",
+    "status": "partial",
+    "pbContract": "레코드 목록은 40행 페이지, 일반 검색어 또는 filter 식, 보이는 관계의 expand, presentable 필드를 통한 표시/정렬을 제공한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/records/recordsList.js#L6",
+    "pgImplementation": "정확한 numeric 표시, 서버가 허용하는 정렬, filter 식, cursor Next/Previous, 관계 ID 표시가 있다.",
+    "pgSource": [
+      "ui/admin/src/pages/records-page.tsx:17",
+      "ui/admin/src/workspace/record-workspace.ts:96"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/records-page.test.tsx:28",
+      "ui/admin/src/workspace/record-workspace.test.tsx:64"
+    ],
+    "verification": "prior-run",
+    "gap": "PB의 일반 검색어 변환·검색 기록 및 목록 내 관계 presentable label 확장이 없다. offset 대신 cursor 자체는 의도적 차이이다.",
+    "priority": "P2"
+  },
+  {
+    "id": "UI-16",
+    "category": "ui",
+    "feature": "persisted columns",
+    "status": "adapted",
+    "pbContract": "컬렉션별로 목록 표시 컬럼 선택을 브라우저 저장소에 유지한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/records/recordsList.js#L11",
+    "pgImplementation": "관리자/컬렉션 범위에 보이는 컬럼을 저장하고 사라진 필드를 제거하며 id는 유지한다.",
+    "pgSource": [
+      "ui/admin/src/pages/records-page.tsx:46",
+      "ui/admin/src/workspace/record-productivity.ts:1"
+    ],
+    "testSource": [
+      "ui/admin/src/workspace/record-productivity.test.ts:10"
+    ],
+    "verification": "prior-run",
+    "gap": "컬럼 표시 선택의 저장 목적은 충족한다. 이 항목은 PB의 모든 테이블 레이아웃 동작을 뜻하지 않는다.",
+    "priority": "none"
+  },
+  {
+    "id": "UI-17",
+    "category": "ui",
+    "feature": "bulk delete·JSON export",
+    "status": "partial",
+    "pbContract": "선택한 레코드를 batch 삭제하고 선택 레코드들을 JSON으로 다운로드한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/records/recordsList.js#L193",
+    "pgImplementation": "shift 선택·개별 ETag 기반 bulk 삭제, 일부 실패 유지, 활성 filter/sort 전체 페이지 JSON export가 있다.",
+    "pgSource": [
+      "ui/admin/src/pages/records-page.tsx:52",
+      "ui/admin/src/workspace/record-workspace.ts:159",
+      "ui/admin/src/workspace/record-workspace.ts:180"
+    ],
+    "testSource": [
+      "ui/admin/src/workspace/record-workspace.test.tsx:223",
+      "ui/admin/src/workspace/record-workspace.test.tsx:245"
+    ],
+    "verification": "prior-run",
+    "gap": "현재 JSON export는 선택 행이 아니라 활성 쿼리 범위이다. PB의 임의 선택 레코드만 export하는 흐름은 없다.",
+    "priority": "P2"
+  },
+  {
+    "id": "UI-19",
+    "category": "ui",
+    "feature": "CRUD/duplicate/draft",
+    "status": "adapted",
+    "pbContract": "레코드를 생성/수정/삭제·복제하고 변경 draft를 localStorage에 보존/복원한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/records/recordUpsertModal.js#L144",
+    "pgImplementation": "별도 레코드 편집 화면, idempotent create, 변경 필드 patch/ETag 충돌 처리, duplicate와 scoped draft 복구가 있다. text ID를 정확히 보존한다.",
+    "pgSource": [
+      "ui/admin/src/pages/record-edit-page.tsx:140",
+      "ui/admin/src/workspace/record-workspace.ts:210",
+      "ui/admin/src/workspace/record-productivity.ts:1"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/record-edit-page.test.tsx:67",
+      "ui/admin/src/workspace/record-workspace.test.tsx:266",
+      "ui/admin/src/workspace/record-productivity.test.ts:16",
+      "ui/admin/e2e/authenticated/remaining-development.spec.ts:4"
+    ],
+    "verification": "prior-run",
+    "gap": "PB 모달 대신 별도 화면이며 비밀번호/token draft를 저장하지 않는다. CRUD 목적은 충족한다.",
+    "priority": "none"
+  },
+  {
+    "id": "UI-20",
+    "category": "ui",
+    "feature": "relation picker/inline target",
+    "status": "partial",
+    "pbContract": "관계 대상 50행 목록을 검색/페이지 이동하며 선택 레코드들을 별도로 가져와 label과 순서를 복원한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/records/recordsPickerModal.js#L4",
+    "pgImplementation": "빈 검색어로 indexed browse, cursor 이동, exact indexed label 또는 ID 검색, 선택 label hydration, inline create/edit를 제공한다. text ID의 대소문자를 보존한다.",
+    "pgSource": [
+      "ui/admin/src/relation/relation-query.ts:39",
+      "ui/admin/src/relation/relation-target-picker.tsx:1"
+    ],
+    "testSource": [
+      "ui/admin/src/relation/relation-picker.test.tsx:42",
+      "ui/admin/src/relation/relation-picker.test.tsx:125",
+      "ui/admin/src/pages/record-edit-page.test.tsx:157"
+    ],
+    "verification": "prior-run",
+    "gap": "일반 문자열 부분검색/임의 filter 식 대신 한 indexed text 필드의 exact 검색이다. hydration은 바이트·요청 상한을 넘으면 ID 표시로 남는다. 빈 검색어 browse는 이미 있으므로 누락으로 세지 않았다.",
+    "priority": "P2"
+  },
+  {
+    "id": "UI-21",
+    "category": "ui",
+    "feature": "file mapping/thumbnail/download",
+    "status": "partial",
+    "pbContract": "레코드의 파일을 업로드/삭제/미리보기하고 썸네일·다운로드를 제공하며 다른 레코드의 공개 파일을 고르는 picker도 제공한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/records/recordFilePickerModal.js#L48",
+    "pgImplementation": "원자적 multipart 연결, 보호 토큰을 통한 이미지 preview, 서버 public URL, thumbnail 다운로드, 삭제 및 업로드 전 이미지/오디오/비디오 preview가 있다.",
+    "pgSource": [
+      "ui/admin/src/pages/record-edit-page.tsx:82",
+      "ui/admin/src/pages/record-edit-page.tsx:114",
+      "ui/admin/src/pages/record-edit-page.tsx:128"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/file-field.test.tsx:39",
+      "ui/admin/src/pages/file-field.test.tsx:87",
+      "ui/admin/src/pages/record-edit-page.test.tsx:46"
+    ],
+    "verification": "prior-run",
+    "gap": "저장된 파일의 UI preview는 이미지 중심이다. PB의 다른 컬렉션/레코드 공개 파일 라이브러리 picker는 없다.",
+    "priority": "P2"
+  },
+  {
+    "id": "UI-22",
+    "category": "ui",
+    "feature": "auth users lifecycle actions",
+    "status": "partial",
+    "pbContract": "인증 컬렉션의 일반 레코드 CRUD 화면에서 verification/reset/token reset/OAuth 연결 관리와 지정 기간 impersonation을 수행한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/records/recordUpsertModal.js#L910",
+    "pgImplementation": "auth 컬렉션은 일반 Records 화면에서 생성/프로필 변경/삭제 가능하다. 별도 Users 화면은 전체 realm 사용자의 활성화·verification·메일 요청·session revoke·OAuth unlink·5분 impersonation을 제공한다.",
+    "pgSource": [
+      "ui/admin/src/pages/users-page.tsx:90",
+      "ui/admin/src/pages/users-page.tsx:119",
+      "ui/admin/src/pages/users-page.tsx:145",
+      "ui/admin/src/pages/record-edit-page.tsx:163",
+      "internal/userauth/lifecycle.go:13"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/users-page.test.tsx:9",
+      "ui/admin/e2e/authenticated/remaining-development.spec.ts:152"
+    ],
+    "verification": "prior-run",
+    "gap": "Users 표는 authCollectionId/공개 record ID/realm filter와 해당 Records 편집 링크를 노출하지 않는다. impersonation 기간은 300초 고정이다. 인증 CRUD 전체가 없다는 판정은 부정확하다.",
+    "priority": "P1"
+  },
+  {
+    "id": "UI-23",
+    "category": "ui",
+    "feature": "realm/options/OAuth/OTP/MFA",
+    "status": "partial",
+    "pbContract": "auth 컬렉션에서 password identity fields, OAuth providers, email OTP, MFA 조건/기간, 로그인 경고와 token 옵션을 설정한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/collections/collectionAuthOptionsTab.js#L15",
+    "pgImplementation": "realm 생성·등록 허용·profile schema, password 최소 길이, TOTP/email OTP 설정, OAuth provider 설정 및 Apple secret 생성이 있다.",
+    "pgSource": [
+      "ui/admin/src/pages/auth-collections-page.tsx:96",
+      "ui/admin/src/components/auth-policy-editor.tsx:22",
+      "ui/admin/src/components/auth-administration-panel.tsx:154"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/auth-collections-page.test.tsx:9",
+      "ui/admin/src/pages/auth-collections-page.test.tsx:57"
+    ],
+    "verification": "prior-run",
+    "gap": "임의 password identity fields, PB식 MFA 조건·기간, login-alert, 목적별 token TTL/일괄 무효화 UI가 없다. TOTP는 PB의 두 인증수단 조합 MFA와 동일한 설정 모델이 아니다.",
+    "priority": "P1"
+  },
+  {
+    "id": "UI-24",
+    "category": "ui",
+    "feature": "mail template/SMTP test",
+    "status": "partial",
+    "pbContract": "인증 컬렉션별 verify/reset/email-change/OTP/login-alert 템플릿과 test email, SMTP 설정을 제공한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/collections/collectionAuthOptionsTab.js#L49",
+    "pgImplementation": "verify/password_reset/email_change/otp 4개 템플릿 및 realm SMTP 편집·비밀 redaction·테스트를 제공한다.",
+    "pgSource": [
+      "ui/admin/src/components/auth-administration-panel.tsx:15",
+      "ui/admin/src/components/auth-administration-panel.tsx:211",
+      "ui/admin/src/components/auth-administration-panel.tsx:236"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/auth-collections-page.test.tsx:57",
+      "ui/admin/src/pages/auth-collections-page.test.tsx:81"
+    ],
+    "verification": "prior-run",
+    "gap": "login-alert 템플릿/활성화 UI와 PB placeholder 전체에 대응하는 편집 보조가 없다.",
+    "priority": "P2"
+  },
+  {
+    "id": "UI-25",
+    "category": "ui",
+    "feature": "service tokens/admin application settings",
+    "status": "partial",
+    "pbContract": "PB는 application name/URL/accent, batch, trusted proxy, rate limits, superuser IP, hideControls를 설정한다. 별도 scoped service-token 제품 개념은 아니다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/settings/application/pageApplicationSettings.js#L190",
+    "pgImplementation": "scoped service token 발급·한 번 공개·revoke, 현재 관리자 이메일/IP, theme/accent/branding, logs·backup·rate limits·trusted proxy CIDR 설정이 있다.",
+    "pgSource": [
+      "ui/admin/src/pages/service-tokens-page.tsx:28",
+      "ui/admin/src/pages/settings-page.tsx:81",
+      "ui/admin/src/pages/profile-settings.tsx:21"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/service-tokens-page.test.tsx:8",
+      "ui/admin/src/pages/settings-page.test.tsx:14",
+      "ui/admin/src/pages/settings-page.test.tsx:21"
+    ],
+    "verification": "prior-run",
+    "gap": "service token은 의도적인 별도 권한 모델이다. application URL, batch 설정, production hide/lock controls 및 PB trusted-header 입력에 대응하는 화면은 없다. branding은 주로 문서 title에 반영된다.",
+    "priority": "P2"
+  },
+  {
+    "id": "UI-26",
+    "category": "ui",
+    "feature": "logs search/detail/statistics/truncate",
+    "status": "partial",
+    "pbContract": "filter/일반 검색어로 로그를 찾고 level/message/data 상세 및 시간별 histogram/zoom을 제공한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/logs/logsChart.js#L21",
+    "pgImplementation": "HTTP status/method/route/time 범위 검색, cursor, 상세, CSV, 삭제와 상태별 집계 meter를 제공한다.",
+    "pgSource": [
+      "ui/admin/src/pages/operations-console.tsx:57",
+      "ui/admin/src/pages/operations-console.tsx:87"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/operations-console.test.tsx:45"
+    ],
+    "verification": "prior-run",
+    "gap": "PB 구조화 log level/message/data의 일반 탐색 UI와 시간 histogram/zoom이 없다. Pg 통계 로드는 활성 필터를 넘기지 않아 필터 결과 그래프와도 다르다.",
+    "priority": "P2"
+  },
+  {
+    "id": "UI-27",
+    "category": "ui",
+    "feature": "scheduled jobs/cron configure/run",
+    "status": "adapted",
+    "pbContract": "등록된 cron job의 ID·표현식·실행 버튼을 제공한다. PB 이 화면 자체가 임의 cron handler를 만드는 편집기는 아니다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/settings/crons/cronsList.js#L28",
+    "pgImplementation": "등록된 job의 schedule/timezone/enabled 수정, queue/run과 lease/running 상태에 따른 제어가 있다.",
+    "pgSource": [
+      "ui/admin/src/pages/operations-console.tsx:4",
+      "ui/admin/src/pages/operations-console.tsx:113"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/operations-console.test.tsx:19",
+      "ui/admin/src/pages/operations-console.test.tsx:39"
+    ],
+    "verification": "prior-run",
+    "gap": "PG의 durable scheduler 설정 모델로 관리 목적을 충족하며 arbitrary code 생성은 양쪽 비교 범위가 아니다.",
+    "priority": "none"
+  },
+  {
+    "id": "UI-28",
+    "category": "ui",
+    "feature": "backup lifecycle",
+    "status": "adapted",
+    "pbContract": "백업 생성·업로드·다운로드·삭제·확인 후 restore, 자동 cron과 retention/S3 설정을 제공한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/settings/backups/backupsList.js#L19",
+    "pgImplementation": "관리 백업 생성/업로드/download/restore/delete와 비동기 job polling, 자동 schedule/timezone 및 저장소 retention 편집이 있다.",
+    "pgSource": [
+      "ui/admin/src/pages/operations-console.tsx:118",
+      "ui/admin/src/pages/settings-page.tsx:234",
+      "ui/admin/src/pages/backup-storage-page.tsx:60"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/operations-console.test.tsx:65",
+      "ui/admin/src/pages/operations-console.test.tsx:75",
+      "ui/admin/src/pages/backup-storage-page.test.tsx:18"
+    ],
+    "verification": "prior-run",
+    "gap": "비동기 PG 복구 작업 모델과 archive 포맷이 다르지만 관리자 관리 흐름은 있다.",
+    "priority": "none"
+  },
+  {
+    "id": "UI-29",
+    "category": "ui",
+    "feature": "file/backup storage settings/test",
+    "status": "adapted",
+    "pbContract": "파일과 백업 저장소의 S3 endpoint/bucket/region/access/secret 및 연결 test를 제공한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/base/s3ConfigFields.js#L91",
+    "pgImplementation": "파일/백업 local/S3 설정과 저장된 설정 test, 비밀 omission/redaction, 파일 저장소 migration preview·시작·재개·취소를 제공한다.",
+    "pgSource": [
+      "ui/admin/src/pages/storage-settings-page.tsx:110",
+      "ui/admin/src/pages/backup-storage-page.tsx:67"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/storage-settings-page.test.tsx:29",
+      "ui/admin/src/pages/storage-settings-page.test.tsx:61",
+      "ui/admin/src/pages/backup-storage-page.test.tsx:43"
+    ],
+    "verification": "prior-run",
+    "gap": "PG 저장소 이동 job은 PB 화면보다 추가된 경로이다. 해당 차이를 미구현으로 세지 않는다.",
+    "priority": "none"
+  },
+  {
+    "id": "UI-30",
+    "category": "ui",
+    "feature": "SQL console/history/result/CSV",
+    "status": "adapted",
+    "pbContract": "SQL editor, 실행 확인, 로컬 history, 결과 정렬·행 표시·CSV를 제공한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/settings/sql/pageSQLConsole.js#L5",
+    "pgImplementation": "읽기 기본 모드, 허용된 extension write의 명시적 확인, typed params/results, 정확한 numeric 표시, 취소·durable history/recovery·CSV가 있다.",
+    "pgSource": [
+      "ui/admin/src/pages/sql-console-page.tsx:54",
+      "ui/admin/src/pages/sql-console-page.tsx:134"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/sql-console-page.test.tsx:26",
+      "ui/admin/src/pages/sql-console-page.test.tsx:39",
+      "ui/admin/src/pages/sql-console-page.test.tsx:239"
+    ],
+    "verification": "prior-run",
+    "gap": "PB SQLite 임의 SQL console을 그대로 제공하는 것은 아니다. PG 정책에 따른 bounded read/허용 write, 서버 history는 의도적 범위 변경이다.",
+    "priority": "none"
+  },
+  {
+    "id": "UI-32",
+    "category": "ui",
+    "feature": "keyboard relation selection",
+    "status": "adapted",
+    "pbContract": "드롭다운에서 방향키로 결과 focus를 이동하고 키보드로 선택한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/base/dropdownKeyboardNav.js#L32",
+    "pgImplementation": "ARIA combobox/listbox와 active descendant, Arrow/Home/End/Enter/Escape 선택을 제공한다.",
+    "pgSource": [
+      "ui/admin/src/relation/relation-target-picker.tsx:1"
+    ],
+    "testSource": [
+      "ui/admin/src/relation/relation-picker.test.tsx:291",
+      "ui/admin/src/pages/record-edit-page.test.tsx:173"
+    ],
+    "verification": "prior-run",
+    "gap": "PB DOM focus 대신 ARIA active descendant를 사용하며 키보드 선택 목적은 충족한다.",
+    "priority": "none"
+  },
+  {
+    "id": "UI-33",
+    "category": "ui",
+    "feature": "리치 텍스트·HTML source 편집",
+    "status": "adapted",
+    "pbContract": "TinyMCE에서 rich text, HTML source, 링크·이미지·표와 convertURLs를 편집한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/base/tinymce.js#L146",
+    "pgImplementation": "Tiptap rich text/표/link/image, HTML source 전환과 portable URL 처리를 제공한다.",
+    "pgSource": [
+      "ui/admin/src/pages/rich-text-field.tsx:34",
+      "ui/admin/src/pages/rich-text-field.tsx:62"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/advanced-field-inputs.test.tsx:8",
+      "ui/admin/src/pages/advanced-field-inputs.test.tsx:12"
+    ],
+    "verification": "prior-run",
+    "gap": "좁은 rich text+source 목적은 충족한다. TinyMCE 플러그인 전체/미디어 라이브러리 동일성을 의미하지 않으며 source 안내도 지원 포맷 제한을 명시한다.",
+    "priority": "none"
+  },
+  {
+    "id": "UI-34",
+    "category": "ui",
+    "feature": "geoPoint 좌표와 지도에서 위치 선택",
+    "status": "adapted",
+    "pbContract": "경위도 숫자와 OpenStreetMap/Leaflet 지도에서 클릭·드래그하여 위치를 선택한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/base/leaflet.js#L72",
+    "pgImplementation": "좌표 입력, offline Natural Earth SVG 지도 클릭/방향키 선택·zoom을 제공한다.",
+    "pgSource": [
+      "ui/admin/src/pages/geo-point-field.tsx:14",
+      "ui/admin/src/pages/geo-point-field.tsx:38"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/advanced-field-inputs.test.tsx:26"
+    ],
+    "verification": "prior-run",
+    "gap": "외부 타일 대신 대략적인 offline 해안선 지도를 택했다. 도로/주소 수준 지도나 Leaflet drag/pan UX와 동일하지 않다.",
+    "priority": "none"
+  },
+  {
+    "id": "UI-35",
+    "category": "ui",
+    "feature": "날짜·시간 picker와 local timezone 표시",
+    "status": "partial",
+    "pbContract": "datetime-local step=1로 초 단위 편집을 지원하고 local timezone을 표시하며 RFC3339로 저장한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/fields/date/input.js#L18",
+    "pgImplementation": "local timezone 안내와 datetime-local 입력을 통해 UTC ISO로 변환한다.",
+    "pgSource": [
+      "ui/admin/src/pages/record-edit-page.tsx:17",
+      "ui/admin/src/pages/record-edit-page.tsx:59"
+    ],
+    "testSource": [],
+    "verification": "static-only",
+    "gap": "표시 변환이 slice(0,16)이며 step=1이 없어 PB 초 단위 편집 흐름을 제공하지 않는다. 값을 건드리지 않은 저장까지 항상 초가 사라진다는 의미는 아니다.",
+    "priority": "P2"
+  },
+  {
+    "id": "UI-X01",
+    "category": "ui",
+    "feature": "여러 관리자 계정 생성·편집·삭제",
+    "status": "missing",
+    "pbContract": "Manage superusers 링크가 _superusers 인증 컬렉션을 열어 같은 레코드 CRUD UI로 여러 관리자 계정을 관리한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/base/appHeader.js#L79",
+    "pgImplementation": "Settings에서 현재 관리자 이메일과 IP allowlist만 편집하며 최초 설치에서 첫 관리자를 만든다.",
+    "pgSource": [
+      "ui/admin/src/pages/profile-settings.tsx:21",
+      "ui/admin/src/pages/setup-page.tsx:59",
+      "ui/admin/src/app.tsx:105"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/settings-page.test.tsx:21"
+    ],
+    "verification": "static-only",
+    "gap": "다른 관리자 목록·생성·삭제·비밀번호 변경을 처리하는 관리 화면이 없다. 사용자 auth 컬렉션 CRUD와 관리자 계정 관리 권한 모델을 구분해야 한다.",
+    "priority": "P1"
+  },
+  {
+    "id": "UI-X02",
+    "category": "ui",
+    "feature": "필드 복제·순서 재배치",
+    "status": "missing",
+    "pbContract": "필드 설정에 duplicate가 있고 collectionFieldsTab sortable로 필드 순서를 재배치한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/base/fieldSettings.js#L22",
+    "pgImplementation": "필드 추가·이름/타입/옵션 편집·삭제와 ordinal 기반 표시가 있다.",
+    "pgSource": [
+      "ui/admin/src/pages/collection-field-editor.tsx:32",
+      "ui/admin/src/pages/collection-designer-page.tsx:58"
+    ],
+    "testSource": [],
+    "verification": "static-only",
+    "gap": "UI에 필드 duplicate 또는 drag/move 순서 변경 동작이 없다.",
+    "priority": "P2"
+  },
+  {
+    "id": "UI-X03",
+    "category": "ui",
+    "feature": "컬렉션 관계 개요 ERD",
+    "status": "missing",
+    "pbContract": "컬렉션 overview의 Fields and relations 탭이 ERD를 렌더링한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/collections/collectionsOverviewModal.js#L119",
+    "pgImplementation": "컬렉션 목록에 필드/관계 개수를 표시하고 개별 필드에서 관계 대상을 편집한다.",
+    "pgSource": [
+      "ui/admin/src/pages/collections-page.tsx:118",
+      "ui/admin/src/pages/collection-field-editor.tsx:60"
+    ],
+    "testSource": [],
+    "verification": "static-only",
+    "gap": "전체 컬렉션 관계 그래프/ERD 화면이 없다.",
+    "priority": "P3"
+  },
+  {
+    "id": "UI-X04",
+    "category": "ui",
+    "feature": "인증 허용 규칙·사용자 관리 권한 규칙 전용 편집",
+    "status": "missing",
+    "pbContract": "authRule은 인증 직전 조건, manageRule은 다른 인증 레코드를 관리할 수 있는 조건으로 별도 편집한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/collections/collectionRulesTab.js#L215",
+    "pgImplementation": "CRUD JSON rule editor는 list/view/create/update/delete만 다룬다. auth 설정은 password/OTP 등의 방식 설정에 집중한다.",
+    "pgSource": [
+      "ui/admin/src/pages/record-rules-editor.tsx:4",
+      "ui/admin/src/components/auth-policy-editor.tsx:22",
+      "ui/admin/src/backend/ports.ts:293"
+    ],
+    "testSource": [],
+    "verification": "static-only",
+    "gap": "auth/manage 규칙을 직접 읽고 고치는 전용 UI가 없다. raw schema import에서 규칙 문서를 전달할 수 있는 것과 일상 편집 UX를 구분했다.",
+    "priority": "P1"
+  },
+  {
+    "id": "UI-X05",
+    "category": "ui",
+    "feature": "인증 컬렉션 token 기간·종류별 일괄 무효화",
+    "status": "missing",
+    "pbContract": "token options에서 토큰 목적별 duration을 편집하고 secret 재생성으로 해당 토큰을 invalidate한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/collections/tokenOptionsAccordion.js#L33",
+    "pgImplementation": "사용자별 Revoke sessions 및 service token revoke는 있으나 auth 정책 editor에는 OTP 기간만 있다.",
+    "pgSource": [
+      "ui/admin/src/components/auth-policy-editor.tsx:66",
+      "ui/admin/src/pages/users-page.tsx:158",
+      "ui/admin/src/backend/ports.ts:293"
+    ],
+    "testSource": [],
+    "verification": "static-only",
+    "gap": "auth/verification/reset/email-change 등의 collection-wide TTL 및 일괄 invalidate 조작이 없다. 사용자별 revoke와 동일하지 않다.",
+    "priority": "P1"
+  },
+  {
+    "id": "UI-X06",
+    "category": "ui",
+    "feature": "기존 공개 파일을 선택하는 미디어 라이브러리",
+    "status": "missing",
+    "pbContract": "공개 파일 필드가 있는 다른 컬렉션을 선택하고 기존 파일을 검색/페이지 이동해 재사용한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/records/recordFilePickerModal.js#L48",
+    "pgImplementation": "레코드에 로컬 파일을 올리거나 rich text에서 URL을 직접 입력한다.",
+    "pgSource": [
+      "ui/admin/src/pages/record-edit-page.tsx:128",
+      "ui/admin/src/pages/rich-text-field.tsx:77"
+    ],
+    "testSource": [],
+    "verification": "static-only",
+    "gap": "기존 파일을 collection/record 기준으로 탐색·선택하는 라이브러리 UI가 없다.",
+    "priority": "P2"
+  },
+  {
+    "id": "UI-X07",
+    "category": "ui",
+    "feature": "컬렉션 검색·pin·system 분리 내비게이션",
+    "status": "missing",
+    "pbContract": "sidebar에서 컬렉션 이름을 검색하고 pin을 저장하며 system 컬렉션을 별도 그룹으로 보여 준다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/collections/collectionsSidebar.js#L7",
+    "pgImplementation": "전체 컬렉션을 이름순 목록으로 나열하고 기본 관리자 링크를 표시한다.",
+    "pgSource": [
+      "ui/admin/src/pages/collections-page.tsx:118",
+      "ui/admin/src/app.tsx:105"
+    ],
+    "testSource": [
+      "ui/admin/src/pages/collections-page.test.tsx:14"
+    ],
+    "verification": "static-only",
+    "gap": "컬렉션 검색/pin/system 그룹을 제공하지 않아 컬렉션 수가 많을 때 탐색 UX가 다르다.",
+    "priority": "P3"
+  },
+  {
+    "id": "UI-X08",
+    "category": "ui",
+    "feature": "운영 화면의 파괴적 제어 잠금",
+    "status": "missing",
+    "pbContract": "application hideControls 설정으로 collection 생성/수정 버튼을 숨기고 record 수정에는 추가 unlock을 요구한다.",
+    "pbSource": "https://github.com/pocketbase/pocketbase/blob/5cec579da984436a258602a46a96302fbd31f77c/ui/src/settings/application/pageApplicationSettings.js#L249",
+    "pgImplementation": "스키마 preview와 삭제 확인, stale 상태 차단은 있으나 전체 환경의 편집 잠금 설정은 없다.",
+    "pgSource": [
+      "ui/admin/src/pages/settings-page.tsx:81",
+      "ui/admin/src/pages/collection-designer-page.tsx:22",
+      "ui/admin/src/pages/record-edit-page.tsx:158"
+    ],
+    "testSource": [],
+    "verification": "static-only",
+    "gap": "PB hide/lock controls 운영 모드와 대응하는 전역 UI 정책이 없다. 개별 작업 확인 대화상자가 그 기능을 대신하지는 않는다.",
+    "priority": "P2"
+  }
+]

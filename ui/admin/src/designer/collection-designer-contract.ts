@@ -2,6 +2,7 @@ import type {
   CollectionDefinition,
   CollectionType,
   CompoundIndex,
+  RecordIDPolicy,
   ViewDefinition,
 } from "../backend/ports";
 import type { OperationRecovery } from "../operations/operation-recovery";
@@ -27,6 +28,8 @@ export interface CollectionDesigner {
   relationTargetsFailed: boolean;
   isNewField(name: string): boolean;
   collectionType: CollectionType;
+  recordId?: RecordIDPolicy;
+  setRecordIDPolicy(policy?: RecordIDPolicy): void;
   preview: CollectionPreview | null;
   removedFields: string[];
   destructiveConfirmed: boolean;

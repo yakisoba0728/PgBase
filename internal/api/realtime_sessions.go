@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/identity"
-	"github.com/yakisoba0728/PgBase/internal/query"
+
 	"github.com/yakisoba0728/PgBase/internal/realtime"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
 )
@@ -174,16 +174,20 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 		writeRealtimeError(w, r, err)
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
+	defer cancel()
+	r = r.WithContext(ctx)
 	address, _ := clientIP(r, h.dependencies.trustedProxies())
 	client := &realtimeClient{id: uuid.NewString(), address: address, principal: realtimeSubject(r), token: realtimeCredential(r), resume: cursor}
 	lifecycle := &RealtimeLifecycleEvent{UserID: client.principal.ID, Principal: client.principal, ClientID: client.id, Cursor: cursor}
-	finish, err := beginRealtime(h.dependencies.RealtimeLifecycle, r.Context(), "connect", lifecycle)
+	finish, err := beginRealtime(h.dependencies.RealtimeLifecycle, ctx, "connect", lifecycle)
 	if err != nil {
 		finish(err)
 		writeRealtimeError(w, r, err)
 		return
 	}
-	defer func() { finish(nil) }()
+	var connectionErr error
+	defer func() { finish(connectionErr) }()
 	h.mu.Lock()
 	userAtLimit := client.principal.Kind == identity.User && h.userClients[client.principal.ID] >= 4
 	if len(h.clients) >= 128 || userAtLimit {
@@ -213,135 +217,47 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 		applicationMessages = h.dependencies.ApplicationRealtimeBroker.connect(client.id)
 		defer h.dependencies.ApplicationRealtimeBroker.disconnect(client.id)
 	}
+	control := http.NewResponseController(w)
+	if err := control.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		connectionErr = err
+		writeRealtimeError(w, r, err)
+		return
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
-	control := http.NewResponseController(w)
-	if _, err := fmt.Fprintf(w, "id: %s\nevent: PB_CONNECT\ndata: {\"clientId\":%q}\n\n", client.id, client.id); err != nil {
+	// The client identity is not a replay cursor. Omitting id also preserves an
+	// existing numeric Last-Event-ID until a durable checkpoint is delivered.
+	if _, err := fmt.Fprintf(w, "event: PB_CONNECT\ndata: {\"clientId\":%q}\n\n", client.id); err != nil {
+		connectionErr = err
 		return
 	}
 	if err := control.Flush(); err != nil {
+		connectionErr = err
 		return
 	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
+			connectionErr = ctx.Err()
 			return
 		case message := <-applicationMessages:
 			client.deliveryMu.Lock()
-			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", message.Topic, message.Data); err != nil {
-				client.deliveryMu.Unlock()
-				return
-			}
-			if err := control.Flush(); err != nil {
-				client.deliveryMu.Unlock()
-				return
-			}
+			err = h.deliverApplicationMessage(w, r, control, client, message)
 			client.deliveryMu.Unlock()
-			continue
 		case <-ticker.C:
-		}
-		client.deliveryMu.Lock()
-		if !h.revalidate(r.Context(), client) {
+			client.deliveryMu.Lock()
+			err = h.deliverRecordMessages(w, r, control, client)
 			client.deliveryMu.Unlock()
+		}
+		if err != nil {
+			connectionErr = err
 			return
 		}
-		client.mu.RLock()
-		subscriptions := append([]realtimeSubscription(nil), client.subscriptions...)
-		principal := client.principal
-		client.mu.RUnlock()
-		for index := range subscriptions {
-			sub := &subscriptions[index]
-			if sub.cursor == nil && cursor != nil {
-				value := *cursor
-				sub.cursor = &value
-			}
-			reader, ok := h.dependencies.Realtime.(realtimeV2)
-			if !ok {
-				client.deliveryMu.Unlock()
-				return
-			}
-			events, next, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, PublicID: sub.recordID, Filter: sub.filter, Fields: sub.fields, After: sub.cursor, RuleContext: ruleRequestContext(r)})
-			relationFilter := errors.Is(err, realtime.ErrRelationFilterRequiresCurrentRecord)
-			if relationFilter {
-				events, next, err = reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, PublicID: sub.recordID, After: sub.cursor, RuleContext: ruleRequestContext(r)})
-			}
-			if err != nil {
-				payload, _ := json.Marshal(map[string]string{"code": "subscription_failed"})
-				_, _ = fmt.Fprintf(w, "event: PB_ERROR\ndata: %s\n\n", payload)
-				_ = control.Flush()
-				client.deliveryMu.Unlock()
-				return
-			}
-			for _, event := range events {
-				if relationFilter {
-					if event.Operation == "delete" {
-						continue
-					}
-					page, listErr := h.dependencies.Records.List(r.Context(), recordops.ListRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, Limit: 1, Filter: "(" + sub.filter + ") && id = '" + event.PublicID + "'", RuleContext: ruleRequestContext(r)})
-					if listErr != nil || len(page.Items) == 0 {
-						continue
-					}
-				}
-				record := event.Record
-				if sub.expand != "" && event.Operation != "delete" && h.dependencies.Records != nil {
-					current, getErr := h.dependencies.Records.Get(r.Context(), recordops.GetRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, PublicID: event.PublicID, Expand: sub.expand, Fields: sub.fields})
-					if getErr == nil {
-						if expanded, ok := current.Data["expand"]; ok {
-							record["expand"] = expanded
-						}
-					}
-				}
-				if sub.fields != "" {
-					projection, compileErr := query.CompileProjection(sub.fields)
-					if compileErr != nil {
-						client.deliveryMu.Unlock()
-						return
-					}
-					projected, ok := projection.Apply(record).(map[string]any)
-					if !ok {
-						client.deliveryMu.Unlock()
-						return
-					}
-					record = projected
-				}
-				messageLifecycle := &RealtimeLifecycleEvent{UserID: principal.ID, Principal: principal, ClientID: client.id, Collection: event.Collection, Event: &event}
-				messageFinish, messageErr := beginRealtime(h.dependencies.RealtimeLifecycle, r.Context(), "message", messageLifecycle)
-				if messageErr != nil {
-					messageFinish(messageErr)
-					client.deliveryMu.Unlock()
-					return
-				}
-				payload, _ := json.Marshal(map[string]any{"action": event.Action, "record": record})
-				if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.Sequence, sub.raw, payload); err != nil {
-					messageFinish(err)
-					client.deliveryMu.Unlock()
-					return
-				}
-				messageFinish(nil)
-			}
-			value := next
-			sub.cursor = &value
-		}
-		client.mu.Lock()
-		for i := range client.subscriptions {
-			for _, updated := range subscriptions {
-				if client.subscriptions[i].raw == updated.raw {
-					client.subscriptions[i].cursor = updated.cursor
-				}
-			}
-		}
-		client.mu.Unlock()
-		if err := control.Flush(); err != nil {
-			client.deliveryMu.Unlock()
-			return
-		}
-		client.deliveryMu.Unlock()
 	}
 }
-
 func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 	var form struct {
 		ClientID      string   `json:"clientId"`
@@ -413,10 +329,17 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		// Always validate against the current schema and policy before replacing
-		// client state, even when a reconnect cursor is already available.
-		_, head, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, PublicID: subscriptions[index].recordID, Filter: subscriptions[index].filter, Fields: subscriptions[index].fields, RuleContext: ruleRequestContext(r)})
+		// client state. Validate retained/reconnect cursors here too so expired
+		// history returns 410 without installing a subscription that cannot read.
+		candidate := resume
+		if cursor, exists := previous[subscriptions[index].raw]; exists {
+			candidate = cursor
+		}
+		readRequest := realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, PublicID: subscriptions[index].recordID, Filter: subscriptions[index].filter, Fields: subscriptions[index].fields, After: candidate, RuleContext: ruleRequestContext(r)}
+		_, head, err := reader.ReadFor(r.Context(), readRequest)
 		if errors.Is(err, realtime.ErrRelationFilterRequiresCurrentRecord) {
-			_, head, err = reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: subscriptions[index].collection, PublicID: subscriptions[index].recordID, RuleContext: ruleRequestContext(r)})
+			readRequest.Filter, readRequest.Fields = "", ""
+			_, head, err = reader.ReadFor(r.Context(), readRequest)
 		}
 		if err != nil {
 			writeRealtimeError(w, r, err)
@@ -429,11 +352,8 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if cursor, exists := previous[subscriptions[index].raw]; exists {
-			subscriptions[index].cursor = cloneRealtimeCursor(cursor)
-		} else if resume != nil {
-			value := *resume
-			subscriptions[index].cursor = &value
+		if candidate != nil {
+			subscriptions[index].cursor = cloneRealtimeCursor(candidate)
 		} else {
 			subscriptions[index].cursor = &head
 		}

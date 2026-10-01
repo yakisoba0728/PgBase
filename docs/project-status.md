@@ -1,5 +1,11 @@
 # PgBase 구현 이력과 현재 상태
 
+2026-09-22 현재 기준: PgBase는 PocketBase에서 아이디어를 얻은 독립 PostgreSQL 제품이다. 현재 구현·검증과 후속 우선순위는 [자체 제품 보완 기록](workstreams/independent-product-2026-09-22/README.md)을 따른다. [PocketBase 비교 감사](audits/2026-09-22-pocketbase-comparison/README.md)는 당시 소스 차이를 보존하는 참고 자료이며, 차이 개수를 결함 수·완성률·자동 구현 목록으로 사용하지 않는다. 과거 `232/0/0`도 전체 품질 판정이 아니다.
+
+같은 날 후속 구현: 관리자 계정 관리 API·화면, auth 정책 편집, 가입 프로필 입력, 양 SDK 실시간 상태 알림, 필드 비교 커서 보완을 완료했다. 전체 앱 PostgreSQL/MinIO 통합·race 및 실제 브라우저 8개 흐름을 검증했으며, [후속 검증 기록](workstreams/independent-product-2026-09-22/continuation-validation.md)에 범위와 남은 작업을 명시했다. 아직 로컬 변경이며 설치·공개 배포는 별도다.
+
+2026-09-22 로컬 개발 갱신: 로컬 `origin/main`의 `6993744`를 기준으로 확인한 백업·text ID·관계 접근 설정·builder view·TypeScript JSON 원문 API 공백을 보완했다. 범위, 검증 및 설치·배포와의 구분은 [개발 공백 보완 기록](development-completion-2026-09-22.md)을 따른다. 아래 설치·병합 표는 작성 당시 이력이다.
+
 ## Status applicability
 
 This document has a current status section and historical sections. Baseline SHA: `0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b`; verification SHA: `53a474143e117251d9b322441508ac85d776ef2a`. Historical entries are scoped to their own dated evidence. Run `python3 docs/check-status-index.py` from the repository root to check the applicability index.

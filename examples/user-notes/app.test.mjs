@@ -63,7 +63,7 @@ function loadExample({ logout }) {
       createElement: () => ({ append: () => {}, onclick: undefined, textContent: "" }),
     },
   };
-  vm.runInNewContext(source.replace('import { PgBaseClient } from "/sdk.js";', ''), context);
+  vm.runInNewContext(source.replace('import { PgBaseClient } from "/sdk/index.js";', ''), context);
   return { handlers, elements, streams };
 }
 

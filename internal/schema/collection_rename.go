@@ -24,7 +24,7 @@ func planViewRename(catalog Catalog, current Collection, input UpdateCollectionI
 		}
 		fields = append(fields, planned)
 	}
-	definition := PlannedCollection{Name: input.Name, CompatibilityName: current.CompatibilityName, Type: current.Type, System: current.System, ValidationMode: current.ValidationMode, TableName: input.Name, Fields: fields, View: view}
+	definition := PlannedCollection{Name: input.Name, CompatibilityName: current.CompatibilityName, Type: current.Type, System: current.System, ValidationMode: current.ValidationMode, RecordID: current.RecordID, TableName: input.Name, Fields: fields, View: view}
 	return Plan{Operation: updateCollectionOperation, BaseVersion: catalog.Version, Definition: definition, Statements: statements}, true, nil
 }
 

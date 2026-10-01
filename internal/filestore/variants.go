@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 	"image"
-	"image/jpeg"
-	"image/png"
 	"io"
 	"regexp"
 	"strconv"
@@ -145,9 +143,12 @@ func (s *Service) renderThumbnailData(data []byte, contentType, variant string) 
 	if err != nil || config.Width < 1 || config.Height < 1 || int64(config.Width) > s.options.MaximumImagePixels/int64(config.Height) || !matchesImageFormat(contentType, format) {
 		return nil, ErrInvalid
 	}
-	source, format, err := decodeImage(bytes.NewReader(data), contentType)
+	source, format, err := decodeImage(bytes.NewReader(data), contentType, s.options.MaximumImagePixels)
 	if err != nil {
 		return nil, ErrInvalid
+	}
+	if format == "jpeg" {
+		source = orientImage(source, jpegEXIFOrientation(data))
 	}
 	m := variantPattern.FindStringSubmatch(variant)
 	if m == nil {
@@ -177,7 +178,7 @@ func (s *Service) renderThumbnailData(data []byte, contentType, variant string) 
 			outW = max(1, sw*h/sh)
 		}
 	}
-	out := image.NewRGBA(image.Rect(0, 0, outW, outH))
+	out := image.NewNRGBA(image.Rect(0, 0, outW, outH))
 	for y := 0; y < outH; y++ {
 		for x := 0; x < outW; x++ {
 			sx, sy := x*sw/outW, y*sh/outH
@@ -201,11 +202,7 @@ func (s *Service) renderThumbnailData(data []byte, contentType, variant string) 
 		}
 	}
 	var buffer bytes.Buffer
-	if strings.EqualFold(format, "png") {
-		err = png.Encode(&buffer, out)
-	} else {
-		err = jpeg.Encode(&buffer, out, &jpeg.Options{Quality: 82})
-	}
+	err = encodeThumbnail(&buffer, out, strings.ToLower(format))
 	if err != nil || int64(buffer.Len()) > s.options.MaximumBytes {
 		return nil, ErrInvalid
 	}

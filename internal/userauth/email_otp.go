@@ -73,7 +73,7 @@ func (s *Service) RequestEmailOTPInCollection(ctx context.Context, collectionID 
 			if e != nil {
 				return e
 			}
-			otpHash = keyedDigest(key, "email-otp\x00"+id.String()+"\x00", code)
+			otpHash = keyedDigest(key, emailOTPDomain(id, normalized), code)
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -85,7 +85,7 @@ func (s *Service) RequestEmailOTPInCollection(ctx context.Context, collectionID 
 			return err
 		}
 		if otpHash == nil {
-			otpHash = s.digest("email-otp\x00"+id.String()+"\x00", code)
+			otpHash = s.digest(emailOTPDomain(id, normalized), code)
 		}
 		_, err := tx.Exec(ctx, `insert into pgbase_meta.user_email_otps(id,auth_collection_id,user_id,code_hash,token_key_version,max_attempts,expires_at,created_at) values($1,$2,$3,$4,$5,$6,$7,$8)`, id, collectionID, userID, otpHash, keyVersion, maxAttempts, result.ExpiresAt, now)
 		return err
@@ -139,7 +139,7 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 		if err != nil {
 			return err
 		}
-		expected := s.digest("email-otp\x00"+id.String()+"\x00", code)
+		expected := s.digest(emailOTPDomain(id, user.Email), code)
 		if keyVersion != "" {
 			var cipher []byte
 			if e := tx.QueryRow(ctx, `select key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='otp' and key_version=$2`, collectionID, keyVersion).Scan(&cipher); e != nil {
@@ -151,7 +151,7 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 				operationErr = ErrInvalidCredentials
 				return nil
 			}
-			expected = keyedDigest(key, "email-otp\x00"+id.String()+"\x00", code)
+			expected = keyedDigest(key, emailOTPDomain(id, user.Email), code)
 		}
 		if !hmac.Equal(stored, expected) {
 			attempts++
@@ -186,6 +186,12 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 	}
 	s.recordIssuedAuthOrigin(ctx, issued, now)
 	return issued, nil
+}
+
+// Bind the code to its delivery address, including when a collection key is
+// configured. Older address-unbound codes fail closed and must be reissued.
+func emailOTPDomain(id uuid.UUID, email string) string {
+	return "email-otp-v2\x00" + id.String() + "\x00" + email + "\x00"
 }
 
 func (s *Service) sendOTP(ctx context.Context, collectionID uuid.UUID, to, otpID, code string) error {

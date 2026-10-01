@@ -7,6 +7,7 @@ import { ProfileSettings } from "./profile-settings";
 export function SettingsPage() {
   const { settings: port } = useBackend();
   const [value, setValue] = useState<AdminSettings | null>(null);
+  const [keep, setKeep] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -14,7 +15,7 @@ export function SettingsPage() {
     if (port)
       void port
         .get(c.signal)
-        .then(setValue)
+        .then((settings) => { setValue(settings); setKeep(String(settings.backups.keep)); })
         .catch(() => setMessage("Unable to load application settings."));
     return () => c.abort();
   }, [port]);
@@ -47,6 +48,10 @@ export function SettingsPage() {
     ? value.proxy.trustedProxyCIDRs
     : [];
   async function save() {
+    if (!/^\d+$/.test(keep) || Number(keep) > 10000) {
+      setMessage("Backups to keep must be a whole number from 0 through 10000.");
+      return;
+    }
     const error = ruleErrors(
       settingsValue.rateLimits.rules ?? [],
       settingsValue.rateLimits.excludedIPs ?? [],
@@ -57,8 +62,9 @@ export function SettingsPage() {
     }
     setBusy(true);
     try {
-      const saved = await settingsPort.save(settingsValue);
+      const saved = await settingsPort.save({ ...settingsValue, backups: { ...settingsValue.backups, keep: Number(keep) } });
       setValue(saved);
+      setKeep(String(saved.backups.keep));
       document.documentElement.dataset.theme = saved.application.theme;
       document.documentElement.style.setProperty(
         "--accent",
@@ -225,6 +231,11 @@ export function SettingsPage() {
       />
       <fieldset disabled={busy}>
         <legend>Automatic backups</legend>
+        <label>
+          Backups to keep
+          <input type="number" min="0" max="10000" step="1" value={keep} aria-describedby="settings-backup-keep-help" onChange={(event) => setKeep(event.target.value)} />
+        </label>
+        <p id="settings-backup-keep-help">Counts all archives: manual, uploaded, and scheduled. Use 0 to keep every archive.</p>
         <label>
           <input
             checked={value.backups.enabled}

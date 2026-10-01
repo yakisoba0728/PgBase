@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { CollectionDefinition, FieldDefinition, FieldType } from "../backend/ports";
+import type { CollectionDefinition, FieldDefinition, FieldType, RecordIDPolicy } from "../backend/ports";
 import {
   deselectRelationTarget,
   relationDraftSelection,
   relationHydrationBatch,
+  relationHydrationBatchIDs,
   relationHydrationFilter,
   relationTargetOption,
   relationTargetSearch,
@@ -13,6 +14,7 @@ import {
 const first = "11111111-1111-4111-8111-111111111111";
 const second = "22222222-2222-4222-8222-222222222222";
 const third = "33333333-3333-4333-8333-333333333333";
+const textPolicy: RecordIDPolicy = { kind: "text", minLength: 1, maxLength: 255, pattern: "(?i)^[a-z0-9-]+$" };
 
 function field(name: string, type: FieldType, patch: Partial<FieldDefinition> = {}): FieldDefinition {
   return { name, type, required: false, unique: false, indexed: false, ordinal: 0, ...patch };
@@ -46,6 +48,15 @@ describe("relation target search", () => {
     expect(relationTargetSearch(opaque, "not-a-uuid")).toEqual({ problem: "invalid-uuid" });
   });
 
+  it("searches text record IDs exactly and keeps text result identities", () => {
+    const textTarget: CollectionDefinition = { ...opaque, recordId: textPolicy };
+    const id = "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF";
+    expect(relationTargetSearch(textTarget, id)).toEqual({ filter: `id = '${id}'` });
+    expect(relationTargetSearch(textTarget, " MixedCase01")).toEqual({ problem: "invalid-id" });
+    expect(relationTargetOption({ id }, undefined, textPolicy)).toEqual({ id, label: id });
+    expect(relationTargetOption({ id: "MixedCase01", name: "Ada" }, field("name", "text"), textPolicy)).toEqual({ id: "MixedCase01", label: "Ada" });
+  });
+
   it("never names a field the read kernel cannot serve from an index", () => {
     // Only text field present, and it carries neither an index nor a unique
     // constraint: naming it would be the unindexed scan the planner refuses.
@@ -74,6 +85,11 @@ describe("relation target search", () => {
 });
 
 describe("relation draft selection", () => {
+  it("hydrates and removes exact case-sensitive text selections", () => {
+    expect(relationDraftSelection("MixedCase01\nmixedcase01\nMixedCase01", textPolicy)).toEqual(["MixedCase01", "mixedcase01"]);
+    expect(deselectRelationTarget("MixedCase01\nmixedcase01", "MixedCase01", textPolicy)).toBe("mixedcase01");
+    expect(relationDraftSelection(" MixedCase01", textPolicy)).toEqual([]);
+  });
   it("reads the draft as ordered unique canonical ids", () => {
     expect(relationDraftSelection(`${second}\n${first}\n${second.toUpperCase()}\n\nnot-a-uuid`)).toEqual([second, first]);
     expect(relationDraftSelection("00000000-0000-0000-0000-000000000000")).toEqual([]);
@@ -88,6 +104,16 @@ describe("relation draft selection", () => {
 });
 
 describe("relation hydration", () => {
+  it("bounds text ID hydration by UTF-8 filter bytes as well as row count", () => {
+    const ids = Array.from({ length: 50 }, (_ignored, index) => `${"𐐀".repeat(250)}${index}`);
+    const batch = relationHydrationBatchIDs(ids);
+    expect(batch.length).toBeGreaterThan(0);
+    expect(batch.length).toBeLessThan(ids.length);
+    expect(batch).toEqual(ids.slice(0, batch.length));
+    expect(new TextEncoder().encode(relationHydrationFilter(batch)).length).toBeLessThanOrEqual(4096);
+    expect(new TextEncoder().encode(relationHydrationFilter(ids.slice(0, batch.length + 1))).length).toBeGreaterThan(4096);
+  });
+
   it("keeps a full batch inside the filter's node and byte budgets", () => {
     const ids = Array.from({ length: relationHydrationBatch }, (_ignored, index) => `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`);
     const filter = relationHydrationFilter(ids);

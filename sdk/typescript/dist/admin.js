@@ -1,3 +1,4 @@
+import { responseJSON } from "./response.js";
 export class AdminAPIError extends Error {
     status;
     code;
@@ -106,6 +107,9 @@ export class PgBaseAdminClient {
         const request = plan instanceof ApprovedSchemaImportPlan ? plan.request() : { headers: { "PgBase-Operation-ID": plan.operationId ?? "", "Idempotency-Key": plan.idempotencyKey ?? "" }, body: JSON.stringify({ document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum }) };
         return this.request("/api/admin/schema/import/apply", { method: "POST", ...request }, signal);
     }
+    schemaImportOperation(id, signal) {
+        return this.request(`/api/admin/schema/import/operations/${encodeURIComponent(id)}`, {}, signal);
+    }
     logs(options = {}, signal) {
         const query = new URLSearchParams();
         if (options.before !== undefined)
@@ -123,6 +127,44 @@ export class PgBaseAdminClient {
     backupStorageSettings(signal) { return this.request("/api/admin/storage/backups", {}, signal); }
     updateBackupStorage(input, signal) { return this.request("/api/admin/storage/backups", { method: "PUT", body: JSON.stringify(input) }, signal); }
     async testBackupStorage(signal) { await this.request("/api/admin/storage/backups/test", { method: "POST" }, signal); }
+    administratorAccounts(options = {}, signal) {
+        const query = new URLSearchParams();
+        if (options.limit !== undefined)
+            query.set("limit", String(options.limit));
+        if (options.after !== undefined)
+            query.set("after", options.after);
+        const suffix = query.size === 0 ? "" : `?${query}`;
+        return this.request(`/api/admin/administrators${suffix}`, {}, signal);
+    }
+    createAdministrator(email, password, signal) {
+        return this.request("/api/admin/administrators", { method: "POST", body: JSON.stringify({ email, password }) }, signal);
+    }
+    setAdministratorActive(id, active, signal) {
+        return this.request(`/api/admin/administrators/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ active }) }, signal);
+    }
+    async setAdministratorPassword(id, newPassword, signal) {
+        await this.request(`/api/admin/administrators/${encodeURIComponent(id)}/password-reset`, { method: "POST", body: JSON.stringify({ newPassword }) }, signal);
+    }
+    async revokeAdministratorSessions(id, signal) {
+        await this.request(`/api/admin/administrators/${encodeURIComponent(id)}/revoke-sessions`, { method: "POST", body: "{}" }, signal);
+    }
+    backups(signal) { return this.request("/api/admin/backups", {}, signal); }
+    createBackup(signal) { return this.request("/api/admin/backups", { method: "POST" }, signal); }
+    uploadBackup(archive, signal) {
+        return this.request("/api/admin/backups/upload", { method: "POST", body: archive, headers: { "Content-Type": "application/gzip" } }, signal);
+    }
+    downloadBackup(id, signal) {
+        return this.requestBlob(`/api/admin/backups/${encodeURIComponent(id)}`, {}, signal);
+    }
+    async deleteBackup(id, signal) {
+        await this.request(`/api/admin/backups/${encodeURIComponent(id)}`, { method: "DELETE" }, signal);
+    }
+    restoreBackup(id, signal) {
+        return this.request(`/api/admin/backups/${encodeURIComponent(id)}/restore`, { method: "POST" }, signal);
+    }
+    backupJob(id, signal) {
+        return this.request(`/api/admin/backup-jobs/${encodeURIComponent(id)}`, {}, signal);
+    }
     previewFileStorageMigration(input, signal) { return this.request("/api/admin/storage/files/migrations/preview", { method: "POST", body: JSON.stringify(input) }, signal); }
     startFileStorageMigration(input, operationID, signal) { return this.request("/api/admin/storage/files/migrations", { method: "POST", body: JSON.stringify(input), headers: { "PgBase-Operation-ID": operationID } }, signal); }
     fileStorageMigration(id, signal) { return this.request(`/api/admin/storage/files/migrations/${encodeURIComponent(id)}`, {}, signal); }
@@ -145,7 +187,7 @@ export class PgBaseAdminClient {
         const generation = this.#generation;
         const headers = new Headers(init.headers);
         headers.set("Accept", "application/json");
-        if (init.body !== undefined)
+        if (init.body !== undefined && !headers.has("Content-Type"))
             headers.set("Content-Type", "application/json");
         if (!anonymous && init.method && init.method !== "GET")
             headers.set("X-PgBase-CSRF", this.#csrf);
@@ -155,17 +197,10 @@ export class PgBaseAdminClient {
                 this.#csrf = "";
                 this.#generation++;
             }
-            const data = await response.json().catch(() => undefined);
+            const data = await responseJSON(response, () => undefined);
             throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details);
         }
-        if (response.status === 204)
-            return undefined;
-        try {
-            return await response.json();
-        }
-        catch {
-            throw new AdminAPIError(response.status, "invalid_response_body");
-        }
+        return await responseJSON(response, () => { throw new AdminAPIError(response.status, "invalid_response_body"); });
     }
     async requestText(path, init, signal) {
         const headers = new Headers(init.headers);
@@ -179,5 +214,22 @@ export class PgBaseAdminClient {
         if (!response.ok)
             throw new AdminAPIError(response.status, "request_failed");
         return text;
+    }
+    async requestBlob(path, init, signal) {
+        const generation = this.#generation;
+        const headers = new Headers(init.headers);
+        headers.set("Accept", "application/gzip");
+        if (init.method && init.method !== "GET")
+            headers.set("X-PgBase-CSRF", this.#csrf);
+        const response = await this.#fetch(new URL(path, this.baseURL), { ...init, headers, credentials: "include", signal });
+        if (!response.ok) {
+            if (response.status === 401 && generation === this.#generation) {
+                this.#csrf = "";
+                this.#generation++;
+            }
+            const data = await responseJSON(response, () => undefined);
+            throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details);
+        }
+        return response.blob();
     }
 }

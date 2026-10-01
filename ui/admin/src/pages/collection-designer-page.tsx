@@ -5,6 +5,7 @@ import type { AdminRoute } from "../routing/admin-location";
 import { CollectionFieldEditor } from "./collection-field-editor";
 import { ViewDefinitionEditor } from "./view-definition-editor";
 import { RecordRulesEditor } from "./record-rules-editor";
+import { RecordIDPolicyEditor } from "./record-id-policy-editor";
 import { useBackend } from "../auth/session";
 
 /**
@@ -42,12 +43,13 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
     {designer.error && <p role="alert">{designer.error}</p>}
     {designer.recovery !== null && <ApplyRecovery navigate={navigate} recovery={designer.recovery} />}
     {designer.relationTargetsFailed && <p role="alert">Unable to load relation targets. Reload this page before adding a relation field.</p>}
-		{designer.isView && <p>{designer.isSQLView ? "Records in this SQL view are read-only. You can edit its SQL definition." : "This view is read-only. Its definition cannot be edited; delete and recreate the view to change it."}</p>}
-		{(!designer.isView || designer.isSQLView) && <form onSubmit={(event) => { event.preventDefault(); designer.requestPreview(); }}>
+    {designer.isView && <p>{designer.isSQLView ? "Records in this SQL view are read-only. You can edit its SQL definition." : "Records in this view are read-only. You can edit its source, projected fields, and static filter."}</p>}
+    <form onSubmit={(event) => { event.preventDefault(); designer.requestPreview(); }}>
       {designer.create && <>
         <label htmlFor="collection-name">Collection name</label>
         <input disabled={designer.editingBlocked} id="collection-name" onChange={(event) => designer.rename(event.target.value)} required value={designer.name} />
       </>}
+      {designer.view === undefined && <RecordIDPolicyEditor value={designer.recordId} locked={!designer.create} disabled={designer.editingBlocked} onChange={designer.setRecordIDPolicy} />}
       {designer.create && designer.collectionType === "auth" && <p>Collection kind: Authentication realm. System fields and authentication policy are preserved in the server-owned template.</p>}
       {designer.create && designer.collectionType !== "auth" && <label>Collection kind <select disabled={designer.editingBlocked} value={designer.view === undefined ? "base" : "view"} onChange={(event) => designer.setView(event.target.value === "base" ? undefined : { source: "", projection: [] })}><option value="base">Base collection</option><option value="view">Read-only view</option></select></label>}
 		{designer.view !== undefined ? <ViewDefinitionEditor view={designer.view} sources={designer.viewSources} disabled={designer.editingBlocked} modeLocked={!designer.create} onChange={designer.setView} schema={schema} /> : <>
@@ -79,7 +81,7 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
       </fieldset>
       </>}
       <button disabled={designer.pending || designer.editingBlocked} type="submit">{designer.pending ? "Previewing…" : designer.create ? "Preview collection" : "Preview change"}</button>
-    </form>}
+    </form>
     {!designer.create && <RecordRulesEditor collection={designer.name} />}
     {designer.preview && <section className="preview" aria-label={designer.create ? "Collection preview" : "Collection change preview"}>
       <h3>Server preview</h3>

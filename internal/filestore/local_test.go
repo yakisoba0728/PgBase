@@ -62,6 +62,32 @@ func TestLocalStoreRejectsTraversalAndPublishesAtomically(t *testing.T) {
 	}
 }
 
+func TestLocalStoreStreamsResolvedByteRange(t *testing.T) {
+	store, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "objects/" + uuid.NewString()
+	if err := store.Put(context.Background(), key, bytes.NewBufferString("0123456789")); err != nil {
+		t.Fatal(err)
+	}
+	for _, requested := range []ByteRange{{Start: 2, End: 5}, {Start: 7, End: -1}, {Start: -3, End: -1}} {
+		result, err := store.OpenRange(context.Background(), key, requested)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, readErr := io.ReadAll(result.Body)
+		_ = result.Body.Close()
+		if readErr != nil || string(body) != "2345" && string(body) != "789" || result.Size != 10 {
+			t.Fatalf("range=%+v body=%q size=%d err=%v", requested, body, result.Size, readErr)
+		}
+	}
+	result, err := store.OpenRange(context.Background(), key, ByteRange{Start: 20, End: -1})
+	if !errors.Is(err, ErrRangeNotSatisfiable) || result.Size != 10 {
+		t.Fatalf("unsatisfiable result=%+v err=%v", result, err)
+	}
+}
+
 func TestCountingReaderStopsAtMaximumWithoutBuffering(t *testing.T) {
 	reader := &countingReader{reader: bytes.NewReader(bytes.Repeat([]byte("x"), 1024)), maximum: 31}
 	read, err := io.ReadAll(reader)

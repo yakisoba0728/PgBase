@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -260,6 +261,10 @@ func (s *Service) beginOAuth(ctx context.Context, collectionID uuid.UUID, provid
 }
 
 func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code string) (Session, error) {
+	return s.CompleteOAuthWithFields(ctx, provider, state, code, nil)
+}
+
+func (s *Service) CompleteOAuthWithFields(ctx context.Context, provider, state, code string, fields map[string]json.RawMessage) (Session, error) {
 	if validateToken(state) != nil || code == "" || len(code) > 4096 {
 		return Session{}, ErrInvalidCredentials
 	}
@@ -317,6 +322,9 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 		}
 		var user User
 		if linkUser != nil {
+			if len(fields) != 0 {
+				return ErrValidation
+			}
 			var hash string
 			err = tx.QueryRow(ctx, `select id,auth_collection_id,email,verified,created_at,password_hash from pgbase_meta.users where id=$1 and active for update`, *linkUser).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt, &hash)
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -390,6 +398,9 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 				if err != nil {
 					return err
 				}
+				if err := s.completePublicRegistration(ctx, tx, user, fields); err != nil {
+					return err
+				}
 				newlyCreated = true
 				_, err = tx.Exec(ctx, `insert into pgbase_meta.user_oauth_identities(auth_collection_id,provider,subject,user_id,created_at) values($1,$2,$3,$4,$5)`, persistedCollectionID, provider, identity.Subject, user.ID, now)
 				if database.Classify(err) == database.KindConflict {
@@ -401,6 +412,8 @@ func (s *Service) CompleteOAuth(ctx context.Context, provider, state, code strin
 				}
 			} else if err != nil {
 				return err
+			} else if len(fields) != 0 {
+				return ErrValidation
 			}
 		}
 		if err := s.enforceAuthRuleForSession(ctx, tx, user.AuthCollectionID, user.ID); err != nil {

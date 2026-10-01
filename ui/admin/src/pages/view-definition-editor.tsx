@@ -1,4 +1,4 @@
-import { parseJSON } from "../backend/json";
+import { parseJSON, stringifyJSON } from "../backend/json";
 import type { CollectionDefinition, SchemaPort, ViewDefinition, ViewFilter } from "../backend/ports";
 import { ViewSamplePreview } from "./view-sample-preview";
 
@@ -17,21 +17,30 @@ export function ViewDefinitionEditor({ view, sources, disabled, modeLocked = fal
   const source = sources.find((collection) => collection.name === view.source);
   const fields = (source?.fields ?? []).filter((field) => field.type !== "relation" && field.type !== "file");
   const filterField = fields.find((field) => field.name === view.filter?.field);
+  // Number inputs discard valid arbitrary-precision tokens outside the
+  // JavaScript number range; keep the text and let the server validate it.
   const numeric = filterField?.type === "integer" || filterField?.type === "bigint" || filterField?.type === "numeric";
   const filterValue = (value: string): unknown => {
     if (!numeric) return value;
     try { return parseJSON(value); } catch { return value; }
   };
   const setFilter = (filter?: ViewFilter) => onChange({ ...view, filter });
+  const preservedFilter = view.filter?.op === "all" || view.filter?.op === "any" || view.filter?.value === null;
   return <fieldset disabled={disabled}>
     <legend>View definition</legend>
-	<label>Definition mode<select value="builder" onChange={() => onChange({ sql: "" })}><option value="builder">Source and projection</option><option value="sql">SQL query</option></select></label>
+	<label>Definition mode<select disabled={modeLocked} value="builder" onChange={() => onChange({ sql: "" })}><option value="builder">Source and projection</option><option value="sql">SQL query</option></select></label>
     <label>Source collection <select value={view.source} onChange={(event) => onChange({ source: event.target.value, projection: [] })} required>
       <option value="">Choose a source</option>
       {sources.map((collection) => <option key={collection.name} value={collection.name}>{collection.name}</option>)}
     </select></label>
     <p>Choose projected fields. The view inherits access from its source and cannot modify records.</p>
     {fields.map((field) => <label key={field.name}><input type="checkbox" checked={view.projection.includes(field.name)} onChange={(event) => onChange({ ...view, projection: event.target.checked ? [...view.projection, field.name] : view.projection.filter((name) => name !== field.name) })} />Project {field.name}</label>)}
+    {preservedFilter ? <div>
+      <p>This filter is preserved when you change projected fields.</p>
+      <pre aria-label="Preserved static filter">{stringifyJSON(view.filter, 2)}</pre>
+      <button type="button" onClick={() => setFilter({ op: "eq", field: "", value: "" })}>Replace filter</button>
+      <button type="button" onClick={() => setFilter(undefined)}>Remove filter</button>
+    </div> : <>
     <label>Static filter <select value={view.filter === undefined ? "none" : "compare"} onChange={(event) => setFilter(event.target.value === "none" ? undefined : { op: "eq", field: "", value: "" })}>
       <option value="none">All source rows</option><option value="compare">Compare a field</option>
     </select></label>
@@ -44,7 +53,8 @@ export function ViewDefinitionEditor({ view, sources, disabled, modeLocked = fal
         {(["eq", "ne", "lt", "lte", "gt", "gte"] as const).map((op) => <option key={op} value={op}>{op}</option>)}
       </select></label>
       {filterField?.type === "boolean" ? <label>Filter value <select value={String(view.filter.value)} onChange={(event) => setFilter({ ...view.filter!, value: event.target.value === "true" })}><option value="false">false</option><option value="true">true</option></select></label>
-        : <label>Filter value <input required type={numeric ? "number" : "text"} step="any" value={String(view.filter.value ?? "")} onChange={(event) => setFilter({ ...view.filter!, value: filterValue(event.target.value) })} /></label>}
+        : <label>Filter value <input required={filterField?.type !== "text" && filterField?.type !== "editor"} type="text" inputMode={numeric ? "decimal" : undefined} value={String(view.filter.value ?? "")} onChange={(event) => setFilter({ ...view.filter!, value: filterValue(event.target.value) })} /></label>}
+    </>}
     </>}
   </fieldset>;
 }

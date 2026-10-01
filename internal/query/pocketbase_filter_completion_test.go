@@ -30,6 +30,51 @@ func TestPocketBaseAnyMatchOperatorsAreBoundedAndParameterized(t *testing.T) {
 	}
 }
 
+func TestPocketBaseLiteralLeftAnyMatchOperatorsPreserveOperandSemantics(t *testing.T) {
+	collection := compilerCollection()
+	tests := []struct {
+		filter      string
+		wantOp      string
+		literalLeft bool
+		wantSQL     string
+	}{
+		{filter: `2 ?< large_count`, wantOp: `?>`, wantSQL: `("large_count" > $1)`},
+		{filter: `2 ?<= large_count`, wantOp: `?>=`, wantSQL: `("large_count" >= $1)`},
+		{filter: `2 ?> large_count`, wantOp: `?<`, wantSQL: `("large_count" < $1)`},
+		{filter: `2 ?>= large_count`, wantOp: `?<=`, wantSQL: `("large_count" <= $1)`},
+		{filter: `'needle' ?~ title`, wantOp: `?~`, literalLeft: true, wantSQL: `(strpos($1, "title") > 0)`},
+		{filter: `'needle' ?!~ title`, wantOp: `?!~`, literalLeft: true, wantSQL: `(NOT (strpos($1, "title") > 0))`},
+		{filter: `'needle' ?= title`, wantOp: `?=`, wantSQL: `("title" = $1)`},
+		{filter: `'needle' ?!= title`, wantOp: `?!=`, wantSQL: `("title" != $1)`},
+	}
+	for _, test := range tests {
+		t.Run(test.filter, func(t *testing.T) {
+			node, err := parseFilterRequest(test.filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			comparison, ok := node.(filterComparison)
+			if !ok {
+				t.Fatalf("node = %T, want filterComparison", node)
+			}
+			if comparison.operator != test.wantOp || comparison.literalLeft != test.literalLeft {
+				t.Fatalf("comparison = operator %q literalLeft %t, want %q %t", comparison.operator, comparison.literalLeft, test.wantOp, test.literalLeft)
+			}
+			builder := &statementBuilder{}
+			sql, err := compileFilter(collection, node, builder)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sql != test.wantSQL {
+				t.Fatalf("sql = %q, want %q", sql, test.wantSQL)
+			}
+			if len(builder.args) != 1 {
+				t.Fatalf("args = %#v, want one bound literal", builder.args)
+			}
+		})
+	}
+}
+
 func TestPocketBaseJSONPathAndTimeMacroCompile(t *testing.T) {
 	collection := compilerCollection()
 	collection.Fields = append(collection.Fields, schema.Field{ID: uuid.New(), Name: "payload", ColumnName: "payload", Type: schema.TypeJSONB})

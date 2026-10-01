@@ -36,6 +36,7 @@ type plannedRelationComparison struct {
 	rootField                     *schema.Field
 	otherRootField                *schema.Field
 	path                          *plannedRelationPath
+	function                      *plannedFilterFunction
 	rootIdentityCollectionID      uuid.UUID
 	otherRootIdentityCollectionID uuid.UUID
 }
@@ -93,7 +94,11 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 		return planRelationFilterGroup(catalog, root, value.children, " OR ")
 	case filterComparison:
 		if value.function != nil {
-			return &plannedRelationFilter{comparison: &plannedRelationComparison{input: value}}, 0, nil
+			function, err := planFilterFunction(root, value)
+			if err != nil {
+				return nil, 0, err
+			}
+			return &plannedRelationFilter{comparison: &plannedRelationComparison{input: value, function: function}}, 0, nil
 		}
 		field, ok := filterField(root, value.field)
 		if ok && field.Type != schema.TypeRelation && !strings.Contains(value.field, ".") {
@@ -110,15 +115,14 @@ func planRelationFilter(catalog schema.Catalog, root schema.Collection, node fil
 			copy, identityCollectionID := textIdentityField(root, field)
 			planned := &plannedRelationComparison{input: value, rootField: &copy, rootIdentityCollectionID: identityCollectionID}
 			if value.otherField != "" {
-				other, found := filterField(root, value.otherField)
-				if !found || other.Type == schema.TypeRelation || strings.Contains(value.otherField, ".") {
-					return nil, 0, validation("filter", "unknown_field")
+				if err := planFieldComparison(root, planned); err != nil {
+					return nil, 0, err
 				}
-				otherCopy, otherIdentityCollectionID := textIdentityField(root, other)
-				planned.otherRootField = &otherCopy
-				planned.otherRootIdentityCollectionID = otherIdentityCollectionID
 			}
 			return &plannedRelationFilter{comparison: planned}, 0, nil
+		}
+		if value.otherField != "" {
+			return nil, 0, relationFilterUnsupported()
 		}
 		if !ok && !strings.Contains(value.field, ".") {
 			return nil, 0, validation("filter", "unknown_field")
@@ -692,8 +696,8 @@ func compileQualifiedComparison(field schema.Field, comparison filterComparison,
 }
 
 func compileFieldComparison(left, right schema.Field, comparison filterComparison, leftColumn, rightColumn string) (string, error) {
-	if left.Type != right.Type || left.Type == schema.TypeJSONB || left.Type == schema.TypeGeoPoint || left.Type == schema.TypeFile || left.Type == schema.TypePassword || left.Type == schema.TypeRelation {
-		return "", validation("filter", "type_mismatch")
+	if err := validateFieldComparison(left, right, comparison); err != nil {
+		return "", err
 	}
 	apply := func(field schema.Field, modifier, column string) (string, error) {
 		if modifier == "" {
@@ -725,9 +729,6 @@ func compileFieldComparison(left, right schema.Field, comparison filterCompariso
 	}
 	if comparison.operator == "!~" {
 		return "(" + leftColumn + " NOT LIKE ('%' || " + rightColumn + " || '%') ESCAPE '\\')", nil
-	}
-	if left.Type == schema.TypeBoolean && comparison.operator != "=" && comparison.operator != "!=" {
-		return "", validation("filter", "type_mismatch")
 	}
 	return "(" + leftColumn + " " + comparison.operator + " " + rightColumn + ")", nil
 }

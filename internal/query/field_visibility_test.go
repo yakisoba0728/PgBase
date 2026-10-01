@@ -20,10 +20,10 @@ func TestHiddenFieldsAreProjectedAndRejectedForNonAdministrators(t *testing.T) {
 	if adminRecord["secret"] != "private" {
 		t.Fatal("administrator field removed")
 	}
-	if err := rejectHiddenQueryFields(c, user, filterComparison{field: "secret", operator: "~", value: filterLiteral{kind: filterLiteralString, text: "private"}}, nil); err == nil {
+	if err := rejectHiddenQueryFields(schema.Catalog{}, c, user, filterComparison{field: "secret", operator: "~", value: filterLiteral{kind: filterLiteralString, text: "private"}}, nil); err == nil {
 		t.Fatal("hidden filter accepted")
 	}
-	if err := rejectHiddenQueryFields(c, user, nil, []SortKey{{Field: "secret"}}); err == nil {
+	if err := rejectHiddenQueryFields(schema.Catalog{}, c, user, nil, []SortKey{{Field: "secret"}}); err == nil {
 		t.Fatal("hidden sort accepted")
 	}
 }

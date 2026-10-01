@@ -10,6 +10,32 @@ import 'exact_json.dart';
 import 'transport.dart';
 import 'types.dart';
 
+enum RealtimeState { connecting, connected, reconnecting, stopped }
+
+enum RealtimeStopReason { unsubscribed, terminal, exhausted, reset }
+
+enum RealtimeErrorSource { transport, listener }
+
+/// Immutable shared-session lifecycle snapshot; cursors retain their exact text.
+final class RealtimeStatus {
+  const RealtimeStatus({
+    required this.state,
+    this.attempt = 0,
+    this.lastEventId,
+    this.reason,
+    this.error,
+    this.source,
+    this.topic,
+  });
+  final RealtimeState state;
+  final int attempt;
+  final String? lastEventId;
+  final RealtimeStopReason? reason;
+  final Object? error;
+  final RealtimeErrorSource? source;
+  final String? topic;
+}
+
 final class RealtimeEvent {
   const RealtimeEvent({
     required this.topic,
@@ -50,6 +76,35 @@ final class RealtimeService {
   String? _lastEventId;
   Future<void>? _running;
   Completer<void>? _ready;
+  final _observers = <FutureOr<void> Function(RealtimeStatus)>{};
+  RealtimeStatus _status = const RealtimeStatus(state: RealtimeState.stopped);
+
+  RealtimeStatus get status => RealtimeStatus(
+    state: _status.state,
+    attempt: _status.attempt,
+    lastEventId: _lastEventId,
+    reason: _status.reason,
+    error: _status.error,
+    source: _status.source,
+    topic: _status.topic,
+  );
+
+  /// Observes the shared session, starting with its current snapshot.
+  void Function() onStatus(FutureOr<void> Function(RealtimeStatus) observer) {
+    _observers.add(observer);
+    _invokeObserver(observer, status);
+    return () {
+      _observers.remove(observer);
+    };
+  }
+
+  /// Stops subscriptions and forgets the replay cursor for an explicit resync.
+  Future<void> resetCursor() async {
+    await unsubscribe();
+    await _running;
+    _lastEventId = null;
+    _emit(RealtimeState.stopped, reason: RealtimeStopReason.reset);
+  }
 
   /// Subscribes to collection topics and reserved `@` application topics.
   /// Collection callbacks receive [RealtimeEvent]; application callbacks
@@ -74,12 +129,16 @@ final class RealtimeService {
   /// The reserved `@app/...` name remains an internal realtime wire detail.
   Future<Future<void> Function()> subscribeApplication(
     String topic,
-    void Function(RealtimeCustomEvent) listener,
+    FutureOr<void> Function(RealtimeCustomEvent) listener,
   ) {
     final wireTopic = _applicationWireTopic(topic);
     return subscribe(wireTopic, (dynamic event) {
       if (event is RealtimeCustomEvent && event.topic == wireTopic) {
-        listener(RealtimeCustomEvent(topic: topic, data: event.data));
+        _deliver(
+          listener,
+          RealtimeCustomEvent(topic: topic, data: event.data),
+          topic,
+        );
       }
     });
   }
@@ -97,6 +156,7 @@ final class RealtimeService {
     if (_listeners.isEmpty) {
       _stop?.cancel();
       _clientId = null;
+      _emit(RealtimeState.stopped, reason: RealtimeStopReason.unsubscribed);
       return;
     }
     if (_clientId != null) await _sync();
@@ -105,7 +165,8 @@ final class RealtimeService {
   void _ensureRunning() {
     if (_running != null) return;
     _ready = Completer<void>();
-    _running = _run().whenComplete(() {
+    final stop = _stop = CancellationToken();
+    _running = Future<void>.microtask(() => _run(stop)).whenComplete(() {
       _running = null;
       _ready = null;
     });
@@ -125,9 +186,13 @@ final class RealtimeService {
     );
   }
 
-  Future<void> _run() async {
-    final stop = _stop = CancellationToken();
+  Future<void> _run(CancellationToken stop) async {
+    if (_listeners.isEmpty) {
+      _failReady(const PgBaseCancellation());
+      return;
+    }
     var reconnects = 0;
+    _emit(RealtimeState.connecting);
     while (!stop.isCancelled && _listeners.isNotEmpty) {
       try {
         final response = await _client.transport.eventStream(
@@ -153,6 +218,24 @@ final class RealtimeService {
         }
         await for (final message in _messages(response.stream)) {
           final data = decodeExactJson(utf8.encode(message.data));
+          if (message.event == 'PB_ERROR') {
+            final rawCode = data is JsonObject ? data['code'] : null;
+            final code = rawCode is JsonString
+                ? rawCode.value
+                : 'subscription_failed';
+            _finish(
+              PgBaseError(
+                code == 'cursor_expired'
+                    ? 410
+                    : code == 'invalid_cursor'
+                    ? 400
+                    : 0,
+                code,
+              ),
+              RealtimeStopReason.terminal,
+            );
+            return;
+          }
           if (message.event == 'PB_CONNECT') {
             if (data is! JsonObject)
               throw const PgBaseProtocolError('invalid_realtime_connect');
@@ -162,6 +245,7 @@ final class RealtimeService {
             _clientId = id.value;
             await _sync();
             if (!(_ready?.isCompleted ?? true)) _ready!.complete();
+            _emit(RealtimeState.connected, attempt: reconnects);
             continue;
           }
           if (message.id != null) _lastEventId = _cursor(message.id!);
@@ -183,32 +267,44 @@ final class RealtimeService {
           }
           final listeners = _listeners[topic];
           if (listeners != null)
-            for (final listener in List.of(listeners)) {
-              listener(event);
+            for (final listener in List<Function>.of(listeners)) {
+              _deliver(listener, event, topic);
             }
           if (listeners != null) reconnects = 0;
         }
         if (!stop.isCancelled)
           throw const PgBaseProtocolError('realtime_stream_ended');
       } on PgBaseCancellation {
-        if (!(_ready?.isCompleted ?? true)) {
-          _failReady(const PgBaseCancellation());
-        }
+        _failReady(const PgBaseCancellation());
+        if (_status.state != RealtimeState.stopped)
+          _finish(const PgBaseCancellation(), RealtimeStopReason.unsubscribed);
         return;
       } catch (error) {
         if (stop.isCancelled) {
           _failReady(const PgBaseCancellation());
+          if (_status.state != RealtimeState.stopped)
+            _finish(
+              const PgBaseCancellation(),
+              RealtimeStopReason.unsubscribed,
+            );
           return;
         }
         if (error is PgBaseError && _terminalSseError(error)) {
-          _failReady(error);
+          _finish(error, RealtimeStopReason.terminal);
           return;
         }
         if (reconnects >= maxReconnects) {
-          _failReady(error);
+          _finish(error, RealtimeStopReason.exhausted);
           return;
         }
         reconnects++;
+        _clientId = null;
+        _emit(
+          RealtimeState.reconnecting,
+          attempt: reconnects,
+          error: error,
+          source: RealtimeErrorSource.transport,
+        );
         final delay = Duration(
           milliseconds:
               (reconnectDelay.inMilliseconds * (1 << (reconnects - 1))).clamp(
@@ -227,6 +323,82 @@ final class RealtimeService {
 
   void _failReady(Object error) {
     if (!(_ready?.isCompleted ?? true)) _ready!.completeError(error);
+  }
+
+  void _finish(Object error, RealtimeStopReason reason) {
+    _clientId = null;
+    _listeners.clear();
+    _stop?.cancel();
+    _failReady(error);
+    _emit(
+      RealtimeState.stopped,
+      attempt: _status.attempt,
+      reason: reason,
+      error: reason == RealtimeStopReason.unsubscribed ? null : error,
+      source: reason == RealtimeStopReason.unsubscribed
+          ? null
+          : RealtimeErrorSource.transport,
+    );
+  }
+
+  void _listenerFailure(Object error, String topic) => _emit(
+    _status.state,
+    attempt: _status.attempt,
+    reason: _status.reason,
+    error: error,
+    source: RealtimeErrorSource.listener,
+    topic: topic,
+  );
+
+  void _deliver(Function listener, Object event, String topic) {
+    try {
+      final result = Function.apply(listener, [event]);
+      if (result is Future)
+        result.then<void>(
+          (_) {},
+          onError: (Object error, StackTrace stack) {
+            _listenerFailure(error, topic);
+          },
+        );
+    } catch (error) {
+      _listenerFailure(error, topic);
+    }
+  }
+
+  void _emit(
+    RealtimeState state, {
+    int attempt = 0,
+    RealtimeStopReason? reason,
+    Object? error,
+    RealtimeErrorSource? source,
+    String? topic,
+  }) {
+    final snapshot = _status = RealtimeStatus(
+      state: state,
+      attempt: attempt,
+      lastEventId: _lastEventId,
+      reason: reason,
+      error: error,
+      source: source,
+      topic: topic,
+    );
+    for (final observer in List.of(_observers)) {
+      if (!identical(_status, snapshot)) break;
+      _invokeObserver(observer, snapshot);
+    }
+  }
+
+  void _invokeObserver(
+    FutureOr<void> Function(RealtimeStatus) observer,
+    RealtimeStatus snapshot,
+  ) {
+    try {
+      final result = observer(snapshot);
+      if (result is Future)
+        result.then<void>((_) {}, onError: (Object error, StackTrace stack) {});
+    } catch (_) {
+      /* Observer failures never affect delivery or report recursively. */
+    }
   }
 }
 

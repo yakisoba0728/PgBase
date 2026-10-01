@@ -42,7 +42,8 @@ func TestOnlineSnapshotRetainsConcurrentDatabaseAndObjectState(t *testing.T) {
 			_, err = conn.Exec(ctx, `CREATE SCHEMA app;CREATE SCHEMA pgbase_meta;CREATE SCHEMA pgbase_relation;
    CREATE TABLE app.probe(value text);INSERT INTO app.probe VALUES('snapshot');
    CREATE TABLE pgbase_meta.record_files(id uuid,object_key text,thumbnail_object_key text,ready_at timestamptz,status text);
-   CREATE TABLE pgbase_meta.record_file_variants(file_id uuid,object_key text);`)
+   CREATE TABLE pgbase_meta.record_file_variants(file_id uuid,object_key text);
+   CREATE TABLE pgbase_meta.extension_objects(object_key text);`)
 			if err != nil {
 				t.Fatal(err)
 			}

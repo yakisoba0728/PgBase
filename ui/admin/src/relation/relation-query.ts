@@ -1,19 +1,20 @@
-import type { CollectionDefinition, FieldDefinition, RecordData } from "../backend/ports";
+import type { CollectionDefinition, FieldDefinition, RecordData, RecordIDPolicy } from "../backend/ports";
 import { canonicalRelationID, relationDraftMembers } from "../workspace/record-codec";
 
 export interface RelationCandidate { id: string; label: string }
 export interface RelationTargetPlan { filter?: string; sort?: string; displayField?: FieldDefinition }
-export type RelationTargetSearch = RelationTargetPlan | { problem: "invalid-uuid" | "too-long" };
+export type RelationTargetSearch = RelationTargetPlan | { problem: "invalid-uuid" | "invalid-id" | "too-long" };
 
 const filterFieldPattern = /^[a-z_][a-z0-9_]*$/;
 const maximumSearchBytes = 1024;
 
 // A hydration query names no more than 50 ids, and each response page remains
 // inside the record port's fixed bounds. Four batches cap the selected ids one
-// editor hydrates; a selection past that keeps its own UUID, which is a stable
+// editor hydrates; a selection past that keeps its own ID, which is a stable
 // label rather than a blank.
 export const relationHydrationBatch = 50;
-export const relationHydrationLimit = relationHydrationBatch * 4;
+const relationHydrationRequests = 4;
+export const relationHydrationLimit = relationHydrationBatch * relationHydrationRequests;
 
 export function relationTargetSearchField(collection: CollectionDefinition): FieldDefinition | undefined {
 	const ordered = collection.fields
@@ -41,43 +42,61 @@ export function relationTargetSearch(collection: CollectionDefinition, query: st
   // demanding an exact value the administrator has to already know.
   if (query.trim() === "") return displayField === undefined ? {} : { displayField, sort: displayField.name };
   if (displayField === undefined) {
-    const id = canonicalRelationID(query);
-    return id === null ? { problem: "invalid-uuid" } : { filter: `id = ${quoted(id)}` };
+    const id = canonicalRelationID(query, collection.recordId);
+    return id === null ? { problem: collection.recordId?.kind === "text" ? "invalid-id" : "invalid-uuid" } : { filter: `id = ${quoted(id)}` };
   }
   if (query.includes("\0") || new TextEncoder().encode(query).length > maximumSearchBytes) return { problem: "too-long" };
   return { displayField, filter: `${displayField.name} = ${quoted(query)}`, sort: displayField.name };
 }
 
 /** Ignores malformed server rows rather than putting an invalid id in a draft. */
-export function relationTargetOption(record: RecordData, displayField?: FieldDefinition): RelationCandidate | undefined {
-  const id = typeof record.id === "string" ? canonicalRelationID(record.id) : null;
+export function relationTargetOption(record: RecordData, displayField?: FieldDefinition, policy?: RecordIDPolicy): RelationCandidate | undefined {
+  const id = typeof record.id === "string" ? canonicalRelationID(record.id, policy) : null;
   if (id === null) return undefined;
   const display = displayField === undefined ? undefined : record[displayField.name];
   return { id, label: typeof display === "string" && display !== "" ? display : id };
 }
 
 /** The ordered, unique, canonical ids a relation draft currently selects. */
-export function relationDraftSelection(draft: string): string[] {
+export function relationDraftSelection(draft: string, policy?: RecordIDPolicy): string[] {
   const selected: string[] = [];
-  for (const member of relationDraftMembers(draft)) {
-    const id = canonicalRelationID(member);
+  for (const member of relationDraftMembers(draft, policy)) {
+    const id = canonicalRelationID(member, policy);
     if (id !== null && !selected.includes(id)) selected.push(id);
   }
   return selected;
 }
 
 /** Drops one selection, leaving the order of the rest untouched. */
-export function deselectRelationTarget(draft: string, selectedID: string): string {
-  const id = canonicalRelationID(selectedID);
-  return relationDraftMembers(draft).filter((member) => canonicalRelationID(member) !== id).join("\n");
+export function deselectRelationTarget(draft: string, selectedID: string, policy?: RecordIDPolicy): string {
+  const id = canonicalRelationID(selectedID, policy);
+  return relationDraftMembers(draft, policy).filter((member) => canonicalRelationID(member, policy) !== id).join("\n");
 }
 
-/**
- * One primary-key query per hydration batch. Equality against `id` is the
- * cheapest predicate the kernel has, and a batch stays inside the filter's
- * 4,096-byte and 100-node budgets because 50 ids cost roughly 2,350 bytes and
- * 51 nodes.
- */
+/** One primary-key query per hydration batch. */
 export function relationHydrationFilter(ids: readonly string[]): string {
-  return ids.map((id) => `id = '${id}'`).join(" || ");
+  return ids.map((id) => `id = ${quoted(id)}`).join(" || ");
+}
+
+/** Text IDs can occupy up to 1,020 UTF-8 bytes. Keep each query inside the
+ * read kernel's 4,096-byte and 100-node limits as well as its row bound. */
+export function relationHydrationBatchIDs(ids: readonly string[]): string[] {
+  const batch: string[] = [];
+  for (const id of ids.slice(0, relationHydrationBatch)) {
+    if (new TextEncoder().encode(relationHydrationFilter([...batch, id])).length > 4096) break;
+    batch.push(id);
+  }
+  return batch;
+}
+
+/** Apply the hydration budget to the current selection, so typing or choosing
+ * a new ID later can still hydrate it without retrying previously claimed IDs. */
+export function relationHydrationSelection(ids: readonly string[]): string[] {
+  const selected: string[] = [];
+  for (let batch = 0; batch < relationHydrationRequests; batch += 1) {
+    const next = relationHydrationBatchIDs(ids.slice(selected.length, relationHydrationLimit));
+    if (next.length === 0) break;
+    selected.push(...next);
+  }
+  return selected;
 }

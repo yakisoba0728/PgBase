@@ -5,7 +5,7 @@ import { memoryBackend } from "../test/memory-backend";
 import { memoryHistory } from "../test/memory-history";
 import { sessionWrapper } from "../test/harness";
 
-it("edits a preset and saves the typed rules revision", async () => {
+it("edits a preset and saves the typed rules", async () => {
   const script = backendScript();
   const owner = { list: { op: "owner" }, view: { op: "owner" }, create: { op: "owner" }, update: { op: "owner" }, delete: { op: "owner" } };
   script.getRules.push({ value: { collection: "notes", rules: owner, revision: 4 } });

@@ -23,7 +23,6 @@ import { recoverabilityWindowMs } from "./pending-schema-operation-store";
 import {
   appliedText,
   applyEdit,
-  buildInput,
   catalogMovedText,
   createdText,
   draftMessage,
@@ -50,6 +49,7 @@ export {
 
 import {
   authImportDocument,
+  collectionChange,
   deleteTargetOf,
   initial,
   loadedState,
@@ -104,6 +104,7 @@ export function useCollectionDesigner(
     state.indexes,
     state.view,
     state.collectionType,
+    state.recordId,
   );
   const live = useRef(signature);
   live.current = signature;
@@ -264,14 +265,7 @@ export function useCollectionDesigner(
   const input = useMemo(() => {
     if (!state.create && state.definition === null) return null;
     try {
-      return buildInput(
-        state.create ? "create" : "update",
-        state.name,
-        state.fields,
-        state.indexes,
-        state.view,
-        state.collectionType,
-      );
+      return collectionChange(state);
     } catch {
       return null;
     }
@@ -283,6 +277,7 @@ export function useCollectionDesigner(
     state.view,
     state.name,
     state.collectionType,
+    state.recordId,
   ]);
   const preview =
     state.plan !== null && input !== null && state.plan.matches(input)
@@ -294,7 +289,7 @@ export function useCollectionDesigner(
       : null;
   const previewDetails = authPreview ?? preview;
   const removedFields = useMemo(() => {
-    if (previewDetails === null || state.definition === null) return [];
+    if (previewDetails === null || state.definition === null || state.definition.view !== undefined) return [];
     const planned = new Set(
       previewDetails.fields.map((field) => field.id ?? field.name),
     );
@@ -374,14 +369,7 @@ export function useCollectionDesigner(
     }
     let change: CollectionChange;
     try {
-      change = buildInput(
-        state.create ? "create" : "update",
-        state.name,
-        state.fields,
-        state.indexes,
-        state.view,
-        state.collectionType,
-      );
+      change = collectionChange(state);
     } catch (caught: unknown) {
       update(identity, {
         error: draftMessage(caught, "Collection input is invalid."),
@@ -703,6 +691,11 @@ export function useCollectionDesigner(
     ),
     collectionType:
       state.collectionType ?? (state.view === undefined ? "base" : "view"),
+    recordId: state.recordId,
+    setRecordIDPolicy: (recordId) => {
+      if (!editingBlocked && state.create && state.view === undefined)
+        update(identity, { recordId, plan: null, authPlan: null, confirmed: false });
+    },
     isView: state.definition?.view !== undefined,
     isSQLView:
       state.definition?.view !== undefined && "sql" in state.definition.view,

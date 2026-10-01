@@ -60,6 +60,11 @@ func (s *Service) IssueEmailOTP(ctx context.Context, email string) (EmailOTP, er
 	result := EmailOTP{ID: uuid.NewString(), Code: fmt.Sprintf("%06d", binary.BigEndian.Uint64(random[:])%1_000_000), ExpiresAt: now.Add(s.emailOTPTTL)}
 	id := uuid.MustParse(result.ID)
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		// Active lookup and persistence share account management's lifecycle
+		// fence, so cleanup cannot be followed by a stale credential insert.
+		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, administratorLifecycleLock); err != nil {
+			return err
+		}
 		store := NewStore(tx)
 		administratorID, err := store.AdministratorID(ctx, normalized)
 		if err != nil {
@@ -102,11 +107,19 @@ func (s *Service) CompleteEmailOTP(ctx context.Context, otpID, code, subject str
 	var issued Session
 	var operationErr error
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		// Serialize before taking OTP/admin row locks so account cleanup cannot
+		// wait on this credential while redemption waits on its administrator.
+		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, administratorLifecycleLock); err != nil {
+			return err
+		}
 		store := NewStore(tx)
 		administrator, stored, err := store.ConsumeEmailOTP(ctx, id, now)
-		if err != nil {
+		if errors.Is(err, ErrInvalidCredentials) {
 			operationErr = ErrInvalidCredentials
 			return nil
+		}
+		if err != nil {
+			return err
 		}
 		account := rateLimitBucket{hash: rateLimitSubjectHash(s.tokenSecret, "email-otp-complete", "account", administrator.Email), limit: policy.AccountMaxFailures, window: policy.Window, block: policy.Block, clearOnSuccess: true}
 		if err := store.LockRateLimits(ctx, rateLimitLockKeys([]rateLimitBucket{account})); err != nil {

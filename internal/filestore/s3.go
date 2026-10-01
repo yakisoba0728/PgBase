@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsv4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -22,6 +24,7 @@ type S3Config struct {
 type s3Client interface {
 	PutObject(context.Context, *s3.PutObjectInput, ...func(*s3.Options)) (*s3.PutObjectOutput, error)
 	GetObject(context.Context, *s3.GetObjectInput, ...func(*s3.Options)) (*s3.GetObjectOutput, error)
+	HeadObject(context.Context, *s3.HeadObjectInput, ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
 	DeleteObject(context.Context, *s3.DeleteObjectInput, ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
 }
 
@@ -102,6 +105,99 @@ func (s *S3Store) Open(ctx context.Context, key string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("get S3 object: %w", err)
 	}
 	return result.Body, nil
+}
+
+func (s *S3Store) OpenRange(ctx context.Context, key string, requested ByteRange) (RangeRead, error) {
+	if err := s.validate(key); err != nil {
+		return RangeRead{}, err
+	}
+	if requested.Start == 0 && requested.End < -1 {
+		size, err := s.objectSize(ctx, key)
+		if err != nil {
+			return RangeRead{}, err
+		}
+		return RangeRead{Size: size}, ErrRangeNotSatisfiable
+	}
+	rangeValue := "bytes="
+	if requested.Start < 0 {
+		rangeValue += strconv.FormatInt(requested.Start, 10)
+	} else {
+		rangeValue += strconv.FormatInt(requested.Start, 10) + "-"
+		if requested.End >= 0 {
+			rangeValue += strconv.FormatInt(requested.End, 10)
+		}
+	}
+	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key), Range: aws.String(rangeValue)})
+	if err != nil {
+		var api smithy.APIError
+		if errors.As(err, &api) && api.ErrorCode() == "InvalidRange" {
+			size, sizeErr := s.objectSize(ctx, key)
+			if sizeErr != nil {
+				return RangeRead{}, sizeErr
+			}
+			return RangeRead{Size: size}, ErrRangeNotSatisfiable
+		}
+		if errors.As(err, &api) && (api.ErrorCode() == "NoSuchKey" || api.ErrorCode() == "NotFound") {
+			return RangeRead{}, ErrNotFound
+		}
+		return RangeRead{}, fmt.Errorf("get S3 object range: %w", err)
+	}
+	start, end, size, metadataErr := parseS3RangeMetadata(aws.ToString(result.ContentRange), aws.ToInt64(result.ContentLength), requested)
+	if metadataErr != nil {
+		_ = result.Body.Close()
+		return RangeRead{}, metadataErr
+	}
+	return RangeRead{Body: result.Body, Start: start, End: end, Size: size}, nil
+}
+
+func parseS3RangeMetadata(value string, contentLength int64, requested ByteRange) (start, end, size int64, err error) {
+	parts := strings.Split(value, " ")
+	if len(parts) != 2 || parts[0] != "bytes" {
+		return 0, 0, 0, fmt.Errorf("invalid S3 content range")
+	}
+	spanTotal := strings.Split(parts[1], "/")
+	if len(spanTotal) != 2 {
+		return 0, 0, 0, fmt.Errorf("invalid S3 content range")
+	}
+	span := strings.Split(spanTotal[0], "-")
+	if len(span) != 2 {
+		return 0, 0, 0, fmt.Errorf("invalid S3 content range")
+	}
+	start, e1 := parseS3RangeDecimal(span[0])
+	end, e2 := parseS3RangeDecimal(span[1])
+	size, e3 := parseS3RangeDecimal(spanTotal[1])
+	if e1 != nil || e2 != nil || e3 != nil || size <= 0 || start > end || end >= size || contentLength != end-start+1 {
+		return 0, 0, 0, fmt.Errorf("invalid S3 content range")
+	}
+	wantStart, wantEnd, resolveErr := ResolveByteRange(requested, size)
+	if resolveErr != nil || start != wantStart || end != wantEnd {
+		return 0, 0, 0, fmt.Errorf("inconsistent S3 content range")
+	}
+	return start, end, size, nil
+}
+
+func parseS3RangeDecimal(value string) (int64, error) {
+	if value == "" {
+		return 0, ErrInvalid
+	}
+	for _, digit := range value {
+		if digit < '0' || digit > '9' {
+			return 0, ErrInvalid
+		}
+	}
+	return strconv.ParseInt(value, 10, 64)
+}
+
+func (s *S3Store) objectSize(ctx context.Context, key string) (int64, error) {
+	result, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)})
+	if err != nil {
+		var api smithy.APIError
+		if errors.As(err, &api) && (api.ErrorCode() == "NoSuchKey" || api.ErrorCode() == "NotFound") {
+			return 0, ErrNotFound
+		}
+		return 0, fmt.Errorf("head S3 object: %w", err)
+	}
+	return aws.ToInt64(result.ContentLength), nil
 }
 
 func (s *S3Store) Delete(ctx context.Context, key string) error {

@@ -38,6 +38,15 @@ describe("admin routes", () => {
     expect(parseAdminRoute(adminRoutePath(route))).toEqual(route);
   });
 
+  it.each(["new", "New", "NEW", "edit", "duplicate", "records", "MixedCase01"])("keeps text record ID %s distinct from the create route", (id) => {
+    const route: AdminRoute = { kind: "record", collection: "posts", id };
+    const path = adminRoutePath(route);
+    expect(path).not.toBe(adminRoutePath({ kind: "record", collection: "posts" }));
+    expect(parseAdminRoute(path)).toEqual(route);
+    browserHistory.push(path);
+    expect(parseAdminRoute(browserHistory.path())).toEqual(route);
+  });
+
   it.each([
     ["/admin/collections/new", { kind: "collection-create" }],
     ["/admin/collections/new/base", { kind: "collection-scaffold", scaffold: "base" }],

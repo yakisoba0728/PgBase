@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -83,13 +84,7 @@ final class PgBaseAdminClient {
   }) async {
     final normalized = method.toUpperCase();
     final generation = _generation;
-    final requestHeaders = <String, String>{
-      if (sendOriginHeader) 'origin': transport.baseUri.origin,
-      if (_cookie != null) 'cookie': _cookie!,
-      ...?headers,
-    };
-    if (normalized != 'GET' && _csrf.isNotEmpty)
-      requestHeaders['x-pgbase-csrf'] = _csrf;
+    final requestHeaders = _headers(normalized, headers);
     final response = await transport.json(
       normalized,
       path,
@@ -98,23 +93,7 @@ final class PgBaseAdminClient {
       query: query,
       cancellation: cancellation,
     );
-    if (response.status < 200 || response.status >= 300) {
-      if (response.status == 401 && generation == _generation) {
-        _csrf = '';
-        _cookie = null;
-        _generation++;
-      }
-      throw pgBaseError(response);
-    }
-    // An auth operation increments the generation before it is dispatched.
-    // Do not let an older, slower login replace the cookie that belongs to
-    // the CSRF token adopted by the newer login.
-    final setCookie = response.headers['set-cookie'];
-    if (generation == _generation &&
-        setCookie != null &&
-        setCookie.contains('=')) {
-      _cookie = setCookie.split(';').first;
-    }
+    _accept(response, generation);
     if (response.status == 204 || response.bytes.isEmpty)
       return const JsonNull();
     try {
@@ -126,6 +105,7 @@ final class PgBaseAdminClient {
 
   Future<JsonObject> catalog({CancellationToken? cancellation}) =>
       _object('GET', '/api/admin/collections', cancellation: cancellation);
+
   /// Generates a short-lived Apple OAuth client secret; it is never retained.
   Future<JsonObject> generateAppleClientSecret({
     required String clientId,
@@ -146,6 +126,7 @@ final class PgBaseAdminClient {
     }),
     cancellation: cancellation,
   );
+
   /// Returns server-authored base, auth, and view collection creation templates.
   Future<JsonObject> collectionScaffolds({CancellationToken? cancellation}) =>
       _object(
@@ -399,6 +380,111 @@ final class PgBaseAdminClient {
 
   Future<JsonObject> users({CancellationToken? cancellation}) =>
       _object('GET', '/api/admin/users', cancellation: cancellation);
+
+  Future<JsonObject> administratorAccounts({
+    int? limit,
+    String? after,
+    CancellationToken? cancellation,
+  }) => _object(
+    'GET',
+    '/api/admin/administrators',
+    query: {
+      if (limit != null) 'limit': '$limit',
+      if (after != null) 'after': after,
+    },
+    cancellation: cancellation,
+  );
+  Future<JsonObject> createAdministrator(
+    String email,
+    String password, {
+    CancellationToken? cancellation,
+  }) => _object(
+    'POST',
+    '/api/admin/administrators',
+    body: JsonObject({
+      'email': JsonString(email),
+      'password': JsonString(password),
+    }),
+    cancellation: cancellation,
+  );
+  Future<JsonObject> setAdministratorActive(
+    String id,
+    bool active, {
+    CancellationToken? cancellation,
+  }) => _object(
+    'PATCH',
+    '/api/admin/administrators/${Uri.encodeComponent(id)}',
+    body: JsonObject({'active': JsonBool(active)}),
+    cancellation: cancellation,
+  );
+  Future<void> setAdministratorPassword(
+    String id,
+    String newPassword, {
+    CancellationToken? cancellation,
+  }) async => request(
+    'POST',
+    '/api/admin/administrators/${Uri.encodeComponent(id)}/password-reset',
+    body: JsonObject({'newPassword': JsonString(newPassword)}),
+    cancellation: cancellation,
+  );
+  Future<void> revokeAdministratorSessions(
+    String id, {
+    CancellationToken? cancellation,
+  }) async => request(
+    'POST',
+    '/api/admin/administrators/${Uri.encodeComponent(id)}/revoke-sessions',
+    body: JsonObject({}),
+    cancellation: cancellation,
+  );
+
+  Future<JsonObject> backups({CancellationToken? cancellation}) =>
+      _object('GET', '/api/admin/backups', cancellation: cancellation);
+  Future<JsonObject> createBackup({CancellationToken? cancellation}) =>
+      _object('POST', '/api/admin/backups', cancellation: cancellation);
+  Future<JsonObject> uploadBackup(
+    UploadSource archive, {
+    CancellationToken? cancellation,
+  }) => _binaryObject(
+    '/api/admin/backups/upload',
+    archive,
+    cancellation: cancellation,
+  );
+  Future<Uint8List> downloadBackup(
+    String id, {
+    CancellationToken? cancellation,
+  }) async {
+    final generation = _generation;
+    final response = await transport.download(
+      '/api/admin/backups/${Uri.encodeComponent(id)}',
+      headers: _headers('GET', null),
+      cancellation: cancellation,
+    );
+    _accept(response, generation);
+    return response.bytes;
+  }
+
+  Future<void> deleteBackup(
+    String id, {
+    CancellationToken? cancellation,
+  }) async => request(
+    'DELETE',
+    '/api/admin/backups/${Uri.encodeComponent(id)}',
+    cancellation: cancellation,
+  );
+  Future<JsonObject> restoreBackup(
+    String id, {
+    CancellationToken? cancellation,
+  }) => _object(
+    'POST',
+    '/api/admin/backups/${Uri.encodeComponent(id)}/restore',
+    cancellation: cancellation,
+  );
+  Future<JsonObject> backupJob(String id, {CancellationToken? cancellation}) =>
+      _object(
+        'GET',
+        '/api/admin/backup-jobs/${Uri.encodeComponent(id)}',
+        cancellation: cancellation,
+      );
   Future<JsonValue> setUserActive(
     String id,
     bool active, {
@@ -479,6 +565,64 @@ final class PgBaseAdminClient {
     if (value is! JsonObject)
       throw const PgBaseProtocolError('invalid_admin_object_response');
     return value;
+  }
+
+  Future<JsonObject> _binaryObject(
+    String path,
+    UploadSource source, {
+    CancellationToken? cancellation,
+  }) async {
+    final generation = _generation;
+    final response = await transport.upload(
+      'POST',
+      path,
+      source: source,
+      contentType: 'application/gzip',
+      headers: _headers('POST', null),
+      cancellation: cancellation,
+    );
+    _accept(response, generation);
+    try {
+      final value = decodeExactJson(response.bytes);
+      if (value is! JsonObject)
+        throw const PgBaseProtocolError('invalid_admin_object_response');
+      return value;
+    } on PgBaseProtocolError catch (error) {
+      if (error.code == 'invalid_admin_object_response') rethrow;
+      throw const PgBaseProtocolError('invalid_admin_success_json');
+    }
+  }
+
+  Map<String, String> _headers(String method, Map<String, String>? extra) {
+    final headers = <String, String>{
+      if (sendOriginHeader) 'origin': transport.baseUri.origin,
+      if (_cookie != null) 'cookie': _cookie!,
+      ...?extra,
+    };
+    if (method != 'GET' && method != 'HEAD' && _csrf.isNotEmpty) {
+      headers['x-pgbase-csrf'] = _csrf;
+    }
+    return headers;
+  }
+
+  void _accept(PgBaseResponse response, int generation) {
+    if (response.status < 200 || response.status >= 300) {
+      if (response.status == 401 && generation == _generation) {
+        _csrf = '';
+        _cookie = null;
+        _generation++;
+      }
+      throw pgBaseError(response);
+    }
+    // An auth operation increments the generation before it is dispatched.
+    // Do not let an older, slower login replace the cookie that belongs to
+    // the CSRF token adopted by the newer login.
+    final setCookie = response.headers['set-cookie'];
+    if (generation == _generation &&
+        setCookie != null &&
+        setCookie.contains('=')) {
+      _cookie = setCookie.split(';').first;
+    }
   }
 }
 

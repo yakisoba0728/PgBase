@@ -1,7 +1,8 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { FieldDefinition } from "../backend/ports";
+import { callsTo } from "../test/backend-script";
 import { collection, renderAdmin, scriptedAdmin, textField } from "../test/harness";
 
 const owner: FieldDefinition = {
@@ -50,13 +51,37 @@ describe("collections page", () => {
     expect(await screen.findByText("No collections yet.")).toBeVisible();
   });
 
-  it("blocks user access for a scalar collection targeted by an incoming relation", async () => {
+  it("loads and updates user access for collections with incoming and outgoing relations", async () => {
     const harness = scriptedAdmin("/admin/collections");
     const targets = collection("targets", "targets-id", [textField("name", 0)]);
     const sources = collection("sources", "sources-id", [{ ...owner, relation: { ...owner.relation!, targetCollectionId: "targets-id" } }]);
     harness.script.catalog.push({ value: { version: 4, collections: [targets, sources] } });
+    harness.script.userAccess.push(
+      { value: { collection: "sources", enabled: false } },
+      { value: { collection: "targets", enabled: true } },
+    );
+    harness.script.setUserAccess.push(
+      { value: { collection: "sources", enabled: true } },
+      { value: { collection: "targets", enabled: false } },
+    );
+    const user = userEvent.setup();
     renderAdmin(harness);
-    expect((await screen.findAllByText("Public user records are blocked while this collection has incoming or outgoing relations.")).length).toBeGreaterThan(1);
+
+    const source = within((await screen.findByRole("link", { name: "sources" })).closest("li")!);
+    const target = within(screen.getByRole("link", { name: "targets" }).closest("li")!);
+    expect(await source.findByRole("button", { name: "Enable user access" })).toBeEnabled();
+    expect(await target.findByRole("button", { name: "Disable user access" })).toBeEnabled();
+    expect(callsTo(harness.script, "userAccess").map((call) => call.detail)).toEqual([
+      { collection: "sources" }, { collection: "targets" },
+    ]);
+
+    await user.click(source.getByRole("button", { name: "Enable user access" }));
+    expect(await source.findByRole("button", { name: "Disable user access" })).toBeEnabled();
+    await user.click(target.getByRole("button", { name: "Disable user access" }));
+    expect(await target.findByRole("button", { name: "Enable user access" })).toBeEnabled();
+    expect(callsTo(harness.script, "setUserAccess").map((call) => call.detail)).toEqual([
+      { collection: "sources", enabled: true }, { collection: "targets", enabled: false },
+    ]);
   });
 
   it("retries an initial user access policy read", async () => {

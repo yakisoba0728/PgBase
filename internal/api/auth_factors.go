@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -109,16 +110,17 @@ func (e userEndpoints) factorAction(action string) http.Handler {
 			return
 		}
 		var input struct {
-			CurrentPassword string `json:"currentPassword"`
-			Code            string `json:"code"`
-			ChallengeToken  string `json:"challengeToken"`
-			Provider        string `json:"provider"`
-			RedirectURI     string `json:"redirectUri"`
-			State           string `json:"state"`
-			Email           string `json:"email"`
-			OTPID           string `json:"otpId"`
+			CurrentPassword string          `json:"currentPassword"`
+			Code            string          `json:"code"`
+			ChallengeToken  string          `json:"challengeToken"`
+			Provider        string          `json:"provider"`
+			RedirectURI     string          `json:"redirectUri"`
+			State           string          `json:"state"`
+			Email           string          `json:"email"`
+			OTPID           string          `json:"otpId"`
+			Fields          json.RawMessage `json:"fields"`
 		}
-		if decodeStrictJSON(r, &input) != nil {
+		if decodeStrictJSON(r, &input) != nil || action != "oauth/complete" && input.Fields != nil {
 			writeUserAuthError(w, r, userauth.ErrValidation)
 			return
 		}
@@ -153,7 +155,7 @@ func (e userEndpoints) factorAction(action string) http.Handler {
 			if action == "mfa/complete" {
 				value, err = service.CompleteMFA(originContext, input.ChallengeToken, input.Code)
 			} else {
-				value, err = service.CompleteOAuth(originContext, input.Provider, input.State, input.Code)
+				value, err = completeOAuthWithFields(originContext, service, input.Provider, input.State, input.Code, input.Fields)
 			}
 			result = userSessionResponse{Token: value.RawToken, User: publicUser(value.User), ExpiresAt: value.ExpiresAt}
 		case "otp/request":

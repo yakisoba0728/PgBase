@@ -2,6 +2,7 @@ package pgbase
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/userauth"
@@ -51,5 +52,10 @@ func (h hookedUserAuth) BeginOAuthLinkWithProviderRedirect(ctx context.Context, 
 	})
 }
 func (h hookedUserAuth) CompleteOAuth(ctx context.Context, provider, state, code string) (userauth.Session, error) {
-	return h.session(ctx, HookAuthOAuthComplete, "oauth.complete", uuid.Nil, uuid.Nil, provider, func() (userauth.Session, error) { return h.Service.CompleteOAuth(ctx, provider, state, code) })
+	return h.CompleteOAuthWithFields(ctx, provider, state, code, nil)
+}
+func (h hookedUserAuth) CompleteOAuthWithFields(ctx context.Context, provider, state, code string, fields map[string]json.RawMessage) (userauth.Session, error) {
+	return h.session(ctx, HookAuthOAuthComplete, "oauth.complete", uuid.Nil, uuid.Nil, provider, func() (userauth.Session, error) {
+		return h.Service.CompleteOAuthWithFields(ctx, provider, state, code, fields)
+	})
 }

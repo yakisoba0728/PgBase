@@ -1,141 +1,20 @@
+export * from "./types.js";
+export * from "./auth-store.js";
+export { RealtimeService } from "./realtime.js";
+import { AuthStore } from "./auth-store.js";
+import { RealtimeService } from "./realtime.js";
+import { PgBaseError, MFAChallengeError } from "./types.js";
+import { parseEventStream, canonicalDeliveryCursor, deliveryCursor, recordEvent, waitForReconnect } from "./sse.js";
 export * from "./admin.js";
-function filterLiteral(value) {
-    switch (typeof value) {
-        case "boolean":
-        case "number":
-            // This intentionally preserves PocketBase's `NaN` and `Infinity`
-            // spelling. The server decides whether a particular field accepts it.
-            return String(value);
-        case "string":
-            return JSON.stringify(value);
-        case "undefined":
-            return "null";
-        default:
-            if (value === null)
-                return "null";
-            if (value instanceof Date)
-                return JSON.stringify(value.toISOString().replace("T", " "));
-            const serialized = JSON.stringify(value);
-            // PocketBase deliberately encodes aggregate JSON as one quoted filter
-            // string rather than treating it as filter syntax.
-            if (serialized?.startsWith("[") || serialized?.startsWith("{"))
-                return JSON.stringify(serialized);
-            // JSON.stringify(function () {}) and JSON.stringify(Symbol()) are
-            // undefined. Returning that value lets String.replace retain the
-            // upstream SDK's observable `undefined` replacement behavior.
-            return serialized;
-    }
-}
-export class PgBaseError extends Error {
-    status;
-    code;
-    details;
-    etag;
-    constructor(status, code, details = {}, etag) {
-        super(code);
-        this.status = status;
-        this.code = code;
-        this.details = details;
-        this.etag = etag;
-        this.name = "PgBaseError";
-    }
-}
-export class MFAChallengeError extends PgBaseError {
-    challenge;
-    constructor(status, code, details, challenge) {
-        super(status, code, details);
-        this.challenge = challenge;
-        this.name = "MFAChallengeError";
-    }
-}
-export class AuthStore {
-    storage;
-    #token;
-    #record = null;
-    #generation = 0;
-    #listeners = new Set();
-    constructor(storage) {
-        this.storage = storage;
-        this.#token = storage?.get() ?? null;
-    }
-    get token() {
-        return this.#token;
-    }
-    get record() { return this.#record; }
-    get isValid() { return this.#token !== null && this.#token.length > 0; }
-    get generation() {
-        return this.#generation;
-    }
-    save(token, record = null) {
-        this.#token = token;
-        this.#record = record;
-        this.#generation += 1;
-        this.storage?.set(token);
-        this.notify();
-    }
-    clear() {
-        this.#token = null;
-        this.#record = null;
-        this.#generation += 1;
-        this.storage?.clear();
-        this.notify();
-    }
-    /** Encodes token and cached auth record for a server-rendered response cookie. */
-    exportToCookie(options = {}) {
-        const key = options.key ?? "pb_auth";
-        const path = options.path ?? "/";
-        if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(key) || /[;\r\n]/.test(path))
-            throw new PgBaseError(0, "invalid_cookie_option");
-        const payload = encodeURIComponent(JSON.stringify({ token: this.#token, record: this.#record }));
-        return [`${key}=${payload}`, `Path=${path}`, options.httpOnly === false ? "" : "HttpOnly", options.secure ? "Secure" : "", options.sameSite ? `SameSite=${options.sameSite}` : ""].filter(Boolean).join("; ");
-    }
-    /** Loads a state exported by [exportToCookie]; malformed cookies clear state. */
-    loadFromCookie(cookie, key = "pb_auth") {
-        const encoded = cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${key}=`))?.slice(key.length + 1);
-        if (!encoded)
-            return;
-        try {
-            const value = JSON.parse(decodeURIComponent(encoded));
-            if ((value.token !== null && typeof value.token !== "string") || (value.record !== null && (typeof value.record !== "object" || Array.isArray(value.record))))
-                throw new Error("invalid auth cookie");
-            this.#token = value.token ?? null;
-            this.#record = (value.record ?? null);
-            this.#generation += 1;
-            this.notify();
-        }
-        catch {
-            this.clear();
-        }
-    }
-    _onChange(listener) {
-        this.#listeners.add(listener);
-        return () => this.#listeners.delete(listener);
-    }
-    notify() {
-        for (const listener of this.#listeners) {
-            listener(this.#generation);
-        }
-    }
-}
-/**
- * Wrap browser storage only when the caller deliberately supplies it. This
- * keeps token persistence opt-in and makes the storage lifecycle visible at
- * client construction.
- */
-export function browserTokenStorage(storage, key = "pgbase.user.token") {
-    return {
-        get: () => storage.getItem(key),
-        set: (token) => storage.setItem(key, token),
-        clear: () => storage.removeItem(key),
-    };
-}
+import { responseJSON } from "./response.js";
+export { browserAuthStorage } from "./state-storage.js";
 export class PgBaseClient {
     baseURL;
     auth;
     realtime;
     fetcher;
     requestControllers = new Map();
-    /** Matches PocketBase's opt-out switch for duplicate request cancellation. */
+    /** Cancel older reads with the same request URL, or requests with an explicit key. */
     autoCancellation = true;
     constructor(baseURL, options = {}) {
         this.baseURL = baseURL;
@@ -163,7 +42,7 @@ export class PgBaseClient {
     }
     session(options, signal) {
         const [query, requestSignal] = recordGetArguments(options, signal);
-        return this.request(authFieldsPath("/api/v1/auth/session", query), {}, requestSignal);
+        return this.request(authFieldsPath("/api/v1/auth/session", query), {}, requestSignal, query?.requestKey);
     }
     async logout(signal) {
         try {
@@ -192,13 +71,13 @@ export class PgBaseClient {
     }
     requestOTP(email, options, signal) {
         const [query, requestSignal] = recordGetArguments(options, signal);
-        return this.request(authFieldsPath("/api/v1/auth/otp/request", query), { method: "POST", body: JSON.stringify({ email }) }, requestSignal);
+        return this.request(authFieldsPath("/api/v1/auth/otp/request", query), { method: "POST", body: JSON.stringify({ email }) }, requestSignal, query?.requestKey);
     }
     async completeOTP(otpId, code, options, signal) {
         const [query, requestSignal] = recordGetArguments(options, signal);
         const generation = this.auth.generation;
         try {
-            const session = await this.request(authFieldsPath("/api/v1/auth/otp/complete", query), { method: "POST", body: JSON.stringify({ otpId, code }) }, requestSignal);
+            const session = await this.request(authFieldsPath("/api/v1/auth/otp/complete", query), { method: "POST", body: JSON.stringify({ otpId, code }) }, requestSignal, query?.requestKey);
             if (session.token && session.user && generation === this.auth.generation)
                 this.auth.save(session.token, session.user);
             return session;
@@ -264,11 +143,11 @@ export class PgBaseClient {
     }
     batch(operations, options, signal) {
         const [query, requestSignal] = recordGetArguments(options, signal);
-        return this.request(`/api/v1/user/collections/batch${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ operations }) }, requestSignal);
+        return this.request(`/api/v1/user/collections/batch${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ operations }) }, requestSignal, query?.requestKey);
     }
     batchRequests(requests, options, signal) {
         const [query, requestSignal] = recordGetArguments(options, signal);
-        return this.request(`/api/v1/user/collections/batch${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ requests }) }, requestSignal);
+        return this.request(`/api/v1/user/collections/batch${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ requests }) }, requestSignal, query?.requestKey);
     }
     batchMultipart(requests, files, signal) {
         const body = new FormData();
@@ -286,7 +165,7 @@ export class PgBaseClient {
     async completeMFA(challengeToken, code, options, signal) {
         const [query, requestSignal] = recordGetArguments(options, signal);
         const generation = this.auth.generation;
-        const session = await this.request(authFieldsPath("/api/v1/auth/mfa/complete", query), { method: "POST", body: JSON.stringify({ challengeToken, code }) }, requestSignal);
+        const session = await this.request(authFieldsPath("/api/v1/auth/mfa/complete", query), { method: "POST", body: JSON.stringify({ challengeToken, code }) }, requestSignal, query?.requestKey);
         if (session.token && session.user && generation === this.auth.generation)
             this.auth.save(session.token, session.user);
         return session;
@@ -297,6 +176,12 @@ export class PgBaseClient {
     confirmTOTPEnrollment(code, signal) {
         return this.request("/api/v1/auth/totp/confirm", { method: "POST", body: JSON.stringify({ code }) }, signal);
     }
+    disableTOTP(currentPassword, code, signal) {
+        return this.request("/api/v1/auth/totp/disable", {
+            method: "POST",
+            body: JSON.stringify({ currentPassword, code }),
+        }, signal);
+    }
     async *iterate(collection, query = {}, signal) {
         let cursor = query.cursor;
         do {
@@ -305,28 +190,35 @@ export class PgBaseClient {
             cursor = page.nextCursor;
         } while (cursor);
     }
-    _request(path, init, signal) {
-        return this.request(path, init, signal);
+    _request(path, init, signal, requestKey) {
+        return this.request(path, init, signal, requestKey);
     }
     /** Cancels an in-flight request started with this key. */
     cancelRequest(requestKey) { this.requestControllers.get(requestKey)?.abort(); }
     /** Cancels every keyed in-flight request. */
     cancelAllRequests() { for (const controller of this.requestControllers.values())
         controller.abort(); this.requestControllers.clear(); }
-    /** Low-level request with PocketBase-style request-key auto-cancellation. */
+    /** Low-level request; null disables cancellation and a string supplies an explicit key. */
     async send(path, init = {}, options = {}) {
-        const keyed = this.keyedSignal(options.requestKey, options.signal);
+        return (await this.readResponse(path, init, options.signal, options.requestKey, (response) => responseJSON(response, () => { throw new PgBaseError(response.status, "invalid_response_body"); }))).body;
+    }
+    async _response(path, init = {}, signal, requestKey) {
+        return this.readResponse(path, init, signal, requestKey, async (response) => await responseJSON(response, () => { throw new PgBaseError(response.status, "invalid_response_body"); }));
+    }
+    async _responseText(path, init = {}, signal, requestKey) {
+        return this.readResponse(path, init, signal, requestKey, (response) => response.text());
+    }
+    async readResponse(path, init, signal, requestKey, read) {
+        const method = (init.method ?? "GET").toUpperCase();
+        const key = requestKey === undefined && (method === "GET" || method === "HEAD") ? `${method} ${path}` : requestKey;
+        const keyed = this.keyedSignal(key, signal);
         try {
-            return await this.request(path, init, keyed.signal);
+            const response = await this.fetchResponse(path, init, keyed.signal);
+            return { body: await read(response), etag: response.headers.get("ETag") ?? undefined };
         }
         finally {
             keyed.cleanup();
         }
-    }
-    async _response(path, init = {}, signal) {
-        const response = await this.fetchResponse(path, init, signal);
-        const body = await response.json().catch(() => undefined);
-        return { body, etag: response.headers.get("ETag") ?? undefined };
     }
     async _eventStream(path, lastEventId, signal) {
         const headers = new Headers({ Accept: "text/event-stream" });
@@ -338,7 +230,7 @@ export class PgBaseClient {
         }
         const response = await this.fetcher(new URL(path, this.baseURL), { headers, signal });
         if (!response.ok) {
-            const body = await response.json().catch(() => undefined);
+            const body = await responseJSON(response, () => undefined);
             const error = body?.error;
             throw new PgBaseError(response.status, error?.code ?? "request_failed", error?.details ?? {}, response.headers.get("ETag") ?? undefined);
         }
@@ -352,16 +244,15 @@ export class PgBaseClient {
         const generation = this.auth.generation;
         const session = await this.request(`${path}${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, {
             method: "POST",
-            body: JSON.stringify({ email, password }),
-        }, requestSignal);
+            body: JSON.stringify({ email, password, ...(path.endsWith("/register") && query?.profile !== undefined ? { fields: query.profile } : {}) }),
+        }, requestSignal, query?.requestKey);
         if (session.token && generation === this.auth.generation) {
             this.auth.save(session.token, session.user);
         }
         return session;
     }
-    async request(path, init = {}, signal) {
-        const response = await this.fetchResponse(path, init, signal);
-        return await response.json().catch(() => undefined);
+    async request(path, init = {}, signal, requestKey) {
+        return (await this._response(path, init, signal, requestKey)).body;
     }
     async fetchResponse(path, init = {}, signal) {
         const headers = new Headers(init.headers);
@@ -374,7 +265,7 @@ export class PgBaseClient {
         }
         const response = await this.fetcher(new URL(path, this.baseURL), { ...init, headers, signal });
         if (!response.ok) {
-            const body = await response.json().catch(() => undefined);
+            const body = await responseJSON(response, () => undefined);
             const error = body?.error;
             throw new PgBaseError(response.status, error?.code ?? "request_failed", error?.details ?? {}, response.headers.get("ETag") ?? undefined);
         }
@@ -387,178 +278,17 @@ export class PgBaseClient {
             this.cancelRequest(key);
         const controller = new AbortController();
         this.requestControllers.set(key, controller);
+        const abort = () => controller.abort(signal?.reason);
         if (signal?.aborted)
-            controller.abort();
+            abort();
         else
-            signal?.addEventListener("abort", () => controller.abort(), { once: true });
-        return { signal: controller.signal, cleanup: () => { if (this.requestControllers.get(key) === controller)
-                this.requestControllers.delete(key); } };
+            signal?.addEventListener("abort", abort, { once: true });
+        return { signal: controller.signal, cleanup: () => {
+                signal?.removeEventListener("abort", abort);
+                if (this.requestControllers.get(key) === controller)
+                    this.requestControllers.delete(key);
+            } };
     }
-}
-/** Multiplexes PocketBase-compatible realtime topics over one durable SSE connection. */
-export class RealtimeService {
-    client;
-    listeners = new Map();
-    controller;
-    clientId;
-    lastEventId;
-    running;
-    ready;
-    resolveReady;
-    rejectReady;
-    readySettled = false;
-    maxReconnects = 5;
-    reconnectDelayMs = 250;
-    constructor(client) {
-        this.client = client;
-    }
-    async subscribe(topic, listener, options = {}) {
-        if (!validRealtimeTopic(topic))
-            throw new PgBaseError(0, "invalid_realtime_topic");
-        if (options.maxReconnects !== undefined && (!Number.isInteger(options.maxReconnects) || options.maxReconnects < 0))
-            throw new PgBaseError(0, "invalid_reconnect_options");
-        if (options.reconnectDelayMs !== undefined && (!Number.isFinite(options.reconnectDelayMs) || options.reconnectDelayMs < 0))
-            throw new PgBaseError(0, "invalid_reconnect_options");
-        if (this.controller?.signal.aborted && this.running)
-            await this.running;
-        let set = this.listeners.get(topic);
-        if (!set) {
-            set = new Set();
-            this.listeners.set(topic, set);
-        }
-        set.add(listener);
-        this.ensureRunning(options);
-        if (this.clientId)
-            await this.sync();
-        else
-            await this.ready;
-        return async () => this.unsubscribe(topic, listener);
-    }
-    /**
-     * Subscribes to an application-owned topic without exposing its reserved
-     * realtime wire name. The callback receives the original UTF-8 topic.
-     */
-    async subscribeApplication(topic, listener) {
-        const wireTopic = applicationWireTopic(topic);
-        return this.subscribe(wireTopic, (event) => listener({ topic, data: event.data }));
-    }
-    async unsubscribe(topic, listener) {
-        if (topic === undefined)
-            this.listeners.clear();
-        else if (listener === undefined)
-            this.listeners.delete(topic);
-        else {
-            const set = this.listeners.get(topic);
-            set?.delete(listener);
-            if (set?.size === 0)
-                this.listeners.delete(topic);
-        }
-        if (this.listeners.size === 0) {
-            this.controller?.abort();
-            this.clientId = undefined;
-            this.fail(new PgBaseError(0, "realtime_unsubscribed"));
-            return;
-        }
-        if (this.clientId)
-            await this.sync();
-    }
-    ensureRunning(options) {
-        if (this.running)
-            return;
-        this.maxReconnects = options.maxReconnects ?? 5;
-        this.reconnectDelayMs = options.reconnectDelayMs ?? 250;
-        this.readySettled = false;
-        this.ready = new Promise((resolve, reject) => { this.resolveReady = resolve; this.rejectReady = reject; });
-        this.running = this.run().finally(() => { this.running = undefined; this.ready = undefined; this.resolveReady = undefined; this.rejectReady = undefined; });
-    }
-    async sync() { if (this.clientId)
-        await this.client._request("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, this.controller?.signal); }
-    async run() {
-        const controller = new AbortController();
-        this.controller = controller;
-        let reconnects = 0;
-        while (!controller.signal.aborted && this.listeners.size) {
-            let reconnectError;
-            try {
-                const response = await this.client._eventStream("/api/realtime", this.lastEventId, controller.signal);
-                for await (const message of parseEventStream(response.body, controller.signal)) {
-                    const data = JSON.parse(message.data);
-                    if (message.event === "PB_CONNECT") {
-                        this.clientId = typeof data === "object" && data !== null && "clientId" in data ? String(data.clientId ?? "") : "";
-                        if (!this.clientId)
-                            throw new PgBaseError(0, "invalid_realtime_connect");
-                        await this.sync();
-                        reconnects = 0;
-                        this.resolveReady?.();
-                        this.readySettled = true;
-                        continue;
-                    }
-                    if (message.id)
-                        this.lastEventId = canonicalDeliveryCursor(message.id);
-                    const topic = message.event;
-                    if (!topic)
-                        continue;
-                    const event = topic.startsWith("@")
-                        ? { topic: topic, data }
-                        : recordRealtimeEvent(topic, data);
-                    if (!event)
-                        continue;
-                    for (const listener of this.listeners.get(topic) ?? [])
-                        listener(event);
-                }
-            }
-            catch (error) {
-                if (controller.signal.aborted)
-                    return;
-                reconnectError = error;
-                if (terminalRealtimeError(error))
-                    return this.fail(error);
-            }
-            this.clientId = undefined;
-            if (reconnects >= this.maxReconnects)
-                return this.fail(reconnectError ?? new PgBaseError(0, "realtime_reconnect_exhausted"));
-            reconnects += 1;
-            await waitForReconnect(Math.min(this.reconnectDelayMs * 2 ** (reconnects - 1), 10_000), controller.signal);
-        }
-    }
-    fail(error) {
-        this.clientId = undefined;
-        this.listeners.clear();
-        if (!this.readySettled) {
-            this.rejectReady?.(error);
-            this.readySettled = true;
-        }
-    }
-}
-function terminalRealtimeError(error) {
-    return error instanceof PgBaseError &&
-        ([400, 401, 403, 410].includes(error.status) || error.code === "cursor_expired");
-}
-function validRealtimeTopic(topic) {
-    if (!topic)
-        return false;
-    if (!topic.startsWith("@"))
-        return true;
-    return new TextEncoder().encode(topic).length >= 2 &&
-        new TextEncoder().encode(topic).length <= 256 &&
-        !/[\s\x00-\x1f\x7f?#*]/.test(topic);
-}
-function applicationWireTopic(topic) {
-    const bytes = new TextEncoder().encode(topic);
-    if (bytes.length === 0 || bytes.length > 188)
-        throw new PgBaseError(0, "invalid_realtime_topic");
-    let binary = "";
-    for (const byte of bytes)
-        binary += String.fromCharCode(byte);
-    return `@app/${btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")}`;
-}
-function recordRealtimeEvent(topic, data) {
-    if (typeof data !== "object" || data === null)
-        return undefined;
-    const value = data;
-    if (!value.record || !["create", "update", "delete"].includes(value.action))
-        return undefined;
-    return { topic, action: value.action, record: value.record };
 }
 export class AuthRealm {
     client;
@@ -572,7 +302,7 @@ export class AuthRealm {
         const [query, requestSignal] = recordGetArguments(options, signal);
         const generation = this.client.auth.generation;
         try {
-            const session = await this.client._request(`${this.path(action)}${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ email, password }) }, requestSignal);
+            const session = await this.client._request(`${this.path(action)}${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ email, password, ...(action === "register" && query?.profile !== undefined ? { fields: query.profile } : {}) }) }, requestSignal, query?.requestKey);
             if (session.token && generation === this.client.auth.generation)
                 this.client.auth.save(session.token, session.user);
             return session;
@@ -636,12 +366,12 @@ export class AuthRealm {
             parameters.set("expand", query.expand);
         if (query?.fields !== undefined)
             parameters.set("fields", query.fields);
-        return (await this.client._request(`${this.path("profile")}${parameters.size ? `?${parameters}` : ""}`, {}, requestSignal)).attributes;
+        return (await this.client._request(`${this.path("profile")}${parameters.size ? `?${parameters}` : ""}`, {}, requestSignal, query?.requestKey)).attributes;
     }
     async updateProfile(profile, options, signal) {
         const [query, requestSignal] = recordGetArguments(options, signal);
         const suffix = query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`;
-        return (await this.client._request(`${this.path("profile")}${suffix}`, { method: "PATCH", body: JSON.stringify(profile) }, requestSignal)).attributes;
+        return (await this.client._request(`${this.path("profile")}${suffix}`, { method: "PATCH", body: JSON.stringify(profile) }, requestSignal, query?.requestKey)).attributes;
     }
     oauthStart(provider, redirectUri, signal) { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
     /** Starts OAuth and delegates browser/popup/deep-link navigation to the host. */
@@ -650,14 +380,15 @@ export class AuthRealm {
         await options.open(started.authorizationUrl);
         return started;
     }
-    async oauthWithBrowser(provider, redirectUri, adapter, signal) {
+    async oauthWithBrowser(provider, redirectUri, adapter, options, signal) {
+        const [, requestSignal] = recordGetArguments(options, signal);
         try {
-            const started = await this.oauthStart(provider, redirectUri, signal);
+            const started = await this.oauthStart(provider, redirectUri, requestSignal);
             const expectedState = new URL(started.authorizationUrl).searchParams.get("state");
             if (!expectedState)
                 throw new OAuthCallbackError("invalid_start", "The OAuth start URL is missing state.");
             await adapter.open(started.authorizationUrl);
-            const callback = await callbackWithAbort(adapter, signal);
+            const callback = await callbackWithAbort(adapter, requestSignal);
             if (callback.origin !== new URL(redirectUri).origin)
                 throw new OAuthCallbackError("invalid_callback_origin", "The OAuth callback origin does not match the redirect URL.");
             const providerError = callback.searchParams.get("error");
@@ -669,14 +400,14 @@ export class AuthRealm {
                 throw new OAuthCallbackError("invalid_callback", "The OAuth callback is missing state or code.");
             if (state !== expectedState)
                 throw new OAuthCallbackError("invalid_state", "The OAuth callback state does not match the OAuth start state.");
-            return await this.oauthComplete(provider, state, code, signal);
+            return await this.oauthComplete(provider, state, code, options, requestSignal);
         }
         finally {
             adapter.close?.();
         }
     }
     oauthLink(currentPassword, provider, redirectUri, signal) { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
-    async oauthComplete(provider, state, code, options, signal) { const [query, requestSignal] = recordGetArguments(options, signal); const generation = this.client.auth.generation; const session = await this.client._request(authFieldsPath("/api/v1/auth/oauth/complete", query), { method: "POST", body: JSON.stringify({ provider, state, code }) }, requestSignal); if (session.token && session.user && generation === this.client.auth.generation)
+    async oauthComplete(provider, state, code, options, signal) { const [query, requestSignal] = recordGetArguments(options, signal); const generation = this.client.auth.generation; const session = await this.client._request(authFieldsPath("/api/v1/auth/oauth/complete", query), { method: "POST", body: JSON.stringify({ provider, state, code, ...(query?.profile === undefined ? {} : { fields: query.profile }) }) }, requestSignal, query?.requestKey); if (session.token && session.user && generation === this.client.auth.generation)
         this.client.auth.save(session.token, session.user); return session; }
     oauthCompleteFromURL(provider, callbackURL, options, signal) {
         const url = typeof callbackURL === "string" ? new URL(callbackURL) : callbackURL;
@@ -735,14 +466,11 @@ export class Records {
         this.collection = collection;
     }
     list(query = {}, signal) {
-        const parameters = new URLSearchParams();
-        for (const [key, value] of Object.entries(query)) {
-            if (value !== undefined) {
-                parameters.set(key, String(value));
-            }
-        }
-        const suffix = parameters.size ? `?${parameters}` : "";
-        return this.client._request(`${this.path()}${suffix}`, {}, signal);
+        return this.client._request(this.listPath(query), {}, signal, query.requestKey);
+    }
+    /** Returns the complete { items, nextCursor? } JSON envelope without parsing numbers. */
+    async listJSON(query = {}, signal) {
+        return (await this.client._responseText(this.listPath(query), {}, signal, query.requestKey)).body;
     }
     /**
      * Lists a numbered PocketBase-compatible page. This is intentionally
@@ -751,9 +479,9 @@ export class Records {
     getList(page = 1, perPage = 30, options = {}, signal) {
         const parameters = new URLSearchParams({ compat: "pocketbase", page: String(page), perPage: String(perPage) });
         for (const [key, value] of Object.entries(options))
-            if (value !== undefined)
+            if (key !== "requestKey" && value !== undefined)
                 parameters.set(key, String(value));
-        return this.client._request(`${this.path()}?${parameters}`, {}, signal);
+        return this.client._request(`${this.path()}?${parameters}`, {}, signal, options.requestKey);
     }
     async get(id, optionsOrSignal, signal) {
         const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
@@ -761,7 +489,11 @@ export class Records {
     }
     getWithETag(id, optionsOrSignal, signal) {
         const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
-        return this.recordResponse(this.path(id, options), {}, requestSignal);
+        return this.recordResponse(this.path(id, options), {}, requestSignal, options?.requestKey);
+    }
+    getJSON(id, optionsOrSignal, signal) {
+        const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
+        return this.recordJSONResponse(this.path(id, options), {}, requestSignal, options?.requestKey);
     }
     async create(data, idempotencyKey, options, signal) {
         return (await this.createWithETag(data, idempotencyKey, options, signal)).record;
@@ -772,7 +504,16 @@ export class Records {
             method: "POST",
             headers: { "Idempotency-Key": idempotencyKey },
             body: JSON.stringify(data),
-        }, requestSignal);
+        }, requestSignal, query?.requestKey);
+    }
+    /** Sends a JSON object verbatim; retry an uncertain create with the same body and key. */
+    createJSON(recordJSON, idempotencyKey, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        return this.recordJSONResponse(this.path(undefined, query), {
+            method: "POST",
+            headers: { "Idempotency-Key": idempotencyKey },
+            body: recordJSON,
+        }, requestSignal, query?.requestKey);
     }
     async update(id, data, etag, options, signal) {
         return (await this.updateWithETag(id, data, etag, options, signal)).record;
@@ -783,7 +524,16 @@ export class Records {
             method: "PATCH",
             headers: { "If-Match": etag },
             body: JSON.stringify(data),
-        }, requestSignal);
+        }, requestSignal, query?.requestKey);
+    }
+    /** Sends a record update JSON object verbatim with the current record ETag. */
+    updateJSON(id, recordJSON, etag, options, signal) {
+        const [query, requestSignal] = recordGetArguments(options, signal);
+        return this.recordJSONResponse(this.path(id, query), {
+            method: "PATCH",
+            headers: { "If-Match": etag },
+            body: recordJSON,
+        }, requestSignal, query?.requestKey);
     }
     remove(id, etag, signal) {
         return this.client._request(this.path(id), {
@@ -852,6 +602,14 @@ export class Records {
             stopOnAuthChange();
         }
     }
+    listPath(query) {
+        const parameters = new URLSearchParams();
+        for (const [key, value] of Object.entries(query)) {
+            if (key !== "requestKey" && value !== undefined)
+                parameters.set(key, String(value));
+        }
+        return `${this.path()}${parameters.size ? `?${parameters}` : ""}`;
+    }
     path(id, query) {
         const base = `/api/v1/user/collections/${encodeURIComponent(this.collection)}/records`;
         if (!id) {
@@ -872,9 +630,13 @@ export class Records {
         const base = `/api/v1/user/collections/${encodeURIComponent(this.collection)}/events`;
         return fields === undefined ? base : `${base}?fields=${encodeURIComponent(fields)}`;
     }
-    async recordResponse(path, init, signal) {
-        const response = await this.client._response(path, init, signal);
+    async recordResponse(path, init, signal, requestKey) {
+        const response = await this.client._response(path, init, signal, requestKey);
         return { record: response.body, etag: response.etag };
+    }
+    async recordJSONResponse(path, init, signal, requestKey) {
+        const response = await this.client._responseText(path, init, signal, requestKey);
+        return { recordJSON: response.body, etag: response.etag };
     }
 }
 function recordGetArguments(optionsOrSignal, signal) {
@@ -884,17 +646,6 @@ function recordGetArguments(optionsOrSignal, signal) {
 }
 function authFieldsPath(path, query) {
     return query?.fields === undefined ? path : `${path}?fields=${encodeURIComponent(query.fields)}`;
-}
-function canonicalDeliveryCursor(value) {
-    if (typeof value === "number" && !Number.isSafeInteger(value))
-        throw new PgBaseError(0, "invalid_cursor");
-    const text = String(value);
-    if (!/^\d+$/.test(text))
-        throw new PgBaseError(0, "invalid_cursor");
-    const cursor = BigInt(text);
-    if (cursor > 9223372036854775807n)
-        throw new PgBaseError(0, "invalid_cursor");
-    return cursor.toString();
 }
 export class Files {
     client;
@@ -945,79 +696,30 @@ export class Files {
 function hex(bytes) {
     return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
-async function* parseEventStream(body, signal) {
-    const reader = body.getReader();
-    const decoder = new TextDecoder();
-    let buffered = "";
-    try {
-        while (!signal?.aborted) {
-            const { done, value } = await reader.read();
-            buffered += decoder.decode(value, { stream: !done });
-            const messages = buffered.split(/\r?\n\r?\n/);
-            buffered = messages.pop() ?? "";
-            for (const raw of messages) {
-                const message = parseSSEMessage(raw);
-                if (message) {
-                    yield message;
-                }
-            }
-            if (done) {
-                break;
-            }
-        }
+function filterLiteral(value) {
+    switch (typeof value) {
+        case "boolean":
+        case "number":
+            // This intentionally preserves PocketBase's `NaN` and `Infinity`
+            // spelling. The server decides whether a particular field accepts it.
+            return String(value);
+        case "string":
+            return JSON.stringify(value);
+        case "undefined":
+            return "null";
+        default:
+            if (value === null)
+                return "null";
+            if (value instanceof Date)
+                return JSON.stringify(value.toISOString().replace("T", " "));
+            const serialized = JSON.stringify(value);
+            // PocketBase deliberately encodes aggregate JSON as one quoted filter
+            // string rather than treating it as filter syntax.
+            if (serialized?.startsWith("[") || serialized?.startsWith("{"))
+                return JSON.stringify(serialized);
+            // JSON.stringify(function () {}) and JSON.stringify(Symbol()) are
+            // undefined. Returning that value lets String.replace retain the
+            // upstream SDK's observable `undefined` replacement behavior.
+            return serialized;
     }
-    finally {
-        reader.releaseLock();
-    }
-}
-function parseSSEMessage(raw) {
-    const message = { data: "" };
-    for (const line of raw.split(/\r?\n/)) {
-        if (line.startsWith("event:")) {
-            message.event = line.slice(6).trim();
-        }
-        else if (line.startsWith("id:")) {
-            message.id = line.slice(3).trim();
-        }
-        else if (line.startsWith("data:")) {
-            message.data += `${message.data ? "\n" : ""}${line.slice(5).trimStart()}`;
-        }
-    }
-    return message.data ? message : undefined;
-}
-function deliveryCursor(message) {
-    if (!message.id || !/^\d+$/.test(message.id)) {
-        return undefined;
-    }
-    try {
-        const cursor = BigInt(message.id);
-        return cursor <= 9223372036854775807n ? cursor.toString() : undefined;
-    }
-    catch {
-        return undefined;
-    }
-}
-function recordEvent(message, deliveryId) {
-    if (message.event !== "record") {
-        return undefined;
-    }
-    try {
-        const value = JSON.parse(message.data);
-        if (!value.eventId || typeof value.eventId !== "string") {
-            return undefined;
-        }
-        return { ...value, deliveryId };
-    }
-    catch {
-        return undefined;
-    }
-}
-function waitForReconnect(delay, signal) {
-    return new Promise((resolve) => {
-        const timer = setTimeout(resolve, delay);
-        signal?.addEventListener("abort", () => {
-            clearTimeout(timer);
-            resolve();
-        }, { once: true });
-    });
 }

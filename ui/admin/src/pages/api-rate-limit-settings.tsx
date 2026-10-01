@@ -7,13 +7,13 @@ export function ruleErrors(
   if (rules.length > 100 || excludedIPs.length > 100)
     return "Use at most 100 API rules and 100 excluded IP ranges.";
   for (const rule of rules) {
-    const label = rule.label.trim();
+    const label = rule.label;
     if (
       label.length < 1 ||
-      label.length > 256 ||
-      !/^(?:[A-Z]+ )?\//.test(label)
+      new TextEncoder().encode(label).length > 256 ||
+      !/^(?:[A-Z]+ )?\/[^\p{White_Space}\p{Cc}?#]*$/u.test(label)
     )
-      return "Each rule label must be an exact path, a METHOD /path label, or a path prefix ending in /.";
+      return "Use a route pattern or METHOD /pattern; a trailing / matches a prefix. Omit surrounding spaces, query strings, and fragments.";
     if (
       !Number.isInteger(rule.duration) ||
       rule.duration < 1 ||
@@ -55,9 +55,12 @@ export function APIRateLimitSettings({
     <fieldset disabled={disabled}>
       <legend>API request rate limits</legend>
       <p>
-        Rules are checked in order. A label matches an exact path, a METHOD
-        /path label, or a path prefix ending in /. Limits are counted per
-        selected audience and client IP.
+        Labels match registered route patterns, not individual record URLs.
+        Use /api/v1/collections/{"{collection}"}/records for administrator lists,
+        /api/v1/user/collections/{"{collection}"}/records for user lists,
+        or a prefix ending in /. Method rules take precedence;
+        the first matching rule is used within each group. Limits are counted
+        per caller and client IP for the selected audience.
       </p>
       <label>
         <input
