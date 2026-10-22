@@ -60,7 +60,7 @@ func main() { os.Exit(pgbasecli.Execute(context.Background(), os.Args[1:])) }
 	command := exec.Command("go", "run", "-mod=mod", ".", "migration", "list")
 	command.Dir = directory
 	command.Env = append(os.Environ(),
-		"GOTOOLCHAIN=go1.26.8",
+		"GOTOOLCHAIN=go1.26.10",
 		"PGBASE_DATABASE_URL="+databaseURL,
 		"PGBASE_TOKEN_SECRET="+base64.StdEncoding.EncodeToString([]byte(strings.Repeat("x", 32))),
 	)

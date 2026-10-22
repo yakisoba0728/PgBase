@@ -81,7 +81,7 @@ func TestGenerateSnapshotSourceIsDeterministicAndBuilds(t *testing.T) {
 	}
 	command := exec.Command("go", "test", "-mod=mod", "./...")
 	command.Dir = module
-	command.Env = append(os.Environ(), "GOTOOLCHAIN=go1.26.8")
+	command.Env = append(os.Environ(), "GOTOOLCHAIN=go1.26.10")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("generated snapshot migration does not build: %v\n%s", err, output)
 	}
@@ -165,7 +165,7 @@ func TestGenerateSameSecondDifferentNamesBuildTogether(t *testing.T) {
 	}
 	command := exec.Command("go", "test", "-mod=mod", "./...")
 	command.Dir = module
-	command.Env = append(os.Environ(), "GOTOOLCHAIN=go1.26.8")
+	command.Env = append(os.Environ(), "GOTOOLCHAIN=go1.26.10")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("generated migrations do not build: %v\n%s", err, output)
 	}

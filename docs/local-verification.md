@@ -9,11 +9,11 @@ These checks use a source build and disposable local resources. They do not qual
 ```sh
 # Use a disposable PostgreSQL administrator URL for tests.
 PGBASE_TEST_ADMIN_URL=... PGBASE_TEST_S3_ENDPOINT=http://127.0.0.1:59000 \
-  GOTOOLCHAIN=go1.26.8 scripts/test-go-integration.sh -race -count=1
-GOTOOLCHAIN=go1.26.8 go test -tags=restore ./tests/restore -run TestRestoreDrill -count=1
+  GOTOOLCHAIN=go1.26.10 scripts/test-go-integration.sh -race -count=1
+GOTOOLCHAIN=go1.26.10 go test -tags=restore ./tests/restore -run TestRestoreDrill -count=1
 scripts/test-local-pitr.sh
 scripts/build-local-artifacts.sh
-PGBASE_TEST_ADMIN_URL=... GOTOOLCHAIN=go1.26.8 \
+PGBASE_TEST_ADMIN_URL=... GOTOOLCHAIN=go1.26.10 \
   go test -tags='integration load' ./pgbase -run TestLocalLoadStages -v -count=1
 ```
 
@@ -57,7 +57,7 @@ PGBASE_LOCAL_BROWSER_BASE_URL=http://127.0.0.1:8090 \
 The SDK was packed into a real tarball, installed into a separate temporary npm project, and imported as ESM. Its actual PgBase HTTP conformance includes CRUD, ETag conflict, file bytes, replay and realm logout:
 
 ```sh
-PGBASE_TEST_ADMIN_URL=... GOTOOLCHAIN=go1.26.8 \
+PGBASE_TEST_ADMIN_URL=... GOTOOLCHAIN=go1.26.10 \
   go test -tags='integration sdkconformance' ./pgbase \
   -run '^TestSDKPublicRecordHTTPConformance$' -count=1
 ```

@@ -1,6 +1,6 @@
 # Local development
 
-Prerequisites: Docker Compose, Go 1.26.8 (automatic toolchain download is supported), OpenSSL, and Node 24 for UI/SDK development. From the repository root:
+Prerequisites: Docker Compose, Go 1.26.10 (automatic toolchain download is supported), OpenSSL, and Node 24 for UI/SDK development. From the repository root:
 
 ```sh
 scripts/dev-local.sh
