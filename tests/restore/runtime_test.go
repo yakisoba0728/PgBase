@@ -252,7 +252,11 @@ func (c *candidate) serve(t *testing.T, ctx context.Context, databaseURL, name s
 			"--publish", fmt.Sprintf("127.0.0.1:%d:8090", port),
 		}
 		if c.fileDirectory != "" {
-			arguments = append(arguments, "--volume", c.fileDirectory+":/restore-files")
+			// The drill copies the stored files between the source and restored
+			// projects, so the candidate writes them as the test user rather than
+			// the image's nonroot user, whose owner-only directories it cannot read.
+			arguments = append(arguments, "--volume", c.fileDirectory+":/restore-files",
+				"--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()))
 		}
 		for _, value := range c.environment(databaseURL, ":8090", baseURL) {
 			arguments = append(arguments, "--env", value)
