@@ -203,10 +203,18 @@ func TestEmailOTPConcurrentResendAndDisableRedemption(t *testing.T) {
 	wg.Wait()
 	close(requests)
 	close(errs)
+	// A request that overlaps the other on the same rate-limit subject loses the
+	// non-blocking advisory lock and is refused as rate limited, by design.
+	var succeeded int
 	for err := range errs {
-		if err != nil {
+		if err == nil {
+			succeeded++
+		} else if !errors.Is(err, ErrRateLimited) {
 			t.Fatal(err)
 		}
+	}
+	if succeeded == 0 {
+		t.Fatal("no concurrent OTP request succeeded")
 	}
 	var active int
 	if err := service.pool.QueryRow(ctx, `select count(*) from pgbase_meta.user_email_otps where user_id=$1 and consumed_at is null`, registered.User.ID).Scan(&active); err != nil || active != 1 {
