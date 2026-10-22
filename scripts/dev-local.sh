@@ -31,8 +31,8 @@ fi
 # This file is generated locally with shell-quoted values and never committed.
 source "$dev_dir/environment"
 docker compose -f deployments/local/docker-compose.yml up -d --wait
-GOTOOLCHAIN=go1.26.8 go build -o "$dev_dir/bin/devmail" ./tools/devmail
-GOTOOLCHAIN=go1.26.8 go build -o "$dev_dir/bin/pgbase" ./cmd/pgbase
+GOTOOLCHAIN=go1.26.10 go build -o "$dev_dir/bin/devmail" ./tools/devmail
+GOTOOLCHAIN=go1.26.10 go build -o "$dev_dir/bin/pgbase" ./cmd/pgbase
 "$dev_dir/bin/devmail" --dir "$dev_dir/mail" > "$dev_dir/mail.log" 2>&1 &
 mail_pid=$!
 trap 'kill "$mail_pid" 2>/dev/null || true; wait "$mail_pid" 2>/dev/null || true' EXIT

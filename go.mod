@@ -2,7 +2,7 @@ module github.com/yakisoba0728/PgBase
 
 go 1.26.0
 
-toolchain go1.26.8
+toolchain go1.26.10
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.47.0
@@ -46,7 +46,7 @@ require (
 	github.com/google/pprof v0.0.0-20240727154555-813a5fbdbec8 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
-	golang.org/x/net v0.58.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 

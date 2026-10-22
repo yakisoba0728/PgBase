@@ -10,7 +10,7 @@ COPY ui/admin/index.html ui/admin/tsconfig.json ui/admin/tsconfig.app.json ui/ad
 COPY ui/admin/src ./src
 RUN npm run build
 
-FROM golang:1.26.8-bookworm@sha256:a688600ca24f8a4d3ca77f95b0dd40704a9fc787c826660eb7ba0b641b8b175d AS build
+FROM golang:1.26.10-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af AS build
 
 ARG VERSION=dev
 ARG SOURCE_COMMIT=unknown

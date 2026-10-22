@@ -5,7 +5,7 @@
 # through the Go module proxy and verifies each module against the checksum
 # database, so the build is reproducible without access to the archived
 # GitHub repositories.
-FROM golang:1.26.8-bookworm@sha256:a688600ca24f8a4d3ca77f95b0dd40704a9fc787c826660eb7ba0b641b8b175d AS build
+FROM golang:1.26.10-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af AS build
 
 # RELEASE.2025-07-23T15-54-02Z -> commit 7ced9663e6a791fef9dc6be798ff24cda9c730ac
 ARG MINIO_RELEASE=RELEASE.2025-07-23T15-54-02Z

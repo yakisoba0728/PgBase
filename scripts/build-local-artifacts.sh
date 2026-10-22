@@ -21,14 +21,14 @@ ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.Commit=$commit"
 ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.BuiltAt=$built_at"
 ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.SchemaMin=$schema_version"
 ldflags+=" -X github.com/yakisoba0728/PgBase/internal/buildinfo.SchemaMax=$schema_version"
-host_os="$(GOTOOLCHAIN=go1.26.8 go env GOOS)"
-host_arch="$(GOTOOLCHAIN=go1.26.8 go env GOARCH)"
+host_os="$(GOTOOLCHAIN=go1.26.10 go env GOOS)"
+host_arch="$(GOTOOLCHAIN=go1.26.10 go env GOARCH)"
 for target_os in linux darwin windows; do
   for target_arch in amd64 arm64; do
     suffix=""
     if [[ "$target_os" == windows ]]; then suffix=.exe; fi
     artifact="$output_dir/pgbase-$target_os-$target_arch$suffix"
-    CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" GOTOOLCHAIN=go1.26.8 \
+    CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" GOTOOLCHAIN=go1.26.10 \
       go build -trimpath -ldflags "$ldflags" -o "$artifact" ./cmd/pgbase
     if [[ "$target_os" == "$host_os" && "$target_arch" == "$host_arch" ]]; then
       expected="{\"version\":\"$version\",\"commit\":\"$commit\",\"builtAt\":\"$built_at\",\"goos\":\"$target_os\",\"goarch\":\"$target_arch\",\"schemaMin\":\"$schema_version\",\"schemaMax\":\"$schema_version\"}"

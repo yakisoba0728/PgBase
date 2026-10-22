@@ -214,7 +214,7 @@ func TestGeneratedMigrationUpDown(t *testing.T) {
 	}
 	command := exec.Command("go", "test", "-mod=mod", "./...")
 	command.Dir = root
-	command.Env = append(os.Environ(), "GOTOOLCHAIN=go1.26.8", "PGBASE_EXTERNAL_DATABASE_URL="+testutil.NewDatabase(t))
+	command.Env = append(os.Environ(), "GOTOOLCHAIN=go1.26.10", "PGBASE_EXTERNAL_DATABASE_URL="+testutil.NewDatabase(t))
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("external generated migration failed against PostgreSQL: %v\n%s", err, output)
 	}
@@ -303,7 +303,7 @@ func TestIrreversibleDown(t *testing.T) {
 	}
 	command := exec.Command("go", "test", "-mod=mod", "./...")
 	command.Dir = root
-	command.Env = append(os.Environ(), "GOTOOLCHAIN=go1.26.8", "PGBASE_EXTERNAL_DATABASE_URL="+testutil.NewDatabase(t))
+	command.Env = append(os.Environ(), "GOTOOLCHAIN=go1.26.10", "PGBASE_EXTERNAL_DATABASE_URL="+testutil.NewDatabase(t))
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("external irreversible migration failed against PostgreSQL: %v\n%s", err, output)
 	}
