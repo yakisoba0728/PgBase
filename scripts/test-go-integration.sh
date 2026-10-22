@@ -19,6 +19,27 @@ if [[ -n "${PGBASE_INTEGRATION_PACKAGES:-}" ]]; then
 		fi
 	done
 fi
+if [[ -n "${PGBASE_INTEGRATION_EXCLUDE_PACKAGES:-}" ]]; then
+	read -r -a excluded <<<"$PGBASE_INTEGRATION_EXCLUDE_PACKAGES"
+	for package in "${excluded[@]}"; do
+		if [[ ! "$package" =~ ^\./[A-Za-z0-9_./-]+$ ]]; then
+			echo "PGBASE_INTEGRATION_EXCLUDE_PACKAGES contains an invalid package path: $package" >&2
+			exit 2
+		fi
+	done
+	# A shard runs every selected package except those another shard owns.
+	excluded_paths="$(go list -tags=integration "${excluded[@]}")"
+	all_paths="$(go list -tags=integration "${packages[@]}")"
+	selected=()
+	while IFS= read -r package; do
+		[[ -n "$package" ]] && selected+=("$package")
+	done <<<"$(grep -vxF "$excluded_paths" <<<"$all_paths" || true)"
+	if ((${#selected[@]} == 0)); then
+		echo "PGBASE_INTEGRATION_EXCLUDE_PACKAGES leaves no package to test" >&2
+		exit 2
+	fi
+	packages=("${selected[@]}")
+fi
 
 set +e
 go test -json -tags=integration "$@" "${packages[@]}" | go run ./tools/testskip -allowlist tests/go-test-skip-allowlist.tsv

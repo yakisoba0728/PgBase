@@ -76,6 +76,40 @@ func TestIntegrationSuiteAcceptsOnlyPackagePathsFromItsEnvironment(t *testing.T)
 	if err := command.Run(); err == nil || !strings.Contains(stderr.String(), "invalid package path") {
 		t.Fatalf("invalid package input error = %v, stderr = %q", err, stderr.String())
 	}
+
+	// A shard excludes the packages another shard owns.
+	listingGo := filepath.Join(fakeBin, "go")
+	if err := os.WriteFile(listingGo, []byte(`#!/bin/sh
+if [ "$1" = list ]; then
+  case "$3" in
+    ./pgbase) echo example.test/pgbase ;;
+    *) printf 'example.test/a\nexample.test/pgbase\nexample.test/b\n' ;;
+  esac
+  exit 0
+fi
+printf '%s\n' "$@" >> "$PGBASE_FAKE_GO_MARKER"
+exit 99
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shardMarker := filepath.Join(t.TempDir(), "go-arguments")
+	command = exec.Command("bash", filepath.Join(root, "scripts", "test-go-integration.sh"))
+	command.Env = append(os.Environ(),
+		"PATH="+fakeBin+":/usr/bin:/bin",
+		"PGBASE_FAKE_GO_MARKER="+shardMarker,
+		"PGBASE_TEST_ADMIN_URL=postgres://test",
+		"PGBASE_INTEGRATION_EXCLUDE_PACKAGES=./pgbase",
+	)
+	if err := command.Run(); err == nil {
+		t.Fatal("integration shard unexpectedly succeeded with the fake Go command")
+	}
+	arguments, err = os.ReadFile(shardMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(arguments); !strings.Contains(got, "example.test/a\nexample.test/b\n") || strings.Contains(got, "example.test/pgbase") {
+		t.Fatalf("shard Go test invocation = %q, want every package except example.test/pgbase", got)
+	}
 }
 
 func TestBackendWorkflowKeepsLeanAndReleasePostgresMatrices(t *testing.T) {

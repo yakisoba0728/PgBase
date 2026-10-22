@@ -190,7 +190,7 @@ jobs:
         run: go test -count=1 ./internal/selfupdate ./internal/cli
 
   integration:
-    name: PostgreSQL integration / ${{ matrix.postgres.version }}
+    name: PostgreSQL integration / ${{ matrix.postgres.version }}${{ matrix.postgres.shard && format(' / {0}', matrix.postgres.shard) || '' }}
     runs-on: ${{ (((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
     timeout-minutes: 35
     strategy:
@@ -198,8 +198,9 @@ jobs:
       matrix:
         # Routine PRs and main pushes cover the middle supported major. The
         # digest-pinned release gate and explicit manual runs retain the full
-        # 16/17/18 compatibility matrix.
-        postgres: ${{ fromJSON((inputs.candidate_image != '' || github.event_name == 'workflow_dispatch') && '[{"version":"16.13","image":"postgres:16.13-bookworm@sha256:472efd9a66f2b2f1a5aeb18b28de74332e6ef88c2b93a1a5d812fb6db67a5f60"},{"version":"17.9","image":"postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641"},{"version":"18.3","image":"postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba"}]' || '[{"version":"17.9","image":"postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641"}]') }}
+        # 16/17/18 compatibility matrix. Where 17.9 runs the whole suite under
+        # -race, ./pgbase (over 8 minutes alone) gets its own parallel shard.
+        postgres: ${{ fromJSON((inputs.candidate_image != '' || github.event_name == 'workflow_dispatch') && '[{"version":"16.13","image":"postgres:16.13-bookworm@sha256:472efd9a66f2b2f1a5aeb18b28de74332e6ef88c2b93a1a5d812fb6db67a5f60"},{"version":"17.9","image":"postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641","exclude":"./pgbase"},{"version":"17.9","image":"postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641","packages":"./pgbase","shard":"pgbase"},{"version":"18.3","image":"postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba"}]' || github.event_name == 'push' && '[{"version":"17.9","image":"postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641","exclude":"./pgbase"},{"version":"17.9","image":"postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641","packages":"./pgbase","shard":"pgbase"}]' || '[{"version":"17.9","image":"postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641"}]') }}
     # The repository-scoped runners share one Docker daemon and loopback
     # interface, so every Docker resource this job creates is job-scoped: the
     # PostgreSQL service publishes on a Docker-assigned host port, and the S3
@@ -231,7 +232,8 @@ jobs:
       # checks Go code, not the database major, so the 16/17/18 matrix runs it
       # on 17.9 only; under -race the suite took 24m and timed out on 16/18.
       PGBASE_FULL_INTEGRATION_RACE: ${{ (github.event_name != 'pull_request' || inputs.candidate_image != '') && matrix.postgres.version == '17.9' }}
-      PGBASE_INTEGRATION_PACKAGES: ${{ github.event_name == 'pull_request' && './internal/migrate ./internal/sqlconsole ./internal/filestore ./internal/userauth ./pgbase' || './...' }}
+      PGBASE_INTEGRATION_PACKAGES: ${{ matrix.postgres.packages || github.event_name == 'pull_request' && './internal/migrate ./internal/sqlconsole ./internal/filestore ./internal/userauth ./pgbase' || './...' }}
+      PGBASE_INTEGRATION_EXCLUDE_PACKAGES: ${{ matrix.postgres.exclude || '' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -272,7 +274,7 @@ jobs:
           echo "TEST_PGBASE_POSTGRES_IMAGE=$POSTGRES_IMAGE" >> "$GITHUB_ENV"
 
       - name: Vet integration build
-        if: env.PGBASE_FULL_INTEGRATION_RACE == 'true'
+        if: env.PGBASE_FULL_INTEGRATION_RACE == 'true' && !matrix.postgres.shard
         run: go vet -tags=integration ./...
 
       # The S3 fixture image is built from pinned MinIO source
@@ -319,7 +321,7 @@ jobs:
       # kill/restart workload. Run it once on main or explicit
       # manual validation, on the routine PostgreSQL 17 matrix entry only.
       - name: Test bounded multi-process durability
-        if: inputs.candidate_image == '' && inputs.source_commit == '' && (github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && matrix.postgres.version == '17.9'
+        if: inputs.candidate_image == '' && inputs.source_commit == '' && (github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && matrix.postgres.version == '17.9' && !matrix.postgres.shard
         run: >-
           go test -tags='integration multiprocess' ./pgbase
           -run '^TestMultiProcessBoundedFailureAcceptance$' -count=1 -v
@@ -330,17 +332,18 @@ jobs:
           node-version: 24.21.0
 
       - name: Install and verify TypeScript SDK against PgBase
+        if: ${{ !matrix.postgres.shard }}
         run: |
           npm --prefix sdk/typescript ci
           npm --prefix sdk/typescript test
           go test -tags='integration sdkconformance' ./pgbase -run '^TestSDKPublicRecordHTTPConformance$' -count=1
 
       - name: Verify browser SDK example modules
-        if: inputs.source_commit == ''
+        if: inputs.source_commit == '' && !matrix.postgres.shard
         run: npm --prefix examples/user-notes test
 
       - name: Test administrator SDKs against a real server
-        if: inputs.candidate_image == '' && inputs.source_commit == '' && (github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && matrix.postgres.version == '17.9'
+        if: inputs.candidate_image == '' && inputs.source_commit == '' && (github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && matrix.postgres.version == '17.9' && !matrix.postgres.shard
         run: >-
           go test -tags='integration multiprocess' ./pgbase
           -run '^TestAdministrationSDKsAgainstRealHTTPServer$' -count=1 -v -timeout 8m
@@ -350,14 +353,14 @@ jobs:
         run: scripts/test-s3-fixture.sh down
 
       - name: Record benchmark baseline
-        if: inputs.candidate_image != '' || github.event_name == 'workflow_dispatch'
+        if: (inputs.candidate_image != '' || github.event_name == 'workflow_dispatch') && !matrix.postgres.shard
         shell: bash
         run: |
           set -o pipefail
           go test -tags=integration ./internal/query ./internal/observability -run '^$' -bench . -benchmem 2>&1 | tee benchmark.txt
 
       - name: Upload benchmark baseline
-        if: ${{ always() && (inputs.candidate_image != '' || github.event_name == 'workflow_dispatch') }}
+        if: ${{ always() && (inputs.candidate_image != '' || github.event_name == 'workflow_dispatch') && !matrix.postgres.shard }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: benchmark-postgresql-${{ matrix.postgres.version }}
@@ -369,7 +372,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: backend-failure-postgresql-${{ matrix.postgres.version }}
+          name: backend-failure-postgresql-${{ matrix.postgres.version }}${{ matrix.postgres.shard && format('-{0}', matrix.postgres.shard) || '' }}
           path: go-test.log
           if-no-files-found: warn
           retention-days: 14
