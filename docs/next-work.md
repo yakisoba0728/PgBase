@@ -14,10 +14,10 @@
 
 | ID | 작업 | 완료 증거 |
 | --- | --- | --- |
-| O1 | **부분 완료.** 10월에는 GitHub-hosted 예약 실행이 돌았고, Security 실패(10-12·10-19)는 취약점 때문이었으며 [PR #87](https://github.com/yakisoba0728/PgBase/pull/87)로 해소 | 남은 증거: 다음 예약 Security 성공. 월 Actions 사용량 소진 시 다시 막힐 수 있어 Billing 확인은 소유자 몫 |
+| O1 | **완료(2026-10-22).** 저장소를 public으로 전환해 GitHub-hosted 표준 runner를 무료로 쓴다(10-22 10:16 UTC 결제/지출 한도 차단 해소). 예약 Security 취약점 실패는 [PR #87](https://github.com/yakisoba0728/PgBase/pull/87)로 해소 | 다음 예약 Security·Backup restore drill 성공 |
 | O4 | **binary 갱신 완료, 관리자 생성 남음.** 백업 후 `ad7783c` binary로 교체, doctor 0 finding·readiness·관리자 UI·404 확인 | 소유자가 `pgbase admin create --email <EMAIL>`로 관리자를 만들고 실제 사용 데이터로 인수 |
-| O5 | **진행 중.** `v0.2.0`·`v0.2.1` 릴리스 run이 gate에서 실패해 promotion되지 않았다. 원인 수정은 PR #89(restore drill)와 [PR #90](https://github.com/yakisoba0728/PgBase/pull/90)(16/18 race timeout, flake 2건) | 소유자의 Actions Billing 확인 → PR #90 CI 통과·병합 → `v0.2.2` tag의 release workflow 전체 통과·promotion → GitHub release 작성. 함께: | npm/pub.dev: SDK가 `private`/`publish_to: none`, `0.1.0-local`이고 배포 workflow·token이 없다. 패키지 이름·scope, 공개 여부, token은 소유자 결정 |
-| O6 | main push CI 복구. main push는 self-hosted `hyperv` runner로 가는데 3대 모두 offline이라 `4a63de3`·`ad7783c`·`9535250`의 main push run이 queued | 소유자가 runner를 다시 올린 뒤 main push Backend/Frontend/Security 통과 |
+| O5 | **이미지 릴리스 완료(2026-10-22).** [v0.2.3](https://github.com/yakisoba0728/PgBase/releases/tag/v0.2.3), digest `sha256:a56d96d4ad748276a963318fcf538eda77a5f635e9fb2459f15273574bb94ccb`. `v0.2.0`–`v0.2.2`는 gate 실패로 promotion 없음 | npm/pub.dev: SDK가 `private`/`publish_to: none`, `0.1.0-local`이고 배포 workflow·token이 없다. 패키지 이름·scope, 공개 여부, token은 소유자 결정 |
+| O6 | **완료.** 저장소 public 전환과 함께 `PGBASE_CI_RUNNER`를 지워 모든 job이 GitHub-hosted runner로 간다. offline runner를 기다리던 queued run은 취소 | 다음 main push의 Backend/Frontend/Security 통과 |
 
 ## 2026-10-01 열린 항목
 
