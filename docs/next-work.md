@@ -8,6 +8,17 @@
 
 기준: 2026-09-10. N1–N5는 구현·독립 검토·전체 로컬 인수 및 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) 필수 CI5/5·merge `2939f15`를 완료했고 기존 PG17.9/schema38→40 설치·인수도03:24 KST 마쳤다. N6–N9는 제품 `b7674f7`에서 구현·독립 검토·전체 G5 로컬 인수를 완료하고, 후속 수정까지 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)로 main `53a4741`에 병합됐다. 공개 배포·live 교체는 수행하지 않았다. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
 
+## 2026-10-22 열린 항목
+
+2026-10-22에 PR #87–#89를 병합하고 로컬 설치 binary를 `ad7783c`로 교체했다(schema 65). 아래 2026-10-01 표의 O1·O4·O5 상태는 이 표가 대체한다.
+
+| ID | 작업 | 완료 증거 |
+| --- | --- | --- |
+| O1 | **완료(2026-10-22).** 저장소를 public으로 전환해 GitHub-hosted 표준 runner를 무료로 쓴다(10-22 10:16 UTC 결제/지출 한도 차단 해소). 예약 Security 취약점 실패는 [PR #87](https://github.com/yakisoba0728/PgBase/pull/87)로 해소 | 다음 예약 Security·Backup restore drill 성공 |
+| O4 | **binary 갱신 완료, 관리자 생성 남음.** 백업 후 `ad7783c` binary로 교체, doctor 0 finding·readiness·관리자 UI·404 확인 | 소유자가 `pgbase admin create --email <EMAIL>`로 관리자를 만들고 실제 사용 데이터로 인수 |
+| O5 | **이미지 릴리스 완료(2026-10-22).** [v0.2.3](https://github.com/yakisoba0728/PgBase/releases/tag/v0.2.3), digest `sha256:a56d96d4ad748276a963318fcf538eda77a5f635e9fb2459f15273574bb94ccb`. `v0.2.0`–`v0.2.2`는 gate 실패로 promotion 없음 | npm/pub.dev: SDK가 `private`/`publish_to: none`, `0.1.0-local`이고 배포 workflow·token이 없다. 패키지 이름·scope, 공개 여부, token은 소유자 결정 |
+| O6 | **완료.** 저장소 public 전환과 함께 `PGBASE_CI_RUNNER`를 지워 모든 job이 GitHub-hosted runner로 간다. offline runner를 기다리던 queued run은 취소 | 다음 main push의 Backend/Frontend/Security 통과 |
+
 ## 2026-10-01 열린 항목
 
 | ID | 작업 | 완료 증거 |
