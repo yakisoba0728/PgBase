@@ -51,6 +51,8 @@ func TestIntegrationSuiteAcceptsOnlyPackagePathsFromItsEnvironment(t *testing.T)
 		"PGBASE_FAKE_GO_MARKER="+marker,
 		"PGBASE_TEST_ADMIN_URL=postgres://test",
 		"PGBASE_INTEGRATION_PACKAGES=./internal/sqlconsole ./pgbase",
+		// The sharded CI job sets this, so each case pins both selections.
+		"PGBASE_INTEGRATION_EXCLUDE_PACKAGES=",
 	)
 	if err := command.Run(); err == nil {
 		t.Fatal("integration suite unexpectedly succeeded with the fake Go command")
@@ -70,6 +72,7 @@ func TestIntegrationSuiteAcceptsOnlyPackagePathsFromItsEnvironment(t *testing.T)
 		"PATH="+fakeBin,
 		"PGBASE_TEST_ADMIN_URL=postgres://test",
 		"PGBASE_INTEGRATION_PACKAGES=./internal/sqlconsole;echo unexpected",
+		"PGBASE_INTEGRATION_EXCLUDE_PACKAGES=",
 	)
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
@@ -98,6 +101,7 @@ exit 99
 		"PATH="+fakeBin+":/usr/bin:/bin",
 		"PGBASE_FAKE_GO_MARKER="+shardMarker,
 		"PGBASE_TEST_ADMIN_URL=postgres://test",
+		"PGBASE_INTEGRATION_PACKAGES=",
 		"PGBASE_INTEGRATION_EXCLUDE_PACKAGES=./pgbase",
 	)
 	if err := command.Run(); err == nil {
@@ -107,7 +111,8 @@ exit 99
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(arguments); !strings.Contains(got, "example.test/a\nexample.test/b\n") || strings.Contains(got, "example.test/pgbase") {
+	// The pipeline's two go commands append to the marker concurrently, so check lines, not order.
+	if got := string(arguments); !strings.Contains(got, "example.test/a\n") || !strings.Contains(got, "example.test/b\n") || strings.Contains(got, "example.test/pgbase") {
 		t.Fatalf("shard Go test invocation = %q, want every package except example.test/pgbase", got)
 	}
 }
