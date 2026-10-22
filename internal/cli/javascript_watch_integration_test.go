@@ -48,11 +48,14 @@ func TestJavaScriptWatchKeepsValidGenerationAndDoesNotRunMigrations(t *testing.T
 	if err := os.WriteFile(filepath.Join(directory, "app.js"), []byte(`exports.route=()=>{`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(150 * time.Millisecond)
-	waitWatchResponse(t, endpoint, `{"version":"one"}`)
-	if !strings.Contains(stderr.String(), "reload rejected") {
-		t.Fatalf("invalid generation status = %q", stderr.String())
+	// The watcher polls every 50ms; under -race on a loaded runner the rejection
+	// can take longer than any fixed sleep, so wait for it.
+	for deadline := time.Now().Add(4 * time.Second); !strings.Contains(stderr.String(), "reload rejected"); time.Sleep(25 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("invalid generation status = %q", stderr.String())
+		}
 	}
+	waitWatchResponse(t, endpoint, `{"version":"one"}`)
 	writeWatchSource(t, directory, "two")
 	waitWatchResponse(t, endpoint, `{"version":"two"}`)
 	if strings.Count(stdout.String(), "JavaScript generation") < 2 {

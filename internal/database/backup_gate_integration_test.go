@@ -61,9 +61,17 @@ func TestDatabasePoolConnectionsParticipateInBackupGate(t *testing.T) {
 		t.Fatalf("exclusive after lifetime gate loss = %v", err)
 	}
 	pool.Close()
-	exclusive, err := TryBackupGate(ctx, databaseURL, true)
-	if err != nil {
-		t.Fatal(err)
+	// Close returns before the server ends each backend, and a backend keeps its
+	// shared lock until it exits.
+	var exclusive *BackupGate
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(25 * time.Millisecond) {
+		exclusive, err = TryBackupGate(ctx, databaseURL, true)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, ErrBackupGateBusy) || time.Now().After(deadline) {
+			t.Fatal(err)
+		}
 	}
 	defer exclusive.Close(ctx)
 	if _, err = Open(ctx, databaseURL, time.Second); !errors.Is(err, ErrBackupGateBusy) {

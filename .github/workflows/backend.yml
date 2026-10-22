@@ -227,8 +227,10 @@ jobs:
       # it on every PR dominated feedback time (15m21s in run 34428905056), so
       # retain that expensive coverage for main, release-gate and manual runs.
       # PRs run a representative database smoke set; the whole package graph
-      # stays mandatory on main, release-gate and manual runs.
-      PGBASE_FULL_INTEGRATION_RACE: ${{ github.event_name != 'pull_request' || inputs.candidate_image != '' }}
+      # stays mandatory on main, release-gate and manual runs. The race detector
+      # checks Go code, not the database major, so the 16/17/18 matrix runs it
+      # on 17.9 only; under -race the suite took 24m and timed out on 16/18.
+      PGBASE_FULL_INTEGRATION_RACE: ${{ (github.event_name != 'pull_request' || inputs.candidate_image != '') && matrix.postgres.version == '17.9' }}
       PGBASE_INTEGRATION_PACKAGES: ${{ github.event_name == 'pull_request' && './internal/migrate ./internal/sqlconsole ./internal/filestore ./internal/userauth ./pgbase' || './...' }}
     steps:
       - name: Check out repository
@@ -307,7 +309,9 @@ jobs:
           set -o pipefail
           test_arguments=(-count=1)
           if [[ "$PGBASE_FULL_INTEGRATION_RACE" == "true" ]]; then
-            test_arguments=(-race "${test_arguments[@]}")
+            # ./pgbase alone takes over 8 minutes under -race, close to go test's
+            # 10-minute default per package.
+            test_arguments=(-race -timeout 20m "${test_arguments[@]}")
           fi
           scripts/test-go-integration.sh "${test_arguments[@]}" 2>&1 | tee go-test.log
 
