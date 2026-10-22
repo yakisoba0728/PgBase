@@ -1,6 +1,23 @@
 # pgBase 구현 현황 / TODO
 
-## 2026-10-01 현재 — main 병합 이력 정리와 남은 운영 항목
+## 2026-10-22 현재 — 보안 패치, 의존성 정리, 로컬 설치 갱신, v0.2.1 릴리스
+
+main은 `9535250`([PR #89](https://github.com/yakisoba0728/PgBase/pull/89))이고 system migration은 `000065`(schema 65) 그대로다. 아래 PR은 모두 필수 CI(Go unit, Observability, PostgreSQL integration 17.9, Frontend test, Security audit) 통과 후 merge commit으로 병합했다.
+
+- [x] [PR #87](https://github.com/yakisoba0728/PgBase/pull/87) `4a63de3`: 2026-10-12·10-19 예약 Security 실패 해소. `govulncheck`가 Go 1.26.8 stdlib와 `golang.org/x/net` v0.58.0의 취약점 13건을 보고했다. Go 1.26.9에는 GO-2026-6809(crypto/x509)가 남아 toolchain·workflow `setup-go`·golang base image 3개·script·subprocess test를 **1.26.10**으로, x/net을 v0.60.0으로 올렸다. 같은 PR의 frontend `npm audit` 실패(vite 8.3.0, source-map-js 1.2.1, vitest 4.1.11)는 vite 8.3.5·vitest 4.1.12와 `ui/admin/dist` 재생성으로 해소.
+- [x] [PR #88](https://github.com/yakisoba0728/PgBase/pull/88) `ad7783c`: Dependabot patch/minor 10건 통합(aws-sdk-go-v2·smithy-go·prometheus/common, setup-node·upload-artifact·sbom-action, jsdom 30.1.2, `@tiptap/*` 3.31.4 일괄). #86(golang 1.27)·#82(vite 8.3.2)·#80(vitest 5)·#83(@types/node 26)은 사유를 남기고 닫았다. 병합 중 Dependabot이 일부 PR을 더 새 버전(jsdom 30.1.3, tiptap 3.32.0, s3 1.114.3 등)으로 갱신했으나 그 버전은 포함하지 않았다. 다음 Dependabot 실행에서 다시 제안된다.
+- [x] [PR #89](https://github.com/yakisoba0728/PgBase/pull/89) `9535250`: test만 변경. ① `v0.2.0` 릴리스 gate의 `TestRestoreDrill`이 PostgreSQL 16/17/18 모두 `open objects: permission denied`로 실패. 릴리스 후보 이미지가 `nonroot`로 쓴 owner-only 디렉터리를 runner 사용자가 복사·삭제하지 못했다(`e956cc2` 이후 첫 릴리스 실행). 파일 디렉터리를 mount하는 후보 server를 test 사용자 uid:gid로 실행한다. Linux(Docker 28, uid 1001) 재현으로 수정 전 실패·수정 후 통과 확인. ② `TestEmailOTPConcurrentResendAndDisableRedemption`이 동시 요청의 non-blocking advisory lock 경합(설계상 rate limited)을 실패로 본 flake 수정.
+- [x] 로컬 설치 갱신: 백업 `.local/backups/pre-upgrade-8568458-20261022-173026`(DB dump, binary, environment, files, SHA256SUMS) 후 binary를 `ad7783c`(Go 1.26.10, `vcs.modified=false`)로 교체. schema 65→65(새 migration 없음), doctor 0 finding, `/health/live`·`/health/ready`·`/admin/` 200, 알 수 없는 경로 404. PR #89는 test만 바꿔 설치 binary 동작과 같다.
+- [ ] 관리자 계정 생성: 계정과 비밀번호는 소유자가 직접 만든다. `source .local/pgbase/environment` 후 `.local/pgbase/bin/pgbase admin create --email <EMAIL>`(비밀번호는 terminal 입력 또는 `--password-stdin`).
+- [ ] main push CI: `4a63de3`·`ad7783c`·`9535250`의 main push Backend/Frontend/Security가 queued 상태다. main push는 self-hosted `PGBASE_CI_RUNNER`(`hyperv`)로 가는데 runner `hyperv-pgbase-01`–`03`이 모두 offline이다. 같은 commit은 PR CI와 릴리스 gate가 GitHub-hosted runner에서 검증했다. 소유자가 runner를 다시 올려야 한다.
+- [ ] 예약 workflow(O1): 10월에는 GitHub-hosted 예약 실행이 다시 돌았다(Backup restore drill 10-07·10-14·10-21 성공, Security 10-05 성공·10-12·10-19는 취약점으로 실패 → PR #87). 월 Actions 사용량이 다 차면 다시 막힐 수 있어 Billing 확인은 계속 소유자 몫이다.
+- [x] `v0.2.0` tag(`ad7783c`): 릴리스 run [39750049397](https://github.com/yakisoba0728/PgBase/actions/runs/39750049397)에서 restore gate 실패 후 취소. promotion되지 않았고 GitHub release도 없다. "Immutable release tags" 규칙 때문에 tag는 남겨 두고 `v0.2.1`로 다시 릴리스했다.
+- [x] `v0.2.1` tag(`9535250`): 릴리스 run [39756429507](https://github.com/yakisoba0728/PgBase/actions/runs/39756429507)에서 candidate·contract·restore(16/17/18)·E2E·Go unit·frontend·audit·macOS terminal gate는 통과, PostgreSQL integration은 17.9만 통과했다. 16.13·18.3은 `-race`에서 `./pgbase`가 go test 기본 10분 timeout(600.1s)에 걸렸고, flake 2건(`internal/cli` watch test의 고정 150ms sleep, `internal/database` backup gate test의 `pool.Close()` 직후 exclusive 시도)이 있었다. promotion되지 않았고 GitHub release도 없다. tag는 남긴다.
+- [ ] [PR #90](https://github.com/yakisoba0728/PgBase/pull/90): release/manual matrix의 `-race`를 17.9에만 적용(16.13·18.3은 race 없이 전체 suite), race 실행에 `-timeout 20m`, flake 2건 수정. 로컬 검증에서 두 test package는 17.9 race·18.3 plain 모두 통과. PR CI는 GitHub Actions 결제/지출 한도로 job이 시작되지 않아(annotation: "recent account payments have failed or your spending limit needs to be increased") 아직 병합하지 못했다.
+- [ ] 다음 릴리스 `v0.2.2`: 소유자가 Settings → Billing & plans에서 결제 수단·Actions 지출 한도를 확인한 뒤 PR #90 CI 재실행 → 병합 → `v0.2.2` tag. 릴리스 workflow와 gate는 GitHub-hosted runner에서만 돈다.
+- [ ] npm/pub.dev 배포: 수행하지 않음. `sdk/typescript`는 `"private": true`·`0.1.0-local`, `sdk/dart`는 `publish_to: none`·`0.1.0-local`이고, 저장소에 npm/pub.dev 배포 workflow나 token이 없다. 패키지 이름·scope 소유, 공개 여부, 배포 token은 소유자가 정해야 한다.
+
+## 2026-10-01 — main 병합 이력 정리와 남은 운영 항목
 
 main은 `31a9694`([PR #66](https://github.com/yakisoba0728/PgBase/pull/66))이고 system migration은 `000065`(schema 65)까지다. 이전 N1–N5/schema40 설치 기록은 문서 작성 Mac에 존재하지 않아, 2026-10-01 같은 Mac에 `8568458` binary와 PostgreSQL 17.9 새 DB로 schema 65 fresh install을 만들었다(`127.0.0.1:8090`). 공개 배포는 하지 않았고 공개 릴리스는 v0.1.0뿐이다. 아래 병합은 각 PR의 필수 CI 통과 후 merge commit으로 반영됐다.
 

@@ -8,6 +8,17 @@
 
 기준: 2026-09-10. N1–N5는 구현·독립 검토·전체 로컬 인수 및 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) 필수 CI5/5·merge `2939f15`를 완료했고 기존 PG17.9/schema38→40 설치·인수도03:24 KST 마쳤다. N6–N9는 제품 `b7674f7`에서 구현·독립 검토·전체 G5 로컬 인수를 완료하고, 후속 수정까지 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)로 main `53a4741`에 병합됐다. 공개 배포·live 교체는 수행하지 않았다. [완료 이력과 현재 상태](project-status.md), [실행 체크리스트](../TODO.md), [PocketBase 재평가](pocketbase-current-reassessment.md)를 함께 사용한다. 아래 ID는 실행 순서이며 기존 M/P 단계 번호를 바꾸지 않는다. 기간·진행률은 추정하지 않는다.
 
+## 2026-10-22 열린 항목
+
+2026-10-22에 PR #87–#89를 병합하고 로컬 설치 binary를 `ad7783c`로 교체했다(schema 65). 아래 2026-10-01 표의 O1·O4·O5 상태는 이 표가 대체한다.
+
+| ID | 작업 | 완료 증거 |
+| --- | --- | --- |
+| O1 | **부분 완료.** 10월에는 GitHub-hosted 예약 실행이 돌았고, Security 실패(10-12·10-19)는 취약점 때문이었으며 [PR #87](https://github.com/yakisoba0728/PgBase/pull/87)로 해소 | 남은 증거: 다음 예약 Security 성공. 월 Actions 사용량 소진 시 다시 막힐 수 있어 Billing 확인은 소유자 몫 |
+| O4 | **binary 갱신 완료, 관리자 생성 남음.** 백업 후 `ad7783c` binary로 교체, doctor 0 finding·readiness·관리자 UI·404 확인 | 소유자가 `pgbase admin create --email <EMAIL>`로 관리자를 만들고 실제 사용 데이터로 인수 |
+| O5 | **진행 중.** `v0.2.0`·`v0.2.1` 릴리스 run이 gate에서 실패해 promotion되지 않았다. 원인 수정은 PR #89(restore drill)와 [PR #90](https://github.com/yakisoba0728/PgBase/pull/90)(16/18 race timeout, flake 2건) | 소유자의 Actions Billing 확인 → PR #90 CI 통과·병합 → `v0.2.2` tag의 release workflow 전체 통과·promotion → GitHub release 작성. 함께: | npm/pub.dev: SDK가 `private`/`publish_to: none`, `0.1.0-local`이고 배포 workflow·token이 없다. 패키지 이름·scope, 공개 여부, token은 소유자 결정 |
+| O6 | main push CI 복구. main push는 self-hosted `hyperv` runner로 가는데 3대 모두 offline이라 `4a63de3`·`ad7783c`·`9535250`의 main push run이 queued | 소유자가 runner를 다시 올린 뒤 main push Backend/Frontend/Security 통과 |
+
 ## 2026-10-01 열린 항목
 
 | ID | 작업 | 완료 증거 |
