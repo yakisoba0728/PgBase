@@ -20,7 +20,7 @@
     "@tiptap/pm": "3.31.4",
     "@tiptap/react": "3.31.4",
     "@tiptap/starter-kit": "3.31.4",
-    "lossless-json": "4.3.1",
+    "lossless-json": "4.3.2",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
