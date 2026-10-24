@@ -4,6 +4,9 @@ import { AdminLink } from "../routing/admin-link";
 import type { AdminRoute } from "../routing/admin-location";
 import { useBackend } from "../auth/session";
 
+import { Button, EmptyState, PageHeading } from "../components/ui";
+import { WorkspaceIcon } from "../components/workspace-icon";
+
 interface CollectionsPageProps { navigate(route: AdminRoute): void }
 
 function TruncateCollection({ collection }: { collection: CollectionDefinition }) {
@@ -78,9 +81,9 @@ function UserAccess({ collection }: { collection: CollectionDefinition }) {
     }
   }
 
-  if (loadingFailed) return <span role="alert">Unable to load user access. <button type="button" onClick={() => load()}>Retry user access</button></span>;
+  if (loadingFailed) return <span role="alert">Unable to load user access. <Button variant="secondary" onClick={() => load()}>Retry user access</Button></span>;
   return <span>
-    <button type="button" disabled={busy || enabled === null} onClick={() => void toggle()}>{enabled ? "Disable user access" : "Enable user access"}</button>
+    <Button variant="secondary" disabled={busy || enabled === null} onClick={() => void toggle()}>{enabled ? "Disable user access" : "Enable user access"}</Button>
     {updateFailed && <span role="alert"> Unable to update user access.</span>}
   </span>;
 }
@@ -89,6 +92,7 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
   const { schema } = useBackend();
   const [catalog, setCatalog] = useState<CollectionCatalog | null>(null);
   const [failed, setFailed] = useState(false);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -106,26 +110,31 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
   }, [schema]);
 
   const collections = catalog?.all() ?? [];
-  return <section>
-      <div className="page-heading">
-      <div><h2>Collections</h2>{catalog && <p>Catalog version {catalog.version}</p>}</div>
-      <span><AdminLink className="link-button" navigate={navigate} route={{ kind: "collection-create" }}>Create collection</AdminLink> <AdminLink className="link-button" navigate={navigate} route={{ kind: "collection-scaffold", scaffold: "base" }}>Base scaffold</AdminLink> <AdminLink className="link-button" navigate={navigate} route={{ kind: "collection-scaffold", scaffold: "auth" }}>Auth scaffold</AdminLink> <AdminLink className="link-button" navigate={navigate} route={{ kind: "collection-scaffold", scaffold: "view" }}>View scaffold</AdminLink></span>
-    </div>
+  const visibleCollections = collections.filter(collection => collection.name.toLowerCase().includes(search.trim().toLowerCase()));
+  return <section className="collections-page">
+    <PageHeading title="Collections" description="Manage schemas and records in your PostgreSQL project." actions={<AdminLink className="link-button" navigate={navigate} route={{ kind: "collection-create" }}><WorkspaceIcon name="plus" />Create collection</AdminLink>} />
+    <div className="collection-toolbar"><label className="collection-search"><WorkspaceIcon name="search" /><input aria-label="Search collections" placeholder="Search collections…" type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>{catalog && <span className="catalog-meta">{collections.length} {collections.length === 1 ? "collection" : "collections"}<span className="catalog-divider">/</span><span>Catalog version {catalog.version}</span></span>}</div>
     {failed && <p role="alert">Unable to load collections.</p>}
     {!catalog && !failed && <p aria-live="polite">Loading collections…</p>}
-    {catalog && collections.length === 0 && <p>No collections yet.</p>}
-    {catalog && <ul className="collection-list">
-      {collections.map((collection) => {
+    {catalog && collections.length === 0 && <EmptyState title="No collections yet." icon="database" description={<>A collection gives your records a home.<br />Start with a blank schema, or choose a template below.</>} action={<AdminLink className="text-button empty-create" navigate={navigate} route={{ kind: "collection-create" }}>Create your first collection<WorkspaceIcon name="arrow" /></AdminLink>} />}
+    {catalog && collections.length > 0 && visibleCollections.length === 0 && <p className="search-empty" role="status">No collections match “{search}”.</p>}
+    {catalog && visibleCollections.length > 0 && <ul className="collection-list" aria-label="Collections">
+      {visibleCollections.map((collection) => {
         const relationCount = collection.fields.filter((field) => field.type === "relation").length;
         return <li key={collection.name}>
-          <AdminLink className="text-button" navigate={navigate} route={{ kind: "records", collection: collection.name }}>{collection.name}</AdminLink>
-          <span>{collection.fields.length} fields{relationCount > 0 ? ` · ${relationCount} ${relationCount === 1 ? "relation" : "relations"}` : ""}</span>
-          <UserAccess collection={collection} />
+          <div className="collection-identity"><span className="collection-symbol"><WorkspaceIcon name={collection.view ? "layers" : "database"} /></span><div><AdminLink className="text-button collection-name" navigate={navigate} route={{ kind: "records", collection: collection.name }}>{collection.name}</AdminLink><span className="collection-kind">{collection.view ? "View collection" : collection.type === "auth" ? "Auth collection" : "Base collection"}</span></div></div>
+          <span className="collection-metadata">{collection.fields.length} fields{relationCount > 0 ? ` · ${relationCount} ${relationCount === 1 ? "relation" : "relations"}` : ""}</span>
+          <div className="collection-row-actions"><UserAccess collection={collection} />
           <AdminLink className="text-button" navigate={navigate} route={{ kind: "collection-edit", collection: collection.name }}>Edit</AdminLink>
           <AdminLink className="text-button" navigate={navigate} route={{ kind: "collection-duplicate", collection: collection.name }}>Duplicate</AdminLink>
-          <TruncateCollection collection={collection} />
+          <TruncateCollection collection={collection} /></div>
         </li>;
       })}
     </ul>}
+    {catalog && <div className="collection-templates"><div className="template-heading"><h3>Start with a template</h3><p>A starting point for your next collection.</p></div><div className="template-grid">{([
+      { kind: "base", label: "Base scaffold", icon: "database", title: "Structured data", description: "Build a schema for any kind of record." },
+      { kind: "auth", label: "Auth scaffold", icon: "shield", title: "Authentication", description: "Start with fields for your app’s users." },
+      { kind: "view", label: "View scaffold", icon: "layers", title: "SQL view", description: "Explore data with a read-only SQL view." },
+    ] as const).map(template => <AdminLink className="template-card" key={template.kind} navigate={navigate} route={{ kind: "collection-scaffold", scaffold: template.kind }}><WorkspaceIcon name={template.icon} /><strong>{template.title}</strong><span>{template.description}</span><span className="template-action">{template.label}<WorkspaceIcon name="arrow" /></span></AdminLink>)}</div></div>}
   </section>;
 }

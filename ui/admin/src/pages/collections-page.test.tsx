@@ -28,7 +28,7 @@ describe("collections page", () => {
     expect(await screen.findByText("Catalog version 5")).toBeVisible();
     expect(screen.getByText("2 fields · 1 relation")).toBeVisible();
     expect(screen.getByText("1 fields")).toBeVisible();
-    expect(screen.getAllByRole("listitem").map((item) => item.textContent?.slice(0, 5))).toEqual(["posts", "users"]);
+    expect(within(screen.getByRole("list", { name: "Collections" })).getAllByRole("listitem").map((item) => item.textContent?.slice(0, 5))).toEqual(["posts", "users"]);
 
     await user.click(screen.getByRole("link", { name: "posts" }));
     expect(harness.history.path()).toBe("/admin/collections/posts/records");

@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { OperationReceipt } from "../backend/ports";
@@ -11,7 +11,7 @@ function receipt(operationId: string, patch: Partial<OperationReceipt> = {}): Op
   };
 }
 
-const rowOrder = () => screen.getAllByRole("listitem").map((row) => row.querySelector(".operation-id")?.textContent);
+const rowOrder = () => within(screen.getByRole("list", { name: "Schema operation history" })).getAllByRole("listitem").map((row) => row.querySelector(".operation-id")?.textContent);
 
 describe("schema operations page", () => {
   it("renders one bounded page of redacted receipts", async () => {

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { previewField, useCollectionDesigner, type DesignerMode } from "../designer/collection-designer";
 import { operationFailureMessage, type OperationRecovery } from "../operations/operation-recovery";
 import { AdminLink } from "../routing/admin-link";
@@ -7,6 +8,7 @@ import { ViewDefinitionEditor } from "./view-definition-editor";
 import { RecordRulesEditor } from "./record-rules-editor";
 import { RecordIDPolicyEditor } from "./record-id-policy-editor";
 import { useBackend } from "../auth/session";
+import { BackLink, Button, PageHeading } from "../components/ui";
 
 /**
  * The outcome of an apply the server could not decide within the request. It
@@ -29,31 +31,40 @@ function ApplyRecovery({ navigate, recovery }: { navigate(route: AdminRoute): vo
 export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode; navigate(route: AdminRoute): void }) {
   const { schema } = useBackend();
   const designer = useCollectionDesigner(mode, navigate);
+  const preview = useRef<HTMLElement>(null);
+  useEffect(() => { if (designer.preview) { preview.current?.focus({ preventScroll: true }); preview.current?.scrollIntoView?.({ block: "start" }); } }, [designer.preview]);
   const heading = mode.kind === "duplicate" ? "Duplicate collection" : mode.kind === "scaffold" ? `Create ${mode.scaffold} scaffold` : designer.create ? "Create collection" : "Edit collection";
+  const pageHeader = <><BackLink navigate={navigate} route={{ kind: "collections" }}>Back to collections</BackLink><PageHeading title={heading} description={designer.create
+    ? mode.kind === "duplicate" ? "The duplicate starts with the source schema and creates a separate empty collection." : "Preview the server-generated schema plan before applying it."
+    : designer.phase === "ready" ? `${designer.name} · physical table ${designer.tableName}` : undefined} /></>;
 
-  if (designer.phase === "missing") return <section><h2>{heading}</h2><p role="alert">Collection not found.</p></section>;
-  if (designer.phase === "unavailable") return <section><h2>{heading}</h2><p role="alert">Unable to load collection.</p></section>;
-  if (designer.phase === "loading") return <section><h2>{heading}</h2><p aria-live="polite">Loading collection…</p></section>;
+  if (designer.phase === "missing") return <section className="collection-designer">{pageHeader}<p role="alert">Collection not found.</p></section>;
+  if (designer.phase === "unavailable") return <section className="collection-designer">{pageHeader}<p role="alert">Unable to load collection.</p></section>;
+  if (designer.phase === "loading") return <section className="collection-designer">{pageHeader}<p aria-live="polite">Loading collection…</p></section>;
 
-  return <section>
-    <h2>{heading}</h2>
-    {designer.create
-      ? <p>{mode.kind === "duplicate" ? "The duplicate starts with the source schema and creates a separate empty collection." : "Preview the server-generated schema plan before applying it."}</p>
-      : <p>{designer.name} · physical table {designer.tableName}</p>}
+  return <section className="collection-designer">
+    {pageHeader}
     {designer.error && <p role="alert">{designer.error}</p>}
     {designer.recovery !== null && <ApplyRecovery navigate={navigate} recovery={designer.recovery} />}
     {designer.relationTargetsFailed && <p role="alert">Unable to load relation targets. Reload this page before adding a relation field.</p>}
     {designer.isView && <p>{designer.isSQLView ? "Records in this SQL view are read-only. You can edit its SQL definition." : "Records in this view are read-only. You can edit its source, projected fields, and static filter."}</p>}
     <form onSubmit={(event) => { event.preventDefault(); designer.requestPreview(); }}>
-      {designer.create && <>
+      <div className="collection-basics">
+      {designer.create && <div className="form-control">
         <label htmlFor="collection-name">Collection name</label>
-        <input disabled={designer.editingBlocked} id="collection-name" onChange={(event) => designer.rename(event.target.value)} required value={designer.name} />
-      </>}
-      {designer.view === undefined && <RecordIDPolicyEditor value={designer.recordId} locked={!designer.create} disabled={designer.editingBlocked} onChange={designer.setRecordIDPolicy} />}
+        <input aria-describedby="collection-name-help" autoComplete="off" disabled={designer.editingBlocked} id="collection-name" onChange={(event) => designer.rename(event.target.value)} required value={designer.name} />
+        <span className="control-help" id="collection-name-help">Used in record and API paths.</span>
+      </div>}
       {designer.create && designer.collectionType === "auth" && <p>Collection kind: Authentication realm. System fields and authentication policy are preserved in the server-owned template.</p>}
       {designer.create && designer.collectionType !== "auth" && <label>Collection kind <select disabled={designer.editingBlocked} value={designer.view === undefined ? "base" : "view"} onChange={(event) => designer.setView(event.target.value === "base" ? undefined : { source: "", projection: [] })}><option value="base">Base collection</option><option value="view">Read-only view</option></select></label>}
+      </div>
+      <details className="advanced-options"><summary>Advanced collection options</summary><fieldset disabled={designer.editingBlocked} className="settings-field-grid">
+        <label>Compatibility name<input value={designer.advanced?.compatibilityName ?? ""} onChange={e => designer.setAdvanced({ ...designer.advanced, compatibilityName: e.target.value })} /><span className="settings-help">Optional alternate collection name for compatible API clients. Leave empty to use the collection name.</span></label>
+        <label>Validation mode<select value={designer.advanced?.validationMode ?? "postgres"} onChange={e => designer.setAdvanced({ ...designer.advanced, validationMode: e.target.value as "postgres" | "pocketbase" })}><option value="postgres">PostgreSQL</option><option value="pocketbase">PocketBase compatible</option></select><span className="settings-help">Changes are included in the server preview before applying.</span></label>
+      </fieldset></details>
+      {designer.view === undefined && <RecordIDPolicyEditor value={designer.recordId} locked={!designer.create} disabled={designer.editingBlocked} onChange={designer.setRecordIDPolicy} />}
 		{designer.view !== undefined ? <ViewDefinitionEditor view={designer.view} sources={designer.viewSources} disabled={designer.editingBlocked} modeLocked={!designer.create} onChange={designer.setView} schema={schema} /> : <>
-      <fieldset disabled={designer.editingBlocked}>
+      <fieldset className="collection-fields" disabled={designer.editingBlocked}>
         <legend>Fields</legend>
         {designer.fields.map((field, index) => <CollectionFieldEditor
           field={field}
@@ -67,23 +78,22 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
           relationTargetsLoading={designer.relationTargetsLoading}
           showRequiredRelationMigration={designer.isNewField(field.name)}
         />)}
-        <button className="secondary" disabled={designer.editingBlocked} onClick={designer.addField} type="button">Add field</button>
+        <Button variant="secondary" disabled={designer.editingBlocked} onClick={designer.addField}>Add field</Button>
       </fieldset>
-      <fieldset disabled={designer.editingBlocked}><legend>Compound indexes</legend>
+      <fieldset className="collection-indexes" disabled={designer.editingBlocked}><legend>Compound indexes</legend>
         {designer.indexes.map((index, position) => <div key={position}>
           <label>Index name <input value={index.name} onChange={(event) => designer.setIndexes(designer.indexes.map((entry, i) => i === position ? { ...entry, name: event.target.value } : entry))} /></label>
           <label>Ordered fields <input aria-label={`Index ${position + 1} fields`} value={index.fields.join(", ")} onChange={(event) => designer.setIndexes(designer.indexes.map((entry, i) => i === position ? { ...entry, fields: event.target.value.split(",").map((field) => field.trim()).filter(Boolean) } : entry))} /></label>
           <label><input checked={index.unique} type="checkbox" onChange={(event) => designer.setIndexes(designer.indexes.map((entry, i) => i === position ? { ...entry, unique: event.target.checked } : entry))} /> Unique</label>
           <button type="button" onClick={() => designer.setIndexes(designer.indexes.filter((_, i) => i !== position))}>Remove index</button>
         </div>)}
-        <button type="button" onClick={() => designer.setIndexes([...designer.indexes, { name: "", fields: [], unique: false }])}>Add compound index</button>
+        <Button variant="secondary" onClick={() => designer.setIndexes([...designer.indexes, { name: "", fields: [], unique: false }])}>Add compound index</Button>
         <p>Each compound index needs two to eight ordered scalar fields.</p>
       </fieldset>
       </>}
-      <button disabled={designer.pending || designer.editingBlocked} type="submit">{designer.pending ? "Previewing…" : designer.create ? "Preview collection" : "Preview change"}</button>
+      <div className="designer-actions"><Button disabled={designer.pending || designer.editingBlocked} type="submit">{designer.pending ? "Previewing…" : designer.create ? "Preview collection" : "Preview change"}</Button><span className="control-help">Review the changes before applying them.</span></div>
     </form>
-    {!designer.create && <RecordRulesEditor collection={designer.name} />}
-    {designer.preview && <section className="preview" aria-label={designer.create ? "Collection preview" : "Collection change preview"}>
+    {designer.preview && <section ref={preview} tabIndex={-1} className="preview" aria-label={designer.create ? "Collection preview" : "Collection change preview"}>
       <h3>Server preview</h3>
       <p>Catalog version {designer.preview.baseVersion}</p>
       <ul>{designer.preview.fields.map((field) => <li key={field.name}>{previewField(field)}</li>)}</ul>
@@ -98,6 +108,7 @@ export function CollectionDesignerPage({ mode, navigate }: { mode: DesignerMode;
         {designer.pending ? "Applying…" : designer.create ? "Apply collection" : "Apply change"}
       </button>
     </section>}
+    {!designer.create && <RecordRulesEditor collection={designer.name} />}
     {!designer.create && <section className="danger-zone" aria-label="Danger zone">
       <h3>Danger zone</h3>
       {designer.deleteError && <p role="alert">{designer.deleteError}</p>}

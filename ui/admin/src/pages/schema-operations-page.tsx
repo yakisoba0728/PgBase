@@ -1,3 +1,4 @@
+import { Button, PageHeading } from "../components/ui";
 import type { OperationReceipt, OperationStatus } from "../backend/ports";
 import { operationFailureMessage } from "../operations/operation-recovery";
 import { useOperationHistory } from "../operations/operation-history";
@@ -38,17 +39,16 @@ function OperationRow({ receipt }: { receipt: OperationReceipt }) {
 
 export function SchemaOperationsPage() {
   const history = useOperationHistory();
-  return <section>
-    <h2>Schema operations</h2>
-    <p>The most recent schema operations recorded for your administrator account, newest first.</p>
+  return <section className="management-page schema-operations-page">
+    <PageHeading title="Schema operations" description="The most recent schema operations recorded for your administrator account, newest first." />
     {history.phase === "loading" && <p aria-live="polite">Loading schema operations…</p>}
     {history.error !== null && <p role="alert">{history.error}</p>}
     {history.phase === "ready" && history.items.length === 0 && <p>No schema operations yet.</p>}
-    {history.items.length > 0 && <ol className="operation-list">
+    {history.items.length > 0 && <ol className="operation-list" aria-label="Schema operation history">
       {history.items.map((receipt) => <OperationRow key={receipt.operationId} receipt={receipt} />)}
     </ol>}
-    {history.hasMore && <button disabled={history.loadingMore} onClick={history.loadMore} type="button">
+    {history.hasMore && <Button variant="secondary" disabled={history.loadingMore} onClick={history.loadMore} type="button">
       {history.loadingMore ? "Loading…" : "Next page"}
-    </button>}
+    </Button>}
   </section>;
 }

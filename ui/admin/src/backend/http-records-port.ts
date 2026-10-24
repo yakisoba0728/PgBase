@@ -54,7 +54,9 @@ export function createRecordsPort(
       options: ListOptions,
       signal?: AbortSignal,
     ): Promise<RecordPage> => {
-      const query = new URLSearchParams({ limit: "50" });
+      const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+      if (options.fields) query.set("fields", options.fields);
+      if (options.expand) query.set("expand", options.expand);
       if (options.cursor) query.set("cursor", options.cursor);
       if (options.filter) query.set("filter", options.filter);
       if (options.sort) query.set("sort", options.sort);

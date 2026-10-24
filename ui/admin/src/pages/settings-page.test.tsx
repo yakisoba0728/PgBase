@@ -8,7 +8,7 @@ import { memoryHistory } from "../test/memory-history";
 import { sessionWrapper } from "../test/harness";
 import { SettingsPage } from "./settings-page";
 
-const settings: AdminSettings = { batch: { enabled: true, maxRequests: 10, maxBodyBytes: 1000, timeoutMs: 1000 }, logs: { retentionDays: 30, level: "info", includeIP: false, includeAuth: false }, proxy: { trustedProxyCIDRs: [] }, backups: { schedule: "@every 24h", timezone: "UTC", enabled: true, keep: 7 }, application: { theme: "system", accent: "#1d4ed8", branding: "pgBase" }, rateLimits: { admin: { accountMaxFailures: 5, networkMaxFailures: 20, windowSeconds: 900, blockSeconds: 900 }, user: { accountMaxFailures: 5, networkMaxFailures: 20, registrationNetworkMaxFailures: 5, windowSeconds: 900, blockSeconds: 900 }, enabled: false, rules: [], excludedIPs: [] }, revision: 1 };
+const settings: AdminSettings = { batch: { enabled: true, maxRequests: 10, maxBodyBytes: 4096, timeoutMs: 1000 }, logs: { retentionDays: 30, level: "info", includeIP: false, includeAuth: false }, proxy: { trustedProxyCIDRs: [] }, backups: { schedule: "@every 24h", timezone: "UTC", enabled: true, keep: 7 }, application: { theme: "system", accent: "#1d4ed8", branding: "pgBase" }, rateLimits: { admin: { accountMaxFailures: 5, networkMaxFailures: 20, windowSeconds: 900, blockSeconds: 900 }, user: { accountMaxFailures: 5, networkMaxFailures: 20, registrationNetworkMaxFailures: 5, windowSeconds: 900, blockSeconds: 900 }, enabled: false, rules: [], excludedIPs: [] }, revision: 1 };
 
 describe("application settings", () => {
   it("requires an explicit bounded retention count and explains that zero keeps all archives", async () => {
@@ -26,14 +26,14 @@ describe("application settings", () => {
     expect(await screen.findByText("Backups to keep must be a whole number from 0 through 10000.")).toBeVisible();
     await user.type(keep, "0");
     await user.click(screen.getByRole("button", { name: "Save settings" }));
-    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ backups: { ...settings.backups, keep: 0 } })));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ backups: { ...settings.backups, keep: 0 } }), expect.any(AbortSignal)));
   });
 
   it("saves log capture controls and backup schedule as one revision", async () => {
     const backend = memoryBackend(backendScript()); const save = vi.fn().mockImplementation(async (value: AdminSettings) => ({ ...value, revision: 2 })); backend.settings = { get: vi.fn().mockResolvedValue(settings), save, reload: vi.fn() };
     const user = userEvent.setup(); render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) });
     await screen.findByDisplayValue("info"); await user.selectOptions(screen.getByLabelText("Level"), "warn"); await user.click(screen.getByLabelText("Include IP addresses")); await user.click(screen.getByLabelText("Include authentication events")); await user.clear(screen.getByLabelText("Schedule")); await user.type(screen.getByLabelText("Schedule"), "@every 6h"); await user.click(screen.getByRole("button", { name: "Save settings" }));
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({ revision: 1, logs: expect.objectContaining({ level: "warn", includeIP: true, includeAuth: true }), backups: expect.objectContaining({ schedule: "@every 6h" }) })); expect(await screen.findByText("Settings saved.")).toBeVisible();
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ revision: 1, logs: expect.objectContaining({ level: "warn", includeIP: true, includeAuth: true }), backups: expect.objectContaining({ schedule: "@every 6h" }) }), expect.any(AbortSignal)); expect(await screen.findByText("Settings saved.")).toBeVisible();
   });
 
 	it("edits the current administrator and canonical IP allowlist through their dedicated endpoints", async () => {
@@ -116,7 +116,7 @@ describe("application settings", () => {
   it("adds, validates, removes and persists global API rules without changing authentication limits", async () => {
     const backend = memoryBackend(backendScript()); const save = vi.fn().mockImplementation(async (value: AdminSettings) => value); backend.settings = { get: vi.fn().mockResolvedValue(settings), save, reload: vi.fn() };
     const user = userEvent.setup(); render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) }); await screen.findByText("API request rate limits"); await user.click(screen.getByRole("checkbox", { name: "Enable API request rate limits" })); await user.click(screen.getByRole("button", { name: "Add API rate rule" })); await user.type(screen.getByLabelText("Rule 1 label"), "/health/live"); await user.selectOptions(screen.getByLabelText("Rule 1 audience"), "@guest"); await user.clear(screen.getByLabelText("Rule 1 duration seconds")); await user.type(screen.getByLabelText("Rule 1 duration seconds"), "60"); await user.clear(screen.getByLabelText("Rule 1 maximum requests")); await user.type(screen.getByLabelText("Rule 1 maximum requests"), "1"); await user.type(screen.getByLabelText("Excluded client IPs or CIDRs, one per line"), "192.0.2.0/24"); await user.click(screen.getByRole("button", { name: "Save settings" }));
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({ rateLimits: expect.objectContaining({ enabled: true, rules: [{ label: "/health/live", audience: "@guest", duration: 60, maxRequests: 1 }], excludedIPs: ["192.0.2.0/24"], admin: settings.rateLimits.admin, user: settings.rateLimits.user }) })); await user.click(screen.getByRole("button", { name: "Remove rule 1" })); expect(screen.queryByLabelText("Rule 1 label")).toBeNull();
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ rateLimits: expect.objectContaining({ enabled: true, rules: [{ label: "/health/live", audience: "@guest", duration: 60, maxRequests: 1 }], excludedIPs: ["192.0.2.0/24"], admin: settings.rateLimits.admin, user: settings.rateLimits.user }) }), expect.any(AbortSignal)); await user.click(screen.getByRole("button", { name: "Remove rule 1" })); expect(screen.queryByLabelText("Rule 1 label")).toBeNull();
   });
 
   it("does not submit an invalid global API rule", async () => {

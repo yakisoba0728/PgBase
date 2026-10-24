@@ -1,11 +1,11 @@
 import { BackupStoragePage } from "./pages/backup-storage-page";
 import { StorageSettingsPage } from "./pages/storage-settings-page";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SessionProvider, useBackend, useSession } from "./auth/session";
-import { AdminLink } from "./routing/admin-link";
-import { useAdminLocation, type AdminHistory, type AdminRoute } from "./routing/admin-location";
+import { adminRouteIdentity, useAdminLocation, type AdminHistory, type AdminRoute } from "./routing/admin-location";
 import { UnsavedDrafts, draftLedger } from "./routing/unsaved-draft";
 import type { AdminBackend } from "./backend/ports";
+import { routeAvailable } from "./backend/capabilities";
 import { httpBackend } from "./backend/http-backend";
 import { createSQLConsoleBackend, type SQLConsolePort } from "./backend/sql-console-backend";
 import { CollectionDesignerPage } from "./pages/collection-designer-page";
@@ -25,6 +25,9 @@ import { SettingsPage } from "./pages/settings-page";
 import { AdministratorsPage } from "./pages/administrators-page";
 import { useAdminExtensionScreens, extensionScreen } from "./extensions/admin-extensions";
 import { ExtensionScreen } from "./extensions/extension-screen";
+
+import { WorkspaceContextNavigation, WorkspaceHeader, WorkspaceNavigation, workspaceLabel } from "./components/workspace-chrome";
+import { applyWorkspaceTheme, resetWorkspaceTheme } from "./components/workspace-theme";
 
 type Navigate = (route: AdminRoute) => void;
 
@@ -55,18 +58,25 @@ function outlet(route: AdminRoute, key: string, navigate: Navigate, sqlConsole?:
   return <CollectionsPage key={key} navigate={navigate} />;
 }
 
+
 function AuthenticatedShell({ history, sqlConsole }: { history?: AdminHistory; sqlConsole?: SQLConsolePort }) {
   const { logout, state } = useSession();
-	const { settings } = useBackend();
+	const backend = useBackend();
+  const { settings } = backend;
   const [drafts] = useState(draftLedger);
   const logoutInFlight = useRef(false);
+  const navigationToggle = useRef<HTMLButtonElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const returnNavigationFocus = useRef(false);
+  const focusAcceptedRoute = useRef(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
 	const extensionScreens = useAdminExtensionScreens();
 	useEffect(() => {
 		if (!settings) return;
 		const controller = new AbortController();
-		void settings.get(controller.signal).then((value) => { if (!controller.signal.aborted) { document.documentElement.dataset.theme = value.application.theme; document.documentElement.style.setProperty("--accent", value.application.accent); document.title = value.application.branding || "pgBase administration"; } }).catch(() => { /* the workspace remains usable when optional settings are unavailable */ });
+		void settings.get(controller.signal).then((value) => { if (!controller.signal.aborted) { applyWorkspaceTheme(value.application); } }).catch(() => { /* the workspace remains usable when optional settings are unavailable */ });
 		return () => controller.abort();
 	}, [settings]);
   // The ref closes navigation synchronously with starting the request; the
@@ -76,6 +86,30 @@ function AuthenticatedShell({ history, sqlConsole }: { history?: AdminHistory; s
     history,
     () => !logoutInFlight.current && drafts.mayLeave(),
   );
+  useLayoutEffect(() => {
+    if (!navigationOpen && returnNavigationFocus.current) {
+      returnNavigationFocus.current = false;
+      navigationToggle.current?.focus();
+    }
+  }, [navigationOpen]);
+  useLayoutEffect(() => {
+    returnNavigationFocus.current = false;
+    focusAcceptedRoute.current = true;
+    setNavigationOpen(false);
+  }, [identity]);
+  useLayoutEffect(() => {
+    if (navigationOpen || !focusAcceptedRoute.current) return;
+    focusAcceptedRoute.current = false;
+    document.scrollingElement?.scrollTo?.({ top: 0, left: 0, behavior: "instant" });
+    content.current?.focus({ preventScroll: true });
+  }, [identity, navigationOpen]);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(max-width: 760px)");
+    const changed = () => { if (!media.matches) setNavigationOpen(false); };
+    media.addEventListener("change", changed);
+    return () => media.removeEventListener("change", changed);
+  }, []);
   if (state.kind !== "authenticated") return null;
   async function signOut() {
     // Signing out ends the session the draft would have been saved under, so it
@@ -94,18 +128,21 @@ function AuthenticatedShell({ history, sqlConsole }: { history?: AdminHistory; s
       setLogoutPending(false);
     }
   }
+  function closeNavigation() { returnNavigationFocus.current = true; setNavigationOpen(false); }
+  function go(next: AdminRoute) {
+    if (navigationOpen && adminRouteIdentity(next) === identity) closeNavigation();
+    else navigate(next);
+  }
   return <main className="shell">
-    <header>
-      <div>
-        <h1>pgBase administration</h1>
-        <p>{state.administrator.email}</p>
-      </div>
-      <button disabled={logoutPending} onClick={() => void signOut()} type="button">{logoutPending ? "Signing out…" : "Sign out"}</button>
-    </header>
+    <a className="skip-link" href="#workspace-content">Skip to content</a>
+    <WorkspaceHeader email={state.administrator.email} route={route} navigate={go} navigationOpen={navigationOpen} pending={logoutPending} onToggleNavigation={() => setNavigationOpen(true)} onSignOut={() => void signOut()} toggleRef={navigationToggle} />
     <fieldset aria-label="Administrator workspace" className="shell-workspace" disabled={logoutPending} inert={logoutPending}>
-      {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
-      <nav aria-label="Administration"><AdminLink className="text-button" navigate={navigate} route={{ kind: "storage" }}>File storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "backup-storage" }}>Backup storage</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "collections" }}>Collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "schema-transfer" }}>Schema transfer</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "users" }}>Users</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "administrators" }}>Administrators</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "auth-collections" }}>Auth collections</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "service-tokens" }}>Service tokens</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "operations" }}>Schema operations</AdminLink>{extensionScreens.map((screen) => <AdminLink className="text-button" key={screen.id} navigate={navigate} route={{ kind: "extension", id: screen.id, path: screen.path }}>{screen.label}</AdminLink>)}{state.sqlConsoleEnabled === true && sqlConsole !== undefined && <AdminLink className="text-button" navigate={navigate} route={{ kind: "sql-console" }}>SQL console</AdminLink>}<AdminLink className="text-button" navigate={navigate} route={{ kind: "settings" }}>Settings</AdminLink><AdminLink className="text-button" navigate={navigate} route={{ kind: "system" }}>System</AdminLink></nav>
-      <UnsavedDrafts ledger={drafts}>{outlet(route, identity, navigate, state.sqlConsoleEnabled === true ? sqlConsole : undefined)}</UnsavedDrafts>
+      <WorkspaceNavigation route={route} open={navigationOpen} onClose={closeNavigation} navigate={go} extensions={extensionScreens} sqlEnabled={state.sqlConsoleEnabled === true && sqlConsole !== undefined} />
+      <div ref={content} role="region" aria-label={`${workspaceLabel(route)} workspace`} inert={navigationOpen} className="workspace-content" id="workspace-content" tabIndex={-1}>
+        <WorkspaceContextNavigation route={route} navigate={go} />
+        {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
+        <UnsavedDrafts ledger={drafts}><div className="route-view" key={identity}>{routeAvailable(backend, route) ? outlet(route, identity, navigate, state.sqlConsoleEnabled === true ? sqlConsole : undefined) : <section><h2>Feature unavailable</h2><p>This server does not support this page.</p></section>}</div></UnsavedDrafts>
+      </div>
     </fieldset>
   </main>;
 }
@@ -113,6 +150,9 @@ function AuthenticatedShell({ history, sqlConsole }: { history?: AdminHistory; s
 function SessionScreen({ history, sqlConsole }: { history?: AdminHistory; sqlConsole?: SQLConsolePort }) {
   const { login, sessionError, setup, state } = useSession();
 	const backend = useBackend();
+  useLayoutEffect(() => {
+    if (state.kind !== "authenticated") resetWorkspaceTheme();
+  }, [state.kind]);
   if (state.kind === "loading") return <main className="auth-page"><p aria-live="polite">Loading administrator session…</p></main>;
   if (state.kind === "setup-required") return <SetupPage onSetup={setup} onRestoreBackup={backend.session.restoreSetupBackup} onSetupBackupJob={backend.session.setupBackupJob} onUploadBackup={backend.session.uploadSetupBackup} />;
   if (state.kind === "anonymous") return <LoginPage onConfirmPasswordReset={backend.session.confirmPasswordReset} onLogin={login} onRequestPasswordReset={backend.session.requestPasswordReset} sessionError={sessionError} />;

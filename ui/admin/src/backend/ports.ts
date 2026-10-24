@@ -4,7 +4,7 @@ import type { BackupStoragePort } from "./backup-storage-port";
 import { stringifyJSON } from "./json";
 
 interface Administrator { id: string; email: string; createdAt: string }
-export interface AuthenticatedSession { administrator: Administrator; expiresAt: string; sqlConsoleEnabled?: boolean }
+export interface AuthenticatedSession { administrator: Administrator; expiresAt: string; sqlConsoleEnabled?: boolean; capabilities?: AdminCapabilities }
 export interface SetupInput { setupToken: string; email: string; password: string }
 export interface SetupBackup { id: string; createdAt?: string; size?: number; postgresqlMajor?: number }
 export interface SetupBackupJob { id: string; status?: string; phase?: string; error?: string }
@@ -14,7 +14,7 @@ export type AuthSnapshot =
   | { kind: "loading" }
   | { kind: "setup-required" }
   | { kind: "anonymous" }
-  | { kind: "authenticated"; administrator: Administrator; expiresAt: string; sqlConsoleEnabled?: boolean };
+  | { kind: "authenticated"; administrator: Administrator; expiresAt: string; sqlConsoleEnabled?: boolean; capabilities?: AdminCapabilities };
 
 // `setup-unknown` and `unreachable` both end anonymous but tell the
 // administrator different things, so the port keeps them apart.
@@ -65,12 +65,13 @@ export type SQLViewDefinition = { sql: string; dependencies?: string[]; source?:
 export type ViewDefinition =
 	| { sourceCollectionId?: string; source: string; projection: string[]; filter?: ViewFilter; sql?: never; dependencies?: never }
 	| SQLViewDefinition;
-export interface CollectionDefinition { id?: string; name: string; tableName: string; type?: CollectionType; recordId?: RecordIDPolicy; fields: FieldDefinition[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
-export type CollectionChange =
+export interface CollectionAdvancedOptions { compatibilityName?: string; validationMode?: "postgres" | "pocketbase" }
+export interface CollectionDefinition extends CollectionAdvancedOptions { id?: string; name: string; tableName: string; type?: CollectionType; recordId?: RecordIDPolicy; fields: FieldDefinition[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
+export type CollectionChange = CollectionAdvancedOptions & (
   | { operation: "create"; name: string; type?: CollectionType; recordId?: RecordIDPolicy; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition }
   | { operation: "update"; name: string; type?: CollectionType; recordId?: RecordIDPolicy; fields: FieldInput[]; indexes?: CompoundIndex[]; view?: never }
   | { operation: "update"; name: string; type?: CollectionType; view: ViewDefinition; fields?: never; indexes?: never }
-	| { operation: "delete"; name: string; fields?: never; indexes?: never; view?: never };
+	| { operation: "delete"; name: string; fields?: never; indexes?: never; view?: never });
 
 // A Map keyed by own entries, so a collection named `constructor` or
 // `__proto__` can neither be found by accident nor shadow a real one.
@@ -188,7 +189,8 @@ export class SchemaError extends Error {
 export type RecordValue = boolean | number | string | null | LosslessNumber | Record<string, unknown> | unknown[];
 export type RecordData = Record<string, RecordValue>;
 export interface RecordPage { items: RecordData[]; nextCursor?: string }
-export interface ListOptions { cursor?: string; filter?: string; sort?: string }
+export interface RecordQueryOptions { limit?: number; fields?: string; expand?: string }
+export interface ListOptions extends RecordQueryOptions { cursor?: string; filter?: string; sort?: string }
 
 // The precondition travels with the record it was read from, so a caller
 // cannot send one record's ETag with another record's identity.
@@ -288,7 +290,7 @@ export interface SchemaPort {
 	/** Removes every record from one base collection after an exact typed confirmation. */
 	truncate?(collection: string, confirmation: string, signal?: AbortSignal): Promise<{ name: string; truncated: true; recordsDeleted: number; filesDeleted: number; relationsDeleted: number }>;
 }
-export interface SchemaDocumentCollection { name: string; type?: CollectionType; system?: boolean; validationMode?: "postgres" | "pocketbase"; recordId?: RecordIDPolicy; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> }
+export interface SchemaDocumentCollection { compatibilityName?: string; name: string; type?: CollectionType; system?: boolean; validationMode?: "postgres" | "pocketbase"; recordId?: RecordIDPolicy; fields?: FieldInput[]; indexes?: CompoundIndex[]; view?: ViewDefinition; dependsOn?: string[]; userAccess: boolean; rules: Record<string, unknown> }
 export interface SchemaDocumentAuthPolicy { passwordEnabled: boolean; minimumPasswordBytes: number; maximumPasswordBytes: number; passwordPattern: string; identityFields: string[]; mfaEnabled: boolean; mfaDurationSeconds: number; mfaRule: string; otpEnabled: boolean; otpDurationSeconds: number; otpMaxAttempts: number }
 export interface SchemaDocumentAuthCollection { name: string; registrationEnabled: boolean; recordId?: RecordIDPolicy; fields: FieldInput[]; rules: Record<string, string | null>; policy: SchemaDocumentAuthPolicy; tokenTTLs?: Record<string, number> }
 export interface AuthCollectionScaffold { collection: SchemaDocumentCollection; authCollection: SchemaDocumentAuthCollection }
@@ -304,15 +306,33 @@ export interface RecordRulesPort {
   setRules(collection: string, rules: Record<string, unknown>, signal?: AbortSignal): Promise<RecordRules>;
   previewRule(collection: string, value: { rule: Record<string, unknown>; action: "list" | "view" | "update" | "delete"; userId?: string; recordIds: string[] }, signal?: AbortSignal): Promise<RulePreview>;
 }
-export interface AuthCollection { id: string; name: string; registrationEnabled: boolean; profileSchema: Record<string, string> }
+export interface AuthCollection { id: string; name: string; registrationEnabled: boolean; profileSchema: Record<string, string>; fields?: FieldInput[]; rules?: Record<string, string | null>; recordId?: RecordIDPolicy }
+export type AuthCollectionUpdate = Pick<AuthCollection, "registrationEnabled" | "profileSchema" | "fields" | "rules" | "recordId">;
 export type AuthPolicy = SchemaDocumentAuthPolicy;
-export interface OAuthProviderSettings { name: string; enabled: boolean; authorizationUrl: string; tokenUrl: string; userInfoUrl: string; clientId: string; clientSecret?: string; secretConfigured: boolean; scopes: string[]; redirectUris: string[]; subjectField: string; emailField: string; emailVerifiedField: string; avatarField: string; allowInsecureLoopback: boolean }
+export interface OAuthProviderSettings { name: string; enabled: boolean; authorizationUrl: string; tokenUrl: string; userInfoUrl: string; issuer?: string; jwksUrl?: string; clientId: string; clientSecret?: string; secretConfigured: boolean; scopes: string[]; redirectUris: string[]; subjectField: string; emailField: string; emailVerifiedField: string; avatarField: string; allowInsecureLoopback: boolean }
 export interface AuthMailTemplate { purpose: "verify" | "password_reset" | "email_change" | "otp"; subject: string; body: string; htmlBody: string }
 export interface AuthMailPreview { subject: string; text: string; html: string }
 export interface AuthSMTPSettings { address: string; from: string; username: string; password?: string; passwordConfigured: boolean; serverName: string; implicitTls: boolean; allowInsecureLoopback: boolean }
 export interface AuthAdministration { policy: AuthPolicy; providers: OAuthProviderSettings[]; templates: AuthMailTemplate[]; smtp?: AuthSMTPSettings }
+export interface AuthRecord { id: string; authCollectionId: string; email?: string; emailVisibility: boolean; verified: boolean; active: boolean; fields: RecordData; createdAt: string; updatedAt: string }
+export interface AuthRecordInput { id?: string; email: string; password?: string; emailVisibility: boolean; verified: boolean; active: boolean; fields: RecordData }
+export interface AuthRecordsPort {
+  list(collection: string, limit?: number, signal?: AbortSignal): Promise<AuthRecord[]>;
+  get(collection: string, id: string, signal?: AbortSignal): Promise<AuthRecord>;
+  create(collection: string, input: AuthRecordInput, signal?: AbortSignal): Promise<AuthRecord>;
+  update(collection: string, id: string, input: Omit<AuthRecordInput, "id">, signal?: AbortSignal): Promise<AuthRecord>;
+  remove(collection: string, id: string, signal?: AbortSignal): Promise<void>;
+}
+export interface AuthTokenPolicy { purpose: string; ttlSeconds: number; keyVersion: string; keyConfigured: boolean }
+export interface RealtimeStatus { pending: number; dead: number; delivered: number; oldestPending?: string; cursorFloor: number }
+export interface RealtimePort { status(signal?: AbortSignal): Promise<RealtimeStatus>; retry(eventId: string, signal?: AbortSignal): Promise<void> }
+export type AdminCapabilities = Partial<Record<"settings" | "profile" | "administrators" | "schemaTransfer" | "authCollections" | "authAdministration" | "users" | "serviceTokens" | "storage" | "storageMigrations" | "backupStorage" | "backups" | "logs" | "jobs" | "realtime" | "files" | "rules", boolean>>;
 export interface AuthCollectionsPort {
-  listAuthCollections(signal?: AbortSignal): Promise<AuthCollection[]>; createAuthCollection(value: AuthCollection, signal?: AbortSignal): Promise<AuthCollection>; updateAuthCollection(id: string, value: Pick<AuthCollection, "registrationEnabled" | "profileSchema">, signal?: AbortSignal): Promise<AuthCollection>; deleteAuthCollection(id: string, signal?: AbortSignal): Promise<void>;
+  records?: AuthRecordsPort;
+  tokenPolicies?(id: string, signal?: AbortSignal): Promise<AuthTokenPolicy[]>;
+  putTokenPolicy?(id: string, purpose: string, value: { ttlSeconds: number; keyVersion?: string; key?: string }, signal?: AbortSignal): Promise<AuthTokenPolicy>;
+  providerCatalog?(signal?: AbortSignal): Promise<Array<Partial<OAuthProviderSettings> & Pick<OAuthProviderSettings, "name">>>;
+  listAuthCollections(signal?: AbortSignal): Promise<AuthCollection[]>; createAuthCollection(value: AuthCollection, signal?: AbortSignal): Promise<AuthCollection>; updateAuthCollection(id: string, value: AuthCollectionUpdate, signal?: AbortSignal): Promise<AuthCollection>; deleteAuthCollection(id: string, signal?: AbortSignal): Promise<void>;
   getAdministration(id: string, signal?: AbortSignal): Promise<AuthAdministration>; setPolicy(id: string, value: AuthPolicy, signal?: AbortSignal): Promise<AuthPolicy>; putProvider(id: string, value: OAuthProviderSettings, signal?: AbortSignal): Promise<OAuthProviderSettings>; deleteProvider(id: string, name: string, signal?: AbortSignal): Promise<void>; putTemplate(id: string, value: AuthMailTemplate, signal?: AbortSignal): Promise<AuthMailTemplate>; previewTemplate(id: string, value: AuthMailTemplate & { actionUrl: string }, signal?: AbortSignal): Promise<AuthMailPreview>; putSMTP(id: string, value: AuthSMTPSettings, signal?: AbortSignal): Promise<AuthSMTPSettings>; testSMTP(id: string, recipient: string, signal?: AbortSignal): Promise<void>;
 	generateAppleClientSecret?(value: { clientId: string; teamId: string; keyId: string; privateKey: string; duration: number }, signal?: AbortSignal): Promise<{ secret: string }>;
 }
@@ -410,6 +430,8 @@ export interface OperationsPort {
 }
 
 export interface AdminBackend {
+  capabilities?: AdminCapabilities;
+  realtime?: RealtimePort;
   storage: StoragePort;
   backupStorage: BackupStoragePort;
   operations?: OperationsPort;

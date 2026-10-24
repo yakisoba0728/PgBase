@@ -8,13 +8,17 @@ function browserOwns(event: MouseEvent<HTMLAnchorElement>): boolean {
   return event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
 }
 
-export function AdminLink({ children, className, navigate, route }: {
+export function AdminLink({ children, className, navigate, route, current, ariaLabel }: {
   children: ReactNode;
   className?: string;
+  current?: boolean;
+  ariaLabel?: string;
   navigate(route: AdminRoute): void;
   route: AdminRoute;
 }) {
   return <a
+    aria-label={ariaLabel}
+    aria-current={current ? "page" : undefined}
     className={className}
     href={adminRoutePath(route)}
     onClick={(event) => {

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { OAuthProviderSettings } from "../backend/ports";
+import { useBackend } from "../auth/session";
 import { providerPresets } from "../oauth-provider-presets";
 
 export const emptyProvider = (): OAuthProviderSettings => ({
@@ -8,6 +9,7 @@ export const emptyProvider = (): OAuthProviderSettings => ({
   authorizationUrl: "",
   tokenUrl: "",
   userInfoUrl: "",
+  issuer: "", jwksUrl: "",
   clientId: "",
   clientSecret: "",
   secretConfigured: false,
@@ -47,6 +49,17 @@ export function ProviderEditor({
     reveal: (secret: string) => void,
   ): void;
 }) {
+  const { authCollections } = useBackend();
+  const [catalog, setCatalog] = useState(providerPresets);
+  const [catalogError, setCatalogError] = useState(false);
+  useEffect(() => {
+    if (!authCollections.providerCatalog) return;
+    const c = new AbortController();
+    void authCollections.providerCatalog(c.signal).then(items => {
+      if (!c.signal.aborted) setCatalog([...items.map(value => ({ label: providerPresets.find(p => p.value.name === value.name)?.label ?? value.name, value: { ...providerPresets.find(p => p.value.name === value.name)?.value, ...value } })), ...providerPresets.filter(p => !items.some(item => item.name === p.value.name))]);
+    }).catch(() => { if (!c.signal.aborted) setCatalogError(true); });
+    return () => c.abort();
+  }, [authCollections]);
   const [apple, setApple] = useState<AppleInput>({
     teamId: "",
     keyId: "",
@@ -85,20 +98,26 @@ export function ProviderEditor({
         <select
           value=""
           onChange={(e) => {
-            const preset = providerPresets.find(
+            const preset = catalog.find(
               (item) => item.value.name === e.target.value,
             );
             if (preset) change({ ...emptyProvider(), ...preset.value });
           }}
         >
           <option value="">Custom OAuth 2.0 / OIDC</option>
-          {providerPresets.map((item) => (
+          {catalog.map((item) => (
             <option key={item.value.name} value={item.value.name}>
               {item.label}
             </option>
           ))}
         </select>
       </label>
+      {catalogError && <p role="status">Server provider presets are unavailable. You can still enter a custom provider.</p>}
+      <div className="settings-field-grid">
+        <label>OIDC issuer<input value={value.issuer ?? ""} onChange={e => patch({ issuer: e.target.value })} placeholder="https://identity.example.com" /></label>
+        <label>JWKS URL<input value={value.jwksUrl ?? ""} onChange={e => patch({ jwksUrl: e.target.value })} placeholder="https://identity.example.com/.well-known/jwks.json" /></label>
+      </div>
+      <p className="settings-help">For OIDC without a user info endpoint, provide the issuer and JWKS URL. Existing OIDC values are preserved when saving.</p>
       <label>
         Name{" "}
         <input
