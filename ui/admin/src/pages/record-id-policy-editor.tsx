@@ -13,7 +13,7 @@ export function RecordIDPolicyEditor({ value, locked, disabled, onChange }: {
 }) {
   const text = value?.kind === "text";
   const update = (patch: Partial<RecordIDPolicy>) => onChange({ ...defaultTextPolicy, ...value, ...patch });
-  return <fieldset disabled={disabled || locked}>
+  return <fieldset className="record-identity" disabled={disabled || locked}>
     <legend>Record identity</legend>
     <label>Record ID kind <select value={value?.kind ?? "uuid"} onChange={(event) => onChange(event.target.value === "text" ? { ...defaultTextPolicy } : undefined)}>
       <option value="uuid">UUID</option><option value="text">Text</option>

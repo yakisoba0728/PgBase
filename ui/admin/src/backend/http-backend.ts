@@ -278,9 +278,13 @@ class HTTPBackend implements AdminBackend {
     },
   });
 
+  get capabilities() { return this.#capabilities; }
+  get realtime() { return this.#capabilities?.realtime === false ? undefined : this.adminPorts.realtime; }
+  #capabilities: import("./ports").AdminCapabilities | undefined;
+
   get system() { return this.adminPorts.system; }
-  get settings() { return this.adminPorts.settings; }
-  get profile() { return this.adminPorts.profile; }
+  get settings() { return this.#capabilities?.settings === false ? undefined : this.adminPorts.settings; }
+  get profile() { return this.#capabilities?.profile === false ? undefined : this.adminPorts.profile; }
   get operations() { return this.adminPorts.operations; }
   get storage() { return this.adminPorts.storage; }
   get backupStorage() { return this.adminPorts.backupStorage; }
@@ -291,6 +295,7 @@ class HTTPBackend implements AdminBackend {
 
   #adopt(reply: Reply): AuthenticatedSession {
     const session = reply.data as AuthenticatedSession & { csrfToken: string };
+    this.#capabilities = session.capabilities;
     this.#csrfToken = session.csrfToken;
     this.#administratorID = session.administrator.id;
     this.#authGeneration += 1;
@@ -298,6 +303,7 @@ class HTTPBackend implements AdminBackend {
       administrator: session.administrator,
       expiresAt: session.expiresAt,
       sqlConsoleEnabled: session.sqlConsoleEnabled === true,
+      ...(session.capabilities === undefined ? {} : { capabilities: session.capabilities }),
     };
   }
 

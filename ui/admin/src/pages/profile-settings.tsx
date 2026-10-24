@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useBackend } from "../auth/session";
 import type { AdministratorProfile } from "../backend/ports";
+import { Button, FormSection } from "../components/ui";
+import { useUnsavedDraft } from "../routing/unsaved-draft";
 
 type ProfileActionStatus = {
   message: string;
@@ -19,6 +21,9 @@ export function ProfileSettings() {
   });
   const profileSave = useRef(0);
   const allowlistSave = useRef(0);
+  const savedPrefixes = useRef("");
+  useUnsavedDraft("administrator-profile", profile !== null &&
+    (draft.email !== profile.email || draft.prefixes !== savedPrefixes.current));
   useEffect(() => {
     if (!port) return;
     const controller = new AbortController();
@@ -29,6 +34,7 @@ export function ProfileSettings() {
       .then(([next, ips]) => {
         if (!controller.signal.aborted) {
           setProfile(next);
+          savedPrefixes.current = ips.join("\n");
           setDraft({ email: next.email, prefixes: ips.join("\n") });
         }
       })
@@ -41,13 +47,17 @@ export function ProfileSettings() {
       });
     return () => controller.abort();
   }, [port]);
-  if (!port || !profile) return null;
+  if (!port) return null;
+  if (!profile) return <section id="settings-profile" className="settings-profile" aria-label="Administrator profile">
+    <h3>Administrator profile</h3>
+    <p role="status">{action.message || "Loading administrator profile…"}</p>
+  </section>;
   return (
-    <section aria-label="Administrator profile">
+    <section id="settings-profile" className="settings-profile" aria-label="Administrator profile">
       <h3>Administrator profile</h3>
-      {action.message && <p role="status">{action.message}</p>}
-      <fieldset>
-        <legend>Identity</legend>
+      <p className="settings-help">Your email and sign-in networks are saved separately from application settings.</p>
+      {action.message && <p className="settings-feedback" role="status">{action.message}</p>}
+      <FormSection title="Identity" className="settings-identity">
         <label>
           Email
           <input
@@ -59,7 +69,8 @@ export function ProfileSettings() {
             }
           />
         </label>
-        <button
+        <Button
+          className="settings-local-save"
           disabled={action.savingProfile}
           type="button"
           onClick={() => {
@@ -71,6 +82,7 @@ export function ProfileSettings() {
               .then((next) => {
                 if (revision !== profileSave.current) return;
                 setProfile(next);
+                setDraft(current => ({ ...current, email: next.email }));
                 setAction((current) => ({
                   ...current,
                   message: "Administrator email updated.",
@@ -90,17 +102,21 @@ export function ProfileSettings() {
           }}
         >
           {action.savingProfile ? "Saving administrator email…" : "Save administrator email"}
-        </button>
-      </fieldset>
-      <fieldset>
-        <legend>IP allowlist</legend>
-        <p>
+        </Button>
+      </FormSection>
+      <FormSection title="IP allowlist">
+        <p id="settings-allowlist-help" className="settings-help">
           One CIDR per line. When entries exist, this administrator can sign in
           only from these networks.
         </p>
         <label>
           Allowed CIDRs
           <textarea
+            rows={3}
+            className="settings-code"
+            autoCapitalize="none"
+            spellCheck={false}
+            aria-describedby="settings-allowlist-help"
             disabled={action.savingAllowlist}
             value={draft.prefixes}
             onChange={(event) =>
@@ -111,7 +127,8 @@ export function ProfileSettings() {
             }
           />
         </label>
-        <button
+        <Button
+          className="settings-local-save"
           disabled={action.savingAllowlist}
           type="button"
           onClick={() => {
@@ -127,6 +144,7 @@ export function ProfileSettings() {
               )
               .then((items) => {
                 if (revision !== allowlistSave.current) return;
+                savedPrefixes.current = items.join("\n");
                 setDraft((current) => ({
                   ...current,
                   prefixes: items.join("\n"),
@@ -150,8 +168,8 @@ export function ProfileSettings() {
           }}
         >
           {action.savingAllowlist ? "Saving IP allowlist…" : "Save IP allowlist"}
-        </button>
-      </fieldset>
+        </Button>
+      </FormSection>
     </section>
   );
 }

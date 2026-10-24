@@ -1,3 +1,5 @@
+import { ActionBar, Button, FormSection, PageHeading } from "../components/ui";
+import { useUnsavedDraft } from "../routing/unsaved-draft";
 import { useEffect, useRef, useState } from "react";
 import { useBackend } from "../auth/session";
 import type { BackupStorageSettings, BackupStorageUpdate } from "../backend/backup-storage-port";
@@ -52,8 +54,9 @@ export function BackupStoragePage() {
     };
   }, [backupStorage]);
 
+  useUnsavedDraft("backup-storage", !!form && !!saved && (JSON.stringify(form) !== JSON.stringify(editable(saved)) || secret !== "" || clearSecret || retentionInput !== String(saved.retention)));
   if (!form) {
-    return <section><h2>Backup archive storage</h2><p aria-live="polite">{message ?? "Loading backup storage settings…"}</p></section>;
+    return <section className="management-page storage-page"><PageHeading title="Backup archive storage" /><p aria-live="polite">{message ?? "Loading backup storage settings…"}</p></section>;
   }
 
   const retention = Number(retentionInput);
@@ -102,12 +105,10 @@ export function BackupStoragePage() {
     }
   }
 
-  return <section>
-    <h2>Backup archive storage</h2>
-    <p>Configure backup archives separately from uploaded record files.</p>
+  return <section className="management-page storage-page">
+    <PageHeading title="Backup archive storage" description="Configure backup archives separately from uploaded record files." />
     <label>Driver<select value={form.driver} disabled={busy} onChange={(event) => set("driver", event.target.value as "local" | "s3")}><option value="local">Local filesystem</option><option value="s3">S3 compatible</option></select></label>
-    {form.driver === "s3" && <fieldset disabled={busy}>
-      <legend>S3 connection</legend>
+    {form.driver === "s3" && <FormSection className="management-field-grid" title="S3 connection" disabled={busy}>
       <label>Endpoint<input value={form.endpoint} onChange={(event) => set("endpoint", event.target.value)} /></label>
       <label>Bucket<input value={form.bucket} onChange={(event) => set("bucket", event.target.value)} /></label>
       <label>Prefix<input value={form.prefix} onChange={(event) => set("prefix", event.target.value)} /></label>
@@ -116,12 +117,14 @@ export function BackupStoragePage() {
       <label>Secret key<input type="password" autoComplete="new-password" value={secret} disabled={clearSecret} placeholder={saved?.secretConfigured ? "Configured" : ""} onChange={(event) => { setSecret(event.target.value); setClearSecret(false); setMessage(undefined); }} /></label>
       {saved?.secretConfigured && <label><input type="checkbox" checked={clearSecret} onChange={(event) => { const checked = event.target.checked; setClearSecret(checked); if (checked) setSecret(""); set("accessKey", checked ? "" : saved.accessKey); }} />Clear saved access and secret keys and use the default credential provider</label>}
       <label><input type="checkbox" checked={form.usePathStyle} onChange={(event) => set("usePathStyle", event.target.checked)} />Use path-style addressing</label>
-    </fieldset>}
+    </FormSection>}
     <label>Backups to retain<input type="number" min={0} step={1} disabled={busy} value={retentionInput} aria-invalid={!retentionValid} aria-describedby="backup-retention-help" onChange={(event) => { setRetentionInput(event.target.value); setMessage(undefined); }} /></label>
     <p id="backup-retention-help">This is the repository fallback. Managed apps use Settings &gt; Backups to keep instead, even when automatic backups are disabled. Both count manual, uploaded, and scheduled archives; 0 keeps every archive.</p>
     {!retentionValid && <p role="alert">Retention must be a whole number from 0 through 2147483647.</p>}
-    <button type="button" disabled={busy || !dirty || !retentionValid} onClick={() => void save()}>Save backup storage</button>
-    <button type="button" disabled={busy || dirty || !retentionValid} onClick={() => void test()}>Test backup storage</button>
+    <ActionBar description={dirty ? "Unsaved backup storage changes." : "Current backup storage configuration."}>
+    <Button disabled={busy || !dirty || !retentionValid} onClick={() => void save()}>Save backup storage</Button>
+    <Button variant="secondary" disabled={busy || dirty || !retentionValid} onClick={() => void test()}>Test backup storage</Button>
+    </ActionBar>
     <p aria-live="polite">{message}</p>
   </section>;
 }

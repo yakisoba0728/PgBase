@@ -582,4 +582,5 @@ export const draftSignature = (
   view?: ViewDefinition,
   type?: CollectionType,
   recordId?: RecordIDPolicy,
-): string => stringifyJSON({ name, fields, indexes, view, type, recordId });
+  advanced?: import("../backend/ports").CollectionAdvancedOptions,
+): string => stringifyJSON({ name, fields, indexes, view, type, recordId, advanced });

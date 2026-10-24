@@ -1,9 +1,10 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useSyncExternalStore, type ReactNode } from "react";
 
 const leaveText = "Leave this page? The changes you have not saved will be lost.";
 
 interface DraftLedger {
   held(): boolean;
+  subscribe(listener: () => void): () => void;
   hold(resource: string, unsaved: boolean): void;
   confirmLeave(): boolean;
   mayLeave(): boolean;
@@ -11,10 +12,13 @@ interface DraftLedger {
 
 export function draftLedger(confirmLeave: (text: string) => boolean = (text) => window.confirm(text)): DraftLedger {
   const unsaved = new Set<string>();
+  const listeners = new Set<() => void>();
+  const notify = () => listeners.forEach(listener => listener());
   const confirmed = () => unsaved.size === 0 || confirmLeave(leaveText);
   return {
     held: () => unsaved.size > 0,
-    hold: (resource, dirty) => { if (dirty) unsaved.add(resource); else unsaved.delete(resource); },
+    subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    hold: (resource, dirty) => { const previous = unsaved.size; if (dirty) unsaved.add(resource); else unsaved.delete(resource); if (previous !== unsaved.size) notify(); },
     // Some departures, such as sign-out, can fail after the administrator
     // agrees to leave. Confirm them without releasing the guard; a successful
     // departure unmounts the resource and releases it in the ordinary way.
@@ -24,7 +28,9 @@ export function draftLedger(confirmLeave: (text: string) => boolean = (text) => 
     // follows does not ask a second time about work already given up.
     mayLeave: () => {
       if (!confirmed()) return false;
+      const hadDrafts = unsaved.size > 0;
       unsaved.clear();
+      if (hadDrafts) notify();
       return true;
     },
   };
@@ -57,4 +63,12 @@ export function useUnsavedDraft(resource: string, unsaved: boolean): () => void 
     ledger?.hold(resource, unsaved);
   }, [ledger, resource, unsaved]);
   return useCallback(() => ledger?.hold(resource, false), [ledger, resource]);
+}
+
+const noDrafts = () => false;
+const noSubscription = (_listener: () => void) => () => {};
+/** Prevent reloads that would unmount another editor's unsaved draft. */
+export function useHasUnsavedDrafts(): boolean {
+  const ledger = useContext(LedgerContext);
+  return useSyncExternalStore(ledger?.subscribe ?? noSubscription, ledger?.held ?? noDrafts, noDrafts);
 }

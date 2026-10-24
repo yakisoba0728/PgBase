@@ -38,6 +38,7 @@ export interface State {
   catalog: CollectionCatalog | null;
   collectionType?: CollectionType;
   recordId?: RecordIDPolicy;
+  advanced?: import("../backend/ports").CollectionAdvancedOptions;
   authBlueprint?: AuthCollectionScaffold;
   duplicateSource?: string;
   scaffold?: "base" | "auth" | "view";
@@ -122,7 +123,7 @@ export const redrafted = (fields: DraftField[]): Partial<State> => ({
 // Both the visible preview and the command sent to the server must describe
 // the same draft, including its view mode and immutable identity policy.
 export function collectionChange(state: State): CollectionChange {
-  return buildInput(
+  return { ...buildInput(
     state.create ? "create" : "update",
     state.name,
     state.fields,
@@ -130,7 +131,7 @@ export function collectionChange(state: State): CollectionChange {
     state.view,
     state.collectionType,
     state.recordId,
-  );
+  ), ...state.advanced };
 }
 
 function editableView(definition: CollectionDefinition, catalog: CollectionCatalog): ViewDefinition | undefined {
@@ -191,7 +192,8 @@ export function loadedState(
         view,
         collectionType,
         recordId: source.recordId,
-        pristine: draftSignature(name, fields, indexes, view, collectionType, source.recordId),
+        advanced: source.validationMode ? { validationMode: source.validationMode } : undefined,
+        pristine: draftSignature(name, fields, indexes, view, collectionType, source.recordId, source.validationMode ? { validationMode: source.validationMode } : undefined),
       };
     }
     const template = auth
@@ -231,8 +233,9 @@ export function loadedState(
       view,
       collectionType,
       recordId: template.recordId,
+      advanced: template.validationMode ? { validationMode: template.validationMode } : undefined,
       authBlueprint,
-      pristine: draftSignature(name, fields, indexes, view, collectionType, template.recordId),
+      pristine: draftSignature(name, fields, indexes, view, collectionType, template.recordId, template.validationMode ? { validationMode: template.validationMode } : undefined),
     };
   }
   const definition = catalog.get(current.name);
@@ -250,6 +253,7 @@ export function loadedState(
     view,
     collectionType: definition.type,
     recordId: definition.recordId,
+    advanced: definition.validationMode !== undefined || definition.compatibilityName !== undefined ? { validationMode: definition.validationMode, compatibilityName: definition.compatibilityName } : undefined,
     pristine: draftSignature(
       definition.name,
       fields,
@@ -257,6 +261,7 @@ export function loadedState(
       view,
       definition.type,
       definition.recordId,
+      definition.validationMode !== undefined || definition.compatibilityName !== undefined ? { validationMode: definition.validationMode, compatibilityName: definition.compatibilityName } : undefined,
     ),
   };
 }
@@ -277,6 +282,7 @@ export function authImportDocument(state: State): SchemaDocument {
     throw new DraftError("Authentication fields are unavailable.");
   const collection = {
     ...state.authBlueprint.collection,
+    ...state.advanced,
     name: state.name,
     type: "auth" as const,
     fields: change.fields,

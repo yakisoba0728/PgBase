@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { stringifyJSON } from "../backend/json";
+import { useUnsavedDraft } from "../routing/unsaved-draft";
 import { useBackend } from "../auth/session";
 import type {
   AuthAdministration,
@@ -63,6 +65,13 @@ export function AuthAdministrationPanel({
   const [reloads, setReloads] = useState(0);
   const mutation = useRef<AbortController | null>(null);
   const mounted = useRef(true);
+  const savedPolicy = useRef<AuthPolicy | null>(null);
+  const [templateDrafts, setTemplateDrafts] = useState<Set<string>>(() => new Set());
+  const onTemplateDirty = useCallback((purpose: string, dirty: boolean) => setTemplateDrafts(current => { if (current.has(purpose) === dirty) return current; const next = new Set(current); if (dirty) next.add(purpose); else next.delete(purpose); return next; }), []);
+  const providerBaseline = value?.providers.find(item => item.name === provider.name);
+  const dirty = stringifyJSON(provider) !== stringifyJSON(providerBaseline ? { ...providerBaseline, clientSecret: "" } : emptyProvider()) || value !== null && stringifyJSON(value.policy) !== stringifyJSON(savedPolicy.current) || stringifyJSON(smtp) !== stringifyJSON(value?.smtp ?? emptySMTP()) || templateDrafts.size > 0;
+  useUnsavedDraft(`auth-administration:${collectionId}`, dirty);
+
 
   useEffect(() => {
     mounted.current = true;
@@ -84,6 +93,7 @@ export function AuthAdministrationPanel({
       .getAdministration(collectionId, controller.signal)
       .then((next) => {
         if (controller.signal.aborted) return;
+        savedPolicy.current = next.policy;
         setValue({
           ...next,
           providers: next.providers ?? [],
@@ -141,8 +151,7 @@ export function AuthAdministrationPanel({
         policy,
         signal,
       );
-      if (!signal.aborted)
-        setValue((current) => current && { ...current, policy: saved });
+      if (!signal.aborted) { savedPolicy.current = saved; setValue((current) => current && { ...current, policy: saved }); }
     }, "Policy saved. Existing sessions are revoked when password authentication is disabled or the minimum password length increases.");
   }
   function saveProvider() {
@@ -255,7 +264,7 @@ export function AuthAdministrationPanel({
       {message && <p role="status">{message}</p>}
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || dirty}
         onClick={() => setReloads((count) => count + 1)}
       >
         Reload authentication settings
@@ -288,6 +297,7 @@ export function AuthAdministrationPanel({
             <MailTemplateEditor
               key={JSON.stringify(template)}
               disabled={busy}
+              onDirty={onTemplateDirty}
               value={template}
               save={saveTemplate}
               preview={(draft) =>

@@ -60,6 +60,7 @@ interface ListState {
   filterInvalid: boolean;
   filterText: string;
   appliedFilter: string;
+  queryOptions: import("../backend/ports").RecordQueryOptions;
   sort: string;
   // The cursor that opened every page after the first, oldest first. Empty
   // means the first page, so its length is also how far the chain has walked.
@@ -70,7 +71,7 @@ interface ListState {
 }
 
 function initialList(identity: string): ListState {
-  return { identity, collection: null, page: null, failed: false, filterInvalid: false, filterText: "", appliedFilter: "", sort: "", cursors: [], selected: new Set(), actionMessage: null, actionPending: false };
+  return { identity, collection: null, page: null, failed: false, filterInvalid: false, filterText: "", appliedFilter: "", queryOptions: {}, sort: "", cursors: [], selected: new Set(), actionMessage: null, actionPending: false };
 }
 
 function nextSort(current: string, column: string): string {
@@ -87,10 +88,13 @@ export interface RecordList {
   filterInvalid: boolean;
   filterText: string;
   filtered: boolean;
+  filterApplied: boolean;
   hasPrevious: boolean;
   fieldFor(column: string): FieldDefinition | undefined;
   sortDirection(column: string): "ascending" | "descending" | undefined;
   sortable(column: string): boolean;
+  queryOptions: import("../backend/ports").RecordQueryOptions;
+  setQueryOptions(value: import("../backend/ports").RecordQueryOptions): void;
   setFilterText(text: string): void;
   applyFilter(): void;
   clear(): void;
@@ -133,12 +137,12 @@ export function useRecordList(collectionName: string): RecordList {
     const controller = new AbortController();
     inFlight.current = controller;
     try {
-      const page = await records.list(collectionName, { cursor: cursors.at(-1), filter: state.appliedFilter, sort: state.sort }, controller.signal);
+      const page = await records.list(collectionName, { ...state.queryOptions, cursor: cursors.at(-1), filter: state.appliedFilter, sort: state.sort }, controller.signal);
       if (!controller.signal.aborted) update(identity, { page, cursors, filterInvalid: false, failed: false });
     } catch (caught: unknown) {
       if (!controller.signal.aborted) update(identity, rejected(caught) ? { filterInvalid: true } : { failed: true });
     }
-  }, [collectionName, identity, records, state.appliedFilter, state.sort, update]);
+  }, [collectionName, identity, records, state.appliedFilter, state.sort, state.queryOptions, update]);
 
   // A new query has no chain to walk: its cursors address the old query's pages.
   useEffect(() => {
@@ -149,6 +153,8 @@ export function useRecordList(collectionName: string): RecordList {
 
   const fields = state.collection?.fields;
   return {
+    queryOptions: state.queryOptions,
+    setQueryOptions: (queryOptions) => update(identity, { queryOptions, selected: new Set(), actionMessage: null }),
     collection: state.collection,
     columns: state.collection === null ? [] : ["id", "created_at", "updated_at", ...ordered(state.collection).map((field) => field.name)],
     page: state.page,
@@ -156,6 +162,7 @@ export function useRecordList(collectionName: string): RecordList {
     filterInvalid: state.filterInvalid,
     filterText: state.filterText,
     filtered: state.appliedFilter !== "" || state.sort !== "",
+    filterApplied: state.appliedFilter !== "",
     hasPrevious: state.cursors.length > 0,
     fieldFor: (column) => fields?.find((field) => field.name === column),
     sortDirection: (column) => state.sort === column ? "ascending" : state.sort === `-${column}` ? "descending" : undefined,
@@ -167,7 +174,7 @@ export function useRecordList(collectionName: string): RecordList {
     ) ?? false),
     setFilterText: (filterText) => update(identity, { filterText }),
     applyFilter: () => update(identity, (current) => ({ appliedFilter: current.filterText.trim() })),
-    clear: () => update(identity, { filterText: "", appliedFilter: "", sort: "" }),
+    clear: () => update(identity, { filterText: "", appliedFilter: "", queryOptions: {}, sort: "" }),
     toggleSort: (column) => update(identity, (current) => ({ sort: nextSort(current.sort, column) })),
     previousPage: () => { if (state.cursors.length > 0) void openPage(state.cursors.slice(0, -1)); },
     nextPage: () => { if (state.page?.nextCursor !== undefined) void openPage([...state.cursors, state.page.nextCursor]); },
@@ -207,7 +214,7 @@ export function useRecordList(collectionName: string): RecordList {
         let cursor: string | undefined;
         let pages = 0;
         do {
-          const page = await records.list(collectionName, { cursor, filter: state.appliedFilter, sort: state.sort }, controller.signal);
+          const page = await records.list(collectionName, { ...state.queryOptions, cursor, filter: state.appliedFilter, sort: state.sort }, controller.signal);
           items.push(...page.items.filter((item) => selected.size === 0 || selected.has(String(item.id))));
           cursor = page.nextCursor; pages += 1;
         } while (cursor !== undefined && pages < 100);
@@ -295,7 +302,7 @@ function removeFailure(caught: unknown): Partial<EditorState> {
   return { message: "Unable to delete the record." };
 }
 
-export function useRecordEditor(collectionName: string, id: string | undefined, navigate: (route: AdminRoute) => void): RecordEditor {
+export function useRecordEditor(collectionName: string, id: string | undefined, navigate: (route: AdminRoute) => void, hasSelectedFiles = false): RecordEditor {
   const { records, schema } = useBackend();
   const { state: session } = useSession();
   const identity = adminRouteIdentity({ kind: "record", collection: collectionName, id });
@@ -341,7 +348,7 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
   }, [collectionName, id, identity, isCreate, records, schema, session.kind, state.reloads, update, scope.administrator]);
 
   const dirty = useMemo(() => dirtyNames(state.draft, state.initial), [state.draft, state.initial]);
-  const savedDraft = useUnsavedDraft(identity, dirty.size > 0);
+  const savedDraft = useUnsavedDraft(identity, dirty.size > 0 || hasSelectedFiles);
   useEffect(() => {
     if (state.collection === null || scope.administrator === "") return;
     if (dirty.size === 0) clearDraft(scope); else writeDraft(scope, state.draft, draftFields(state.collection, isCreate));

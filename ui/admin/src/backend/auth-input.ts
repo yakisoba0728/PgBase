@@ -5,7 +5,7 @@ import type { AuthMailTemplate, AuthSMTPSettings, OAuthProviderSettings } from "
 export function providerInput(value: OAuthProviderSettings) {
   return {
     enabled: value.enabled, authorizationUrl: value.authorizationUrl, tokenUrl: value.tokenUrl,
-    userInfoUrl: value.userInfoUrl, clientId: value.clientId, clientSecret: value.clientSecret,
+    userInfoUrl: value.userInfoUrl, issuer: value.issuer, jwksUrl: value.jwksUrl, clientId: value.clientId, clientSecret: value.clientSecret,
     scopes: value.scopes, redirectUris: value.redirectUris, subjectField: value.subjectField,
     emailField: value.emailField, emailVerifiedField: value.emailVerifiedField, avatarField: value.avatarField,
     allowInsecureLoopback: value.allowInsecureLoopback,
