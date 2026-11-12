@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeSettings } from "../api/system";
-import { isAddrOrPrefix, isMaskedPrefix } from "./net";
+import { allowlistAdmits, isAddrOrPrefix, isMaskedPrefix } from "./net";
+
+describe("allowlistAdmits", () => {
+  it("matches the address family after unmapping, like the server", () => {
+    expect(allowlistAdmits(["203.0.113.0/24"], "203.0.113.9")).toBe(true);
+    expect(allowlistAdmits(["203.0.113.0/24"], "203.0.114.9")).toBe(false);
+    expect(allowlistAdmits(["203.0.113.0/24"], "::ffff:203.0.113.9")).toBe(true);
+    expect(allowlistAdmits(["::ffff:203.0.113.0/120"], "203.0.113.9")).toBe(false);
+    expect(allowlistAdmits(["10.0.0.0/8", "2001:db8::/32"], "2001:db8::1")).toBe(true);
+    expect(allowlistAdmits(["127.0.0.1/32"], "127.0.0.1")).toBe(true);
+    expect(allowlistAdmits(["10.0.0.0/9"], "10.128.0.1")).toBe(false);
+    expect(allowlistAdmits(["10.0.0.0/8"], "not-an-ip")).toBe(false);
+  });
+});
 import { isDirty, toDraft, toPatch, validate } from "./settingsForm";
 
 const settings: RuntimeSettings = {

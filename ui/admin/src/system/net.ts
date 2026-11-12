@@ -65,6 +65,28 @@ export function isAddrOrPrefix(text: string): boolean {
   return parseAddr(text) !== null || parsePrefix(text) !== null;
 }
 
+/** An IPv4-mapped IPv6 address as its IPv4 form, like Go's netip.Addr.Unmap. */
+function unmap(bytes: number[]): number[] {
+  const mapped = bytes.length === 16 && bytes.slice(0, 10).every((byte) => byte === 0) && bytes[10] === 255 && bytes[11] === 255;
+  return mapped ? bytes.slice(12) : bytes;
+}
+
+/** Whether any prefix admits the address, as the server checks the allowlist (prefix.Contains(ip.Unmap())). */
+export function allowlistAdmits(prefixes: string[], address: string): boolean {
+  const parsed = parseAddr(address);
+  if (!parsed) return false;
+  const ip = unmap(parsed);
+  return prefixes.some((text) => {
+    const prefix = parsePrefix(text);
+    if (!prefix || prefix.bytes.length !== ip.length) return false;
+    return prefix.bytes.every((byte, index) => {
+      const keep = Math.max(0, Math.min(8, prefix.bits - index * 8));
+      const mask = (0xff << (8 - keep)) & 0xff;
+      return (byte & mask) === (ip[index] & mask);
+    });
+  });
+}
+
 /** One entry per non-empty line, trimmed. */
 export function lines(text: string): string[] {
   return text.split("\n").map((line) => line.trim()).filter(Boolean);

@@ -1,7 +1,6 @@
 import { Navigate, useParams } from "react-router";
 import { Page } from "../components/Page";
 import { useT } from "../i18n";
-import { AppleSecretButton } from "../system/AppleSecret";
 import { SettingsView } from "../system/SettingsView";
 import { StatusView } from "../system/StatusView";
 
@@ -15,7 +14,7 @@ export function SettingsPage() {
     { to: "/settings/status", label: t("system.tab.status") },
   ];
   return (
-    <Page title={t("nav.settings")} tabs={tabs} actions={!tab && <AppleSecretButton />}>
+    <Page title={t("nav.settings")} tabs={tabs}>
       {tab === "status" ? <StatusView /> : <SettingsView />}
     </Page>
   );

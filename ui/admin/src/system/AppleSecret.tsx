@@ -7,15 +7,26 @@ import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
 import { Field } from "../components/Field";
 import { useT } from "../i18n";
-import { SecretView, TaskDialog } from "./SecretDialog";
+import { SecretView, TaskDialog } from "../components/TaskDialog";
 
 /** Apple allows about six months (15,777,000 s); whole days keep the input simple. */
 const maxDays = 182;
 
-export function AppleSecretButton() {
+/**
+ * Signs an Apple client secret. With onGenerated the secret goes straight into the caller's
+ * form (never displayed); otherwise it is shown once for copying.
+ */
+export function AppleSecretButton({ clientId, onGenerated }: { clientId?: string; onGenerated?: (secret: string) => void }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const generate = useMutation({ mutationFn: generateAppleClientSecret });
+  const generate = useMutation({
+    mutationFn: generateAppleClientSecret,
+    onSuccess: (value) => {
+      if (!onGenerated) return;
+      onGenerated(value.secret);
+      close();
+    },
+  });
   // Drops the key and the generated secret with the dialog.
   const close = () => {
     setOpen(false);
@@ -37,7 +48,7 @@ export function AppleSecretButton() {
     <>
       <Button variant="secondary" icon={RiAppleLine} onClick={() => setOpen(true)}>{t("system.apple.open")}</Button>
       <TaskDialog open={open} title={t("system.apple.title")} onClose={close}>
-        {generate.data ? (
+        {generate.data && !onGenerated ? (
           <SecretView label={t("system.apple.secret")} value={generate.data.secret} warning={t("system.apple.once")} onDone={close} />
         ) : (
           <form className="form" onSubmit={onSubmit}>
@@ -47,7 +58,7 @@ export function AppleSecretButton() {
                 {generate.error instanceof ApiError && generate.error.status === 400 ? t("system.apple.invalid") : errorText(t, generate.error)}
               </p>
             )}
-            <Field label={t("system.apple.clientId")} name="clientId" required mono autoComplete="off" spellCheck={false} maxLength={255} placeholder="com.example.app" />
+            <Field label={t("system.apple.clientId")} name="clientId" required mono autoComplete="off" spellCheck={false} maxLength={255} placeholder="com.example.app" defaultValue={clientId} />
             <div className="sys-pair">
               <Field label={t("system.apple.teamId")} name="teamId" required mono autoComplete="off" spellCheck={false} pattern="[A-Za-z0-9]{10}" maxLength={10} />
               <Field label={t("system.apple.keyId")} name="keyId" required mono autoComplete="off" spellCheck={false} pattern="[A-Za-z0-9]{10}" maxLength={10} />

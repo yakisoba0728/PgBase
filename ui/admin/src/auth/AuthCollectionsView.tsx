@@ -7,9 +7,9 @@ import { ApiError } from "../api/http";
 import { errorText } from "../app/queries";
 import { collectionsQuery } from "../collections/queries";
 import { Button } from "../components/Button";
-import { ConfirmDialog } from "../components/Dialog";
+import { ErrorState } from "../components/ErrorState";
+import { TypedConfirmDialog } from "../components/TaskDialog";
 import { EmptyState, Loader } from "../components/Feedback";
-import { Field } from "../components/Field";
 import { Page } from "../components/Page";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
@@ -39,7 +39,7 @@ export function AuthCollectionsIndex() {
         {query.isPending ? (
           <Loader />
         ) : query.isError ? (
-          <EmptyState icon={RiErrorWarningLine}>{errorText(t, query.error)}</EmptyState>
+          <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />
         ) : query.data.length === 0 ? (
           <EmptyState icon={RiShieldUserLine}>{t("auth.collections.empty")}</EmptyState>
         ) : (
@@ -101,7 +101,7 @@ function TabBody({ collection, tab }: { collection: AuthCollection; tab: Tab }) 
   const tokens = useQuery({ ...tokenPoliciesQuery(collection.id), enabled: tab === "tokens" });
   const pending = tab === "tokens" ? tokens : administration;
   if (pending.isPending) return <Loader />;
-  if (pending.isError) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, pending.error)}</EmptyState>;
+  if (pending.isError) return <ErrorState error={pending.error} busy={pending.isFetching} onRetry={() => void pending.refetch()} />;
   // Forms are keyed by the loaded data so a save or reload starts them from the stored state.
   if (tab === "tokens") return <TokensTab key={tokens.dataUpdatedAt} collection={collection} policies={tokens.data ?? []} />;
   const data = administration.data!;
@@ -116,7 +116,6 @@ function DeleteCollection({ collection }: { collection: AuthCollection }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [typed, setTyped] = useState("");
   const remove = useMutation({
     mutationFn: async () => {
       // Registration first: the server refuses it (409) while users exist, before any data is dropped.
@@ -134,17 +133,12 @@ function DeleteCollection({ collection }: { collection: AuthCollection }) {
     },
     onError: (failure) => toast(failure instanceof ApiError && failure.code === "conflict" ? t("auth.collections.hasUsers") : errorText(t, failure), "danger"),
   });
-  const close = () => {
-    setOpen(false);
-    setTyped("");
-  };
+  const close = () => setOpen(false);
   return (
     <>
       <Button size="sm" variant="transparent" className="txt-danger" onClick={() => setOpen(true)}>{t("auth.collections.delete")}</Button>
-      <ConfirmDialog open={open} title={t("auth.collections.deleteTitle", { name: collection.name })} message={t("auth.collections.deleteText")} confirmLabel={t("common.delete")} danger
-        busy={remove.isPending} confirmDisabled={typed !== collection.name} onConfirm={() => remove.mutate()} onCancel={close}>
-        <Field label={t("auth.collections.typeName", { name: collection.name })} mono autoComplete="off" value={typed} onChange={(event) => setTyped(event.target.value)} />
-      </ConfirmDialog>
+      <TypedConfirmDialog open={open} title={t("auth.collections.deleteTitle", { name: collection.name })} message={t("auth.collections.deleteText")} phrase={collection.name}
+        label={t("auth.collections.typeName", { name: collection.name })} confirmLabel={t("common.delete")} busy={remove.isPending} onConfirm={() => remove.mutate()} onCancel={close} />
     </>
   );
 }

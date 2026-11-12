@@ -1,8 +1,9 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useSearchState } from "../app/search";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RiEyeLine, RiMailSendLine } from "@remixicon/react";
 import {
+  getAuthAdministration,
   previewMailTemplate,
   putMailTemplate,
   putSMTPConfig,
@@ -18,9 +19,10 @@ import { Tabs } from "../components/Tabs";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { bareEmail, mailPurposes, placeholderFor, templateProblems, validEndpoint, type Problems, type TemplateDraft } from "./forms";
-import { Section } from "./PolicyTab";
+import { FormSection as Section } from "../components/FormSection";
+import { sanitizeMailHtml } from "./mailPreview";
 import { administrationQuery } from "./queries";
-import { problemText, reportFailure, UnsavedGuard, useDraft } from "./useDraft";
+import { assertUnchanged, problemText, reportFailure, StaleError, StaleNotice, UnsavedGuard, useDraft } from "./useDraft";
 import { SaveBar } from "../components/SaveBar";
 
 type MailView = MailTemplatePurpose | "smtp";
@@ -61,6 +63,7 @@ function TemplateForm({ collection, administration, purpose, initial, configured
   const [actionUrl, setActionUrl] = useState("https://example.com/auth/action?token=preview");
   const [preview, setPreview] = useState<MailPreview | null>(null);
   const error = (key: string) => problemText(t, problems, key);
+  const reload = () => void queryClient.invalidateQueries({ queryKey: administrationQuery(collection.id).queryKey });
   const placeholder = placeholderFor(purpose);
   const check = () => {
     const found: Problems = templateProblems(purpose, draft);
@@ -69,7 +72,11 @@ function TemplateForm({ collection, administration, purpose, initial, configured
   };
 
   const save = useMutation({
-    mutationFn: () => putMailTemplate(collection.id, purpose, { subject: draft.subject, body: draft.body, htmlBody: draft.htmlBody }),
+    mutationFn: async (force: boolean) => {
+      const stored = async () => (await getAuthAdministration(collection.id)).templates?.find((candidate) => candidate.purpose === purpose) ?? null;
+      await assertUnchanged(force, stored, administration.templates?.find((candidate) => candidate.purpose === purpose) ?? null);
+      return putMailTemplate(collection.id, purpose, { subject: draft.subject, body: draft.body, htmlBody: draft.htmlBody });
+    },
     onSuccess: (saved) => {
       const others = (administration.templates ?? []).filter((candidate) => candidate.purpose !== purpose);
       queryClient.setQueryData(administrationQuery(collection.id).queryKey, { ...administration, templates: [...others, saved] });
@@ -84,7 +91,7 @@ function TemplateForm({ collection, administration, purpose, initial, configured
   });
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (check()) save.mutate();
+    if (check()) save.mutate(false);
   };
   const onPreview = () => {
     if (!validEndpoint(actionUrl, true)) {
@@ -102,6 +109,7 @@ function TemplateForm({ collection, administration, purpose, initial, configured
       <div className="page-content">
         <div className="auth-form auth-form-wide">
           {views}
+          {save.error instanceof StaleError && <StaleNotice busy={save.isPending} onReload={reload} onOverwrite={() => save.mutate(true)} />}
           <form id="auth-template" className="auth-form" onSubmit={onSubmit} noValidate>
             <p className="txt-hint">{configured ? t("auth.mail.custom") : t("auth.mail.builtIn")} {t("auth.mail.placeholders", { placeholder })}</p>
             <Field label={t("auth.mail.subject")} value={draft.subject} error={error("subject")} onChange={(event) => patch({ subject: event.target.value })} />
@@ -116,9 +124,18 @@ function TemplateForm({ collection, administration, purpose, initial, configured
             {preview && (
               <div className="auth-preview" aria-live="polite">
                 <p><span className="txt-hint">{t("auth.mail.subject")}</span> {preview.subject}</p>
-                <pre className="auth-code">{preview.text}</pre>
-                {/* Shown as source: a srcdoc frame inherits the admin CSP, which blocks the layout's inline styles. */}
-                {preview.html && <pre className="auth-code auth-code-html" aria-label={t("auth.mail.html")}>{preview.html}</pre>}
+                <div className="auth-preview-pair">
+                  {preview.html && (
+                    <figure>
+                      <figcaption className="txt-hint">{t("auth.mail.htmlApprox")}</figcaption>
+                      <HtmlPreview html={preview.html} label={t("auth.mail.html")} />
+                    </figure>
+                  )}
+                  <figure>
+                    <figcaption className="txt-hint">{t("auth.mail.text")}</figcaption>
+                    <pre className="auth-code">{preview.text}</pre>
+                  </figure>
+                </div>
               </div>
             )}
           </Section>
@@ -145,10 +162,14 @@ function SmtpForm({ collection, administration, views }: { collection: AuthColle
   const { draft, patch, problems } = form;
   const [recipient, setRecipient] = useState("");
   const error = (key: string) => problemText(t, problems, key);
+  const reload = () => void queryClient.invalidateQueries({ queryKey: administrationQuery(collection.id).queryKey });
 
   const save = useMutation({
     // The whole form is sent; an empty password keeps the stored one.
-    mutationFn: () => putSMTPConfig(collection.id, { ...draft, password: draft.password || undefined }),
+    mutationFn: async (force: boolean) => {
+      await assertUnchanged(force, async () => (await getAuthAdministration(collection.id)).smtp ?? null, administration.smtp ?? null);
+      return putSMTPConfig(collection.id, { ...draft, password: draft.password || undefined });
+    },
     onSuccess: (saved) => {
       queryClient.setQueryData(administrationQuery(collection.id).queryKey, { ...administration, smtp: saved });
       toast(t("auth.savedToast"));
@@ -166,7 +187,7 @@ function SmtpForm({ collection, administration, views }: { collection: AuthColle
     if (!/^[^\s:]+:\d{1,5}$/.test(draft.address)) found.address = draft.address ? "pattern" : "required";
     if (!bareEmail(draft.from)) found.from = draft.from ? "email" : "required";
     form.setProblems(found);
-    if (Object.keys(found).length === 0) save.mutate();
+    if (Object.keys(found).length === 0) save.mutate(false);
   };
   const onTest = () => {
     if (!bareEmail(recipient)) {
@@ -184,6 +205,7 @@ function SmtpForm({ collection, administration, views }: { collection: AuthColle
       <div className="page-content">
         <div className="auth-form auth-form-wide">
           {views}
+          {save.error instanceof StaleError && <StaleNotice busy={save.isPending} onReload={reload} onOverwrite={() => save.mutate(true)} />}
           <form id="auth-smtp" className="auth-form" onSubmit={onSubmit} noValidate autoComplete="off">
             <p className="txt-hint">{smtp ? t("auth.mail.smtpOwn") : t("auth.mail.smtpServer")}</p>
             <div className="auth-grid">
@@ -209,4 +231,23 @@ function SmtpForm({ collection, administration, views }: { collection: AuthColle
       <UnsavedGuard dirty={form.dirty} />
     </div>
   );
+}
+
+/** The server's HTML, rebuilt without scripts or remote resources in a shadow root so admin styles neither leak in nor out. */
+function HtmlPreview({ html, label }: { html: string; label: string }) {
+  const host = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = host.current;
+    if (!element) return;
+    const root = element.shadowRoot ?? element.attachShadow({ mode: "open" });
+    const page = sanitizeMailHtml(html);
+    // Mail renders on a light canvas in most clients, whatever the admin theme.
+    if (!page.style.getPropertyValue("background-color") && !page.style.getPropertyValue("background")) page.style.setProperty("background-color", "#ffffff");
+    if (!page.style.getPropertyValue("color")) page.style.setProperty("color", "#171717");
+    if (!page.style.getPropertyValue("font-family")) page.style.setProperty("font-family", "system-ui, sans-serif");
+    page.style.setProperty("min-height", "100%");
+    page.style.setProperty("box-sizing", "border-box");
+    root.replaceChildren(page);
+  }, [html]);
+  return <div ref={host} className="auth-mail-frame" role="document" aria-label={label} />;
 }

@@ -1,14 +1,15 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiAddLine, RiCloseLine, RiErrorWarningLine, RiLockPasswordLine, RiLogoutCircleRLine } from "@remixicon/react";
+import { RiAddLine, RiCloseLine, RiLockPasswordLine, RiLogoutCircleRLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import type { Administrator } from "../api/session";
 import { createAdministrator, resetAdministratorPassword, revokeAdministratorSessions, setAdministratorActive } from "../api/system";
 import { errorText, sessionQuery } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, Loader } from "../components/Feedback";
+import { Loader } from "../components/Feedback";
+import { ErrorState } from "../components/ErrorState";
 import { Field } from "../components/Field";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
@@ -16,7 +17,8 @@ import { useT, type Translate } from "../i18n";
 import { useTimeFormat } from "../ops/queries";
 import { useSearchState } from "../app/search";
 import { administratorsQuery } from "./queries";
-import { TaskDialog } from "./SecretDialog";
+import { TaskDialog } from "../components/TaskDialog";
+import { Facts } from "../components/Facts";
 import "../styles/system.css";
 
 /** Server codes are shared by several refusals; the action and target pick the wording. */
@@ -49,8 +51,8 @@ export function AdministratorsView() {
     <div className="grid-scroll">
       {query.isPending ? (
         <Loader />
-      ) : query.isError ? (
-        <EmptyState icon={RiErrorWarningLine}>{errorText(t, query.error)}</EmptyState>
+      ) : query.isError && !query.data ? (
+        <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />
       ) : (
         <>
           <table className="grid" aria-label={t("nav.administrators")}>
@@ -77,9 +79,10 @@ export function AdministratorsView() {
               ))}
             </tbody>
           </table>
-          {query.hasNextPage && (
+          {(query.hasNextPage || query.isFetchNextPageError) && (
             <div className="grid-foot">
-              <Button variant="secondary" size="sm" loading={query.isFetchingNextPage} onClick={() => query.fetchNextPage()}>{t("system.loadMore")}</Button>
+              {query.isFetchNextPageError && <span className="field-error" role="alert">{errorText(t, query.error)}</span>}
+              <Button variant="secondary" size="sm" loading={query.isFetchingNextPage} onClick={() => query.fetchNextPage()}>{query.isFetchNextPageError ? t("common.retry") : t("system.loadMore")}</Button>
             </div>
           )}
         </>
@@ -177,12 +180,14 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
       </header>
       <div className="pane-body">
         {active.isError && <div className="pane-notice" data-tone="danger" role="alert"><p>{adminError(t, active.error, "disable", self)}</p></div>}
-        <dl className="sys-props">
-          <div><dt>{t("system.admins.status")}</dt><dd><span className="dot" data-tone={admin.active ? "success" : undefined}>{admin.active ? t("system.admins.active") : t("system.admins.disabled")}</span>{" "}{self && <span className="chip">{t("system.admins.you")}</span>}</dd></div>
-          <div><dt>{t("system.admins.created")}</dt><dd>{time(admin.createdAt, true)}</dd></div>
-          <div><dt>{t("system.admins.updated")}</dt><dd>{time(admin.updatedAt, true)}</dd></div>
-          <div><dt>ID</dt><dd className="mono">{admin.id}</dd></div>
-        </dl>
+        <Facts
+          items={[
+            { label: t("system.admins.status"), value: <><span className="dot" data-tone={admin.active ? "success" : undefined}>{admin.active ? t("system.admins.active") : t("system.admins.disabled")}</span>{" "}{self && <span className="chip">{t("system.admins.you")}</span>}</> },
+            { label: t("system.admins.created"), value: time(admin.createdAt, true) },
+            { label: t("system.admins.updated"), value: time(admin.updatedAt, true) },
+            { label: "ID", value: admin.id, mono: true },
+          ]}
+        />
         <div className="sys-actions">
           <Action title={admin.active ? t("system.admins.disable") : t("system.admins.enable")} text={admin.active ? t("system.admins.disableHint") : t("system.admins.enableHint")}>
             <Button variant={admin.active ? "danger" : "secondary"} size="sm" loading={active.isPending} onClick={() => (admin.active ? setPending("disable") : active.mutate(true))}>

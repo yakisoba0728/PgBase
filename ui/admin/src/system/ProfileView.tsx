@@ -1,20 +1,23 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiErrorWarningLine } from "@remixicon/react";
+import { RiRefreshLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { updateIpAllowlist, updateProfile, type Administrator } from "../api/session";
 import { resetAdministratorPassword } from "../api/system";
 import { errorText, sessionQuery } from "../app/queries";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, Loader } from "../components/Feedback";
+import { ErrorState } from "../components/ErrorState";
+import { Loader } from "../components/Feedback";
 import { Field } from "../components/Field";
+import { FormSection } from "../components/FormSection";
+import { TypedConfirmDialog } from "../components/TaskDialog";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { PasswordForm } from "./AdministratorsView";
-import { isMaskedPrefix, lines } from "./net";
-import { allowlistQuery, profileQuery } from "./queries";
+import { allowlistAdmits, isMaskedPrefix, lines } from "./net";
+import { allowlistQuery, callerAddressQuery, profileQuery } from "./queries";
 import "../styles/system.css";
 
 /** The signed-in administrator: email, password and the network allowlist. */
@@ -22,25 +25,13 @@ export function ProfileView() {
   const t = useT();
   const profile = useQuery(profileQuery);
   if (profile.isPending) return <Loader />;
-  if (profile.isError) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, profile.error)}</EmptyState>;
+  if (profile.isError) return <ErrorState error={profile.error} busy={profile.isFetching} onRetry={() => void profile.refetch()} />;
   return (
     <div className="sys-scroll">
       <EmailSection key={profile.data.email} profile={profile.data} />
       <PasswordSection id={profile.data.id} />
-      <AllowlistSection email={profile.data.email} />
+      <AllowlistSection profile={profile.data} />
     </div>
-  );
-}
-
-function Section({ id, title, hint, children }: { id: string; title: string; hint: string; children: ReactNode }) {
-  return (
-    <section className="sys-section" aria-labelledby={`sys-${id}`}>
-      <header>
-        <h2 id={`sys-${id}`}>{title}</h2>
-        <p className="txt-hint">{hint}</p>
-      </header>
-      {children}
-    </section>
   );
 }
 
@@ -64,12 +55,12 @@ function EmailSection({ profile }: { profile: Administrator }) {
     save.mutate();
   };
   return (
-    <Section id="email" title={t("system.profile.email")} hint={t("system.profile.emailHint")}>
+    <FormSection title={t("system.profile.email")} hint={t("system.profile.emailHint")}>
       <form className="sys-inline" onSubmit={onSubmit}>
         <Field label={t("system.admins.email")} name="email" type="email" required autoComplete="email" value={email} error={error} onChange={(event) => setEmail(event.target.value)} />
         <Button type="submit" disabled={email.trim() === profile.email} loading={save.isPending}>{t("records.save")}</Button>
       </form>
-    </Section>
+    </FormSection>
   );
 }
 
@@ -87,38 +78,44 @@ function PasswordSection({ id }: { id: string }) {
   });
   const error = !change.isError ? undefined : change.error instanceof ApiError && change.error.code === "invalid_administrator" ? t("system.admins.invalidPassword") : errorText(t, change.error);
   return (
-    <Section id="password" title={t("system.profile.password")} hint={t("system.profile.passwordHint")}>
+    <FormSection title={t("system.profile.password")}>
       <div className="sys-narrow">
         <PasswordForm self busy={change.isPending} error={error} onSubmit={(value) => change.mutate(value)} />
       </div>
-    </Section>
+    </FormSection>
   );
 }
 
-function AllowlistSection({ email }: { email: string }) {
+function AllowlistSection({ profile }: { profile: Administrator }) {
   const t = useT();
   const query = useQuery(allowlistQuery);
   return (
-    <Section id="allowlist" title={t("system.profile.allowlist")} hint={t("system.profile.allowlistHint")}>
+    <FormSection title={t("system.profile.allowlist")} hint={t("system.profile.allowlistHint")}>
       {query.isPending ? (
         <Loader />
       ) : query.isError ? (
-        <p className="field-error">{errorText(t, query.error)}</p>
+        <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />
       ) : (
-        <AllowlistForm key={query.data.prefixes.join(",")} prefixes={query.data.prefixes} email={email} />
+        <AllowlistForm key={query.data.prefixes.join(",")} prefixes={query.data.prefixes} profile={profile} />
       )}
-    </Section>
+    </FormSection>
   );
 }
 
-function AllowlistForm({ prefixes, email }: { prefixes: string[]; email: string }) {
+const hostPrefix = (address: string) => `${address}/${address.includes(":") ? 128 : 32}`;
+
+function AllowlistForm({ prefixes, profile }: { prefixes: string[]; profile: Administrator }) {
   const t = useT();
   const queryClient = useQueryClient();
+  const caller = useQuery(callerAddressQuery(profile.id));
   const [text, setText] = useState(prefixes.join("\n"));
   const [confirming, setConfirming] = useState(false);
   const entries = lines(text);
   const bad = entries.find((entry) => !isMaskedPrefix(entry));
-  const invalid = bad !== undefined ? t("system.invalid.cidr", { value: bad }) : entries.length > 64 ? t("system.invalid.tooMany", { max: 64 }) : undefined;
+  const address = caller.data ?? null;
+  // The server does not stop a self-lockout, so a known address that the list leaves out blocks the save here.
+  const locksOut = address !== null && entries.length > 0 && !allowlistAdmits(entries, address);
+  const invalid = bad !== undefined ? t("system.invalid.cidr", { value: bad }) : entries.length > 64 ? t("system.invalid.tooMany", { max: 64 }) : locksOut ? t("system.profile.excludesSelf", { address }) : undefined;
   const dirty = entries.join("\n") !== prefixes.join("\n");
   const save = useMutation({
     mutationFn: () => updateIpAllowlist(entries),
@@ -139,20 +136,49 @@ function AllowlistForm({ prefixes, email }: { prefixes: string[]; email: string 
     if (entries.length === 0) save.mutate();
     else setConfirming(true);
   };
+  const confirmBody = (
+    <>
+      <p>{t("system.profile.allowlistConfirmText")}</p>
+      <pre className="sys-code">{entries.join("\n")}</pre>
+      <p className="txt-hint">{t("system.profile.recovery")}</p>
+      <pre className="sys-code">{`pgbase admin ip deny --email ${profile.email} --cidr <CIDR>`}</pre>
+    </>
+  );
   return (
     <form className="form sys-narrow" noValidate onSubmit={onSubmit}>
-      <p className="sys-warning" role="note">{t("system.profile.lockout")}</p>
+      <p className="warning-note" role="note">{t("system.profile.lockout")}</p>
+      <div className="sys-address">
+        <span className="txt-hint">{t("system.profile.currentAddress")}</span>
+        {caller.isPending ? (
+          <span className="txt-hint">…</span>
+        ) : address ? (
+          <>
+            <span className="mono">{address}</span>
+            {!allowlistAdmits(entries, address) && (
+              <Button size="sm" variant="secondary" onClick={() => setText([...entries, hostPrefix(address)].join("\n"))}>{t("system.profile.addAddress", { prefix: hostPrefix(address) })}</Button>
+            )}
+          </>
+        ) : (
+          <span className="txt-hint">{caller.isError ? errorText(t, caller.error) : t("system.profile.addressUnknown")}</span>
+        )}
+        <Button size="sm" variant="transparent" icon={RiRefreshLine} loading={caller.isFetching && !caller.isPending} onClick={() => void caller.refetch()}>{t("system.profile.detectAgain")}</Button>
+      </div>
       <Field kind="textarea" label={t("system.profile.prefixes")} mono rows={4} spellCheck={false} placeholder={"203.0.113.0/24\n127.0.0.1/32"} value={text}
         error={invalid ?? serverError} hint={t("system.profile.prefixesHint")} onChange={(event) => setText(event.target.value)} />
       <div className="sys-row-end">
-        <Button type="submit" disabled={!dirty} loading={save.isPending}>{t("records.save")}</Button>
+        <Button type="submit" disabled={!dirty || Boolean(invalid)} loading={save.isPending}>{t("records.save")}</Button>
       </div>
-      <ConfirmDialog open={confirming} title={t("system.profile.allowlistConfirm")} confirmLabel={t("records.save")} danger busy={save.isPending} onConfirm={() => save.mutate()} onCancel={() => setConfirming(false)}>
-        <p>{t("system.profile.allowlistConfirmText")}</p>
-        <pre className="sys-code">{entries.join("\n")}</pre>
-        <p className="txt-hint">{t("system.profile.recovery")}</p>
-        <pre className="sys-code">{`pgbase admin ip deny --email ${email} --cidr <CIDR>`}</pre>
-      </ConfirmDialog>
+      {address ? (
+        <ConfirmDialog open={confirming} title={t("system.profile.allowlistConfirm")} confirmLabel={t("records.save")} danger busy={save.isPending} onConfirm={() => save.mutate()} onCancel={() => setConfirming(false)}>
+          {confirmBody}
+        </ConfirmDialog>
+      ) : (
+        // Unknown address: nothing can be checked, so the administrator types their email to go ahead.
+        <TypedConfirmDialog open={confirming} title={t("system.profile.allowlistConfirm")} message={t("system.profile.uncheckedText")} phrase={profile.email}
+          label={t("system.profile.typeEmail", { email: profile.email })} confirmLabel={t("records.save")} busy={save.isPending} onConfirm={() => save.mutate()} onCancel={() => setConfirming(false)}>
+          {confirmBody}
+        </TypedConfirmDialog>
+      )}
     </form>
   );
 }

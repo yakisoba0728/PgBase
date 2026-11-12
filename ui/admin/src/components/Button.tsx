@@ -1,7 +1,7 @@
-import type { ButtonHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, ComponentProps } from "react";
 import type { RemixiconComponentType } from "@remixicon/react";
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonProps extends ComponentProps<"button"> {
   variant?: "primary" | "secondary" | "transparent" | "danger";
   size?: "sm";
   block?: boolean;

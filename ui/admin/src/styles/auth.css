@@ -154,33 +154,11 @@
   white-space: pre-wrap;
 }
 
-.auth-code-html {
-  max-height: 320px;
-  color: var(--text-hint);
-}
-
 /* User pane */
 .auth-pane {
   display: grid;
   align-content: start;
   gap: var(--space);
-}
-
-.auth-facts {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 6px var(--space-sm);
-  margin: 0;
-  font-size: var(--font-size-sm);
-}
-
-.auth-facts dt {
-  color: var(--text-hint);
-}
-
-.auth-facts dd {
-  margin: 0;
-  overflow-wrap: anywhere;
 }
 
 .auth-actions {
@@ -212,12 +190,6 @@
   gap: 6px;
 }
 
-.auth-token {
-  display: grid;
-  gap: 6px;
-  margin-top: var(--space-xs);
-}
-
 .auth-link-row a,
 .crumb a {
   color: inherit;
@@ -226,4 +198,77 @@
 
 .crumb a:hover {
   color: var(--text);
+}
+
+/* Mail preview: the rebuilt HTML beside the plain-text version. */
+.auth-preview-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--space-sm);
+  align-items: start;
+}
+
+.auth-preview-pair figure {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+}
+
+.auth-preview-pair figcaption {
+  font-size: var(--font-size-sm);
+}
+
+.auth-mail-frame {
+  max-height: 520px;
+  overflow: auto;
+  border-radius: var(--radius);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+@media (max-width: 1199px) {
+  .auth-preview-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.auth-apple {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+
+.auth-apple p {
+  flex: 1;
+  font-size: var(--font-size-sm);
+}
+
+.auth-row:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* Users: search and status filter above the list, and the scan progress line. */
+.auth-user-filter {
+  gap: var(--space-xs);
+  align-items: end;
+}
+
+.auth-user-filter .field-wrap:first-child {
+  flex: 1;
+  max-width: 420px;
+}
+
+.auth-scan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px var(--space-sm);
+  margin: 0;
+  padding: 6px var(--space);
+  font-size: var(--font-size-sm);
 }

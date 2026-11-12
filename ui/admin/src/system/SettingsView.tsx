@@ -1,12 +1,14 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiAddLine, RiDeleteBinLine, RiErrorWarningLine, RiRefreshLine } from "@remixicon/react";
+import { RiAddLine, RiDeleteBinLine, RiRefreshLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { reloadSettings, updateSettings, type RuntimeSettings } from "../api/system";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
 import { SaveBar } from "../components/SaveBar";
-import { EmptyState, Loader } from "../components/Feedback";
+import { Loader } from "../components/Feedback";
+import { ErrorState } from "../components/ErrorState";
+import { FormSection } from "../components/FormSection";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT, type MessageKey, type Translate } from "../i18n";
@@ -24,7 +26,7 @@ export function SettingsView() {
   const t = useT();
   const query = useQuery(settingsQuery);
   if (query.isPending) return <Loader />;
-  if (query.isError) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, query.error)}</EmptyState>;
+  if (query.isError) return <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />;
   // A new revision (save, reload, refresh) starts a fresh draft.
   return <SettingsForm key={query.data.revision} settings={query.data} />;
 }
@@ -93,11 +95,7 @@ function SettingsForm({ settings }: { settings: RuntimeSettings }) {
           </div>
         )}
         {sections.map((section) => (
-          <section key={section.id} className="sys-section" aria-labelledby={`sys-${section.id}`}>
-            <header>
-              <h2 id={`sys-${section.id}`}>{t(`system.section.${section.id}` as MessageKey)}</h2>
-              <p className="txt-hint">{t(`system.sectionHint.${section.id}` as MessageKey)}</p>
-            </header>
+          <FormSection key={section.id} title={t(`system.section.${section.id}` as MessageKey)} hint={t(`system.sectionHint.${section.id}` as MessageKey)}>
             <div className="sys-fields">
               {section.fields.map((spec) => (
                 <SettingField key={spec.path} spec={spec} value={draft.values[spec.path]} error={fieldError(spec.path)} onChange={(value) => setValue(spec.path, value)} />
@@ -107,7 +105,7 @@ function SettingsForm({ settings }: { settings: RuntimeSettings }) {
               <RulesEditor rules={draft.rules} errors={errors} onChange={setRule} onAdd={() => setDraft((current) => ({ ...current, rules: [...current.rules, emptyRule] }))}
                 onRemove={(index) => setDraft((current) => ({ ...current, rules: current.rules.filter((_, i) => i !== index) }))} />
             )}
-          </section>
+          </FormSection>
         ))}
       </div>
     </form>

@@ -19,33 +19,6 @@
   padding: 4px var(--space) var(--space);
 }
 
-/* Sections are separated by space and tone, not rules. */
-.sys-section {
-  display: grid;
-  grid-template-columns: minmax(180px, 260px) minmax(0, 720px);
-  gap: var(--space-sm) var(--space);
-  padding: var(--space) 0;
-}
-
-.sys-section + .sys-section {
-  box-shadow: 0 -1px 0 var(--line);
-}
-
-.sys-section > header h2 {
-  margin: 0 0 4px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.sys-section > header p {
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-sm);
-}
-
-.sys-section > :not(header) {
-  grid-column: 2;
-}
-
 .sys-fields {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -107,35 +80,6 @@
   margin-top: 12px;
 }
 
-.sys-props {
-  display: grid;
-  gap: 2px;
-  margin: 0 0 var(--space-sm);
-}
-
-.sys-props > div {
-  display: grid;
-  grid-template-columns: 160px minmax(0, 1fr);
-  align-items: baseline;
-  gap: var(--space-sm);
-  padding: 8px;
-  border-radius: var(--radius-sm);
-}
-
-.sys-props > div:nth-child(odd) {
-  background: var(--surface-1);
-}
-
-.sys-props dt {
-  color: var(--text-hint);
-  font-size: var(--font-size-sm);
-}
-
-.sys-props dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
 .sys-findings {
   display: grid;
   gap: 6px;
@@ -147,15 +91,6 @@
 .sys-findings li {
   display: grid;
   gap: 2px;
-}
-
-.sys-warning {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--warning), var(--surface-raised) 88%);
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-sm);
 }
 
 /* Detail pane actions: a title and its effect, with the button on the right. */
@@ -222,32 +157,10 @@
   overflow-wrap: anywhere;
 }
 
-/* Short-task dialogs: wider than a confirmation. */
-.sys-dialog {
-  width: min(560px, calc(100vw - 32px));
-}
-
-.sys-dialog .form,
-.sys-dialog > p {
-  margin-bottom: 4px;
-}
-
 .sys-pair {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-xs);
-}
-
-.sys-secret {
-  display: block;
-  margin: var(--space-sm) 0 0;
-}
-
-.sys-secret textarea {
-  width: 100%;
-  border-radius: var(--radius);
-  background: var(--input);
-  word-break: break-all;
 }
 
 .sys-scopes {
@@ -280,15 +193,16 @@
 }
 
 @media (max-width: 899px) {
-  .sys-section {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .sys-section > :not(header) {
-    grid-column: 1;
-  }
-
   .sys-rule {
     grid-template-columns: 1fr 1fr;
   }
+}
+
+/* The caller's address above the allowlist, with quick actions. */
+.sys-address {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px var(--space-xs);
+  font-size: var(--font-size-sm);
 }

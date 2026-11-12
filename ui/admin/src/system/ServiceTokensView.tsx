@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiAddLine, RiCloseLine, RiErrorWarningLine, RiKey2Line } from "@remixicon/react";
+import { RiAddLine, RiCloseLine, RiKey2Line } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { issueServiceToken, revokeServiceToken, type ServiceToken, type ServiceTokenScope } from "../api/system";
 import { errorText } from "../app/queries";
@@ -15,7 +15,9 @@ import { useT, type Translate } from "../i18n";
 import { useTimeFormat } from "../ops/queries";
 import { useSearchState } from "../app/search";
 import { serviceTokensQuery } from "./queries";
-import { SecretView, TaskDialog } from "./SecretDialog";
+import { SecretView, TaskDialog } from "../components/TaskDialog";
+import { Facts } from "../components/Facts";
+import { ErrorState } from "../components/ErrorState";
 import "../styles/system.css";
 
 const actions: ServiceTokenScope["action"][] = ["read", "create", "update", "delete"];
@@ -50,7 +52,7 @@ export function ServiceTokensView() {
       {query.isPending ? (
         <Loader />
       ) : query.isError ? (
-        <EmptyState icon={RiErrorWarningLine}>{errorText(t, query.error)}</EmptyState>
+        <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />
       ) : items.length === 0 ? (
         <EmptyState icon={RiKey2Line}>{t("system.tokens.empty")}</EmptyState>
       ) : (
@@ -115,22 +117,17 @@ function TokenPane({ token, names, onClose }: { token: ServiceToken; names: Map<
         <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
       </header>
       <div className="pane-body">
-        <dl className="sys-props">
-          <div><dt>{t("system.tokens.state")}</dt><dd><span className="dot" data-tone={state.tone}>{state.label}</span></dd></div>
-          <div><dt>{t("system.tokens.expires")}</dt><dd>{time(token.expiresAt, true)}</dd></div>
-          <div><dt>{t("system.tokens.created")}</dt><dd>{time(token.createdAt, true)}</dd></div>
-          {token.revokedAt && <div><dt>{t("system.tokens.revokedAt")}</dt><dd>{time(token.revokedAt, true)}</dd></div>}
-          <div><dt>ID</dt><dd className="mono">{token.id}</dd></div>
-        </dl>
+        <Facts
+          items={[
+            { label: t("system.tokens.state"), value: <span className="dot" data-tone={state.tone}>{state.label}</span> },
+            { label: t("system.tokens.expires"), value: time(token.expiresAt, true) },
+            { label: t("system.tokens.created"), value: time(token.createdAt, true) },
+            Boolean(token.revokedAt) && { label: t("system.tokens.revokedAt"), value: time(token.revokedAt!, true) },
+            { label: "ID", value: token.id, mono: true },
+          ]}
+        />
         <h3 className="sys-subtitle">{t("system.tokens.scopes")}</h3>
-        <dl className="sys-props">
-          {[...byCollection].map(([id, granted]) => (
-            <div key={id}>
-              <dt className={names.has(id) ? undefined : "mono"}>{names.get(id) ?? id}</dt>
-              <dd>{granted.map((action) => t(`system.tokens.action.${action as ServiceTokenScope["action"]}`)).join(", ")}</dd>
-            </div>
-          ))}
-        </dl>
+        <Facts items={[...byCollection].map(([id, granted]) => ({ label: names.get(id) ?? <span className="mono">{id}</span>, value: granted.map((action) => t(`system.tokens.action.${action as ServiceTokenScope["action"]}`)).join(", ") }))} />
       </div>
       <footer className="pane-footer">
         <Button variant="danger" className="pane-footer-start" disabled={Boolean(token.revokedAt)} onClick={() => setConfirming(true)}>{t("system.tokens.revoke")}</Button>

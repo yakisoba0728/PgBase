@@ -18,6 +18,8 @@ import { errorText } from "../app/queries";
 import { useTimeFormat } from "../ops/queries";
 import { Button, IconButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
+import { Facts } from "../components/Facts";
+import { SecretView, TaskDialog, TypedConfirmDialog, copyText } from "../components/TaskDialog";
 import { Loader } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
@@ -98,11 +100,7 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
     onError: (failure) => reportFailure(t, failure),
   });
 
-  const copy = (value: string) =>
-    navigator.clipboard.writeText(value).then(
-      () => toast(t("records.copied")),
-      () => toast(t("records.copyFailed"), "danger"),
-    );
+  const copy = (value: string) => copyText(t, value);
   const ask = (next: Action) => {
     run.reset();
     setAction(next);
@@ -117,16 +115,14 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
         <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
       </header>
       <div className="pane-body auth-pane">
-        <dl className="auth-facts">
-          <dt>id</dt>
-          <dd className="mono">{user.id}</dd>
-          <dt>{t("auth.users.collection")}</dt>
-          <dd className="mono">{resolved.data ? resolved.data.collection.name : resolved.isPending ? "…" : t("auth.user.unresolved")}</dd>
-          <dt>{t("auth.users.created")}</dt>
-          <dd>{time(user.createdAt, true)}</dd>
-          <dt>{t("auth.users.updated")}</dt>
-          <dd>{time(user.updatedAt, true)}</dd>
-        </dl>
+        <Facts
+          items={[
+            { label: "ID", value: user.id, mono: true },
+            { label: t("auth.users.collection"), value: resolved.data ? resolved.data.collection.name : resolved.isPending ? "…" : t("auth.user.unresolved"), mono: true },
+            { label: t("auth.users.created"), value: time(user.createdAt, true) },
+            { label: t("auth.users.updated"), value: time(user.updatedAt, true) },
+          ]}
+        />
 
         <div className="auth-actions">
           <div className="auth-action">
@@ -144,7 +140,7 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
             <span>{t("auth.user.access")}</span>
             <Button size="sm" variant="secondary" onClick={() => ask({ kind: "sendReset" })}>{t("auth.user.sendReset")}</Button>
             <Button size="sm" variant="secondary" onClick={() => ask({ kind: "revoke" })}>{t("auth.user.revoke")}</Button>
-            <Button size="sm" variant="secondary" onClick={() => ask({ kind: "impersonate" })}>{t("auth.user.impersonate")}</Button>
+            <Button size="sm" variant="secondary" disabled={!user.active} title={user.active ? undefined : t("auth.user.impersonateDisabled")} onClick={() => ask({ kind: "impersonate" })}>{t("auth.user.impersonate")}</Button>
           </div>
         </div>
 
@@ -178,22 +174,22 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
         )}
       </div>
 
-      <ConfirmDialog open={action !== null} title={text ? t(text.title, { email: user.email, provider: action?.kind === "unlink" ? action.provider : "" }) : ""} message={text ? t(text.text, { email: user.email }) : undefined}
+      <ConfirmDialog open={action !== null && action.kind !== "delete"} title={text ? t(text.title, { email: user.email, provider: action?.kind === "unlink" ? action.provider : "" }) : ""} message={text ? t(text.text, { email: user.email }) : undefined}
         confirmLabel={text ? t(text.confirm) : undefined} danger={text?.danger} busy={run.isPending} onConfirm={() => action && run.mutate(action)} onCancel={() => setAction(null)}>
         {action?.kind === "impersonate" && (
           <Field kind="select" label={t("auth.user.duration")} value={duration} onChange={(event) => setDuration(event.target.value)}
             options={["60", "300", "600", "900"].map((value) => ({ value, label: t("auth.user.minutes", { count: Number(value) / 60 }) }))} />
         )}
       </ConfirmDialog>
-      <ConfirmDialog open={session !== null} title={t("auth.user.tokenTitle", { email: user.email })} message={t("auth.user.tokenWarning")} confirmLabel={t("auth.user.copyToken")} cancelLabel={t("common.close")}
-        onConfirm={() => session?.token && void copy(session.token)} onCancel={() => setSession(null)}>
-        {session && (
-          <div className="auth-token">
-            <Field kind="textarea" label={t("auth.user.token")} mono readOnly rows={3} value={session.token ?? ""} onFocus={(event) => event.currentTarget.select()} />
-            <p className="txt-hint">{t("auth.user.expires", { at: new Date(session.expiresAt).toLocaleString() })}</p>
-          </div>
+      <TypedConfirmDialog open={action?.kind === "delete"} title={t("auth.user.deleteTitle", { email: user.email })} message={t("auth.user.deleteText")} phrase={user.email}
+        label={t("auth.user.typeEmail", { email: user.email })} confirmLabel={t("common.delete")} busy={run.isPending} onConfirm={() => run.mutate({ kind: "delete" })} onCancel={() => setAction(null)} />
+      {/* The token lives only in this state; closing the dialog drops it. */}
+      <TaskDialog open={session !== null} title={t("auth.user.tokenTitle", { email: user.email })} onClose={() => setSession(null)}>
+        {session?.token && (
+          <SecretView label={t("auth.user.token")} value={session.token} warning={t("auth.user.tokenWarning")} onDone={() => setSession(null)}
+            details={<p className="txt-hint">{t("auth.user.expires", { at: time(session.expiresAt, true) })}</p>} />
         )}
-      </ConfirmDialog>
+      </TaskDialog>
     </>
   );
 }

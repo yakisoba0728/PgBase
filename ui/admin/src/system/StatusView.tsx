@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { RiErrorWarningLine } from "@remixicon/react";
 import type { SystemStatusProbe } from "../api/system";
 import { errorText } from "../app/queries";
-import { EmptyState, Loader } from "../components/Feedback";
+import { Loader } from "../components/Feedback";
+import { ErrorState } from "../components/ErrorState";
+import { Facts } from "../components/Facts";
+import { FormSection } from "../components/FormSection";
 import { useT } from "../i18n";
 import { useTimeFormat } from "../ops/queries";
 import { schemaHealthQuery, systemStatusQuery } from "./queries";
@@ -16,23 +18,14 @@ function Dot({ tone, children }: { tone: Tone; children: ReactNode }) {
 }
 
 function Props({ rows }: { rows: [string, ReactNode][] }) {
-  return (
-    <dl className="sys-props">
-      {rows.map(([label, value]) => (
-        <div key={label}>
-          <dt>{label}</dt>
-          <dd>{value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
+  return <Facts items={rows.map(([label, value]) => ({ label, value }))} />;
 }
 
 function Probes({ items }: { items: SystemStatusProbe[] }) {
   const t = useT();
   if (items.length === 0) return null;
   return (
-    <p className="sys-warning" role="note">
+    <p className="warning-note" role="note">
       {t("system.status.unavailable")} <span className="mono">{items.map((item) => `${item.component} (${item.code})`).join(", ")}</span>
     </p>
   );
@@ -45,7 +38,7 @@ export function StatusView() {
   const status = useQuery(systemStatusQuery);
   const health = useQuery(schemaHealthQuery);
   if (status.isPending || health.isPending) return <Loader />;
-  if (status.isError) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, status.error)}</EmptyState>;
+  if (status.isError) return <ErrorState error={status.error} busy={status.isFetching} onRetry={() => void status.refetch()} />;
   const s = status.data;
   const migrationTone: Tone = s.migrationDirty ? "danger" : s.migrationCurrent < s.migrationLatest ? "warning" : "success";
   const yes = (ok: boolean, good: string, bad: string) => <Dot tone={ok ? "success" : "danger"}>{ok ? good : bad}</Dot>;
@@ -53,11 +46,7 @@ export function StatusView() {
 
   return (
     <div className="sys-scroll">
-      <section className="sys-section" aria-labelledby="sys-status">
-        <header>
-          <h2 id="sys-status">{t("system.status.server")}</h2>
-          <p className="txt-hint">{t("system.status.sampled", { time: time(s.sampledAt, true) })}</p>
-        </header>
+      <FormSection title={t("system.status.server")} hint={t("system.status.sampled", { time: time(s.sampledAt, true) })}>
         <Probes items={s.unavailable} />
         <Props
           rows={[
@@ -75,12 +64,8 @@ export function StatusView() {
             [t("system.status.lastSuccess"), s.lastSuccessAt ? time(s.lastSuccessAt, true) : <span className="na">{t("common.na")}</span>],
           ]}
         />
-      </section>
-      <section className="sys-section" aria-labelledby="sys-health">
-        <header>
-          <h2 id="sys-health">{t("system.status.schema")}</h2>
-          {health.data && <p className="txt-hint">{t("system.status.sampled", { time: time(health.data.sampledAt, true) })}</p>}
-        </header>
+      </FormSection>
+      <FormSection title={t("system.status.schema")} hint={health.data && t("system.status.sampled", { time: time(health.data.sampledAt, true) })}>
         {health.isError ? (
           <p className="field-error">{errorText(t, health.error)}</p>
         ) : (
@@ -106,7 +91,7 @@ export function StatusView() {
             )}
           </>
         )}
-      </section>
+      </FormSection>
     </div>
   );
 }

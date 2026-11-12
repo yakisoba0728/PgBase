@@ -1,3 +1,4 @@
+import { providerPresets } from "./presets";
 import { describe, expect, it } from "vitest";
 import type { AuthCollectionField, AuthPolicy, AuthRecord } from "../api/authCollections";
 import { matchesUser, policyDraft, policyInput, policyProblems, profileChanges, profileDraft, providerDraft, providerInput, providerProblems, templateProblems, tokenProblems, uuidBefore, validEndpoint } from "./forms";
@@ -88,5 +89,14 @@ describe("uuidBefore", () => {
     expect(uuidBefore("0190a1b2-0000-0000-0000-000000000000")).toBe("0190a1b1-ffff-ffff-ffff-ffffffffffff");
     expect(uuidBefore("00000000-0000-0000-0000-000000000000")).toBeUndefined();
     expect(uuidBefore("not-a-uuid")).toBeNull();
+  });
+});
+
+describe("provider presets", () => {
+  it("pass the provider validator once a client id is set, and the server catalog wins", () => {
+    const merged = providerPresets([{ name: "google", authorizationUrl: "https://a.example/auth", tokenUrl: "https://a.example/token", userInfoUrl: "https://a.example/me", scopes: ["openid"] }]);
+    for (const preset of merged) expect(providerProblems({ ...providerDraft(preset), clientId: "id" })).toEqual({});
+    expect(merged.find((preset) => preset.name === "google")?.tokenUrl).toBe("https://a.example/token");
+    expect(new Set(merged.map((preset) => preset.name)).size).toBe(merged.length);
   });
 });

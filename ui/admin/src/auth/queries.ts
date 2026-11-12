@@ -24,7 +24,7 @@ export const providerCatalogQuery = queryOptions({
 
 export const usersQuery = infiniteQueryOptions({
   queryKey: ["auth", "users"],
-  queryFn: ({ pageParam, signal }) => listUsers({ after: pageParam, limit: 50, signal }),
+  queryFn: ({ pageParam, signal }) => listUsers({ after: pageParam, limit: 100, signal }),
   initialPageParam: undefined as string | undefined,
   getNextPageParam: (page) => page.nextAfter,
 });
