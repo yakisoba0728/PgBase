@@ -3,6 +3,7 @@ import { storageEn } from "./parts/storage.en";
 
 import { rulesEn } from "./parts/rules.en";
 import { authEn } from "./parts/auth.en";
+import { devtoolsEn } from "./parts/devtools.en";
 
 import { systemEn } from "./parts/system.en";
 export const en = {
@@ -371,4 +372,5 @@ export const en = {
   ...authEn,
   ...storageEn,
   ...systemEn,
+  ...devtoolsEn,
 };

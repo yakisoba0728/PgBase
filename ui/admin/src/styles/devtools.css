@@ -1,0 +1,400 @@
+/* Developer tools: schema transfer, schema operations, SQL console. */
+.dt-muted {
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
+.dt-danger {
+  color: var(--danger);
+}
+
+.dt-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* State pill: neutral when settled, coloured only for live or failed states. */
+.dt-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.dt-status[data-tone="accent"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.dt-status[data-tone="warning"] {
+  background: color-mix(in srgb, var(--warning), var(--surface) 86%);
+  color: var(--warning);
+}
+
+.dt-status[data-tone="danger"] {
+  background: color-mix(in srgb, var(--danger), var(--surface) 86%);
+  color: var(--danger);
+}
+
+.dt-status .loader {
+  width: 10px;
+  height: 10px;
+}
+
+.chip.dt-write {
+  background: color-mix(in srgb, var(--warning), var(--surface) 86%);
+  color: var(--warning);
+}
+
+.dt-code {
+  margin: 0;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  tab-size: 2;
+  outline: 0;
+}
+
+.dt-code:focus-visible {
+  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
+}
+
+/* Schema transfer: picker or input on the left, document or plan on the right. */
+.dt-transfer {
+  display: flex;
+  flex: 1;
+  gap: var(--space-xs);
+  min-width: 0;
+  min-height: 0;
+}
+
+.dt-side {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-xs);
+  width: 240px;
+  min-height: 0;
+  padding: var(--space-sm) var(--space-sm) var(--space-sm) var(--space);
+}
+
+.dt-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 30px;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
+.dt-checks {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.dt-checks .checkbox {
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+}
+
+.dt-checks .checkbox:hover {
+  background: var(--surface-1);
+}
+
+.dt-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 var(--space) var(--space-sm) 0;
+}
+
+.dt-main .toolbar {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.dt-main > .dt-code {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  white-space: pre;
+}
+
+.dt-import-input {
+  padding-left: var(--space);
+}
+
+.dt-editor {
+  resize: none;
+}
+
+.dt-plan {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: min(520px, 45%);
+  min-height: 0;
+  margin: 2px var(--space-xs) var(--space-xs) 0;
+  overflow: hidden;
+  border-radius: calc(var(--radius-lg) - 4px);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+
+.dt-problems {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-sm);
+}
+
+.dt-problems li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Schema operations: undecided rows read as live. */
+.ops-grid tbody tr[data-live] td {
+  background: var(--accent-faint);
+}
+
+/* SQL console */
+.dt-sql {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dt-sql-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dt-editor-wrap {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-sm) var(--space) 0;
+}
+
+.dt-sql-editor {
+  height: 168px;
+  min-height: 72px;
+  max-height: 50vh;
+  resize: vertical;
+}
+
+/* A write-mode editor carries the warning tone so the mode is never missed. */
+.dt-editor-wrap[data-write] .dt-sql-editor {
+  background: color-mix(in srgb, var(--warning), var(--surface-1) 92%);
+  box-shadow: inset 3px 0 0 var(--warning);
+}
+
+.dt-sql-bar {
+  flex-wrap: wrap;
+  padding: 0;
+}
+
+.dt-kbd {
+  color: var(--text-hint);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.dt-outcome {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.dt-figures {
+  flex-wrap: wrap;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.dt-inset {
+  margin: 0 var(--space) var(--space-xs);
+}
+
+.dt-caret {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--text);
+  font-size: var(--font-size-xs);
+  line-height: 1.55;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* Bounded: large results scroll inside, the editor stays put. */
+.dt-result {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 calc(var(--space) - 8px) var(--space-sm);
+  outline: 0;
+}
+
+.dt-result .grid + .grid,
+.dt-result .dt-command + .grid {
+  margin-top: var(--space-sm);
+}
+
+.dt-grid tbody tr {
+  cursor: default;
+}
+
+.dt-grid td {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.dt-grid td[data-kind="json"],
+.dt-grid td[data-kind="bytes"] {
+  color: var(--text-hint);
+}
+
+.dt-null {
+  color: var(--text-disabled);
+  font-style: italic;
+}
+
+.dt-command {
+  padding: 6px 12px;
+  font-size: var(--font-size-sm);
+}
+
+.dt-history {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-xs);
+  width: 300px;
+  min-height: 0;
+  padding: var(--space-sm) var(--space-sm) var(--space-sm) 0;
+  overflow-y: auto;
+}
+
+.dt-history-title {
+  padding: 4px 10px 0;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.dt-history ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dt-history li button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--speed);
+}
+
+.dt-history li button:hover {
+  background: var(--surface-1);
+}
+
+.dt-history li button[aria-current="true"] {
+  background: var(--accent-soft);
+}
+
+.dt-history-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dt-history-meta .mono {
+  margin-left: auto;
+  font-size: var(--font-size-xs);
+}
+
+.dt-history-sql {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--font-size-xs);
+  word-break: break-all;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.dt-disabled {
+  display: grid;
+  gap: var(--space-xs);
+  justify-items: start;
+  max-width: 560px;
+  color: var(--text);
+}
+
+.dt-disabled svg {
+  color: var(--text-hint);
+}
+
+.dt-disabled h2 {
+  font-size: var(--font-size-title);
+  font-weight: 600;
+}
+
+@media (max-width: 899px) {
+  .dt-transfer,
+  .dt-sql {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .dt-side,
+  .dt-plan,
+  .dt-history {
+    width: auto;
+  }
+
+  .dt-main {
+    padding-left: var(--space);
+    min-height: 60vh;
+  }
+}

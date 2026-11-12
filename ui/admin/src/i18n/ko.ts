@@ -4,6 +4,7 @@ import { rulesKo } from "./parts/rules.ko";
 import { systemKo } from "./parts/system.ko";
 import type { en } from "./en";
 import { authKo } from "./parts/auth.ko";
+import { devtoolsKo } from "./parts/devtools.ko";
 
 export const ko: Record<keyof typeof en, string> = {
   "nav.main": "주 메뉴",
@@ -371,4 +372,5 @@ export const ko: Record<keyof typeof en, string> = {
   ...authKo,
   ...storageKo,
   ...systemKo,
+  ...devtoolsKo,
 };

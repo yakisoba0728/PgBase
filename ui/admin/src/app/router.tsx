@@ -15,7 +15,10 @@ import { RealtimePage } from "../pages/RealtimePage";
 import { BackupsPage } from "../pages/BackupsPage";
 import { StoragePage } from "../pages/StoragePage";
 
-const implemented = new Set<string>(["logs", "jobs", "realtime", "auth/collections", "auth/users", "backups", "storage", "settings", "service-tokens", "administrators"]);
+const implemented = new Set<string>(["logs", "jobs", "realtime", "auth/collections", "auth/users", "backups", "storage", "settings", "service-tokens", "administrators", "schema-transfer", "schema-operations", "sql"]);
+import { SchemaOperationsPage } from "../pages/SchemaOperationsPage";
+import { SchemaTransferPage } from "../pages/SchemaTransferPage";
+import { SqlConsolePage } from "../pages/SqlConsolePage";
 import { AuthCollectionsPage } from "../pages/AuthCollectionsPage";
 import { AuthUsersPage } from "../pages/AuthUsersPage";
 
@@ -52,6 +55,9 @@ export const router = createBrowserRouter(
         { path: "service-tokens", element: <ServiceTokensPage /> },
         { path: "administrators", element: <AdministratorsPage /> },
         { path: "profile", element: <ProfilePage /> },
+        { path: "schema-transfer/:tab?", element: <SchemaTransferPage /> },
+        { path: "schema-operations", element: <SchemaOperationsPage /> },
+        { path: "sql", element: <SqlConsolePage /> },
         ...navGroups.flatMap((group) => group.items.filter((item) => !implemented.has(item.path)).map((item) => ({ path: item.path, element: <PlaceholderPage title={item.label} icon={item.icon} /> }))),
         { path: "ext/:id/*", element: <ExtensionScreenPage /> },
         { path: "*", element: <NotFoundPage /> },

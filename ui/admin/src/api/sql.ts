@@ -28,6 +28,7 @@ export interface SqlSubmitInput {
 export interface SqlSubmitOptions {
   /** Client-chosen execution UUID (sent as PgBase-Operation-ID); server generates one when omitted. */
   executionId?: string;
+  /** Required in write mode (16..256 visible chars); a read-mode request carrying one is rejected (400). */
   idempotencyKey?: string;
 }
 
