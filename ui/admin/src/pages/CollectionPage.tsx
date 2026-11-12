@@ -7,7 +7,7 @@ import { RulesView } from "../rules/RulesView";
 import { useCollection } from "../collections/queries";
 import { SchemaView } from "../schema/SchemaView";
 import { SchemaDraftGuard } from "../schema/DraftGuard";
-import { EmptyState, Loader } from "../components/Feedback";
+import { EmptyState, ErrorState, Loader } from "../components/Feedback";
 import { Page } from "../components/Page";
 import { useT } from "../i18n";
 
@@ -17,13 +17,13 @@ const subTabs = ["schema", "rules", "api"] as const;
 export function CollectionPage() {
   const t = useT();
   const { name = "", tab } = useParams();
-  const { collection, data, isPending, error } = useCollection(name);
+  const { collection, data, isPending, error, refetch } = useCollection(name);
   if (tab && !subTabs.includes(tab as (typeof subTabs)[number])) return <Navigate to={`/collections/${encodeURIComponent(name)}`} replace />;
   if (isPending) return <Loader />;
   if (!collection) {
     return (
       <Page title={name}>
-        <EmptyState icon={RiErrorWarningLine}>{error ? errorText(t, error) : t("collections.missing")}</EmptyState>
+        {error ? <ErrorState error={error} onRetry={refetch} /> : <EmptyState icon={RiErrorWarningLine}>{t("collections.missing")}</EmptyState>}
       </Page>
     );
   }

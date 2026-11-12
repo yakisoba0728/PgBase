@@ -1,23 +1,25 @@
 import { useRef, useState, type ChangeEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiAddLine, RiArchive2Line, RiCloseLine, RiDeleteBinLine, RiDownload2Line, RiHistoryLine, RiRefreshLine, RiUpload2Line } from "@remixicon/react";
+import { Facts } from "../components/Facts";
+import { openRow } from "../components/DataGrid";
+import { RiAddLine, RiArchive2Line, RiDownload2Line, RiHistoryLine, RiRefreshLine, RiUpload2Line } from "@remixicon/react";
 import { backupDownloadPath, createBackup, deleteBackup, restoreBackup, uploadBackup, type BackupEntry } from "../api/backups";
 import type { BackupStorageSettings } from "../api/storage";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState, ErrorState, Loader } from "../components/Feedback";
-import { Checkbox, Field } from "../components/Field";
-import { SplitView } from "../components/SplitView";
+import { Checkbox } from "../components/Field";
+import { SplitView, PaneHeader } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
-import { useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { Link } from "react-router";
 import { trackOperation } from "../app/operations";
 import { settingsQuery } from "../system/queries";
 import { BackupJobStrip, useJobBusy, useShownJob } from "./BackupJob";
-import { formatBytes } from "./model";
+import { formatBytes } from "../app/format";
 import { backupJobQuery, backupStorageQuery, backupsQuery } from "./queries";
 import "../styles/ops.css";
 import "../styles/storage.css";
@@ -110,8 +112,7 @@ export function BackupsView() {
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={item.id} tabIndex={0} aria-current={openId === item.id ? "true" : undefined} onClick={() => update({ backup: item.id })}
-                onKeyDown={(event) => { if (event.key === "Enter") update({ backup: item.id }); }}>
+              <tr key={item.id} {...openRow(() => update({ backup: item.id }), openId === item.id)}>
                 <td className="mono">{item.id}</td>
                 <td className="mono">{time(item.createdAt)}</td>
                 <td className="num mono">{formatBytes(item.size)}</td>
@@ -152,7 +153,6 @@ function BackupPane({ backup, location, jobRunning, onClose }: { backup: BackupE
   const queryClient = useQueryClient();
   const { update } = useSearchState();
   const [dialog, setDialog] = useState<"delete" | "restore" | null>(null);
-  const [typed, setTyped] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
 
   const remove = useMutation({
@@ -176,7 +176,6 @@ function BackupPane({ backup, location, jobRunning, onClose }: { backup: BackupE
     onError: (error) => toast(errorText(t, error), "danger"),
   });
   const openDialog = (kind: "delete" | "restore") => {
-    setTyped("");
     setAcknowledged(false);
     setDialog(kind);
   };
@@ -184,22 +183,19 @@ function BackupPane({ backup, location, jobRunning, onClose }: { backup: BackupE
 
   return (
     <div className="ops-pane-form">
-      <header className="pane-header">
-        <h2 className="pane-title mono">{backup.id}</h2>
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
-      </header>
+      <PaneHeader title={backup.id} mono onClose={onClose} />
       <div className="pane-body">
-        <dl className="ops-props">
-          <div><dt>{t("storage.backups.created")}</dt><dd>{created}</dd></div>
-          <div><dt>{t("storage.backups.size")}</dt><dd className="mono">{formatBytes(backup.size)} <span className="txt-hint">({backup.size.toLocaleString()} B)</span></dd></div>
-          <div><dt>{t("storage.backups.postgres")}</dt><dd className="mono">{backup.postgresqlMajor}</dd></div>
-          <div><dt>{t("storage.backups.location")}</dt><dd>{location}</dd></div>
-          <div><dt>{t("storage.backups.format")}</dt><dd className="mono">{backup.storageFormat ?? <span className="na">–</span>}</dd></div>
-          <div><dt>{t("storage.backups.sha256")}</dt><dd className="mono">{backup.sha256 ?? <span className="na">–</span>}</dd></div>
-        </dl>
+        <Facts items={[
+          { label: t("storage.backups.created"), value: created },
+          { label: t("storage.backups.size"), value: <>{formatBytes(backup.size)} <span className="txt-hint">({backup.size.toLocaleString()} B)</span></>, mono: true },
+          { label: t("storage.backups.postgres"), value: backup.postgresqlMajor, mono: true },
+          { label: t("storage.backups.location"), value: location },
+          { label: t("storage.backups.format"), value: backup.storageFormat, mono: true },
+          { label: t("storage.backups.sha256"), value: backup.sha256, mono: true },
+        ]} />
       </div>
       <footer className="pane-footer">
-        <Button variant="secondary" icon={RiDeleteBinLine} className="pane-footer-start" disabled={jobRunning} onClick={() => openDialog("delete")}>{t("storage.backups.delete")}</Button>
+        <Button variant="transparent" className="txt-danger pane-footer-start" disabled={jobRunning} onClick={() => openDialog("delete")}>{t("storage.backups.delete")}</Button>
         <a className="btn btn-secondary" href={backupDownloadPath(backup.id)} download={`pgbase-${backup.id}.tar.gz`}>
           <RiDownload2Line size={16} aria-hidden />
           {t("storage.backups.download")}
@@ -207,9 +203,7 @@ function BackupPane({ backup, location, jobRunning, onClose }: { backup: BackupE
         <Button variant="secondary" icon={RiHistoryLine} disabled={jobRunning} onClick={() => openDialog("restore")}>{t("storage.backups.restore")}</Button>
       </footer>
       <ConfirmDialog open={dialog === "delete"} danger title={t("storage.backups.deleteTitle")} message={t("storage.backups.deleteText")} confirmLabel={t("storage.backups.delete")}
-        busy={remove.isPending} confirmDisabled={typed.trim() !== backup.id} onConfirm={() => remove.mutate()} onCancel={() => setDialog(null)}>
-        <Field label={t("storage.backups.typeId")} mono autoComplete="off" spellCheck={false} placeholder={backup.id} value={typed} onChange={(event) => setTyped(event.target.value)} />
-      </ConfirmDialog>
+        busy={remove.isPending} typed={{ phrase: backup.id, label: t("storage.backups.typeId") }} onConfirm={() => remove.mutate()} onCancel={() => setDialog(null)} />
       <ConfirmDialog open={dialog === "restore"} danger title={t("storage.backups.restoreTitle")} message={t("storage.backups.restoreLead")} confirmLabel={t("storage.backups.restore")}
         busy={restore.isPending} confirmDisabled={!acknowledged} onConfirm={() => restore.mutate()} onCancel={() => setDialog(null)}>
         <ul className="storage-steps">

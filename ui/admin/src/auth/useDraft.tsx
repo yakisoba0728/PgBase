@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { useBlocker } from "react-router";
+import { useCallback, useRef, useState } from "react";
 import { ApiError } from "../api/http";
+import { Notice } from "../components/Feedback";
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
-import { ConfirmDialog } from "../components/Dialog";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
 import type { Problems } from "./forms";
@@ -24,29 +23,6 @@ export function useDraft<T extends object>(initial: T) {
   return { draft, patch, dirty, reset, problems, setProblems, release };
 }
 
-/** One route-level guard per tab: in-app navigation asks first, a reload or tab close warns. */
-export function UnsavedGuard({ dirty, release }: { dirty: boolean; release?: RefObject<boolean> }) {
-  const t = useT();
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && !release?.current && currentLocation.pathname + currentLocation.search !== nextLocation.pathname + nextLocation.search);
-  useEffect(() => {
-    if (!dirty) return;
-    const onBeforeUnload = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [dirty]);
-  return (
-    <ConfirmDialog
-      open={blocker.state === "blocked"}
-      title={t("records.discardTitle")}
-      message={t("records.discardText")}
-      confirmLabel={t("records.discard")}
-      danger
-      onConfirm={() => blocker.proceed?.()}
-      onCancel={() => blocker.reset?.()}
-    />
-  );
-}
-
 /** Message for a client-side problem code. */
 export const problemText = (t: Translate, problems: Problems, key: string) => (problems[key] ? t(`authv.${problems[key]}`) : undefined);
 
@@ -65,13 +41,10 @@ export async function assertUnchanged<T>(force: boolean, read: () => Promise<T>,
 export function StaleNotice({ busy, onReload, onOverwrite }: { busy?: boolean; onReload: () => void; onOverwrite: () => void }) {
   const t = useT();
   return (
-    <div className="pane-notice" data-tone="danger" role="alert">
-      <p>{t("auth.stale")}</p>
-      <div className="auth-inline">
-        <Button size="sm" variant="secondary" onClick={onReload}>{t("auth.staleReload")}</Button>
-        <Button size="sm" variant="danger" loading={busy} onClick={onOverwrite}>{t("auth.staleOverwrite")}</Button>
-      </div>
-    </div>
+    <Notice tone="danger" actions={<>
+      <Button size="sm" variant="secondary" onClick={onReload}>{t("auth.staleReload")}</Button>
+      <Button size="sm" variant="danger" loading={busy} onClick={onOverwrite}>{t("auth.staleOverwrite")}</Button>
+    </>}>{t("auth.stale")}</Notice>
   );
 }
 

@@ -1,13 +1,16 @@
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { RiCloseLine, RiFilterLine } from "@remixicon/react";
+import { PaneHeader } from "../components/SplitView";
+import { Facts } from "../components/Facts";
+import { RiFilterLine } from "@remixicon/react";
 import { stringify } from "lossless-json";
-import { Button, IconButton } from "../components/Button";
+import { Button } from "../components/Button";
 import { CodeBlock } from "../components/CodeBlock";
 import { ErrorState, Loader } from "../components/Feedback";
 import { useT } from "../i18n";
 import { statusTone } from "./format";
-import { logQuery, useTimeFormat } from "./queries";
+import { logQuery } from "./queries";
+import { useTimeFormat } from "../app/format";
 
 interface LogDetailProps {
   id: string;
@@ -35,10 +38,7 @@ export function LogDetail({ id, onClose, onFilterRoute }: LogDetailProps) {
     : [];
   return (
     <>
-      <header className="pane-header">
-        <h2 className="pane-title mono">#{id}</h2>
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
-      </header>
+      <PaneHeader title={`#${id}`} mono onClose={onClose} />
       <div className="pane-body">
         {query.isPending ? (
           <Loader />
@@ -46,14 +46,7 @@ export function LogDetail({ id, onClose, onFilterRoute }: LogDetailProps) {
           <ErrorState error={query.error} onRetry={query.refetch} />
         ) : (
           <>
-            <dl className="ops-props">
-              {rows.map(([label, value]) => (
-                <div key={label}>
-                  <dt>{label}</dt>
-                  <dd>{value ?? <span className="na">{t("common.na")}</span>}</dd>
-                </div>
-              ))}
-            </dl>
+            <Facts items={rows.map(([label, value]) => ({ label, value }))} />
             <h3 className="ops-subtitle">{t("ops.logs.raw")}</h3>
             <CodeBlock label={t("ops.logs.raw")} text={raw} />
           </>

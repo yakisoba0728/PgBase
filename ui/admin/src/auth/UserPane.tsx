@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiCloseLine, RiFileCopyLine } from "@remixicon/react";
 import { deleteAuthRecord, updateAuthRecord, type AuthCollection, type AuthRecord } from "../api/authCollections";
 import {
   impersonateUser,
@@ -15,11 +14,10 @@ import {
 } from "../api/users";
 import { ApiError } from "../api/http";
 import { errorText } from "../app/queries";
-import { useTimeFormat } from "../ops/queries";
-import { Button, IconButton } from "../components/Button";
-import { ConfirmDialog } from "../components/Dialog";
+import { useTimeFormat } from "../app/format";
+import { Button } from "../components/Button";
 import { Facts } from "../components/Facts";
-import { SecretView, TaskDialog, TypedConfirmDialog, copyText } from "../components/TaskDialog";
+import { ConfirmDialog, SecretView, TaskDialog } from "../components/Dialog";
 import { Loader } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
@@ -27,8 +25,10 @@ import { useT, type MessageKey } from "../i18n";
 import { bareEmail, profileChanges, profileDraft, profileFields, type Problems } from "./forms";
 import { ProfileFields } from "./ProfileFields";
 import { authCollectionsQuery, identitiesQuery, userRecordQuery } from "./queries";
-import { problemText, reportFailure, UnsavedGuard, useDraft } from "./useDraft";
+import { problemText, reportFailure, useDraft } from "./useDraft";
 import { SaveBar } from "../components/SaveBar";
+import { PaneHeader } from "../components/SplitView";
+import { UnsavedGuard } from "../components/UnsavedGuard";
 
 type Action =
   | { kind: "disable" | "enable" | "verify" | "unverify" | "sendVerification" | "sendReset" | "revoke" | "impersonate" | "delete" }
@@ -45,6 +45,13 @@ const actionText: Record<Action["kind"], { title: MessageKey; text: MessageKey; 
   impersonate: { title: "auth.user.impersonateTitle", text: "auth.user.impersonateText", confirm: "auth.user.impersonate", danger: true },
   unlink: { title: "auth.user.unlinkTitle", text: "auth.user.unlinkText", confirm: "auth.user.unlink", danger: true },
   delete: { title: "auth.user.deleteTitle", text: "auth.user.deleteText", confirm: "common.delete", danger: true },
+};
+
+// The inverse of each switch that runs without a confirmation.
+const undoable: Partial<Record<Action["kind"], (id: string) => Promise<unknown>>> = {
+  enable: (id) => setUserActive(id, false),
+  verify: (id) => setUserVerified(id, false),
+  unverify: (id) => setUserVerified(id, true),
 };
 
 /** One user: lifecycle actions on /api/admin/users and profile editing on the auth record. */
@@ -93,27 +100,25 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
       }
     },
     onSuccess: (message, current) => {
-      toast(message);
+      const undo = undoable[current.kind];
+      toast(message, "info", undo && { label: t("common.undo"), run: () => void undo(user.id).then(refreshUsers, (failure) => reportFailure(t, failure)) });
       setAction(null);
       if (current.kind !== "impersonate" && current.kind !== "unlink") void refreshUsers();
     },
     onError: (failure) => reportFailure(t, failure),
   });
 
-  const copy = (value: string) => copyText(t, value);
   const ask = (next: Action) => {
     run.reset();
-    setAction(next);
+    // Trivially reversible switches run at once and offer Undo instead of asking first.
+    if (undoable[next.kind]) run.mutate(next);
+    else setAction(next);
   };
   const text = action ? actionText[action.kind] : null;
 
   return (
     <>
-      <header className="pane-header">
-        <h2 className="pane-title">{user.email}</h2>
-        <IconButton label={t("records.copyId")} icon={RiFileCopyLine} onClick={() => copy(user.id)} />
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
-      </header>
+      <PaneHeader title={user.email} copy={{ label: t("records.copyId"), value: user.id }} onClose={onClose} />
       <div className="pane-body auth-pane">
         <Facts
           items={[
@@ -174,15 +179,14 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
         )}
       </div>
 
-      <ConfirmDialog open={action !== null && action.kind !== "delete"} title={text ? t(text.title, { email: user.email, provider: action?.kind === "unlink" ? action.provider : "" }) : ""} message={text ? t(text.text, { email: user.email }) : undefined}
-        confirmLabel={text ? t(text.confirm) : undefined} danger={text?.danger} busy={run.isPending} onConfirm={() => action && run.mutate(action)} onCancel={() => setAction(null)}>
+      <ConfirmDialog open={action !== null} title={text ? t(text.title, { email: user.email, provider: action?.kind === "unlink" ? action.provider : "" }) : ""} message={text ? t(text.text, { email: user.email }) : undefined}
+        confirmLabel={text ? t(text.confirm) : undefined} danger={text?.danger} busy={run.isPending}
+        typed={action?.kind === "delete" ? { phrase: user.email, label: t("auth.user.typeEmail", { email: user.email }) } : undefined} onConfirm={() => action && run.mutate(action)} onCancel={() => setAction(null)}>
         {action?.kind === "impersonate" && (
           <Field kind="select" label={t("auth.user.duration")} value={duration} onChange={(event) => setDuration(event.target.value)}
             options={["60", "300", "600", "900"].map((value) => ({ value, label: t("auth.user.minutes", { count: Number(value) / 60 }) }))} />
         )}
       </ConfirmDialog>
-      <TypedConfirmDialog open={action?.kind === "delete"} title={t("auth.user.deleteTitle", { email: user.email })} message={t("auth.user.deleteText")} phrase={user.email}
-        label={t("auth.user.typeEmail", { email: user.email })} confirmLabel={t("common.delete")} busy={run.isPending} onConfirm={() => run.mutate({ kind: "delete" })} onCancel={() => setAction(null)} />
       {/* The token lives only in this state; closing the dialog drops it. */}
       <TaskDialog open={session !== null} title={t("auth.user.tokenTitle", { email: user.email })} onClose={() => setSession(null)}>
         {session?.token && (

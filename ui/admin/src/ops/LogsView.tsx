@@ -1,37 +1,26 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Searchbar } from "../components/Field";
+import { openRow } from "../components/DataGrid";
 import { RiDeleteBinLine, RiFileList3Line, RiRefreshLine, RiRouteLine } from "@remixicon/react";
 import { clearRequestLogs } from "../api/logs";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, ErrorState, Loader } from "../components/Feedback";
+import { EmptyState, ErrorState, Loader, LoadMore } from "../components/Feedback";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { statusTone } from "./format";
 import { LogDetail } from "./LogDetail";
 import { LogStats } from "./LogStats";
-import { logFilterFrom, logsKey, logsQuery, logStatsQuery, useTimeFormat } from "./queries";
+import { logFilterFrom, logsKey, logsQuery, logStatsQuery } from "./queries";
+import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import "../styles/ops.css";
 
 const methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const filterKeys = ["status", "method", "route", "from", "to"];
-
-/** Calls `load` while the returned element is near the visible area (no observer in old engines: the button remains). */
-function useAutoLoad(enabled: boolean, load: () => void) {
-  const [element, setElement] = useState<HTMLElement | null>(null);
-  const latest = useRef(load);
-  latest.current = load;
-  useEffect(() => {
-    if (!element || !enabled || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver((entries) => entries.some((entry) => entry.isIntersecting) && latest.current(), { rootMargin: "200px" });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [element, enabled]);
-  return setElement;
-}
 
 /** Header actions: refresh and delete-all. */
 export function LogsActions() {
@@ -81,7 +70,6 @@ export function LogsView() {
   const items = logs.data?.pages.flatMap((page) => page.items) ?? [];
   // The window moved past the newest entries (see logWindowPages).
   const shifted = logs.data !== undefined && logs.data.pageParams[0] !== undefined;
-  const sentinel = useAutoLoad(logs.hasNextPage && !logs.isFetchingNextPage, () => void logs.fetchNextPage());
   const entry = params.get("entry");
   const filtered = filterKeys.some((key) => params.has(key));
   const set = (key: string) => (value: string) => update({ [key]: value || null });
@@ -108,10 +96,7 @@ export function LogsView() {
           ))}
         </select>
         <form role="search" onSubmit={onRoute}>
-          <div className="searchbar mono">
-            <RiRouteLine size={14} aria-hidden />
-            <input key={params.get("route") ?? ""} name="route" type="search" defaultValue={params.get("route") ?? ""} aria-label={t("ops.logs.route")} placeholder={t("ops.logs.routePlaceholder")} spellCheck={false} autoComplete="off" />
-          </div>
+          <Searchbar key={params.get("route") ?? ""} label={t("ops.logs.route")} icon={RiRouteLine} mono primary name="route" defaultValue={params.get("route") ?? ""} placeholder={t("ops.logs.routePlaceholder")} />
         </form>
         <label className="ops-range">
           <span>{t("ops.logs.from")}</span>
@@ -158,12 +143,7 @@ export function LogsView() {
                   return (
                     <tr
                       key={id}
-                      tabIndex={0}
-                      aria-current={entry === id ? "true" : undefined}
-                      onClick={() => update({ entry: id })}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") update({ entry: id });
-                      }}
+                      {...openRow(() => update({ entry: id }), entry === id)}
                     >
                       <td className="mono ops-time">{time(item.at)}</td>
                       <td><span className="chip mono" data-tone={statusTone(item.status)}>{item.status}</span></td>
@@ -181,11 +161,7 @@ export function LogsView() {
                 })}
               </tbody>
             </table>
-            {logs.hasNextPage && (
-              <div className="grid-foot" ref={sentinel}>
-                <Button size="sm" variant="secondary" loading={logs.isFetchingNextPage} onClick={() => logs.fetchNextPage()}>{t("records.loadMore")}</Button>
-              </div>
-            )}
+            <LoadMore query={logs} auto />
           </>
         )}
       </div>

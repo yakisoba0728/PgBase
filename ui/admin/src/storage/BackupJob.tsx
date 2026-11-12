@@ -7,7 +7,7 @@ import { IconButton } from "../components/Button";
 import { JobProgress } from "../components/JobProgress";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { describePhase } from "./model";
 import { backupJobQuery, backupsQuery } from "./queries";

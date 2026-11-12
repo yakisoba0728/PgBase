@@ -1,16 +1,18 @@
 import type { ReactNode } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiCloseLine, RiHistoryLine, RiRefreshLine } from "@remixicon/react";
+import { Facts } from "../components/Facts";
+import { openRow } from "../components/DataGrid";
+import { RiHistoryLine, RiRefreshLine } from "@remixicon/react";
 import { stringify } from "lossless-json";
 import type { Collection } from "../api/collections";
 import type { OperationReceipt, OperationStatus } from "../api/schema";
-import { Button, IconButton } from "../components/Button";
+import { IconButton } from "../components/Button";
 import { CodeBlock } from "../components/CodeBlock";
-import { EmptyState, ErrorState, Loader } from "../components/Feedback";
-import { SplitView } from "../components/SplitView";
+import { EmptyState, ErrorState, Loader, LoadMore } from "../components/Feedback";
+import { SplitView, PaneHeader } from "../components/SplitView";
 import { collectionsQuery } from "../collections/queries";
 import { useT } from "../i18n";
-import { useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { schemaOperationQuery, schemaOperationsQuery } from "./queries";
 import "../styles/ops.css";
@@ -78,13 +80,8 @@ export function SchemaOperations() {
                 {items.map((item) => (
                   <tr
                     key={item.operationId}
-                    tabIndex={0}
-                    aria-current={open === item.operationId ? "true" : undefined}
+                    {...openRow(() => update({ op: item.operationId }), open === item.operationId)}
                     data-live={item.status === "running" || item.status === "unknown" ? "" : undefined}
-                    onClick={() => update({ op: item.operationId })}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") update({ op: item.operationId });
-                    }}
                   >
                     <td className="mono ops-time">{time(item.createdAt)}</td>
                     <td>{t(`devtools.ops.kind.${item.operation}`)}</td>
@@ -95,11 +92,7 @@ export function SchemaOperations() {
                 ))}
               </tbody>
             </table>
-            {list.hasNextPage && (
-              <div className="grid-foot">
-                <Button size="sm" variant="secondary" loading={list.isFetchingNextPage} onClick={() => list.fetchNextPage()}>{t("records.loadMore")}</Button>
-              </div>
-            )}
+            <LoadMore query={list} />
           </>
         )}
       </div>
@@ -130,10 +123,7 @@ function OperationDetail({ id, catalog, onClose }: { id: string; catalog: Collec
     : [];
   return (
     <>
-      <header className="pane-header">
-        <h2 className="pane-title mono">{id}</h2>
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
-      </header>
+      <PaneHeader title={id} mono onClose={onClose} />
       <div className="pane-body">
         {query.isPending ? (
           <Loader />
@@ -141,14 +131,7 @@ function OperationDetail({ id, catalog, onClose }: { id: string; catalog: Collec
           <ErrorState error={query.error} onRetry={query.refetch} />
         ) : (
           <>
-            <dl className="ops-props">
-              {rows.map(([label, value]) => (
-                <div key={label}>
-                  <dt>{label}</dt>
-                  <dd>{value ?? <span className="na">{t("common.na")}</span>}</dd>
-                </div>
-              ))}
-            </dl>
+            <Facts items={rows.map(([label, value]) => ({ label, value }))} />
             <h3 className="ops-subtitle">{t("ops.logs.raw")}</h3>
             <CodeBlock label={t("ops.logs.raw")} text={stringify(receipt, null, 2) ?? ""} />
           </>

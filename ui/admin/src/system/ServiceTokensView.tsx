@@ -1,23 +1,24 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiAddLine, RiCloseLine, RiKey2Line } from "@remixicon/react";
+import { openRow } from "../components/DataGrid";
+import { RiAddLine, RiKey2Line } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { issueServiceToken, revokeServiceToken, type ServiceToken, type ServiceTokenScope } from "../api/system";
 import { errorText } from "../app/queries";
 import { collectionsQuery } from "../collections/queries";
-import { Button, IconButton } from "../components/Button";
+import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, Loader } from "../components/Feedback";
+import { EmptyState, Loader, Notice } from "../components/Feedback";
 import { Field } from "../components/Field";
-import { SplitView } from "../components/SplitView";
+import { SplitView, PaneHeader } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
-import { useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { serviceTokensQuery } from "./queries";
-import { SecretView, TaskDialog } from "../components/TaskDialog";
+import { SecretView, TaskDialog } from "../components/Dialog";
 import { Facts } from "../components/Facts";
-import { ErrorState } from "../components/ErrorState";
+import { ErrorState } from "../components/Feedback";
 import "../styles/system.css";
 
 const actions: ServiceTokenScope["action"][] = ["read", "create", "update", "delete"];
@@ -71,8 +72,7 @@ export function ServiceTokensView() {
               {items.map((item) => {
                 const state = tokenState(t, item);
                 return (
-                  <tr key={item.id} tabIndex={0} aria-current={openId === item.id ? "true" : undefined} onClick={() => update({ token: item.id })}
-                    onKeyDown={(event) => { if (event.key === "Enter") update({ token: item.id }); }}>
+                  <tr key={item.id} {...openRow(() => update({ token: item.id }), openId === item.id)}>
                     <td>{item.name}</td>
                     <td><span className="dot" data-tone={state.tone}>{state.label}</span></td>
                     <td className="sys-scope-cell">{[...new Set(item.scopes.map((scope) => names.get(scope.collectionId) ?? scope.collectionId))].join(", ")}</td>
@@ -112,10 +112,7 @@ function TokenPane({ token, names, onClose }: { token: ServiceToken; names: Map<
   for (const scope of token.scopes) byCollection.set(scope.collectionId, [...(byCollection.get(scope.collectionId) ?? []), scope.action]);
   return (
     <div className="sys-pane">
-      <header className="pane-header">
-        <h2 className="pane-title">{token.name}</h2>
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
-      </header>
+      <PaneHeader title={token.name} onClose={onClose} />
       <div className="pane-body">
         <Facts
           items={[
@@ -176,12 +173,9 @@ function IssueToken({ onClose, onIssued }: { onClose: () => void; onIssued: (id:
   const invalid = issue.error instanceof ApiError && issue.error.status === 400;
   return (
     <form className="sys-pane" onSubmit={onSubmit}>
-      <header className="pane-header">
-        <h2 className="pane-title">{t("system.tokens.new")}</h2>
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
-      </header>
+      <PaneHeader title={t("system.tokens.new")} onClose={onClose} />
       <div className="pane-body form">
-        {issue.isError && <div className="pane-notice" data-tone="danger" role="alert"><p>{invalid ? t("system.tokens.invalid") : errorText(t, issue.error)}</p></div>}
+        {issue.isError && <Notice tone="danger">{invalid ? t("system.tokens.invalid") : errorText(t, issue.error)}</Notice>}
         <Field label={t("system.tokens.name")} name="name" required maxLength={128} autoComplete="off" />
         <Field label={t("system.tokens.days")} name="days" type="number" required min={1} max={365} step={1} defaultValue={30} hint={t("system.tokens.daysHint")} />
         <fieldset className="sys-scopes">

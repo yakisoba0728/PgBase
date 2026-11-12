@@ -1,15 +1,16 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Facts } from "../components/Facts";
 import { cancelStorageMigration, previewStorageMigration, resumeStorageMigration, startStorageMigration, type FileStorageSettings, type StorageMigrationStatus } from "../api/storage";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { ErrorState, Loader } from "../components/Feedback";
+import { ErrorState, Loader, Notice } from "../components/Feedback";
 import { toast } from "../components/Toast";
 import { ApiError } from "../api/http";
 import { trackOperation, untrackOperation, watchOperation } from "../app/operations";
 import { JobProgress } from "../components/JobProgress";
 import { useT, type Translate } from "../i18n";
-import { useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { newIdentity } from "../schema/apply";
 import { destinationOf, draftFrom, storageErrorKey, validateDraft, type StorageDraft } from "./model";
@@ -87,11 +88,11 @@ function MigrationStatus({ migration }: { migration: StorageMigrationStatus | nu
           )
         }
       />
-      <dl className="ops-props">
-        <div><dt>{t("storage.migration.started")}</dt><dd>{time(migration.createdAt, true)}</dd></div>
-        <div><dt>{t("storage.migration.updated")}</dt><dd>{time(migration.updatedAt, true)}</dd></div>
-        <div><dt>{t("storage.migration.id")}</dt><dd className="mono">{migration.id}</dd></div>
-      </dl>
+      <Facts items={[
+        { label: t("storage.migration.started"), value: time(migration.createdAt, true) },
+        { label: t("storage.migration.updated"), value: time(migration.updatedAt, true) },
+        { label: t("storage.migration.id"), value: migration.id, mono: true },
+      ]} />
       <ConfirmDialog open={confirm} danger title={t("storage.migration.cancelTitle")} message={t("storage.migration.cancelText")} confirmLabel={t("storage.migration.cancel")}
         busy={cancel.isPending} onConfirm={() => cancel.mutate(migration.id)} onCancel={() => setConfirm(false)} />
     </section>
@@ -150,9 +151,7 @@ function DestinationForm({ current, locked }: { current: FileStorageSettings; lo
       <h2 className="ops-subtitle">{t("storage.migration.target")}</h2>
       {locked && <p className="ops-note">{t("storage.migration.running")}</p>}
       {failed && (
-        <div className="pane-notice" data-tone="danger" role="alert">
-          <p>{t(storageErrorKey(failed, "migration"))}</p>
-        </div>
+        <Notice tone="danger">{t(storageErrorKey(failed, "migration"))}</Notice>
       )}
       <fieldset className="form" disabled={locked || start.isPending}>
         <StorageFields draft={draft} errors={errors} secretConfigured={false} secretHint={t("storage.migration.secretHint")} onChange={change} />

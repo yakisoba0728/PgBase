@@ -7,17 +7,6 @@ export function statusTone(status: number): "danger" | "warning" | undefined {
   return undefined;
 }
 
-/** "1h 2m", "3m 4s", "5s" — for lag and ages. */
-export function formatDuration(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  if (h) return m ? `${h}h ${m}m` : `${h}h`;
-  if (m) return s ? `${m}m ${s}s` : `${m}m`;
-  return `${s}s`;
-}
-
 const pad = (value: string) => value.padStart(2, "0");
 const isNumber = (value: string) => /^\d{1,2}$/.test(value);
 

@@ -1,4 +1,5 @@
-import { useEffect, useId, type ReactNode } from "react";
+import { useId, type ReactNode } from "react";
+import { useShortcut } from "../app/keys";
 import { useT } from "../i18n";
 import { Button } from "./Button";
 
@@ -17,21 +18,18 @@ interface SaveBarProps {
   children?: ReactNode;
 }
 
-/** Cmd/Ctrl+S presses the save button returned id is given to; the first mounted handler wins. */
+/** Cmd/Ctrl+S presses the save button the returned id is given to; the most recently mounted one wins. */
 export function useSaveShortcut(): string {
   const id = useId();
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== "s" || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.defaultPrevented) return;
-      event.preventDefault();
-      // Not from behind a confirmation dialog.
-      if (document.querySelector("dialog[open]")) return;
+  useShortcut(
+    "mod+s",
+    () => {
       const button = document.getElementById(id) as HTMLButtonElement | null;
-      if (button && !button.disabled) button.click();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [id]);
+      if (!button) return false;
+      if (!button.disabled) button.click();
+    },
+    { inFields: true },
+  );
   return id;
 }
 

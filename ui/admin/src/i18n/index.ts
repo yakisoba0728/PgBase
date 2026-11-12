@@ -41,3 +41,6 @@ export function useT(): Translate {
   const language = store.use();
   return useCallback((key, vars) => translate(language, key, vars), [language]);
 }
+
+/** Translation in the current language outside React (toasts fired from shared helpers). */
+export const tNow: Translate = (key, vars) => translate(store.get(), key, vars);

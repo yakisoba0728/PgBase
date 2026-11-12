@@ -2,18 +2,6 @@ import { ApiError } from "../api/http";
 import type { BackupStorageSettings, BackupStorageUpdate, FileStorageDestination, FileStorageSettings, FileStorageUpdate, StorageDriver } from "../api/storage";
 import type { MessageKey } from "../i18n";
 
-/** "1.4 MB": binary units, one decimal from KB up. */
-export function formatBytes(bytes: number): string {
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  return unit === 0 ? `${value} B` : `${value.toFixed(1)} ${units[unit]}`;
-}
-
 const knownPhases = new Set(["create", "restore", "waiting_for_snapshot", "dumping_database", "packing_archive", "validating_archive", "restoring_database_and_files", "verifying_application", "draining_requests", "activating_target", "completed", "failed", "interrupted"]);
 
 /** A backup job phase as display text: known phases map to a message, object copying also yields a ratio. */

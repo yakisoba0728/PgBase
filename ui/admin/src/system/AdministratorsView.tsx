@@ -1,23 +1,24 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router";
+import { openRow } from "../components/DataGrid";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiAddLine, RiCloseLine, RiLockPasswordLine, RiLogoutCircleRLine } from "@remixicon/react";
+import { RiAddLine, RiLockPasswordLine, RiLogoutCircleRLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import type { Administrator } from "../api/session";
 import { createAdministrator, resetAdministratorPassword, revokeAdministratorSessions, setAdministratorActive } from "../api/system";
 import { errorText, sessionQuery } from "../app/queries";
-import { Button, IconButton } from "../components/Button";
+import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { Loader } from "../components/Feedback";
-import { ErrorState } from "../components/ErrorState";
+import { Loader, LoadMore, Notice } from "../components/Feedback";
+import { ErrorState } from "../components/Feedback";
 import { Field } from "../components/Field";
-import { SplitView } from "../components/SplitView";
+import { SplitView, PaneHeader } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
-import { useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { administratorsQuery } from "./queries";
-import { TaskDialog } from "../components/TaskDialog";
+import { TaskDialog } from "../components/Dialog";
 import { Facts } from "../components/Facts";
 import "../styles/system.css";
 
@@ -66,8 +67,7 @@ export function AdministratorsView() {
             </thead>
             <tbody>
               {items.map((item) => (
-                <tr key={item.id} tabIndex={0} aria-current={openId === item.id ? "true" : undefined} onClick={() => update({ admin: item.id })}
-                  onKeyDown={(event) => { if (event.key === "Enter") update({ admin: item.id }); }}>
+                <tr key={item.id} {...openRow(() => update({ admin: item.id }), openId === item.id)}>
                   <td>
                     {item.email}{" "}
                     {item.id === selfId && <span className="chip">{t("system.admins.you")}</span>}
@@ -79,12 +79,7 @@ export function AdministratorsView() {
               ))}
             </tbody>
           </table>
-          {(query.hasNextPage || query.isFetchNextPageError) && (
-            <div className="grid-foot">
-              {query.isFetchNextPageError && <span className="field-error" role="alert">{errorText(t, query.error)}</span>}
-              <Button variant="secondary" size="sm" loading={query.isFetchingNextPage} onClick={() => query.fetchNextPage()}>{query.isFetchNextPageError ? t("common.retry") : t("system.loadMore")}</Button>
-            </div>
-          )}
+          <LoadMore query={query} />
         </>
       )}
     </div>
@@ -112,12 +107,9 @@ function NewAdministrator({ onClose, onCreated }: { onClose: () => void; onCreat
   };
   return (
     <form className="sys-pane" onSubmit={onSubmit}>
-      <header className="pane-header">
-        <h2 className="pane-title">{t("system.admins.new")}</h2>
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
-      </header>
+      <PaneHeader title={t("system.admins.new")} onClose={onClose} />
       <div className="pane-body form">
-        {create.isError && <div className="pane-notice" data-tone="danger" role="alert"><p>{adminError(t, create.error, "create", false)}</p></div>}
+        {create.isError && <Notice tone="danger">{adminError(t, create.error, "create", false)}</Notice>}
         <Field label={t("system.admins.email")} name="email" type="email" required autoComplete="off" />
         <Field label={t("system.admins.password")} name="password" type="password" required minLength={12} maxLength={1024} autoComplete="new-password" hint={t("system.admins.passwordHint")} />
         <p className="txt-hint">{t("system.admins.newHint")}</p>
@@ -174,12 +166,9 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
 
   return (
     <div className="sys-pane">
-      <header className="pane-header">
-        <h2 className="pane-title">{admin.email}</h2>
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
-      </header>
+      <PaneHeader title={admin.email} onClose={onClose} />
       <div className="pane-body">
-        {active.isError && <div className="pane-notice" data-tone="danger" role="alert"><p>{adminError(t, active.error, "disable", self)}</p></div>}
+        {active.isError && <Notice tone="danger">{adminError(t, active.error, "disable", self)}</Notice>}
         <Facts
           items={[
             { label: t("system.admins.status"), value: <><span className="dot" data-tone={admin.active ? "success" : undefined}>{admin.active ? t("system.admins.active") : t("system.admins.disabled")}</span>{" "}{self && <span className="chip">{t("system.admins.you")}</span>}</> },

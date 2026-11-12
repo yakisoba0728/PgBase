@@ -1,12 +1,13 @@
 import { useState, type ReactNode } from "react";
-import { RiCloseLine } from "@remixicon/react";
 import type { Collection, FieldOptions, FieldType, RelationInput } from "../api/collections";
-import { Button, IconButton } from "../components/Button";
+import { Notice } from "../components/Feedback";
+import { Button } from "../components/Button";
 import { Checkbox, Field } from "../components/Field";
 import { useT, type MessageKey } from "../i18n";
 import { allowedFlags, fieldTypes, optionKeys, type DraftField } from "./draft";
 import { describeErrors } from "./SchemaRows";
 import type { SchemaEditor } from "./useSchemaEditor";
+import { PaneHeader } from "../components/SplitView";
 
 const int = (text: string) => (text.trim() === "" ? undefined : Math.trunc(Number(text)));
 
@@ -143,17 +144,11 @@ export function FieldPane({ editor, field, catalog }: { editor: SchemaEditor; fi
 
   return (
     <>
-      <header className="pane-header">
-        <h2 className="pane-title mono">{field.name || t("schema.unnamed")}</h2>
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={() => editor.setPane(null)} />
-      </header>
+      <PaneHeader title={field.name || t("schema.unnamed")} mono onClose={() => editor.setPane(null)} />
       <div className="pane-body">
         {locked && <p className="field-hint schema-note">{t("schema.systemField")}</p>}
         {errors && (
-          <div className="pane-notice" data-tone="danger" role="alert">
-            <strong>{t("schema.serverRejected")}</strong>
-            <p>{describeErrors(t, errors)}</p>
-          </div>
+          <Notice tone="danger" title={t("schema.serverRejected")}>{describeErrors(t, errors)}</Notice>
         )}
         <fieldset className="form" disabled={locked}>
           <div className="schema-pair">

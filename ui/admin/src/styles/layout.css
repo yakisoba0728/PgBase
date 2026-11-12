@@ -501,6 +501,16 @@ a.nav-op:focus-visible {
   background: color-mix(in srgb, var(--danger), var(--surface-raised) 90%);
 }
 
+.pane-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pane-notice p {
+  color: var(--text);
+}
+
 @media (max-width: 899px) {
   .app {
     grid-template-columns: minmax(0, 1fr);

@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { RiErrorWarningLine, RiPlayLine } from "@remixicon/react";
+import { UnsavedGuard } from "../components/UnsavedGuard";
 import { listAuthCollections } from "../api/authCollections";
 import { stringifyJson } from "../api/http";
 import type { Collection } from "../api/collections";
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
-import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState, Loader } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { SaveBar } from "../components/SaveBar";
@@ -170,15 +170,7 @@ export function RulesView({ collection, basePath }: { collection: Collection; ba
         </div>
         <Reference editor={editor} />
       </div>
-      <ConfirmDialog
-        open={editor.blocker.state === "blocked"}
-        title={t("rules.leaveTitle")}
-        message={t("rules.leaveText")}
-        confirmLabel={t("rules.discard")}
-        danger
-        onConfirm={() => editor.blocker.proceed?.()}
-        onCancel={() => editor.blocker.reset?.()}
-      />
+      <UnsavedGuard {...editor.guard} />
     </>
   );
   return <SplitView list={list} pane={null} paneLabel={t("rules.reference")} onClose={() => undefined} />;

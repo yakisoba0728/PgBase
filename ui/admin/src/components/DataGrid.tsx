@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from "react";
 import "../styles/widgets.css";
 
 export interface GridCell {
@@ -44,4 +45,16 @@ export function DataGrid({ label, columns, rows }: DataGridProps) {
       </tbody>
     </table>
   );
+}
+
+/** Props that make a table row open its item: click or Enter, with the open row marked current. */
+export function openRow(open: () => void, current: boolean) {
+  return {
+    tabIndex: 0,
+    "aria-current": current ? ("true" as const) : undefined,
+    onClick: open,
+    onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
+      if (event.key === "Enter") open();
+    },
+  };
 }

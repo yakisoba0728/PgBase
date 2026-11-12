@@ -4,7 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { settingsQuery } from "../system/queries";
 import { errorText } from "../app/queries";
 import { useT } from "../i18n";
-import { logStatsQuery, useTimeFormat } from "./queries";
+import { logStatsQuery } from "./queries";
+import { useTimeFormat } from "../app/format";
 
 const classes = ["1", "2", "3", "4", "5"] as const;
 const tone: Record<string, string | undefined> = { "4": "warning", "5": "danger" };

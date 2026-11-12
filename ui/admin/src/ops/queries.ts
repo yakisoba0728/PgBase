@@ -1,9 +1,7 @@
-import { useMemo } from "react";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { listJobs } from "../api/jobs";
 import { getRequestLog, getRequestLogStatistics, listRequestLogs, type RequestLogFilter } from "../api/logs";
 import { getRealtimeStatus } from "../api/realtime";
-import { useLanguage } from "../i18n";
 import { localToRfc3339 } from "./format";
 
 export const logsKey = ["logs"] as const;
@@ -56,18 +54,4 @@ export function logFilterFrom(params: URLSearchParams): Omit<RequestLogFilter, "
     from: localToRfc3339(params.get("from") ?? ""),
     to: localToRfc3339(params.get("to") ?? ""),
   };
-}
-
-/** Formats server timestamps in the UI language; `full` adds the date and seconds. */
-export function useTimeFormat() {
-  const language = useLanguage();
-  return useMemo(() => {
-    const short = new Intl.DateTimeFormat(language, { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
-    const full = new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "medium" });
-    return (iso: string | undefined, long = false) => {
-      if (!iso) return "";
-      const date = new Date(iso);
-      return Number.isNaN(date.getTime()) ? iso : (long ? full : short).format(date);
-    };
-  }, [language]);
 }

@@ -22,7 +22,8 @@ import { bareEmail, mailPurposes, placeholderFor, templateProblems, validEndpoin
 import { FormSection as Section } from "../components/FormSection";
 import { sanitizeMailHtml } from "./mailPreview";
 import { administrationQuery } from "./queries";
-import { assertUnchanged, problemText, reportFailure, StaleError, StaleNotice, UnsavedGuard, useDraft } from "./useDraft";
+import { assertUnchanged, problemText, reportFailure, StaleError, StaleNotice, useDraft } from "./useDraft";
+import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
 
 type MailView = MailTemplatePurpose | "smtp";

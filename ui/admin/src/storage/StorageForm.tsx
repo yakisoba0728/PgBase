@@ -5,7 +5,7 @@ import type { BackupStorageSettings, FileStorageSettings, StorageDriver } from "
 import { testBackupStorage, testFileStorage, updateBackupStorageSettings, updateFileStorageSettings } from "../api/storage";
 import { Button } from "../components/Button";
 import { SaveBar } from "../components/SaveBar";
-import { ErrorState, Loader } from "../components/Feedback";
+import { ErrorState, Loader, Notice } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
@@ -56,7 +56,6 @@ export function StorageFields({ draft, onChange, errors, secretConfigured, backu
 
 /** Settings for uploaded files or backup archives: Save/Discard, then a connection test of what is saved. */
 export function StorageSettingsForm({ kind }: { kind: "files" | "backups" }) {
-  const t = useT();
   const query = useQuery(storageSettingsQuery(kind));
   if (query.isPending) return <Loader />;
   if (query.isError) return <ErrorState error={query.error} onRetry={query.refetch} />;
@@ -106,10 +105,9 @@ function SettingsEditor({ kind, saved }: { kind: "files" | "backups"; saved: Fil
         <div className="storage-form">
       <p className="storage-note">{t(backups ? "storage.backups.note" : "storage.files.note")}</p>
       {save.isError && (
-        <div className="pane-notice" data-tone="danger" role="alert">
-          <p>{t(storageErrorKey(save.error, kind))}</p>
-          {conflict && <Button variant="secondary" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey })}>{t("storage.reload")}</Button>}
-        </div>
+        <Notice tone="danger" actions={conflict && <Button variant="secondary" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey })}>{t("storage.reload")}</Button>}>
+          {t(storageErrorKey(save.error, kind))}
+        </Notice>
       )}
       <fieldset className="form" disabled={save.isPending}>
         <StorageFields draft={draft} errors={errors} secretConfigured={saved.secretConfigured} backups={backups} onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} />

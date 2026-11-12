@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Searchbar } from "../components/Field";
 import {
   RiAddLine,
   RiArrowUpDoubleLine,
@@ -17,8 +18,8 @@ import { deleteRecord, listRecords } from "../api/records";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { Dropdown, DropdownItem } from "../components/Dropdown";
-import { EmptyState, Loader } from "../components/Feedback";
+import { Dropdown, DropdownItem } from "../components/Popover";
+import { EmptyState, Loader, LoadMore } from "../components/Feedback";
 import { Popover } from "../components/Popover";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
@@ -158,26 +159,24 @@ export function RecordsView({ collection }: { collection: Collection }) {
   const toolbar = (
     <div className="toolbar records-toolbar">
       <form role="search" onSubmit={onFilter}>
-        <div className="searchbar mono" data-invalid={problem ? "" : undefined}>
-          <RiFilterLine size={14} aria-hidden />
-          <input
-            ref={filterInput}
-            name="filter"
-            type="search"
-            defaultValue={url.filter}
-            aria-label={t("records.filter")}
-            aria-invalid={problem ? true : undefined}
-            aria-describedby={problem ? "records-filter-problem" : undefined}
-            placeholder={t("records.filterPlaceholder")}
-            spellCheck={false}
-            autoComplete="off"
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-          />
+        <Searchbar
+          label={t("records.filter")}
+          icon={RiFilterLine}
+          mono
+          primary
+          inputRef={filterInput}
+          name="filter"
+          defaultValue={url.filter}
+          invalid={Boolean(problem)}
+          aria-describedby={problem ? "records-filter-problem" : undefined}
+          placeholder={t("records.filterPlaceholder")}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+        >
           <Popover label={t("records.filterHelp")} icon={RiQuestionLine} buttonClassName="icon-btn searchbar-help" className="filter-help">
             {() => (
               <>
@@ -204,7 +203,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
               </>
             )}
           </Popover>
-        </div>
+        </Searchbar>
       </form>
       {count > 0 && !readOnly ? (
         <div className="toolbar-selection">
@@ -274,14 +273,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
               scroller={scroller}
               onPeek={onPeek}
             />
-            {(records.hasNextPage || records.isFetchNextPageError) && (
-              <div className="grid-foot">
-                {records.isFetchNextPageError && <span className="txt-danger">{errorText(t, records.error)}</span>}
-                <Button size="sm" variant="secondary" loading={records.isFetchingNextPage} onClick={() => records.fetchNextPage()}>
-                  {records.isFetchNextPageError ? t("common.retry") : t("records.loadMore")}
-                </Button>
-              </div>
-            )}
+            <LoadMore query={records} />
           </>
         )}
       </div>

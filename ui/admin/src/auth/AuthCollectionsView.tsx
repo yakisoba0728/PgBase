@@ -7,8 +7,8 @@ import { ApiError } from "../api/http";
 import { errorText } from "../app/queries";
 import { collectionsQuery } from "../collections/queries";
 import { Button } from "../components/Button";
-import { ErrorState } from "../components/ErrorState";
-import { TypedConfirmDialog } from "../components/TaskDialog";
+import { ErrorState } from "../components/Feedback";
+import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState, Loader } from "../components/Feedback";
 import { Page } from "../components/Page";
 import { toast } from "../components/Toast";
@@ -96,7 +96,6 @@ export function AuthCollectionView({ name, tab }: { name: string; tab?: string }
 }
 
 function TabBody({ collection, tab }: { collection: AuthCollection; tab: Tab }) {
-  const t = useT();
   const administration = useQuery(administrationQuery(collection.id));
   const tokens = useQuery({ ...tokenPoliciesQuery(collection.id), enabled: tab === "tokens" });
   const pending = tab === "tokens" ? tokens : administration;
@@ -137,8 +136,8 @@ function DeleteCollection({ collection }: { collection: AuthCollection }) {
   return (
     <>
       <Button size="sm" variant="transparent" className="txt-danger" onClick={() => setOpen(true)}>{t("auth.collections.delete")}</Button>
-      <TypedConfirmDialog open={open} title={t("auth.collections.deleteTitle", { name: collection.name })} message={t("auth.collections.deleteText")} phrase={collection.name}
-        label={t("auth.collections.typeName", { name: collection.name })} confirmLabel={t("common.delete")} busy={remove.isPending} onConfirm={() => remove.mutate()} onCancel={close} />
+      <ConfirmDialog open={open} title={t("auth.collections.deleteTitle", { name: collection.name })} message={t("auth.collections.deleteText")} danger
+        typed={{ phrase: collection.name, label: t("auth.collections.typeName", { name: collection.name }) }} confirmLabel={t("common.delete")} busy={remove.isPending} onConfirm={() => remove.mutate()} onCancel={close} />
     </>
   );
 }

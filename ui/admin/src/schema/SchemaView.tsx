@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
+import { UnsavedGuard } from "../components/UnsavedGuard";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { truncateCollection, type Collection, type CollectionType } from "../api/collections";
 import type { CollectionScaffolds } from "../api/schema";
@@ -64,10 +65,8 @@ function DangerZone({ collection, editor }: { collection: Collection; editor: Sc
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [action, setAction] = useState<"truncate" | "delete" | null>(null);
-  const [typed, setTyped] = useState("");
   const close = () => {
     setAction(null);
-    setTyped("");
   };
   const run = useMutation({
     mutationFn: async (kind: "truncate" | "delete") => {
@@ -113,12 +112,10 @@ function DangerZone({ collection, editor }: { collection: Collection; editor: Sc
         confirmLabel={t(action === "delete" ? "schema.delete" : "schema.truncate")}
         danger
         busy={run.isPending}
-        confirmDisabled={typed !== collection.name}
+        typed={{ phrase: collection.name, label: t("schema.typeName", { name: collection.name }) }}
         onConfirm={() => action && run.mutate(action)}
         onCancel={close}
-      >
-        <Field label={t("schema.typeName", { name: collection.name })} mono autoComplete="off" spellCheck={false} value={typed} onChange={(event) => setTyped(event.target.value)} />
-      </ConfirmDialog>
+      />
     </Section>
   );
 }
@@ -162,15 +159,7 @@ export function SchemaView({ collection, type, catalog, scaffolds, basePath }: S
         )}
         {collection && <DangerZone collection={collection} editor={editor} />}
       </div>
-      <ConfirmDialog
-        open={editor.blocker.state === "blocked"}
-        title={t("schema.leaveTitle")}
-        message={t("schema.leaveText")}
-        confirmLabel={t("schema.discard")}
-        danger
-        onConfirm={editor.leave}
-        onCancel={() => editor.blocker.reset?.()}
-      />
+      <UnsavedGuard {...editor.guard} />
     </>
   );
   return <SplitView list={list} pane={pane} paneLabel={t("schema.detail")} onClose={() => editor.setPane(null)} />;

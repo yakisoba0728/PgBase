@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useT } from "../i18n";
 import { CopyButton } from "./CopyButton";
+import { placeNear } from "./Popover";
 
 // A long value is shown in full up to this many characters; copying always takes all of it.
 const shownLimit = 100_000;
@@ -19,11 +20,7 @@ export function ValuePeek({ peek, onClose }: { peek: Peek | null; onClose: () =>
   useEffect(() => {
     const element = panel.current;
     if (!element || !peek) return;
-    const anchor = peek.anchor.getBoundingClientRect();
-    const below = window.innerHeight - anchor.bottom > 240;
-    element.style.top = below ? `${anchor.bottom + 4}px` : "";
-    element.style.bottom = below ? "" : `${window.innerHeight - anchor.top + 4}px`;
-    element.style.left = `${Math.max(8, Math.min(anchor.left, window.innerWidth - 488))}px`;
+    placeNear(element, peek.anchor.getBoundingClientRect(), "start", 480);
     if (!element.matches(":popover-open")) element.showPopover();
   }, [peek]);
   return (

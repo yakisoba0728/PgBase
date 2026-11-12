@@ -1,21 +1,22 @@
 import { useState, type FormEvent } from "react";
 import { useSearchState } from "../app/search";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiAddLine, RiCloseLine, RiFileCopyLine, RiKey2Line, RiSearchLine } from "@remixicon/react";
+import { RiAddLine, RiKey2Line } from "@remixicon/react";
 import { deleteOAuthProvider, getAuthAdministration, putOAuthProvider, type AuthAdministration, type AuthCollection, type OAuthProviderConfig } from "../api/authCollections";
-import { Button, IconButton } from "../components/Button";
+import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState } from "../components/Feedback";
-import { Checkbox, Field } from "../components/Field";
-import { SplitView } from "../components/SplitView";
-import { copyText } from "../components/TaskDialog";
+import { Checkbox, Field, Searchbar } from "../components/Field";
+import { PaneHeader, SplitView } from "../components/SplitView";
+import { CopyButton } from "../components/CopyButton";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { AppleSecretButton } from "../system/AppleSecret";
 import { providerDraft, providerInput, providerProblems, type ProviderDraft } from "./forms";
 import { appleCallbackPath, providerPresets, type ProviderPreset } from "./presets";
 import { administrationQuery, providerCatalogQuery } from "./queries";
-import { assertUnchanged, problemText, reportFailure, StaleError, StaleNotice, UnsavedGuard, useDraft } from "./useDraft";
+import { assertUnchanged, problemText, reportFailure, StaleError, StaleNotice, useDraft } from "./useDraft";
+import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
 
 /** Configured providers on the left; ?provider=name edits one, ?add=pick lists presets, ?add=<preset> starts one. */
@@ -76,12 +77,9 @@ function PresetPicker({ presets, taken, onPick, onClose }: { presets: ProviderPr
   const shown = presets.filter((preset) => !term || preset.label.toLowerCase().includes(term) || preset.name.includes(term));
   return (
     <>
-      <header className="pane-header">
-        <h2 className="pane-title">{t("auth.providers.add")}</h2>
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
-      </header>
+      <PaneHeader title={t("auth.providers.add")} onClose={onClose} />
       <div className="pane-body auth-pane">
-        <Field label={t("auth.providers.find")} icon={RiSearchLine} type="search" autoFocus autoComplete="off" value={filter} onChange={(event) => setFilter(event.target.value)} />
+        <Searchbar label={t("auth.providers.find")} autoFocus value={filter} onChange={(event) => setFilter(event.target.value)} />
         <ul className="auth-rows">
           {shown.map((preset) => (
             <li key={preset.name}>
@@ -167,16 +165,13 @@ function ProviderForm({ collection, administration, existing, preset, initial, o
     <li key={value} className="auth-row auth-row-static">
       <span className="mono auth-row-meta" title={value}>{value}</span>
       <span />
-      <IconButton label={t("auth.providers.copy")} icon={RiFileCopyLine} onClick={() => void copyText(t, value)} />
+      <CopyButton label={t("auth.providers.copy")} value={value} />
     </li>
   );
 
   return (
     <>
-      <header className="pane-header">
-        <h2 className="pane-title">{existing ? <span className="mono">{existing.name}</span> : preset?.label || t("auth.providers.new")}</h2>
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
-      </header>
+      <PaneHeader title={existing ? existing.name : preset?.label || t("auth.providers.new")} mono={Boolean(existing)} onClose={onClose} />
       <div className="pane-body">
         {save.error instanceof StaleError && <StaleNotice busy={save.isPending} onReload={() => void queryClient.invalidateQueries({ queryKey: key })} onOverwrite={() => save.mutate(true)} />}
         {preset?.selfHosted && !existing && <p className="warning-note" role="note">{t("auth.providers.selfHosted")}</p>}
@@ -240,7 +235,7 @@ function ProviderForm({ collection, administration, existing, preset, initial, o
       </footer>
       <ConfirmDialog open={confirmRemove} title={t("auth.providers.removeTitle", { name: draft.name })} message={t("auth.providers.removeText")} confirmLabel={t("auth.providers.remove")} danger busy={remove.isPending}
         onConfirm={() => remove.mutate()} onCancel={() => setConfirmRemove(false)} />
-      <UnsavedGuard dirty={form.dirty} release={form.release} />
+      <UnsavedGuard dirty={form.dirty} release={() => form.release.current} />
     </>
   );
 }

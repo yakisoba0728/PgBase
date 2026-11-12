@@ -21,7 +21,7 @@ import {
 } from "@remixicon/react";
 import type { CollectionField, FieldType, IndexKey } from "../api/collections";
 import { IconButton } from "../components/Button";
-import { Dropdown, DropdownItem } from "../components/Dropdown";
+import { Dropdown, DropdownItem } from "../components/Popover";
 import { en } from "../i18n/en";
 import { useT, type MessageKey, type Translate } from "../i18n";
 import { fieldTypes, rowState, type DraftField, type DraftIndex } from "./draft";

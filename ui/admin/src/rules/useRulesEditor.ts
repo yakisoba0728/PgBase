@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useBlocker } from "react-router";
+import type { Location } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getCollectionRules,
@@ -114,7 +114,6 @@ export function useRulesEditor(collection: Collection, basePath: string) {
     },
   });
 
-  const blocker = useBlocker(({ nextLocation }) => dirty && !save.isPending && nextLocation.pathname !== `${basePath}/rules`);
 
   const preview = useMutation({
     mutationFn: async (action: Action) => {
@@ -165,7 +164,8 @@ export function useRulesEditor(collection: Collection, basePath: string) {
     preview,
     insert,
     focused,
-    blocker,
+    /** Props for the unsaved-changes guard: a save in flight is let through. */
+    guard: { dirty, release: () => save.isPending, leaves: (_current: Location, next: Location) => next.pathname !== `${basePath}/rules`, onDiscard: discard },
   };
 }
 

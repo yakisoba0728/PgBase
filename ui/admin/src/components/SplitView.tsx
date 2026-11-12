@@ -1,5 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { RiCloseLine } from "@remixicon/react";
+import { useShortcut } from "../app/keys";
 import { readStorage, writeStorage } from "../app/store";
+import { useT } from "../i18n";
+import { IconButton } from "./Button";
+import { CopyButton } from "./CopyButton";
 
 const storageKey = "pgbase.split";
 const minPane = 340;
@@ -21,15 +26,7 @@ export function SplitView({ list, pane, paneLabel, onClose }: SplitViewProps) {
   const [dragging, setDragging] = useState(false);
   const open = pane !== null;
 
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || overlayOpen()) return;
-      onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
+  useShortcut("Escape", onClose, { inFields: true, enabled: open });
 
   const clamp = (next: number) => {
     const total = root.current?.clientWidth ?? window.innerWidth;
@@ -86,11 +83,27 @@ export function SplitView({ list, pane, paneLabel, onClose }: SplitViewProps) {
   );
 }
 
-function overlayOpen(): boolean {
-  try {
-    return document.querySelector("dialog[open], :popover-open") !== null;
-  } catch {
-    // Engines without :popover-open (jsdom) only have dialogs to check.
-    return document.querySelector("dialog[open]") !== null;
-  }
+interface PaneHeaderProps {
+  title: ReactNode;
+  /** Ids and other machine values are set in monospace. */
+  mono?: boolean;
+  /** A value worth copying from the header (the record or user id). */
+  copy?: { label: string; value: string };
+  /** Extra header actions, placed before Close. */
+  children?: ReactNode;
+  /** Omitted for panes that are not dismissible. */
+  onClose?: () => void;
+}
+
+/** The one detail-pane header: title, optional copy, actions, then Close (Esc does the same). */
+export function PaneHeader({ title, mono, copy, children, onClose }: PaneHeaderProps) {
+  const t = useT();
+  return (
+    <header className="pane-header">
+      <h2 className={mono ? "pane-title mono" : "pane-title"}>{title}</h2>
+      {copy && <CopyButton label={copy.label} value={copy.value} />}
+      {children}
+      {onClose && <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />}
+    </header>
+  );
 }

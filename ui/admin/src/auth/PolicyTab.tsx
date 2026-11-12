@@ -7,7 +7,8 @@ import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { policyDraft, policyInput, policyProblems, type PolicyDraft } from "./forms";
 import { administrationQuery } from "./queries";
-import { assertUnchanged, problemText, reportFailure, StaleError, StaleNotice, UnsavedGuard, useDraft } from "./useDraft";
+import { assertUnchanged, problemText, reportFailure, StaleError, StaleNotice, useDraft } from "./useDraft";
+import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
 
 /** Registration (on the collection) plus every field of PUT /policy, saved together. */

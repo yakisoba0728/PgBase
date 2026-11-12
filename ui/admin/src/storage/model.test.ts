@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../api/http";
 import type { BackupStorageSettings, FileStorageSettings } from "../api/storage";
-import { backupUpdate, describePhase, draftFrom, fileUpdate, formatBytes, isDirty, storageErrorKey, validateDraft } from "./model";
+import { backupUpdate, describePhase, draftFrom, fileUpdate, isDirty, storageErrorKey, validateDraft } from "./model";
 
 const files: FileStorageSettings = { driver: "s3", bucket: "b", region: "us-east-1", endpoint: "", accessKey: "AK", usePathStyle: false, secretConfigured: true, revision: 3 };
 const backups: BackupStorageSettings = { ...files, driver: "local", bucket: "", region: "", accessKey: "", secretConfigured: false, prefix: "", retention: 7, revision: 2 };
@@ -41,8 +41,6 @@ describe("storage drafts", () => {
 });
 
 it("formats sizes and maps storage errors", () => {
-  expect(formatBytes(512)).toBe("512 B");
-  expect(formatBytes(44817)).toBe("43.8 KB");
   expect(storageErrorKey(new ApiError(409, "storage_conflict", ""), "backups")).toBe("storage.error.conflict.backups");
   expect(storageErrorKey(new ApiError(503, "backup_storage_unavailable", ""), "backups")).toBe("storage.error.unavailable");
 });

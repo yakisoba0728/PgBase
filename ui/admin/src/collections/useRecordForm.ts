@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useBlocker, type Location } from "react-router";
+import type { Location } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Collection } from "../api/collections";
 import { ApiError } from "../api/http";
@@ -45,7 +45,7 @@ interface Options {
   onDeleted: () => void;
 }
 
-/** Draft state, browser draft recovery, save (with If-Match), delete, conflict and unsaved-changes guard for one record. */
+/** Draft state, browser draft recovery, save (with If-Match), delete, conflict and the unsaved-changes guard props for one record. */
 export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Options) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -81,17 +81,6 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
     const timer = window.setTimeout(() => persistRef.current(), 400);
     return () => window.clearTimeout(timer);
   }, [drafts]);
-
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && !settled.current && leavesRecord(currentLocation, nextLocation));
-  useEffect(() => {
-    if (!dirty) return;
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      persistRef.current();
-      event.preventDefault();
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [dirty]);
 
   const settle = () => {
     settled.current = true;
@@ -198,8 +187,18 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
       const values = changedFields(fields, drafts, initialDrafts(fields)) ?? {};
       return writeDraft({ ...scope, record: "new" }, values);
     },
+    /** Back to the stored values (Discard). */
+    reset: () => {
+      clearDraft(scope);
+      setRestored(null);
+      setDrafts(initial);
+      setFiles({});
+      setNewId("");
+      setErrors({});
+    },
     save,
     remove,
-    blocker,
+    /** Props for the unsaved-changes guard: leaving the record asks; a reload keeps a local draft. */
+    guard: { dirty, release: () => settled.current, leaves: leavesRecord, onDiscard: settle, onUnload: () => persistRef.current() },
   };
 }

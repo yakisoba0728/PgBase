@@ -1,14 +1,14 @@
 import { useSearchState } from "../app/search";
 import { useQuery } from "@tanstack/react-query";
-import { RiFileCopyLine } from "@remixicon/react";
+import { Facts } from "../components/Facts";
 import { listAuthCollections } from "../api/authCollections";
 import { getCollectionRules, getCollectionUserAccess, type Collection } from "../api/collections";
 import { stringifyJson } from "../api/http";
-import { IconButton } from "../components/Button";
-import { SplitView } from "../components/SplitView";
+import { CodeBlock } from "../components/CodeBlock";
+import { CopyButton } from "../components/CopyButton";
+import { SplitView, PaneHeader } from "../components/SplitView";
 import { Tabs } from "../components/Tabs";
-import { toast } from "../components/Toast";
-import { useT, type MessageKey, type Translate } from "../i18n";
+import { useT, type MessageKey } from "../i18n";
 import { draftFromRule } from "../rules/model";
 import { rulesQueryKey } from "../rules/useRulesEditor";
 import { buildEndpoints, type Audience, type Endpoint } from "./endpoints";
@@ -28,42 +28,23 @@ const filterSyntax: [string, MessageKey][] = [
   ["limit=20&cursor=…", "api.filter.cursor"],
 ];
 
-function copy(t: Translate, text: string) {
-  void navigator.clipboard.writeText(text).then(
-    () => toast(t("api.copied")),
-    () => toast(t("api.copyFailed"), "danger"),
-  );
-}
-
-function CodeBlock({ text, label }: { text: string; label: string }) {
-  const t = useT();
-  return (
-    <div className="api-code">
-      <pre className="mono" aria-label={label}>{text}</pre>
-      <IconButton label={t("api.copy")} icon={RiFileCopyLine} onClick={() => copy(t, text)} />
-    </div>
-  );
-}
-
 function EndpointPane({ endpoint, collection, audience, language, ruleText, onLanguage }: { endpoint: Endpoint; collection: Collection; audience: Audience; language: Language; ruleText: string; onLanguage: (language: Language) => void }) {
   const t = useT();
   const origin = window.location.origin;
   const sample = codeSample(language, endpoint, collection, origin, audience);
   return (
     <>
-      <header className="pane-header">
-        <h2 className="pane-title">{t(`api.endpoint.${endpoint.id.startsWith("files-") ? "files" : endpoint.id}` as MessageKey)}</h2>
-      </header>
+      <PaneHeader title={t(`api.endpoint.${endpoint.id.startsWith("files-") ? "files" : endpoint.id}` as MessageKey)} />
       <div className="pane-body api-pane">
         <div className="api-route">
           <span className="api-method" data-method={endpoint.method}>{endpoint.method}</span>
           <code className="mono">{endpoint.path}</code>
-          <IconButton label={t("api.copy")} icon={RiFileCopyLine} onClick={() => copy(t, origin + endpoint.path)} />
+          <CopyButton label={t("api.copy")} value={origin + endpoint.path} />
         </div>
-        <dl className="api-facts">
-          <div><dt>{t("api.rule")}</dt><dd className={endpoint.rule ? "mono" : undefined}>{ruleText}</dd></div>
-          <div><dt>{t("api.auth")}</dt><dd>{t(endpoint.userOnly || (audience === "user" && endpoint.rule) ? "api.auth.bearer" : "api.auth.none")}</dd></div>
-        </dl>
+        <Facts items={[
+          { label: t("api.rule"), value: ruleText, mono: Boolean(endpoint.rule) },
+          { label: t("api.auth"), value: t(endpoint.userOnly || (audience === "user" && endpoint.rule) ? "api.auth.bearer" : "api.auth.none") },
+        ]} />
         {endpoint.query && (
           <section>
             <h3>{t("api.query")}</h3>

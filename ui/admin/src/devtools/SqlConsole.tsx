@@ -12,7 +12,7 @@ import { Checkbox } from "../components/Field";
 import { Tabs } from "../components/Tabs";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { newIdentity } from "../schema/apply";
 import { recallStatements, rememberStatement, statementText } from "./model";

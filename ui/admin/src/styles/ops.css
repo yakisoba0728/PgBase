@@ -72,7 +72,6 @@
 }
 
 .ops-figures dt,
-.ops-props dt,
 .ops-tiles dt {
   color: var(--text-hint);
   font-size: var(--font-size-sm);
@@ -85,7 +84,6 @@
 
 .ops-figures [data-tone] dd,
 .ops-tiles dd[data-tone],
-.ops-props dd[data-tone],
 .ops-aside[data-tone] {
   color: var(--tone);
 }
@@ -170,34 +168,6 @@ select.ops-control {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-}
-
-.ops-props {
-  display: grid;
-  gap: 2px;
-  margin: 0 0 var(--space-sm);
-}
-
-.ops-props > div {
-  display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  align-items: baseline;
-  gap: var(--space-sm);
-  padding: 8px;
-  border-radius: var(--radius-sm);
-}
-
-.ops-props > div:nth-child(odd) {
-  background: var(--surface-1);
-}
-
-.ops-props dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.ops-pane-form .ops-props {
-  margin-top: var(--space);
 }
 
 .ops-subtitle {

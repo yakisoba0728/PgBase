@@ -141,7 +141,6 @@
 }
 
 .rules-auth,
-.api-facts,
 .api-syntax dl {
   display: grid;
   gap: 2px;
@@ -149,7 +148,6 @@
 }
 
 .rules-auth > div,
-.api-facts > div,
 .api-syntax dl > div {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
@@ -163,13 +161,11 @@
   background: var(--surface-1);
 }
 
-.rules-auth dt,
-.api-facts dt {
+.rules-auth dt {
   color: var(--text-hint);
 }
 
 .rules-auth dd,
-.api-facts dd,
 .api-syntax dd {
   margin: 0;
   min-width: 0;
@@ -343,32 +339,6 @@
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-.api-facts > div {
-  padding: 2px 0;
-}
-
-.api-code {
-  position: relative;
-  border-radius: var(--radius);
-  background: var(--surface-1);
-}
-
-.api-code pre {
-  margin: 0;
-  padding: 10px 40px 10px 12px;
-  max-height: 360px;
-  overflow: auto;
-  font-size: var(--font-size-sm);
-  line-height: 18px;
-  white-space: pre;
-}
-
-.api-code .icon-btn {
-  position: absolute;
-  top: 4px;
-  right: 4px;
 }
 
 .api-pane > * {

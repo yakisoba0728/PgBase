@@ -249,3 +249,18 @@ input[type="checkbox"]:disabled {
 .searchbar.mono input {
   font-family: var(--font-mono);
 }
+
+/* Password reveal sits inside the filled block, over the end of the input. */
+.field:has(> .field-reveal) {
+  position: relative;
+}
+
+.field-control-reveal {
+  padding-right: 40px;
+}
+
+.field-reveal {
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
+}

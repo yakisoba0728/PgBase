@@ -1,15 +1,18 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { stringify } from "lossless-json";
-import { RiBracesLine, RiCloseLine, RiErrorWarningLine, RiFileCopy2Line, RiMore2Line } from "@remixicon/react";
+import { RiBracesLine, RiFileCopy2Line, RiMore2Line } from "@remixicon/react";
 import type { Collection } from "../api/collections";
 import type { RecordWithETag } from "../api/records";
-import { errorText } from "../app/queries";
-import { Button, IconButton } from "../components/Button";
-import { CopyButton, copyText } from "../components/CopyButton";
+import { useTimeFormat } from "../app/format";
+import { Button } from "../components/Button";
+import { copyText } from "../components/CopyButton";
 import { ConfirmDialog } from "../components/Dialog";
-import { Dropdown, DropdownItem } from "../components/Dropdown";
-import { EmptyState, Loader } from "../components/Feedback";
+import { Dropdown, DropdownItem } from "../components/Popover";
+import { ErrorState, Loader, Notice } from "../components/Feedback";
+import { SaveBar } from "../components/SaveBar";
+import { PaneHeader } from "../components/SplitView";
+import { UnsavedGuard } from "../components/UnsavedGuard";
 import { Field } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
@@ -32,7 +35,6 @@ interface RecordEditorProps {
 
 /** The detail pane: loads the record with its ETag, then hands it to the form. */
 export function RecordEditor({ collection, recordId, onClose, onCreated, onCreate }: RecordEditorProps) {
-  const t = useT();
   const query = useQuery({ ...recordQuery(collection.name, recordId ?? "", expandFor(collection)), enabled: recordId !== null });
   const props = { collection, onClose, onCreated, onCreate };
   if (recordId === null) return <RecordForm key="new" {...props} />;
@@ -41,9 +43,7 @@ export function RecordEditor({ collection, recordId, onClose, onCreated, onCreat
     <>
       <PaneHeader title={recordId} onClose={onClose} />
       {query.isError ? (
-        <EmptyState icon={RiErrorWarningLine} action={<Button size="sm" variant="secondary" onClick={() => query.refetch()}>{t("common.retry")}</Button>}>
-          {errorText(t, query.error)}
-        </EmptyState>
+        <ErrorState error={query.error} busy={query.isFetching} onRetry={query.refetch} />
       ) : (
         <Loader />
       )}
@@ -51,21 +51,10 @@ export function RecordEditor({ collection, recordId, onClose, onCreated, onCreat
   );
 }
 
-function PaneHeader({ title, onClose, copy, children }: { title: string; onClose: () => void; copy?: string; children?: ReactNode }) {
-  const t = useT();
-  return (
-    <header className="pane-header">
-      <h2 className={copy ? "pane-title mono" : "pane-title"}>{title}</h2>
-      {copy && <CopyButton label={t("records.copyId")} value={copy} />}
-      {children}
-      <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
-    </header>
-  );
-}
-
 function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<RecordEditorProps, "recordId"> & { loaded?: RecordWithETag }) {
   const t = useT();
   const readOnly = collection.type === "view";
+  const time = useTimeFormat();
   const form = useRecordForm({ collection, loaded, onCreated, onDeleted: onClose });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
@@ -75,19 +64,6 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
     // Cmd/Ctrl+S submits even while Save is disabled: an untouched record is not re-sent.
     if (!readOnly && !form.save.isPending && (form.dirty || form.isNew)) form.save.mutate();
   };
-
-  // Cmd/Ctrl+S saves the open record from anywhere on the page.
-  useEffect(() => {
-    if (readOnly) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        formRef.current?.requestSubmit();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [readOnly]);
 
   const duplicate = () => {
     if (!form.duplicate()) {
@@ -99,31 +75,26 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
 
   return (
     <>
-      <PaneHeader title={form.record ? form.record.id : t("records.new")} copy={form.record?.id} onClose={onClose}>
+      <PaneHeader title={form.record ? form.record.id : t("records.new")} mono={Boolean(form.record)} copy={form.record && { label: t("records.copyId"), value: form.record.id }} onClose={onClose}>
         {form.record && (
           <Dropdown label={t("records.more")} icon={RiMore2Line}>
             {!readOnly && <DropdownItem icon={RiFileCopy2Line} onSelect={duplicate}>{t("records.duplicate")}</DropdownItem>}
-            <DropdownItem icon={RiBracesLine} onSelect={() => copyText(stringify(form.record, null, 2) ?? "", t("copy.done"), t("copy.failed"))}>{t("records.copyJson")}</DropdownItem>
+            <DropdownItem icon={RiBracesLine} onSelect={() => void copyText(stringify(form.record, null, 2) ?? "")}>{t("records.copyJson")}</DropdownItem>
           </Dropdown>
         )}
       </PaneHeader>
       {/* Inert while saving: edits typed now would be lost when the saved version replaces the form. */}
       <div className="pane-body" inert={form.save.isPending}>
         {form.conflict && (
-          <div className="pane-notice" role="alert">
-            <strong>{t("records.conflictTitle")}</strong>
-            <p>{t("records.conflictText")}</p>
-            <div className="pane-notice-actions">
-              <Button size="sm" onClick={() => form.reload(true)}>{t("records.reloadKeep")}</Button>
-              <Button size="sm" variant="transparent" onClick={() => form.reload(false)}>{t("records.reloadDiscard")}</Button>
-            </div>
-          </div>
+          <Notice title={t("records.conflictTitle")} actions={<>
+            <Button size="sm" onClick={() => form.reload(true)}>{t("records.reloadKeep")}</Button>
+            <Button size="sm" variant="transparent" onClick={() => form.reload(false)}>{t("records.reloadDiscard")}</Button>
+          </>}>{t("records.conflictText")}</Notice>
         )}
         {form.restoredAt !== null && !form.conflict && (
-          <div className="pane-notice" role="status">
-            <p>{t("records.restored", { time: new Date(form.restoredAt).toLocaleString() })}</p>
-            <Button size="sm" variant="transparent" onClick={form.dropRestored}>{t("records.restoredDiscard")}</Button>
-          </div>
+          <Notice role="status" actions={<Button size="sm" variant="transparent" onClick={form.dropRestored}>{t("records.restoredDiscard")}</Button>}>
+            {t("records.restored", { time: time(form.restoredAt, true) })}
+          </Notice>
         )}
         {readOnly && <p className="field-hint">{t("records.viewReadOnly")}</p>}
         <form ref={formRef} id={formId} className="form" onSubmit={onSubmit} noValidate>
@@ -167,12 +138,10 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
           {form.record && (
             <Button variant="transparent" className="txt-danger pane-footer-start" onClick={() => setConfirmDelete(true)}>{t("common.delete")}</Button>
           )}
-          {form.progress !== null && <progress className="pane-progress" max={1} value={form.progress} aria-label={t("file.uploadingAll")} />}
-          <span className="pane-shortcut txt-hint" aria-hidden>{navigator.platform.startsWith("Mac") ? "⌘S" : "Ctrl+S"}</span>
-          <Button variant="secondary" onClick={onClose}>{t("common.cancel")}</Button>
-          <Button type="submit" form={formId} loading={form.save.isPending} disabled={!form.dirty && !form.isNew}>
-            {form.isNew ? t("records.create") : t("records.save")}
-          </Button>
+          <SaveBar form={formId} dirty={form.dirty} busy={form.save.isPending} onDiscard={form.isNew ? onClose : form.reset}
+            saveLabel={form.isNew ? t("records.create") : t("records.save")} saveDisabled={!form.dirty && !form.isNew}>
+            {form.progress !== null && <progress className="pane-progress" max={1} value={form.progress} aria-label={t("file.uploadingAll")} />}
+          </SaveBar>
         </footer>
       )}
       <ConfirmDialog
@@ -185,18 +154,7 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
         onConfirm={() => form.remove.mutate(undefined, { onSettled: () => setConfirmDelete(false) })}
         onCancel={() => setConfirmDelete(false)}
       />
-      <ConfirmDialog
-        open={form.blocker.state === "blocked"}
-        title={t("records.discardTitle")}
-        message={t("records.discardText")}
-        confirmLabel={t("records.discard")}
-        danger
-        onConfirm={() => {
-          form.discard();
-          form.blocker.proceed?.();
-        }}
-        onCancel={() => form.blocker.reset?.()}
-      />
+      <UnsavedGuard {...form.guard} />
     </>
   );
 }

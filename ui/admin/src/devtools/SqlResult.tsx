@@ -5,7 +5,7 @@ import { cancelSqlExecution, type SqlCell, type SqlExecution, type SqlStatementR
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
 import { DataGrid, type GridCell } from "../components/DataGrid";
-import { ErrorState, Loader } from "../components/Feedback";
+import { ErrorState, Loader, Notice } from "../components/Feedback";
 import { toast } from "../components/Toast";
 import { en } from "../i18n/en";
 import { useT, type MessageKey } from "../i18n";
@@ -89,7 +89,7 @@ export function SqlResult({ id, sql }: { id: string; sql: string | undefined }) 
           </div>
         )}
       </div>
-      {result?.truncated && <div className="pane-notice dt-inset" role="status">{t("devtools.sql.truncated", { rows: result.rows })}</div>}
+      {result?.truncated && <Notice role="status" className="dt-inset">{t("devtools.sql.truncated", { rows: result.rows })}</Notice>}
       {failure && (
         <div className="pane-notice dt-inset" data-tone={execution.status === "failed" ? "danger" : undefined} role="alert">
           <strong>{failureKey in en ? t(failureKey as MessageKey) : failure.message}</strong>

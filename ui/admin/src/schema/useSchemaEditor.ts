@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useBlocker, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
+import { outside } from "../components/UnsavedGuard";
 import { useSearchState } from "../app/search";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { planCollectionChange, type ApplyIdentity, type Collection, type CollectionType, type CreateCollectionChange, type FieldType } from "../api/collections";
@@ -125,17 +126,10 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
     return { fields: {}, indexes: {}, collection: {}, other: [] };
   }, [built, planQuery.error, draft]);
 
-  const blocker = useBlocker(({ nextLocation }) => dirty && !finished.current && nextLocation.pathname !== basePath && !nextLocation.pathname.startsWith(`${basePath}/`));
   // An applied update stays on this page; once its review has closed, planning may resume.
   useEffect(() => {
     if (!reviewing) finished.current = false;
   }, [reviewing]);
-  useEffect(() => {
-    if (!dirty) return;
-    const onBeforeUnload = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [dirty]);
 
   // One identity per plan, persisted with the running-operations entry: it is reused only to
   // retry after a lost or undecided response, including after a reload.
@@ -192,7 +186,8 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
     apply,
     /** An earlier apply of this collection whose outcome is still open (another plan, another tab, or before a reload). */
     pending: pending && !isWatched(pending.id) && pending.checksum !== planQuery.data?.checksum ? pending : undefined,
-    blocker,
+    /** Props for the unsaved-changes guard; moving between this collection's tabs keeps the draft. */
+    guard: { dirty, release: () => finished.current, leaves: outside(basePath), onDiscard: () => dropDraft(key) },
     setPane,
     setMeta: (patch: Partial<Draft>) => update((current) => ({ ...current, ...patch })),
     addField: (fieldType: FieldType) => {
@@ -229,10 +224,6 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
     discard: () => {
       dropDraft(key);
       setPane(null);
-    },
-    leave: () => {
-      dropDraft(key);
-      blocker.proceed?.();
     },
     /** Lets the next navigation through (after a delete). */
     release: () => {

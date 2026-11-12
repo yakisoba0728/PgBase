@@ -1,14 +1,17 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiRefreshLine, RiReplyLine } from "@remixicon/react";
+import { Searchbar } from "../components/Field";
+import { RiHashtag, RiRefreshLine, RiReplyLine } from "@remixicon/react";
 import { retryRealtimeEvent } from "../api/realtime";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
 import { ErrorState, Loader } from "../components/Feedback";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { formatDuration, isUuid } from "./format";
-import { realtimeQuery, useTimeFormat } from "./queries";
+import { isUuid } from "./format";
+import { formatDuration } from "../app/format";
+import { realtimeQuery } from "./queries";
+import { useTimeFormat } from "../app/format";
 import "../styles/ops.css";
 
 export function RealtimeActions() {
@@ -75,10 +78,7 @@ export function RealtimeView() {
         <h2 id="ops-retry-title" className="ops-subtitle">{t("ops.realtime.retryTitle")}</h2>
         <p className="txt-hint">{t("ops.realtime.retryText")}</p>
         <form className="ops-inline" onSubmit={onSubmit}>
-          <div className="searchbar mono" data-invalid={invalid ? "" : undefined}>
-            <input name="eventId" value={eventId} onChange={(event) => setEventId(event.target.value)} aria-label={t("ops.realtime.eventId")} aria-invalid={invalid || undefined}
-              placeholder="00000000-0000-0000-0000-000000000000" spellCheck={false} autoComplete="off" />
-          </div>
+          <Searchbar label={t("ops.realtime.eventId")} icon={RiHashtag} type="text" mono invalid={invalid} name="eventId" value={eventId} onChange={(event) => setEventId(event.target.value)} placeholder="00000000-0000-0000-0000-000000000000" />
           <Button type="submit" variant="secondary" icon={RiReplyLine} disabled={!isUuid(eventId)} loading={retry.isPending}>{t("common.retry")}</Button>
         </form>
         {invalid && <p className="field-error">{t("ops.realtime.badId")}</p>}

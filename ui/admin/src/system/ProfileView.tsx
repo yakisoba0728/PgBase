@@ -8,11 +8,10 @@ import { resetAdministratorPassword } from "../api/system";
 import { errorText, sessionQuery } from "../app/queries";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { ErrorState } from "../components/ErrorState";
+import { ErrorState } from "../components/Feedback";
 import { Loader } from "../components/Feedback";
 import { Field } from "../components/Field";
 import { FormSection } from "../components/FormSection";
-import { TypedConfirmDialog } from "../components/TaskDialog";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { PasswordForm } from "./AdministratorsView";
@@ -22,7 +21,6 @@ import "../styles/system.css";
 
 /** The signed-in administrator: email, password and the network allowlist. */
 export function ProfileView() {
-  const t = useT();
   const profile = useQuery(profileQuery);
   if (profile.isPending) return <Loader />;
   if (profile.isError) return <ErrorState error={profile.error} busy={profile.isFetching} onRetry={() => void profile.refetch()} />;
@@ -174,10 +172,10 @@ function AllowlistForm({ prefixes, profile }: { prefixes: string[]; profile: Adm
         </ConfirmDialog>
       ) : (
         // Unknown address: nothing can be checked, so the administrator types their email to go ahead.
-        <TypedConfirmDialog open={confirming} title={t("system.profile.allowlistConfirm")} message={t("system.profile.uncheckedText")} phrase={profile.email}
-          label={t("system.profile.typeEmail", { email: profile.email })} confirmLabel={t("records.save")} busy={save.isPending} onConfirm={() => save.mutate()} onCancel={() => setConfirming(false)}>
+        <ConfirmDialog open={confirming} title={t("system.profile.allowlistConfirm")} message={t("system.profile.uncheckedText")} danger
+          typed={{ phrase: profile.email, label: t("system.profile.typeEmail", { email: profile.email }) }} confirmLabel={t("records.save")} busy={save.isPending} onConfirm={() => save.mutate()} onCancel={() => setConfirming(false)}>
           {confirmBody}
-        </TypedConfirmDialog>
+        </ConfirmDialog>
       )}
     </form>
   );

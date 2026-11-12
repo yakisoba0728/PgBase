@@ -1,4 +1,4 @@
-import { describeSchedule, formatDuration, isUuid, localToRfc3339, statusTone } from "./format";
+import { describeSchedule, isUuid, localToRfc3339, statusTone } from "./format";
 import { logFilterFrom } from "./queries";
 
 describe("ops format", () => {
@@ -7,14 +7,6 @@ describe("ops format", () => {
     expect(statusTone(304)).toBeUndefined();
     expect(statusTone(404)).toBe("warning");
     expect(statusTone(503)).toBe("danger");
-  });
-
-  it("formats durations compactly", () => {
-    expect(formatDuration(-5)).toBe("0s");
-    expect(formatDuration(4_900)).toBe("4s");
-    expect(formatDuration(120_000)).toBe("2m");
-    expect(formatDuration(185_000)).toBe("3m 5s");
-    expect(formatDuration(3_600_000 * 2 + 60_000)).toBe("2h 1m");
   });
 
   it("summarises common schedules and leaves the rest alone", () => {

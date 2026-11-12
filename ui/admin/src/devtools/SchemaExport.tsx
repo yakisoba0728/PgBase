@@ -1,10 +1,10 @@
+import { CopyButton } from "../components/CopyButton";
 import { useQuery } from "@tanstack/react-query";
-import { RiDownloadLine, RiFileCopyLine } from "@remixicon/react";
+import { RiDownloadLine } from "@remixicon/react";
 import { stringify } from "lossless-json";
 import { Button } from "../components/Button";
 import { ErrorState, Loader } from "../components/Feedback";
 import { Checkbox } from "../components/Field";
-import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { useSearchState } from "../app/search";
 import { pickCollections } from "./model";
@@ -24,11 +24,6 @@ export function SchemaExport() {
   const text = stringify(pickCollections(query.data, skip), null, 2) ?? "";
   const picked = names.length - skip.length;
 
-  const copy = () =>
-    navigator.clipboard.writeText(text).then(
-      () => toast(t("records.copied")),
-      () => toast(t("records.copyFailed"), "danger"),
-    );
   const download = () => {
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
@@ -68,7 +63,7 @@ export function SchemaExport() {
         <div className="toolbar">
           <span className="dt-muted">{t("devtools.export.size", { lines: text.split("\n").length })}</span>
           <div className="dt-actions">
-            <Button size="sm" variant="secondary" icon={RiFileCopyLine} onClick={copy}>{t("devtools.copy")}</Button>
+            <CopyButton text value={text} />
             <Button size="sm" icon={RiDownloadLine} onClick={download}>{t("devtools.download")}</Button>
           </div>
         </div>

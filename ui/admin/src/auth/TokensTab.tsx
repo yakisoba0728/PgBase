@@ -5,7 +5,8 @@ import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { tokenProblems, type Problems, type TokenDraft } from "./forms";
 import { tokenPoliciesQuery } from "./queries";
-import { problemText, reportFailure, UnsavedGuard, useDraft } from "./useDraft";
+import { problemText, reportFailure, useDraft } from "./useDraft";
+import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
 
 const purposes: TokenPolicyPurpose[] = ["session", "verify", "password_reset", "email_change", "otp", "impersonation"];

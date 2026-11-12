@@ -1,16 +1,16 @@
 import { Link } from "react-router";
-import { RiCloseLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { errorText } from "../app/queries";
-import { Button, IconButton } from "../components/Button";
+import { Button } from "../components/Button";
 import { untrackOperation } from "../app/operations";
 import { ChangeList } from "../components/ChangeList";
-import { EmptyState, Loader } from "../components/Feedback";
+import { EmptyState, Loader, Notice } from "../components/Feedback";
 import { useT } from "../i18n";
 import { Undecided } from "./apply";
 import { dangerousStatement } from "./draft";
 import { describeErrors } from "./SchemaRows";
 import type { SchemaEditor } from "./useSchemaEditor";
+import { PaneHeader } from "../components/SplitView";
 
 /** The server's plan for the draft: what changes, the SQL it runs, and Apply. */
 export function PlanReview({ editor }: { editor: SchemaEditor }) {
@@ -37,11 +37,9 @@ export function PlanReview({ editor }: { editor: SchemaEditor }) {
     );
   } else if (planQuery.isError) {
     body = (
-      <div className="pane-notice" data-tone="danger" role="alert">
-        <strong>{t("schema.planFailed")}</strong>
-        <p>{errorText(t, planQuery.error)}</p>
-        <Button size="sm" variant="secondary" onClick={() => planQuery.refetch()}>{t("common.retry")}</Button>
-      </div>
+      <Notice tone="danger" title={t("schema.planFailed")} actions={<Button size="sm" variant="secondary" onClick={() => planQuery.refetch()}>{t("common.retry")}</Button>}>
+        {errorText(t, planQuery.error)}
+      </Notice>
     );
   } else if (!planQuery.data) {
     body = <Loader />;
@@ -49,26 +47,20 @@ export function PlanReview({ editor }: { editor: SchemaEditor }) {
     body = (
       <>
         {danger && (
-          <div className="pane-notice" data-tone="danger" role="alert">
-            <strong>{t("schema.dangerTitle")}</strong>
-            <p>{t("schema.dangerText")}</p>
-          </div>
+          <Notice tone="danger" title={t("schema.dangerTitle")}>{t("schema.dangerText")}</Notice>
         )}
         {editor.pending && (
-          <div className="pane-notice" data-tone="warning" role="alert">
-            <strong>{t("schema.pendingTitle")}</strong>
-            <p>{t("schema.pendingText")}</p>
+          <Notice title={t("schema.pendingTitle")} actions={<>
             <Link to={`/schema-operations?op=${encodeURIComponent(editor.pending.id)}`} className="mono">{editor.pending.id}</Link>
             {/* The way out once the operation is checked as finished or abandoned. */}
             <Button size="sm" variant="secondary" onClick={() => untrackOperation(editor.pending!.id)}>{t("schema.pendingForget")}</Button>
-          </div>
+          </>}>{t("schema.pendingText")}</Notice>
         )}
         {lost && (
-          <div className="pane-notice" role="alert">
-            <strong>{t(apply.error instanceof Undecided ? "schema.undecidedTitle" : "schema.lostTitle")}</strong>
-            <p>{t("schema.lostText")}</p>
-            <Button size="sm" variant="secondary" loading={apply.isPending} onClick={() => apply.mutate()}>{t("schema.checkAgain")}</Button>
-          </div>
+          <Notice title={t(apply.error instanceof Undecided ? "schema.undecidedTitle" : "schema.lostTitle")}
+            actions={<Button size="sm" variant="secondary" loading={apply.isPending} onClick={() => apply.mutate()}>{t("schema.checkAgain")}</Button>}>
+            {t("schema.lostText")}
+          </Notice>
         )}
         {empty && <p className="field-hint">{t("schema.planEmpty")}</p>}
         {sections.map((section, position) => (
@@ -80,10 +72,7 @@ export function PlanReview({ editor }: { editor: SchemaEditor }) {
 
   return (
     <>
-      <header className="pane-header">
-        <h2 className="pane-title">{t("schema.review")}</h2>
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={close} />
-      </header>
+      <PaneHeader title={t("schema.review")} onClose={close} />
       <div className="pane-body">{body}</div>
       <footer className="pane-footer">
         <Button variant="secondary" onClick={close}>{t("common.cancel")}</Button>

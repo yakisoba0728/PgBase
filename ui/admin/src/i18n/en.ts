@@ -1,3 +1,4 @@
+import { shellEn } from "./parts/shell.en";
 import { opsEn } from "./parts/ops.en";
 import { storageEn } from "./parts/storage.en";
 
@@ -30,6 +31,10 @@ export const en = {
   "common.saved": "Saved",
   "common.unsaved": "Unsaved changes",
   "common.discard": "Discard",
+  "common.copy": "Copy",
+  "common.done": "Done",
+  "common.loadMore": "Load more",
+  "common.undo": "Undo",
 
   "collections.empty": "No collections.",
   "notFound.title": "Page not found",
@@ -375,4 +380,5 @@ export const en = {
   ...systemEn,
   ...recordsEn,
   ...devtoolsEn,
+  ...shellEn,
 };

@@ -1,18 +1,22 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiCloseLine, RiPlayLine, RiRefreshLine, RiTimerLine } from "@remixicon/react";
+import { Facts } from "../components/Facts";
+import { UnsavedGuard } from "../components/UnsavedGuard";
+import { openRow } from "../components/DataGrid";
+import { RiPlayLine, RiRefreshLine, RiTimerLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { runJob, updateJob, type ManagedJob } from "../api/jobs";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
-import { EmptyState, ErrorState, Loader } from "../components/Feedback";
+import { EmptyState, ErrorState, Loader, Notice } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
-import { useSaveShortcut } from "../components/SaveBar";
-import { SplitView } from "../components/SplitView";
+import { SaveBar } from "../components/SaveBar";
+import { SplitView, PaneHeader } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
 import { describeSchedule } from "./format";
-import { jobsQuery, useTimeFormat } from "./queries";
+import { jobsQuery } from "./queries";
+import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import "../styles/ops.css";
 
@@ -88,12 +92,7 @@ export function JobsView() {
                 return (
                   <tr
                     key={job.id}
-                    tabIndex={0}
-                    aria-current={openId === job.id ? "true" : undefined}
-                    onClick={() => update({ job: job.id })}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") update({ job: job.id });
-                    }}
+                    {...openRow(() => update({ job: job.id }), openId === job.id)}
                   >
                     <td className="mono">{job.name}</td>
                     <td><ScheduleText schedule={job.schedule} /></td>
@@ -142,7 +141,11 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
   const dirty = schedule !== job.schedule || timezone !== job.timezone || enabled !== job.enabled;
   const refresh = () => queryClient.invalidateQueries({ queryKey: jobsQuery.queryKey });
 
-  const saveId = useSaveShortcut();
+  const reset = () => {
+    setSchedule(job.schedule);
+    setTimezone(job.timezone);
+    setEnabled(job.enabled);
+  };
   const save = useMutation({
     mutationFn: () => updateJob(job.id, { schedule: schedule.trim(), timezone: timezone.trim(), enabled }),
     onSuccess: () => toast(t("ops.jobs.saved")),
@@ -163,16 +166,11 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
 
   return (
     <form className="ops-pane-form" onSubmit={onSubmit}>
-      <header className="pane-header">
-        <h2 className="pane-title mono">{job.name}</h2>
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
-      </header>
+      <PaneHeader title={job.name} mono onClose={onClose} />
       <div className="pane-body">
         {locked && <p className="ops-note">{workerEnabled ? t("ops.jobs.unregisteredNote") : t("ops.jobs.noWorker")}</p>}
         {save.isError && (
-          <div className="pane-notice" data-tone="danger" role="alert">
-            <p>{save.error instanceof ApiError && save.error.code === "invalid_request" ? t("ops.jobs.invalid") : errorText(t, save.error)}</p>
-          </div>
+          <Notice tone="danger">{save.error instanceof ApiError && save.error.code === "invalid_request" ? t("ops.jobs.invalid") : errorText(t, save.error)}</Notice>
         )}
         <fieldset className="form" disabled={locked}>
           <Field label={t("ops.jobs.schedule")} mono spellCheck={false} autoComplete="off" required value={schedule} onChange={(event) => setSchedule(event.target.value)}
@@ -185,38 +183,20 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
           </datalist>
           <Checkbox label={t("ops.jobs.enabledLabel")} checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
         </fieldset>
-        <dl className="ops-props">
-          <div>
-            <dt>{t("ops.jobs.state")}</dt>
-            <dd><span className="dot" data-tone={stateOf(t, job).tone}>{stateOf(t, job).label}</span></dd>
-          </div>
-          <div>
-            <dt>{t("ops.jobs.nextRun")}</dt>
-            <dd>{job.enabled ? time(job.nextRunAt, true) : <span className="na">–</span>}</dd>
-          </div>
-          <div>
-            <dt>{t("ops.jobs.lastStarted")}</dt>
-            <dd>{job.lastStartedAt ? time(job.lastStartedAt, true) : <span className="na">{t("ops.jobs.never")}</span>}</dd>
-          </div>
-          <div>
-            <dt>{t("ops.jobs.lastFinished")}</dt>
-            <dd>{job.lastFinishedAt ? time(job.lastFinishedAt, true) : <span className="na">–</span>}</dd>
-          </div>
-          <div>
-            <dt>{t("ops.jobs.result")}</dt>
-            <dd data-tone={job.failed ? "danger" : undefined}>{job.failed ? t("ops.jobs.failed", { count: job.attempts }) : job.lastFinishedAt ? t("ops.jobs.ok") : <span className="na">–</span>}</dd>
-          </div>
-          <div>
-            <dt>{t("ops.jobs.id")}</dt>
-            <dd className="mono">{job.id}</dd>
-          </div>
-        </dl>
+        <Facts items={[
+          { label: t("ops.jobs.state"), value: <span className="dot" data-tone={stateOf(t, job).tone}>{stateOf(t, job).label}</span> },
+          { label: t("ops.jobs.nextRun"), value: job.enabled ? time(job.nextRunAt, true) : null },
+          { label: t("ops.jobs.lastStarted"), value: job.lastStartedAt ? time(job.lastStartedAt, true) : <span className="na">{t("ops.jobs.never")}</span> },
+          { label: t("ops.jobs.lastFinished"), value: job.lastFinishedAt ? time(job.lastFinishedAt, true) : null },
+          { label: t("ops.jobs.result"), value: job.failed ? t("ops.jobs.failed", { count: job.attempts }) : job.lastFinishedAt ? t("ops.jobs.ok") : null, tone: job.failed ? "danger" : undefined },
+          { label: t("ops.jobs.id"), value: job.id, mono: true },
+        ]} />
       </div>
       <footer className="pane-footer">
         <Button variant="secondary" icon={RiPlayLine} className="pane-footer-start" disabled={locked || job.running || !job.enabled} loading={run.isPending} onClick={() => run.mutate()}>{t("ops.jobs.run")}</Button>
-        <Button variant="secondary" onClick={onClose}>{t("common.close")}</Button>
-        <Button id={saveId} type="submit" disabled={locked || !dirty} loading={save.isPending}>{t("records.save")}</Button>
+        <SaveBar dirty={dirty} busy={save.isPending} saveDisabled={locked || !dirty} onDiscard={reset} />
       </footer>
+      <UnsavedGuard dirty={dirty} />
     </form>
   );
 }

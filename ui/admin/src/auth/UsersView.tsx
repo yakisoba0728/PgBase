@@ -4,11 +4,12 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { RiAddLine, RiErrorWarningLine, RiRefreshLine, RiSearchLine, RiUser3Line } from "@remixicon/react";
 import type { ManagedUser } from "../api/users";
 import { errorText } from "../app/queries";
-import { useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../app/format";
 import { Button, IconButton } from "../components/Button";
-import { ErrorState } from "../components/ErrorState";
+import { ErrorState, LoadMore } from "../components/Feedback";
 import { EmptyState, Loader } from "../components/Feedback";
-import { Field } from "../components/Field";
+import { Field, Searchbar } from "../components/Field";
+import { openRow } from "../components/DataGrid";
 import { SplitView } from "../components/SplitView";
 import { useT, type Translate } from "../i18n";
 import { NewUserPane } from "./NewUserPane";
@@ -70,7 +71,7 @@ export function UsersView() {
 
   const toolbar = (
     <form className="toolbar auth-user-filter" role="search" onSubmit={onSearch}>
-      <Field label={t("auth.users.search")} icon={RiSearchLine} type="search" placeholder={t("auth.users.searchHint")} autoComplete="off" spellCheck={false} value={text}
+      <Searchbar label={t("auth.users.search")} primary placeholder={t("auth.users.searchHint")} value={text}
         onChange={(event) => {
           setText(event.target.value);
           if (!event.target.value) url.filter({ q: null });
@@ -103,12 +104,7 @@ export function UsersView() {
       <>
         <p className="auth-scan txt-hint">{users.hasNextPage ? t("auth.users.loadedMore", { count: loaded.length }) : t("auth.users.count", { count: loaded.length })}</p>
         <UserTable t={t} rows={rows} openId={openId} fresh={fresh.data} onOpen={url.open} />
-        {(users.hasNextPage || users.isFetchNextPageError) && (
-          <div className="grid-foot">
-            {users.isFetchNextPageError && <span className="field-error" role="alert">{errorText(t, users.error)}</span>}
-            <Button size="sm" variant="secondary" loading={users.isFetchingNextPage} onClick={() => users.fetchNextPage()}>{users.isFetchNextPageError ? t("common.retry") : t("records.loadMore")}</Button>
-          </div>
-        )}
+        <LoadMore query={users} />
       </>
     );
   }
@@ -165,10 +161,8 @@ function UserTable({ t, rows, openId, fresh, onOpen }: { t: Translate; rows: Man
         {rows.map((row) => {
           const user = fresh && fresh.id === row.id ? fresh : row;
           return (
-            <tr key={user.id} className="auth-link-row" aria-current={user.id === openId ? "true" : undefined} onClick={() => onOpen(user.id)}>
-              <td>
-                <button type="button" className="auth-cell-button" onClick={(event) => { event.stopPropagation(); onOpen(user.id); }}>{user.email}</button>
-              </td>
+            <tr key={user.id} {...openRow(() => onOpen(user.id), user.id === openId)}>
+              <td>{user.email}</td>
               <td><span className="dot" data-tone={user.active ? "success" : "danger"}>{user.active ? t("auth.users.active") : t("auth.users.disabled")}</span></td>
               <td><span className="dot" data-tone={user.verified ? "success" : undefined}>{user.verified ? t("auth.users.yes") : t("auth.users.no")}</span></td>
               <td className="mono">{time(user.createdAt)}</td>

@@ -6,8 +6,8 @@ import { reloadSettings, updateSettings, type RuntimeSettings } from "../api/sys
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
 import { SaveBar } from "../components/SaveBar";
-import { Loader } from "../components/Feedback";
-import { ErrorState } from "../components/ErrorState";
+import { Loader, Notice } from "../components/Feedback";
+import { ErrorState } from "../components/Feedback";
 import { FormSection } from "../components/FormSection";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
@@ -23,7 +23,6 @@ const hints = new Set(["batch.maxBodyBytes", "backups.schedule", "backups.timezo
 
 /** Every runtime setting the server exposes, saved as one revisioned document. */
 export function SettingsView() {
-  const t = useT();
   const query = useQuery(settingsQuery);
   if (query.isPending) return <Loader />;
   if (query.isError) return <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />;
@@ -89,10 +88,9 @@ function SettingsForm({ settings }: { settings: RuntimeSettings }) {
       </div>
       <div className="sys-scroll">
         {save.isError && (
-          <div className="pane-notice sys-notice" data-tone="danger" role="alert">
-            <p>{conflict ? t("system.settings.conflict") : invalid ? t("system.settings.invalid") : errorText(t, save.error)}</p>
-            {conflict && <Button size="sm" variant="secondary" loading={latest.isPending} onClick={() => latest.mutate()}>{t("system.settings.loadLatest")}</Button>}
-          </div>
+          <Notice tone="danger" className="sys-notice" actions={conflict && <Button size="sm" variant="secondary" loading={latest.isPending} onClick={() => latest.mutate()}>{t("system.settings.loadLatest")}</Button>}>
+            {conflict ? t("system.settings.conflict") : invalid ? t("system.settings.invalid") : errorText(t, save.error)}
+          </Notice>
         )}
         {sections.map((section) => (
           <FormSection key={section.id} title={t(`system.section.${section.id}` as MessageKey)} hint={t(`system.sectionHint.${section.id}` as MessageKey)}>

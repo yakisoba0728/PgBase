@@ -356,23 +356,8 @@
   position: relative;
 }
 
-.pane-notice-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.pane-notice p {
-  color: var(--text);
-}
-
 .pane-progress {
   width: 120px;
-}
-
-.pane-shortcut {
-  margin-left: auto;
-  font-size: var(--font-size-xs);
 }
 
 .pane-footer-start + .pane-shortcut,

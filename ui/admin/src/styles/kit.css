@@ -96,3 +96,7 @@
     grid-column: 1;
   }
 }
+
+.facts dd[data-tone] {
+  color: var(--tone);
+}

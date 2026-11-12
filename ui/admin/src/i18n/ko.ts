@@ -1,3 +1,4 @@
+import { shellKo } from "./parts/shell.ko";
 import { opsKo } from "./parts/ops.ko";
 import { storageKo } from "./parts/storage.ko";
 import { rulesKo } from "./parts/rules.ko";
@@ -30,6 +31,10 @@ export const ko: Record<keyof typeof en, string> = {
   "common.saved": "저장됨",
   "common.unsaved": "저장하지 않은 변경",
   "common.discard": "되돌리기",
+  "common.copy": "복사",
+  "common.done": "완료",
+  "common.loadMore": "더 불러오기",
+  "common.undo": "실행 취소",
 
   "collections.empty": "컬렉션이 없습니다.",
   "notFound.title": "페이지를 찾을 수 없습니다",
@@ -375,4 +380,5 @@ export const ko: Record<keyof typeof en, string> = {
   ...systemKo,
   ...recordsKo,
   ...devtoolsKo,
+  ...shellKo,
 };

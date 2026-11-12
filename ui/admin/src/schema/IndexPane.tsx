@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { RiAddLine, RiArrowDownSLine, RiArrowUpSLine, RiCloseLine } from "@remixicon/react";
+import { Notice } from "../components/Feedback";
 import type { IndexKey } from "../api/collections";
 import { Button, IconButton } from "../components/Button";
 import { CodeArea } from "../components/CodeArea";
@@ -9,6 +10,7 @@ import { useT } from "../i18n";
 import { indexable, indexCollations, rawIndexTemplate, type DraftIndex } from "./draft";
 import { describeErrors, indexColumns } from "./SchemaRows";
 import type { SchemaEditor } from "./useSchemaEditor";
+import { PaneHeader } from "../components/SplitView";
 
 /** Compound, expression and partial indexes, or one written in SQL. Single-column indexes are the field's own flags. */
 export function IndexPane({ editor, index }: { editor: SchemaEditor; index: DraftIndex }) {
@@ -42,16 +44,10 @@ export function IndexPane({ editor, index }: { editor: SchemaEditor; index: Draf
 
   return (
     <>
-      <header className="pane-header">
-        <h2 className="pane-title mono">{index.name || t("schema.index")}</h2>
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={() => editor.setPane(null)} />
-      </header>
+      <PaneHeader title={index.name || t("schema.index")} mono onClose={() => editor.setPane(null)} />
       <div className="pane-body">
         {errors && (
-          <div className="pane-notice" data-tone="danger" role="alert">
-            <strong>{t("schema.serverRejected")}</strong>
-            <p>{describeErrors(t, errors)}</p>
-          </div>
+          <Notice tone="danger" title={t("schema.serverRejected")}>{describeErrors(t, errors)}</Notice>
         )}
         <div className="form">
           <Field label={t("schema.indexName")} mono spellCheck={false} value={index.name} onChange={(event) => update({ name: event.target.value })} />

@@ -1,9 +1,7 @@
 import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiCloseLine } from "@remixicon/react";
 import { createAuthRecord, type AuthCollection } from "../api/authCollections";
 import { ApiError } from "../api/http";
-import { IconButton } from "../components/Button";
 import { Loader } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
@@ -11,8 +9,10 @@ import { useT } from "../i18n";
 import { bareEmail, profileChanges, profileDraft, profileFields, type Problems, type ProfileDraft } from "./forms";
 import { ProfileFields } from "./ProfileFields";
 import { administrationQuery, authCollectionsQuery } from "./queries";
-import { problemText, reportFailure, UnsavedGuard, useDraft } from "./useDraft";
+import { problemText, reportFailure, useDraft } from "./useDraft";
+import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
+import { PaneHeader } from "../components/SplitView";
 
 /** Creates a user with credentials through the auth-collection records endpoint. */
 export function NewUserPane({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
@@ -20,10 +20,7 @@ export function NewUserPane({ onClose, onCreated }: { onClose: () => void; onCre
   const collections = useQuery(authCollectionsQuery);
   return (
     <>
-      <header className="pane-header">
-        <h2 className="pane-title">{t("auth.users.new")}</h2>
-        <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
-      </header>
+      <PaneHeader title={t("auth.users.new")} onClose={onClose} />
       {collections.data ? <NewUserForm collections={collections.data} onClose={onClose} onCreated={onCreated} /> : <Loader />}
     </>
   );
@@ -99,7 +96,7 @@ function NewUserForm({ collections, onClose, onCreated }: { collections: AuthCol
       <footer className="pane-footer">
         <SaveBar form="auth-new-user" dirty busy={create.isPending} onDiscard={onClose} saveLabel={t("auth.users.create")} />
       </footer>
-      <UnsavedGuard dirty={form.dirty} release={form.release} />
+      <UnsavedGuard dirty={form.dirty} release={() => form.release.current} />
     </>
   );
 }

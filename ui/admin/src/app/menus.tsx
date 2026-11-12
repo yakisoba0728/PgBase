@@ -2,7 +2,7 @@ import { useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiComputerLine, RiLogoutBoxRLine, RiMoonLine, RiSunLine, RiTranslate2, RiUser3Line, RiUserSettingsLine } from "@remixicon/react";
 import { logout } from "../api/session";
-import { Dropdown, DropdownItem } from "../components/Dropdown";
+import { Dropdown, DropdownItem } from "../components/Popover";
 import { toast } from "../components/Toast";
 import { languages, setLanguage, useLanguage, useT } from "../i18n";
 import { errorText, sessionQuery } from "./queries";
@@ -16,7 +16,7 @@ export function ThemeMenu() {
   const t = useT();
   const mode = useTheme();
   return (
-    <Dropdown label={t("menu.theme")} heading={t("menu.theme")} icon={themeIcons[mode]} placement="up">
+    <Dropdown label={t("menu.theme")} heading={t("menu.theme")} icon={themeIcons[mode]} align="start">
       {themeModes.map((option) => (
         <DropdownItem key={option} icon={themeIcons[option]} checked={option === mode} onSelect={() => setTheme(option)}>
           {t(`theme.${option}`)}
@@ -30,7 +30,7 @@ export function LanguageMenu() {
   const t = useT();
   const language = useLanguage();
   return (
-    <Dropdown label={t("menu.language")} heading={t("menu.language")} icon={RiTranslate2} placement="up">
+    <Dropdown label={t("menu.language")} heading={t("menu.language")} icon={RiTranslate2} align="start">
       {languages.map((option) => (
         <DropdownItem key={option} checked={option === language} onSelect={() => setLanguage(option)}>
           <span lang={option}>{languageNames[option]}</span>
@@ -54,7 +54,7 @@ export function AccountMenu() {
     },
   });
   return (
-    <Dropdown label={t("menu.account")} heading={session?.administrator.email} text={session?.administrator.email} icon={RiUser3Line} placement="up">
+    <Dropdown label={t("menu.account")} heading={session?.administrator.email} text={session?.administrator.email} icon={RiUser3Line} align="start">
       <DropdownItem icon={RiUserSettingsLine} onSelect={() => navigate("/profile")}>
         {t("account.profile")}
       </DropdownItem>

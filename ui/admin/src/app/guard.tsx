@@ -1,10 +1,8 @@
 import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { RiErrorWarningLine } from "@remixicon/react";
 import type { SetupStatus } from "../api/system";
-import { Button } from "../components/Button";
-import { EmptyState, Loader } from "../components/Feedback";
+import { ErrorState, Loader } from "../components/Feedback";
 import { useT } from "../i18n";
 import { isUnauthorized, sessionQuery, setupStatusQuery } from "./queries";
 
@@ -41,9 +39,9 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       return <Navigate to={decision.to} replace state={{ from: location.pathname + location.search + location.hash }} />;
     case "error":
       return (
-        <EmptyState icon={RiErrorWarningLine} action={<Button variant="secondary" size="sm" onClick={() => session.refetch()}>{t("common.retry")}</Button>}>
+        <ErrorState busy={session.isFetching} onRetry={session.refetch}>
           {t("guard.unreachable")}
-        </EmptyState>
+        </ErrorState>
       );
   }
 }

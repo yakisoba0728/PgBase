@@ -129,15 +129,6 @@
   white-space: normal;
 }
 
-.auth-cell-button {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
 .auth-preview {
   display: grid;
   gap: var(--space-xs);

@@ -3,11 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import type { SystemStatusProbe } from "../api/system";
 import { errorText } from "../app/queries";
 import { Loader } from "../components/Feedback";
-import { ErrorState } from "../components/ErrorState";
+import { ErrorState } from "../components/Feedback";
 import { Facts } from "../components/Facts";
 import { FormSection } from "../components/FormSection";
 import { useT } from "../i18n";
-import { useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../app/format";
 import { schemaHealthQuery, systemStatusQuery } from "./queries";
 import "../styles/system.css";
 

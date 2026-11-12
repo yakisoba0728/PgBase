@@ -7,7 +7,7 @@ import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
 import { Field } from "../components/Field";
 import { useT } from "../i18n";
-import { SecretView, TaskDialog } from "../components/TaskDialog";
+import { SecretView, TaskDialog } from "../components/Dialog";
 
 /** Apple allows about six months (15,777,000 s); whole days keep the input simple. */
 const maxDays = 182;

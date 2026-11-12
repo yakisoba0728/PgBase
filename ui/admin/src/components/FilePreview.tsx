@@ -1,11 +1,9 @@
-import { useEffect, useRef } from "react";
 import { RiCloseLine, RiDownload2Line, RiFileLine } from "@remixicon/react";
 import { useT } from "../i18n";
 import { IconButton } from "./Button";
+import { useModal } from "./Dialog";
 import { Loader } from "./Feedback";
-
-export const formatBytes = (bytes: number) =>
-  bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : bytes < 1073741824 ? `${(bytes / 1048576).toFixed(1)} MB` : `${(bytes / 1073741824).toFixed(2)} GB`;
+import { formatBytes } from "../app/format";
 
 interface PreviewFile {
   name: string;
@@ -25,27 +23,10 @@ interface FilePreviewProps {
 /** A modal look at one file: images are shown, anything else gets its name, size and a download link. */
 export function FilePreview({ file, url, error, onClose }: FilePreviewProps) {
   const t = useT();
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const dialog = ref.current;
-    if (!dialog) return;
-    if (file && !dialog.open) dialog.showModal();
-    if (!file && dialog.open) dialog.close();
-  }, [file]);
+  const modal = useModal(file !== null, onClose);
   const image = file?.contentType.startsWith("image/");
   return (
-    <dialog
-      ref={ref}
-      className="file-preview"
-      aria-label={file?.name}
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
+    <dialog className="file-preview" aria-label={file?.name} {...modal}>
       {file && (
         <>
           <header className="file-preview-head">

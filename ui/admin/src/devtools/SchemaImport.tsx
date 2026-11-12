@@ -9,7 +9,7 @@ import { trackOperation, untrackOperation, watchOperation } from "../app/operati
 import { Button } from "../components/Button";
 import { ChangeList } from "../components/ChangeList";
 import { CodeArea } from "../components/CodeArea";
-import { EmptyState, Loader } from "../components/Feedback";
+import { EmptyState, Loader, Notice } from "../components/Feedback";
 import { Checkbox } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT, type MessageKey, type Translate } from "../i18n";
@@ -18,6 +18,7 @@ import { dangerousStatement } from "../schema/draft";
 import { en } from "../i18n/en";
 import { importSections, problemList, readPending, writePending, type PendingImport } from "./model";
 import { runImport } from "./queries";
+import { PaneHeader } from "../components/SplitView";
 
 class InvalidJson extends Error {}
 
@@ -148,17 +149,11 @@ export function SchemaImport() {
     body = (
       <>
         {apply.error && (
-          <div className="pane-notice" data-tone="danger" role="alert">
-            <strong>{t("devtools.import.failed")}</strong>
-            <p>{errorText(t, apply.error)}</p>
-          </div>
+          <Notice tone="danger" title={t("devtools.import.failed")}>{errorText(t, apply.error)}</Notice>
         )}
-        {stale && <div className="pane-notice" role="status">{t("devtools.import.stale")}</div>}
+        {stale && <Notice role="status">{t("devtools.import.stale")}</Notice>}
         {danger && (
-          <div className="pane-notice" data-tone="danger" role="alert">
-            <strong>{t("schema.dangerTitle")}</strong>
-            <p>{t("schema.dangerText")}</p>
-          </div>
+          <Notice tone="danger" title={t("schema.dangerTitle")}>{t("schema.dangerText")}</Notice>
         )}
         {sections.length === 0 && <p className="dt-muted">{t("schema.planEmpty")}</p>}
         {sections.map((section) => (
@@ -185,9 +180,7 @@ export function SchemaImport() {
         <CodeArea fill label={t("devtools.import.document")} placeholder={t("devtools.import.placeholder")} value={text} onChange={(event) => setText(event.target.value)} onSubmit={() => text.trim() && runPreview()} />
       </section>
       <section className="dt-plan" aria-label={t("devtools.import.plan")}>
-        <header className="pane-header">
-          <h2 className="pane-title">{t("devtools.import.plan")}</h2>
-        </header>
+        <PaneHeader title={t("devtools.import.plan")} />
         <div className="pane-body">{body}</div>
         <footer className="pane-footer">
           <Button
