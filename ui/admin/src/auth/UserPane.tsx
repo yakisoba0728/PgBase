@@ -34,11 +34,8 @@ type Action =
   | { kind: "disable" | "enable" | "verify" | "unverify" | "sendVerification" | "sendReset" | "revoke" | "impersonate" | "delete" }
   | { kind: "unlink"; provider: string };
 
-const actionText: Record<Action["kind"], { title: MessageKey; text: MessageKey; confirm: MessageKey; danger?: boolean }> = {
+const actionText: Partial<Record<Action["kind"], { title: MessageKey; text: MessageKey; confirm: MessageKey; danger?: boolean }>> = {
   disable: { title: "auth.user.disableTitle", text: "auth.user.disableText", confirm: "auth.user.disable", danger: true },
-  enable: { title: "auth.user.enableTitle", text: "auth.user.enableText", confirm: "auth.user.enable" },
-  verify: { title: "auth.user.verifyTitle", text: "auth.user.verifyText", confirm: "auth.user.markVerified" },
-  unverify: { title: "auth.user.unverifyTitle", text: "auth.user.unverifyText", confirm: "auth.user.markUnverified", danger: true },
   sendVerification: { title: "auth.user.sendVerificationTitle", text: "auth.user.sendText", confirm: "auth.user.send" },
   sendReset: { title: "auth.user.sendResetTitle", text: "auth.user.sendText", confirm: "auth.user.send" },
   revoke: { title: "auth.user.revokeTitle", text: "auth.user.revokeText", confirm: "auth.user.revoke", danger: true },
@@ -114,7 +111,7 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
     if (undoable[next.kind]) run.mutate(next);
     else setAction(next);
   };
-  const text = action ? actionText[action.kind] : null;
+  const text = action ? actionText[action.kind] ?? null : null;
 
   return (
     <>

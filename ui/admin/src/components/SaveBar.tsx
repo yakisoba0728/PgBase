@@ -19,7 +19,7 @@ interface SaveBarProps {
 }
 
 /** Cmd/Ctrl+S presses the save button the returned id is given to; the most recently mounted one wins. */
-export function useSaveShortcut(): string {
+function useSaveShortcut(): string {
   const id = useId();
   useShortcut(
     "mod+s",

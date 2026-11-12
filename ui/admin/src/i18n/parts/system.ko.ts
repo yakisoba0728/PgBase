@@ -2,9 +2,6 @@ import type { systemEn } from "./system.en";
 
 export const systemKo: Record<keyof typeof systemEn, string> = {
   "account.profile": "내 프로필",
-  "system.copy": "복사",
-  "system.done": "완료",
-  "system.loadMore": "더 보기",
   "system.tab.settings": "설정",
   "system.tab.status": "상태",
 

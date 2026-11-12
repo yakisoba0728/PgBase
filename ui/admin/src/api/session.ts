@@ -54,11 +54,6 @@ export interface LoginInput {
   otpCode?: string;
 }
 
-export interface CompleteEmailOTPInput {
-  otpId: string;
-  code: string;
-}
-
 export interface IpAllowlist {
   prefixes: string[];
 }
@@ -96,22 +91,9 @@ export function login(input: LoginInput): Promise<AdminSession> {
   return adopt(request<AdminSession>("POST", "/api/admin/auth/login", { body: input }));
 }
 
-export function completeEmailOTP(input: CompleteEmailOTPInput): Promise<AdminSession> {
-  return adopt(request<AdminSession>("POST", "/api/admin/auth/otp/complete", { body: input }));
-}
-
 export async function logout(): Promise<void> {
   try {
     await request<void>("POST", "/api/admin/auth/logout");
-  } finally {
-    clearCsrfToken();
-  }
-}
-
-/** DELETE /api/admin/session shares the logout handler. */
-export async function deleteSession(): Promise<void> {
-  try {
-    await request<void>("DELETE", "/api/admin/session");
   } finally {
     clearCsrfToken();
   }

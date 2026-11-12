@@ -86,10 +86,6 @@ export async function listAuthCollections(signal?: AbortSignal): Promise<AuthCol
   return (await request<{ items: AuthCollection[] }>("GET", base, { signal })).items;
 }
 
-export function createAuthCollection(input: CreateAuthCollectionInput): Promise<AuthCollection> {
-  return request("POST", base, { body: input });
-}
-
 export function updateAuthCollection(id: string, input: UpdateAuthCollectionInput): Promise<AuthCollection> {
   return request("PATCH", `${base}/${seg(id)}`, { body: input });
 }
@@ -153,8 +149,6 @@ interface OAuthProviderFields {
   avatarField: string;
   allowInsecureLoopback: boolean;
 }
-
-export type OAuthProviderOptionField = keyof OAuthProviderFields | "clientSecret";
 
 export interface OAuthProviderConfig extends OAuthProviderFields {
   /** Response-only. */

@@ -162,7 +162,7 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
             })}
           </ul>
         )}
-        {more && <Button size="sm" variant="secondary" loading={loadingMore} onClick={more}>{t("records.loadMore")}</Button>}
+        {more && <Button size="sm" variant="secondary" loading={loadingMore} onClick={more}>{t("common.loadMore")}</Button>}
       </aside>
       <ConfirmDialog
         open={confirm}

@@ -282,11 +282,6 @@ export function listCollections(signal?: AbortSignal): Promise<CollectionCatalog
   return request("GET", base, { signal });
 }
 
-/** `collection` may be the name, compatibility name or id. */
-export function getCollection(collection: string, signal?: AbortSignal): Promise<Collection> {
-  return request("GET", `${base}/${seg(collection)}`, { signal });
-}
-
 /** Portable starting points; replace the empty names, then import via schema preview/apply. */
 export function getCollectionScaffolds(signal?: AbortSignal): Promise<CollectionScaffolds> {
   return request("GET", `${base}/scaffolds`, { signal });
@@ -514,10 +509,6 @@ export interface PocketBaseRulePolicy {
   collection: string;
   pocketbaseRules: PocketBaseRules;
   revision: number;
-}
-
-export function getPocketBaseRules(collection: string, signal?: AbortSignal): Promise<PocketBaseRulePolicy> {
-  return request("GET", `${base}/${seg(collection)}/rules`, { query: { compat: "pocketbase" }, signal });
 }
 
 export function setPocketBaseRules(collection: string, pocketbaseRules: PocketBaseRules): Promise<PocketBaseRulePolicy> {

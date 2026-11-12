@@ -1,8 +1,5 @@
 export const systemEn = {
   "account.profile": "Profile",
-  "system.copy": "Copy",
-  "system.done": "Done",
-  "system.loadMore": "Load more",
   "system.tab.settings": "Settings",
   "system.tab.status": "Status",
 

@@ -1,7 +1,6 @@
 import type { devtoolsEn } from "./devtools.en";
 
 export const devtoolsKo: Record<keyof typeof devtoolsEn, string> = {
-  "devtools.copy": "복사",
   "devtools.download": "다운로드",
 
   "devtools.export.tab": "내보내기",

@@ -27,7 +27,6 @@ export const shellKo: Record<keyof typeof shellEn, string> = {
   "shortcuts.new": "이 화면에서 새 항목 만들기",
   "shortcuts.close": "열린 패널이나 대화상자 닫기",
   "shortcuts.save": "변경 내용 저장",
-  "shortcuts.goto": "{name}(으)로 이동",
   "shortcuts.then": "다음",
   "shortcuts.group.general": "일반",
   "shortcuts.group.navigation": "이동",

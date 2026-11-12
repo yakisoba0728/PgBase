@@ -113,34 +113,6 @@ export async function deleteRecord(collection: string, id: string, options: { if
 }
 
 // ---------------------------------------------------------------------------
-// Batch (atomic)
-// ---------------------------------------------------------------------------
-
-export type BatchOperation =
-  | { operation: "create"; collection: string; input: Record<string, unknown>; idempotencyKey?: string }
-  | { operation: "update" | "upsert"; collection: string; id: string; input: Record<string, unknown>; ifMatch?: string }
-  | { operation: "delete"; collection: string; id: string; ifMatch?: string };
-
-export interface BatchResult {
-  eventId: string;
-  /** Absent for deletes. */
-  record?: RecordData;
-  etag?: string;
-  version?: number;
-}
-
-/** All operations commit or none do. The per-request limit is a runtime setting;
- * a disabled batch throws ApiError 503 batch_disabled. */
-export async function batchRecords(operations: BatchOperation[], options: { fields?: string } = {}): Promise<BatchResult[]> {
-  return (
-    await request<{ results: BatchResult[] }>("POST", "/api/v1/collections/batch", {
-      body: { operations },
-      query: { fields: options.fields },
-    })
-  ).results;
-}
-
-// ---------------------------------------------------------------------------
 // Files
 // ---------------------------------------------------------------------------
 

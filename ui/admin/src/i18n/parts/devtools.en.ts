@@ -1,5 +1,4 @@
 export const devtoolsEn = {
-  "devtools.copy": "Copy",
   "devtools.download": "Download",
 
   "devtools.export.tab": "Export",

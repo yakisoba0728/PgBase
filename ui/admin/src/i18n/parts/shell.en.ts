@@ -25,7 +25,6 @@ export const shellEn = {
   "shortcuts.new": "Create a new item on this screen",
   "shortcuts.close": "Close the open pane or dialog",
   "shortcuts.save": "Save changes",
-  "shortcuts.goto": "Go to {name}",
   "shortcuts.then": "then",
   "shortcuts.group.general": "General",
   "shortcuts.group.navigation": "Go to",

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { CopyButton } from "./CopyButton";
 
-export interface Fact {
+interface Fact {
   label: ReactNode;
   /** null or undefined shows a muted dash. */
   value: ReactNode;

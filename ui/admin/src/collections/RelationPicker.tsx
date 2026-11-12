@@ -210,7 +210,7 @@ export function RelationPicker({ field, value, onChange, known = [], error, read
             ) : null}
             {results.hasNextPage && (
               <Button size="sm" variant="transparent" loading={results.isFetchingNextPage} onMouseDown={(event) => event.preventDefault()} onClick={() => results.fetchNextPage()}>
-                {t("records.loadMore")}
+                {t("common.loadMore")}
               </Button>
             )}
           </div>
