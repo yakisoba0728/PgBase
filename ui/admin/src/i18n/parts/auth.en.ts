@@ -11,6 +11,7 @@ export const authEn = {
   "auth.staleOverwrite": "Save mine anyway",
 
   "authv.required": "Required.",
+  "authv.rowRejected": "The server rejected this row; the rows below it were not sent.",
   "authv.range": "Out of range.",
   "authv.pattern": "Not a valid pattern.",
   "authv.url": "Must be https (or http on loopback when allowed).",
@@ -119,6 +120,7 @@ export const authEn = {
   "auth.tokens.newKey": "New key",
   "auth.tokens.newVersion": "New version",
   "auth.tokens.default": "Default",
+  "auth.tokens.partial": "Saved before the failure: {purposes}.",
   "auth.tokens.hint": "Lifetime 60–86400 s. To rotate, enter a new key (32+ bytes) and a new version together; tokens signed with the old key stop working.",
 
   "auth.mail.views": "Mail",

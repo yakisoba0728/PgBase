@@ -14,7 +14,7 @@ import { useT } from "../i18n";
 import { statusTone } from "./format";
 import { LogDetail } from "./LogDetail";
 import { LogStats } from "./LogStats";
-import { logFilterFrom, logsKey, logsQuery, logStatsQuery } from "./queries";
+import { logFilterFrom, logsKey, logsQuery, logStatsQuery, logWindowPages } from "./queries";
 import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import "../styles/ops.css";
@@ -161,7 +161,9 @@ export function LogsView() {
                 })}
               </tbody>
             </table>
-            <LoadMore query={logs} auto />
+            {/* Once the window is full a page in keeps the height the same, so the footer could stay in view and
+                load the whole history; from then on each page takes a click. */}
+            <LoadMore query={logs} auto={(logs.data?.pages.length ?? 0) < logWindowPages} />
           </>
         )}
       </div>

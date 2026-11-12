@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Facts } from "../components/Facts";
 import { cancelStorageMigration, previewStorageMigration, resumeStorageMigration, startStorageMigration, type FileStorageSettings, type StorageMigrationStatus } from "../api/storage";
 import { Button } from "../components/Button";
@@ -7,14 +7,14 @@ import { ConfirmDialog } from "../components/Dialog";
 import { ErrorState, Loader, Notice } from "../components/Feedback";
 import { toast } from "../components/Toast";
 import { ApiError } from "../api/http";
-import { trackOperation, untrackOperation, watchOperation } from "../app/operations";
+import { trackOperation, untrackOperation, useOperations, watchOperation } from "../app/operations";
 import { JobProgress } from "../components/JobProgress";
 import { useT, type Translate } from "../i18n";
 import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { newIdentity } from "../schema/apply";
 import { destinationOf, draftFrom, storageErrorKey, validateDraft, type StorageDraft } from "./model";
-import { fileStorageQuery, migrationQuery, migrationRunning } from "./queries";
+import { awaitingStart, fileStorageQuery, migrationQuery, migrationRunning } from "./queries";
 import { StorageFields } from "./StorageForm";
 
 
@@ -28,17 +28,28 @@ export function MigrationView() {
   const t = useT();
   const files = useQuery(fileStorageQuery);
   const { params } = useSearchState();
-  const migration = useQuery(migrationQuery(params.get("migration")));
+  const id = params.get("migration");
+  const tracked = useOperations().some((operation) => operation.kind === "migration" && operation.id === id);
+  // Starting writes the new id to the URL first; the previous answer stays so the form (and its pending start) stays mounted.
+  const migration = useQuery({ ...migrationQuery(id), placeholderData: keepPreviousData });
   if (files.isPending || migration.isPending) return <Loader />;
   if (files.isError || migration.isError) return <ErrorState error={files.error ?? migration.error} onRetry={() => Promise.all([files.refetch(), migration.refetch()])} />;
+  const starting = awaitingStart(id, migration.data, tracked);
   return (
     <div className="storage-form">
       <section className="storage-block" aria-label={t("storage.migration.source")}>
         <h2 className="subtitle">{t("storage.migration.source")}</h2>
         <p className="mono">{describeSettings(t, files.data)}</p>
       </section>
-      <MigrationStatus migration={migration.data} />
-      <DestinationForm key={files.data.revision} current={files.data} locked={migrationRunning(migration.data?.status)} />
+      {starting ? (
+        <section className="storage-block" aria-label={t("storage.migration.latest")}>
+          <h2 className="subtitle">{t("storage.migration.latest")}</h2>
+          <JobProgress title={t("storage.migration.starting")} state="running" detail={t("storage.migration.startingText")} meta={<span className="mono">{id}</span>} />
+        </section>
+      ) : (
+        <MigrationStatus migration={migration.data} />
+      )}
+      <DestinationForm key={files.data.revision} current={files.data} locked={starting || migrationRunning(migration.data?.status)} />
     </div>
   );
 }
@@ -158,7 +169,7 @@ function DestinationForm({ current, locked }: { current: FileStorageSettings; lo
       </fieldset>
       <footer className="storage-actions">
         {preview.data && <span className="storage-preview mono">{t("storage.migration.previewResult", { count: preview.data.totalObjects })}</span>}
-        <Button type="submit" variant="secondary" disabled={locked} loading={preview.isPending}>{t("storage.migration.preview")}</Button>
+        <Button type="submit" variant="secondary" disabled={locked || start.isPending} loading={preview.isPending}>{t("storage.migration.preview")}</Button>
         <Button disabled={locked || !preview.data} loading={start.isPending} onClick={() => setConfirm(true)}>{t("storage.migration.start")}</Button>
       </footer>
       <ConfirmDialog open={confirm} title={t("storage.migration.startTitle")} confirmLabel={t("storage.migration.start")} busy={start.isPending}

@@ -9,6 +9,7 @@ import { trackOperation, untrackOperation, watchOperation } from "../app/operati
 import { Button } from "../components/Button";
 import { ChangeList } from "../components/ChangeList";
 import { CodeArea } from "../components/CodeArea";
+import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState, Loader, Notice } from "../components/Feedback";
 import { Checkbox } from "../components/Field";
 import { toast } from "../components/Toast";
@@ -33,6 +34,7 @@ export function SchemaImport() {
   const [text, setText] = useState("");
   const [deleteMissing, setDeleteMissing] = useState(false);
   const [pending, setPending] = useState<PendingImport | null>(readPending);
+  const [confirming, setConfirming] = useState(false);
 
   const preview = useMutation({
     mutationFn: (input: { text: string; deleteMissing: boolean }) => {
@@ -109,6 +111,7 @@ export function SchemaImport() {
   const sections = plan && catalog.data ? importSections(plan, catalog.data) : [];
   const danger = sections.some((section) => section.danger);
   const lost = apply.error instanceof Undecided || (apply.error instanceof ApiError && apply.error.code === "network_error");
+  const start = () => plan && apply.mutate({ identity: newIdentity(), document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum });
 
   let body;
   if (pending && (apply.isPending || lost)) {
@@ -188,12 +191,24 @@ export function SchemaImport() {
             variant={danger ? "danger" : "primary"}
             loading={apply.isPending}
             disabled={!plan || stale || sections.length === 0 || pending !== null}
-            onClick={() => plan && apply.mutate({ identity: newIdentity(), document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum })}
+            onClick={() => (danger ? setConfirming(true) : start())}
           >
             {t("schema.apply")}
           </Button>
         </footer>
       </section>
+      {/* Data loss is confirmed with a typed word; a resumed apply after reload was confirmed before. */}
+      <ConfirmDialog open={confirming && danger} danger title={t("devtools.import.confirmTitle")} message={t("devtools.import.confirmText")} confirmLabel={t("schema.apply")}
+        typed={{ phrase: "delete", label: t("devtools.import.typeDelete") }} onConfirm={() => { setConfirming(false); start(); }} onCancel={() => setConfirming(false)}>
+        <ul className="dt-problems">
+          {sections.filter((section) => section.danger).map((section) => (
+            <li key={section.name}>
+              <span className="mono">{section.name}</span>
+              <span>{section.items.filter((item) => item.danger).map((item) => item.name).join(", ")}</span>
+            </li>
+          ))}
+        </ul>
+      </ConfirmDialog>
     </div>
   );
 }

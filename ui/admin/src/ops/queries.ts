@@ -7,7 +7,7 @@ import { localToRfc3339 } from "./format";
 export const logsKey = ["logs"] as const;
 
 /** Pages of 50 kept in memory (and in the DOM); older pages push the newest ones out. */
-const logWindowPages = 10;
+export const logWindowPages = 10;
 
 export const logsQuery = (filter: Omit<RequestLogFilter, "before">) =>
   infiniteQueryOptions({

@@ -106,6 +106,8 @@ export const storageKo: Record<keyof typeof storageEn, string> = {
   "storage.migration.secretHint": "비워 두면 현재 시크릿을 씁니다.",
   "storage.migration.none": "실행한 이전이 없습니다.",
   "storage.migration.latest": "최근 이전",
+  "storage.migration.starting": "시작하는 중",
+  "storage.migration.startingText": "서버가 이 이전을 만들기를 기다리는 중입니다. 그동안 양식은 잠겨 있습니다.",
   "storage.migration.progress": "{copied}/{total}",
   "storage.migration.started": "시작",
   "storage.migration.updated": "갱신",

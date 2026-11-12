@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useLeaveSession } from "../app/signout";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiRefreshLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { updateIpAllowlist, updateProfile, type Administrator } from "../api/session";
 import { resetAdministratorPassword } from "../api/system";
@@ -15,8 +14,8 @@ import { FormSection } from "../components/FormSection";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { PasswordForm } from "./AdministratorsView";
-import { allowlistAdmits, isMaskedPrefix, lines } from "./net";
-import { allowlistQuery, callerAddressQuery, profileQuery } from "./queries";
+import { allowlistCovers, isAddrOrPrefix, isMaskedPrefix, lines } from "./net";
+import { allowlistQuery, profileQuery } from "./queries";
 import "../styles/system.css";
 
 /** The signed-in administrator: email, password and the network allowlist. */
@@ -98,83 +97,59 @@ function AllowlistSection({ profile }: { profile: Administrator }) {
   );
 }
 
-const hostPrefix = (address: string) => `${address}/${address.includes(":") ? 128 : 32}`;
-
 function AllowlistForm({ prefixes, profile }: { prefixes: string[]; profile: Administrator }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const caller = useQuery(callerAddressQuery(profile.id));
   const [text, setText] = useState(prefixes.join("\n"));
   const [confirming, setConfirming] = useState(false);
+  // No endpoint reports the address the server sees, so the administrator states it; it is only compared here.
+  const [own, setOwn] = useState("");
   const entries = lines(text);
   const bad = entries.find((entry) => !isMaskedPrefix(entry));
-  const address = caller.data ?? null;
-  // The server does not stop a self-lockout, so a known address that the list leaves out blocks the save here.
-  const locksOut = address !== null && entries.length > 0 && !allowlistAdmits(entries, address);
-  const invalid = bad !== undefined ? t("system.invalid.cidr", { value: bad }) : entries.length > 64 ? t("system.invalid.tooMany", { max: 64 }) : locksOut ? t("system.profile.excludesSelf", { address }) : undefined;
+  const invalid = bad !== undefined ? t("system.invalid.cidr", { value: bad }) : entries.length > 64 ? t("system.invalid.tooMany", { max: 64 }) : undefined;
   const dirty = entries.join("\n") !== prefixes.join("\n");
+  const covered = allowlistCovers(entries, own.trim());
+  const ownError = !own.trim() || covered ? undefined : isAddrOrPrefix(own.trim()) ? t("system.profile.excludesSelf", { address: own.trim() }) : t("system.invalid.ip", { value: own.trim() });
+  const close = () => {
+    setConfirming(false);
+    setOwn("");
+  };
   const save = useMutation({
     mutationFn: () => updateIpAllowlist(entries),
     onSuccess: (value) => {
-      setConfirming(false);
+      close();
       queryClient.setQueryData(allowlistQuery.queryKey, value);
       toast(t("system.profile.allowlistSaved"));
       // A list that excludes this browser ends the session; the session check redirects to sign-in.
       void queryClient.invalidateQueries({ queryKey: sessionQuery.queryKey });
     },
-    onError: () => setConfirming(false),
+    onError: close,
   });
   const serverError = !save.isError ? undefined : save.error instanceof ApiError && save.error.code === "invalid_profile" ? t("system.profile.allowlistInvalid") : errorText(t, save.error);
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (invalid) return;
-    // Clearing the list cannot lock anyone out; anything else is confirmed.
+    // Clearing the list cannot lock anyone out; anything else is confirmed against the stated address.
     if (entries.length === 0) save.mutate();
     else setConfirming(true);
   };
-  const confirmBody = (
-    <>
-      <p>{t("system.profile.allowlistConfirmText")}</p>
-      <pre className="sys-code">{entries.join("\n")}</pre>
-      <p className="txt-hint">{t("system.profile.recovery")}</p>
-      <pre className="sys-code">{`pgbase admin ip deny --email ${profile.email} --cidr <CIDR>`}</pre>
-    </>
-  );
   return (
     <form className="form sys-narrow" noValidate onSubmit={onSubmit}>
       <p className="warning-note" role="note">{t("system.profile.lockout")}</p>
-      <div className="sys-address">
-        <span className="txt-hint">{t("system.profile.currentAddress")}</span>
-        {caller.isPending ? (
-          <span className="txt-hint">…</span>
-        ) : address ? (
-          <>
-            <span className="mono">{address}</span>
-            {!allowlistAdmits(entries, address) && (
-              <Button size="sm" variant="secondary" onClick={() => setText([...entries, hostPrefix(address)].join("\n"))}>{t("system.profile.addAddress", { prefix: hostPrefix(address) })}</Button>
-            )}
-          </>
-        ) : (
-          <span className="txt-hint">{caller.isError ? errorText(t, caller.error) : t("system.profile.addressUnknown")}</span>
-        )}
-        <Button size="sm" variant="transparent" icon={RiRefreshLine} loading={caller.isFetching && !caller.isPending} onClick={() => void caller.refetch()}>{t("system.profile.detectAgain")}</Button>
-      </div>
       <Field kind="textarea" label={t("system.profile.prefixes")} mono rows={4} spellCheck={false} placeholder={"203.0.113.0/24\n127.0.0.1/32"} value={text}
         error={invalid ?? serverError} hint={t("system.profile.prefixesHint")} onChange={(event) => setText(event.target.value)} />
       <div className="sys-row-end">
         <Button type="submit" disabled={!dirty || Boolean(invalid)} loading={save.isPending}>{t("records.save")}</Button>
       </div>
-      {address ? (
-        <ConfirmDialog open={confirming} title={t("system.profile.allowlistConfirm")} confirmLabel={t("records.save")} danger busy={save.isPending} onConfirm={() => save.mutate()} onCancel={() => setConfirming(false)}>
-          {confirmBody}
-        </ConfirmDialog>
-      ) : (
-        // Unknown address: nothing can be checked, so the administrator types their email to go ahead.
-        <ConfirmDialog open={confirming} title={t("system.profile.allowlistConfirm")} message={t("system.profile.uncheckedText")} danger
-          typed={{ phrase: profile.email, label: t("system.profile.typeEmail", { email: profile.email }) }} confirmLabel={t("records.save")} busy={save.isPending} onConfirm={() => save.mutate()} onCancel={() => setConfirming(false)}>
-          {confirmBody}
-        </ConfirmDialog>
-      )}
+      <ConfirmDialog open={confirming} title={t("system.profile.allowlistConfirm")} confirmLabel={t("records.save")} danger busy={save.isPending} confirmDisabled={!covered}
+        onConfirm={() => save.mutate()} onCancel={close}>
+        <p>{t("system.profile.allowlistConfirmText")}</p>
+        <pre className="sys-code">{entries.join("\n")}</pre>
+        <Field label={t("system.profile.ownAddress")} mono autoComplete="off" spellCheck={false} placeholder="203.0.113.9" value={own} error={ownError} hint={t("system.profile.ownAddressHint")}
+          onChange={(event) => setOwn(event.target.value)} />
+        <p className="txt-hint">{t("system.profile.recovery")}</p>
+        <pre className="sys-code">{`pgbase admin ip deny --email ${profile.email} --cidr <CIDR>`}</pre>
+      </ConfirmDialog>
     </form>
   );
 }

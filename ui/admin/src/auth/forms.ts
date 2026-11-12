@@ -15,7 +15,7 @@ import type { ManagedUser } from "../api/users";
 // invalid_request, so field-level messages have to come from here.
 
 /** Error codes; the UI maps each to an `authv.*` message. */
-type Problem = "required" | "range" | "pattern" | "url" | "placeholder" | "braces" | "json" | "email" | "both" | "short" | "name" | "taken";
+type Problem = "required" | "range" | "pattern" | "url" | "placeholder" | "braces" | "json" | "email" | "both" | "short" | "name" | "taken" | "rowRejected";
 export type Problems = Record<string, Problem>;
 
 const int = (text: string) => (/^\d+$/.test(text.trim()) ? Number(text) : NaN);

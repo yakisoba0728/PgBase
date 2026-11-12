@@ -104,6 +104,8 @@ export const storageEn = {
   "storage.migration.secretHint": "Leave empty to reuse the current secret.",
   "storage.migration.none": "No migration has run.",
   "storage.migration.latest": "Latest migration",
+  "storage.migration.starting": "Starting",
+  "storage.migration.startingText": "Waiting for the server to create this migration. The form stays locked meanwhile.",
   "storage.migration.progress": "{copied} of {total}",
   "storage.migration.started": "Started",
   "storage.migration.updated": "Updated",

@@ -185,12 +185,3 @@
     grid-template-columns: 1fr 1fr;
   }
 }
-
-/* The caller's address above the allowlist, with quick actions. */
-.sys-address {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px var(--space-xs);
-  font-size: var(--font-size-sm);
-}

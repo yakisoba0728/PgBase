@@ -1,6 +1,6 @@
 import type { FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { getAuthAdministration, setAuthPolicy, updateAuthCollection, type AuthAdministration, type AuthCollection } from "../api/authCollections";
+import { getAuthAdministration, listAuthCollections, setAuthPolicy, updateAuthCollection, type AuthAdministration, type AuthCollection } from "../api/authCollections";
 import { Checkbox, Field } from "../components/Field";
 import { FormSection } from "../components/FormSection";
 import { toast } from "../components/Toast";
@@ -24,8 +24,12 @@ export function PolicyTab({ collection, administration }: { collection: AuthColl
     mutationFn: async (force: boolean) => {
       await assertUnchanged(force, async () => (await getAuthAdministration(collection.id)).policy, administration.policy);
       if (draft.registrationEnabled !== collection.registrationEnabled) {
-        // PATCH needs the field list; resending the collection's own fields leaves the schema as is.
-        const fields = collection.fields.filter((field) => !field.system);
+        // PATCH replaces the field list and has no registration-only form, so the list is read again right
+        // before the write: a copy from page load would drop fields added since (rules are kept when omitted).
+        // shortcut: a change landing between this read and the PATCH is still lost; a server-side revision would close it.
+        const stored = (await listAuthCollections()).find((value) => value.id === collection.id);
+        if (!stored) throw new StaleError();
+        const fields = stored.fields.filter((field) => !field.system);
         await updateAuthCollection(collection.id, { registrationEnabled: draft.registrationEnabled, fields });
       }
       return setAuthPolicy(collection.id, policyInput(draft));

@@ -13,6 +13,7 @@ export const authKo: Record<keyof typeof authEn, string> = {
   "auth.staleOverwrite": "그래도 내 것으로 저장",
 
   "authv.required": "필수 항목입니다.",
+  "authv.rowRejected": "서버가 이 행을 거부했습니다. 아래 행은 보내지 않았습니다.",
   "authv.range": "허용 범위를 벗어났습니다.",
   "authv.pattern": "올바른 패턴이 아닙니다.",
   "authv.url": "https 주소여야 합니다(허용 시 루프백 http 가능).",
@@ -121,6 +122,7 @@ export const authKo: Record<keyof typeof authEn, string> = {
   "auth.tokens.newKey": "새 키",
   "auth.tokens.newVersion": "새 버전",
   "auth.tokens.default": "기본값",
+  "auth.tokens.partial": "실패 전에 저장된 행: {purposes}.",
   "auth.tokens.hint": "유효 시간은 60–86400초입니다. 키를 교체하려면 새 키(32바이트 이상)와 새 버전을 함께 입력하세요. 이전 키로 서명한 토큰은 더 이상 쓸 수 없습니다.",
 
   "auth.mail.views": "메일",

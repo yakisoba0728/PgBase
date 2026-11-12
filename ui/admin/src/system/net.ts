@@ -71,18 +71,21 @@ function unmap(bytes: number[]): number[] {
   return mapped ? bytes.slice(12) : bytes;
 }
 
-/** Whether any prefix admits the address, as the server checks the allowlist (prefix.Contains(ip.Unmap())). */
-export function allowlistAdmits(prefixes: string[], address: string): boolean {
-  const parsed = parseAddr(address);
-  if (!parsed) return false;
-  const ip = unmap(parsed);
+/**
+ * Whether the list admits every address of `value`: a bare address (unmapped, as the server checks
+ * prefix.Contains(ip.Unmap())) or a CIDR that one list entry fully contains. False when `value` does not parse.
+ */
+export function allowlistCovers(prefixes: string[], value: string): boolean {
+  const address = parseAddr(value);
+  const own = address ? { bytes: unmap(address), bits: unmap(address).length * 8 } : parsePrefix(value);
+  if (!own) return false;
   return prefixes.some((text) => {
     const prefix = parsePrefix(text);
-    if (!prefix || prefix.bytes.length !== ip.length) return false;
+    if (!prefix || prefix.bytes.length !== own.bytes.length || prefix.bits > own.bits) return false;
     return prefix.bytes.every((byte, index) => {
       const keep = Math.max(0, Math.min(8, prefix.bits - index * 8));
       const mask = (0xff << (8 - keep)) & 0xff;
-      return (byte & mask) === (ip[index] & mask);
+      return (byte & mask) === (own.bytes[index] & mask);
     });
   });
 }

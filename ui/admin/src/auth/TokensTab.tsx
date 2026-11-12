@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { putTokenPolicy, type AuthCollection, type TokenPolicy, type TokenPolicyPurpose } from "../api/authCollections";
 import { toast } from "../components/Toast";
@@ -15,23 +15,40 @@ const purposes: TokenPolicyPurpose[] = ["session", "verify", "password_reset", "
 export function TokensTab({ collection, policies }: { collection: AuthCollection; policies: TokenPolicy[] }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const byPurpose = new Map(policies.map((policy) => [policy.purpose, policy]));
-  const initial = Object.fromEntries(purposes.map((purpose) => [purpose, { ttlSeconds: byPurpose.has(purpose) ? String(byPurpose.get(purpose)!.ttlSeconds) : "", key: "", keyVersion: "" }])) as Record<TokenPolicyPurpose, TokenDraft>;
+  // Rows stored by a save that then failed on a later row: the form stays mounted, so these replace the loaded values.
+  const [saved, setSaved] = useState<TokenPolicy[]>([]);
+  const byPurpose = new Map([...policies, ...saved].map((policy) => [policy.purpose, policy]));
+  const rowFrom = (policy: TokenPolicy | undefined): TokenDraft => ({ ttlSeconds: policy ? String(policy.ttlSeconds) : "", key: "", keyVersion: "" });
+  const initial = Object.fromEntries(purposes.map((purpose) => [purpose, rowFrom(byPurpose.get(purpose))])) as Record<TokenPolicyPurpose, TokenDraft>;
   const form = useDraft(initial);
   const { draft, problems } = form;
   const changed = purposes.filter((purpose) => JSON.stringify(draft[purpose]) !== JSON.stringify(initial[purpose]));
 
   const save = useMutation({
     mutationFn: async () => {
+      const stored: TokenPolicyPurpose[] = [];
       for (const purpose of changed) {
         const row = draft[purpose];
-        await putTokenPolicy(collection.id, purpose, { ttlSeconds: Number(row.ttlSeconds), ...(row.key ? { key: row.key, keyVersion: row.keyVersion } : {}) });
+        try {
+          const policy = await putTokenPolicy(collection.id, purpose, { ttlSeconds: Number(row.ttlSeconds), ...(row.key ? { key: row.key, keyVersion: row.keyVersion } : {}) });
+          // A stored rotation leaves the draft, so a retry never sends it twice.
+          setSaved((previous) => [...previous.filter((value) => value.purpose !== purpose), policy]);
+          form.patch({ [purpose]: rowFrom(policy) } as Partial<typeof initial>);
+          stored.push(purpose);
+        } catch (failure) {
+          // The failed row and the unsent ones keep what was typed.
+          form.setProblems({ [`${purpose}.ttlSeconds`]: "rowRejected" });
+          if (stored.length > 0) toast(t("auth.tokens.partial", { purposes: stored.join(", ") }));
+          throw failure;
+        }
       }
     },
-    onSuccess: () => toast(t("auth.savedToast")),
+    onSuccess: () => {
+      toast(t("auth.savedToast"));
+      // Reloads (and remounts) only after every row saved; a failure must not drop the draft.
+      void queryClient.invalidateQueries({ queryKey: tokenPoliciesQuery(collection.id).queryKey });
+    },
     onError: (failure) => reportFailure(t, failure),
-    // Some rows may have saved before a failure, so the list is always reloaded.
-    onSettled: () => queryClient.invalidateQueries({ queryKey: tokenPoliciesQuery(collection.id).queryKey }),
   });
 
   const onSubmit = (event: FormEvent) => {

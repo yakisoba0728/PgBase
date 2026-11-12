@@ -3,11 +3,11 @@ import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-q
 import { keyLabel } from "../app/keys";
 import { RiPlayLine, RiTerminalBoxLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
-import { submitSql, type SqlExecutionPage, type SqlMode } from "../api/sql";
+import { submitSql, type SqlExecutionPage, type SqlMode, type SqlSubmitInput } from "../api/sql";
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, ErrorState, Loader } from "../components/Feedback";
+import { EmptyState, ErrorState, Loader, Notice } from "../components/Feedback";
 import { CodeArea } from "../components/CodeArea";
 import { Checkbox } from "../components/Field";
 import { Tabs } from "../components/Tabs";
@@ -44,6 +44,12 @@ export function SqlConsole() {
   return <Workbench settings={pages[0]} executions={pages.flatMap((page) => page.executions)} more={history.hasNextPage ? () => history.fetchNextPage() : undefined} loadingMore={history.isFetchingNextPage} />;
 }
 
+interface SqlAttempt {
+  text: string;
+  identity: ReturnType<typeof newIdentity>;
+  input: SqlSubmitInput;
+}
+
 interface WorkbenchProps {
   settings: SqlExecutionPage;
   executions: SqlExecutionPage["executions"];
@@ -66,20 +72,33 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
   const statements = recallStatements(scope);
   const writing = settings.writeEnabled && mode === "write";
 
+  // A write whose response was lost: resending it unchanged (same execution id, idempotency key and body)
+  // makes the server replay the stored outcome instead of running it again. Kept for this page view only.
+  const [lostWrite, setLostWrite] = useState<SqlAttempt | null>(null);
+  const newAttempt = (): SqlAttempt => {
+    const text = statementText(sql);
+    return { text, identity: newIdentity(), input: { mode: writing ? "write" : "read", dryRun: writing && dryRun ? true : undefined, statements: [{ sql: text }] } };
+  };
+
   const submit = useMutation({
-    mutationFn: async () => {
-      const identity = newIdentity();
-      const text = statementText(sql);
-      rememberStatement(scope, identity.operationId, text);
+    mutationFn: async (attempt: SqlAttempt) => {
+      const { identity, input } = attempt;
+      rememberStatement(scope, identity.operationId, attempt.text);
       try {
-        return await submitSql({ mode: writing ? "write" : "read", dryRun: writing && dryRun ? true : undefined, statements: [{ sql: text }] }, { executionId: identity.operationId, idempotencyKey: writing ? identity.idempotencyKey : undefined });
+        return await submitSql(input, { executionId: identity.operationId, idempotencyKey: input.mode === "write" ? identity.idempotencyKey : undefined });
       } catch (error) {
-        // The request may have landed; its id is ours, so the result pane can still look it up.
-        if (error instanceof ApiError && error.code === "network_error") update({ run: identity.operationId });
+        if (error instanceof ApiError && error.code === "network_error") {
+          // The request may have landed; its id is ours, so the result pane can still look it up.
+          update({ run: identity.operationId });
+          if (input.mode === "write") setLostWrite(attempt);
+        } else {
+          setLostWrite(null);
+        }
         throw error;
       }
     },
     onSuccess: (execution) => {
+      setLostWrite(null);
       queryClient.setQueryData(sqlExecutionQuery(execution.id).queryKey, execution);
       // The result pane refreshes the history once this run settles.
       update({ run: execution.id });
@@ -88,10 +107,12 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
     onSettled: () => setConfirm(false),
   });
 
+  // Another write waits until the lost one is resent or set aside, so it cannot run twice by accident.
+  const blocked = writing && lostWrite !== null;
   const start = () => {
-    if (!statementText(sql) || submit.isPending) return;
+    if (!statementText(sql) || submit.isPending || blocked) return;
     if (writing && !dryRun) setConfirm(true);
-    else submit.mutate();
+    else submit.mutate(newAttempt());
   };
 
   return (
@@ -124,12 +145,21 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
             <span className="dt-muted">{settings.writeEnabled ? (writing ? t("devtools.sql.writeHint") : t("devtools.sql.readHint")) : t("devtools.sql.readOnly")}</span>
             <div className="dt-actions">
               <kbd>{keyLabel("mod").join("")} ↵</kbd>
-              <Button size="sm" variant={writing ? "danger" : "primary"} icon={RiPlayLine} loading={submit.isPending} disabled={!statementText(sql)} onClick={start}>
+              <Button size="sm" variant={writing ? "danger" : "primary"} icon={RiPlayLine} loading={submit.isPending} disabled={!statementText(sql) || blocked} onClick={start}>
                 {writing ? t("devtools.sql.runWrite") : t("devtools.sql.run")}
               </Button>
             </div>
           </div>
         </div>
+        {lostWrite && (
+          <Notice tone="danger" title={t("devtools.sql.lostTitle")} actions={<>
+            <Button size="sm" variant="secondary" loading={submit.isPending} onClick={() => submit.mutate(lostWrite)}>{t("devtools.sql.resend")}</Button>
+            <Button size="sm" variant="transparent" disabled={submit.isPending} onClick={() => setLostWrite(null)}>{t("devtools.sql.forget")}</Button>
+          </>}>
+            <p>{t("devtools.sql.lostText")}</p>
+            <pre className="dt-caret mono">{lostWrite.text}</pre>
+          </Notice>
+        )}
         {run ? <SqlResult key={run} id={run} sql={statements[run]} /> : <EmptyState icon={RiTerminalBoxLine}>{t("devtools.sql.empty")}</EmptyState>}
       </section>
       <aside className="dt-history" aria-label={t("devtools.sql.history")}>
@@ -171,7 +201,7 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
         confirmLabel={t("devtools.sql.runWrite")}
         danger
         busy={submit.isPending}
-        onConfirm={() => submit.mutate()}
+        onConfirm={() => submit.mutate(newAttempt())}
         onCancel={() => setConfirm(false)}
       >
         <pre className="dt-caret mono">{statementText(sql)}</pre>

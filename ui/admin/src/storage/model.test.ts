@@ -2,6 +2,19 @@ import { describe, expect, it } from "vitest";
 import { ApiError } from "../api/http";
 import type { BackupStorageSettings, FileStorageSettings } from "../api/storage";
 import { backupUpdate, describePhase, draftFrom, fileUpdate, isDirty, storageErrorKey, validateDraft } from "./model";
+import { awaitingStart } from "./queries";
+
+describe("awaitingStart", () => {
+  const old = { id: "old", status: "committed" as const, copiedObjects: 1, totalObjects: 1, createdAt: "", updatedAt: "" };
+  it("never shows the fallback migration as a start this browser sent", () => {
+    expect(awaitingStart("new", old, true)).toBe(true);
+    expect(awaitingStart("new", null, true)).toBe(true);
+    expect(awaitingStart("new", { ...old, id: "new", status: "copying" }, true)).toBe(false);
+    // An id from a link (not started here) or a start the feed gave up on reads as before.
+    expect(awaitingStart("new", old, false)).toBe(false);
+    expect(awaitingStart(null, old, true)).toBe(false);
+  });
+});
 
 const files: FileStorageSettings = { driver: "s3", bucket: "b", region: "us-east-1", endpoint: "", accessKey: "AK", usePathStyle: false, secretConfigured: true, revision: 3 };
 const backups: BackupStorageSettings = { ...files, driver: "local", bucket: "", region: "", accessKey: "", secretConfigured: false, prefix: "", retention: 7, revision: 2 };
