@@ -14,7 +14,6 @@ import { expressionChanged, modes, previewable, typedRule, type Action } from ".
 import { useRulesEditor, type RulesEditor } from "./useRulesEditor";
 import "../styles/rules.css";
 
-const systemFields = ["id", "created_at", "updated_at"];
 const variables = [
   "@request.auth.id",
   "@request.auth.verified",
@@ -113,7 +112,8 @@ function AuthRules({ name }: { name: string }) {
 
 function Reference({ editor }: { editor: RulesEditor }) {
   const t = useT();
-  const fields = [...systemFields, ...editor.collection.fields.filter((field) => field.type !== "file").map((field) => field.name)];
+  // Rules resolve catalog fields only: id and the timestamps are not addressable.
+  const fields = editor.collection.fields.filter((field) => field.type !== "file" && !field.hidden).map((field) => field.name);
   const group = (title: string, items: string[]) => (
     <div className="rules-ref-group">
       <h3>{title}</h3>

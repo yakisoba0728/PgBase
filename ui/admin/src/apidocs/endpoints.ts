@@ -5,7 +5,7 @@ import type { Action } from "../rules/model";
 // docs/public-api.md, docs/realtime.md and docs/user-access.md.
 
 export type Audience = "guest" | "user";
-export type Method = "GET" | "POST" | "PATCH" | "DELETE";
+type Method = "GET" | "POST" | "PATCH" | "DELETE";
 
 export interface Endpoint {
   id: string;
@@ -28,7 +28,7 @@ const exampleTime = "2026-01-01T09:00:00Z";
 export const recordIdExample = (collection: Collection) => (collection.recordId?.kind === "text" ? "abc123def456ghi" : exampleId);
 
 /** A plausible value for a field, honouring choices, formats and bounds. */
-export function exampleValue(field: CollectionField): unknown {
+function exampleValue(field: CollectionField): unknown {
   const options = field.options ?? {};
   switch (field.type) {
     case "text":
@@ -111,7 +111,6 @@ export function buildEndpoints(collection: Collection, audience: Audience, realm
       id: "batch",
       method: "POST",
       path: `${prefix}/collections/batch`,
-      rule: "create",
       body: { operations: [{ operation: "create", collection: collection.name, input: body, idempotencyKey: "batch-create-000001" }] },
       status: 200,
       response: { results: [{ eventId: exampleId, record, etag: '"etag"', version: 1 }] },

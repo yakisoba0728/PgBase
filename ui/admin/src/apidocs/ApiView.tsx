@@ -120,6 +120,7 @@ export function ApiView({ collection }: { collection: Collection }) {
     }, { replace: true });
 
   const ruleText = (endpoint: Endpoint) => {
+    if (endpoint.id === "batch") return t("api.rule.perOperation");
     if (!endpoint.rule) return t(endpoint.userOnly ? "api.rule.session" : "api.rule.open");
     const rule = rules.data?.rules[endpoint.rule];
     if (!rule) return "…";

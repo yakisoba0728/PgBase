@@ -38,8 +38,8 @@ function typescript(endpoint: Endpoint, collection: Collection, origin: string):
     list: `${records}const page = await records.list(${json({ ...endpoint.query, limit: 20 })});\n// page.items, page.nextCursor`,
     view: `${records}const record = await records.get(${id});`,
     create: `${records}const record = await records.create(${body}, "create-0000000001");`,
-    update: `${records}const { etag } = await records.getWithETag(${id});\nconst record = await records.update(${id}, ${body}, etag);`,
-    delete: `${records}const { etag } = await records.getWithETag(${id});\nawait records.remove(${id}, etag);`,
+    update: `${records}const { etag } = await records.getWithETag(${id});\nconst record = await records.update(${id}, ${body}, etag!);`,
+    delete: `${records}const { etag } = await records.getWithETag(${id});\nawait records.remove(${id}, etag!);`,
     batch: `const { results } = await client.batch([\n  { operation: "create", collection: ${name}, input: ${body}, idempotencyKey: "batch-create-000001" },\n]);`,
     realtime: `const unsubscribe = await client.realtime.subscribe(${JSON.stringify(`${collection.name}/*`)}, (event) => {\n  console.log(event);\n});`,
     authMethods: `${realm}const methods = await realm.methods();`,
@@ -79,8 +79,8 @@ function dart(endpoint: Endpoint, collection: Collection, origin: string): strin
     list: `${records}final page = await records.list(Query(${query.join(", ")}));\n// page.items, page.nextCursor`,
     view: `${records}final record = await records.get(${id});`,
     create: `${records}final record = await records.create(${body}, 'create-0000000001');`,
-    update: `${records}final current = await records.getWithEtag(${id});\nfinal record = await records.update(${id}, ${body}, current.etag);`,
-    delete: `${records}final current = await records.getWithEtag(${id});\nawait records.remove(${id}, current.etag);`,
+    update: `${records}final current = await records.getWithEtag(${id});\nfinal record = await records.update(${id}, ${body}, current.etag!);`,
+    delete: `${records}final current = await records.getWithEtag(${id});\nawait records.remove(${id}, current.etag!);`,
     batch: `final result = await client.batch([\n  BatchOperation.create(collection: ${name}, input: ${body}, idempotencyKey: 'batch-create-000001'),\n]);`,
     realtime: `final unsubscribe = await client.realtime.subscribe(${dartString(`${collection.name}/*`)}, (RealtimeEvent event) {\n  print(event.record);\n});`,
     authMethods: `${realm}final methods = await realm.methods();`,
@@ -92,7 +92,7 @@ function dart(endpoint: Endpoint, collection: Collection, origin: string): strin
   };
   const field = endpoint.id.startsWith("files-") ? endpoint.id.slice("files-".length) : "";
   const snippet = field
-    ? `final file = File('photo.jpg');\nfinal info = await client.files(${name}, ${id}).upload(${dartString(field)}, UploadSource(open: file.openRead, length: await file.length(), filename: 'photo.jpg'));`
+    ? `// import 'dart:io';\nfinal file = File('photo.jpg');\nfinal info = await client.files(${name}, ${id}).upload(${dartString(field)}, UploadSource(open: file.openRead, length: await file.length(), filename: 'photo.jpg'));`
     : code[endpoint.id];
   return `${head}\n${snippet}`;
 }

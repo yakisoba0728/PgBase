@@ -4,11 +4,11 @@ import type { AccessRule, CollectionRules, CollectionType, PocketBaseRules } fro
 // Owner and other typed-only rules have no expression form, so a draft remembers the
 // loaded rule and the save path is chosen from what changed.
 
-export const actions = ["list", "view", "create", "update", "delete"] as const;
+const actions = ["list", "view", "create", "update", "delete"] as const;
 export type Action = (typeof actions)[number];
 
 export const modes = ["admins", "everyone", "signedIn", "owner", "expression"] as const;
-export type Mode = (typeof modes)[number] | "custom";
+type Mode = (typeof modes)[number] | "custom";
 
 export interface RuleDraft {
   mode: Mode;
@@ -80,7 +80,7 @@ function compatRule(draft: RuleDraft): string | null | undefined {
   }
 }
 
-export type SavePlan =
+type SavePlan =
   | { kind: "typed"; rules: CollectionRules }
   | { kind: "compat"; rules: PocketBaseRules }
   /** compat first (keep slots as admins only), then the kept typed rules are put back. */
