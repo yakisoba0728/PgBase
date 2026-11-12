@@ -76,7 +76,7 @@ Administrator request-log routes read the durable `request_logs` table (newest f
 | GET `/api/admin/logs/{id}` | One entry |
 | DELETE `/api/admin/logs?to` | With `to` (RFC 3339): deletes entries older than `to` and returns `{deleted}`. Without it: deletes everything, restarts ids and returns 204 |
 
-`clientIP` is recorded only when the `logs.includeIP` setting is on, and `authKind`/`authID` only when `logs.includeAuth` is on; the two settings are independent and both default to off. The address follows the trusted-proxy policy. Auth identity covers administrator sessions and user bearer sessions; service-token and anonymous requests carry none. Filters other than the time window and the id cursor are evaluated while walking the primary key backwards, so a query that matches nothing reads the whole retained table (bounded by `Operations.RequestLogMaximumRows`, 100,000 by default).
+`clientIP` is recorded only when the `logs.includeIP` setting is on, and `authKind`/`authID` only when `logs.includeAuth` is on; the two settings are independent and both default to off. The address follows the trusted-proxy policy. Auth identity covers administrator sessions and user bearer routes; service-token, anonymous and realtime subscription requests (which authenticate inside the handler) carry none. Recording service-token identity would need a migration, because the `auth_kind` column only accepts `admin` and `user`. Filters other than the time window and the id cursor are evaluated while walking the primary key backwards, so a query that matches nothing reads the whole retained table (bounded by `Operations.RequestLogMaximumRows`, 100,000 by default).
 
 ## Records and permissions
 
