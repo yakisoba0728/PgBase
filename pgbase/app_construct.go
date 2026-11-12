@@ -349,7 +349,13 @@ func newWithCatalogPreflight(
 	if jobService != nil {
 		dependencies.Jobs = jobService
 	}
-	if err := installManagedBackupSchedule(ctx, jobService, backupManager, runtimeSettings, func(ctx context.Context, err error) {
+	// RunManaged owns its manager (backupManager is nil then) but the schedule
+	// and retention settings still belong to this application.
+	scheduledBackups := backupManager
+	if scheduledBackups == nil {
+		scheduledBackups = normalized.Backups.manager
+	}
+	if err := installManagedBackupSchedule(ctx, jobService, scheduledBackups, runtimeSettings, func(ctx context.Context, err error) {
 		normalized.Logger.ErrorContext(ctx, "reconfigure managed backup schedule", "error", err)
 	}); err != nil {
 		return nil, fmt.Errorf("install managed backup schedule: %w", err)

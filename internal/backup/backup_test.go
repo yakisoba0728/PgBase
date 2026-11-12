@@ -133,3 +133,22 @@ func TestCleanRelativeRejectsTraversalAndNonCanonicalPaths(t *testing.T) {
 		t.Fatalf("valid path = %q, %v", value, err)
 	}
 }
+
+// A receipt that disappears between the directory scan and the read (pruning
+// after a finished backup) must not fail the whole listing.
+func TestLocalRepositoryListSkipsReceiptRemovedDuringScan(t *testing.T) {
+	directory := t.TempDir()
+	repository := NewLocalRepository(directory)
+	kept := "6f1c2a8e-0d4b-4c7e-9a51-3b2f7e8d9c10"
+	if err := repository.Publish(context.Background(), Entry{ID: kept}, strings.NewReader("archive")); err != nil {
+		t.Fatal(err)
+	}
+	// A dangling receipt reads as not-exist, exactly like one removed after Glob.
+	if err := os.Symlink(filepath.Join(directory, "missing"), filepath.Join(directory, "9b0e4d2c-5a7f-4e18-8c3d-1f6a2b9e7d40.json")); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := repository.List(context.Background())
+	if err != nil || len(entries) != 1 || entries[0].ID != kept {
+		t.Fatalf("entries=%#v err=%v", entries, err)
+	}
+}
