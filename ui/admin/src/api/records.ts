@@ -1,4 +1,4 @@
-import { request, requestBlob, requestWithHeaders } from "./http";
+import { request, requestBlob, requestWithHeaders, stringifyJson, uploadForm } from "./http";
 
 // Contracts mirror internal/api/record_handlers.go, batch_handlers.go and file_handlers.go.
 // An administrator cookie session uses /api/v1/collections/... for records (the
@@ -171,25 +171,50 @@ export async function listRecordFiles(
   return (await request<{ items: StoredFile[] }>("GET", recordFilesPath(collection, id, field), { signal })).items;
 }
 
+const sha256Hex = async (file: File) =>
+  Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer())), (byte) => byte.toString(16).padStart(2, "0")).join("");
+
 /** Uploads one attachment; the server verifies the declared size and SHA-256. */
 export async function uploadRecordFile(
   collection: string,
   id: string,
   field: string,
   file: File,
-  signal?: AbortSignal,
+  options: { onProgress?: (fraction: number) => void; signal?: AbortSignal } = {},
 ): Promise<StoredFile> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()));
   const form = new FormData();
   form.append("file", file, file.name);
-  return request("POST", recordFilesPath(collection, id, field), {
-    raw: form,
-    headers: {
-      "X-PgBase-File-Size": String(file.size),
-      "X-PgBase-File-SHA256": Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join(""),
-    },
-    signal,
+  return uploadForm(recordFilesPath(collection, id, field), form, {
+    headers: { "X-PgBase-File-Size": String(file.size), "X-PgBase-File-SHA256": await sha256Hex(file) },
+    ...options,
   });
+}
+
+/** Creates a record and its attachments in one atomic multipart batch (required file fields need this).
+ * Each file part is referenced from the body as { $file: partName }. */
+export async function createRecordWithFiles(
+  collection: string,
+  input: Record<string, unknown>,
+  files: Record<string, File[]>,
+  options: { idempotencyKey?: string; onProgress?: (fraction: number) => void } = {},
+): Promise<RecordWithETag> {
+  const form = new FormData();
+  const body: Record<string, unknown> = { ...input };
+  const parts: [string, File][] = [];
+  for (const [field, list] of Object.entries(files)) {
+    if (list.length === 0) continue;
+    const refs = list.map((file) => {
+      const name = `file_${parts.length}`;
+      parts.push([name, file]);
+      return { $file: name };
+    });
+    body[field] = refs.length === 1 ? refs[0] : refs;
+  }
+  const headers = options.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined;
+  form.append("requests", stringifyJson({ requests: [{ method: "POST", url: recordsPath(collection), body, headers }] }));
+  for (const [name, file] of parts) form.append(name, file, file.name);
+  const result = await uploadForm<{ results: { body: RecordData; etag?: string }[] }>("/api/v1/collections/batch", form, { onProgress: options.onProgress });
+  return { record: result.results[0].body, etag: result.results[0].etag ?? "" };
 }
 
 /** Short-lived token required by downloadFile, bound to one variant. */
@@ -198,7 +223,14 @@ export async function mintFileToken(fileId: string, variant: FileVariant = "orig
 }
 
 export function downloadFile(fileId: string, token: string, variant?: FileVariant, signal?: AbortSignal): Promise<Blob> {
-  return requestBlob(`/api/admin/files/${seg(fileId)}`, { query: { token, variant }, signal });
+  return requestBlob(fileURL(fileId, token, variant), { signal });
+}
+
+/** Same-origin URL of a protected file, usable as an <img> source or download link until the token expires. */
+export function fileURL(fileId: string, token: string, variant?: FileVariant): string {
+  const query = new URLSearchParams({ token });
+  if (variant && variant !== "original") query.set("variant", variant);
+  return `/api/admin/files/${seg(fileId)}?${query}`;
 }
 
 export async function deleteFile(fileId: string): Promise<void> {

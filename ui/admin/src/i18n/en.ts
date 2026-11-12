@@ -6,6 +6,7 @@ import { authEn } from "./parts/auth.en";
 import { devtoolsEn } from "./parts/devtools.en";
 
 import { systemEn } from "./parts/system.en";
+import { recordsEn } from "./parts/records.en";
 export const en = {
   "nav.main": "Main",
 
@@ -166,7 +167,7 @@ export const en = {
   "records.autodateHint": "Set by the server",
   "records.viewReadOnly": "View collections are read-only.",
   "records.conflictTitle": "Changed elsewhere",
-  "records.conflictText": "This record was saved by someone else after you opened it. Reload to get the latest version; your edits here will be discarded.",
+  "records.conflictText": "This record was saved by someone else after you opened it. Reload to get the latest version and reapply your changed fields on top, or discard your edits.",
   "records.reload": "Reload record",
   "records.discardTitle": "Discard changes?",
   "records.discardText": "The record has unsaved edits.",
@@ -372,5 +373,6 @@ export const en = {
   ...authEn,
   ...storageEn,
   ...systemEn,
+  ...recordsEn,
   ...devtoolsEn,
 };

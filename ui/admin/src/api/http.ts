@@ -126,6 +126,35 @@ export async function request<T>(
   return (await requestWithHeaders<T>(method, path, options)).data;
 }
 
+/** A form upload over XHR, the one transport that reports upload progress (0..1). Errors match `request`. */
+export function uploadForm<T>(path: string, form: FormData, options: { headers?: Record<string, string>; onProgress?: (fraction: number) => void; signal?: AbortSignal } = {}): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", path);
+    xhr.withCredentials = true;
+    for (const [key, value] of Object.entries(options.headers ?? {})) xhr.setRequestHeader(key, value);
+    if (csrfToken) xhr.setRequestHeader(csrfHeader, csrfToken);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) options.onProgress?.(event.loaded / event.total);
+    };
+    xhr.onerror = () => reject(new ApiError(0, "network_error", "Network request failed"));
+    xhr.onabort = () => reject(new DOMException("Aborted", "AbortError"));
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        void toApiError(new Response(xhr.responseText, { status: xhr.status })).then(reject);
+        return;
+      }
+      try {
+        resolve((xhr.responseText === "" ? undefined : parseJson(xhr.responseText)) as T);
+      } catch {
+        reject(new ApiError(xhr.status, "invalid_response", "Response body is not valid JSON"));
+      }
+    };
+    options.signal?.addEventListener("abort", () => xhr.abort());
+    xhr.send(form);
+  });
+}
+
 export async function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
   const response = await send("GET", path, options);
   return response.blob();

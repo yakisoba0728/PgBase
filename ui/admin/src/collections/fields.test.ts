@@ -35,7 +35,9 @@ describe("cellView", () => {
     expect(cellView(field("d", "timestamptz"), "2026-11-12T10:30:05.123456Z")).toEqual({ kind: "date", text: "2026-11-12 10:30:05Z", title: "2026-11-12T10:30:05.123456Z" });
     expect(cellView(field("s", "text", { options: { allowedValues: ["a", "b"] } }), "a")).toEqual({ kind: "chips", items: ["a"], more: 0, mono: false });
     const relation = field("r", "relation", { relation: { cardinality: "multiple" } as CollectionField["relation"] });
-    expect(cellView(relation, ["1", "2", "3", "4", "5"])).toEqual({ kind: "chips", items: ["1", "2", "3"], more: 2, mono: true });
+    expect(cellView(relation, ["1", "2"])).toEqual({ kind: "relation", ids: ["1", "2"] });
+    expect(cellView(field("e", "editor"), "<p>Hi &amp; <b>bye</b></p>")).toEqual({ kind: "text", text: "Hi & bye" });
+    expect(cellView(field("g", "geoPoint"), { lon: 1.5, lat: -2 })).toEqual({ kind: "number", text: "1.5, -2" });
     expect(cellView(field("j", "jsonb"), { a: [1, 2] })).toEqual({ kind: "json", text: '{"a":[1,2]}' });
     expect(cellView(field("f", "file"), undefined)).toEqual({ kind: "file" });
   });
@@ -99,5 +101,17 @@ describe("record form drafts", () => {
     const blank = initialDrafts(fields);
     const { input } = buildInput(fields, { ...blank, title: "New", when: "2026-11-12T10:30" }, blank, true);
     expect(input).toEqual({ title: "New", when: "2026-11-12T10:30:00Z" });
+  });
+
+  it("edits relations as id lists, geo points as exact coordinates, and keeps editor values non-null", () => {
+    const more = [field("tags", "relation", { relation: { cardinality: "multiple" } as CollectionField["relation"] }), field("at", "geoPoint"), field("body", "editor")];
+    const initial = initialDrafts(more, { id: "x", tags: ["a,b", "c"], at: { lon: 0, lat: 0 }, body: "<p>x</p>" });
+    expect(initial.tags).toEqual(["a,b", "c"]);
+    expect(initial.at).toEqual(["0", "0"]);
+    const { input, errors } = buildInput(more, { ...initial, tags: ["c"], at: ["126.97", "37.56"], body: "" }, initial, false);
+    expect(errors).toEqual({});
+    expect(stringifyJson(input)).toBe('{"tags":["c"],"at":{"lon":126.97,"lat":37.56},"body":""}');
+    expect(buildInput(more, { ...initial, at: ["200", "0"] }, initial, false).errors).toEqual({ at: "invalid_point" });
+    expect(buildInput(more, { ...initialDrafts(more), at: ["", ""] }, initialDrafts(more), true).input).toEqual({});
   });
 });
