@@ -1,7 +1,6 @@
 import type { storageEn } from "./storage.en";
 
 export const storageKo: Record<keyof typeof storageEn, string> = {
-  "storage.refresh": "새로고침",
   "storage.local": "로컬 디스크",
   "storage.s3": "S3 호환",
 

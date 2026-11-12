@@ -34,6 +34,7 @@ export const ko: Record<keyof typeof en, string> = {
   "common.copy": "복사",
   "common.done": "완료",
   "common.loadMore": "더 불러오기",
+  "common.refresh": "새로고침",
   "common.undo": "실행 취소",
 
   "collections.empty": "컬렉션이 없습니다.",
@@ -136,7 +137,6 @@ export const ko: Record<keyof typeof en, string> = {
   "records.clearFilter": "필터 지우기",
   "records.count": "레코드 {count}개",
   "records.loadedMore": "{count}개 표시, 더 있음",
-  "records.refresh": "새로고침",
   "records.new": "새 레코드",
   "records.create": "만들기",
   "records.save": "저장",

@@ -4,11 +4,11 @@ import { trackOperation } from "../app/operations";
 import { Facts } from "../components/Facts";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { openRow } from "../components/DataGrid";
-import { RiPlayLine, RiRefreshLine, RiTimerLine } from "@remixicon/react";
+import { RiPlayLine, RiTimerLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { runJob, updateJob, type ManagedJob } from "../api/jobs";
 import { errorText } from "../app/queries";
-import { Button, IconButton } from "../components/Button";
+import { Button, RefreshButton } from "../components/Button";
 import { EmptyState, ErrorState, Loader, Notice } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { SaveBar } from "../components/SaveBar";
@@ -49,9 +49,7 @@ function stateOf(t: Translate, job: ManagedJob): { label: string; tone?: string 
 }
 
 export function JobsActions() {
-  const t = useT();
-  const queryClient = useQueryClient();
-  return <IconButton label={t("ops.refresh")} icon={RiRefreshLine} onClick={() => queryClient.invalidateQueries({ queryKey: jobsQuery.queryKey })} />;
+  return <RefreshButton queryKey={jobsQuery.queryKey} />;
 }
 
 /** Scheduled jobs with their last and next run; the pane edits schedule, zone and enabled state. */

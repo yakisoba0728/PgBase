@@ -8,7 +8,7 @@ import { ApiError } from "../api/http";
 import type { Administrator } from "../api/session";
 import { createAdministrator, resetAdministratorPassword, revokeAdministratorSessions, setAdministratorActive } from "../api/system";
 import { errorText, sessionQuery } from "../app/queries";
-import { Button } from "../components/Button";
+import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { Loader, LoadMore, Notice } from "../components/Feedback";
 import { ErrorState } from "../components/Feedback";
@@ -34,7 +34,12 @@ function adminError(t: Translate, error: unknown, context: "create" | "disable" 
 export function AdministratorsActions() {
   const t = useT();
   const { update } = useSearchState();
-  return <Button icon={RiAddLine} data-new onClick={() => update({ admin: "new" })}>{t("system.admins.new")}</Button>;
+  return (
+    <>
+      <RefreshButton queryKey={administratorsQuery.queryKey} />
+      <Button size="sm" icon={RiAddLine} data-new onClick={() => update({ admin: "new" })}>{t("system.admins.new")}</Button>
+    </>
+  );
 }
 
 export function AdministratorsView() {

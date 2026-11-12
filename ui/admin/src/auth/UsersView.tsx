@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { useSearchState } from "../app/search";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiAddLine, RiErrorWarningLine, RiRefreshLine, RiSearchLine, RiUser3Line } from "@remixicon/react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { RiAddLine, RiErrorWarningLine, RiSearchLine, RiUser3Line } from "@remixicon/react";
 import type { ManagedUser } from "../api/users";
 import { errorText } from "../app/queries";
 import { useTimeFormat } from "../app/format";
-import { Button, IconButton } from "../components/Button";
+import { Button, RefreshButton } from "../components/Button";
 import { ErrorState, LoadMore } from "../components/Feedback";
 import { EmptyState, Loader } from "../components/Feedback";
 import { Field, Searchbar } from "../components/Field";
@@ -38,10 +38,9 @@ function useUsersUrl() {
 export function UsersActions() {
   const t = useT();
   const url = useUsersUrl();
-  const queryClient = useQueryClient();
   return (
     <>
-      <IconButton label={t("auth.users.refresh")} icon={RiRefreshLine} onClick={() => queryClient.invalidateQueries({ queryKey: ["auth", "users"] })} />
+      <RefreshButton queryKey={["auth", "users"]} />
       <Button size="sm" icon={RiAddLine} data-new onClick={url.create}>{t("auth.users.new")}</Button>
     </>
   );

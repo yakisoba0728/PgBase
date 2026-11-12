@@ -154,8 +154,6 @@ export const authEn = {
   "auth.mail.recipient": "Recipient",
   "auth.mail.sendTest": "Send test",
   "auth.mail.testSent": "Test mail sent to {recipient}.",
-
-  "auth.users.refresh": "Refresh",
   "auth.users.new": "New user",
   "auth.users.count": "{count} {count|user|users}",
   "auth.users.loadedMore": "{count} loaded",

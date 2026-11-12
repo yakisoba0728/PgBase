@@ -156,8 +156,6 @@ export const authKo: Record<keyof typeof authEn, string> = {
   "auth.mail.recipient": "받는 주소",
   "auth.mail.sendTest": "테스트 메일 보내기",
   "auth.mail.testSent": "{recipient}(으)로 테스트 메일을 보냈습니다.",
-
-  "auth.users.refresh": "새로고침",
   "auth.users.new": "새 사용자",
   "auth.users.count": "사용자 {count}명",
   "auth.users.loadedMore": "{count}명 불러옴",

@@ -1,5 +1,4 @@
 export const opsEn = {
-  "ops.refresh": "Refresh",
   "ops.clearFilters": "Clear filters",
 
   "ops.logs.stats": "Request statistics",

@@ -2,10 +2,10 @@ import { useState, type FormEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Searchbar } from "../components/Field";
 import { openRow } from "../components/DataGrid";
-import { RiDeleteBinLine, RiFileList3Line, RiRefreshLine, RiRouteLine } from "@remixicon/react";
+import { RiDeleteBinLine, RiFileList3Line, RiRouteLine } from "@remixicon/react";
 import { clearRequestLogs } from "../api/logs";
 import { errorText } from "../app/queries";
-import { Button, IconButton } from "../components/Button";
+import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState, ErrorState, Loader, LoadMore } from "../components/Feedback";
 import { SplitView } from "../components/SplitView";
@@ -43,7 +43,7 @@ export function LogsActions() {
   return (
     <>
       {/* Back to the newest page; refetching every loaded page would cost one request each. */}
-      <IconButton label={t("ops.refresh")} icon={RiRefreshLine} onClick={() => queryClient.resetQueries({ queryKey: logsKey })} />
+      <RefreshButton queryKey={logsKey} reset />
       <Button size="sm" variant="secondary" icon={RiDeleteBinLine} onClick={() => setConfirm(true)}>{t("ops.logs.clear")}</Button>
       <ConfirmDialog
         open={confirm}

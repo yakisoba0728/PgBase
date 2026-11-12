@@ -1,10 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Searchbar } from "../components/Field";
-import { RiHashtag, RiRefreshLine, RiReplyLine } from "@remixicon/react";
+import { RiHashtag, RiReplyLine } from "@remixicon/react";
 import { retryRealtimeEvent } from "../api/realtime";
 import { errorText } from "../app/queries";
-import { Button, IconButton } from "../components/Button";
+import { Button, RefreshButton } from "../components/Button";
 import { ErrorState, Loader } from "../components/Feedback";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
@@ -15,9 +15,7 @@ import { useTimeFormat } from "../app/format";
 import "../styles/ops.css";
 
 export function RealtimeActions() {
-  const t = useT();
-  const queryClient = useQueryClient();
-  return <IconButton label={t("ops.refresh")} icon={RiRefreshLine} onClick={() => queryClient.invalidateQueries({ queryKey: realtimeQuery.queryKey })} />;
+  return <RefreshButton queryKey={realtimeQuery.queryKey} />;
 }
 
 /** Outbox delivery counts (polled) and a retry for one dead event. */

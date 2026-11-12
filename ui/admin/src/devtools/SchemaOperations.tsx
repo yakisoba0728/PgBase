@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Facts } from "../components/Facts";
 import { openRow } from "../components/DataGrid";
-import { RiHistoryLine, RiRefreshLine } from "@remixicon/react";
+import { RiHistoryLine } from "@remixicon/react";
 import { stringify } from "lossless-json";
 import type { Collection } from "../api/collections";
 import type { OperationReceipt, OperationStatus } from "../api/schema";
-import { IconButton } from "../components/Button";
+import { RefreshButton } from "../components/Button";
 import { CodeBlock } from "../components/CodeBlock";
 import { EmptyState, ErrorState, Loader, LoadMore } from "../components/Feedback";
 import { SplitView, PaneHeader } from "../components/SplitView";
@@ -35,9 +35,7 @@ function Target({ id, catalog }: { id: string; catalog: Collection[] | undefined
 }
 
 export function SchemaOperationsActions() {
-  const t = useT();
-  const queryClient = useQueryClient();
-  return <IconButton label={t("ops.refresh")} icon={RiRefreshLine} onClick={() => queryClient.invalidateQueries({ queryKey: ["schema-operations"] })} />;
+  return <RefreshButton queryKey={["schema-operations"]} />;
 }
 
 /** The signed-in administrator's collection apply ledger, newest first; ?op= opens one. */

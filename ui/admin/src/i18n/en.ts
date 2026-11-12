@@ -34,6 +34,7 @@ export const en = {
   "common.copy": "Copy",
   "common.done": "Done",
   "common.loadMore": "Load more",
+  "common.refresh": "Refresh",
   "common.undo": "Undo",
 
   "collections.empty": "No collections.",
@@ -136,7 +137,6 @@ export const en = {
   "records.clearFilter": "Clear filter",
   "records.count": "{count} {count|record|records}",
   "records.loadedMore": "{count} loaded, more available",
-  "records.refresh": "Refresh",
   "records.new": "New record",
   "records.create": "Create",
   "records.save": "Save",

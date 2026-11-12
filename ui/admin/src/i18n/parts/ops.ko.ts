@@ -1,7 +1,6 @@
 import type { opsEn } from "./ops.en";
 
 export const opsKo: Record<keyof typeof opsEn, string> = {
-  "ops.refresh": "새로고침",
   "ops.clearFilters": "필터 지우기",
 
   "ops.logs.stats": "요청 통계",

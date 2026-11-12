@@ -6,20 +6,18 @@ import {
   RiArrowUpDoubleLine,
   RiDeleteBinLine,
   RiDownload2Line,
-  RiErrorWarningLine,
   RiFilterLine,
   RiInboxLine,
   RiQuestionLine,
-  RiRefreshLine,
 } from "@remixicon/react";
 import type { Collection } from "../api/collections";
 import { ApiError } from "../api/http";
 import { deleteRecord, listRecords } from "../api/records";
 import { errorText } from "../app/queries";
-import { Button, IconButton } from "../components/Button";
+import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { Dropdown, DropdownItem } from "../components/Popover";
-import { EmptyState, Loader, LoadMore } from "../components/Feedback";
+import { EmptyState, Loader, LoadMore, ErrorState } from "../components/Feedback";
 import { Popover } from "../components/Popover";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
@@ -42,11 +40,10 @@ const listKey = (collection: string) => ["records", collection, "list"];
 export function RecordsActions({ collection }: { collection: Collection }) {
   const t = useT();
   const url = useRecordsUrl();
-  const queryClient = useQueryClient();
   return (
     <>
       {/* Reset, not invalidate: refetching every loaded page of a long list would cost hundreds of requests. */}
-      <IconButton label={t("records.refresh")} icon={RiRefreshLine} onClick={() => queryClient.resetQueries({ queryKey: listKey(collection.name) })} />
+      <RefreshButton queryKey={listKey(collection.name)} reset />
       {collection.type !== "view" && (
         <Button size="sm" icon={RiAddLine} data-new onClick={url.create}>{t("records.new")}</Button>
       )}
@@ -240,9 +237,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
           problem ? (
             <EmptyState icon={RiFilterLine}>{t("records.fixFilter")}</EmptyState>
           ) : (
-            <EmptyState icon={RiErrorWarningLine} action={<Button size="sm" variant="secondary" icon={RiRefreshLine} onClick={() => records.refetch()}>{t("common.retry")}</Button>}>
-              {errorText(t, records.error)}
-            </EmptyState>
+            <ErrorState error={records.error} busy={records.isFetching} onRetry={records.refetch} />
           )
         ) : items.length === 0 ? (
           <EmptyState

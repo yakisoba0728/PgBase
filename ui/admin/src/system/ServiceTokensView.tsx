@@ -6,7 +6,7 @@ import { ApiError } from "../api/http";
 import { issueServiceToken, revokeServiceToken, type ServiceToken, type ServiceTokenScope } from "../api/system";
 import { errorText } from "../app/queries";
 import { collectionsQuery } from "../collections/queries";
-import { Button } from "../components/Button";
+import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState, Loader, Notice } from "../components/Feedback";
 import { Field } from "../components/Field";
@@ -33,7 +33,12 @@ function tokenState(t: Translate, token: ServiceToken): { label: string; tone?: 
 export function ServiceTokensActions() {
   const t = useT();
   const { update } = useSearchState();
-  return <Button icon={RiAddLine} data-new onClick={() => update({ token: "new" })}>{t("system.tokens.new")}</Button>;
+  return (
+    <>
+      <RefreshButton queryKey={serviceTokensQuery.queryKey} />
+      <Button size="sm" icon={RiAddLine} data-new onClick={() => update({ token: "new" })}>{t("system.tokens.new")}</Button>
+    </>
+  );
 }
 
 export function ServiceTokensView() {

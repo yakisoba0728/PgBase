@@ -1,5 +1,4 @@
 export const storageEn = {
-  "storage.refresh": "Refresh",
   "storage.local": "Local disk",
   "storage.s3": "S3-compatible",
 

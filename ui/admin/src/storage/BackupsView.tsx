@@ -2,11 +2,11 @@ import { useRef, useState, type ChangeEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Facts } from "../components/Facts";
 import { openRow } from "../components/DataGrid";
-import { RiAddLine, RiArchive2Line, RiDownload2Line, RiHistoryLine, RiRefreshLine, RiUpload2Line } from "@remixicon/react";
+import { RiAddLine, RiArchive2Line, RiDownload2Line, RiHistoryLine, RiUpload2Line } from "@remixicon/react";
 import { backupDownloadPath, createBackup, deleteBackup, restoreBackup, uploadBackup, type BackupEntry } from "../api/backups";
 import type { BackupStorageSettings } from "../api/storage";
 import { errorText } from "../app/queries";
-import { Button, IconButton } from "../components/Button";
+import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState, ErrorState, Loader } from "../components/Feedback";
 import { Checkbox } from "../components/Field";
@@ -65,10 +65,10 @@ export function BackupsActions() {
 
   return (
     <>
-      <IconButton label={t("storage.refresh")} icon={RiRefreshLine} onClick={() => queryClient.invalidateQueries({ queryKey: backupsQuery.queryKey })} />
+      <RefreshButton queryKey={backupsQuery.queryKey} />
       <input ref={input} type="file" accept=".tar.gz,.tgz,application/gzip" hidden onChange={onFile} />
-      <Button variant="secondary" icon={RiUpload2Line} loading={upload.isPending} disabled={busy} onClick={() => input.current?.click()}>{t("storage.backups.upload")}</Button>
-      <Button icon={RiAddLine} loading={create.isPending} disabled={busy} onClick={() => create.mutate()}>{t("storage.backups.create")}</Button>
+      <Button size="sm" variant="secondary" icon={RiUpload2Line} loading={upload.isPending} disabled={busy} onClick={() => input.current?.click()}>{t("storage.backups.upload")}</Button>
+      <Button size="sm" icon={RiAddLine} loading={create.isPending} disabled={busy} onClick={() => create.mutate()}>{t("storage.backups.create")}</Button>
     </>
   );
 }

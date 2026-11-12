@@ -1,5 +1,7 @@
 import type { ButtonHTMLAttributes, ComponentProps } from "react";
-import type { RemixiconComponentType } from "@remixicon/react";
+import { useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { RiRefreshLine, type RemixiconComponentType } from "@remixicon/react";
+import { useT } from "../i18n";
 
 interface ButtonProps extends ComponentProps<"button"> {
   variant?: "primary" | "secondary" | "transparent" | "danger";
@@ -30,4 +32,11 @@ export function IconButton({ label, icon: Icon, className, type = "button", ...r
       <Icon size={16} aria-hidden />
     </button>
   );
+}
+
+/** The page-header refresh: refetches a screen's data; `reset` drops loaded pages first (long cursor lists). */
+export function RefreshButton({ queryKey, reset }: { queryKey: QueryKey; reset?: boolean }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  return <IconButton label={t("common.refresh")} icon={RiRefreshLine} onClick={() => void (reset ? queryClient.resetQueries({ queryKey }) : queryClient.invalidateQueries({ queryKey }))} />;
 }
