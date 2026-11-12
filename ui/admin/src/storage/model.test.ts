@@ -7,12 +7,17 @@ import { awaitingStart } from "./queries";
 describe("awaitingStart", () => {
   const old = { id: "old", status: "committed" as const, copiedObjects: 1, totalObjects: 1, createdAt: "", updatedAt: "" };
   it("never shows the fallback migration as a start this browser sent", () => {
-    expect(awaitingStart("new", old, true)).toBe(true);
-    expect(awaitingStart("new", null, true)).toBe(true);
-    expect(awaitingStart("new", { ...old, id: "new", status: "copying" }, true)).toBe(false);
-    // An id from a link (not started here) or a start the feed gave up on reads as before.
-    expect(awaitingStart("new", old, false)).toBe(false);
-    expect(awaitingStart(null, old, true)).toBe(false);
+    expect(awaitingStart("new", old, 1000, 5000)).toBe(true);
+    expect(awaitingStart("new", null, 1000, 0)).toBe(true);
+    expect(awaitingStart("new", { ...old, id: "new", status: "copying" }, 1000, 5000)).toBe(false);
+    // An id from a link (not started here) reads as before.
+    expect(awaitingStart("new", old, undefined, 5000)).toBe(false);
+    expect(awaitingStart(null, old, 1000, 5000)).toBe(false);
+  });
+
+  it("gives up once the start window has passed without the migration appearing", () => {
+    expect(awaitingStart("new", old, 1000, 1000 + 119_000)).toBe(true);
+    expect(awaitingStart("new", old, 1000, 1000 + 120_000)).toBe(false);
   });
 });
 

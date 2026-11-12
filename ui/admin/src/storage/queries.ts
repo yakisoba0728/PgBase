@@ -2,7 +2,7 @@ import { queryOptions } from "@tanstack/react-query";
 import { getBackupJob, listBackups } from "../api/backups";
 import { ApiError } from "../api/http";
 import { getBackupStorageSettings, getFileStorageSettings, getLatestStorageMigration, getStorageMigration, type BackupStorageSettings, type FileStorageSettings, type StorageMigrationState, type StorageMigrationStatus } from "../api/storage";
-import { operations } from "../app/operations";
+import { operations, startWindow, type TrackedOperation } from "../app/operations";
 
 export const backupsQuery = queryOptions({
   queryKey: ["backups", "list"],
@@ -44,18 +44,20 @@ export const migrationRunning = (state: StorageMigrationState | undefined) => st
 const orNull = <T,>(promise: Promise<T>) => promise.catch((error: unknown) => (isNotFound(error) ? null : Promise.reject(error)));
 
 /**
- * A start this browser sent (tracked) whose migration the server has not shown yet: whatever the query
- * fell back to is an older migration, not this one.
+ * A start this browser sent (tracked since `startedAt`) whose migration the server has not shown yet, as of
+ * `answeredAt`: whatever the query fell back to is an older migration. Past the start window it never arrived.
  */
-export const awaitingStart = (id: string | null, data: StorageMigrationStatus | null | undefined, tracked: boolean) => id !== null && tracked && data?.id !== id;
+export const awaitingStart = (id: string | null, data: StorageMigrationStatus | null | undefined, startedAt: number | undefined, answeredAt: number) =>
+  id !== null && startedAt !== undefined && answeredAt - startedAt < startWindow && data?.id !== id;
 
-const trackedMigration = (id: string | null) => operations().some((operation) => operation.kind === "migration" && operation.id === id);
+export const migrationStartedAt = (operations: TrackedOperation[], id: string | null) => operations.find((operation) => operation.kind === "migration" && operation.id === id)?.startedAt;
 
 /** The migration named in the URL (its start may never have arrived), else the latest one; null when none has ever run. */
 export const migrationQuery = (id: string | null) =>
   queryOptions({
     queryKey: ["storage", "migration", id ?? "latest"],
     queryFn: async ({ signal }) => (id && (await orNull(getStorageMigration(id, signal)))) || orNull(getLatestStorageMigration(signal)),
-    // Also polls while a tracked start has not appeared; the operation feed drops it after its start window.
-    refetchInterval: (query) => (migrationRunning(query.state.data?.status) || awaitingStart(id, query.state.data, trackedMigration(id)) ? 1000 : false),
+    // Also polls while a tracked start has not appeared, until its start window ends.
+    refetchInterval: (query) =>
+      migrationRunning(query.state.data?.status) || awaitingStart(id, query.state.data, migrationStartedAt(operations(), id), query.state.dataUpdatedAt) ? 1000 : false,
   });

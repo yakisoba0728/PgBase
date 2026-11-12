@@ -98,7 +98,7 @@ interface StatusPayload {
 
 // A request whose response was lost may still be on its way, and its replay identity must survive meanwhile.
 const replayWindow = 65 * 60 * 1000;
-const startWindow = 2 * 60 * 1000;
+export const startWindow = 2 * 60 * 1000;
 
 /** Where an operation stands, read from its status payload; `notFound` is a 404 for its id. */
 export function operationState(operation: TrackedOperation, data: StatusPayload | null | undefined, notFound = false, now = Date.now()): { state: OperationState; progress?: string } {

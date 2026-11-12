@@ -14,7 +14,7 @@ import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { newIdentity } from "../schema/apply";
 import { destinationOf, draftFrom, storageErrorKey, validateDraft, type StorageDraft } from "./model";
-import { awaitingStart, fileStorageQuery, migrationQuery, migrationRunning } from "./queries";
+import { awaitingStart, fileStorageQuery, migrationQuery, migrationRunning, migrationStartedAt } from "./queries";
 import { StorageFields } from "./StorageForm";
 
 
@@ -29,12 +29,13 @@ export function MigrationView() {
   const files = useQuery(fileStorageQuery);
   const { params } = useSearchState();
   const id = params.get("migration");
-  const tracked = useOperations().some((operation) => operation.kind === "migration" && operation.id === id);
+  const startedAt = migrationStartedAt(useOperations(), id);
   // Starting writes the new id to the URL first; the previous answer stays so the form (and its pending start) stays mounted.
   const migration = useQuery({ ...migrationQuery(id), placeholderData: keepPreviousData });
   if (files.isPending || migration.isPending) return <Loader />;
   if (files.isError || migration.isError) return <ErrorState error={files.error ?? migration.error} onRetry={() => Promise.all([files.refetch(), migration.refetch()])} />;
-  const starting = awaitingStart(id, migration.data, tracked);
+  // Judged at each answer's time (dataUpdatedAt also re-renders on unchanged polls), so the lock ends with the start window.
+  const starting = awaitingStart(id, migration.data, startedAt, migration.dataUpdatedAt);
   return (
     <div className="storage-form">
       <section className="storage-block" aria-label={t("storage.migration.source")}>
