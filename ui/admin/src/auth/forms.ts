@@ -240,8 +240,8 @@ export function tokenProblems(draft: TokenDraft, configured: boolean): Problems 
   const rotating = Boolean(draft.key || draft.keyVersion);
   if (draft.ttlSeconds === "" ? configured || rotating : !inRange(draft.ttlSeconds, 60, 86400)) problems.ttlSeconds = draft.ttlSeconds ? "range" : "required";
   if (rotating) {
-    if (new TextEncoder().encode(draft.key).length < 32 || draft.key.length > 4096) problems.key = draft.key ? "short" : "both";
-    if (!/^[A-Za-z0-9_-]{1,32}$/.test(draft.keyVersion)) problems.keyVersion = draft.keyVersion ? "name" : "both";
+    if (new TextEncoder().encode(draft.key).length < 32 || draft.key.length > 4096) problems.key = draft.key ? "short" : "required";
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(draft.keyVersion)) problems.keyVersion = draft.keyVersion ? "name" : "required";
   }
   return problems;
 }

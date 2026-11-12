@@ -57,7 +57,7 @@ describe("templates and tokens", () => {
   it("rotates key and version together", () => {
     expect(tokenProblems({ ttlSeconds: "3600", key: "", keyVersion: "" }, true)).toEqual({});
     expect(tokenProblems({ ttlSeconds: "", key: "", keyVersion: "" }, false)).toEqual({});
-    expect(tokenProblems({ ttlSeconds: "30", key: "short", keyVersion: "" }, true)).toEqual({ ttlSeconds: "range", key: "short", keyVersion: "both" });
+    expect(tokenProblems({ ttlSeconds: "30", key: "short", keyVersion: "" }, true)).toEqual({ ttlSeconds: "range", key: "short", keyVersion: "required" });
   });
 });
 

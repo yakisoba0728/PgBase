@@ -13,6 +13,7 @@ import {
   type ImpersonationSession,
   type ManagedUser,
 } from "../api/users";
+import { ApiError } from "../api/http";
 import { errorText } from "../app/queries";
 import { shortDate } from "../collections/fields";
 import { Button, IconButton } from "../components/Button";
@@ -216,7 +217,10 @@ function ProfileForm({ userId, collection, record, onDelete }: { userId: string;
       await queryClient.invalidateQueries({ queryKey: ["auth", "users"] });
       await queryClient.invalidateQueries({ queryKey: ["auth", "user-record"] });
     },
-    onError: (failure) => reportFailure(t, failure),
+    onError: (failure) => {
+      if (failure instanceof ApiError && failure.code === "conflict") form.setProblems({ email: "taken" });
+      else reportFailure(t, failure);
+    },
   });
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();

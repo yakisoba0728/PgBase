@@ -40,7 +40,7 @@ export const authKo: Record<keyof typeof authEn, string> = {
   "auth.collections.recordId": "레코드 ID",
   "auth.collections.delete": "컬렉션 삭제",
   "auth.collections.deleteTitle": "{name}을(를) 삭제할까요?",
-  "auth.collections.deleteText": "사용자, 세션, 로그인 설정이 모두 삭제되며 되돌릴 수 없습니다.",
+  "auth.collections.deleteText": "로그인 설정과 테이블이 삭제되며 되돌릴 수 없습니다. 사용자가 남아 있으면 거부됩니다.",
   "auth.collections.typeName": "확인하려면 {name} 입력",
   "auth.collections.deleted": "{name}을(를) 삭제했습니다.",
   "auth.collections.hasUsers": "아직 사용자가 있습니다. 사용자를 먼저 삭제하세요.",

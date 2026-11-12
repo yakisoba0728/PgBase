@@ -38,7 +38,7 @@ export const authEn = {
   "auth.collections.recordId": "Record id",
   "auth.collections.delete": "Delete collection",
   "auth.collections.deleteTitle": "Delete {name}?",
-  "auth.collections.deleteText": "All of its users, sessions and sign-in settings are removed. This cannot be undone.",
+  "auth.collections.deleteText": "Its sign-in settings and table are removed. A collection that still has users is refused. This cannot be undone.",
   "auth.collections.typeName": "Type {name} to confirm",
   "auth.collections.deleted": "{name} deleted.",
   "auth.collections.hasUsers": "This collection still has users. Delete them first.",

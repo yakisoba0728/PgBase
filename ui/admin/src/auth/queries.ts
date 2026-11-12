@@ -37,20 +37,20 @@ const missing = (error: unknown) => error instanceof ApiError && (error.status =
 /** The auth record behind a managed user, with its collection; null when it cannot be found. */
 export const userRecordQuery = (user: ManagedUser, collections: AuthCollection[]) =>
   queryOptions({
-    queryKey: ["auth", "user-record", user.id, user.updatedAt],
+    queryKey: ["auth", "user-record", user.id],
     queryFn: async ({ signal }): Promise<{ collection: AuthCollection; record: AuthRecord } | null> => {
-      // uuid-policy collections expose the user UUID as the record id; a miss is a 400/404.
+      // shortcut: the record list has no cursor, so matching covers each collection's first 100 records.
+      for (const collection of collections) {
+        const record = (await listAuthRecords(collection.id, { limit: 100, signal })).find((candidate) => matchesUser(candidate, user));
+        if (record) return { collection, record };
+      }
+      // Beyond that, uuid-policy collections expose the user UUID as the record id; a miss is a 400/404.
       for (const collection of collections.filter((candidate) => candidate.recordId?.kind !== "text")) {
         try {
           return { collection, record: await getAuthRecord(collection.id, user.id, signal) };
         } catch (error) {
           if (!missing(error)) throw error;
         }
-      }
-      // shortcut: text-id collections are matched within their first 100 records (the list has no cursor).
-      for (const collection of collections.filter((candidate) => candidate.recordId?.kind === "text")) {
-        const record = (await listAuthRecords(collection.id, { limit: 100, signal })).find((candidate) => matchesUser(candidate, user));
-        if (record) return { collection, record };
       }
       return null;
     },
