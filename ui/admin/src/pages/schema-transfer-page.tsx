@@ -1,3 +1,4 @@
+import { t, useLocale, message as bilingualMessage, type Message } from "../i18n";
 import { useEffect, useRef, useState } from "react";
 import { useBackend, useSession } from "../auth/session";
 import type { SchemaDocument, SchemaImportPlan, SchemaImportResult } from "../backend/ports";
@@ -29,6 +30,7 @@ function readRecovery(administratorId: string): Recovery | undefined {
 }
 
 export function SchemaTransferPage() {
+  useLocale();
   const { schema } = useBackend();
   const { state } = useSession();
   const administratorId = state.kind === "authenticated" ? state.administrator.id : "";
@@ -37,7 +39,7 @@ export function SchemaTransferPage() {
   useUnsavedDraft("schema-import", documentDirty);
   const [plan, setPlan] = useState<SchemaImportPlan>();
   const [recovery, setRecovery] = useState<Recovery>();
-  const [message, setMessage] = useState<string>();
+  const [message, setMessage] = useState<Message>();
   const [busy, setBusy] = useState(false);
   const generation = useRef(0);
 
@@ -48,19 +50,19 @@ export function SchemaTransferPage() {
   const showOutcome = (result: ImportOutcome) => {
     if (result.status === "committed") {
       clearRecovery(); setPlan(undefined);
-      setMessage(`Schema import committed${result.version === undefined ? "" : ` at version ${result.version}`}${result.applied === undefined ? "." : ` with ${result.applied} changes.`}`);
+      setMessage(bilingualMessage(`Schema import committed${result.version === undefined ? "" : ` at version ${result.version}`}${result.applied === undefined ? "." : ` with ${result.applied} changes.`}`, `스키마 가져오기를 완료했습니다${result.version === undefined ? "" : ` (버전 ${result.version})`}${result.applied === undefined ? "." : `. 변경 ${result.applied}개를 적용했습니다.`}`));
     } else if (result.status === "failed") {
-      clearRecovery(); setPlan(undefined); setMessage(`Schema import ${result.operationId} failed. Review the current schema before creating a new preview.`);
+      clearRecovery(); setPlan(undefined); setMessage(bilingualMessage(`Schema import ${result.operationId} failed. Review the current schema before creating a new preview.`, `스키마 가져오기 ${result.operationId}에 실패했습니다. 새 미리보기를 만들기 전에 현재 스키마를 확인하세요.`));
     } else if (result.status === "unknown") {
-      setMessage(`The server cannot confirm operation ${result.operationId}. Retry the exact request; after a reload, paste the same document to restore that retry.`);
-    } else setMessage(`Schema import ${result.operationId} is still running. Check its status before retrying.`);
+      setMessage(bilingualMessage(`The server cannot confirm operation ${result.operationId}. Retry the exact request; after a reload, paste the same document to restore that retry.`, `서버에서 작업 ${result.operationId}의 결과를 확인할 수 없습니다. 같은 요청으로 재시도하세요. 새로고침했다면 동일한 문서를 붙여넣어 재시도 요청을 복구하세요.`));
+    } else setMessage(bilingualMessage(`Schema import ${result.operationId} is still running. Check its status before retrying.`, `스키마 가져오기 ${result.operationId}이 진행 중입니다. 재시도하기 전에 상태를 확인하세요.`));
   };
 
   async function checkStatus(item = recovery) {
     if (!item || !schema.importStatus) return;
     const issued = ++generation.current; setBusy(true);
     try { const result = await schema.importStatus(item.operationId) as ImportOutcome; if (issued === generation.current) showOutcome(result); }
-    catch { if (issued === generation.current) setMessage(`Unable to check operation ${item.operationId}. Its recovery information is retained.`); }
+    catch { if (issued === generation.current) setMessage(bilingualMessage(`Unable to check operation ${item.operationId}. Its recovery information is retained.`, `작업 ${item.operationId}의 상태를 확인하지 못했습니다. 복구 정보는 유지됩니다.`)); }
     finally { if (issued === generation.current) setBusy(false); }
   }
 
@@ -103,7 +105,7 @@ export function SchemaTransferPage() {
       if (await schemaDocumentDigest(document) !== recovery.documentDigest) throw new Error("different document");
       if (issued === generation.current) {
         setPlan({ document, changes: [], baseVersion: recovery.baseVersion, checksum: recovery.checksum, policyChecksum: recovery.policyChecksum, operationId: recovery.operationId, idempotencyKey: recovery.idempotencyKey });
-        setMessage(`Recovered the exact request for operation ${recovery.operationId}.`);
+        setMessage(bilingualMessage(`Recovered the exact request for operation ${recovery.operationId}.`, `작업 ${recovery.operationId}의 동일 요청을 복구했습니다.`));
       }
     } catch { if (issued === generation.current) setMessage("This document does not match the pending import. Paste the exact original document."); }
     finally { if (issued === generation.current) setBusy(false); }
@@ -126,7 +128,7 @@ export function SchemaTransferPage() {
         if (result.status === "committed") setDocumentDirty(false);
       }
     }
-    catch { if (issued === generation.current) setMessage(sent && item ? `The response for operation ${item.operationId} was not confirmed. Check status or retry this exact request.` : "Unable to save the import recovery information. The import was not sent."); }
+    catch { if (issued === generation.current) setMessage(sent && item ? bilingualMessage(`The response for operation ${item.operationId} was not confirmed. Check status or retry this exact request.`, `작업 ${item.operationId}의 응답을 확인하지 못했습니다. 상태를 확인하거나 같은 요청으로 재시도하세요.`) : "Unable to save the import recovery information. The import was not sent."); }
     finally { if (issued === generation.current) setBusy(false); }
   }
 
@@ -147,35 +149,35 @@ export function SchemaTransferPage() {
     finally { if (issued === generation.current) setBusy(false); }
   }
 
-  const heading = <PageHeading title="Schema transfer" description="Export your collection definitions or review a schema before importing it." />;
-  if (!schema.exportDocument || !schema.previewImport || !schema.applyImport) return <section className="schema-transfer">{heading}<p>This server does not support schema transfer.</p></section>;
+  const heading = <PageHeading title={t("Schema transfer")} description={t("Export your collection definitions or review a schema before importing it.")} />;
+  if (!schema.exportDocument || !schema.previewImport || !schema.applyImport) return <section className="schema-transfer">{heading}<p>{t("This server does not support schema transfer.")}</p></section>;
   return <section className="schema-transfer">
     {heading}
     <section aria-labelledby="schema-export-title" className="schema-export">
-      <div><h3 id="schema-export-title">Export schema</h3><p>Download the current schema as a JSON file.</p></div>
-      <Button disabled={busy} onClick={() => void exportSchema()} variant="secondary">Export schema</Button>
+      <div><h3 id="schema-export-title">{t("Export schema")}</h3><p>{t("Download the current schema as a JSON file.")}</p></div>
+      <Button disabled={busy} onClick={() => void exportSchema()} variant="secondary">{t("Export schema")}</Button>
     </section>
     <section aria-labelledby="schema-import-title" className="schema-import">
-      <div className="schema-section-heading"><h3 id="schema-import-title">Import schema</h3><p>Choose a JSON file or paste a schema document. Preview the changes before applying them.</p></div>
-      <label className="schema-file-input">Import JSON file<input type="file" accept=".json,application/json" disabled={busy} onChange={event => { void readDocument(event.target.files?.[0]); event.target.value = ""; }} /></label>
-      <div className="schema-editor-label"><label htmlFor="schema-document">Schema document</label><span>JSON</span></div>
-      <textarea aria-describedby="schema-import-help" autoCapitalize="none" autoComplete="off" className="schema-document" id="schema-document" onChange={(event) => changeDocument(event.target.value)} placeholder="Paste your schema JSON here…" rows={12} spellCheck={false} value={text} />
+      <div className="schema-section-heading"><h3 id="schema-import-title">{t("Import schema")}</h3><p>{t("Choose a JSON file or paste a schema document. Preview the changes before applying them.")}</p></div>
+      <label className="schema-file-input">{t("Import JSON file")}<input type="file" accept=".json,application/json" disabled={busy} onChange={event => { void readDocument(event.target.files?.[0]); event.target.value = ""; }} /></label>
+      <div className="schema-editor-label"><label htmlFor="schema-document">{t("Schema document")}</label><span>JSON</span></div>
+      <textarea aria-describedby="schema-import-help" autoCapitalize="none" autoComplete="off" className="schema-document" id="schema-document" onChange={(event) => changeDocument(event.target.value)} placeholder={t("Paste your schema JSON here\u2026")} rows={12} spellCheck={false} value={text} />
       <div className="schema-import-actions">
-        <p id="schema-import-help">Collections, fields, and indexes omitted from the document are preserved.</p>
-        <Button disabled={busy || !!recovery || text.trim() === ""} onClick={() => void preview()}>Preview import</Button>
+        <p id="schema-import-help">{t("Collections, fields, and indexes omitted from the document are preserved.")}</p>
+        <Button disabled={busy || !!recovery || text.trim() === ""} onClick={() => void preview()}>{t("Preview import")}</Button>
       </div>
     </section>
-    {recovery && <section aria-label="Import recovery" className="schema-recovery">
-      <h3>Pending import</h3>
-      <p>Check the operation status, or paste the original document to recover the exact request.</p>
-      <div className="schema-result-actions"><Button disabled={busy || !schema.importStatus} onClick={() => void checkStatus()} variant="secondary">Check import status</Button><Button disabled={busy || text.trim() === ""} onClick={() => void restoreExactRetry()} variant="secondary">Recover exact retry</Button></div>
+    {recovery && <section aria-label={t("Import recovery")} className="schema-recovery">
+      <h3>{t("Pending import")}</h3>
+      <p>{t("Check the operation status, or paste the original document to recover the exact request.")}</p>
+      <div className="schema-result-actions"><Button disabled={busy || !schema.importStatus} onClick={() => void checkStatus()} variant="secondary">{t("Check import status")}</Button><Button disabled={busy || text.trim() === ""} onClick={() => void restoreExactRetry()} variant="secondary">{t("Recover exact retry")}</Button></div>
     </section>}
-    {plan && <section aria-label="Import preview" className="schema-preview">
-      <h3>Import preview</h3>
-      <p>{plan.changes.length} schema changes from version {plan.baseVersion}.</p>
-      <ol>{plan.document.collections.map((collection) => <li key={collection.name}><strong>{collection.name}</strong>: {collection.view ? "view" : `${collection.fields?.length ?? 0} supplied fields`}; user access {collection.userAccess ? "enabled" : "disabled"}; {Object.keys(collection.rules).length} rule actions</li>)}</ol>
-      <Button disabled={busy} onClick={() => void apply()}>{recovery && plan.operationId === recovery.operationId ? "Retry exact import" : "Apply import"}</Button>
+    {plan && <section aria-label={t("Import preview")} className="schema-preview">
+      <h3>{t("Import preview")}</h3>
+      <p>{t("{count} schema changes from version {version}.", { count: plan.changes.length, version: plan.baseVersion })}</p>
+      <ol>{plan.document.collections.map((collection) => <li key={collection.name}><strong>{collection.name}</strong>: {collection.view ? t("View") : t("{count} supplied fields", { count: collection.fields?.length ?? 0 })}; {t("user access {state}", { state: collection.userAccess ? t("enabled") : t("disabled") })}; {t("{count} rule actions", { count: Object.keys(collection.rules).length })}</li>)}</ol>
+      <Button disabled={busy} onClick={() => void apply()}>{recovery && plan.operationId === recovery.operationId ? t("Retry exact import") : t("Apply import")}</Button>
     </section>}
-    {message && <p className="schema-message" role="status">{message}</p>}
+    {message && <p className="schema-message" role="status">{t(message)}</p>}
   </section>;
 }

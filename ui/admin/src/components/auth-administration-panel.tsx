@@ -1,3 +1,4 @@
+import { t, message as bilingual, type Message, useLocale } from "../i18n";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { stringifyJSON } from "../backend/json";
 import { useUnsavedDraft } from "../routing/unsaved-draft";
@@ -56,6 +57,7 @@ export function AuthAdministrationPanel({
 }: {
   collectionId: string;
 }) {
+  useLocale();
   const { authCollections } = useBackend();
   const sectionID = useId();
   const [section, setSection] = useState(0);
@@ -64,7 +66,7 @@ export function AuthAdministrationPanel({
   const [provider, setProvider] = useState(emptyProvider);
   const [smtp, setSMTP] = useState(emptySMTP);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<Message | null>(null);
   const [reloads, setReloads] = useState(0);
   const mutation = useRef<AbortController | null>(null);
   const mounted = useRef(true);
@@ -116,7 +118,7 @@ export function AuthAdministrationPanel({
     };
   }, [authCollections, collectionId, reloads]);
 
-  function run(work: (signal: AbortSignal) => Promise<void>, success: string) {
+  function run(work: (signal: AbortSignal) => Promise<void>, success: Message) {
     if (mutation.current) return;
     const controller = new AbortController();
     mutation.current = controller;
@@ -250,33 +252,29 @@ export function AuthAdministrationPanel({
   if (!value)
     return (
       <div>
-        <p>{message ?? "Loading authentication settings…"}</p>
+        <p>{t(message ?? "Loading authentication settings…")}</p>
         {message && (
           <button
             type="button"
             onClick={() => setReloads((count) => count + 1)}
-          >
-            Retry authentication settings
-          </button>
+          >{t("Retry authentication settings")}</button>
         )}
       </div>
     );
   return (
     <details className="auth-administration">
-      <summary>Authentication settings</summary>
-      {message && <p role="status">{message}</p>}
+      <summary>{t("Authentication settings")}</summary>
+      {message && <p role="status">{t(message)}</p>}
       <button
         type="button"
         disabled={busy || dirty}
         onClick={() => setReloads((count) => count + 1)}
-      >
-        Reload authentication settings
-      </button>
-      <div className="context-tabs auth-section-navigation" role="tablist" aria-label="Authentication configuration">
+      >{t("Reload authentication settings")}</button>
+      <div className="context-tabs auth-section-navigation" role="tablist" aria-label={t("Authentication configuration")}>
         {sections.map((label, index) => <button key={label} type="button" role="tab" id={`${sectionID}-tab-${index}`} aria-controls={`${sectionID}-panel-${index}`} aria-selected={section === index} tabIndex={section === index ? 0 : -1} onClick={() => setSection(index)} onKeyDown={event => {
           const next = event.key === "ArrowRight" ? (index + 1) % sections.length : event.key === "ArrowLeft" ? (index + sections.length - 1) % sections.length : event.key === "Home" ? 0 : event.key === "End" ? sections.length - 1 : null;
           if (next === null) return; event.preventDefault(); setSection(next); document.getElementById(`${sectionID}-tab-${next}`)?.focus();
-        }}>{label}</button>)}
+        }}>{t(label)}</button>)}
       </div>
       <div role="tabpanel" id={`${sectionID}-panel-0`} aria-labelledby={`${sectionID}-tab-0`} hidden={section !== 0}>
       <PolicyEditor
@@ -299,10 +297,8 @@ export function AuthAdministrationPanel({
       </div>
       <div role="tabpanel" id={`${sectionID}-panel-2`} aria-labelledby={`${sectionID}-tab-2`} hidden={section !== 2}>
       <fieldset disabled={busy}>
-        <legend>Mail templates</legend>
-        <p>
-          Action templates use <code>{"{{action_url}}"}</code>. OTP templates
-          use <code>{"{{otp}}"}</code> and may include{" "}
+        <legend>{t("Mail templates")}</legend>
+        <p>{t("Action templates use")}<code>{"{{action_url}}"}</code>{t(". OTP templates use")}<code>{"{{otp}}"}</code>{t("and may include")}{" "}
           <code>{"{{otp_id}}"}</code>.
         </p>
         {purposes.map((purpose) => {
@@ -335,7 +331,7 @@ export function AuthAdministrationPanel({
           run(
             (signal) =>
               authCollections.testSMTP(collectionId, recipient, signal),
-            `Test message sent to ${recipient}.`,
+            bilingual(`Test message sent to ${recipient}.`, `${recipient} 주소로 테스트 메일을 전송했습니다.`),
           )
         }
       />

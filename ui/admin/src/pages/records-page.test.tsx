@@ -1,4 +1,5 @@
-import { screen, within } from "@testing-library/react";
+import { setLocale } from "../i18n";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { LosslessNumber } from "lossless-json";
@@ -25,6 +26,47 @@ const posts = collection("posts", "posts-id", [
 ]);
 
 describe("records page", () => {
+  it("localizes only system metadata and preserves exact timestamp attributes", async () => {
+    setLocale("ko");
+    const raw = "2026-11-12T09:30:45.123456Z";
+    const userDate = "2026-11-11T01:02:03Z";
+    const harness = scriptedAdmin("/admin/collections/posts/records");
+    const dateField: FieldDefinition = { name: "published_at", type: "timestamptz", required: false, indexed: false, unique: false, ordinal: 1 };
+    harness.script.catalog.push({ value: { version: 7, collections: [collection("posts", "posts-id", [textField("title", 0), dateField])] } });
+    harness.script.list.push({ value: { items: [{ id: recordID, title: "post", created_at: raw, updated_at: raw, published_at: userDate }] } });
+    renderAdmin(harness);
+    expect(await screen.findByRole("columnheader", { name: "생성일" })).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "수정일" })).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "ID" })).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "published_at" })).toBeVisible();
+    expect(screen.getByText(userDate)).toBeVisible();
+    const timestamps = screen.getAllByTitle(raw);
+    expect(timestamps).toHaveLength(2);
+    for (const cell of timestamps) {
+      expect(cell.querySelector("time")).toHaveAttribute("datetime", raw);
+      expect(cell).not.toHaveTextContent(raw);
+      expect(cell).toHaveTextContent("11월");
+    }
+  });
+
+  it("switches Korean record actions without translating stored values or selection IDs", async () => {
+    setLocale("ko");
+    const harness = scriptedAdmin("/admin/collections/posts/records");
+    harness.script.catalog.push({ value: { version: 7, collections: [collection("posts", "posts-id", [textField("title", 0)])] } });
+    harness.script.list.push({ value: { items: [{ id: recordID, title: "Create record" }] } });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+    expect(await screen.findByRole("heading", { name: "posts 레코드" })).toBeVisible();
+    expect(await screen.findByRole("link", { name: "레코드 만들기" })).toBeVisible();
+    expect(await screen.findByText("Create record", { exact: true })).toBeVisible();
+    await user.click(screen.getByRole("checkbox", { name: `레코드 ${recordID} 선택` }));
+    expect(screen.getByRole("button", { name: "선택한 1개 삭제" })).toBeVisible();
+    act(() => setLocale("en"));
+    expect(await screen.findByRole("heading", { name: "posts records" })).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: `Select record ${recordID}` })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Delete 1 selected" })).toBeVisible();
+  });
+
   it("keeps saved column choices when a server projection temporarily hides them", async () => {
     const harness = scriptedAdmin("/admin/collections/posts/records");
     harness.script.catalog.push({ value: { version: 7, collections: [posts] } });
@@ -38,13 +80,13 @@ describe("records page", () => {
     await user.click(screen.getByRole("button", { name: "Apply query options" }));
     await screen.findByText("projected");
     await user.click(screen.getByText("Columns", { selector: "summary" }));
-    expect(screen.getByRole("checkbox", { name: "created_at" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Created" })).toBeChecked();
     await user.click(screen.getByRole("checkbox", { name: "title" }));
-    expect(screen.getByRole("checkbox", { name: "created_at" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Created" })).toBeChecked();
     await user.clear(screen.getByLabelText("Server fields"));
     harness.script.list.push({ value: { items: [{ id: recordID, created_at: "2026-01-02" }] } });
     await user.click(screen.getByRole("button", { name: "Apply query options" }));
-    expect(await screen.findByText("2026-01-02")).toBeVisible();
+    expect(await screen.findByTitle("2026-01-02")).toBeVisible();
   });
 
   it("retries a failed load and marks a partial page selection", async () => {

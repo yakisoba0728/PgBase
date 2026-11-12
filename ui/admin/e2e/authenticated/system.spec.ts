@@ -24,6 +24,7 @@ test("reports operational diagnostics without leaking a secret", async ({ page }
 
   // The address a new tab or "copy link address" would use has to be the same
   // typed route an in-place click reaches.
+  await page.getByRole("link", { name: "Settings section", exact: true }).click();
   const system = page.getByRole("link", { name: "System" });
   await expect(system).toHaveAttribute("href", "/admin/system");
   await system.click();

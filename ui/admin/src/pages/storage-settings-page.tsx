@@ -1,3 +1,4 @@
+import { t, useLocale } from "../i18n";
 import { ActionBar, Button, FormSection, PageHeading } from "../components/ui";
 import { useUnsavedDraft } from "../routing/unsaved-draft";
 import { StorageMigrationNotFound, StorageMigrationRejected } from "../backend/storage-port";
@@ -11,6 +12,7 @@ import type {
 
 const editable = (value: FileStorageSettings): FileStorageUpdate => ({ driver: value.driver, bucket: value.bucket, region: value.region, endpoint: value.endpoint, accessKey: value.accessKey, usePathStyle: value.usePathStyle, revision: value.revision });
 export function StorageSettingsPage() {
+  useLocale();
   const { storage, capabilities } = useBackend();
   const { state: session } = useSession();
   const [saved, setSaved] = useState<FileStorageSettings>();
@@ -198,8 +200,8 @@ export function StorageSettingsPage() {
   if (!form)
     return (
       <section className="management-page storage-page">
-        <PageHeading title="File storage" />
-        <p aria-live="polite">{message ?? "Loading file storage settings…"}</p>
+        <PageHeading title={t("File storage")} />
+        <p aria-live="polite">{t(message ?? "Loading file storage settings…")}</p>
       </section>
     );
   const dirty = JSON.stringify(form) !== JSON.stringify(saved && editable(saved)) || secret !== "";
@@ -207,44 +209,44 @@ export function StorageSettingsPage() {
   const migrationActive = !!migration?.id && !["preview", "committed", "canceled"].includes(migration.status);
   return (
     <section className="management-page storage-page">
-      <PageHeading title="File storage" description="Choose where uploaded record files are stored. Existing files are verified before a destination changes." />
-      <div className="settings-storage-summary"><strong>{saved?.driver === "s3" ? "S3-compatible file storage" : "Local file storage"}</strong><span>{saved?.driver === "s3" ? saved.bucket : "Uploads remain on the server filesystem."}</span></div>
+      <PageHeading title={t("File storage")} description={t("Choose where uploaded record files are stored. Existing files are verified before a destination changes.")} />
+      <div className="settings-storage-summary"><strong>{saved?.driver === "s3" ? t("S3-compatible file storage") : t("Local file storage")}</strong><span>{saved?.driver === "s3" ? saved.bucket : t("Uploads remain on the server filesystem.")}</span></div>
       <label>
-        Driver
+        {t("Driver")}
         <select
           value={form.driver}
           disabled={busy || recoveryPending || migrationActive || !!startAttemptID}
           onChange={(e) => update("driver", e.target.value as "local" | "s3")}
         >
-          <option value="local">Local filesystem</option>
-          <option value="s3">S3 compatible</option>
+          <option value="local">{t("Local filesystem")}</option>
+          <option value="s3">{t("S3 compatible")}</option>
         </select>
       </label>
       {form.driver === "s3" && (
-        <FormSection className="management-field-grid" disabled={busy || recoveryPending || migrationActive || !!startAttemptID} title="S3 connection">
+        <FormSection className="management-field-grid" disabled={busy || recoveryPending || migrationActive || !!startAttemptID} title={t("S3 connection")}>
           <label>
-            Endpoint
+            {t("Endpoint")}
             <input
               value={form.endpoint}
               onChange={(e) => update("endpoint", e.target.value)}
             />
           </label>
           <label>
-            Bucket
+            {t("Bucket")}
             <input
               value={form.bucket}
               onChange={(e) => update("bucket", e.target.value)}
             />
           </label>
           <label>
-            Region
+            {t("Region")}
             <input
               value={form.region}
               onChange={(e) => update("region", e.target.value)}
             />
           </label>
           <label>
-            Access key
+            {t("Access key")}
             <input
               autoComplete="off"
               value={form.accessKey}
@@ -252,12 +254,12 @@ export function StorageSettingsPage() {
             />
           </label>
           <label>
-            Secret key
+            {t("Secret key")}
             <input
               type="password"
               autoComplete="new-password"
               value={secret}
-              placeholder={saved?.secretConfigured ? "Configured" : ""}
+              placeholder={saved?.secretConfigured ? t("Configured") : ""}
               onChange={(e) => {
                 setSecret(e.target.value);
                 if (migration && ["preview", "committed", "canceled"].includes(migration.status)) { setMigration(undefined); setPreviewInput(undefined); }
@@ -271,43 +273,43 @@ export function StorageSettingsPage() {
               checked={form.usePathStyle}
               onChange={(e) => update("usePathStyle", e.target.checked)}
             />
-            Use path-style addressing
+            {t("Use path-style addressing")}
           </label>
         </FormSection>
       )}
       {migrationRequired && (
         <p role="note">
-          Use the migration workflow below to copy and verify existing objects before switching destinations.
+          {t("Use the migration workflow below to copy and verify existing objects before switching destinations.")}
         </p>
       )}
-      <ActionBar sticky description={dirty ? "Unsaved storage changes." : "Current storage configuration."}>
+      <ActionBar sticky description={dirty ? t("Unsaved storage changes.") : t("Current storage configuration.")}>
       <Button
         disabled={busy || recoveryPending || migrationActive || !dirty || migrationRequired}
         onClick={() => void save()}
       >
-        Save storage settings
+        {t("Save storage settings")}
       </Button>
       {saved?.driver === "s3" && (
         <Button variant="secondary"
           disabled={busy || recoveryPending || dirty}
           onClick={() => void test()}
         >
-          Test saved S3 connection
+          {t("Test saved S3 connection")}
         </Button>
       )}
       </ActionBar>
-      {message && <p className="management-feedback" aria-live="polite">{message}</p>}
-      {capabilities?.storageMigrations !== false && missingMigration && !startAttemptID && <Button variant="secondary" disabled={busy} onClick={findCurrentMigration}>Find current migration</Button>}
-      {capabilities?.storageMigrations === false && migrationRequired && <p role="status">Storage migration is unavailable on this server. Keep the current storage location.</p>}
+      {message && <p className="management-feedback" aria-live="polite">{t(message)}</p>}
+      {capabilities?.storageMigrations !== false && missingMigration && !startAttemptID && <Button variant="secondary" disabled={busy} onClick={findCurrentMigration}>{t("Find current migration")}</Button>}
+      {capabilities?.storageMigrations === false && migrationRequired && <p role="status">{t("Storage migration is unavailable on this server. Keep the current storage location.")}</p>}
       {capabilities?.storageMigrations !== false && (migrationRequired || !!migration?.id) && (
         <section aria-labelledby="storage-migration-title">
-          <h3 id="storage-migration-title">Move existing uploaded files</h3>
-          <p>The current destination stays active until every referenced object is copied and verified.</p>
-          <Button variant="secondary" disabled={busy || recoveryPending || migrationActive || !!startAttemptID || !migrationRequired} onClick={() => void previewMigration()}>Preview migration</Button>
-          {migration?.status === "preview" && <Button variant="secondary" disabled={busy || recoveryPending || migrationActive} onClick={() => void startMigration()}>{startAttemptID ? "Retry migration start" : `Start migration of ${migration.totalObjects} objects`}</Button>}
-          {migrationID && migration && <p aria-live="polite">Migration {migration.status}: {migration.copiedObjects} of {migration.totalObjects} verified.</p>}
-          {migration?.status === "failed" && <Button variant="secondary" disabled={busy} onClick={() => void resumeMigration()}>Resume migration</Button>}
-          {migration?.id && ["copying", "ready", "canceling", "failed"].includes(migration.status) && <Button variant="secondary" disabled={busy || migration.status === "canceling"} onClick={() => void cancelMigration()}>Cancel migration</Button>}
+          <h3 id="storage-migration-title">{t("Move existing uploaded files")}</h3>
+          <p>{t("The current destination stays active until every referenced object is copied and verified.")}</p>
+          <Button variant="secondary" disabled={busy || recoveryPending || migrationActive || !!startAttemptID || !migrationRequired} onClick={() => void previewMigration()}>{t("Preview migration")}</Button>
+          {migration?.status === "preview" && <Button variant="secondary" disabled={busy || recoveryPending || migrationActive} onClick={() => void startMigration()}>{startAttemptID ? t("Retry migration start") : t("Start migration of {count} objects", { count: migration.totalObjects })}</Button>}
+          {migrationID && migration && <p aria-live="polite">{t("Migration {status}: {copied} of {total} verified.", { status: t(migration.status), copied: migration.copiedObjects, total: migration.totalObjects })}</p>}
+          {migration?.status === "failed" && <Button variant="secondary" disabled={busy} onClick={() => void resumeMigration()}>{t("Resume migration")}</Button>}
+          {migration?.id && ["copying", "ready", "canceling", "failed"].includes(migration.status) && <Button variant="secondary" disabled={busy || migration.status === "canceling"} onClick={() => void cancelMigration()}>{t("Cancel migration")}</Button>}
         </section>
       )}
     </section>

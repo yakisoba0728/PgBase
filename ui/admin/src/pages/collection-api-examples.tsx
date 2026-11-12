@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useState } from "react";
 import type { CollectionDefinition, FieldDefinition } from "../backend/ports";
 
@@ -111,17 +112,17 @@ export function CollectionAPIExamples({ collection }: { collection: CollectionDe
         : format === "auth"
           ? `// Authenticate an auth collection user before accessing protected records.\nawait client.login("person@example.test", "YOUR_PASSWORD");\nawait client.requestPasswordReset("person@example.test");`
           : code;
-  return <details><summary>API examples for {collection.name}</summary>
-    <label>API identity<select value={audience} onChange={event => { setAudience(event.target.value as typeof audience); setCopied(""); }}><option value="user">Signed-in user</option><option value="anonymous">Anonymous</option><option value="service">Service token</option></select></label>
-    <label>Example format<select value={format} onChange={event => { setFormat(event.target.value as typeof format); setCopied(""); }}><option value="typescript">TypeScript SDK</option><option value="dart">Dart client</option><option value="curl">curl</option><option value="realtime">Realtime subscription</option><option value="batch">Batch mutation</option><option value="auth">Authentication flow</option></select></label>
-    <p>Access must be enabled by this collection’s rules. These examples do not grant access. The SDK is available as a local package; install its npm pack archive first.</p>
-    {collection.view && <p>This collection is a read-only view; mutation examples are omitted.</p>}
+  return <details><summary>{t("API examples for {collection}", { collection: collection.name })}</summary>
+    <label>{t("API identity")}<select value={audience} onChange={event => { setAudience(event.target.value as typeof audience); setCopied(""); }}><option value="user">{t("Signed-in user")}</option><option value="anonymous">{t("Anonymous")}</option><option value="service">{t("Service token")}</option></select></label>
+    <label>{t("Example format")}<select value={format} onChange={event => { setFormat(event.target.value as typeof format); setCopied(""); }}><option value="typescript">{t("TypeScript SDK")}</option><option value="dart">{t("Dart client")}</option><option value="curl">{t("curl")}</option><option value="realtime">{t("Realtime subscription")}</option><option value="batch">{t("Batch mutation")}</option><option value="auth">{t("Authentication flow")}</option></select></label>
+    <p>{t("Access must be enabled by this collection’s rules. These examples do not grant access. The SDK is available as a local package; install its npm pack archive first.")}</p>
+    {collection.view && <p>{t("This collection is a read-only view; mutation examples are omitted.")}</p>}
     <pre><code>{correctedCode}</code></pre>
-    <button type="button" onClick={() => void navigator.clipboard.writeText(correctedCode).then(() => setCopied("Example copied.")).catch(() => setCopied("Copy unavailable. Select the example text to copy it."))}>Copy API example</button>
-    {copied && <p role="status">{copied}</p>}
-    <p>Keep filter, sort, limit and expand unchanged while following nextCursor. A 412 response means the record changed: read it again before deciding whether to retry. Numeric field values may use decimal strings to preserve precision.</p>
-    {collection.fields.some(field => field.type === "relation") && <p>Relation values are record UUIDs (arrays for multiple relations). Replace RELATED_RECORD_ID with an accessible existing record. Use expand with the relation field name to retrieve related data.</p>}
-    {collection.fields.some(field => field.type === "file") && <p>Required files are uploaded atomically with record creation through multipart Batch. Optional files can also use client.files(collection, recordId).upload(field, file, file.name) after creation. Download tokens are scoped to one file and variant.</p>}
-    <table><thead><tr><th>Field</th><th>Type</th><th>Validation</th></tr></thead><tbody>{collection.fields.map(field => <tr key={field.id ?? field.name}><td>{field.name}</td><td>{field.type}</td><td>{field.required ? "SQL NULL rejected. " : "Optional. "}{JSON.stringify(field.options ?? {})}</td></tr>)}</tbody></table>
+    <button type="button" onClick={() => void navigator.clipboard.writeText(correctedCode).then(() => setCopied("Example copied.")).catch(() => setCopied("Copy unavailable. Select the example text to copy it."))}>{t("Copy API example")}</button>
+    {copied && <p role="status">{t(copied)}</p>}
+    <p>{t("Keep filter, sort, limit and expand unchanged while following nextCursor. A 412 response means the record changed: read it again before deciding whether to retry. Numeric field values may use decimal strings to preserve precision.")}</p>
+    {collection.fields.some(field => field.type === "relation") && <p>{t("Relation values are record UUIDs (arrays for multiple relations). Replace RELATED_RECORD_ID with an accessible existing record. Use expand with the relation field name to retrieve related data.")}</p>}
+    {collection.fields.some(field => field.type === "file") && <p>{t("Required files are uploaded atomically with record creation through multipart Batch. Optional files can also use client.files(collection, recordId).upload(field, file, file.name) after creation. Download tokens are scoped to one file and variant.")}</p>}
+    <table><thead><tr><th>{t("Field")}</th><th>{t("Type")}</th><th>{t("Validation")}</th></tr></thead><tbody>{collection.fields.map(field => <tr key={field.id ?? field.name}><td>{field.name}</td><td>{field.type}</td><td>{field.required ? t("SQL NULL rejected. ") : t("Optional. ")}{JSON.stringify(field.options ?? {})}</td></tr>)}</tbody></table>
   </details>;
 }

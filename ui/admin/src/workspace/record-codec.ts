@@ -1,3 +1,4 @@
+import { t, message, type Message } from "../i18n";
 import { isLosslessNumber } from "lossless-json";
 import { parseJSON, stringifyJSON } from "../backend/json";
 import type { FieldDefinition, RecordData, RecordIDPolicy, RecordValue } from "../backend/ports";
@@ -134,12 +135,12 @@ function selectionLabel(count: number): string {
   return `${count} related record${count === 1 ? "" : "s"}`;
 }
 
-function relationErrorText(field: FieldDefinition, code: string, policy?: RecordIDPolicy): string {
+function relationErrorText(field: FieldDefinition, code: string, policy?: RecordIDPolicy): Message {
   const relation = field.relation;
   if (code === "duplicate_relation_value") return "Related record IDs must be unique.";
   if (code === "relation_target_invalid") return "One or more related records do not exist or are unavailable.";
-  if (code === "relation_min_select" && relation !== undefined) return `Select at least ${selectionLabel(relation.minSelect)}.`;
-  if (code === "relation_max_select" && relation !== undefined) return `Select no more than ${selectionLabel(relation.maxSelect)}.`;
+  if (code === "relation_min_select" && relation !== undefined) return message(`Select at least ${selectionLabel(relation.minSelect)}.`, `연결할 레코드를 최소 ${relation.minSelect}개 선택하세요.` );
+  if (code === "relation_max_select" && relation !== undefined) return message(`Select no more than ${selectionLabel(relation.maxSelect)}.`, `연결할 레코드를 최대 ${relation.maxSelect}개 선택하세요.` );
   if (code === "required") return "This relation is required.";
   if (code === "relation_invalid_value") {
     if (policy?.kind === "text") return relation?.cardinality === "multiple"
@@ -156,12 +157,12 @@ function relationErrorText(field: FieldDefinition, code: string, policy?: Record
 // always fits, and every other text value at the 1 MiB body limit restated in
 // the codec. Naming the wrong bound sends people trimming a value that was
 // never near it, so the limit follows the field the same way maxLength does.
-export function validationText(field: FieldDefinition, code: string, policy?: RecordIDPolicy): string {
+export function validationMessage(field: FieldDefinition, code: string, policy?: RecordIDPolicy): Message {
   if (field.type === "relation") return relationErrorText(field, code, policy);
   if (field.type === "autodate") return "This timestamp is set by the server.";
   if (field.type === "geoPoint") return "Enter longitude from −180 to 180 and latitude from −90 to 90. Required points cannot be (0, 0).";
-  if (field.type === "password") return `Enter ${field.options?.minLength ?? (field.required ? 1 : 0)}–${field.options?.maxLength ?? 71} characters. Stored passwords are never returned.`;
-  if (field.type === "editor" && code === "value_too_long") return `HTML must be at most ${field.options?.maxSize || 5 * 1024 * 1024} UTF-8 bytes.`;
+  if (field.type === "password") return message(`Enter ${field.options?.minLength ?? (field.required ? 1 : 0)}–${field.options?.maxLength ?? 71} characters. Stored passwords are never returned.`, `${field.options?.minLength ?? (field.required ? 1 : 0)}~${field.options?.maxLength ?? 71}자로 입력하세요. 저장된 비밀번호는 반환되지 않습니다.` );
+  if (field.type === "editor" && code === "value_too_long") return message(`HTML must be at most ${field.options?.maxSize || 5 * 1024 * 1024} UTF-8 bytes.`, `HTML은 UTF-8 기준 최대 ${field.options?.maxSize || 5 * 1024 * 1024}바이트까지 입력할 수 있습니다.` );
   if (code === "value_too_long") {
     return field.type === "text" && !field.indexed && !field.unique
       ? "Value exceeds the 1 MiB limit for text values."
@@ -200,8 +201,8 @@ export function dirtyNames(draft: Draft, initial: Draft): Set<string> {
 /** Turns the tri-state draft into the exact body to send: an unset field is
  * omitted so the database default applies, and an unchanged field never
  * reaches a PATCH. */
-export function encodeDraft(fields: FieldDefinition[], draft: Draft, dirty: Set<string>, isCreate: boolean, relationPolicies?: RelationIDPolicies): { input: RecordData; errors: Record<string, string> } {
-  const errors: Record<string, string> = {};
+export function encodeDraftMessages(fields: FieldDefinition[], draft: Draft, dirty: Set<string>, isCreate: boolean, relationPolicies?: RelationIDPolicies): { input: RecordData; errors: Record<string, Message> } {
+  const errors: Record<string, Message> = {};
   const input: RecordData = {};
   for (const field of fields) {
     if (field.type === "autodate" || field.type === "file") continue;
@@ -209,25 +210,34 @@ export function encodeDraft(fields: FieldDefinition[], draft: Draft, dirty: Set<
     const policy = field.relation === undefined ? undefined : relationPolicies?.get(field.relation.targetCollectionId);
     const state = draft[field.name] ?? { kind: "unset" };
     if (state.kind === "unset") {
-      if (isCreate && field.type === "relation" && (field.relation?.minSelect ?? 0) > 0) errors[field.name] = validationText(field, "relation_min_select", policy);
+      if (isCreate && field.type === "relation" && (field.relation?.minSelect ?? 0) > 0) errors[field.name] = validationMessage(field, "relation_min_select", policy);
       continue;
     }
     if (state.kind === "null") {
       if (["password", "geoPoint", "editor"].includes(field.type)) errors[field.name] = "Use a value or omit this field; NULL is not supported.";
-      else if (field.type === "relation" && field.relation?.cardinality === "multiple") errors[field.name] = validationText(field, "relation_invalid_value", policy);
-      else if (field.type === "relation" && (field.relation?.minSelect ?? 0) > 0) errors[field.name] = validationText(field, "relation_min_select", policy);
+      else if (field.type === "relation" && field.relation?.cardinality === "multiple") errors[field.name] = validationMessage(field, "relation_invalid_value", policy);
+      else if (field.type === "relation" && (field.relation?.minSelect ?? 0) > 0) errors[field.name] = validationMessage(field, "relation_min_select", policy);
       else input[field.name] = null;
       continue;
     }
     try { input[field.name] = encodeValue(field, state.value, policy); }
     catch (caught: unknown) {
-      if (field.type === "relation" && caught instanceof RelationValueError) errors[field.name] = validationText(field, caught.code, policy);
-      else if (["geoPoint", "password"].includes(field.type)) errors[field.name] = validationText(field, "type_mismatch");
-      else if (field.type === "editor") errors[field.name] = validationText(field, caught instanceof Error && caught.message === "size" ? "value_too_long" : "required");
+      if (field.type === "relation" && caught instanceof RelationValueError) errors[field.name] = validationMessage(field, caught.code, policy);
+      else if (["geoPoint", "password"].includes(field.type)) errors[field.name] = validationMessage(field, "type_mismatch");
+      else if (field.type === "editor") errors[field.name] = validationMessage(field, caught instanceof Error && caught.message === "size" ? "value_too_long" : "required");
       else errors[field.name] = field.type === "jsonb" ? "Enter valid JSON." : "Value does not match the field type.";
     }
   }
   return { input, errors };
+}
+
+export function validationText(field: FieldDefinition, code: string, policy?: RecordIDPolicy): string {
+  return t(validationMessage(field, code, policy));
+}
+
+export function encodeDraft(...args: Parameters<typeof encodeDraftMessages>): { input: RecordData; errors: Record<string, string> } {
+  const { input, errors } = encodeDraftMessages(...args);
+  return { input, errors: Object.fromEntries(Object.entries(errors).map(([name, value]) => [name, t(value)])) };
 }
 
 /** Applies a picker selection while preserving ordered-unique multi semantics. */

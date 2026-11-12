@@ -1,3 +1,4 @@
+import { t, message as bilingual } from "../i18n";
 import { useUnsavedDraft } from "../routing/unsaved-draft";
 import { stringifyJSON } from "../backend/json";
 import { useEffect, useId, useState } from "react";
@@ -33,48 +34,41 @@ export function MailTemplateEditor({
   }
   return (
     <div>
-      <h4>{value.purpose.replace("_", " ")}</h4>
-      <label>
-        Subject{" "}
+      <h4>{t(({ verify: "Email verification", password_reset: "Password reset", email_change: "Email change", otp: "One-time password" })[value.purpose])}</h4>
+      <label>{t("Subject")}{" "}
         <input
           value={draft.subject}
           onChange={(e) => setDraft({ ...draft, subject: e.target.value })}
         />
       </label>
-      <label>
-        Plain text alternative{" "}
+      <label>{t("Plain text alternative")}{" "}
         <textarea
           value={draft.body}
           onChange={(e) => setDraft({ ...draft, body: e.target.value })}
         />
       </label>
-      <label>
-        HTML body{" "}
+      <label>{t("HTML body")}{" "}
         <textarea
           value={draft.htmlBody}
           onChange={(e) => setDraft({ ...draft, htmlBody: e.target.value })}
         />
       </label>
-      <button disabled={disabled} type="button" onClick={runPreview}>
-        Validate and preview
-      </button>
-      {previewError && <p role="alert">{previewError}</p>}
+      <button disabled={disabled} type="button" onClick={runPreview}>{t("Validate and preview")}</button>
+      {previewError && <p role="alert">{t(previewError)}</p>}
       {rendered && (
         <details open>
           <summary>{rendered.subject}</summary>
           <pre>{rendered.text}</pre>
           {rendered.html && (
             <iframe
-              title={`${draft.purpose} email preview`}
+              title={t(bilingual(`${draft.purpose} email preview`, `${draft.purpose} 이메일 미리 보기`))}
               sandbox=""
               srcDoc={rendered.html}
             />
           )}
         </details>
       )}
-      <button disabled={disabled} type="button" onClick={() => save(draft)}>
-        Save template
-      </button>
+      <button disabled={disabled} type="button" onClick={() => save(draft)}>{t("Save template")}</button>
     </div>
   );
 }

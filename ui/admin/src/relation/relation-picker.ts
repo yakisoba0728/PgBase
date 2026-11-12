@@ -1,7 +1,8 @@
+import { t, message, type Message } from "../i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBackend } from "../auth/session";
 import { CreateAttempt, type CollectionDefinition, type FieldDefinition } from "../backend/ports";
-import { canonicalRelationID, encodeDraft, initialDraft, selectRelationTarget } from "../workspace/record-codec";
+import { canonicalRelationID, encodeDraftMessages as encodeDraft, initialDraft, selectRelationTarget } from "../workspace/record-codec";
 import {
   deselectRelationTarget,
   relationDraftSelection,
@@ -49,7 +50,7 @@ interface PickerState {
   plan: RelationTargetPlan | null;
   cursor: string | undefined;
   results: RelationCandidate[] | null;
-  status: string | null;
+  status: Message | null;
   busy: "search" | "more" | null;
   activeIndex: number;
   labels: ReadonlyMap<string, string>;
@@ -63,10 +64,10 @@ const initialState: PickerState = {
   activeIndex: -1, labels: new Map(), missing: new Set(), claimed: new Set(), mutating: false,
 };
 
-function resultsStatus(count: number, more: boolean): string | null {
+function resultsStatus(count: number, more: boolean): Message | null {
   if (count === 0) return "No matching target records.";
   if (!more) return null;
-  return `Showing ${count} target record${count === 1 ? "" : "s"}. Load more to see the rest.`;
+  return message(`Showing ${count} target record${count === 1 ? "" : "s"}. Load more to see the rest.`, `대상 레코드 ${count}개를 표시합니다. 나머지 결과를 보려면 더 불러오세요.`);
 }
 
 function nextActive(step: ActiveStep, current: number, count: number): number {
@@ -185,14 +186,14 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
   const select = useCallback((id: string) => {
     const selection = selectRelationTarget(field, draft, id, target.recordId);
     if (selection.status === "duplicate") { patch({ status: "That target is already selected." }); return; }
-    if (selection.status === "max") { patch({ status: `Select no more than ${field.relation?.maxSelect ?? 0} related records.` }); return; }
+    if (selection.status === "max") { patch({ status: message(`Select no more than ${field.relation?.maxSelect ?? 0} related records.`, `연결할 레코드는 최대 ${field.relation?.maxSelect ?? 0}개까지 선택하세요.`) }); return; }
     onChange(selection.draft);
     // A chosen candidate already carries its label, so the selection list shows
     // it without spending a hydration request on an id it just read.
     const label = state.results?.find((candidate) => candidate.id === id)?.label;
     setState((current) => ({
       ...current,
-      status: `Selected ${label ?? id}.`,
+      status: message(`Selected ${label ?? id}.`, `${label ?? id}을(를) 선택했습니다.`),
       labels: label === undefined ? current.labels : new Map([...current.labels, [id, label]]),
       claimed: label === undefined ? current.claimed : new Set([...current.claimed, id]),
     }));
@@ -202,7 +203,7 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
     query: state.query,
     results: state.results,
     selections: selected.map((id) => ({ id, label: state.labels.get(id) ?? id, available: !state.missing.has(id) })),
-    status: state.status,
+    status: state.status === null ? null : t(state.status),
     searching: state.busy === "search",
     loadingMore: state.busy === "more",
     hasMore: state.cursor !== undefined,
@@ -218,7 +219,7 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
     select,
     deselect: (id) => {
       onChange(deselectRelationTarget(draft, id, target.recordId));
-      patch({ status: `Removed ${state.labels.get(id) ?? id}.` });
+      patch({ status: message(`Removed ${state.labels.get(id) ?? id}.`, `${state.labels.get(id) ?? id}을(를) 제거했습니다.`) });
     },
     moveActive: (step) => patch({ activeIndex: nextActive(step, state.activeIndex, state.results?.length ?? 0) }),
     chooseActive: () => {
@@ -243,8 +244,8 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
         const id = String(record.data.id);
         const candidate = relationTargetOption(record.data, displayField, target.recordId);
         select(id);
-        if (candidate !== undefined) setState((current) => ({ ...current, results: [...(current.results ?? []), candidate], status: `Created and selected ${candidate.label}.`, labels: new Map([...current.labels, [id, candidate.label]]), claimed: new Set([...current.claimed, id]) }));
-      }).catch(() => { if (alive.current) patch({ status: `Unable to create the ${target.name} record.` }); })
+        if (candidate !== undefined) setState((current) => ({ ...current, results: [...(current.results ?? []), candidate], status: message(`Created and selected ${candidate.label}.`, `${candidate.label}을(를) 만들고 선택했습니다.`), labels: new Map([...current.labels, [id, candidate.label]]), claimed: new Set([...current.claimed, id]) }));
+      }).catch(() => { if (alive.current) patch({ status: message(`Unable to create the ${target.name} record.`, `${target.name} 레코드를 만들 수 없습니다.`) }); })
         .finally(() => { if (alive.current) patch({ mutating: false }); });
     },
     editTarget: (id, value) => {
@@ -254,15 +255,15 @@ export function useRelationPicker(target: CollectionDefinition, field: FieldDefi
         if (!alive.current) return undefined;
         const draft = { ...initialDraft(target.fields, record.data, false), [displayField.name]: { kind: "value" as const, value } };
         const encoded = encodeDraft(target.fields, draft, new Set([displayField.name]), false);
-        if (Object.keys(encoded.errors).length > 0) throw new Error(encoded.errors[displayField.name]);
+        if (Object.keys(encoded.errors).length > 0) throw new Error(t(encoded.errors[displayField.name]));
         return records.update(record, encoded.input);
       }).then((record) => {
         if (record === undefined) return;
         if (!alive.current) return;
         const candidate = relationTargetOption(record.data, displayField, target.recordId);
         if (candidate === undefined) return;
-        setState((current) => ({ ...current, mutating: false, status: `Updated ${candidate.label}.`, results: current.results?.map((item) => item.id === id ? candidate : item) ?? null, labels: new Map([...current.labels, [id, candidate.label]]) }));
-      }).catch(() => { if (alive.current) patch({ mutating: false, status: `Unable to update the ${target.name} record.` }); });
+        setState((current) => ({ ...current, mutating: false, status: message(`Updated ${candidate.label}.`, `${candidate.label}을(를) 수정했습니다.`), results: current.results?.map((item) => item.id === id ? candidate : item) ?? null, labels: new Map([...current.labels, [id, candidate.label]]) }));
+      }).catch(() => { if (alive.current) patch({ mutating: false, status: message(`Unable to update the ${target.name} record.`, `${target.name} 레코드를 수정할 수 없습니다.`) }); });
     },
   };
 }

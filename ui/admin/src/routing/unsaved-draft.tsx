@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useSyncExternalStore, type ReactNode } from "react";
 
+import { t } from "../i18n";
+
 const leaveText = "Leave this page? The changes you have not saved will be lost.";
 
 interface DraftLedger {
@@ -14,7 +16,7 @@ export function draftLedger(confirmLeave: (text: string) => boolean = (text) => 
   const unsaved = new Set<string>();
   const listeners = new Set<() => void>();
   const notify = () => listeners.forEach(listener => listener());
-  const confirmed = () => unsaved.size === 0 || confirmLeave(leaveText);
+  const confirmed = () => unsaved.size === 0 || confirmLeave(t(leaveText));
   return {
     held: () => unsaved.size > 0,
     subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },

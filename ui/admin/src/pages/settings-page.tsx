@@ -1,3 +1,5 @@
+import { t, useLocale, type Message } from "../i18n";
+import { LanguagePicker } from "../i18n/language-picker";
 import { useMutationScope } from "../components/feature-state";
 import { RuntimePolicySettings, runtimePolicyError } from "./runtime-policy-settings";
 import { applyWorkspaceTheme } from "../components/workspace-theme";
@@ -10,12 +12,13 @@ import { ProfileSettings } from "./profile-settings";
 import { Button, FormSection, PageHeading } from "../components/ui";
 
 export function SettingsPage() {
+  useLocale();
   const { settings: port, profile: profilePort } = useBackend();
   const [section, setSection] = useState("appearance");
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [value, setValue] = useState<AdminSettings | null>(null);
   const [keep, setKeep] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<Message>("");
   const [busy, setBusy] = useState(false);
   const mutation = useMutationScope();
   const savedValue = useRef<AdminSettings | null>(null);
@@ -35,22 +38,22 @@ export function SettingsPage() {
   if (!port)
     return (
       <section className="settings-page">
-        <PageHeading title="Application settings" />
-        <p>Settings are unavailable on this server.</p>
+        <PageHeading title={t("Application settings")} />
+        <p>{t("Settings are unavailable on this server.")}</p>
       </section>
     );
   if (!value)
     return (
       <section className="settings-page">
-        <PageHeading title="Application settings" />
-        <p role={message ? "alert" : "status"}>{message || "Loading settings…"}</p>
-        {message && <Button variant="secondary" onClick={() => setLoadAttempt(attempt => attempt + 1)}>Retry settings</Button>}
+        <PageHeading title={t("Application settings")} />
+        <p role={message ? "alert" : "status"}>{t(message || "Loading settings…")}</p>
+        {message && <Button variant="secondary" onClick={() => setLoadAttempt(attempt => attempt + 1)}>{t("Retry settings")}</Button>}
       </section>
     );
   const sections = [
-    ["appearance", "Application"], ["profile", "My account"], ["logs", "Logs"],
-    ["security", "Authentication limits"], ["api", "API rate limits"],
-    ["batch", "Batch requests"], ["backups", "Backups"], ["network", "Network"],
+    ["appearance", t("Application")], ["profile", t("My account")], ["logs", t("Logs")],
+    ["security", t("Authentication limits")], ["api", t("API rate limits")],
+    ["batch", t("Batch requests")], ["backups", t("Backups")], ["network", t("Network")],
   ].filter(([key]) => key !== "profile" || profilePort);
   function moveTab(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     const direction = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
@@ -82,7 +85,7 @@ export function SettingsPage() {
       return;
     }
     const policyError = runtimePolicyError(settingsValue);
-    if (policyError) { setSection(policyError.startsWith("Batch") ? "batch" : "security"); setMessage(policyError); return; }
+    if (policyError) { setSection((typeof policyError === "string" ? policyError : policyError.en).startsWith("Batch") ? "batch" : "security"); setMessage(policyError); return; }
     const error = ruleErrors(
       settingsValue.rateLimits.rules ?? [],
       settingsValue.rateLimits.excludedIPs ?? [],
@@ -120,35 +123,36 @@ export function SettingsPage() {
   }
   return (
     <section className="settings-page">
-      <PageHeading title="Application settings" description="Application preferences, security policies, and your administrator account." actions={<Button variant="secondary" disabled={busy || dirty} onClick={() => void reloadServer()}>Reload server settings</Button>} />
-      {message && <p className="settings-feedback" role="status">{message}</p>}
+      <PageHeading title={t("Application settings")} description={t("Application preferences, security policies, and your administrator account.")} actions={<Button variant="secondary" disabled={busy || dirty} onClick={() => void reloadServer()}>{t("Reload server settings")}</Button>} />
+      {message && <p className="settings-feedback" role="status">{t(message)}</p>}
       <div className="settings-layout">
-      <nav className="settings-tabs" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
+      <nav className="settings-tabs" role="tablist" aria-label={t("Settings sections")} aria-orientation="vertical">
         {sections.map(([key, label], index) => <button key={key} type="button" role="tab" id={`settings-tab-${key}`} aria-controls={`settings-panel-${key}`} aria-selected={section === key} tabIndex={section === key ? 0 : -1} onKeyDown={event => moveTab(event, index)} onClick={() => setSection(key)}>{label}</button>)}
       </nav>
       <div className="settings-panels">
       <div role="tabpanel" id="settings-panel-profile" aria-labelledby="settings-tab-profile" hidden={section !== "profile"}><ProfileSettings /></div>
       <div role="tabpanel" id="settings-panel-appearance" aria-labelledby="settings-tab-appearance" hidden={section !== "appearance"}>
-      <FormSection id="settings-appearance" disabled={busy} title="Branding and appearance">
+      <FormSection id="settings-appearance" disabled={busy} title={t("Branding and appearance")}>
+        <LanguagePicker />
         <div className="settings-field-grid">
         <div className="settings-field">
         <label>
-          Theme
+          {t("Theme")}
           <select
             aria-describedby="settings-theme-help"
             value={value.application.theme}
             onChange={(e) => change("application", { theme: e.target.value })}
           >
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
+            <option value="system">{t("System")}</option>
+            <option value="light">{t("Light")}</option>
+            <option value="dark">{t("Dark")}</option>
           </select>
         </label>
-        <p id="settings-theme-help" className="settings-help">System follows this computer’s light or dark appearance.</p>
+        <p id="settings-theme-help" className="settings-help">{t("System follows this computer\u2019s light or dark appearance.")}</p>
         </div>
         <div className="settings-field">
         <label>
-          Accent color
+          {t("Accent color")}
           <input
             type="color"
             aria-describedby="settings-accent-help"
@@ -157,10 +161,10 @@ export function SettingsPage() {
             onChange={(e) => change("application", { accent: e.target.value })}
           />
         </label>
-        <p id="settings-accent-help" className="settings-help">Choose a color to replace the theme accent.</p>
+        <p id="settings-accent-help" className="settings-help">{t("Choose a color to replace the theme accent.")}</p>
         </div>
         <label>
-          Branding
+          {t("Branding")}
           <input
             value={value.application.branding}
             onChange={(e) =>
@@ -172,10 +176,10 @@ export function SettingsPage() {
       </FormSection>
       </div>
       <div role="tabpanel" id="settings-panel-logs" aria-labelledby="settings-tab-logs" hidden={section !== "logs"}>
-      <FormSection id="settings-logs" disabled={busy} title="Request logs">
+      <FormSection id="settings-logs" disabled={busy} title={t("Request logs")}>
         <div className="settings-field-grid">
         <label>
-          Retention days
+          {t("Retention days")}
           <input
             type="number"
             min="1"
@@ -186,13 +190,13 @@ export function SettingsPage() {
           />
         </label>
         <label>
-          Level
+          {t("Level")}
           <select
             value={value.logs.level}
             onChange={(e) => change("logs", { level: e.target.value })}
           >
             {["debug", "info", "warn", "error"].map((level) => (
-              <option key={level}>{level}</option>
+              <option key={level} value={level}>{t(level)}</option>
             ))}
           </select>
         </label>
@@ -204,7 +208,7 @@ export function SettingsPage() {
             type="checkbox"
             onChange={(e) => change("logs", { includeIP: e.target.checked })}
           />{" "}
-          Include IP addresses
+          {t("Include IP addresses")}
         </label>
         <label>
           <input
@@ -212,17 +216,17 @@ export function SettingsPage() {
             type="checkbox"
             onChange={(e) => change("logs", { includeAuth: e.target.checked })}
           />{" "}
-          Include authentication events
+          {t("Include authentication events")}
         </label>
         </div>
       </FormSection>
       </div>
       <div role="tabpanel" id="settings-panel-security" aria-labelledby="settings-tab-security" hidden={section !== "security"} className="settings-security">
-      <FormSection disabled={busy} title="Administrator rate limits">
-        <p className="settings-help">Limit repeated administrator sign-in failures by account and network.</p>
+      <FormSection disabled={busy} title={t("Administrator rate limits")}>
+        <p className="settings-help">{t("Limit repeated administrator sign-in failures by account and network.")}</p>
         <div className="settings-field-grid">
         <label>
-          Account failures
+          {t("Account failures")}
           <input
             type="number"
             min="1"
@@ -238,7 +242,7 @@ export function SettingsPage() {
           />
         </label>
         <label>
-          Network failures
+          {t("Network failures")}
           <input
             type="number"
             min="1"
@@ -254,7 +258,7 @@ export function SettingsPage() {
           />
         </label>
         <label>
-          Window seconds
+          {t("Window seconds")}
           <input
             type="number"
             min="1"
@@ -270,7 +274,7 @@ export function SettingsPage() {
           />
         </label>
         <label>
-          Block seconds
+          {t("Block seconds")}
           <input
             type="number"
             min="1"
@@ -298,30 +302,30 @@ export function SettingsPage() {
       </div>
       <div role="tabpanel" id="settings-panel-batch" aria-labelledby="settings-tab-batch" hidden={section !== "batch"}><RuntimePolicySettings section="batch" value={value} disabled={busy} change={setValue} /></div>
       <div role="tabpanel" id="settings-panel-backups" aria-labelledby="settings-tab-backups" hidden={section !== "backups"}>
-      <FormSection id="settings-backups" disabled={busy} title="Automatic backups">
+      <FormSection id="settings-backups" disabled={busy} title={t("Automatic backups")}>
         <label className="settings-toggle">
           <input
             checked={value.backups.enabled}
             type="checkbox"
             onChange={(e) => change("backups", { enabled: e.target.checked })}
           />{" "}
-          Enabled
+          {t("Enabled")}
         </label>
         <div className="settings-field-grid">
         <label>
-          Backups to keep
+          {t("Backups to keep")}
           <input type="number" min="0" max="10000" step="1" value={keep} aria-describedby="settings-backup-keep-help" onChange={(event) => setKeep(event.target.value)} />
         </label>
-        <p className="settings-help" id="settings-backup-keep-help">Counts all archives: manual, uploaded, and scheduled. Use 0 to keep every archive.</p>
+        <p className="settings-help" id="settings-backup-keep-help">{t("Counts all archives: manual, uploaded, and scheduled. Use 0 to keep every archive.")}</p>
         <label>
-          Schedule
+          {t("Schedule")}
           <input
             value={value.backups.schedule}
             onChange={(e) => change("backups", { schedule: e.target.value })}
           />
         </label>
         <label>
-          Timezone
+          {t("Timezone")}
           <input
             value={value.backups.timezone}
             onChange={(e) => change("backups", { timezone: e.target.value })}
@@ -331,10 +335,10 @@ export function SettingsPage() {
       </FormSection>
       </div>
       <div role="tabpanel" id="settings-panel-network" aria-labelledby="settings-tab-network" hidden={section !== "network"}>
-      <FormSection id="settings-network" disabled={busy} title="Trusted proxies">
-        <p className="settings-help">Configure the proxy networks trusted by this application.</p>
+      <FormSection id="settings-network" disabled={busy} title={t("Trusted proxies")}>
+        <p className="settings-help">{t("Configure the proxy networks trusted by this application.")}</p>
         <label>
-          CIDRs, one per line
+          {t("CIDRs, one per line")}
           <textarea
             rows={3}
             spellCheck={false}
@@ -356,10 +360,10 @@ export function SettingsPage() {
       </div>
       </div>
       <div className="settings-save-bar" hidden={section === "profile"}>
-        <p>{dirty ? "Unsaved application changes. " : "Application changes are validated and saved as one revision."}{dirty && "Save settings to apply them together."}</p>
-      {dirty && <Button variant="secondary" disabled={busy} onClick={() => { if (savedValue.current) { setValue(savedValue.current); setKeep(String(savedValue.current.backups.keep)); setMessage("Unsaved application settings discarded."); } }}>Discard application changes</Button>}
+        <p>{dirty ? t("Unsaved application changes. ") : t("Application changes are validated and saved as one revision.")}{dirty && t("Save settings to apply them together.")}</p>
+      {dirty && <Button variant="secondary" disabled={busy} onClick={() => { if (savedValue.current) { setValue(savedValue.current); setKeep(String(savedValue.current.backups.keep)); setMessage("Unsaved application settings discarded."); } }}>{t("Discard application changes")}</Button>}
       <Button disabled={busy} onClick={() => void save()}>
-        {busy ? "Saving…" : "Save settings"}
+        {busy ? t("Saving…") : t("Save settings")}
       </Button>
       </div>
     </section>

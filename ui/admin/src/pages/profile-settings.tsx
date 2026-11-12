@@ -1,3 +1,4 @@
+import { t, useLocale } from "../i18n";
 import { useEffect, useRef, useState } from "react";
 import { useBackend } from "../auth/session";
 import type { AdministratorProfile } from "../backend/ports";
@@ -11,6 +12,7 @@ type ProfileActionStatus = {
 };
 
 export function ProfileSettings() {
+  useLocale();
   const { profile: port } = useBackend();
   const [profile, setProfile] = useState<AdministratorProfile | null>(null);
   const [draft, setDraft] = useState({ email: "", prefixes: "" });
@@ -50,18 +52,18 @@ export function ProfileSettings() {
     return () => { controller.abort(); profileSave.current += 1; allowlistSave.current += 1; };
   }, [port]);
   if (!port) return null;
-  if (!profile) return <section id="settings-profile" className="settings-profile" aria-label="Administrator profile">
-    <h3>Administrator profile</h3>
-    <p role="status">{action.message || "Loading administrator profile…"}</p>
+  if (!profile) return <section id="settings-profile" className="settings-profile" aria-label={t("Administrator profile")}>
+    <h3>{t("Administrator profile")}</h3>
+    <p role="status">{t(action.message || "Loading administrator profile…")}</p>
   </section>;
   return (
-    <section id="settings-profile" className="settings-profile" aria-label="Administrator profile">
-      <h3>Administrator profile</h3>
-      <p className="settings-help">Your email and sign-in networks are saved separately from application settings.</p>
-      {action.message && <p className="settings-feedback" role="status">{action.message}</p>}
-      <FormSection title="Identity" className="settings-identity">
+    <section id="settings-profile" className="settings-profile" aria-label={t("Administrator profile")}>
+      <h3>{t("Administrator profile")}</h3>
+      <p className="settings-help">{t("Your email and sign-in networks are saved separately from application settings.")}</p>
+      {action.message && <p className="settings-feedback" role="status">{t(action.message)}</p>}
+      <FormSection title={t("Identity")} className="settings-identity">
         <label>
-          Email
+          {t("Email")}
           <input
             disabled={action.savingProfile}
             type="email"
@@ -103,16 +105,15 @@ export function ProfileSettings() {
               });
           }}
         >
-          {action.savingProfile ? "Saving administrator email…" : "Save administrator email"}
+          {action.savingProfile ? t("Saving administrator email…") : t("Save administrator email")}
         </Button>
       </FormSection>
-      <FormSection title="IP allowlist">
+      <FormSection title={t("IP allowlist")}>
         <p id="settings-allowlist-help" className="settings-help">
-          One CIDR per line. When entries exist, this administrator can sign in
-          only from these networks.
+          {t("One CIDR per line. When entries exist, this administrator can sign in only from these networks.")}
         </p>
         <label>
-          Allowed CIDRs
+          {t("Allowed CIDRs")}
           <textarea
             rows={3}
             className="settings-code"
@@ -169,7 +170,7 @@ export function ProfileSettings() {
               });
           }}
         >
-          {action.savingAllowlist ? "Saving IP allowlist…" : "Save IP allowlist"}
+          {action.savingAllowlist ? t("Saving IP allowlist…") : t("Save IP allowlist")}
         </Button>
       </FormSection>
     </section>

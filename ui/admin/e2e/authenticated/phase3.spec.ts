@@ -85,7 +85,7 @@ test("saves and reloads OTP policy and mail template in a separate realm", async
     await realm.getByRole("button", { name: "Save policy", exact: true }).click();
     await expect(realm.getByText(/^Policy saved\./)).toBeVisible();
     await realm.getByRole("tab", { name: "Email templates", exact: true }).click();
-    const template = realm.getByRole("heading", { name: "otp", exact: true }).locator("..");
+    const template = realm.getByRole("heading", { name: "One-time password", exact: true }).locator("..");
     await template.getByLabel("Subject", { exact: true }).fill("Your application login code");
     await template.getByLabel("Plain text alternative").fill("Use {{otp}} to sign in.");
     await template.getByRole("button", { name: "Save template" }).click();

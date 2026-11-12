@@ -18,14 +18,14 @@ test("system appearance follows OS changes while explicit themes remain selected
     await saveSettings(page);
     await expect(page.locator("html")).toHaveCSS("background-color", "rgb(25, 29, 34)");
     await page.emulateMedia({ colorScheme: "light" });
-    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(245, 246, 247)");
+    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(247, 248, 250)");
     await theme.selectOption("dark");
     await saveSettings(page);
     await expect(page.locator("html")).toHaveCSS("background-color", "rgb(25, 29, 34)");
     await page.emulateMedia({ colorScheme: "dark" });
     await theme.selectOption("light");
     await saveSettings(page);
-    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(245, 246, 247)");
+    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(247, 248, 250)");
     await theme.selectOption("system");
     await saveSettings(page);
     await page.reload();

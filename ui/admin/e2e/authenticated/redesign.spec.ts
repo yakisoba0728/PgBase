@@ -56,7 +56,7 @@ test("rebuilt workspace supports real record writes, filters, themes and mobile 
     await expect(page.getByRole("cell", { name: "Updated browser record", exact: true })).toBeVisible();
     await page.screenshot({ path: path.join(evidence, "records-desktop-light.png"), fullPage: true });
     await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
-    await expect(page.getByRole("link", { name: "API preview", exact: true })).toHaveCSS("color", "rgb(140, 213, 170)");
+    await expect(page.getByRole("link", { name: "API preview", exact: true })).toHaveCSS("color", "rgb(231, 235, 239)");
     await page.screenshot({ path: path.join(evidence, "records-desktop-dark.png"), fullPage: true });
     await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
     await page.setViewportSize({ width: 390, height: 844 });

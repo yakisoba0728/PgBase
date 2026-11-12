@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { t, useLocale } from "../i18n";
 import { clearAdministratorRecordStorage } from "../workspace/record-productivity";
 import { httpBackend } from "../backend/http-backend";
 import { SessionError, type AdminBackend, type AuthSnapshot, type AuthenticatedSession, type LoginInput, type SessionFailure, type SetupInput } from "../backend/ports";
@@ -20,6 +21,7 @@ export function sessionFailure(error: unknown): SessionFailure {
 }
 
 export function SessionProvider({ backend, children, history = browserHistory }: { backend?: AdminBackend; children: ReactNode; history?: AdminHistory }) {
+  const { locale } = useLocale();
   const [admin] = useState(() => backend ?? httpBackend());
   const [state, setState] = useState<AuthSnapshot>({ kind: "loading" });
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -74,7 +76,7 @@ export function SessionProvider({ backend, children, history = browserHistory }:
   const value = useMemo<SessionContextValue>(() => ({
     backend: admin,
     state,
-    sessionError,
+    sessionError: sessionError === null ? null : t(sessionError),
     setup: (input) => open(admin.session.setup(input)),
     login: (input) => open(admin.session.login(input)),
     logout: async () => {
@@ -82,7 +84,7 @@ export function SessionProvider({ backend, children, history = browserHistory }:
       const generation = transitionGeneration.current; await admin.session.logout();
       if (generation === transitionGeneration.current) settle({ kind: "anonymous" });
     },
-  }), [admin, open, sessionError, settle, state]);
+  }), [admin, open, sessionError, settle, state, locale]);
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

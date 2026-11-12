@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { callsTo, deferredStep, scriptedHealth, scriptedStatus } from "./test/backend-script";
@@ -78,7 +78,7 @@ describe("administration shell", () => {
 
     await screen.findByRole("heading", { name: "Collections" });
     await user.click(screen.getByRole("link", { name: "System" }));
-    const link = screen.getByRole("link", { name: "Schema operations" });
+    const link = within(screen.getByRole("navigation", { name: "Administration" })).getByRole("link", { name: "Schema operations" });
     expect(link).toHaveAttribute("href", "/admin/schema-operations");
     await user.click(link);
 
@@ -105,7 +105,7 @@ describe("administration shell", () => {
     expect(screen.getByLabelText("title")).toHaveValue("unsaved edit");
     expect(harness.history.path()).toBe(`/admin/collections/posts/records/${recordID}`);
 
-    await user.click(screen.getByRole("link", { name: "Collections" }));
+    await user.click(screen.getByRole("link", { name: "Collections section" }));
     expect(confirm).toHaveBeenCalledTimes(2);
     expect(screen.getByLabelText("title")).toHaveValue("unsaved edit");
     expect(harness.history.path()).toBe(`/admin/collections/posts/records/${recordID}`);
@@ -294,7 +294,7 @@ describe("administration shell", () => {
     expect(confirm).toHaveBeenCalledTimes(2);
     expect(callsTo(harness.script, "logout")).toHaveLength(1);
 
-    await user.click(screen.getByRole("link", { name: "Collections" }));
+    await user.click(screen.getByRole("link", { name: "Collections section" }));
     expect(confirm).toHaveBeenCalledTimes(3);
     expect(screen.getByLabelText("title")).toHaveValue("unsaved edit after failure");
     expect(harness.history.path()).toBe(`/admin/collections/posts/records/${recordID}`);

@@ -1,3 +1,4 @@
+import { t, useLocale } from "../i18n";
 import { RealtimePanel } from "./realtime-panel";
 import { OperationsConsole } from "./operations-console";
 import { useEffect, useState } from "react";
@@ -31,17 +32,20 @@ const healthSummary: Record<SchemaHealth["state"], string> = {
 };
 
 function Instant({ value }: { value: string }) {
-  if (value === "") return <>Never</>;
+  useLocale();
+  if (value === "") return <>{t("Never")}</>;
   return <time dateTime={value}>{value}</time>;
 }
 
 function Reading({ label, probes, component, children }: {
   label: string; probes: SystemStatusProbe[]; component: string; children: React.ReactNode;
 }) {
-  return <div><dt>{label}</dt><dd>{unconfirmed(probes, component) ?? children}</dd></div>;
+  useLocale();
+  return <div><dt>{t(label)}</dt><dd>{unconfirmed(probes, component) === null ? children : t(unconfirmed(probes, component))}</dd></div>;
 }
 
 export function SystemPage({ initialSection }: { initialSection?: "requests" | "jobs" | "backups" } = {}) {
+  useLocale();
   const { system, operations, realtime, capabilities } = useBackend();
   const [load, setLoad] = useState<SystemLoad>({ phase: "loading" });
   const [reloads, setReloads] = useState(0);
@@ -69,60 +73,60 @@ export function SystemPage({ initialSection }: { initialSection?: "requests" | "
   const refresh = () => setReloads((current) => current + 1);
 
   if (initialSection) return <section className="system-page">
-    <PageHeading title={initialSection === "requests" ? "Logs" : initialSection === "jobs" ? "Scheduled jobs" : "Backups"} description={initialSection === "requests" ? "Inspect HTTP requests and diagnose errors." : "Manage this instance's operational tasks."} />
-    {operations ? <OperationsConsole port={operations} capabilities={capabilities} initialSection={initialSection} /> : <p role="status">Operations are unavailable on this instance.</p>}
+    <PageHeading title={t(initialSection === "requests" ? "Logs" : initialSection === "jobs" ? "Scheduled jobs" : "Backups")} description={t(initialSection === "requests" ? "Inspect HTTP requests and diagnose errors." : "Manage this instance's operational tasks.")} />
+    {operations ? <OperationsConsole port={operations} capabilities={capabilities} initialSection={initialSection} /> : <p role="status">{t("Operations are unavailable on this instance.")}</p>}
   </section>;
   return <section className="system-page">
-    <PageHeading title="System" description="Operational state reported by pgBase." actions={
+    <PageHeading title={t("System")} description={t("Operational state reported by pgBase.")} actions={
     <Button variant="secondary" aria-disabled={load.phase === "loading"} onClick={load.phase === "loading" ? undefined : refresh}>
-      {load.phase === "loading" ? "Loading system status…" : load.phase === "failed" ? "Retry system status" : "Refresh system status"}
+      {t(load.phase === "loading" ? "Loading system status…" : load.phase === "failed" ? "Retry system status" : "Refresh system status")}
     </Button>} />
-    <nav className="section-navigation" aria-label="System sections">
-      <a href="#system-overview">Status</a>
-      {realtime && capabilities?.realtime !== false && <a href="#system-realtime">Realtime</a>}
-      {operations && <>{capabilities?.logs !== false && <a href="#system-requests">Requests</a>}{capabilities?.jobs !== false && <a href="#system-jobs">Scheduled jobs</a>}{capabilities?.backups !== false && <a href="#system-backups">Backups</a>}</>}
+    <nav className="section-navigation" aria-label={t("System sections")}>
+      <a href="#system-overview">{t("Status")}</a>
+      {realtime && capabilities?.realtime !== false && <a href="#system-realtime">{t("Realtime")}</a>}
+      {operations && <>{capabilities?.logs !== false && <a href="#system-requests">{t("Requests")}</a>}{capabilities?.jobs !== false && <a href="#system-jobs">{t("Scheduled jobs")}</a>}{capabilities?.backups !== false && <a href="#system-backups">{t("Backups")}</a>}</>}
     </nav>
     <div id="system-overview">
-    {load.phase === "failed" && <p className="system-feedback" role="alert">Unable to load system status.</p>}
-    {load.phase === "loading" && <p aria-live="polite">Loading system status…</p>}
+    {load.phase === "failed" && <p className="system-feedback" role="alert">{t("Unable to load system status.")}</p>}
+    {load.phase === "loading" && <p aria-live="polite">{t("Loading system status…")}</p>}
     {view && <div className="system-overview">
       <section aria-labelledby="system-instance-heading">
-      <h3 id="system-instance-heading">Instance status</h3>
+      <h3 id="system-instance-heading">{t("Instance status")}</h3>
       <dl className="system-status">
-        <div><dt>Binary version</dt><dd>{view.status.version}</dd></div>
+        <div><dt>{t("Binary version")}</dt><dd>{view.status.version}</dd></div>
         <Reading label="Database" probes={view.status.unavailable} component="database">
-          {view.status.databaseReachable ? "Reachable" : "Unavailable"}
+          {t(view.status.databaseReachable ? "Reachable" : "Unavailable")}
         </Reading>
         <Reading label="Migrations" probes={view.status.unavailable} component="migration">
           {view.status.migrationCurrent} / {view.status.migrationLatest}
         </Reading>
         <Reading label="Migration history" probes={view.status.unavailable} component="migration">
-          {view.status.migrationDirty ? "Dirty" : "Clean"}
+          {t(view.status.migrationDirty ? "Dirty" : "Clean")}
         </Reading>
         <Reading label="Catalog version" probes={view.status.unavailable} component="catalog">
           {view.status.catalogVersion}
         </Reading>
         <Reading label="Catalog listener" probes={view.status.unavailable} component="listener">
-          {view.status.listenerReady ? "Ready" : "Not ready"}
+          {t(view.status.listenerReady ? "Ready" : "Not ready")}
         </Reading>
       </dl>
-      <dl className="system-status system-sample"><div><dt>Last successful sample</dt><dd><Instant value={view.status.lastSuccessAt} /></dd></div></dl>
+      <dl className="system-status system-sample"><div><dt>{t("Last successful sample")}</dt><dd><Instant value={view.status.lastSuccessAt} /></dd></div></dl>
       </section>
       <section aria-labelledby="system-health-heading">
-      <h3 id="system-health-heading">Schema health</h3>
-      <p className="health-state" data-state={view.health.state}>{healthSummary[view.health.state]}</p>
+      <h3 id="system-health-heading">{t("Schema health")}</h3>
+      <p className="health-state" data-state={view.health.state}>{t(healthSummary[view.health.state])}</p>
       <dl className="system-status">
-        <div><dt>Last successful diagnosis</dt><dd><Instant value={view.health.lastSuccessAt} /></dd></div>
-        <div><dt>Retries since the last diagnosis</dt><dd>{view.health.retries}</dd></div>
+        <div><dt>{t("Last successful diagnosis")}</dt><dd><Instant value={view.health.lastSuccessAt} /></dd></div>
+        <div><dt>{t("Retries since the last diagnosis")}</dt><dd>{view.health.retries}</dd></div>
       </dl>
       {view.health.findings.length === 0
-        ? <p>No findings reported.</p>
+        ? <p>{t("No findings reported.")}</p>
         : <ul className="finding-list">{view.health.findings.map((finding) => <li key={finding.code}>
           <span className="finding-code">{finding.code}</span>
           <span>{finding.message}</span>
         </li>)}</ul>}
       {view.health.findingCount > view.health.findings.length &&
-        <p>Showing {view.health.findings.length} of {view.health.findingCount} findings. Run pgbase doctor for the full report.</p>}
+        <p>{t("Showing {shown} of {count} findings. Run pgbase doctor for the full report.", { shown: view.health.findings.length, count: view.health.findingCount })}</p>}
       </section>
     </div>}
     </div>

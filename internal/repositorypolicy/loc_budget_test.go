@@ -484,15 +484,20 @@ type structuralLimit struct {
 // Exact totals are 107943 runtime (Go 94993, UI 12950), 233
 // page hooks and unchanged exports. No files or classifiers are excluded.
 // Scope and acceptance: docs/admin-ui-rebuild.md.
+// Korean localization and the second PocketBase visual pass add bilingual
+// messages, locale state and explicit render-time translations: +2815/-1122,
+// net +1693 against f7de2f5. Exact runtime is 109636 (Go 94993, UI 14643),
+// page hooks remain 233 and UI exports are 375. No classifier exclusions or
+// growth allowance are added. Evidence: docs/admin-korean-ui.md.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 107943, "PocketBase-inspired administrator rebuild exact measurement"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 12950, "administrator workflow rebuild; no spare allowance"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 109636, "Korean administrator and visual refinement exact measurement"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 14643, "Korean messages, language state and compact workbench; no spare allowance"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 104, "optional range transport/store and runtime capability boundaries"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1595, "reviewed managed byte-range service and store boundaries"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 64, "measured final 20-defect correctness constructors"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
 	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 233, "administrator tabs, draft protection and request lifecycle"},
-	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 355, "PR 103 workspace components and typed backend ports"},
+	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 375, "locale dictionaries and message helpers; existing consumers retained"},
 }
 
 type repositoryMetrics struct {

@@ -1,3 +1,5 @@
+import { t, useLocale, message, type Message } from "../i18n";
+import { LanguagePicker } from "../i18n/language-picker";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "../components/ui";
 import { PasswordInput } from "../components/password-input";
@@ -12,7 +14,7 @@ interface SetupPageProps {
 }
 
 type SetupField = "setupToken" | "email" | "password" | "confirmation";
-type SetupErrors = Partial<Record<SetupField | "form", string>>;
+type SetupErrors = Partial<Record<SetupField | "form", Message>>;
 
 // Administrator setup errors carry a code and no field details
 // (writeAdminAuthError never fills Details), so every server message is keyed by
@@ -33,6 +35,7 @@ function safeServerErrors(error: unknown): SetupErrors {
 }
 
 export function SetupPage({ onSetup, onUploadBackup, onRestoreBackup, onSetupBackupJob }: SetupPageProps) {
+  useLocale();
   const [setupToken, setSetupToken] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -42,7 +45,7 @@ export function SetupPage({ onSetup, onUploadBackup, onRestoreBackup, onSetupBac
   const [pending, setPending] = useState(false);
   const [restoreLocked, setRestoreLocked] = useState(false);
 	const [backup, setBackup] = useState<{ id: string; name: string } | null>(null);
-	const [backupMessage, setBackupMessage] = useState("");
+	const [backupMessage, setBackupMessage] = useState<Message>("");
 	const [restoreJob, setRestore] = useState<{ token: string; jobID: string } | null>(null);
 	useEffect(() => {
 		if (!restoreJob || !onSetupBackupJob) return;
@@ -72,7 +75,7 @@ export function SetupPage({ onSetup, onUploadBackup, onRestoreBackup, onSetupBac
     const bytes = passwordBytes(password);
     if (!password) nextErrors.password = "Password is required.";
     else if (bytes < minimumPasswordBytes || bytes > maximumPasswordBytes) {
-      nextErrors.password = `Password must be ${minimumPasswordBytes} to ${maximumPasswordBytes} bytes.`;
+      nextErrors.password = message(`Password must be ${minimumPasswordBytes} to ${maximumPasswordBytes} bytes.`, `비밀번호는 ${minimumPasswordBytes}~${maximumPasswordBytes}바이트여야 합니다.`);
     }
     if (password && password !== confirmation) nextErrors.confirmation = "Passwords do not match.";
     if (Object.keys(nextErrors).length > 0) {
@@ -98,7 +101,7 @@ export function SetupPage({ onSetup, onUploadBackup, onRestoreBackup, onSetupBac
     if (!onUploadBackup || !onRestoreBackup || !archive || !setupToken.trim() || pending || restoreLocked) {
       setBackupMessage("Enter the setup token and select a gzip backup."); return;
     }
-    if (!window.confirm("Restore this backup before creating the first administrator? This replaces the initial database state.")) return;
+    if (!window.confirm(t("Restore this backup before creating the first administrator? This replaces the initial database state."))) return;
     setPending(true); setBackupMessage("");
     let dispatched = false;
     try {
@@ -117,49 +120,50 @@ export function SetupPage({ onSetup, onUploadBackup, onRestoreBackup, onSetupBac
   return <main className="auth-page setup-page">
     <div className="login-content">
     <section aria-labelledby="setup-title" className="login-panel setup-panel">
-      <div className="auth-brand"><span className="auth-brand-mark" aria-hidden="true">pB</span><span>pgBase</span></div>
-      <p className="login-context">Welcome to your backend</p>
-      <h1 id="setup-title">Set up pgBase</h1>
-      <p className="auth-description">Create the first administrator for this pgBase instance.</p>
+      <LanguagePicker />
+        <div className="auth-brand"><span className="auth-brand-mark" aria-hidden="true">pB</span><span>pgBase</span></div>
+      <p className="login-context">{t("Welcome to your backend")}</p>
+      <h1 id="setup-title">{t("Set up pgBase")}</h1>
+      <p className="auth-description">{t("Create the first administrator for this pgBase instance.")}</p>
       <form aria-busy={pending} noValidate onSubmit={submit}>
-        {errors.form && <p className="form-error login-feedback" id="setup-form-error" ref={formErrorRef} role="alert" tabIndex={-1}>{errors.form}</p>}
+        {errors.form && <p className="form-error login-feedback" id="setup-form-error" ref={formErrorRef} role="alert" tabIndex={-1}>{t(errors.form)}</p>}
         <div className="login-field">
-          <label htmlFor="setup-token">Setup token</label>
+          <label htmlFor="setup-token">{t("Setup token")}</label>
           <div className="password-input">
             <input aria-describedby={errors.setupToken ? "setup-token-hint setup-token-error" : "setup-token-hint"} aria-invalid={errors.setupToken ? true : undefined} id="setup-token" type={showSetupToken ? "text" : "password"} autoComplete="off" spellCheck={false} disabled={pending || restoreLocked} onChange={event => setSetupToken(event.target.value)} ref={setupTokenRef} value={setupToken} />
-            <Button aria-controls="setup-token" aria-label={showSetupToken ? "Hide setup token" : "Show setup token"} aria-pressed={showSetupToken} className="password-toggle" disabled={pending || restoreLocked} onClick={() => setShowSetupToken(visible => !visible)} variant="ghost">{showSetupToken ? "Hide" : "Show"}</Button>
+            <Button aria-controls="setup-token" aria-label={t(showSetupToken ? "Hide setup token" : "Show setup token")} aria-pressed={showSetupToken} className="password-toggle" disabled={pending || restoreLocked} onClick={() => setShowSetupToken(visible => !visible)} variant="ghost">{t(showSetupToken ? "Hide" : "Show")}</Button>
           </div>
-          <p id="setup-token-hint">Use the setup token configured for this instance.</p>
-          {errors.setupToken && <p className="field-error" id="setup-token-error">{errors.setupToken}</p>}
+          <p id="setup-token-hint">{t("Use the setup token configured for this instance.")}</p>
+          {errors.setupToken && <p className="field-error" id="setup-token-error">{t(errors.setupToken)}</p>}
         </div>
         <div className="login-field">
-          <label htmlFor="email">Email</label>
+          <label htmlFor="email">{t("Email")}</label>
           <input aria-describedby={errors.email ? "email-error" : undefined} aria-invalid={errors.email ? true : undefined} id="email" type="email" autoCapitalize="none" spellCheck={false} autoComplete="email" disabled={pending || restoreLocked} onChange={event => setEmail(event.target.value)} ref={emailRef} value={email} placeholder="name@example.com" />
-          {errors.email && <p className="field-error" id="email-error">{errors.email}</p>}
+          {errors.email && <p className="field-error" id="email-error">{t(errors.email)}</p>}
         </div>
         <div className="login-field">
-          <label htmlFor="password">Password</label>
+          <label htmlFor="password">{t("Password")}</label>
           <PasswordInput aria-describedby={errors.password ? "password-hint password-error" : "password-hint"} aria-invalid={errors.password ? true : undefined} id="password" autoComplete="new-password" disabled={pending || restoreLocked} minLength={minimumPasswordBytes} onChange={event => setPassword(event.target.value)} ref={passwordRef} value={password} />
-          <p id="password-hint">Passwords must be 12 to 1024 bytes; non-ASCII characters count as more than one byte.</p>
-          {errors.password && <p className="field-error" id="password-error">{errors.password}</p>}
+          <p id="password-hint">{t("Passwords must be 12 to 1024 bytes; non-ASCII characters count as more than one byte.")}</p>
+          {errors.password && <p className="field-error" id="password-error">{t(errors.password)}</p>}
         </div>
         <div className="login-field">
-          <label htmlFor="confirmation">Confirm password</label>
+          <label htmlFor="confirmation">{t("Confirm password")}</label>
           <input aria-describedby={errors.confirmation ? "confirmation-error" : undefined} aria-invalid={errors.confirmation ? true : undefined} id="confirmation" type="password" autoComplete="new-password" disabled={pending || restoreLocked} onChange={event => setConfirmation(event.target.value)} ref={confirmationRef} value={confirmation} />
-          {errors.confirmation && <p className="field-error" id="confirmation-error">{errors.confirmation}</p>}
+          {errors.confirmation && <p className="field-error" id="confirmation-error">{t(errors.confirmation)}</p>}
         </div>
-        <Button disabled={pending || restoreLocked} type="submit">{restoreLocked ? "Waiting for backup restore…" : pending ? "Creating administrator…" : "Create administrator"}</Button>
+        <Button disabled={pending || restoreLocked} type="submit">{t(restoreLocked ? "Waiting for backup restore…" : pending ? "Creating administrator…" : "Create administrator")}</Button>
       </form>
       {onUploadBackup && onRestoreBackup && <details className="setup-backup">
-        <summary>Restore an initial backup</summary>
-        <p>Restore an existing project instead of creating an administrator. This replaces the initial database and may restart this instance.</p>
+        <summary>{t("Restore an initial backup")}</summary>
+        <p>{t("Restore an existing project instead of creating an administrator. This replaces the initial database and may restart this instance.")}</p>
         <form aria-busy={pending || restoreLocked} onSubmit={restore}>
-          <fieldset disabled={pending || restoreLocked}><legend>Backup archive</legend><label htmlFor="setup-backup">Gzip backup</label><input accept=".gz,application/gzip" id="setup-backup" name="setup-backup" type="file" /><Button variant="secondary" type="submit">Upload and restore backup</Button></fieldset>
+          <fieldset disabled={pending || restoreLocked}><legend>{t("Backup archive")}</legend><label htmlFor="setup-backup">{t("Gzip backup")}</label><input accept=".gz,application/gzip" id="setup-backup" name="setup-backup" type="file" /><Button variant="secondary" type="submit">{t("Upload and restore backup")}</Button></fieldset>
         </form>
-        {backup && <p>Uploaded {backup.name}.</p>}
+        {backup && <p>{t(message(`Uploaded ${backup.name}.`, `${backup.name} 업로드 완료.`))}</p>}
       </details>}
-      {backupMessage && <p className="login-notice" role="status">{backupMessage}</p>}
-      <p className="auth-footer">Your administrator account has full access to this project.</p>
+      {backupMessage && <p className="login-notice" role="status">{t(backupMessage)}</p>}
+      <p className="auth-footer">{t("Your administrator account has full access to this project.")}</p>
     </section>
     </div>
   </main>;

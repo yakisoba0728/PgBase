@@ -19,16 +19,16 @@ function configuredChrome(route: AdminRoute) {
 }
 
 describe("focused workspace navigation", () => {
-  it("keeps only five primary tasks in the sidebar and finds secondary screens on demand", async () => {
+  it("keeps collection navigation focused and finds secondary screens on demand", async () => {
     configuredChrome({ kind: "collections" });
     const user = userEvent.setup();
     const nav = within(screen.getByRole("navigation", { name: "Administration" }));
-    expect(nav.getAllByRole("link").map(link => link.textContent)).toEqual(["Collections", "File storage", "Users", "System", "Settings"]);
+    expect(nav.getAllByRole("link").map(link => link.textContent)).toEqual(["Settings"]);
     await user.type(screen.getByRole("searchbox", { name: "Find a page" }), "token");
     expect(nav.getAllByRole("link")).toHaveLength(1);
     expect(nav.getByRole("link", { name: "Service tokens" })).toHaveAttribute("href", "/admin/service-tokens");
     await user.click(screen.getByRole("button", { name: "Clear" }));
-    expect(nav.getAllByRole("link")).toHaveLength(5);
+    expect(nav.getAllByRole("link")).toHaveLength(1);
     expect(nav.queryByRole("link", { name: "Service tokens" })).toBeNull();
   });
 
@@ -43,7 +43,7 @@ describe("focused workspace navigation", () => {
     const { navigate } = configuredChrome(route);
     const nav = within(screen.getByRole("navigation", { name: "Administration" }));
     expect(nav.getByRole("link", { name: parent })).toHaveAttribute("aria-current", "page");
-    expect(nav.queryByRole("link", { name: label })).toBeNull();
+    expect(nav.getByRole("link", { name: label })).toHaveAttribute("href", path);
     const context = within(screen.getByRole("navigation", { name: `${parent} workspace` }));
     const link = context.getByRole("link", { name: label });
     expect(link).toHaveAttribute("href", path);
@@ -57,7 +57,7 @@ describe("focused workspace navigation", () => {
     h.backend.schema.exportDocument = vi.fn();
     render(<><WorkspaceNavigation route={{ kind: "users" }} open={false} navigate={vi.fn()} onClose={vi.fn()} extensions={[]} sqlEnabled={false} /><WorkspaceContextNavigation route={{ kind: "users" }} navigate={vi.fn()} /></>, { wrapper: sessionWrapper(h.backend, h.history) });
     const nav = within(screen.getByRole("navigation", { name: "Administration" }));
-    expect(nav.getAllByRole("link")).toHaveLength(4);
+    expect(nav.getByRole("link", { name: "Users" })).toBeVisible();
     expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Administrators" })).toBeNull();
     await userEvent.setup().type(screen.getByRole("searchbox", { name: "Find a page" }), "administrator");

@@ -1,3 +1,4 @@
+import { t, useLocale } from "./i18n";
 import { BackupStoragePage } from "./pages/backup-storage-page";
 import { StorageSettingsPage } from "./pages/storage-settings-page";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -51,7 +52,7 @@ function outlet(route: AdminRoute, key: string, navigate: Navigate, sqlConsole?:
   if (route.kind === "schema-transfer") return <SchemaTransferPage key={key} />;
 	if (route.kind === "extension") {
 		const screen = extensionScreen(route.id, route.path);
-		return screen === undefined ? <section><h2>Extension screen unavailable</h2><p role="alert">This extension is not available. Reload the administrator workspace.</p></section> : <ExtensionScreen key={key} screen={screen} />;
+		return screen === undefined ? <section><h2>{t("Extension screen unavailable")}</h2><p role="alert">{t("This extension is not available. Reload the administrator workspace.")}</p></section> : <ExtensionScreen key={key} screen={screen} />;
 	}
   if (route.kind === "collection-edit") return <CollectionDesignerPage key={key} mode={{ kind: "edit", collection: route.collection }} navigate={navigate} />;
   if (route.kind === "records") return <RecordsPage collectionName={route.collection} key={key} navigate={navigate} />;
@@ -135,14 +136,14 @@ function AuthenticatedShell({ history, sqlConsole }: { history?: AdminHistory; s
     else navigate(next);
   }
   return <main className="shell">
-    <a className="skip-link" href="#workspace-content">Skip to content</a>
+    <a className="skip-link" href="#workspace-content">{t("Skip to content")}</a>
     <WorkspaceHeader email={state.administrator.email} route={route} navigate={go} navigationOpen={navigationOpen} pending={logoutPending} onToggleNavigation={() => setNavigationOpen(true)} onSignOut={() => void signOut()} toggleRef={navigationToggle} />
-    <fieldset aria-label="Administrator workspace" className="shell-workspace" disabled={logoutPending} inert={logoutPending}>
+    <fieldset aria-label={t("Administrator workspace")} className="shell-workspace" disabled={logoutPending} inert={logoutPending}>
       <WorkspaceNavigation route={route} open={navigationOpen} onClose={closeNavigation} navigate={go} extensions={extensionScreens} sqlEnabled={state.sqlConsoleEnabled === true && sqlConsole !== undefined} />
-      <div ref={content} role="region" aria-label={`${workspaceLabel(route)} workspace`} inert={navigationOpen} className="workspace-content" id="workspace-content" tabIndex={-1}>
+      <div ref={content} role="region" aria-label={t("{name} workspace", { name: workspaceLabel(route) })} inert={navigationOpen} className="workspace-content" id="workspace-content" tabIndex={-1}>
         <WorkspaceContextNavigation route={route} navigate={go} />
-        {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
-        <UnsavedDrafts ledger={drafts}><div className="route-view" key={identity}>{routeAvailable(backend, route) ? outlet(route, identity, navigate, state.sqlConsoleEnabled === true ? sqlConsole : undefined) : <section><h2>Feature unavailable</h2><p>This server does not support this page.</p></section>}</div></UnsavedDrafts>
+        {logoutError && <p className="form-error" role="alert">{t(logoutError)}</p>}
+        <UnsavedDrafts ledger={drafts}><div className="route-view" key={identity}>{routeAvailable(backend, route) ? outlet(route, identity, navigate, state.sqlConsoleEnabled === true ? sqlConsole : undefined) : <section><h2>{t("Feature unavailable")}</h2><p>{t("This server does not support this page.")}</p></section>}</div></UnsavedDrafts>
       </div>
     </fieldset>
   </main>;
@@ -154,13 +155,14 @@ function SessionScreen({ history, sqlConsole }: { history?: AdminHistory; sqlCon
   useLayoutEffect(() => {
     if (state.kind !== "authenticated") resetWorkspaceTheme();
   }, [state.kind]);
-  if (state.kind === "loading") return <main className="auth-page"><p aria-live="polite">Loading administrator session…</p></main>;
+  if (state.kind === "loading") return <main className="auth-page"><p aria-live="polite">{t("Loading administrator session…")}</p></main>;
   if (state.kind === "setup-required") return <SetupPage onSetup={setup} onRestoreBackup={backend.session.restoreSetupBackup} onSetupBackupJob={backend.session.setupBackupJob} onUploadBackup={backend.session.uploadSetupBackup} />;
   if (state.kind === "anonymous") return <LoginPage onConfirmPasswordReset={backend.session.confirmPasswordReset} onLogin={login} onRequestPasswordReset={backend.session.requestPasswordReset} sessionError={sessionError} />;
   return <AuthenticatedShell history={history} sqlConsole={sqlConsole} />;
 }
 
 export function App({ backend, history, sqlConsole }: { backend?: AdminBackend; history?: AdminHistory; sqlConsole?: SQLConsolePort } = {}) {
+  useLocale();
 	const [runtime] = useState(() => {
 		if (backend !== undefined) return { admin: backend, consolePort: sqlConsole };
 		const admin = httpBackend();

@@ -30,7 +30,8 @@ describe("workspace usability", () => {
     expect(nav.queryByRole("link", { name: "Collections" })).toBeNull();
     expect(nav.queryByRole("link", { name: "SQL console" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Clear" }));
-    expect(nav.getByRole("link", { name: "Collections" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Collections section" })).toBeVisible();
+    expect(nav.getByRole("link", { name: "Settings" })).toBeVisible();
   });
 
   it("preserves a collection draft when a context-tab departure is declined", async () => {

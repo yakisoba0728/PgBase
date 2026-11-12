@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useState } from "react";
 import type { SchemaPort } from "../backend/ports";
 
@@ -14,12 +15,12 @@ export function ViewSamplePreview({ query, disabled, schema }: { query: string; 
     finally { setPending(false); }
   }
   if (!schema?.sampleView) return null;
-  return <section aria-label="View sample rows">
-    <button disabled={disabled || pending || query.trim() === ""} onClick={() => void preview()} type="button">{pending ? "Sampling view…" : "Sample view rows"}</button>
-    <p>Runs the SQL without saving the view and shows at most 10 rows.</p>
-    {error && <p role="alert">{error}</p>}
-    {sample && <><p role="status">Dependencies: {sample.dependencies.length ? sample.dependencies.join(", ") : "none"}.</p>
+  return <section aria-label={t("View sample rows")}>
+    <button disabled={disabled || pending || query.trim() === ""} onClick={() => void preview()} type="button">{pending ? t("Sampling view…") : t("Sample view rows")}</button>
+    <p>{t("Runs the SQL without saving the view and shows at most 10 rows.")}</p>
+    {error && <p role="alert">{t(error)}</p>}
+    {sample && <><p role="status">{t("Dependencies:")} {sample.dependencies.length ? sample.dependencies.join(", ") : t("none")}.</p>
       <div className="table-scroll"><table><thead><tr>{sample.fields.map((field) => <th key={field.name}>{field.name}</th>)}</tr></thead><tbody>{sample.items.map((item, index) => <tr key={index}>{sample.fields.map((field) => <td key={field.name}>{typeof item[field.name] === "string" ? item[field.name] as string : JSON.stringify(item[field.name])}</td>)}</tr>)}</tbody></table></div>
-      {sample.items.length === 0 && <p>The query is valid and returned no sample rows.</p>}</>}
+      {sample.items.length === 0 && <p>{t("The query is valid and returned no sample rows.")}</p>}</>}
   </section>;
 }

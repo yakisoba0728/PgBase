@@ -29,6 +29,8 @@ The bundled Compose file is a development convenience and sets `PGBASE_AUTO_MIGR
 
 ## Documentation
 
+- [한국어 지원과 PocketBase 스타일 화면 개선](docs/admin-korean-ui.md)
+- [2026-11-12 서버 배포 기록](docs/deployment-2026-11-12.md)
 - [PocketBase-inspired administrator UI rebuild and verification](docs/admin-ui-rebuild.md)
 - [Dokploy 배포: Compose, HTTPS, 영구 저장소와 백업](docs/dokploy.md)
 - [Implementation history, current status, and verification evidence](docs/project-status.md)
