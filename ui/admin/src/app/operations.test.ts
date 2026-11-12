@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { findOperation, operationState, trackOperation, untrackOperation, type TrackedOperation } from "./operations";
+import { ApiError } from "../api/http";
+import { findOperation, operationState, pollWhileRunning, trackOperation, untrackOperation, type TrackedOperation } from "./operations";
 
 const now = 1_000_000_000;
 const op = (kind: TrackedOperation["kind"], extra: Partial<TrackedOperation> = {}): TrackedOperation => ({ kind, id: "x", startedAt: now, ...extra });
@@ -41,5 +42,16 @@ describe("running operations", () => {
     expect(untrackOperation("op-1")).toBe(true);
     expect(untrackOperation("op-1")).toBe(false);
     expect(findOperation("schema")).toBeUndefined();
+  });
+});
+
+describe("pollWhileRunning", () => {
+  const query = (data: unknown, error: unknown = null) => ({ state: { data, error } }) as unknown as Parameters<typeof pollWhileRunning>[0];
+  it("polls running applies and keeps asking until a first status arrives", () => {
+    expect(pollWhileRunning(query({ status: "running" }))).toBe(2000);
+    expect(pollWhileRunning(query({ status: "committed" }))).toBe(false);
+    expect(pollWhileRunning(query(undefined, new ApiError(503, "schema_unavailable", "")))).toBe(5000);
+    expect(pollWhileRunning(query(undefined, new ApiError(404, "not_found", "")))).toBe(false);
+    expect(pollWhileRunning(query(undefined, new ApiError(401, "unauthorized", "")))).toBe(false);
   });
 });

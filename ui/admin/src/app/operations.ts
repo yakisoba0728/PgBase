@@ -1,4 +1,5 @@
-import { parseJson, stringifyJson } from "../api/http";
+import type { Query } from "@tanstack/react-query";
+import { ApiError, parseJson, stringifyJson } from "../api/http";
 import { createStore, readStorage, writeStorage } from "./store";
 
 // Long-running work started from this browser (backup jobs, file migration, schema
@@ -64,6 +65,9 @@ export function untrackOperation(id: string): boolean {
   save(current.filter((item) => item.id !== id));
   return true;
 }
+
+/** Sign-out: the entries name collections and jobs and carry replay keys, and they are owner-scoped on the server. */
+export const forgetOperations = () => save([]);
 
 export const findOperation = (kind: OperationKind, subject?: string) =>
   store.get().find((item) => item.kind === kind && (subject === undefined || item.subject === subject));
@@ -135,4 +139,12 @@ export function operationState(operation: TrackedOperation, data: StatusPayload 
   // "unknown" is a claim the server has not started: only resending the same request resolves it.
   if (status === "unknown") return { state: "attention" };
   return { state: "running" };
+}
+
+/** Schema and import applies: poll while running, and keep asking while no status ever arrived (a 404 or 401 is an answer). */
+export function pollWhileRunning(query: Query): number | false {
+  const data = query.state.data as { status?: string } | undefined;
+  if (data) return data.status === "running" ? 2000 : false;
+  const error = query.state.error;
+  return error instanceof ApiError && (error.status === 404 || error.status === 401) ? false : 5000;
 }

@@ -93,6 +93,7 @@ export const en = {
   "error.authentication_unavailable": "Sign-in is temporarily unavailable.",
   "error.unauthorized": "Your session has ended. Sign in again.",
   "error.forbidden": "Not allowed.",
+  "error.session_changed": "Another administrator signed in on this browser. This screen now shows their account; unsaved edits were discarded.",
 
   "nav.data": "Data",
   "nav.collections": "Collections",

@@ -861,14 +861,3 @@ a.nav-op:focus-visible {
 .nav-recent .nav-link.active svg {
   color: inherit;
 }
-
-/* Toasts centre over the main column, beside the navigation. */
-@media (min-width: 900px) {
-  :root:has(.app) {
-    --toast-offset: var(--nav);
-  }
-
-  :root:has(.app[data-rail]) {
-    --toast-offset: var(--rail);
-  }
-}

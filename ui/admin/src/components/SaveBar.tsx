@@ -18,7 +18,10 @@ interface SaveBarProps {
   children?: ReactNode;
 }
 
-/** Cmd/Ctrl+S presses the save button the returned id is given to; the most recently mounted one wins. */
+/**
+ * Cmd/Ctrl+S presses the save button the returned id is given to; the most recently mounted one wins.
+ * It works over menus and popovers too; over a modal dialog it only keeps the browser's own Save dialog away.
+ */
 function useSaveShortcut(): string {
   const id = useId();
   useShortcut(
@@ -26,9 +29,11 @@ function useSaveShortcut(): string {
     () => {
       const button = document.getElementById(id) as HTMLButtonElement | null;
       if (!button) return false;
-      if (!button.disabled) button.click();
+      // Every dialog here opens with showModal().
+      const modal = document.querySelector("dialog[open]");
+      if (!button.disabled && (!modal || modal.contains(button))) button.click();
     },
-    { inFields: true },
+    { inFields: true, inOverlays: true },
   );
   return id;
 }

@@ -38,6 +38,29 @@ export function clearCsrfToken(): void {
   csrfToken = "";
 }
 
+/** What a CSRF rejection turned out to be: the same administrator under a new session, someone else, or neither. */
+export type CsrfRecovery = "retry" | "changed" | null;
+let recover: () => Promise<CsrfRecovery> = async () => null;
+let recovering: Promise<CsrfRecovery> | null = null;
+
+/** Registers how a rejected CSRF token is renewed (another tab signed in again and replaced the session cookie). */
+export function onCsrfRejected(handler: () => Promise<CsrfRecovery>): void {
+  recover = handler;
+}
+
+// A rejected token never reached the handler, so the request is safe to send once more with the renewed one.
+async function withCsrfRecovery<T>(attempt: () => Promise<T>): Promise<T> {
+  try {
+    return await attempt();
+  } catch (error) {
+    if (!(error instanceof ApiError && error.code === "csrf_rejected")) throw error;
+    const outcome = await (recovering ??= recover().finally(() => (recovering = null)));
+    if (outcome === "retry") return attempt();
+    if (outcome === "changed") throw new ApiError(403, "session_changed", "Another administrator signed in on this browser");
+    throw error;
+  }
+}
+
 // A number becomes a JS number only when it round-trips exactly (safe integers
 // and floats whose digits survive parseFloat); anything else (big int64s,
 // over-long decimals, out-of-range exponents) stays a LosslessNumber holding
@@ -62,7 +85,9 @@ function buildURL(path: string, query?: Query): string {
   return encoded ? `${path}${path.includes("?") ? "&" : "?"}${encoded}` : path;
 }
 
-async function send(method: string, path: string, options: RequestOptions): Promise<Response> {
+const send = (method: string, path: string, options: RequestOptions) => withCsrfRecovery(() => sendOnce(method, path, options));
+
+async function sendOnce(method: string, path: string, options: RequestOptions): Promise<Response> {
   const headers = new Headers(options.headers);
   let body: BodyInit | undefined = options.raw;
   if (body === undefined && options.body !== undefined) {
@@ -128,6 +153,10 @@ export async function request<T>(
 
 /** A form upload over XHR, the one transport that reports upload progress (0..1). Errors match `request`. */
 export function uploadForm<T>(path: string, form: FormData, options: { headers?: Record<string, string>; onProgress?: (fraction: number) => void; signal?: AbortSignal } = {}): Promise<T> {
+  return withCsrfRecovery(() => uploadOnce<T>(path, form, options));
+}
+
+function uploadOnce<T>(path: string, form: FormData, options: { headers?: Record<string, string>; onProgress?: (fraction: number) => void; signal?: AbortSignal }): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", path);

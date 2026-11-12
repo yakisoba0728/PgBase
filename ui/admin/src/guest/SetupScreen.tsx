@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate } from "react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { RiKey2Line, RiLockPasswordLine, RiMailLine, RiUploadCloud2Line } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { getSetupBackupJob, restoreSetupBackup, setup, uploadSetupBackup } from "../api/session";
-import { errorText, sessionQuery, setupStatusQuery } from "../app/queries";
+import { errorText, setupStatusQuery } from "../app/queries";
+import { adoptSession } from "../app/signout";
 import { Button } from "../components/Button";
 import { Field } from "../components/Field";
 import { Tabs } from "../components/Tabs";
@@ -42,13 +43,11 @@ function TokenField() {
 function CreateAdministrator() {
   const t = useT();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: (form: FormData) =>
       setup({ setupToken: formValue(form, "setupToken").trim(), email: formValue(form, "email"), password: matchingPassword(form) }),
     onSuccess: (session) => {
-      queryClient.setQueryData(sessionQuery.queryKey, session);
-      queryClient.removeQueries({ queryKey: setupStatusQuery.queryKey });
+      adoptSession(session);
       navigate("/collections", { replace: true });
     },
   });

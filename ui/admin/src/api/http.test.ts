@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LosslessNumber } from "lossless-json";
-import { ApiError, clearCsrfToken, parseJson, request, setCsrfToken, stringifyJson } from "./http";
+import { ApiError, clearCsrfToken, onCsrfRejected, parseJson, request, setCsrfToken, stringifyJson } from "./http";
 
 describe("parseJson / stringifyJson", () => {
   it("keeps safe numbers as numbers and unsafe ones exact", () => {
@@ -59,5 +59,39 @@ describe("request", () => {
     expect(init.body).toBe('{"n":1}');
     expect(init.credentials).toBe("include");
     expect(new Headers(fetchMock.mock.calls[1][1].headers).has("X-PgBase-CSRF")).toBe(false);
+  });
+});
+
+describe("CSRF recovery", () => {
+  const rejected = () => new Response('{"error":{"code":"csrf_rejected","message":"CSRF verification failed"}}', { status: 403 });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    clearCsrfToken();
+    onCsrfRejected(async () => null);
+  });
+
+  it("renews once for concurrent rejections and resends each request with the new token", async () => {
+    setCsrfToken("old");
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => (new Headers(init.headers).get("X-PgBase-CSRF") === "new" ? new Response('{"ok":true}') : rejected()));
+    vi.stubGlobal("fetch", fetchMock);
+    const renew = vi.fn(async () => {
+      setCsrfToken("new");
+      return "retry" as const;
+    });
+    onCsrfRejected(renew);
+    await expect(Promise.all([request("POST", "/a"), request("DELETE", "/b")])).resolves.toEqual([{ ok: true }, { ok: true }]);
+    expect(renew).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("does not resend for another administrator and retries at most once", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => rejected()));
+    onCsrfRejected(async () => "changed");
+    await expect(request("POST", "/a")).rejects.toMatchObject({ status: 403, code: "session_changed" });
+    const fetchMock = vi.fn(async () => rejected());
+    vi.stubGlobal("fetch", fetchMock);
+    onCsrfRejected(async () => "retry");
+    await expect(request("POST", "/a")).rejects.toMatchObject({ code: "csrf_rejected" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

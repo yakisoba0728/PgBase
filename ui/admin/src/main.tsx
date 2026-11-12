@@ -16,13 +16,16 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { onCsrfRejected } from "./api/http";
 import { registerScreen } from "./app/extensions";
 import { queryClient } from "./app/queries";
 import { router } from "./app/router";
+import { recoverSession } from "./app/signout";
 import { ToastHost } from "./components/Toast";
 
 // Defined before render; the server-injected extensions.js module runs after this one.
 window.pgbaseAdmin = { registerScreen };
+onCsrfRejected(recoverSession);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

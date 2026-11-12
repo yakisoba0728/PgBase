@@ -93,6 +93,7 @@ export const ko: Record<keyof typeof en, string> = {
   "error.authentication_unavailable": "지금은 로그인할 수 없습니다.",
   "error.unauthorized": "세션이 만료되었습니다. 다시 로그인하세요.",
   "error.forbidden": "권한이 없습니다.",
+  "error.session_changed": "이 브라우저에서 다른 관리자가 로그인했습니다. 화면이 그 계정으로 바뀌었고 저장하지 않은 변경은 버려졌습니다.",
 
   "nav.data": "데이터",
   "nav.collections": "컬렉션",

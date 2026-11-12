@@ -17,16 +17,28 @@ interface ToastItem {
 
 const store = createStore<ToastItem[]>([]);
 let sequence = 0;
+const timers = new Map<number, ReturnType<typeof setTimeout>>();
+
+function hold(id: number) {
+  clearTimeout(timers.get(id));
+  timers.delete(id);
+}
 
 function dismiss(id: number) {
+  hold(id);
   store.set(store.get().filter((item) => item.id !== id));
 }
 
-/** One short message; an action (e.g. Undo) keeps it up a little longer. */
+function schedule(item: ToastItem) {
+  hold(item.id);
+  timers.set(item.id, setTimeout(() => dismiss(item.id), item.action ? 8000 : 5000));
+}
+
+/** One short message; an action (e.g. Undo) keeps it up a little longer, and hover or focus keeps it up until left. */
 export function toast(message: string, tone: ToastItem["tone"] = "info", action?: ToastAction): void {
-  const id = ++sequence;
-  store.set([...store.get(), { id, message, tone, action }]);
-  setTimeout(() => dismiss(id), action ? 8000 : 5000);
+  const item = { id: ++sequence, message, tone, action };
+  store.set([...store.get(), item]);
+  schedule(item);
 }
 
 export function ToastHost() {
@@ -35,7 +47,14 @@ export function ToastHost() {
   return (
     <section className="toasts" role="status" aria-live="polite" aria-label={t("common.notifications")}>
       {items.map((item) => (
-        <div key={item.id} className={item.tone === "danger" ? "toast toast-danger" : "toast"}>
+        <div
+          key={item.id}
+          className={item.tone === "danger" ? "toast toast-danger" : "toast"}
+          onMouseEnter={() => hold(item.id)}
+          onFocus={() => hold(item.id)}
+          onMouseLeave={(event) => !event.currentTarget.matches(":focus-within") && schedule(item)}
+          onBlur={(event) => !event.currentTarget.matches(":hover") && schedule(item)}
+        >
           <p>{item.message}</p>
           {item.action && (
             <button

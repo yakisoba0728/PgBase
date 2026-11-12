@@ -1,8 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { Field } from "./Field";
 import { ConfirmDialog } from "./Dialog";
+import { SaveBar } from "./SaveBar";
+import { toast, ToastHost } from "./Toast";
 
 describe("Field", () => {
   it("labels the control and marks it required", () => {
@@ -46,5 +48,41 @@ describe("ConfirmDialog", () => {
   it("renders nothing inside while closed", () => {
     render(<ConfirmDialog open={false} title="Hidden" message="secret" onConfirm={() => {}} onCancel={() => {}} />);
     expect(screen.queryByText("secret")).not.toBeInTheDocument();
+  });
+});
+
+describe("Toast", () => {
+  it("stays while focused and leaves after the delay once focus moves on", () => {
+    vi.useFakeTimers();
+    try {
+      render(<ToastHost />);
+      act(() => toast("Disabled", "info", { label: "Undo", run: () => {} }));
+      const undo = screen.getByRole("button", { name: "Undo" });
+      act(() => undo.focus());
+      act(() => vi.advanceTimersByTime(20_000));
+      expect(screen.getByText("Disabled")).toBeInTheDocument();
+      act(() => undo.blur());
+      act(() => vi.advanceTimersByTime(8_000));
+      expect(screen.queryByText("Disabled")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("SaveBar", () => {
+  // fireEvent returns false once the shortcut called preventDefault (no browser "Save page as…").
+  const press = () => fireEvent.keyDown(document, { key: "s", ctrlKey: true });
+
+  it("saves with Cmd/Ctrl+S, and under a modal dialog only keeps the browser from saving the page", () => {
+    const onSave = vi.fn();
+    render(<SaveBar dirty onDiscard={() => {}} onSave={onSave} />);
+    expect(press()).toBe(false);
+    expect(onSave).toHaveBeenCalledTimes(1);
+    const dialog = document.body.appendChild(document.createElement("dialog"));
+    dialog.showModal();
+    expect(press()).toBe(false);
+    expect(onSave).toHaveBeenCalledTimes(1);
+    dialog.remove();
   });
 });

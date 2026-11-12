@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { Navigate, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import type { SetupStatus } from "../api/system";
@@ -32,7 +32,8 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const decision = decideGuard(session, status);
   switch (decision.kind) {
     case "ready":
-      return children;
+      // Keyed on the administrator: another one taking over this tab's cookie remounts every screen, so no form keeps their edits.
+      return <Fragment key={session.data?.administrator.id}>{children}</Fragment>;
     case "loading":
       return <Loader />;
     case "redirect":
