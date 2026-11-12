@@ -82,7 +82,7 @@ export function SqlResult({ id, sql }: { id: string; sql: string | undefined }) 
   if (query.isError) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, query.error)}</EmptyState>;
   const execution = query.data;
   const { result, failure } = execution;
-  const location = failure && sql !== undefined ? errorLocation(sql, failure.position) : null;
+  const location = failure && sql !== undefined ? errorLocation(sql, failure.position, failure.code === "rejected" ? "byte" : "char") : null;
   const failureKey = `devtools.sql.failure.${failure?.code}`;
 
   return (

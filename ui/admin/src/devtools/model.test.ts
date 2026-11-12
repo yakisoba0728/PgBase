@@ -64,6 +64,13 @@ describe("SQL helpers", () => {
     expect(errorLocation(sql, 999)).toBeNull();
   });
 
+  it("converts a UTF-8 byte offset past non-ASCII text", () => {
+    // '한글' is 6 bytes for 2 characters: "x" is byte 17 but character 13.
+    const sql = "select '한글' x y";
+    expect(errorLocation(sql, 17, "byte")).toEqual({ line: 1, column: 13, text: sql });
+    expect(sql[12]).toBe("x");
+  });
+
   it("remembers statements per session scope", () => {
     rememberStatement("s1", "id1", "select 1");
     rememberStatement("s1", "id2", "select 2");

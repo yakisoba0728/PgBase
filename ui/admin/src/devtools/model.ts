@@ -84,9 +84,23 @@ export const sqlActive = (status: SqlExecutionStatus) => status === "pending" ||
 /** Trailing semicolons and space go; leading text stays so server positions still match. */
 export const statementText = (sql: string) => sql.replace(/[\s;]+$/, "");
 
-/** Line, column and the line's text for a 1-based character position; null when out of range. */
-export function errorLocation(sql: string, position: number | undefined): { line: number; column: number; text: string } | null {
-  if (!position || position < 1 || position > sql.length + 1) return null;
+const encoder = new TextEncoder();
+
+/** Line, column and the line's text for a 1-based position; null when out of range. The console's own
+ * grammar check reports UTF-8 byte offsets, PostgreSQL reports characters. */
+export function errorLocation(sql: string, at: number | undefined, unit: "byte" | "char" = "char"): { line: number; column: number; text: string } | null {
+  let position = at ?? 0;
+  if (unit === "byte" && position > 0) {
+    let bytes = 0;
+    let index = 0;
+    for (const character of sql) {
+      if (bytes >= position - 1) break;
+      bytes += encoder.encode(character).length;
+      index += character.length;
+    }
+    position = index + 1;
+  }
+  if (position < 1 || position > sql.length + 1) return null;
   const before = sql.slice(0, position - 1);
   const start = before.lastIndexOf("\n") + 1;
   const end = sql.indexOf("\n", start);

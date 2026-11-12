@@ -60,6 +60,8 @@ export function SchemaImport() {
       if (error instanceof Undecided || (error instanceof ApiError && error.code === "network_error")) return;
       writePending(null);
       setPending(null);
+      // A resumed apply after reload has no plan on screen to carry the error.
+      toast(`${t("devtools.import.failed")} ${errorText(t, error)}`, "danger");
     },
   });
 
