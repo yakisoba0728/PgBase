@@ -1,6 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import { useNavigate } from "react-router";
-import { forgetSession } from "../app/signout";
+import { useLeaveSession } from "../app/signout";
 import { openRow } from "../components/DataGrid";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiAddLine, RiLockPasswordLine, RiLogoutCircleRLine } from "@remixicon/react";
@@ -133,14 +132,13 @@ type Pending = "disable" | "revoke" | "password" | null;
 function AdministratorPane({ admin, self, onClose }: { admin: Administrator; self: boolean; onClose: () => void }) {
   const t = useT();
   const time = useTimeFormat();
-  const navigate = useNavigate();
+  const leave = useLeaveSession();
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<Pending>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: administratorsQuery.queryKey });
   // Ending one's own sessions (password, revoke) signs this browser out too.
   const signedOut = () => {
-    forgetSession();
-    navigate("/login", { replace: true });
+    leave();
   };
 
   const active = useMutation({

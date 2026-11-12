@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router";
-import { forgetSession } from "../app/signout";
+import { useLeaveSession } from "../app/signout";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiRefreshLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
@@ -65,13 +64,12 @@ function EmailSection({ profile }: { profile: Administrator }) {
 
 function PasswordSection({ id }: { id: string }) {
   const t = useT();
-  const navigate = useNavigate();
+  const leave = useLeaveSession();
   const change = useMutation({
     mutationFn: (value: string) => resetAdministratorPassword(id, value),
     onSuccess: () => {
       // The server ends every session of the account, this one included.
-      forgetSession();
-      navigate("/login", { replace: true });
+      leave();
     },
   });
   const error = !change.isError ? undefined : change.error instanceof ApiError && change.error.code === "invalid_administrator" ? t("system.admins.invalidPassword") : errorText(t, change.error);

@@ -815,9 +815,12 @@ a.nav-op:focus-visible {
 /* Keyboard shortcut list. */
 .shortcuts {
   display: grid;
-  gap: var(--space);
-  max-height: 60vh;
-  overflow-y: auto;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-sm) var(--space-lg, 32px);
+}
+
+.task-dialog:has(.shortcuts) {
+  width: min(760px, calc(100vw - 24px));
 }
 
 .shortcuts h3 {

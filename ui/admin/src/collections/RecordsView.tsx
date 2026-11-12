@@ -242,13 +242,8 @@ export function RecordsView({ collection }: { collection: Collection }) {
         ) : items.length === 0 ? (
           <EmptyState
             icon={RiInboxLine}
-            action={
-              url.filter ? (
-                <Button size="sm" variant="secondary" onClick={() => url.setFilter("")}>{t("records.clearFilter")}</Button>
-              ) : (
-                !readOnly && <Button size="sm" icon={RiAddLine} onClick={url.create}>{t("records.new")}</Button>
-              )
-            }
+            // The header's "New record" stays the one create action (and the "n" shortcut).
+            action={url.filter && <Button size="sm" variant="secondary" onClick={() => url.setFilter("")}>{t("records.clearFilter")}</Button>}
           >
             {url.filter ? t("records.noMatch") : t("records.empty")}
           </EmptyState>

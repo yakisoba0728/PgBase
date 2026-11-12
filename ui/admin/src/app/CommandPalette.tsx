@@ -19,6 +19,7 @@ import {
   type RemixiconComponentType,
 } from "@remixicon/react";
 import { collectionsQuery } from "../collections/queries";
+import { Button } from "../components/Button";
 import { TaskDialog, useModal } from "../components/Dialog";
 import { languages, setLanguage, useT, type MessageKey } from "../i18n";
 import { keyLabel, registerShortcut, useShortcut } from "./keys";
@@ -250,6 +251,9 @@ export function ShortcutsHelp() {
             ))}
           </dl>
         </section>
+      </div>
+      <div className="confirm-actions">
+        <Button variant="secondary" onClick={() => setHelp(false)}>{t("common.close")}</Button>
       </div>
     </TaskDialog>
   );

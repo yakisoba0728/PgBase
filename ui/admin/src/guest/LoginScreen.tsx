@@ -1,10 +1,11 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiLockPasswordLine, RiMailLine, RiShieldKeyholeLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { login, type LoginInput } from "../api/session";
 import { sessionQuery, setupStatusQuery } from "../app/queries";
+import { forgetSession } from "../app/signout";
 import { Button } from "../components/Button";
 import { Field } from "../components/Field";
 import { useT } from "../i18n";
@@ -18,6 +19,10 @@ export function LoginScreen() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const status = useQuery(setupStatusQuery);
+  const signedOut = (location.state as { signedOut?: boolean } | null)?.signedOut;
+  useEffect(() => {
+    if (signedOut) forgetSession();
+  }, [signedOut]);
   // Set once the server asks for a TOTP code; the code is then re-posted with these credentials.
   const [pending, setPending] = useState<LoginInput | null>(null);
   const mutation = useMutation({

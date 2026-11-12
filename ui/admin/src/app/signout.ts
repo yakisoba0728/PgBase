@@ -21,23 +21,20 @@ export function forgetSession(): void {
   }
 }
 
-/** The one sign-out: ends the server session (best effort), then forgets device state. The caller navigates to /login. */
-export async function signOut(): Promise<void> {
-  try {
-    await logout();
-  } finally {
-    forgetSession();
-  }
+/** Leaves for /login, which forgets device state once the shell has unmounted (so nothing refetches with the ended session). */
+export function useLeaveSession(): () => void {
+  const navigate = useNavigate();
+  return () => void navigate("/login", { replace: true, state: { signedOut: true } });
 }
 
-/** Sign-out as an action for menus and the command palette. */
+/** The one sign-out, for menus and the command palette: ends the server session (best effort), then leaves. */
 export function useSignOut(): () => void {
   const t = useT();
-  const navigate = useNavigate();
+  const leave = useLeaveSession();
   const mutation = useMutation({
-    mutationFn: signOut,
+    mutationFn: logout,
     onError: (error) => toast(errorText(t, error), "danger"),
-    onSettled: () => void navigate("/login", { replace: true }),
+    onSettled: leave,
   });
   return () => mutation.mutate();
 }
