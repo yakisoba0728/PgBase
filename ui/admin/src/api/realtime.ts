@@ -1,11 +1,12 @@
 import { request } from "./http";
+import type { Int64 } from "./logs";
 
 export interface RealtimeStatus {
-  pending: number;
-  dead: number;
-  delivered: number;
+  pending: Int64;
+  dead: Int64;
+  delivered: Int64;
   oldestPending?: string;
-  cursorFloor: number;
+  cursorFloor: Int64;
 }
 
 export async function getRealtimeStatus(signal?: AbortSignal): Promise<RealtimeStatus> {

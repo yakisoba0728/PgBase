@@ -9,6 +9,11 @@ import { AppShell } from "./AppShell";
 import { ExtensionScreenPage } from "./extensions";
 import { RequireAuth } from "./guard";
 import { navGroups } from "./navigation";
+import { JobsPage } from "../pages/JobsPage";
+import { LogsPage } from "../pages/LogsPage";
+import { RealtimePage } from "../pages/RealtimePage";
+
+const implemented = new Set<string>(["logs", "jobs", "realtime"]);
 
 export const router = createBrowserRouter(
   [
@@ -26,7 +31,10 @@ export const router = createBrowserRouter(
         { path: "collections", element: <CollectionsIndexPage /> },
         { path: "collections/:name/:tab?", element: <CollectionPage /> },
         { path: "new-collection/:type?", element: <NewCollectionPage /> },
-        ...navGroups.flatMap((group) => group.items.map((item) => ({ path: item.path, element: <PlaceholderPage title={item.label} icon={item.icon} /> }))),
+        { path: "logs", element: <LogsPage /> },
+        { path: "jobs", element: <JobsPage /> },
+        { path: "realtime", element: <RealtimePage /> },
+        ...navGroups.flatMap((group) => group.items.filter((item) => !implemented.has(item.path)).map((item) => ({ path: item.path, element: <PlaceholderPage title={item.label} icon={item.icon} /> }))),
         { path: "ext/:id/*", element: <ExtensionScreenPage /> },
         { path: "*", element: <NotFoundPage /> },
       ],

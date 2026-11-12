@@ -1,0 +1,323 @@
+/* Operations screens: logs, jobs, realtime. */
+[data-tone="danger"] {
+  --tone: var(--danger);
+}
+
+[data-tone="warning"] {
+  --tone: var(--warning);
+}
+
+[data-tone="success"] {
+  --tone: var(--success);
+}
+
+[data-tone="accent"] {
+  --tone: var(--accent);
+}
+
+/* Statistics strip: status-class bars, then quiet figures. */
+.ops-stats {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space);
+  min-height: 76px;
+  padding: var(--space-sm) var(--space) 0;
+  flex: none;
+}
+
+.ops-bars {
+  flex: none;
+  overflow: visible;
+}
+
+.ops-bar {
+  cursor: pointer;
+  outline: 0;
+}
+
+.ops-bar-hit {
+  fill: transparent;
+}
+
+.ops-bar-fill {
+  fill: color-mix(in srgb, var(--tone, var(--text-hint)), transparent 55%);
+  transition: fill var(--speed);
+}
+
+.ops-bar:hover .ops-bar-fill,
+.ops-bar:focus-visible .ops-bar-fill,
+.ops-bar[data-active] .ops-bar-fill {
+  fill: var(--tone, var(--accent));
+}
+
+.ops-bar text {
+  fill: var(--text-hint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.ops-bar[data-active] text {
+  fill: var(--text);
+  font-weight: 600;
+}
+
+.ops-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--space);
+  margin: 0;
+  padding-bottom: 14px;
+}
+
+.ops-figures dt,
+.ops-props dt,
+.ops-tiles dt {
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
+.ops-figures dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-figures [data-tone] dd,
+.ops-tiles dd[data-tone],
+.ops-props dd[data-tone],
+.ops-aside[data-tone] {
+  color: var(--tone);
+}
+
+/* Filter toolbar: pill controls in the searchbar's style. */
+.ops-filters {
+  flex-wrap: wrap;
+}
+
+.ops-filters form {
+  flex: 1 1 260px;
+}
+
+.ops-control {
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--input);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  outline: 0;
+  transition: background var(--speed), box-shadow var(--speed);
+}
+
+.ops-control:hover {
+  background: color-mix(in srgb, var(--input), var(--text) 3%);
+}
+
+.ops-control:focus-visible {
+  background: var(--input-focus);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
+}
+
+select.ops-control {
+  cursor: pointer;
+}
+
+.ops-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
+.ops-range .ops-control {
+  font-family: var(--font-mono);
+}
+
+/* Log rows */
+.ops-time {
+  color: var(--text-hint);
+}
+
+.ops-status {
+  display: inline-block;
+  min-width: 38px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 22px;
+  text-align: center;
+}
+
+.ops-status[data-tone] {
+  background: color-mix(in srgb, var(--tone), var(--surface) 86%);
+  color: var(--tone);
+}
+
+/* The request column takes the spare width so time and status stay compact. */
+.ops-grid td.ops-request {
+  width: 100%;
+  max-width: 0;
+  min-width: 320px;
+}
+
+.ops-method {
+  display: inline-block;
+  min-width: 56px;
+  margin-right: 8px;
+  color: var(--text-hint);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.ops-aside {
+  margin-left: 8px;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
+.ops-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ops-dot::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tone, var(--text-disabled));
+}
+
+/* Detail pane */
+.ops-pane-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.ops-props {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 var(--space-sm);
+}
+
+.ops-props > div {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: 8px;
+  border-radius: var(--radius-sm);
+}
+
+.ops-props > div:nth-child(odd) {
+  background: var(--surface-1);
+}
+
+.ops-props dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ops-pane-form .ops-props {
+  margin-top: var(--space);
+}
+
+.ops-subtitle {
+  margin: var(--space) 0 8px;
+  font-size: var(--font-size);
+  font-weight: 600;
+}
+
+.ops-code {
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: 18px;
+}
+
+.ops-note {
+  margin: 0 0 var(--space-sm);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning), var(--surface) 90%);
+  font-size: var(--font-size-sm);
+}
+
+.ops-top {
+  padding-top: var(--space-sm);
+}
+
+/* Realtime */
+.ops-realtime {
+  display: grid;
+  align-content: start;
+  gap: var(--space);
+}
+
+.ops-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: var(--space-xs);
+  margin: 0;
+}
+
+.ops-tiles > div {
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+
+.ops-tiles dd {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-tiles dd.ops-aside {
+  margin: 2px 0 0;
+  font-size: var(--font-size-sm);
+}
+
+.ops-section {
+  max-width: 640px;
+}
+
+.ops-section .ops-subtitle {
+  margin-top: 0;
+}
+
+.ops-section > p {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--font-size-sm);
+}
+
+.ops-inline {
+  display: flex;
+  gap: 8px;
+}
+
+.ops-inline .searchbar {
+  flex: 1;
+}
+
+.ops-inline .searchbar[data-invalid] {
+  box-shadow: 0 0 0 1px var(--danger);
+}
+
+.ops-section > .field-error {
+  margin-top: 6px;
+  padding: 0 14px;
+}

@@ -1,3 +1,4 @@
+import { opsKo } from "./parts/ops.ko";
 import type { en } from "./en";
 
 export const ko: Record<keyof typeof en, string> = {
@@ -361,4 +362,5 @@ export const ko: Record<keyof typeof en, string> = {
   "error.schema_unavailable": "스키마 서비스가 바쁩니다. 다시 시도하세요.",
   "schema.authLeftover": "삭제한 컬렉션의 인증 설정을 지우지 못했습니다: {error}",
   "schema.authRenameLocked": "인증 컬렉션은 이름을 바꿀 수 없습니다. 로그인 설정이 이름에 묶여 있습니다.",
+  ...opsKo,
 };

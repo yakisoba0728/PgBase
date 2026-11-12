@@ -1,7 +1,11 @@
+import type { LosslessNumber } from "lossless-json";
 import { request } from "./http";
 
+/** A 64-bit server integer: a number when exact, otherwise the server's text. Render with String(). */
+export type Int64 = number | LosslessNumber;
+
 export interface RequestLogEntry {
-  id: number;
+  id: Int64;
   at: string;
   method: string;
   route: string;
@@ -15,13 +19,13 @@ export interface RequestLogEntry {
 export interface RequestLogPage {
   items: RequestLogEntry[];
   /** Pass as `before` to load the next (older) page; absent on the last page. */
-  nextBefore?: number;
-  oldestId: number;
+  nextBefore?: Int64;
+  oldestId: Int64;
 }
 
 export interface RequestLogFilter {
   /** Return entries with id lower than this (pagination cursor, > 0). */
-  before?: number;
+  before?: string;
   /** 1–5, matching 1xx..5xx. */
   statusClass?: 1 | 2 | 3 | 4 | 5;
   method?: string;
@@ -33,20 +37,20 @@ export interface RequestLogFilter {
 }
 
 export interface RequestLogStatistics {
-  total: number;
-  dropped: number;
+  total: Int64;
+  dropped: Int64;
   oldestAt?: string;
   newestAt?: string;
   averageDurationMs: number;
   /** Keyed by class label, e.g. "2xx", "4xx". */
-  statusClasses: Record<string, number>;
+  statusClasses: Record<string, Int64>;
 }
 
 export async function listRequestLogs(filter: RequestLogFilter = {}, signal?: AbortSignal): Promise<RequestLogPage> {
   return request<RequestLogPage>("GET", "/api/admin/logs", { query: { ...filter }, signal });
 }
 
-/** Deletes every request log entry (no filters). */
+/** Deletes every request log entry (no filters) and restarts ids at 1. */
 export async function clearRequestLogs(): Promise<void> {
   await request<void>("DELETE", "/api/admin/logs");
 }
@@ -55,6 +59,6 @@ export async function getRequestLogStatistics(signal?: AbortSignal): Promise<Req
   return request<RequestLogStatistics>("GET", "/api/admin/logs/statistics", { signal });
 }
 
-export async function getRequestLog(id: number, signal?: AbortSignal): Promise<RequestLogEntry> {
-  return request<RequestLogEntry>("GET", `/api/admin/logs/${id}`, { signal });
+export async function getRequestLog(id: string, signal?: AbortSignal): Promise<RequestLogEntry> {
+  return request<RequestLogEntry>("GET", `/api/admin/logs/${encodeURIComponent(id)}`, { signal });
 }
