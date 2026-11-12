@@ -1,7 +1,9 @@
+import { RealtimePanel } from "./realtime-panel";
 import { OperationsConsole } from "./operations-console";
 import { useEffect, useState } from "react";
 import type { SchemaHealth, SystemStatus, SystemStatusProbe } from "../backend/ports";
 import { useBackend } from "../auth/session";
+import { Button, PageHeading } from "../components/ui";
 
 interface SystemView { status: SystemStatus; health: SchemaHealth }
 const systemLoadTimeoutMs = 10_000;
@@ -40,7 +42,7 @@ function Reading({ label, probes, component, children }: {
 }
 
 export function SystemPage() {
-  const { system, operations } = useBackend();
+  const { system, operations, realtime, capabilities } = useBackend();
   const [load, setLoad] = useState<SystemLoad>({ phase: "loading" });
   const [reloads, setReloads] = useState(0);
   // Both reads answer from a background sample rather than from PostgreSQL, so
@@ -65,15 +67,22 @@ export function SystemPage() {
   const view = load.phase === "ready" ? load.view : null;
   const refresh = () => setReloads((current) => current + 1);
 
-  return <section>
-    <h2>System</h2>
-    <p>Operational state reported by pgBase.</p>
-    {load.phase === "failed" && <p role="alert">Unable to load system status.</p>}
-    {load.phase === "loading" && <p aria-live="polite">Loading system status…</p>}
-    <button aria-disabled={load.phase === "loading"} onClick={load.phase === "loading" ? undefined : refresh} type="button">
+  return <section className="system-page">
+    <PageHeading title="System" description="Operational state reported by pgBase." actions={
+    <Button variant="secondary" aria-disabled={load.phase === "loading"} onClick={load.phase === "loading" ? undefined : refresh}>
       {load.phase === "loading" ? "Loading system status…" : load.phase === "failed" ? "Retry system status" : "Refresh system status"}
-    </button>
-    {view && <>
+    </Button>} />
+    <nav className="section-navigation" aria-label="System sections">
+      <a href="#system-overview">Status</a>
+      {realtime && capabilities?.realtime !== false && <a href="#system-realtime">Realtime</a>}
+      {operations && <>{capabilities?.logs !== false && <a href="#system-requests">Requests</a>}{capabilities?.jobs !== false && <a href="#system-jobs">Scheduled jobs</a>}{capabilities?.backups !== false && <a href="#system-backups">Backups</a>}</>}
+    </nav>
+    <div id="system-overview">
+    {load.phase === "failed" && <p className="system-feedback" role="alert">Unable to load system status.</p>}
+    {load.phase === "loading" && <p aria-live="polite">Loading system status…</p>}
+    {view && <div className="system-overview">
+      <section aria-labelledby="system-instance-heading">
+      <h3 id="system-instance-heading">Instance status</h3>
       <dl className="system-status">
         <div><dt>Binary version</dt><dd>{view.status.version}</dd></div>
         <Reading label="Database" probes={view.status.unavailable} component="database">
@@ -91,10 +100,11 @@ export function SystemPage() {
         <Reading label="Catalog listener" probes={view.status.unavailable} component="listener">
           {view.status.listenerReady ? "Ready" : "Not ready"}
         </Reading>
-        <div><dt>Last successful sample</dt><dd><Instant value={view.status.lastSuccessAt} /></dd></div>
       </dl>
-
-      <h3>Schema health</h3>
+      <dl className="system-status system-sample"><div><dt>Last successful sample</dt><dd><Instant value={view.status.lastSuccessAt} /></dd></div></dl>
+      </section>
+      <section aria-labelledby="system-health-heading">
+      <h3 id="system-health-heading">Schema health</h3>
       <p className="health-state" data-state={view.health.state}>{healthSummary[view.health.state]}</p>
       <dl className="system-status">
         <div><dt>Last successful diagnosis</dt><dd><Instant value={view.health.lastSuccessAt} /></dd></div>
@@ -108,7 +118,10 @@ export function SystemPage() {
         </li>)}</ul>}
       {view.health.findingCount > view.health.findings.length &&
         <p>Showing {view.health.findings.length} of {view.health.findingCount} findings. Run pgbase doctor for the full report.</p>}
-    </>}
-    {operations && <OperationsConsole port={operations} />}
+      </section>
+    </div>}
+    </div>
+    {realtime && capabilities?.realtime !== false && <RealtimePanel port={realtime} />}
+    {operations && <OperationsConsole port={operations} capabilities={capabilities} />}
   </section>;
 }

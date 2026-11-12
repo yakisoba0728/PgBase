@@ -1,4 +1,5 @@
 import type { AdminSettings, APIRateLimitRule } from "../backend/ports";
+import { Button, FormSection } from "../components/ui";
 
 export function ruleErrors(
   rules: APIRateLimitRule[],
@@ -52,9 +53,10 @@ export function APIRateLimitSettings({
       ),
     });
   return (
-    <fieldset disabled={disabled}>
-      <legend>API request rate limits</legend>
-      <p>
+    <FormSection disabled={disabled} title="API request rate limits">
+      <details className="settings-explanation">
+        <summary>How route rules are matched</summary>
+      <p className="settings-help">
         Labels match registered route patterns, not individual record URLs.
         Use /api/v1/collections/{"{collection}"}/records for administrator lists,
         /api/v1/user/collections/{"{collection}"}/records for user lists,
@@ -62,7 +64,8 @@ export function APIRateLimitSettings({
         the first matching rule is used within each group. Limits are counted
         per caller and client IP for the selected audience.
       </p>
-      <label>
+      </details>
+      <label className="settings-toggle">
         <input
           checked={value.rateLimits.enabled}
           type="checkbox"
@@ -71,8 +74,8 @@ export function APIRateLimitSettings({
         Enable API request rate limits
       </label>
       {rules.map((rule, index) => (
-        <fieldset key={index}>
-          <legend>Rule {index + 1}</legend>
+        <FormSection key={index} title={`Rule ${index + 1}`} className="settings-api-rule">
+          <div className="settings-field-grid">
           <label>
             Rule {index + 1} label
             <input
@@ -123,7 +126,8 @@ export function APIRateLimitSettings({
               }
             />
           </label>
-          <button
+          </div>
+          <Button variant="danger" className="settings-local-save"
             type="button"
             onClick={() =>
               change({
@@ -132,10 +136,10 @@ export function APIRateLimitSettings({
             }
           >
             Remove rule {index + 1}
-          </button>
-        </fieldset>
+          </Button>
+        </FormSection>
       ))}
-      <button
+      <Button variant="secondary" className="settings-local-save"
         type="button"
         disabled={rules.length >= 100}
         onClick={() =>
@@ -148,10 +152,14 @@ export function APIRateLimitSettings({
         }
       >
         Add API rate rule
-      </button>
+      </Button>
       <label>
         Excluded client IPs or CIDRs, one per line
         <textarea
+          rows={3}
+          spellCheck={false}
+          autoCapitalize="none"
+          className="settings-code"
           value={excludedIPs.join("\n")}
           onChange={(event) =>
             change({
@@ -163,6 +171,6 @@ export function APIRateLimitSettings({
           }
         />
       </label>
-    </fieldset>
+    </FormSection>
   );
 }

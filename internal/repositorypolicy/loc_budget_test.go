@@ -472,15 +472,19 @@ type structuralLimit struct {
 // (Go 94,955 + unchanged UI 11,157); no constructors, UI surface, classifier
 // exclusions, >800-line files, or unused allowance are introduced. Evidence:
 // docs/workstreams/remaining-goal-2026-09-22/README.md.
+// PR #103 adds the administrator workspace and existing backend controls:
+// runtime +2054/-488 = +1566 (Go +33, UI +1533), measured against f99cc59.
+// Exact totals are 107678 runtime, 12690 UI, 213 page hooks and 355 UI exports.
+// No classifier exclusions, constructors or spare growth allowance are added.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 106112, "2026-09-22 remaining-goal exact all-file measurement"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 11157, "native administrator management and auth policy forms; no spare allowance"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 107678, "PR 103 administrator workspace exact measurement"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 12690, "PR 103 administrator workspace and backend controls; no spare allowance"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 104, "optional range transport/store and runtime capability boundaries"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1595, "reviewed managed byte-range service and store boundaries"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 64, "measured final 20-defect correctness constructors"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
-	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 190, "administrator page state, operation forms and account-list lifecycle"},
-	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 317, "administrator account types, port, transport and page boundaries"},
+	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 213, "PR 103 workspace forms and request lifecycle"},
+	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 355, "PR 103 workspace components and typed backend ports"},
 }
 
 type repositoryMetrics struct {

@@ -1,3 +1,4 @@
+import { createAuthFeaturePorts, createRealtimePort } from "./http-feature-ports";
 import { providerInput, smtpInput, templateInput } from "./auth-input";
 import type {
   AdminBackend, AdminSettings, AdministratorProfile, AuthAdministration, AuthCollection, AuthMailPreview, AuthMailTemplate, AuthPolicy, AuthSMTPSettings, BackupEntry, BackupJob, ImpersonatedUserSession, IssuedServiceToken, JobPage, ManagedUser, OAuthIdentity, OAuthProviderSettings, RecordRules, RequestLogEntry, RequestLogFilter, RequestLogPage, RequestLogStatistics, RulePreview, SchemaHealth, ServiceToken, ServiceTokenScope, SystemStatus, UserPage,
@@ -15,8 +16,9 @@ export interface AdminPortsTransport {
   protectedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 }
 
-export function createAdminPorts(transport: AdminPortsTransport): Pick<AdminBackend, "system" | "settings" | "profile" | "operations" | "storage" | "backupStorage" | "users" | "rules" | "authCollections" | "serviceTokens"> {
+export function createAdminPorts(transport: AdminPortsTransport): Pick<AdminBackend, "system" | "settings" | "profile" | "operations" | "storage" | "backupStorage" | "users" | "rules" | "authCollections" | "serviceTokens" | "realtime"> {
   return {
+    realtime: createRealtimePort(transport),
     system: {
     status: async (signal?: AbortSignal): Promise<SystemStatus> => {
       try {
@@ -544,6 +546,7 @@ export function createAdminPorts(transport: AdminPortsTransport): Pick<AdminBack
       ).data as RulePreview,
     },
     authCollections: {
+    ...createAuthFeaturePorts(transport),
     listAuthCollections: async (
       signal?: AbortSignal,
     ): Promise<AuthCollection[]> =>
@@ -570,7 +573,7 @@ export function createAdminPorts(transport: AdminPortsTransport): Pick<AdminBack
       ).data as AuthCollection,
     updateAuthCollection: async (
       id: string,
-      value: Pick<AuthCollection, "registrationEnabled" | "profileSchema">,
+      value: Pick<AuthCollection, "registrationEnabled" | "profileSchema" | "fields" | "rules" | "recordId">,
       signal?: AbortSignal,
     ): Promise<AuthCollection> =>
       (

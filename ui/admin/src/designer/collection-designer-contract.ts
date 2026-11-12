@@ -28,6 +28,8 @@ export interface CollectionDesigner {
   relationTargetsFailed: boolean;
   isNewField(name: string): boolean;
   collectionType: CollectionType;
+  advanced?: import("../backend/ports").CollectionAdvancedOptions;
+  setAdvanced(value: import("../backend/ports").CollectionAdvancedOptions): void;
   recordId?: RecordIDPolicy;
   setRecordIDPolicy(policy?: RecordIDPolicy): void;
   preview: CollectionPreview | null;

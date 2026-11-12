@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBackend, useSession } from "../auth/session";
 import { AdministratorError, type AdministratorPage, type AdministratorProfile } from "../backend/ports";
+import { Button, FormSection, PageHeading } from "../components/ui";
+import { PasswordInput } from "../components/password-input";
 
 export function AdministratorsPage() {
   const { administrators } = useBackend();
@@ -94,36 +96,38 @@ export function AdministratorsPage() {
     }, `Password replaced for ${target.email}. All their sessions were revoked.`);
   }
 
-  return <section>
-    <div className="page-heading"><h2>Administrators</h2><button type="button" disabled={busy} onClick={() => load()}>Refresh</button></div>
-    <p>Administrators have full access to this application. Your own account cannot be deactivated here.</p>
-    {error && <p role="alert">{error}</p>}
-    {notice && <p role="status">{notice}</p>}
+  return <section className="access-page administrators-page">
+    <PageHeading title="Administrators" description="Administrators have full access to this application. Your own account cannot be deactivated here." actions={<Button disabled={busy} onClick={() => load()} variant="secondary">Refresh</Button>} />
+    {error && <p className="access-feedback form-error" role="alert">{error}</p>}
+    {notice && <p className="access-feedback" role="status">{notice}</p>}
     <form aria-label="Create administrator" onSubmit={(event) => { event.preventDefault(); create(); }}>
-      <fieldset disabled={busy}><legend>Create administrator</legend>
-        <label>Email <input type="email" required autoComplete="off" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-        <label>Password <input type="password" required autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-        <p>Use 12–1024 UTF-8 bytes. This sets a password directly; no invitation email is sent.</p>
-        <button type="submit">Create administrator</button>
-      </fieldset>
+      <FormSection disabled={busy} title="Create administrator">
+        <div className="access-form-grid">
+          <label className="access-field">Email <input type="email" required autoComplete="off" placeholder="name@example.com" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+          <div className="access-field"><label htmlFor="administrator-password">Password</label><PasswordInput disabled={busy} id="administrator-password" aria-describedby="administrator-password-help" required autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></div>
+        </div>
+        <p className="access-help" id="administrator-password-help">Use 12–1024 UTF-8 bytes. This sets a password directly; no invitation email is sent.</p>
+        <div className="access-form-actions"><Button type="submit">Create administrator</Button></div>
+      </FormSection>
     </form>
     {target && <form aria-label={`Set password for ${target.email}`} onSubmit={(event) => { event.preventDefault(); reset(); }}>
-      <fieldset disabled={busy}><legend>Set password for {target.email}</legend>
-        <p>The replacement revokes every session for this administrator. No reset email is sent.{target.id === ownID && " You will be signed out immediately."}</p>
-        <label>New password <input type="password" required autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
-        <button type="submit">Save password</button><button type="button" onClick={() => { setTarget(null); setNewPassword(""); }}>Cancel</button>
-      </fieldset>
+      <FormSection disabled={busy} title={`Set password for ${target.email}`}>
+        <p className="access-help" id="administrator-reset-help">The replacement revokes every session for this administrator. No reset email is sent.{target.id === ownID && " You will be signed out immediately."}</p>
+        <div className="access-field"><label htmlFor="administrator-new-password">New password</label><PasswordInput disabled={busy} id="administrator-new-password" aria-describedby="administrator-reset-help" required autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></div>
+        <div className="access-form-actions"><Button onClick={() => { setTarget(null); setNewPassword(""); }} variant="secondary">Cancel</Button><Button type="submit">Save password</Button></div>
+      </FormSection>
     </form>}
     {page && <>
+      <div className="access-list-heading"><h3>Administrator accounts</h3><p>Manage account status, passwords, and active sessions.</p></div>
       <div className="table-scroll" role="region" aria-label="Administrator accounts" tabIndex={0}><table className="users-table">
         <thead><tr><th>Email</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
         <tbody>{page.items.map((account) => <tr key={account.id}>
           <td>{account.email}{account.id === ownID && " (you)"}</td><td>{account.active ? "Active" : "Inactive"}</td><td><time dateTime={account.createdAt}>{new Date(account.createdAt).toLocaleString()}</time></td>
-          <td><button type="button" disabled={busy || account.id === ownID} onClick={() => changeActive(account)}>{account.active ? "Deactivate" : "Activate"}</button><button type="button" disabled={busy} onClick={() => { setTarget(account); setNewPassword(""); }}>Set password</button><button type="button" disabled={busy} onClick={() => revoke(account)}>Revoke sessions</button></td>
+          <td><div className="access-item-actions"><Button disabled={busy || account.id === ownID} onClick={() => changeActive(account)} variant="secondary">{account.active ? "Deactivate" : "Activate"}</Button><Button disabled={busy} onClick={() => { setTarget(account); setNewPassword(""); }} variant="secondary">Set password</Button><Button disabled={busy} onClick={() => revoke(account)} variant="danger">Revoke sessions</Button></div></td>
         </tr>)}</tbody>
       </table></div>
       {page.items.length === 0 && <p>No administrators on this page.</p>}
-      <button type="button" disabled={busy} onClick={() => load()}>First page</button><button type="button" disabled={busy || !page.nextAfter} onClick={() => load(page.nextAfter)}>Next page</button>
+      <nav aria-label="Administrator pagination" className="access-pagination"><Button disabled={busy} onClick={() => load()} variant="secondary">First page</Button><Button disabled={busy || !page.nextAfter} onClick={() => load(page.nextAfter)} variant="secondary">Next page</Button></nav>
     </>}
   </section>;
 }

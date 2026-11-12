@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { backendScript, callsTo, deferredStep } from "../test/backend-script";
 import { activeSessionExpiresAt, administrator, renderAdmin, scriptedAdmin, type AdminHarness } from "../test/harness";
 import { LoginPage } from "./login-page";
+import { applyWorkspaceTheme } from "../components/workspace-theme";
 
 function signedOut(): AdminHarness {
   const script = backendScript();
@@ -12,6 +13,61 @@ function signedOut(): AdminHarness {
 }
 
 describe("administrator login", () => {
+  it("uses system appearance for an anonymous session after a previous saved theme", async () => {
+    applyWorkspaceTheme({ theme: "dark", accent: "#7460a2", branding: "Previous workspace" });
+    renderAdmin(signedOut());
+    await screen.findByRole("heading", { name: "Sign in to pgBase" });
+    expect(document.documentElement.dataset.theme).toBe("system");
+    expect(document.documentElement.dataset.accent).toBe("theme");
+    expect(document.title).toBe("pgBase administration");
+  });
+
+  it("reveals the password without submitting and hides it after credentials are cleared", async () => {
+    const harness = signedOut();
+    harness.script.login.push({ fault: { kind: "invalid-credentials" } });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+    await screen.findByRole("heading", { name: "Sign in to pgBase" });
+    await user.type(screen.getByLabelText("Email"), administrator.email);
+    await user.type(screen.getByLabelText("Password"), "bad password");
+    await user.click(screen.getByRole("button", { name: "Show password" }));
+    expect(screen.getByLabelText("Password")).toHaveAttribute("type", "text");
+    expect(screen.getByLabelText("Password")).toHaveValue("bad password");
+    expect(screen.getByRole("button", { name: "Hide password" })).toHaveAttribute("aria-pressed", "true");
+    expect(callsTo(harness.script, "login")).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await screen.findByText("Email or password is incorrect.");
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+    expect(screen.getByLabelText("Password")).toHaveAttribute("type", "password");
+  });
+
+  it("clears the sign-in password when entering and leaving recovery", async () => {
+    const user = userEvent.setup();
+    render(<LoginPage onLogin={vi.fn()} onRequestPasswordReset={vi.fn()} onConfirmPasswordReset={vi.fn()} />);
+    await user.type(screen.getByLabelText("Password"), "private sign-in password");
+    await user.click(screen.getByRole("button", { name: "Forgot administrator password?" }));
+    expect(screen.getByRole("heading", { name: "Reset administrator password" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Back to sign in" }));
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+  });
+
+  it("blocks recovery and password toggling while sign-in is pending", async () => {
+    let finish!: () => void;
+    const login = new Promise<void>(resolve => { finish = resolve; });
+    const request = vi.fn();
+    const user = userEvent.setup();
+    render(<LoginPage onLogin={() => login} onRequestPasswordReset={request} onConfirmPasswordReset={vi.fn()} />);
+    await user.type(screen.getByLabelText("Email"), administrator.email);
+    await user.type(screen.getByLabelText("Password"), "pending password");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(screen.getByRole("button", { name: "Forgot administrator password?" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Show password" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Forgot administrator password?" }));
+    expect(request).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "Sign in to pgBase" })).toBeVisible();
+    await act(async () => { finish(); });
+  });
+
   it("shows validation errors and does not submit incomplete credentials", async () => {
     const harness = signedOut();
     const user = userEvent.setup();
@@ -40,6 +96,7 @@ describe("administrator login", () => {
     await user.type(screen.getByLabelText("Password"), "bad password");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
     expect(screen.getByRole("button", { name: "Signing in…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Show password" })).toBeDisabled();
 
     await act(async () => { attempt.settle({ fault: { kind: "invalid-credentials" } }); });
 

@@ -21,7 +21,7 @@ function ruleDraft(text: string): Record<string, unknown> | null {
 }
 
 export function RecordRulesEditor({ collection }: { collection: string }) {
-  const { rules } = useBackend();
+  const { rules, capabilities } = useBackend();
   const [value, setValue] = useState<Record<string, unknown> | null>(null);
   const [draft, setDraft] = useState("{}");
   const [error, setError] = useState("");
@@ -33,12 +33,13 @@ export function RecordRulesEditor({ collection }: { collection: string }) {
   const draftRules = ruleDraft(draft);
   const generation = useRef(0);
   const load = useCallback(() => {
+    if (capabilities?.rules === false) { setPending(false); return; }
     const current = ++generation.current; setPending(true); setError("");
     void rules.getRules(collection).then((result) => {
       if (current !== generation.current) return;
       setValue(result.rules); setDraft(stringifyJSON(result.rules, 2));
     }).catch(() => { if (current === generation.current) setError("Unable to load record rules."); }).finally(() => { if (current === generation.current) setPending(false); });
-  }, [collection, rules]);
+  }, [collection, rules, capabilities?.rules]);
   useEffect(() => { load(); return () => { generation.current += 1; }; }, [load]);
   useEffect(() => { setPreviewResult(null); }, [collection, draft, previewAction, previewUserID, previewRecordIDs]);
   function setAction(action: Action, operation: string) {
@@ -65,6 +66,7 @@ export function RecordRulesEditor({ collection }: { collection: string }) {
       if (current === generation.current) setPreviewResult(result.items);
     }).catch(() => { if (current === generation.current) setError("Unable to preview record rules."); }).finally(() => { if (current === generation.current) setPending(false); });
   }
+  if (capabilities?.rules === false) return null;
   return <section className="record-rules"><h3>Record access rules</h3>
     <p>Owner limits public users to their records. Authenticated allows signed-in users. Allow permits everyone when an anonymous record API is connected.</p>
     {error && <p role="alert">{error}</p>}

@@ -75,6 +75,7 @@ type adminEndpoints struct {
 	publicURL      *url.URL
 	trustedProxies func() []netip.Prefix
 	sqlConsole     bool
+	capabilities   map[string]bool
 	recorder       observability.Recorder
 	statusCache    *setupStatusCache
 }
@@ -92,6 +93,7 @@ type adminSessionResponse struct {
 	CSRFToken         string                `json:"csrfToken"`
 	ExpiresAt         time.Time             `json:"expiresAt"`
 	SQLConsoleEnabled bool                  `json:"sqlConsoleEnabled"`
+	Capabilities      map[string]bool       `json:"capabilities,omitempty"`
 }
 
 func newAdminEndpoints(dependencies Dependencies) adminEndpoints {
@@ -104,6 +106,7 @@ func newAdminEndpoints(dependencies Dependencies) adminEndpoints {
 		publicURL:      dependencies.PublicURL,
 		trustedProxies: dependencies.trustedProxies,
 		sqlConsole:     dependencies.SQLConsole != nil,
+		capabilities:   administratorCapabilities(dependencies),
 		recorder:       recorder,
 		statusCache:    newSetupStatusCache(),
 	}
@@ -307,7 +310,7 @@ func (e adminEndpoints) currentSession(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
 		return
 	}
-	writeJSON(w, http.StatusOK, sessionResponse(principal.Administrator, principal.ExpiresAt, principal.CSRFToken, e.sqlConsole))
+	writeJSON(w, http.StatusOK, sessionResponse(principal.Administrator, principal.ExpiresAt, principal.CSRFToken, e.sqlConsole, e.capabilities))
 }
 
 func (e adminEndpoints) logout(w http.ResponseWriter, r *http.Request) {
@@ -343,10 +346,14 @@ func (e adminEndpoints) writeIssuedSession(w http.ResponseWriter, r *http.Reques
 		Secure:   secureAdminCookie(r, e.publicURL, currentTrustedProxies(e.trustedProxies)),
 		SameSite: http.SameSiteLaxMode,
 	})
-	writeJSON(w, status, sessionResponse(session.Administrator, session.ExpiresAt, session.CSRFToken, e.sqlConsole))
+	writeJSON(w, status, sessionResponse(session.Administrator, session.ExpiresAt, session.CSRFToken, e.sqlConsole, e.capabilities))
 }
 
-func sessionResponse(administrator adminauth.Administrator, expiresAt time.Time, csrfToken string, sqlConsole bool) adminSessionResponse {
+func sessionResponse(administrator adminauth.Administrator, expiresAt time.Time, csrfToken string, sqlConsole bool, capabilities ...map[string]bool) adminSessionResponse {
+	var available map[string]bool
+	if len(capabilities) > 0 {
+		available = capabilities[0]
+	}
 	return adminSessionResponse{
 		Administrator: administratorResponse{
 			ID:        administrator.ID,
@@ -358,6 +365,7 @@ func sessionResponse(administrator adminauth.Administrator, expiresAt time.Time,
 		CSRFToken:         csrfToken,
 		ExpiresAt:         expiresAt.UTC(),
 		SQLConsoleEnabled: sqlConsole,
+		Capabilities:      available,
 	}
 }
 

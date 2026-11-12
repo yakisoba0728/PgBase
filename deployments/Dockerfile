@@ -1,4 +1,4 @@
-FROM node:24.21.0-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553 AS admin-ui
+FROM node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS admin-ui
 
 WORKDIR /src/ui/admin
 COPY ui/admin/package.json ui/admin/package-lock.json ./
@@ -10,7 +10,7 @@ COPY ui/admin/index.html ui/admin/tsconfig.json ui/admin/tsconfig.app.json ui/ad
 COPY ui/admin/src ./src
 RUN npm run build
 
-FROM golang:1.26.10-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af AS build
+FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS build
 
 ARG VERSION=dev
 ARG SOURCE_COMMIT=unknown
