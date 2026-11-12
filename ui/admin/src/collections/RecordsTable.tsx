@@ -1,41 +1,106 @@
-import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
-import { RiArrowDownLine, RiArrowUpLine, RiAttachment2, RiFileCopyLine } from "@remixicon/react";
-import type { CollectionField } from "../api/collections";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { RiArrowDownLine, RiArrowUpLine } from "@remixicon/react";
+import type { Collection, CollectionField } from "../api/collections";
 import type { RecordData } from "../api/records";
-import { IconButton } from "../components/Button";
-import { toast } from "../components/Toast";
+import { CopyButton } from "../components/CopyButton";
+import { useVirtualRows } from "../components/virtualRows";
 import { useT } from "../i18n";
-import { cellView, fieldKind, shortDate } from "./fields";
+import { fieldKind } from "./fields";
+import { columnWidth, RecordCell, type OnPeek } from "./RecordCell";
 
 interface RecordsTableProps {
-  label: string;
-  fields: CollectionField[];
+  collection: Collection;
+  catalog: Collection[];
+  /** Visible column names in display order (id is always first and not listed). */
+  columns: string[];
   records: RecordData[];
   sort: string;
   onSort: (field: string) => void;
   openId: string | null;
   onOpen: (id: string) => void;
   selected: Set<string>;
+  /** `range` selects every row between the last clicked one and this one (shift-click). */
   onSelect: (ids: string[], checked: boolean) => void;
-  /** SQL views may sort on unindexed columns. */
-  sqlView: boolean;
+  scroller: RefObject<HTMLDivElement | null>;
+  onPeek: OnPeek;
 }
 
 // The server sorts only on indexed or unique columns (else 422 sort: unindexed_field), except
 // in SQL views, and never on json, file or password fields; of the system columns, id and created_at.
-const sortableType = (field: CollectionField) => !["file", "relations", "json", "multiselect", "password"].includes(fieldKind(field));
+const sortableType = (field: CollectionField) => !["file", "relations", "json", "geo", "multiselect", "password"].includes(fieldKind(field));
 const sortableSystem = ["id", "created_at"];
+const rowHeight = 40;
+const checkWidth = 40;
+const idWidth = 290;
 
-export function RecordsTable({ label, fields, records, sort, onSort, openId, onOpen, selected, onSelect, sqlView }: RecordsTableProps) {
+/** The records grid: fixed layout, sticky header and id column, only the visible rows in the DOM. */
+export function RecordsTable({ collection, catalog, columns, records, sort, onSort, openId, onOpen, selected, onSelect, scroller, onPeek }: RecordsTableProps) {
   const t = useT();
-  const columns = fields.filter((field) => field.type !== "password");
-  const system = ["created_at", "updated_at"].filter((name) => !fields.some((field) => field.name === name));
+  const sqlView = Boolean(collection.view?.sql);
+  const byName = useMemo(() => new Map(collection.fields.map((field) => [field.name, field])), [collection.fields]);
+  const rows = useVirtualRows(scroller, records.length, rowHeight);
   const checkedCount = records.filter((record) => selected.has(record.id)).length;
-  const allIds = records.map((record) => record.id);
+  const [focus, setFocus] = useState(0);
+  const anchor = useRef<number | null>(null);
+  const focusPending = useRef(false);
+  const tbody = useRef<HTMLTableSectionElement>(null);
+  const width = checkWidth + idWidth + columns.reduce((sum, name) => sum + columnWidth(byName.get(name)), 0);
 
-  const header = (name: string, children: ReactNode, canSort = true) => {
+  // Moves keyboard focus to row `index`, scrolling it into the rendered window first.
+  const moveTo = (index: number) => {
+    const next = Math.max(0, Math.min(records.length - 1, index));
+    const element = scroller.current;
+    if (element) {
+      const top = next * rowHeight;
+      const header = 40;
+      if (top < element.scrollTop) element.scrollTop = top;
+      else if (top + rowHeight + header > element.scrollTop + element.clientHeight) element.scrollTop = top + rowHeight + header - element.clientHeight;
+    }
+    focusPending.current = true;
+    setFocus(next);
+  };
+  useEffect(() => {
+    if (!focusPending.current) return;
+    const row = tbody.current?.querySelector<HTMLElement>(`tr[data-index="${focus}"]`);
+    if (row) {
+      row.focus({ preventScroll: true });
+      focusPending.current = false;
+    }
+  });
+
+  const onRowKey = (event: KeyboardEvent<HTMLTableRowElement>, index: number, record: RecordData) => {
+    if (event.target !== event.currentTarget) return;
+    const page = Math.max(1, Math.floor((scroller.current?.clientHeight ?? 400) / rowHeight) - 1);
+    const moves: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, PageDown: page, PageUp: -page, Home: -Infinity, End: Infinity };
+    if (event.key in moves) {
+      event.preventDefault();
+      moveTo(Number.isFinite(moves[event.key]) ? index + moves[event.key] : moves[event.key] < 0 ? 0 : records.length - 1);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      onOpen(record.id);
+    } else if (event.key === " ") {
+      event.preventDefault();
+      onSelect([record.id], !selected.has(record.id));
+    }
+  };
+
+  const onCheck = (index: number, checked: boolean, shift: boolean) => {
+    if (shift && anchor.current !== null) {
+      const [from, to] = [Math.min(anchor.current, index), Math.max(anchor.current, index)];
+      onSelect(records.slice(from, to + 1).map((record) => record.id), checked);
+    } else onSelect([records[index].id], checked);
+    anchor.current = index;
+  };
+
+  // Rows are memoised; they get stable handlers that always call the latest closures.
+  const latest = useRef({ onRowKey, onCheck });
+  latest.current = { onRowKey, onCheck };
+  const stableKey = useCallback((event: KeyboardEvent<HTMLTableRowElement>, index: number, record: RecordData) => latest.current.onRowKey(event, index, record), []);
+  const stableCheck = useCallback((index: number, checked: boolean, shift: boolean) => latest.current.onCheck(index, checked, shift), []);
+
+  const header = (name: string, children: ReactNode, canSort: boolean) => {
     const direction = sort === name ? "asc" : sort === `-${name}` ? "desc" : undefined;
-    if (!canSort) return children;
+    if (!canSort) return <span className="th-label">{children}</span>;
     return (
       <button type="button" className="sort-btn" data-sorted={direction ? "" : undefined} onClick={() => onSort(name)}>
         {children}
@@ -45,12 +110,21 @@ export function RecordsTable({ label, fields, records, sort, onSort, openId, onO
     );
   };
   const ariaSort = (name: string) => (sort === name ? "ascending" : sort === `-${name}` ? "descending" : undefined);
+  const visible = records.slice(rows.start, rows.end);
+  const span = columns.length + 2;
 
   return (
-    <table className="grid" aria-label={label}>
+    <table className="grid records-grid" aria-label={collection.name} aria-rowcount={records.length + 1} style={{ width }}>
+      <colgroup>
+        <col style={{ width: checkWidth }} />
+        <col style={{ width: idWidth }} />
+        {columns.map((name) => (
+          <col key={name} style={{ width: columnWidth(byName.get(name)) }} />
+        ))}
+      </colgroup>
       <thead>
-        <tr>
-          <th className="col-check">
+        <tr aria-rowindex={1}>
+          <th className="col-check sticky-check">
             <input
               type="checkbox"
               aria-label={t("records.selectAll")}
@@ -58,119 +132,109 @@ export function RecordsTable({ label, fields, records, sort, onSort, openId, onO
               ref={(input) => {
                 if (input) input.indeterminate = checkedCount > 0 && checkedCount < records.length;
               }}
-              onChange={(event) => onSelect(allIds, event.target.checked)}
+              onChange={(event) => onSelect(records.map((record) => record.id), event.target.checked)}
             />
           </th>
-          <th aria-sort={ariaSort("id")}>{header("id", "id")}</th>
-          {columns.map((field) => (
-            <th key={field.id} className={fieldKind(field) === "number" ? "num" : undefined} aria-sort={ariaSort(field.name)}>
-              {header(
-                field.name,
-                <>
-                  {field.name} <span className="th-type">{field.type}</span>
-                </>,
-                sortableType(field) && (sqlView || field.indexed || field.unique),
-              )}
-            </th>
-          ))}
-          {system.map((name) => (
-            <th key={name} aria-sort={ariaSort(name)}>{header(name, name, sqlView || sortableSystem.includes(name))}</th>
-          ))}
+          <th className="sticky-id" aria-sort={ariaSort("id")}>{header("id", "id", true)}</th>
+          {columns.map((name) => {
+            const field = byName.get(name);
+            const canSort = field ? sortableType(field) && (sqlView || field.indexed || field.unique) : sqlView || sortableSystem.includes(name);
+            return (
+              <th key={name} className={field && fieldKind(field) === "number" ? "num" : undefined} aria-sort={ariaSort(name)} title={field?.help}>
+                {header(name, field ? <>{name} <span className="th-type">{field.type}</span></> : name, canSort)}
+              </th>
+            );
+          })}
         </tr>
       </thead>
-      <tbody>
-        {records.map((record) => (
-          <RecordRow key={record.id} record={record} columns={columns} system={system} current={record.id === openId} checked={selected.has(record.id)} onOpen={onOpen} onSelect={onSelect} />
-        ))}
+      <tbody ref={tbody}>
+        {rows.before > 0 && (
+          <tr className="grid-spacer" aria-hidden>
+            <td colSpan={span} style={{ height: rows.before }} />
+          </tr>
+        )}
+        {visible.map((record, offset) => {
+          const index = rows.start + offset;
+          return (
+            <RecordRow
+              key={record.id}
+              index={index}
+              record={record}
+              collection={collection}
+              catalog={catalog}
+              columns={columns}
+              byName={byName}
+              current={record.id === openId}
+              checked={selected.has(record.id)}
+              focusable={index === Math.min(focus, records.length - 1)}
+              settled={!rows.scrolling}
+              onOpen={onOpen}
+              onCheck={stableCheck}
+              onKey={stableKey}
+              onFocusRow={setFocus}
+              onPeek={onPeek}
+            />
+          );
+        })}
+        {rows.after > 0 && (
+          <tr className="grid-spacer" aria-hidden>
+            <td colSpan={span} style={{ height: rows.after }} />
+          </tr>
+        )}
       </tbody>
     </table>
   );
 }
 
 interface RecordRowProps {
+  index: number;
   record: RecordData;
-  columns: CollectionField[];
-  system: string[];
+  collection: Collection;
+  catalog: Collection[];
+  columns: string[];
+  byName: Map<string, CollectionField>;
   current: boolean;
   checked: boolean;
+  focusable: boolean;
+  settled: boolean;
   onOpen: (id: string) => void;
-  onSelect: (ids: string[], checked: boolean) => void;
+  onCheck: (index: number, checked: boolean, shift: boolean) => void;
+  onKey: (event: KeyboardEvent<HTMLTableRowElement>, index: number, record: RecordData) => void;
+  onFocusRow: (index: number) => void;
+  onPeek: OnPeek;
 }
 
-function RecordRow({ record, columns, system, current, checked, onOpen, onSelect }: RecordRowProps) {
+const RecordRow = memo(function RecordRow({ index, record, collection, catalog, columns, byName, current, checked, focusable, settled, onOpen, onCheck, onKey, onFocusRow, onPeek }: RecordRowProps) {
   const t = useT();
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
-      event.preventDefault();
-      onOpen(record.id);
-    }
-  };
   const stop = (event: MouseEvent) => event.stopPropagation();
-  const copy = (event: MouseEvent) => {
-    event.stopPropagation();
-    navigator.clipboard.writeText(record.id).then(
-      () => toast(t("records.copied")),
-      () => toast(t("records.copyFailed"), "danger"),
-    );
-  };
   return (
-    <tr tabIndex={0} aria-current={current || undefined} data-checked={checked ? "" : undefined} onClick={() => onOpen(record.id)} onKeyDown={onKeyDown}>
-      <td className="col-check" onClick={stop}>
-        <input type="checkbox" aria-label={t("records.select", { id: record.id })} checked={checked} onChange={(event) => onSelect([record.id], event.target.checked)} />
+    <tr
+      data-index={index}
+      aria-rowindex={index + 2}
+      tabIndex={focusable ? 0 : -1}
+      aria-current={current || undefined}
+      data-checked={checked ? "" : undefined}
+      onClick={() => onOpen(record.id)}
+      onKeyDown={(event) => onKey(event, index, record)}
+      onFocus={(event) => event.target === event.currentTarget && onFocusRow(index)}
+    >
+      <td className="col-check sticky-check" onClick={stop}>
+        <input
+          type="checkbox"
+          aria-label={t("records.select", { id: record.id })}
+          checked={checked}
+          onChange={(event) => onCheck(index, event.target.checked, (event.nativeEvent as globalThis.MouseEvent).shiftKey)}
+        />
       </td>
-      <td>
+      <td className="sticky-id">
         <span className="id-cell">
-          {record.id}
-          <IconButton label={t("records.copyId")} icon={RiFileCopyLine} onClick={copy} />
+          <span className="cell-text">{record.id}</span>
+          <CopyButton label={t("records.copyId")} value={record.id} />
         </span>
       </td>
-      {columns.map((field) => (
-        <RecordCell key={field.id} field={field} value={record[field.name]} />
+      {columns.map((name) => (
+        <RecordCell key={name} name={name} field={byName.get(name)} record={record} collection={collection.name} catalog={catalog} settled={settled} onPeek={onPeek} />
       ))}
-      {system.map((name) => {
-        const value = record[name];
-        return (
-          <td key={name} title={typeof value === "string" ? value : undefined}>
-            {typeof value === "string" ? shortDate(value) : <span className="na">{t("common.na")}</span>}
-          </td>
-        );
-      })}
     </tr>
   );
-}
-
-function RecordCell({ field, value }: { field: CollectionField; value: unknown }) {
-  const t = useT();
-  const view = cellView(field, value);
-  switch (view.kind) {
-    case "empty":
-      return <td><span className="na">{t("common.na")}</span></td>;
-    case "number":
-      return <td className="num">{view.text}</td>;
-    case "bool":
-      return <td className={view.value ? undefined : "cell-false"}>{String(view.value)}</td>;
-    case "date":
-      return <td title={view.title}>{view.text}</td>;
-    case "json":
-      return <td className="cell-json" title={view.text}>{view.text}</td>;
-    case "chips":
-      return (
-        <td>
-          {view.items.map((item, index) => (
-            <span key={index} className={view.mono ? "chip mono" : "chip"} title={item}>{item}</span>
-          ))}
-          {view.more > 0 && <span className="na">+{view.more}</span>}
-        </td>
-      );
-    case "file":
-      return (
-        <td>
-          <span className="cell-file" title={t("records.filesInPane")}>
-            <RiAttachment2 size={14} aria-hidden />
-          </span>
-        </td>
-      );
-    case "text":
-      return <td title={view.text.length > 40 ? view.text : undefined}>{view.text}</td>;
-  }
-}
+});

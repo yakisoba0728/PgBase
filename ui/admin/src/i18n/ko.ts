@@ -2,6 +2,7 @@ import { opsKo } from "./parts/ops.ko";
 import { storageKo } from "./parts/storage.ko";
 import { rulesKo } from "./parts/rules.ko";
 import { systemKo } from "./parts/system.ko";
+import { recordsKo } from "./parts/records.ko";
 import type { en } from "./en";
 import { authKo } from "./parts/auth.ko";
 import { devtoolsKo } from "./parts/devtools.ko";
@@ -166,7 +167,7 @@ export const ko: Record<keyof typeof en, string> = {
   "records.autodateHint": "서버가 기록",
   "records.viewReadOnly": "뷰 컬렉션은 읽기 전용입니다.",
   "records.conflictTitle": "다른 곳에서 변경됨",
-  "records.conflictText": "열어 둔 사이 다른 곳에서 이 레코드를 저장했습니다. 다시 불러오면 최신 내용이 표시되고 여기서 고친 내용은 사라집니다.",
+  "records.conflictText": "열어 둔 사이 다른 곳에서 이 레코드를 저장했습니다. 최신 내용을 불러와 고친 필드만 다시 적용하거나, 내 수정을 버릴 수 있습니다.",
   "records.reload": "다시 불러오기",
   "records.discardTitle": "변경 내용을 버릴까요?",
   "records.discardText": "저장하지 않은 수정 내용이 있습니다.",
@@ -374,5 +375,6 @@ export const ko: Record<keyof typeof en, string> = {
   ...authKo,
   ...storageKo,
   ...systemKo,
+  ...recordsKo,
   ...devtoolsKo,
 };

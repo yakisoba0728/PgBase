@@ -2,12 +2,13 @@ import { LosslessNumber, parse, stringify } from "lossless-json";
 import type { CollectionField } from "../api/collections";
 import { parseJson } from "../api/http";
 import type { RecordData } from "../api/records";
+import { htmlText } from "./relation";
 
 // How each catalog field type is shown in the grid and edited in the form.
 // Wire contract (internal/query/codec.go): integer is a JSON number, bigint and
 // numeric are JSON strings, timestamps are RFC 3339 UTC, file fields have no column.
 
-type FieldKind = "bool" | "number" | "text" | "email" | "url" | "editor" | "select" | "multiselect" | "json" | "date" | "relation" | "relations" | "file" | "password" | "autodate";
+type FieldKind = "bool" | "number" | "text" | "email" | "url" | "editor" | "select" | "multiselect" | "json" | "geo" | "date" | "relation" | "relations" | "file" | "password" | "autodate";
 
 export function fieldKind(field: CollectionField): FieldKind {
   switch (field.type) {
@@ -23,7 +24,7 @@ export function fieldKind(field: CollectionField): FieldKind {
     case "jsonb":
       return field.options?.allowedValues?.length ? "multiselect" : "json";
     case "geoPoint":
-      return "json";
+      return "geo";
     case "timestamptz":
       return "date";
     case "relation":
@@ -52,6 +53,7 @@ type CellView =
   | { kind: "bool"; value: boolean }
   | { kind: "date"; text: string; title: string }
   | { kind: "chips"; items: string[]; more: number; mono: boolean }
+  | { kind: "relation"; ids: string[] }
   | { kind: "file" };
 
 /** What a grid cell shows; numbers keep the exact text the server sent. */
@@ -68,19 +70,29 @@ export function cellView(field: CollectionField, value: unknown): CellView {
     case "autodate":
       return typeof value === "string" ? { kind: "date", text: shortDate(value), title: value } : { kind: "text", text: String(value) };
     case "select":
+      return { kind: "chips", items: [String(value)], more: 0, mono: false };
     case "relation":
-      return { kind: "chips", items: [String(value)], more: 0, mono: kind === "relation" };
-    case "multiselect":
-    case "relations": {
+    case "relations":
+      return { kind: "relation", ids: Array.isArray(value) ? value.map(String) : [String(value)] };
+    case "multiselect": {
       const items = Array.isArray(value) ? value.map(String) : [String(value)];
-      return { kind: "chips", items: items.slice(0, 3), more: Math.max(0, items.length - 3), mono: kind === "relations" };
+      return { kind: "chips", items: items.slice(0, 3), more: Math.max(0, items.length - 3), mono: false };
+    }
+    case "editor":
+      return typeof value === "string" ? { kind: "text", text: htmlText(value, 300) } : { kind: "text", text: String(value) };
+    case "geo": {
+      const point = value as { lon?: unknown; lat?: unknown };
+      return { kind: "number", text: `${String(point.lon)}, ${String(point.lat)}` };
     }
     case "json": {
       const text = stringify(value) ?? "";
       return { kind: "json", text: text.length > 120 ? `${text.slice(0, 120)}…` : text };
     }
-    default:
-      return { kind: "text", text: typeof value === "string" ? value : String(stringify(value)) };
+    default: {
+      // A cell shows one line; the full value is one click away (ValuePeek / the detail pane).
+      const text = typeof value === "string" ? value : String(stringify(value));
+      return { kind: "text", text: text.length > 300 ? `${text.slice(0, 300)}…` : text };
+    }
   }
 }
 
@@ -105,7 +117,11 @@ function toDraft(field: CollectionField, value: unknown): Draft {
     case "json":
       return value === undefined || value === null ? "" : (stringify(value, null, 2) ?? "");
     case "relations":
-      return Array.isArray(value) ? value.join(", ") : "";
+      return Array.isArray(value) ? value.map(String) : [];
+    case "geo": {
+      const point = (value ?? {}) as { lon?: unknown; lat?: unknown };
+      return [point.lon === undefined ? "" : String(point.lon), point.lat === undefined ? "" : String(point.lat)];
+    }
     case "date": {
       // datetime-local has no zone; the form edits the UTC wall time and shows "UTC".
       const match = typeof value === "string" ? datePattern.exec(value) : null;
@@ -116,7 +132,7 @@ function toDraft(field: CollectionField, value: unknown): Draft {
   }
 }
 
-type Parsed = { ok: true; value: unknown } | { ok: false; error: "invalid_number" | "invalid_json" | "invalid_date" };
+type Parsed = { ok: true; value: unknown } | { ok: false; error: "invalid_number" | "invalid_json" | "invalid_date" | "invalid_point" };
 
 // JSON integer syntax: no plus sign, no leading zeros.
 const integerPattern = /^-?(0|[1-9]\d*)$/;
@@ -124,6 +140,7 @@ const decimalPattern = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/;
 
 function fromDraft(field: CollectionField, draft: Draft): Parsed {
   const kind = fieldKind(field);
+  if (kind === "geo" && Array.isArray(draft)) return pointFromDraft(draft);
   if (typeof draft === "boolean" || Array.isArray(draft)) return { ok: true, value: draft };
   const text = kind === "text" || kind === "editor" || kind === "password" ? draft : draft.trim();
   switch (kind) {
@@ -140,14 +157,14 @@ function fromDraft(field: CollectionField, draft: Draft): Parsed {
       } catch {
         return { ok: false, error: "invalid_json" };
       }
-    case "relations":
-      return { ok: true, value: text.split(/[\s,]+/).filter(Boolean) };
     case "date":
       if (text === "") return { ok: true, value: null };
       if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(text)) return { ok: false, error: "invalid_date" };
       return { ok: true, value: `${text.length === 16 ? `${text}:00` : text}Z` };
-    case "text":
     case "editor":
+      // Editor columns are non-null text: empty is "", never null.
+      return { ok: true, value: text };
+    case "text":
     case "email":
     case "url":
       return { ok: true, value: text === "" && !field.required ? null : text };
@@ -156,12 +173,22 @@ function fromDraft(field: CollectionField, draft: Draft): Parsed {
   }
 }
 
+// Exact decimal text, so a coordinate is sent with the digits that were typed.
+const coordinatePattern = /^-?\d+(\.\d+)?$/;
+
+function pointFromDraft([lon = "", lat = ""]: string[]): Parsed {
+  const [x, y] = [lon.trim(), lat.trim()];
+  if (x === "" && y === "") return { ok: true, value: { lon: 0, lat: 0 } };
+  if (!coordinatePattern.test(x) || !coordinatePattern.test(y) || Math.abs(Number(x)) > 180 || Math.abs(Number(y)) > 90) return { ok: false, error: "invalid_point" };
+  return { ok: true, value: { lon: new LosslessNumber(x), lat: new LosslessNumber(y) } };
+}
+
 /** Fields the record form edits as values; files have their own uploader and autodates are server-set. */
 const editableFields = (fields: CollectionField[]) => fields.filter((field) => field.type !== "file" && field.type !== "autodate");
 
 const sameDraft = (a: Draft, b: Draft) => (Array.isArray(a) && Array.isArray(b) ? a.length === b.length && a.every((item, index) => item === b[index]) : a === b);
 
-const emptyDraft = (draft: Draft) => draft === "" || draft === false || (Array.isArray(draft) && draft.length === 0);
+const emptyDraft = (draft: Draft) => draft === "" || draft === false || (Array.isArray(draft) && draft.every((item) => item === ""));
 
 export function initialDrafts(fields: CollectionField[], record?: RecordData): Record<string, Draft> {
   return Object.fromEntries(editableFields(fields).map((field) => [field.name, toDraft(field, record?.[field.name])]));
