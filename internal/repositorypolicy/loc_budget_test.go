@@ -498,17 +498,20 @@ type structuralLimit struct {
 // wrappers only and screen state lives in the feature folders; the classifier
 // is unchanged, so any state hook added to a page fails this gate. UI exports
 // grow with the module-per-feature layout and the split en/ko dictionaries.
+// Exact totals at frontend-rebuild 4285288 are 120725 runtime (Go 94993,
+// UI 25732), 0 page hooks and 780 UI exports; no file exceeds 800 lines
+// (the palette rules moved from layout.css into palette.css).
 // No classifier exclusions or spare allowance are added. Re-measure with
 // scripts/support/rebaseline-ui-budgets.sh after committing UI changes.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 115450, "from-scratch administrator UI rewrite exact measurement"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 20457, "from-scratch administrator UI rewrite; no spare allowance"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 120725, "from-scratch administrator UI rewrite exact measurement"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 25732, "from-scratch administrator UI rewrite; no spare allowance"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 104, "optional range transport/store and runtime capability boundaries"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1595, "reviewed managed byte-range service and store boundaries"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 64, "measured final 20-defect correctness constructors"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
 	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 0, "pages are route wrappers; screen state lives in feature views"},
-	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 658, "feature modules, query hooks and bilingual dictionaries of the rewrite"},
+	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 780, "feature modules, query hooks and bilingual dictionaries of the rewrite"},
 }
 
 type repositoryMetrics struct {
