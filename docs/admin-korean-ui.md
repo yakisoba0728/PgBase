@@ -63,3 +63,7 @@ database backed up. Subsequent deployment and monitoring use the Dokploy API;
 Computer Use was stopped and task-created Chrome tabs were closed at the
 user's request. API credentials are kept outside Git and never printed in
 verification logs. See the deployment record for exact revisions and results.
+
+The Korean UI update was deployed through API from `c1e6ef3` and verified by
+public health responses and exact served-asset SHA256 matches. The source
+deployment is recorded in [the deployment log](deployment-2026-11-12.md).
