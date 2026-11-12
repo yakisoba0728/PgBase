@@ -35,6 +35,7 @@ type ManagedBackups interface {
 	Delete(context.Context, string) error
 	Restore(context.Context, string) (backup.Job, error)
 	Job(context.Context, string) (backup.Job, error)
+	RunningJobs(context.Context) ([]backup.Job, error)
 }
 
 func operationsConsoleRoutes(d Dependencies) []route {
@@ -61,17 +62,13 @@ func operationsConsoleRoutes(d Dependencies) []route {
 					return
 				}
 			}
-			filter := observability.RequestFilter{Before: before, StatusClass: class, Method: r.URL.Query().Get("method"), Route: r.URL.Query().Get("route")}
-			for key, destination := range map[string](**time.Time){"from": &filter.From, "to": &filter.To} {
-				if value := r.URL.Query().Get(key); value != "" {
-					parsed, parseErr := time.Parse(time.RFC3339, value)
-					if parseErr != nil {
-						writeOperationsError(w, r, jobs.ErrInvalidSchedule)
-						return
-					}
-					*destination = &parsed
-				}
+			query := r.URL.Query().Get("q")
+			from, to, ok := logTimeRange(r)
+			if !ok || len(query) > 256 {
+				writeOperationsError(w, r, jobs.ErrInvalidSchedule)
+				return
 			}
+			filter := observability.RequestFilter{Before: before, StatusClass: class, Method: r.URL.Query().Get("method"), Route: r.URL.Query().Get("route"), Query: query, From: from, To: to}
 			page, searchErr := d.RequestLog.Search(r.Context(), filter)
 			if searchErr != nil {
 				writeOperationsError(w, r, searchErr)
@@ -81,7 +78,12 @@ func operationsConsoleRoutes(d Dependencies) []route {
 		})})
 		routes = append(routes,
 			route{method: "GET", pattern: "/api/admin/logs/statistics", access: accessAdminSameOriginRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				stats, err := d.RequestLog.Statistics(r.Context())
+				from, to, ok := logTimeRange(r)
+				if !ok {
+					writeOperationsError(w, r, jobs.ErrInvalidSchedule)
+					return
+				}
+				stats, err := d.RequestLog.Statistics(r.Context(), from, to)
 				if err != nil {
 					writeOperationsError(w, r, err)
 					return
@@ -102,6 +104,20 @@ func operationsConsoleRoutes(d Dependencies) []route {
 				writeJSON(w, http.StatusOK, entry)
 			})},
 			route{method: "DELETE", pattern: "/api/admin/logs", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, to, ok := logTimeRange(r)
+				if !ok {
+					writeOperationsError(w, r, jobs.ErrInvalidSchedule)
+					return
+				}
+				if to != nil {
+					deleted, err := d.RequestLog.DeleteBefore(r.Context(), *to)
+					if err != nil {
+						writeOperationsError(w, r, err)
+						return
+					}
+					writeJSON(w, http.StatusOK, map[string]int64{"deleted": deleted})
+					return
+				}
 				if err := d.RequestLog.Truncate(r.Context()); err != nil {
 					writeOperationsError(w, r, err)
 					return
@@ -239,6 +255,16 @@ func backupRoutes(manager ManagedBackups) []route {
 		}
 		writeJSON(w, http.StatusOK, item)
 	})
+	running := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		items, err := manager.RunningJobs(r.Context())
+		if err != nil {
+			writeBackupError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct {
+			Items []backup.Job `json:"items"`
+		}{items})
+	})
 	return []route{
 		{method: "GET", pattern: "/api/admin/backups", access: accessAdminSameOriginRead, response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: list},
 		{method: "POST", pattern: "/api/admin/backups", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: create},
@@ -246,6 +272,7 @@ func backupRoutes(manager ManagedBackups) []route {
 		{method: "GET", pattern: "/api/admin/backups/{id}", access: accessAdminSameOriginRead, response: passthrough(), deadline: deadlineBackupTransfer, handler: download},
 		{method: "DELETE", pattern: "/api/admin/backups/{id}", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: remove},
 		{method: "POST", pattern: "/api/admin/backups/{id}/restore", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: restore},
+		{method: "GET", pattern: "/api/admin/backup-jobs", access: accessAdminSameOriginRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: running},
 		{method: "GET", pattern: "/api/admin/backup-jobs/{id}", access: accessAdminSameOriginRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: job},
 	}
 }
@@ -274,6 +301,21 @@ func writeBackupError(w http.ResponseWriter, r *http.Request, err error) {
 		value = APIError{Status: 415, Code: "invalid_backup_archive", Message: "A gzip backup archive is required"}
 	}
 	writeAPIError(w, r, value)
+}
+
+// logTimeRange reads the optional RFC 3339 [from, to) bounds shared by the
+// log list and statistics.
+func logTimeRange(r *http.Request) (from, to *time.Time, ok bool) {
+	for key, destination := range map[string](**time.Time){"from": &from, "to": &to} {
+		if value := r.URL.Query().Get(key); value != "" {
+			parsed, err := time.Parse(time.RFC3339, value)
+			if err != nil {
+				return nil, nil, false
+			}
+			*destination = &parsed
+		}
+	}
+	return from, to, true
 }
 
 func writeOperationsError(w http.ResponseWriter, r *http.Request, err error) {

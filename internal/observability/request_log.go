@@ -81,8 +81,11 @@ type RequestFilter struct {
 	Before        uint64
 	StatusClass   int
 	Method, Route string
-	From, To      *time.Time
-	Limit         int
+	// Query is a case-insensitive substring of the route, client IP or auth
+	// identity.
+	Query    string
+	From, To *time.Time
+	Limit    int
 }
 type RequestStatistics struct {
 	Total             uint64            `json:"total"`
@@ -181,7 +184,7 @@ func (l *RequestLog) Search(ctx context.Context, f RequestFilter) (RequestPage, 
 		limit = 50
 	}
 	method, route := strings.ToUpper(strings.TrimSpace(f.Method)), strings.TrimSpace(f.Route)
-	rows, err := l.pool.Query(ctx, `SELECT id,occurred_at,method,route,status,duration_ms,coalesce(client_ip::text,''),coalesce(auth_kind,''),coalesce(auth_id::text,'') FROM pgbase_meta.request_logs WHERE ($1::bigint=0 OR id<$1) AND ($2::integer=0 OR status/100=$2) AND ($3='' OR method=$3) AND ($4='' OR route=$4) AND ($5::timestamptz IS NULL OR occurred_at >= $5) AND ($6::timestamptz IS NULL OR occurred_at < $6) ORDER BY id DESC LIMIT $7`, f.Before, f.StatusClass, method, route, f.From, f.To, limit+1)
+	rows, err := l.pool.Query(ctx, `SELECT id,occurred_at,method,route,status,duration_ms,coalesce(host(client_ip),''),coalesce(auth_kind,''),coalesce(auth_id::text,'') FROM pgbase_meta.request_logs WHERE ($1::bigint=0 OR id<$1) AND ($2::integer=0 OR status/100=$2) AND ($3='' OR method=$3) AND ($4='' OR route=$4) AND ($5::timestamptz IS NULL OR occurred_at >= $5) AND ($6::timestamptz IS NULL OR occurred_at < $6) AND ($8='' OR strpos(lower(concat_ws(' ',route,host(client_ip),auth_kind,auth_id::text)),lower($8))>0) ORDER BY id DESC LIMIT $7`, f.Before, f.StatusClass, method, route, f.From, f.To, limit+1, f.Query)
 	if err != nil {
 		return RequestPage{}, err
 	}
@@ -241,6 +244,9 @@ func (l *RequestLog) searchRecent(f RequestFilter) RequestPage {
 		if f.To != nil && !e.At.Before(*f.To) {
 			continue
 		}
+		if f.Query != "" && !strings.Contains(strings.ToLower(strings.Join([]string{e.Route, e.ClientIP, e.AuthKind, e.AuthID}, " ")), strings.ToLower(f.Query)) {
+			continue
+		}
 		if len(p.Items) == limit {
 			p.NextBefore = p.Items[len(p.Items)-1].ID
 			break
@@ -268,7 +274,7 @@ func (l *RequestLog) Detail(ctx context.Context, id uint64) (RequestEntry, error
 		return e, nil
 	}
 	var e RequestEntry
-	err := l.pool.QueryRow(ctx, `SELECT id,occurred_at,method,route,status,duration_ms,coalesce(client_ip::text,''),coalesce(auth_kind,''),coalesce(auth_id::text,'') FROM pgbase_meta.request_logs WHERE id=$1`, id).Scan(&e.ID, &e.At, &e.Method, &e.Route, &e.Status, &e.DurationMS, &e.ClientIP, &e.AuthKind, &e.AuthID)
+	err := l.pool.QueryRow(ctx, `SELECT id,occurred_at,method,route,status,duration_ms,coalesce(host(client_ip),''),coalesce(auth_kind,''),coalesce(auth_id::text,'') FROM pgbase_meta.request_logs WHERE id=$1`, id).Scan(&e.ID, &e.At, &e.Method, &e.Route, &e.Status, &e.DurationMS, &e.ClientIP, &e.AuthKind, &e.AuthID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RequestEntry{}, ErrRequestLogNotFound
 	}
@@ -278,7 +284,8 @@ func (l *RequestLog) Detail(ctx context.Context, id uint64) (RequestEntry, error
 	return e, nil
 }
 
-func (l *RequestLog) Statistics(ctx context.Context) (RequestStatistics, error) {
+// Statistics covers [from, to); nil bounds are open.
+func (l *RequestLog) Statistics(ctx context.Context, from, to *time.Time) (RequestStatistics, error) {
 	s := RequestStatistics{Dropped: l.Dropped(), StatusClasses: map[string]uint64{}}
 	if l.pool == nil {
 		l.mu.RLock()
@@ -289,6 +296,9 @@ func (l *RequestLog) Statistics(ctx context.Context) (RequestStatistics, error) 
 		}
 		for id := oldest; id <= l.sequence; id++ {
 			e := l.entries[(id-1)%recentRequestCapacity]
+			if (from != nil && e.At.Before(*from)) || (to != nil && !e.At.Before(*to)) {
+				continue
+			}
 			s.Total++
 			s.StatusClasses[fmt.Sprintf("%dxx", e.Status/100)]++
 			if s.OldestAt == nil || e.At.Before(*s.OldestAt) {
@@ -306,14 +316,29 @@ func (l *RequestLog) Statistics(ctx context.Context) (RequestStatistics, error) 
 		}
 		return s, nil
 	}
+	// Bounds are added only when present so the occurred_at index stays usable
+	// under a cached generic plan.
+	where, args := "", []any{}
+	for _, bound := range []struct {
+		value *time.Time
+		op    string
+	}{{from, ">="}, {to, "<"}} {
+		if bound.value != nil {
+			args = append(args, *bound.value)
+			where += fmt.Sprintf(" AND occurred_at %s $%d", bound.op, len(args))
+		}
+	}
+	if where != "" {
+		where = " WHERE true" + where
+	}
 	var avg *float64
-	if err := l.pool.QueryRow(ctx, `SELECT count(*),min(occurred_at),max(occurred_at),avg(duration_ms) FROM pgbase_meta.request_logs`).Scan(&s.Total, &s.OldestAt, &s.NewestAt, &avg); err != nil {
+	if err := l.pool.QueryRow(ctx, `SELECT count(*),min(occurred_at),max(occurred_at),avg(duration_ms) FROM pgbase_meta.request_logs`+where, args...).Scan(&s.Total, &s.OldestAt, &s.NewestAt, &avg); err != nil {
 		return s, err
 	}
 	if avg != nil {
 		s.AverageDurationMS = *avg
 	}
-	rows, err := l.pool.Query(ctx, `SELECT status/100,count(*) FROM pgbase_meta.request_logs GROUP BY status/100 ORDER BY status/100`)
+	rows, err := l.pool.Query(ctx, `SELECT status/100,count(*) FROM pgbase_meta.request_logs`+where+` GROUP BY status/100 ORDER BY status/100`, args...)
 	if err != nil {
 		return s, err
 	}

@@ -178,6 +178,23 @@ func (m *Manager) Job(ctx context.Context, id string) (Job, error) {
 	}
 	return job, nil
 }
+
+// RunningJobs lets a console re-attach after a reload. Operations are
+// serialized by reserve, so at most one create or restore is running.
+func (m *Manager) RunningJobs(ctx context.Context) ([]Job, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	items := []Job{}
+	for _, job := range m.jobs {
+		if job.Status == "running" {
+			items = append(items, job)
+		}
+	}
+	return items, nil
+}
 func (m *Manager) reserve() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

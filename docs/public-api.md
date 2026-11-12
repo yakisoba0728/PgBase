@@ -65,6 +65,19 @@ Deactivation and password replacement invalidate existing sessions and pending p
 
 Malformed requests return HTTP 400 `invalid_administrator`, an unknown account returns 404 `administrator_not_found`, and duplicate email or protected lifecycle changes return 409 `administrator_conflict`. The response never includes password hashes, session tokens or pending credentials.
 
+## Request logs
+
+Administrator request-log routes read the durable `request_logs` table (newest first, 50 per page).
+
+| Route | Contract |
+| --- | --- |
+| GET `/api/admin/logs?before&statusClass&method&route&q&from&to` | `{items,nextBefore?,oldestId}`. `before` is the id cursor from `nextBefore`; `statusClass` 1–5 is the severity filter (request logs have no separate level); `route` is an exact route template; `q` (at most 256 characters) is a case-insensitive substring of the route template, client IP or auth kind/id; `from`/`to` are RFC 3339 and select `[from, to)` |
+| GET `/api/admin/logs/statistics?from&to` | `{total,dropped,oldestAt?,newestAt?,averageDurationMs,statusClasses}` for the optional `[from, to)` window; `dropped` is process-wide |
+| GET `/api/admin/logs/{id}` | One entry |
+| DELETE `/api/admin/logs?to` | With `to` (RFC 3339): deletes entries older than `to` and returns `{deleted}`. Without it: deletes everything, restarts ids and returns 204 |
+
+`clientIP` is recorded only when the `logs.includeIP` setting is on, and `authKind`/`authID` only when `logs.includeAuth` is on; the two settings are independent and both default to off. The address follows the trusted-proxy policy. Auth identity covers administrator sessions and user bearer sessions; service-token and anonymous requests carry none. Filters other than the time window and the id cursor are evaluated while walking the primary key backwards, so a query that matches nothing reads the whole retained table (bounded by `Operations.RequestLogMaximumRows`, 100,000 by default).
+
 ## Records and permissions
 
 User CRUD is `/api/v1/user/collections/{collection}/records[/{id}]`. Anonymous and service-scoped variants use `/api/v1/public/collections/...` and `/api/v1/service/collections/...`. Collection opt-in and typed action rules govern user/anonymous access. Service tokens carry explicit collection/action grants. Target view permission applies to relation IDs, filters, sorting and expansion; cascade writes require each affected target's write permission. Rules apply before pagination. A changed policy invalidates dependent cursors and subscription delivery.
