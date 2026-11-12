@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiCloseLine, RiErrorWarningLine, RiHistoryLine, RiRefreshLine } from "@remixicon/react";
+import { RiCloseLine, RiHistoryLine, RiRefreshLine } from "@remixicon/react";
 import { stringify } from "lossless-json";
 import type { Collection } from "../api/collections";
 import type { OperationReceipt, OperationStatus } from "../api/schema";
-import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
-import { EmptyState, Loader } from "../components/Feedback";
+import { CodeBlock } from "../components/CodeBlock";
+import { EmptyState, ErrorState, Loader } from "../components/Feedback";
 import { SplitView } from "../components/SplitView";
 import { collectionsQuery } from "../collections/queries";
 import { useT } from "../i18n";
@@ -59,7 +59,7 @@ export function SchemaOperations() {
         {list.isPending ? (
           <Loader />
         ) : list.isError ? (
-          <EmptyState icon={RiErrorWarningLine}>{errorText(t, list.error)}</EmptyState>
+          <ErrorState error={list.error} onRetry={list.refetch} />
         ) : items.length === 0 ? (
           <EmptyState icon={RiHistoryLine}>{t("devtools.ops.empty")}</EmptyState>
         ) : (
@@ -138,7 +138,7 @@ function OperationDetail({ id, catalog, onClose }: { id: string; catalog: Collec
         {query.isPending ? (
           <Loader />
         ) : query.isError ? (
-          <EmptyState icon={RiErrorWarningLine}>{errorText(t, query.error)}</EmptyState>
+          <ErrorState error={query.error} onRetry={query.refetch} />
         ) : (
           <>
             <dl className="ops-props">
@@ -150,7 +150,7 @@ function OperationDetail({ id, catalog, onClose }: { id: string; catalog: Collec
               ))}
             </dl>
             <h3 className="ops-subtitle">{t("ops.logs.raw")}</h3>
-            <pre className="ops-code">{stringify(receipt, null, 2)}</pre>
+            <CodeBlock label={t("ops.logs.raw")} text={stringify(receipt, null, 2) ?? ""} />
           </>
         )}
       </div>

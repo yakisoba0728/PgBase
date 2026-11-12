@@ -335,23 +335,6 @@ fieldset.form,
   cursor: pointer;
 }
 
-.schema-sql pre,
-.schema-code {
-  margin: 0 0 4px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-1);
-  font-size: var(--font-size-xs);
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.schema-sql pre[data-danger] {
-  background: color-mix(in srgb, var(--danger), var(--surface-raised) 90%);
-  color: var(--danger);
-}
-
 .schema-sample {
   display: grid;
   gap: 6px;
@@ -426,4 +409,107 @@ fieldset.form,
   .schema-row-tools {
     opacity: 1;
   }
+}
+
+/* Index keys in order: name, collation, order, move, remove. */
+.schema-keys {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  background: var(--input);
+  list-style: none;
+}
+
+.schema-keys:empty {
+  display: none;
+}
+
+.schema-keys li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--control-sm);
+}
+
+.schema-key-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schema-key-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: var(--space-xs);
+}
+
+/* Declarative view: source, projection, conditions. */
+.schema-view {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.schema-columns-pick .txt-hint {
+  font-size: var(--font-size-xs);
+}
+
+.schema-join {
+  justify-self: start;
+  width: auto;
+}
+
+.schema-filter {
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.schema-filter:empty {
+  display: none;
+}
+
+.schema-filter li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) 72px minmax(0, 1.5fr) auto;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.schema-sample-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-xs);
+}
+
+/* Compact filled control for rows of selects and inputs. */
+.schema-input {
+  width: 100%;
+  min-width: 0;
+  height: var(--control-sm);
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--input);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  outline: 0;
+}
+
+.schema-input:focus-visible {
+  background: var(--input-focus);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
+}
+
+select.schema-input {
+  cursor: pointer;
+}
+
+.schema-start {
+  justify-self: start;
 }

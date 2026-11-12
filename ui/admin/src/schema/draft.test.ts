@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Collection, PlannedCollection } from "../api/collections";
-import { buildChange, dangerousStatement, diffPlan, draftFromCollection, DraftInvalid, indexInput, mapErrors, pruneOptions } from "./draft";
+import { buildChange, dangerousStatement, diffPlan, draftFromCollection, DraftInvalid, emptyDraft, filterFromRows, filterRows, indexInput, mapErrors, pruneOptions, rawIndexTemplate } from "./draft";
 
 const field = (id: string, name: string, type: Collection["fields"][number]["type"], extra: Partial<Collection["fields"][number]> = {}) => ({
   id, name, columnName: name, type, required: false, unique: false, indexed: false, ordinal: 0, hidden: false, presentable: false, ...extra,
@@ -115,5 +115,35 @@ describe("mapErrors", () => {
     expect(mapped.indexes).toEqual({ i1: ["invalid_shape"] });
     expect(mapped.collection).toEqual({ name: ["invalid_name"] });
     expect(mapped.other).toEqual(["weird: x"]);
+  });
+});
+
+describe("views and index authoring", () => {
+  const view: Collection = { id: "v1", name: "recent", type: "view", tableName: "recent", createdAt: "", fields: [field("t", "title", "text")], view: { sourceCollectionId: "c1", source: "posts", projection: ["title"], filter: { op: "eq", field: "title", value: "x" } } };
+
+  it("creates and updates a declarative view through `view`, never viewQuery", () => {
+    const draft = { ...emptyDraft("view"), name: "recent", viewMode: "declarative" as const, view: { source: "posts", projection: ["title"] } };
+    expect(buildChange(draft, undefined, undefined).change).toEqual({ operation: "create", name: "recent", type: "view", validationMode: "postgres", view: { source: "posts", projection: ["title"] } });
+    const loaded = draftFromCollection(view, [posts, view]);
+    expect(loaded.viewMode).toBe("declarative");
+    const edited = { ...loaded, view: { ...loaded.view, projection: [] as string[] } };
+    expect(buildChange(edited, view, loaded).change).toEqual({ operation: "update", name: "recent", collectionId: "v1", view: { source: "posts", projection: [], filter: { op: "eq", field: "title", value: "x" } } });
+  });
+
+  it("edits flat filters as rows and refuses nested ones", () => {
+    expect(filterRows({ op: "eq", field: "n", value: 3 })).toEqual({ join: "all", rows: [{ field: "n", op: "eq", value: "3" }] });
+    expect(filterRows({ op: "all", args: [{ op: "any", args: [] }] })).toBeNull();
+    const types = { n: "integer", ok: "boolean", title: "text" } as const;
+    const rows = [{ field: "n", op: "gte" as const, value: "10" }, { field: "ok", op: "eq" as const, value: "false" }, { field: "title", op: "ne" as const, value: "null" }];
+    expect(filterFromRows("any", rows, types)).toEqual({ op: "any", args: [{ op: "gte", field: "n", value: 10 }, { op: "eq", field: "ok", value: false }, { op: "ne", field: "title", value: null }] });
+    expect(filterFromRows("all", [{ field: "title", op: "eq", value: "10" }], types)).toEqual({ op: "eq", field: "title", value: "10" });
+    expect(filterFromRows("all", [], types)).toBeUndefined();
+  });
+
+  it("writes a raw index whose name, uniqueness and keys match the input", () => {
+    expect(rawIndexTemplate({ name: "by_title", unique: true, keys: [{ field: "title", collation: "C" }, { expression: "lower(slug)", order: "desc" }], where: "published" }, "posts")).toBe(
+      'CREATE UNIQUE INDEX by_title ON app.posts (title COLLATE "C", (lower(slug)) DESC) WHERE published',
+    );
+    expect(rawIndexTemplate({ name: "Idx", unique: false, fields: ["a"] }, "my posts")).toBe('CREATE INDEX "Idx" ON app."my posts" (a)');
   });
 });

@@ -7,11 +7,14 @@ import type {
   FieldOptions,
   FieldType,
   IndexInput,
+  IndexKey,
   PlannedCollection,
   RecordIdPolicy,
   RelationInput,
   ValidationMode,
+  ViewFilter,
 } from "../api/collections";
+import type { Change } from "../components/ChangeList";
 import { parseJson, stringifyJson } from "../api/http";
 
 // The Schema tab edits a local draft; these pure functions turn the catalog into a
@@ -72,8 +75,18 @@ export interface Draft {
   recordId: RecordIdPolicy;
   fields: DraftField[];
   indexes: DraftIndex[];
+  /** How a view is defined; fixed once the view exists. */
+  viewMode: "sql" | "declarative";
   /** SQL view query (create, or update of a SQL view). */
   viewQuery: string;
+  /** Declarative view: one source collection, its projected fields and an optional filter. */
+  view: DeclarativeView;
+}
+
+export interface DeclarativeView {
+  source: string;
+  projection: string[];
+  filter?: ViewFilter;
 }
 
 let sequence = 0;
@@ -106,12 +119,29 @@ export function emptyDraft(type: CollectionType, systemFields: FieldInput[] = []
     recordId: { kind: "uuid" },
     fields: systemFields.map((field) => toDraftField(field, newKey("s"))),
     indexes: [],
+    viewMode: "sql",
     viewQuery: "",
+    view: { source: "", projection: [] },
   };
 }
 
 function toDraftField({ default: value, ...field }: FieldInput, key: string): DraftField {
   return { ...field, key, hidden: field.hidden ?? false, presentable: field.presentable ?? false, defaultText: value === undefined || value === null ? "" : stringifyJson(value) };
+}
+
+/** Field types a btree index key may use (internal/schema/planner_indexes.go indexableField). */
+export const indexable = (type: FieldType) => !["file", "relation", "jsonb", "geoPoint", "password"].includes(type);
+
+/** Key collations the planner accepts; "" is the column's own. */
+export const indexCollations = ["", "C", "POSIX"] as const;
+
+const ident = (name: string) => (/^[a-z_][a-z0-9_]*$/.test(name) ? name : `"${name.replaceAll('"', '""')}"`);
+
+/** A raw CREATE INDEX matching the index's name, uniqueness and keys: the planner requires all three to agree. */
+export function rawIndexTemplate(index: Pick<IndexInput, "name" | "unique" | "keys" | "fields" | "where">, collection: string): string {
+  const keys: IndexKey[] = index.keys?.length ? index.keys : (index.fields ?? []).map((field) => ({ field }));
+  const columns = keys.map((key) => `${key.field ? ident(key.field) : `(${key.expression})`}${key.collation ? ` COLLATE "${key.collation}"` : ""}${key.order === "desc" ? " DESC" : ""}`);
+  return `CREATE ${index.unique ? "UNIQUE " : ""}INDEX ${ident(index.name)} ON app.${ident(collection)} (${columns.join(", ") || "..."})${index.where ? ` WHERE ${index.where}` : ""}`;
 }
 
 /** Catalog index -> exactly one input shape (rawSql, keys + where, or fields). */
@@ -137,7 +167,9 @@ export function draftFromCollection(collection: Collection, catalog: Collection[
       return toDraftField(input, field.id);
     }),
     indexes: (collection.indexes ?? []).map((index) => ({ ...indexInput(index), key: index.id })),
+    viewMode: collection.view && !collection.view.sql ? "declarative" : "sql",
     viewQuery: collection.view?.sql ?? "",
+    view: { source: collection.view?.sql ? "" : (collection.view?.source ?? ""), projection: collection.view?.sql ? [] : (collection.view?.projection ?? []), ...(collection.view?.filter ? { filter: collection.view.filter } : {}) },
   };
 }
 
@@ -206,9 +238,11 @@ export function buildChange(draft: Draft, original: Collection | undefined, base
   if (Object.keys(errors).length) throw new DraftInvalid(errors);
   const indexes = draft.indexes.map(({ key: _key, ...index }) => index);
   const isView = draft.type === "view";
+  const declarative = draft.viewMode === "declarative";
+  const view = { source: draft.view.source, projection: draft.view.projection, ...(draft.view.filter ? { filter: draft.view.filter } : {}) };
   if (creating) {
     const common = { operation: "create" as const, name: draft.name.trim(), type: draft.type, validationMode: draft.validationMode, ...(draft.compatibilityName ? { compatibilityName: draft.compatibilityName } : {}) };
-    if (isView) return { change: { ...common, viewQuery: draft.viewQuery }, fieldKeys: [], indexKeys: [] };
+    if (isView) return { change: declarative ? { ...common, view } : { ...common, viewQuery: draft.viewQuery }, fieldKeys: [], indexKeys: [] };
     return { change: { ...common, recordId: draft.recordId, fields, indexes }, fieldKeys, indexKeys };
   }
   const renamed = draft.name.trim() !== original.name;
@@ -218,7 +252,7 @@ export function buildChange(draft: Draft, original: Collection | undefined, base
     return { change: { operation: "update", name: draft.name.trim(), collectionId: original.id }, fieldKeys: [], indexKeys: [] };
   }
   if (isView) {
-    if (!original.view?.sql) throw new DraftInvalid({ name: ["view_read_only"] });
+    if (!original.view?.sql) return { change: { operation: "update", name: original.name, collectionId: original.id, view }, fieldKeys: [], indexKeys: [] };
     return { change: { operation: "update", name: original.name, collectionId: original.id, viewQuery: draft.viewQuery }, fieldKeys: [], indexKeys: [] };
   }
   return {
@@ -265,17 +299,7 @@ export function mapErrors(details: unknown, built: Pick<BuiltChange, "fieldKeys"
   return result;
 }
 
-type ChangeKind = "add" | "remove" | "rename" | "change" | "move";
-
-export interface ChangeItem {
-  kind: ChangeKind;
-  target: "collection" | "field" | "index";
-  name: string;
-  /** Previous name for a rename; changed properties for a change. */
-  detail?: string;
-  /** Loses data (or may): a dropped field, a type change, a deleted collection. */
-  danger: boolean;
-}
+export type ChangeItem = Change;
 
 const comparable = (field: { type: string; required: boolean; unique: boolean; indexed: boolean; hidden?: boolean; presentable?: boolean; help?: string; options?: FieldOptions; default?: unknown }) => ({
   type: field.type,
@@ -350,4 +374,56 @@ export function rowState<T extends { key: string }>(row: T, base: T[]): "new" | 
   const original = base.find((candidate) => candidate.key === row.key);
   if (!original) return "new";
   return stringifyJson(original) === stringifyJson(row) ? undefined : "changed";
+}
+
+// ---------------------------------------------------------------------------
+// Declarative view filter: edited as one all/any list of comparisons
+// ---------------------------------------------------------------------------
+
+export const compareOps = ["eq", "ne", "lt", "lte", "gt", "gte"] as const;
+type CompareOp = (typeof compareOps)[number];
+
+export interface FilterRow {
+  field: string;
+  op: CompareOp;
+  /** As typed; `null` (bare) means SQL NULL for eq/ne. */
+  value: string;
+}
+
+/** Field types a view may project (internal/schema/view.go). */
+export const projectable = (type: FieldType) => type !== "file" && type !== "relation" && type !== "password";
+
+/** Field types a view filter may compare. */
+export const filterable = (type: FieldType) => ["boolean", "integer", "bigint", "numeric", "text", "editor", "timestamptz", "autodate", "uuid"].includes(type);
+
+const isCompare = (op: string): op is CompareOp => (compareOps as readonly string[]).includes(op);
+
+const valueText = (value: unknown) => (typeof value === "string" ? value : value === undefined ? "" : stringifyJson(value));
+
+/** The filter as editable rows, or null when it nests deeper than the row editor shows. */
+export function filterRows(filter: ViewFilter | undefined): { join: "all" | "any"; rows: FilterRow[] } | null {
+  if (!filter) return { join: "all", rows: [] };
+  const row = (node: ViewFilter): FilterRow | null => (isCompare(node.op) && node.field && !node.args?.length ? { field: node.field, op: node.op, value: valueText(node.value) } : null);
+  const single = row(filter);
+  if (single) return { join: "all", rows: [single] };
+  if ((filter.op === "all" || filter.op === "any") && filter.args?.length) {
+    const rows = filter.args.map(row);
+    if (rows.every((item): item is FilterRow => item !== null)) return { join: filter.op, rows };
+  }
+  return null;
+}
+
+/** A typed value as the JSON literal the planner expects for the field type. */
+function filterValue(type: FieldType | undefined, text: string): unknown {
+  const trimmed = text.trim();
+  if (trimmed === "null") return null;
+  if (type === "boolean") return trimmed === "true";
+  if ((type === "integer" || type === "bigint" || type === "numeric") && /^-?\d+(\.\d+)?$/.test(trimmed)) return parseJson(trimmed);
+  return text;
+}
+
+export function filterFromRows(join: "all" | "any", rows: FilterRow[], types: Record<string, FieldType>): ViewFilter | undefined {
+  const nodes = rows.filter((row) => row.field).map((row): ViewFilter => ({ op: row.op, field: row.field, value: filterValue(types[row.field], row.value) }));
+  if (nodes.length === 0) return undefined;
+  return nodes.length === 1 && join === "all" ? nodes[0] : { op: join, args: nodes };
 }

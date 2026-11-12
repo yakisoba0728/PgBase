@@ -28,6 +28,14 @@ export const schemaOperationQuery = (id: string) =>
     refetchInterval: (query) => (query.state.data && undecided(query.state.data.status) ? 2000 : false),
   });
 
+/** An import apply by operation id; "unknown" is not polled, since only a resend moves it. */
+export const importOperationQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["schema-import", id],
+    queryFn: ({ signal }) => getSchemaImportOperation(id, signal),
+    refetchInterval: (query) => (query.state.data?.status === "running" ? 2000 : false),
+  });
+
 export const sqlHistoryKey = ["sql", "history"] as const;
 
 export const sqlHistoryQuery = infiniteQueryOptions({

@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
+import { settingsQuery } from "../system/queries";
 import { errorText } from "../app/queries";
 import { useT } from "../i18n";
 import { logStatsQuery, useTimeFormat } from "./queries";
@@ -15,6 +17,8 @@ export function LogStats({ active, onPick }: { active: string; onPick: (statusCl
   const t = useT();
   const time = useTimeFormat();
   const stats = useQuery(logStatsQuery);
+  const settings = useQuery({ ...settingsQuery, refetchOnMount: true, staleTime: 60_000 });
+  const retention = settings.data?.logs.retentionDays;
   const [hover, setHover] = useState<string | null>(null);
   if (stats.isError) return <p className="ops-stats txt-hint">{errorText(t, stats.error)}</p>;
   const data = stats.data;
@@ -74,6 +78,12 @@ export function LogStats({ active, onPick }: { active: string; onPick: (statusCl
           <dt>{t("ops.logs.span")}</dt>
           <dd>{data.oldestAt ? `${time(data.oldestAt)} – ${time(data.newestAt)}` : t("common.na")}</dd>
         </div>
+        {retention !== undefined && (
+          <div>
+            <dt>{t("ops.logs.retention")}</dt>
+            <dd><Link to="/settings" title={t("ops.logs.retentionEdit")}>{t("ops.logs.retentionDays", { count: retention })}</Link></dd>
+          </div>
+        )}
         {String(data.dropped) !== "0" && (
           <div data-tone="warning">
             <dt>{t("ops.logs.dropped")}</dt>

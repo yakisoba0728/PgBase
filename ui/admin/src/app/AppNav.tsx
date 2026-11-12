@@ -3,11 +3,12 @@ import { Link } from "react-router";
 import { RiPuzzle2Line, RiSidebarFoldLine, RiSidebarUnfoldLine } from "@remixicon/react";
 import { CollectionNav } from "../collections/CollectionNav";
 import { IconButton } from "../components/Button";
-import { NavGroup, NavItem, RunningOperations } from "../components/Nav";
+import { NavGroup, NavItem } from "../components/Nav";
 import { useT } from "../i18n";
 import { useExtensionScreens } from "./extensions";
 import { AccountMenu, LanguageMenu, ThemeMenu } from "./menus";
 import { navGroups } from "./navigation";
+import { RunningFeed } from "./RunningFeed";
 import { setDrawer, toggleRail, useRail } from "./shell";
 
 /** The single navigation column: wordmark, Data / Auth / Operations / System, then account controls. */
@@ -47,8 +48,7 @@ export function AppNav() {
           </NavGroup>
         )}
       </div>
-      {/* No data source yet; schema apply, file migration and backup progress land here. */}
-      <RunningOperations label={t("nav.running")} items={[]} />
+      <RunningFeed />
       <div className="nav-bottom">
         <AccountMenu />
         <LanguageMenu />

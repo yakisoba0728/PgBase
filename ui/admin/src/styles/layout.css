@@ -156,12 +156,25 @@
   gap: 8px;
 }
 
+a.nav-op {
+  margin: 0 -6px;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  color: inherit;
+  text-decoration: none;
+}
+
+a.nav-op:hover,
+a.nav-op:focus-visible {
+  background: color-mix(in srgb, var(--text), transparent 92%);
+}
+
 .nav-op .loader {
   width: 12px;
   height: 12px;
 }
 
-.nav-op span:last-child {
+.nav-op-progress {
   margin-left: auto;
   color: var(--text-hint);
   font-family: var(--font-mono);

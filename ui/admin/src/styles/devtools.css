@@ -104,10 +104,6 @@
   padding-left: var(--space);
 }
 
-.dt-editor {
-  resize: none;
-}
-
 .dt-plan {
   display: flex;
   flex: none;
@@ -165,17 +161,8 @@
   padding: var(--space-sm) var(--space) 0;
 }
 
-.dt-sql-editor {
-  height: 168px;
-  min-height: 72px;
+.dt-editor-wrap .code-area {
   max-height: 50vh;
-  resize: vertical;
-}
-
-/* A write-mode editor carries the warning tone so the mode is never missed. */
-.dt-editor-wrap[data-write] .dt-sql-editor {
-  background: color-mix(in srgb, var(--warning), var(--surface-1) 92%);
-  box-shadow: inset 3px 0 0 var(--warning);
 }
 
 .dt-sql-bar {
@@ -230,25 +217,6 @@
 .dt-result .grid + .grid,
 .dt-result .dt-command + .grid {
   margin-top: var(--space-sm);
-}
-
-.dt-grid tbody tr {
-  cursor: default;
-}
-
-.dt-grid td {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-}
-
-.dt-grid td[data-kind="json"],
-.dt-grid td[data-kind="bytes"] {
-  color: var(--text-hint);
-}
-
-.dt-null {
-  color: var(--text-disabled);
-  font-style: italic;
 }
 
 .dt-command {

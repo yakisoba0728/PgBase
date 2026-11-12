@@ -8,12 +8,18 @@ import { localToRfc3339 } from "./format";
 
 export const logsKey = ["logs"] as const;
 
+/** Pages of 50 kept in memory (and in the DOM); older pages push the newest ones out. */
+const logWindowPages = 10;
+
 export const logsQuery = (filter: Omit<RequestLogFilter, "before">) =>
   infiniteQueryOptions({
     queryKey: [...logsKey, "list", filter],
     queryFn: ({ pageParam, signal }) => listRequestLogs({ ...filter, before: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => (page.nextBefore === undefined ? undefined : String(page.nextBefore)),
+    // The API pages only towards older entries, so a dropped newer page is reached again by starting over.
+    getPreviousPageParam: () => undefined,
+    maxPages: logWindowPages,
   });
 
 export const logStatsQuery = queryOptions({

@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiCloseLine, RiErrorWarningLine, RiPlayLine, RiRefreshLine, RiTimerLine } from "@remixicon/react";
+import { RiCloseLine, RiPlayLine, RiRefreshLine, RiTimerLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { runJob, updateJob, type ManagedJob } from "../api/jobs";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
-import { EmptyState, Loader } from "../components/Feedback";
+import { EmptyState, ErrorState, Loader } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
+import { useSaveShortcut } from "../components/SaveBar";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
@@ -64,7 +65,7 @@ export function JobsView() {
       {jobs.isPending ? (
         <Loader />
       ) : jobs.isError ? (
-        <EmptyState icon={RiErrorWarningLine}>{errorText(t, jobs.error)}</EmptyState>
+        <ErrorState error={jobs.error} onRetry={jobs.refetch} />
       ) : items.length === 0 ? (
         <EmptyState icon={RiTimerLine}>{t("ops.jobs.empty")}</EmptyState>
       ) : (
@@ -141,6 +142,7 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
   const dirty = schedule !== job.schedule || timezone !== job.timezone || enabled !== job.enabled;
   const refresh = () => queryClient.invalidateQueries({ queryKey: jobsQuery.queryKey });
 
+  const saveId = useSaveShortcut();
   const save = useMutation({
     mutationFn: () => updateJob(job.id, { schedule: schedule.trim(), timezone: timezone.trim(), enabled }),
     onSuccess: () => toast(t("ops.jobs.saved")),
@@ -213,7 +215,7 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
       <footer className="pane-footer">
         <Button variant="secondary" icon={RiPlayLine} className="pane-footer-start" disabled={locked || job.running || !job.enabled} loading={run.isPending} onClick={() => run.mutate()}>{t("ops.jobs.run")}</Button>
         <Button variant="secondary" onClick={onClose}>{t("common.close")}</Button>
-        <Button type="submit" disabled={locked || !dirty} loading={save.isPending}>{t("records.save")}</Button>
+        <Button id={saveId} type="submit" disabled={locked || !dirty} loading={save.isPending}>{t("records.save")}</Button>
       </footer>
     </form>
   );
