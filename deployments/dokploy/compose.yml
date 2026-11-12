@@ -1,0 +1,108 @@
+x-pgbase: &pgbase
+  build:
+    context: ../..
+    dockerfile: deployments/Dockerfile
+  environment: &pgbase-environment
+    PGBASE_DATABASE_URL: postgres://pgbase:${PGBASE_POSTGRES_PASSWORD:?Set a hex database password}@postgres:5432/pgbase?sslmode=disable
+    # Plaintext is restricted to this stack's private database network.
+    PGBASE_ALLOW_INSECURE_DATABASE: "true"
+    PGBASE_TOKEN_SECRET: ${PGBASE_TOKEN_SECRET:?Generate a base64 token secret}
+    PGBASE_RUNTIME_SETTINGS_ENCRYPTION_KEY: ${PGBASE_RUNTIME_SETTINGS_ENCRYPTION_KEY:?Generate a separate base64 encryption key}
+    PGBASE_PUBLIC_URL: ${PGBASE_PUBLIC_URL:?Set the external HTTPS origin}
+    PGBASE_AUTO_MIGRATE: "false"
+  read_only: true
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  networks:
+    - database
+
+services:
+  postgres:
+    image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+    environment:
+      POSTGRES_DB: pgbase
+      POSTGRES_USER: pgbase
+      POSTGRES_PASSWORD: ${PGBASE_POSTGRES_PASSWORD:?Set a hex database password}
+    volumes:
+      - database:/var/lib/postgresql/data
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pgbase -d pgbase"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    mem_limit: 1g
+    cpus: 2.0
+    restart: unless-stopped
+
+  files-init:
+    image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    # Docker creates named-volume roots as root; the app runs as uid 65532.
+    command: ["chown 65532:65532 /files && chmod 700 /files"]
+    volumes:
+      - files:/files
+    network_mode: none
+    restart: "no"
+
+  migrate:
+    <<: *pgbase
+    command: ["migrate", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  pgbase:
+    <<: *pgbase
+    command: ["serve"]
+    environment:
+      <<: *pgbase-environment
+      PGBASE_HTTP_ADDRESS: :8090
+      PGBASE_SETUP_TOKEN: ${PGBASE_SETUP_TOKEN:?Generate a setup token}
+      PGBASE_TRUSTED_PROXIES: ${PGBASE_TRUSTED_PROXIES:?Set the actual Dokploy proxy network CIDR}
+      PGBASE_USER_REGISTRATION: "false"
+      PGBASE_FILES_DRIVER: local
+      PGBASE_FILES_LOCAL_DIRECTORY: /files
+      PGBASE_SHUTDOWN_TIMEOUT: 15s
+      PGBASE_STOP_GRACE_PERIOD: 20s
+    volumes:
+      - files:/files
+    networks:
+      - database
+      - dokploy-network
+    expose:
+      - "8090"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      files-init:
+        condition: service_completed_successfully
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "/pgbase", "healthcheck", "--url", "http://127.0.0.1:8090/health/ready"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 12
+    mem_limit: 1g
+    cpus: 2.0
+    restart: unless-stopped
+
+volumes:
+  database:
+  files:
+
+networks:
+  database:
+    internal: true
+  dokploy-network:
+    external: true

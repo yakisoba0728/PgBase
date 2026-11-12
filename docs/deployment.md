@@ -1,5 +1,7 @@
 # Deployment
 
+For a single-instance Dokploy deployment with PostgreSQL and persistent local files, follow the [Dokploy guide](dokploy.md).
+
 Validate every pgBase release in a staging copy, keep a current backup, and expect configuration, API, and migration procedures to change during v0.x.
 
 ## Database and instance topology
@@ -68,7 +70,7 @@ Migration rollouts use the immutable source commits in
 `deployments/release-phases.json`, not a current binary with a version constant
 overridden. Dispatch the **Release phase image gate** workflow with the exact
 `rollout` and `phase`. It resolves exactly one manifest entry, builds that
-commit's real `cmd/pgbase` binary with Go 1.26.10, and copies only that binary and
+commit's real `cmd/pgbase` binary with Go 1.26.11, and copies only that binary and
 the pinned CA bundle into the current hardened distroless runtime. The candidate
 is built and pushed once as `linux/amd64`; its digest is then passed unchanged to
 the backend, frontend, E2E, security, and backup/restore gates. This workflow

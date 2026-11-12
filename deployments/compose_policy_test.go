@@ -164,3 +164,38 @@ func TestBundledComposeAppliesConfigurableNonSwarmRuntimeCeilings(t *testing.T) 
 		t.Fatal("bundled Compose resource ceilings must not rely on the optional deploy section")
 	}
 }
+
+func TestDokployComposeKeepsMigrationAndStoragePrivate(t *testing.T) {
+	compose := readFile(t, "dokploy/compose.yml")
+	for _, contract := range []string{
+		`PGBASE_AUTO_MIGRATE: "false"`,
+		`command: ["migrate", "up"]`,
+		"migrate:\n        condition: service_completed_successfully",
+		"files-init:\n        condition: service_completed_successfully",
+		"- database:/var/lib/postgresql/data",
+		"- files:/files",
+		"PGBASE_FILES_LOCAL_DIRECTORY: /files",
+		"chown 65532:65532 /files && chmod 700 /files",
+		"internal: true",
+		"external: true",
+		"PGBASE_SHUTDOWN_TIMEOUT: 15s",
+		"PGBASE_STOP_GRACE_PERIOD: 20s",
+		"stop_grace_period: 20s",
+	} {
+		if !strings.Contains(compose, contract) {
+			t.Errorf("dokploy/compose.yml is missing %q", contract)
+		}
+	}
+	if strings.Contains(compose, "ports:") {
+		t.Fatal("Dokploy services must route through Traefik without publishing host ports")
+	}
+	example := readFile(t, "dokploy/.env.example")
+	for _, key := range []string{
+		"PGBASE_POSTGRES_PASSWORD", "PGBASE_SETUP_TOKEN", "PGBASE_TOKEN_SECRET",
+		"PGBASE_RUNTIME_SETTINGS_ENCRYPTION_KEY", "PGBASE_PUBLIC_URL", "PGBASE_TRUSTED_PROXIES",
+	} {
+		if !strings.Contains(compose, "${"+key+":?") || !strings.Contains(example, key+"=") {
+			t.Errorf("Dokploy must require and document %s", key)
+		}
+	}
+}
