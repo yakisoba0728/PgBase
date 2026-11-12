@@ -1,5 +1,7 @@
 # PgBase 구현 이력과 현재 상태
 
+2026-11-13 병합·배포 후 기준: 새 관리자 UI를 [PR #108](https://github.com/yakisoba0728/PgBase/pull/108)로 main `2912e39`에 병합하고 `https://pgbase.yaki.kr`에 배포했다(schema 65 그대로). 결과는 [배포 기록](deployment-2026-11-13.md)을 따른다. 아래 문단은 병합 전에 쓴 기록이다.
+
 2026-11-13 현재 기준: main은 그대로 `7fbf1db`(schema 65)이다. 관리자 UI를 브랜치 `frontend-rebuild`에서 처음부터 다시 작성했다(React/TypeScript/Vite 유지, 새 디자인 시스템·레이아웃, Go handler에서 도출한 typed API client, 모든 관리자 route, 한국어·영어). 서버 API 계약과 schema 65는 바뀌지 않았다. 이 문서 작성 시점에 main 병합과 운영 서버 배포는 하지 않았으며(대기), 병합·배포는 후속 기록에 남긴다. 검증·미검증 범위와 UI 재작성 중 발견한 백엔드 문제(수정하지 않음)는 §11을 따른다. 아래 2026-11-12 기록은 당시 상태다.
 
 2026-11-12 기준: main은 `7fbf1db`([PR #107](https://github.com/yakisoba0728/PgBase/pull/107))이며 system migration은 `000065`(schema 65) 그대로다. 10-22 이후 [PR #103](https://github.com/yakisoba0728/PgBase/pull/103)(관리자 워크스페이스 정리), [PR #106](https://github.com/yakisoba0728/PgBase/pull/106)(보안 의존성 패치·의존성 통합·Go toolchain 1.26.11·Dokploy 배포 구성), PR #107(PocketBase 스타일 관리자 UI 재구축과 한국어 지원)이 병합됐다. 서버 API 계약은 바뀌지 않았다. `https://pgbase.yaki.kr`(Dokploy Compose)에 `c1e6ef3`을 배포했고 첫 관리자는 아직 없다. 공개 릴리스는 v0.2.3 그대로여서 11월 UI 작업은 릴리스에 없다. 세부는 §2 표의 마지막 행들과 §10, [UI 재구축](admin-ui-rebuild.md), [한국어 UI](admin-korean-ui.md), [배포 기록](deployment-2026-11-12.md)을 따른다. 아래 2026-10-22 기록은 당시 상태다.
@@ -16,7 +18,7 @@
 
 ## Status applicability
 
-This document has a current status section and historical sections. Baseline SHA: `0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b`; verification SHA: `7fbf1db39fdee02d9f52c1a928591ea8797870f6`. Historical entries are scoped to their own dated evidence. Run `python3 docs/check-status-index.py` from the repository root to check the applicability index.
+This document has a current status section and historical sections. Baseline SHA: `0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b`; verification SHA: `2912e399b6b1f45cfad8ae8431c1ab5d94c9557e`. Historical entries are scoped to their own dated evidence. Run `python3 docs/check-status-index.py` from the repository root to check the applicability index.
 
 기록일: 2026-09-11. 이 문서는 지금까지의 작업을 통합한 현재 상태 문서다. 세부 작업 기록은 [TODO](../TODO.md), 다음 실행 순서와 완료 기준은 [후속 작업](next-work.md), PocketBase와의 차이는 [현재 기능 비교](pocketbase-feature-comparison-current-2026-09-10.md)를 따른다. 과거 감사·마일스톤 문서는 당시 증거를 보존하는 기록이다.
 

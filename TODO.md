@@ -8,7 +8,7 @@ main은 그대로 `7fbf1db`(schema 65)다. 관리자 UI를 브랜치 `frontend-r
 - [x] 검증: 격리된 실제 서버(PostgreSQL 17, 실제 CSP)에 대한 slice별·전체 실행, `vitest` 29파일 153 tests, 새 Playwright suite 15개 시나리오 3회 연속 통과(opt-in backup 포함), 세 영역 독립 리뷰의 25개 finding 수정.
 - [ ] 미검증: S3 migration(일부만), production binary의 SQL console, Chromium 외 브라우저, release gate, CI E2E workflow에서의 새 suite(이 작업에서는 실행하지 않음).
 - [ ] 구조 예산 test와 commit된 `ui/admin/dist` 재생성: 마지막 단계에서 맞춘다(현재 red).
-- [ ] main 병합과 운영 서버 배포: 이 기록 시점에 대기. 후속 기록에 남긴다.
+- [x] main 병합과 운영 서버 배포: [PR #108](https://github.com/yakisoba0728/PgBase/pull/108) `2912e39` 병합, 2026-11-13 `https://pgbase.yaki.kr` 배포. [배포 기록](docs/deployment-2026-11-13.md).
 - [ ] UI 재작성 중 발견한 백엔드 문제 22건(수정하지 않음): [현재 상태](docs/project-status.md) §11 목록. 항목별 확인·결정 필요.
 
 ## 2026-11-12 — 관리자 UI 재구축, 한국어 지원, Dokploy 서버 배포

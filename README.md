@@ -4,6 +4,8 @@ pgBase is a PostgreSQL-backed application backend with an embedded administrator
 
 PgBase is an independent project inspired by PocketBase. Its PostgreSQL data model, authentication, APIs, and operational contracts guide development. See the [2026-09-22 implementation and next steps](docs/workstreams/independent-product-2026-09-22/README.md); the PocketBase comparison is reference material, not a requirement for identical behavior.
 
+After the record below was written, the rewritten administrator UI was merged to `main` as `2912e39` ([PR #108](https://github.com/yakisoba0728/PgBase/pull/108)) and deployed to `https://pgbase.yaki.kr` on 2026-11-13; see the [deployment record](docs/deployment-2026-11-13.md). The next paragraph was written before the merge.
+
 As of 2026-11-13, `main` is still at `7fbf1db` (schema 65). On branch `frontend-rebuild` the administrator UI was rewritten from scratch: the React/TypeScript/Vite stack is kept, with a new design system and layout, a typed API client derived from the Go handlers, every administrator route covered, Korean and English, Tiptap for rich text, a command palette and keyboard shortcuts, route-level code splitting, and a new 15-scenario browser suite that replaces the previous one. Server API contracts and schema 65 are unchanged. It was verified against isolated real servers with PostgreSQL 17 under the real CSP (153 UI unit tests; the browser suite passed three consecutive runs); S3 migration was only partly checked, and the SQL console with a production binary, non-Chromium browsers and the release gate were not run. At the time of writing, the merge to `main` and the production deployment are pending. Details, and a separate list of backend issues observed while rebuilding the UI (not fixed), are in [project status](docs/project-status.md) §11. The next paragraph is the 2026-11-12 record.
 
 As of 2026-11-12, `main` is at `7fbf1db` ([PR #107](https://github.com/yakisoba0728/PgBase/pull/107)), still schema 65. Since the 2026-10-22 record, [PR #103](https://github.com/yakisoba0728/PgBase/pull/103) streamlined the administrator workspace, [PR #106](https://github.com/yakisoba0728/PgBase/pull/106) patched security dependencies, moved the Go toolchain to 1.26.11 and added the Dokploy deployment, and PR #107 rebuilt the administrator UI in a PocketBase-inspired layout with Korean and English support. Server API contracts are unchanged. Source `c1e6ef3` is deployed at `https://pgbase.yaki.kr` through Dokploy; its first administrator has not been created and its only pre-deployment database dump is on the same server. The latest release is still v0.2.3, so this UI work is unreleased. Details are in [project status](docs/project-status.md). The next paragraph is the 2026-10-22 record.
@@ -34,6 +36,7 @@ The bundled Compose file is a development convenience and sets `PGBASE_AUTO_MIGR
 ## Documentation
 
 - [한국어 지원과 PocketBase 스타일 화면 개선](docs/admin-korean-ui.md)
+- [2026-11-13 새 관리자 UI 병합과 운영 배포](docs/deployment-2026-11-13.md)
 - [2026-11-12 서버 배포 기록](docs/deployment-2026-11-12.md)
 - [PocketBase-inspired administrator UI rebuild and verification](docs/admin-ui-rebuild.md)
 - [Dokploy 배포: Compose, HTTPS, 영구 저장소와 백업](docs/dokploy.md)
