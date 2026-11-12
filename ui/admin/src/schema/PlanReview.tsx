@@ -74,7 +74,7 @@ export function PlanReview({ editor }: { editor: SchemaEditor }) {
         )}
         {lost && (
           <Notice title={t(apply.error instanceof Undecided ? "schema.undecidedTitle" : "schema.lostTitle")}
-            actions={<Button size="sm" variant="secondary" loading={apply.isPending} onClick={() => apply.mutate()}>{t("schema.checkAgain")}</Button>}>
+            actions={<Button size="sm" variant="secondary" loading={apply.isPending} onClick={() => (danger ? setConfirming(true) : apply.mutate())}>{t("schema.checkAgain")}</Button>}>
             {t("schema.lostText")}
           </Notice>
         )}
