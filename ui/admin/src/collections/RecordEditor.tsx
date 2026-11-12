@@ -72,7 +72,8 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
   const formId = `record-form-${collection.id}`;
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (!readOnly && !form.save.isPending) form.save.mutate();
+    // Cmd/Ctrl+S submits even while Save is disabled: an untouched record is not re-sent.
+    if (!readOnly && !form.save.isPending && (form.dirty || form.isNew)) form.save.mutate();
   };
 
   // Cmd/Ctrl+S saves the open record from anywhere on the page.
@@ -106,7 +107,8 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
           </Dropdown>
         )}
       </PaneHeader>
-      <div className="pane-body">
+      {/* Inert while saving: edits typed now would be lost when the saved version replaces the form. */}
+      <div className="pane-body" inert={form.save.isPending}>
         {form.conflict && (
           <div className="pane-notice" role="alert">
             <strong>{t("records.conflictTitle")}</strong>

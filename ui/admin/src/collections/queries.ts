@@ -29,7 +29,7 @@ export const recordsQuery = (collection: string, filter: string, sort: string, e
   });
 
 /** Edits the loaded list pages in place, so a save or delete never refetches every loaded page. */
-export function patchLists(queryClient: QueryClient, collection: string, update: (items: RecordData[]) => RecordData[]) {
+function patchLists(queryClient: QueryClient, collection: string, update: (items: RecordData[]) => RecordData[]) {
   queryClient.setQueriesData<InfiniteData<RecordPage>>({ queryKey: ["records", collection, "list"] }, (data) =>
     data ? { ...data, pages: data.pages.map((page) => ({ ...page, items: update(page.items) })) } : data,
   );
@@ -77,7 +77,8 @@ export const fileUrlQuery = (file: StoredFile, variant: "original" | "thumbnail"
     queryKey: ["file-url", file.id, variant],
     queryFn: async () =>
       !file.protected && file.publicUrl ? publicFileURL(file.id, variant === "original" ? undefined : variant) : fileURL(file.id, await mintFileToken(file.id, variant), variant),
-    // Tokens live at most 15 minutes; mint a new one well before that.
-    staleTime: 5 * 60_000,
-    gcTime: 10 * 60_000,
+    // Token lifetime is a server setting (at most 15 minutes, possibly far less): reuse briefly,
+    // and FileThumb re-mints when an image fails to load.
+    staleTime: 60_000,
+    gcTime: 2 * 60_000,
   });

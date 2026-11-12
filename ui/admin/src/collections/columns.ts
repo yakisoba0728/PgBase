@@ -11,7 +11,7 @@ export interface ColumnPrefs {
 const empty: ColumnPrefs = { order: [], hidden: [] };
 
 /** Every column the grid can show, in schema order: fields (no passwords), then the system dates. */
-export function availableColumns(collection: Collection): string[] {
+function availableColumns(collection: Collection): string[] {
   const fields = collection.fields.filter((field) => field.type !== "password").map((field) => field.name);
   return [...fields, ...["created_at", "updated_at"].filter((name) => !fields.includes(name))];
 }

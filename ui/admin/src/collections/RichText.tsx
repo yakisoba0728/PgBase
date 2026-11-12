@@ -105,6 +105,9 @@ export default function RichText({ id, label, value, onChange, readOnly, invalid
   // The HTML this editor last produced: a value equal to it is our own echo, anything else came from outside.
   const emitted = useRef(value);
   const touched = useRef(false);
+  const touch = () => {
+    touched.current = true;
+  };
   const editor = useEditor({
     extensions: [StarterKit.configure({ link: { openOnClick: false } }), Image, TableKit.configure({ table: { resizable: true } })],
     content: forEditor(value),
@@ -113,9 +116,7 @@ export default function RichText({ id, label, value, onChange, readOnly, invalid
     injectCSS: false,
     shouldRerenderOnTransaction: true,
     editorProps: { attributes: { id, role: "textbox", "aria-multiline": "true", "aria-label": label, class: "rich-text-doc" } },
-    onFocus: () => {
-      touched.current = true;
-    },
+    onFocus: touch,
     onUpdate: ({ editor: current }) => {
       // Plugins normalise some documents on load (e.g. table fixes); only edits made by the user count.
       if (!touched.current) return;
@@ -148,7 +149,8 @@ export default function RichText({ id, label, value, onChange, readOnly, invalid
   };
 
   return (
-    <div className="rich-text" data-invalid={invalid ? "" : undefined} data-disabled={readOnly ? "" : undefined}>
+    // Any pointer or key use of the field (toolbar included) counts as the user editing; Tiptap focuses lazily.
+    <div className="rich-text" data-invalid={invalid ? "" : undefined} data-disabled={readOnly ? "" : undefined} onPointerDownCapture={touch} onKeyDownCapture={touch}>
       <div className="rich-text-bar" role="toolbar" aria-label={t("editor.toolbar", { field: label })}>
         {!source && editor && <Tools editor={editor} disabled={readOnly} onUrl={(kind) => setUrlFor(urlFor === kind ? null : kind)} />}
         <button type="button" className="rt-btn rt-source" aria-pressed={source} onClick={() => setSource(!source)} aria-label={t("editor.source")} title={t("editor.source")}>

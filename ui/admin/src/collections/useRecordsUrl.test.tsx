@@ -18,7 +18,11 @@ describe("nextSort", () => {
 describe("buildFilter", () => {
   const fields = [{ name: "title", type: "text" }, { name: "body", type: "editor" }, { name: "n", type: "integer" }] as CollectionField[];
   it("searches text fields for plain words and passes expressions through", () => {
-    expect(buildFilter("  draft ", fields)).toBe("title ~ 'draft' || body ~ 'draft'");
+    expect(buildFilter("  Draft ", fields)).toBe("title:lower ~ 'draft' || body:lower ~ 'draft'");
+    const wide = Array.from({ length: 40 }, (_, index) => ({ name: `f${index}`, type: "text", presentable: index === 39 }) as CollectionField);
+    const clauses = buildFilter("x", wide).split(" || ");
+    expect(clauses).toHaveLength(30);
+    expect(clauses[0]).toBe("f39:lower ~ 'x'");
     expect(buildFilter("n > 3", fields)).toBe("n > 3");
     expect(buildFilter("", fields)).toBe("");
   });

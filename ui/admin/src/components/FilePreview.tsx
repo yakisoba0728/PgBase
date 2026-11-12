@@ -7,7 +7,7 @@ import { Loader } from "./Feedback";
 export const formatBytes = (bytes: number) =>
   bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : bytes < 1073741824 ? `${(bytes / 1048576).toFixed(1)} MB` : `${(bytes / 1073741824).toFixed(2)} GB`;
 
-export interface PreviewFile {
+interface PreviewFile {
   name: string;
   size: number;
   contentType: string;

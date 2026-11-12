@@ -17,7 +17,7 @@ export interface DraftScope {
   record: string;
 }
 
-export interface StoredDraft {
+interface StoredDraft {
   savedAt: number;
   fields: Record<string, Draft>;
 }
@@ -25,7 +25,7 @@ export interface StoredDraft {
 const key = (scope: DraftScope) => `${prefix}${[scope.admin, scope.collection, scope.record].map(encodeURIComponent).join(":")}`;
 
 /** Fields whose edits may be persisted: plain values only, never passwords, files or server-set dates. */
-export function persistable(field: CollectionField): boolean {
+function persistable(field: CollectionField): boolean {
   return !["password", "file", "autodate"].includes(field.type) && !sensitiveName.test(field.name);
 }
 
