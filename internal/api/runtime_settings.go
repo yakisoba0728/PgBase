@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
+	"github.com/yakisoba0728/PgBase/internal/validation"
 )
 
 type SettingsLifecycleEvent struct {
@@ -59,7 +61,7 @@ func runtimeSettingsRoutes(settings *runtimesettings.Controller, hooks SettingsL
 		input, err := mergeRuntimeSettings(settings.Get(), patch)
 		if err != nil {
 			finish(err)
-			writeRuntimeSettingsError(w, r, runtimesettings.ErrInvalid)
+			writeRuntimeSettingsError(w, r, errors.Join(runtimesettings.ErrInvalid, err))
 			return
 		}
 		value, err := settings.Update(r.Context(), input)
@@ -90,9 +92,14 @@ func mergeRuntimeSettings(current runtimesettings.Settings, patch map[string]jso
 		return runtimesettings.Settings{}, runtimesettings.ErrInvalid
 	}
 	allowed := map[string]bool{"revision": true, "batch": true, "logs": true, "proxy": true, "backups": true, "application": true, "rateLimits": true}
-	for key := range patch {
-		if !allowed[key] {
-			return runtimesettings.Settings{}, runtimesettings.ErrInvalid
+	for key, value := range patch {
+		var decoded any
+		if !allowed[key] || json.Unmarshal(value, &decoded) != nil {
+			return runtimesettings.Settings{}, invalidRuntimeSetting(key)
+		}
+		// Go decodes null into a scalar as its zero value; omission is the way to keep a setting.
+		if path := nullPath(key, decoded); path != "" {
+			return runtimesettings.Settings{}, invalidRuntimeSetting(path)
 		}
 	}
 	base, err := json.Marshal(current)
@@ -117,7 +124,7 @@ func mergeRuntimeSettings(current runtimesettings.Settings, patch map[string]jso
 		}
 		for child := range incoming {
 			if _, ok := existing[child]; !ok {
-				return runtimesettings.Settings{}, runtimesettings.ErrInvalid
+				return runtimesettings.Settings{}, invalidRuntimeSetting(key + "." + child)
 			}
 		}
 		for child, value := range incoming {
@@ -139,10 +146,39 @@ func mergeRuntimeSettings(current runtimesettings.Settings, patch map[string]jso
 	}
 	return result, nil
 }
+func invalidRuntimeSetting(path string) error {
+	return errors.Join(runtimesettings.ErrInvalid, &validation.Error{Details: []validation.Detail{{Field: path, Code: "invalid"}}})
+}
+
+// nullPath names the first JSON null below path, or returns "".
+func nullPath(path string, value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return path
+	case map[string]any:
+		for key, child := range typed {
+			if found := nullPath(path+"."+key, child); found != "" {
+				return found
+			}
+		}
+	case []any:
+		for index, child := range typed {
+			if found := nullPath(path+"."+strconv.Itoa(index), child); found != "" {
+				return found
+			}
+		}
+	}
+	return ""
+}
+
 func writeRuntimeSettingsError(w http.ResponseWriter, r *http.Request, err error) {
 	value := APIError{Status: http.StatusServiceUnavailable, Code: "settings_unavailable", Message: "Runtime settings are unavailable"}
+	var invalid *validation.Error
 	if errors.Is(err, runtimesettings.ErrInvalid) {
 		value = APIError{Status: 400, Code: "invalid_settings", Message: "Invalid runtime settings"}
+		if errors.As(err, &invalid) {
+			value.Details = map[string][]string{invalid.Details[0].Field: {invalid.Details[0].Code}}
+		}
 	}
 	if errors.Is(err, runtimesettings.ErrConflict) {
 		value = APIError{Status: 409, Code: "settings_conflict", Message: "Runtime settings changed; reload and retry"}

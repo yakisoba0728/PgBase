@@ -10,6 +10,7 @@ export const systemEn = {
   "system.settings.conflict": "Settings changed elsewhere since you opened them.",
   "system.settings.loadLatest": "Load latest (discards edits)",
   "system.settings.invalid": "The server rejected these settings. Check the marked fields.",
+  "system.settings.invalidAt": "The server rejected these settings at {path}. Check the marked fields.",
 
   "system.section.application": "Application",
   "system.section.logs": "Request logs",
