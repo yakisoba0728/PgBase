@@ -1,4 +1,4 @@
-FROM node:24.21.0-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553 AS admin-ui
+FROM node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS admin-ui
 
 WORKDIR /src/ui/admin
 COPY ui/admin/package.json ui/admin/package-lock.json ./
