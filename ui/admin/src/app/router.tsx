@@ -9,6 +9,10 @@ import { AppShell } from "./AppShell";
 import { ExtensionScreenPage } from "./extensions";
 import { RequireAuth } from "./guard";
 import { navGroups } from "./navigation";
+import { AuthCollectionsPage } from "../pages/AuthCollectionsPage";
+import { AuthUsersPage } from "../pages/AuthUsersPage";
+
+const implemented = new Set<string>(["auth/collections", "auth/users"]);
 
 export const router = createBrowserRouter(
   [
@@ -26,7 +30,9 @@ export const router = createBrowserRouter(
         { path: "collections", element: <CollectionsIndexPage /> },
         { path: "collections/:name/:tab?", element: <CollectionPage /> },
         { path: "new-collection/:type?", element: <NewCollectionPage /> },
-        ...navGroups.flatMap((group) => group.items.map((item) => ({ path: item.path, element: <PlaceholderPage title={item.label} icon={item.icon} /> }))),
+        { path: "auth/collections/:name?/:tab?", element: <AuthCollectionsPage /> },
+        { path: "auth/users", element: <AuthUsersPage /> },
+        ...navGroups.flatMap((group) => group.items.filter((item) => !implemented.has(item.path)).map((item) => ({ path: item.path, element: <PlaceholderPage title={item.label} icon={item.icon} /> }))),
         { path: "ext/:id/*", element: <ExtensionScreenPage /> },
         { path: "*", element: <NotFoundPage /> },
       ],

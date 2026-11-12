@@ -1,3 +1,5 @@
+import { authEn } from "./parts/auth.en";
+
 export const en = {
   "nav.main": "Main",
 
@@ -359,4 +361,5 @@ export const en = {
   "error.schema_unavailable": "The schema service is busy. Try again.",
   "schema.authLeftover": "The auth settings of the deleted collection could not be removed: {error}",
   "schema.authRenameLocked": "Auth collections keep their name: their sign-in settings are bound to it.",
+  ...authEn,
 };

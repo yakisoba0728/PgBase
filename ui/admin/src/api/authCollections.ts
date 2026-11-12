@@ -262,15 +262,16 @@ export interface TokenPolicy {
   purpose: TokenPolicyPurpose;
   ttlSeconds: number;
   keyVersion: string;
-  /** Response-only: whether a signing key is stored. The key itself is never returned. */
+  /** Response-only and only meaningful on PUT: the list endpoint always reports false. */
   keyConfigured: boolean;
 }
 
+/** key and keyVersion rotate together or are both omitted (TTL-only update; a new purpose then gets a random key). */
 export interface TokenPolicyInput {
   ttlSeconds: number;
   /** [A-Za-z0-9_-]{1,32} */
-  keyVersion: string;
-  /** Write-only secret. */
+  keyVersion?: string;
+  /** Write-only secret, at least 32 bytes. */
   key?: string;
 }
 
