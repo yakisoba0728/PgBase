@@ -111,7 +111,7 @@ function TokenPane({ token, names, onClose }: { token: ServiceToken; names: Map<
   const byCollection = new Map<string, string[]>();
   for (const scope of token.scopes) byCollection.set(scope.collectionId, [...(byCollection.get(scope.collectionId) ?? []), scope.action]);
   return (
-    <div className="sys-pane">
+    <div className="pane-form">
       <PaneHeader title={token.name} onClose={onClose} />
       <div className="pane-body">
         <Facts
@@ -172,7 +172,7 @@ function IssueToken({ onClose, onIssued }: { onClose: () => void; onIssued: (id:
   };
   const invalid = issue.error instanceof ApiError && issue.error.status === 400;
   return (
-    <form className="sys-pane" onSubmit={onSubmit}>
+    <form className="pane-form" onSubmit={onSubmit}>
       <PaneHeader title={t("system.tokens.new")} onClose={onClose} />
       <div className="pane-body form">
         {issue.isError && <Notice tone="danger">{invalid ? t("system.tokens.invalid") : errorText(t, issue.error)}</Notice>}

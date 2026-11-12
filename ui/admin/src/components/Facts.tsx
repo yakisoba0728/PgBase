@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import "../styles/kit.css";
 
 export interface Fact {
   label: ReactNode;

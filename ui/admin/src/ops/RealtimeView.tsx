@@ -75,7 +75,7 @@ export function RealtimeView() {
         </div>
       </dl>
       <section className="ops-section" aria-labelledby="ops-retry-title">
-        <h2 id="ops-retry-title" className="ops-subtitle">{t("ops.realtime.retryTitle")}</h2>
+        <h2 id="ops-retry-title" className="subtitle">{t("ops.realtime.retryTitle")}</h2>
         <p className="txt-hint">{t("ops.realtime.retryText")}</p>
         <form className="ops-inline" onSubmit={onSubmit}>
           <Searchbar label={t("ops.realtime.eventId")} icon={RiHashtag} type="text" mono invalid={invalid} name="eventId" value={eventId} onChange={(event) => setEventId(event.target.value)} placeholder="00000000-0000-0000-0000-000000000000" />

@@ -1,5 +1,4 @@
 import type { KeyboardEvent, TextareaHTMLAttributes } from "react";
-import "../styles/widgets.css";
 
 type CodeAreaProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "className" | "onKeyDown"> & {
   label: string;

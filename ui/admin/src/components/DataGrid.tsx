@@ -1,5 +1,4 @@
 import type { KeyboardEvent } from "react";
-import "../styles/widgets.css";
 
 export interface GridCell {
   /** Exact text; null renders as NULL. */

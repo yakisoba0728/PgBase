@@ -1,5 +1,4 @@
 import { useId, type ReactNode } from "react";
-import "../styles/kit.css";
 
 /** A titled group of settings: title and hint on the left, controls on the right. */
 export function FormSection({ title, hint, children }: { title: string; hint?: ReactNode; children: ReactNode }) {

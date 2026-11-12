@@ -13,7 +13,7 @@ import { draftFromRule } from "../rules/model";
 import { rulesQueryKey } from "../rules/useRulesEditor";
 import { buildEndpoints, type Audience, type Endpoint } from "./endpoints";
 import { codeSample, languages, type Language } from "./samples";
-import "../styles/rules.css";
+import "../styles/apidocs.css";
 
 const filterSyntax: [string, MessageKey][] = [
   ["title = 'a' && count > 2", "api.filter.compare"],
@@ -124,14 +124,7 @@ export function ApiView({ collection }: { collection: Collection }) {
         </ul>
         <section className="api-syntax">
           <h2>{t("api.filterTitle")}</h2>
-          <dl>
-            {filterSyntax.map(([example, key]) => (
-              <div key={example}>
-                <dt className="mono">{example}</dt>
-                <dd>{t(key)}</dd>
-              </div>
-            ))}
-          </dl>
+          <Facts items={filterSyntax.map(([example, key]) => ({ label: <span className="mono">{example}</span>, value: t(key) }))} />
         </section>
       </div>
     </>

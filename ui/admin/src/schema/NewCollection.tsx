@@ -7,6 +7,7 @@ import { collectionsQuery } from "../collections/queries";
 import { EmptyState, Loader } from "../components/Feedback";
 import { useT } from "../i18n";
 import { SchemaView } from "./SchemaView";
+import "../styles/schema.css";
 
 const choices: { type: CollectionType; icon: typeof RiTableLine }[] = [
   { type: "base", icon: RiTableLine },

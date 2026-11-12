@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { trackOperation } from "../app/operations";
 import { Facts } from "../components/Facts";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { openRow } from "../components/DataGrid";
@@ -74,7 +75,7 @@ export function JobsView() {
         <EmptyState icon={RiTimerLine}>{t("ops.jobs.empty")}</EmptyState>
       ) : (
         <>
-          {!jobs.data?.workerEnabled && <p className="ops-note">{t("ops.jobs.noWorker")}</p>}
+          {!jobs.data?.workerEnabled && <p className="warning-note">{t("ops.jobs.noWorker")}</p>}
           <table className="grid" aria-label={t("nav.jobs")}>
             <thead>
               <tr>
@@ -153,7 +154,10 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
   });
   const run = useMutation({
     mutationFn: () => runJob(job.id),
-    onSuccess: () => toast(t("ops.jobs.runRequested", { name: job.name })),
+    onSuccess: () => {
+      toast(t("ops.jobs.runRequested", { name: job.name }));
+      trackOperation({ kind: "job", id: job.id, subject: job.name });
+    },
     onError: (error) => toast(errorText(t, error), "danger"),
     onSettled: refresh,
   });
@@ -165,10 +169,10 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
   const locked = !workerEnabled || !job.registered;
 
   return (
-    <form className="ops-pane-form" onSubmit={onSubmit}>
+    <form className="pane-form" onSubmit={onSubmit}>
       <PaneHeader title={job.name} mono onClose={onClose} />
       <div className="pane-body">
-        {locked && <p className="ops-note">{workerEnabled ? t("ops.jobs.unregisteredNote") : t("ops.jobs.noWorker")}</p>}
+        {locked && <p className="warning-note">{workerEnabled ? t("ops.jobs.unregisteredNote") : t("ops.jobs.noWorker")}</p>}
         {save.isError && (
           <Notice tone="danger">{save.error instanceof ApiError && save.error.code === "invalid_request" ? t("ops.jobs.invalid") : errorText(t, save.error)}</Notice>
         )}

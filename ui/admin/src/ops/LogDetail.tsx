@@ -47,7 +47,7 @@ export function LogDetail({ id, onClose, onFilterRoute }: LogDetailProps) {
         ) : (
           <>
             <Facts items={rows.map(([label, value]) => ({ label, value }))} />
-            <h3 className="ops-subtitle">{t("ops.logs.raw")}</h3>
+            <h3 className="subtitle">{t("ops.logs.raw")}</h3>
             <CodeBlock label={t("ops.logs.raw")} text={raw} />
           </>
         )}

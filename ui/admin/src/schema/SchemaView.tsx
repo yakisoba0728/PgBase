@@ -19,6 +19,7 @@ import { PlanReview } from "./PlanReview";
 import { describeErrors, FieldRows, IndexRows, Section, ViewFieldRows } from "./SchemaRows";
 import { ViewSection } from "./ViewEditor";
 import { useSchemaEditor, type SchemaEditor } from "./useSchemaEditor";
+import "../styles/schema.css";
 
 function CollectionSection({ editor }: { editor: SchemaEditor }) {
   const t = useT();

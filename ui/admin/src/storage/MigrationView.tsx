@@ -34,7 +34,7 @@ export function MigrationView() {
   return (
     <div className="storage-form">
       <section className="storage-block" aria-label={t("storage.migration.source")}>
-        <h2 className="ops-subtitle">{t("storage.migration.source")}</h2>
+        <h2 className="subtitle">{t("storage.migration.source")}</h2>
         <p className="mono">{describeSettings(t, files.data)}</p>
       </section>
       <MigrationStatus migration={migration.data} />
@@ -70,7 +70,7 @@ function MigrationStatus({ migration }: { migration: StorageMigrationStatus | nu
 
   return (
     <section className="storage-block" aria-label={t("storage.migration.latest")}>
-      <h2 className="ops-subtitle">{t("storage.migration.latest")}</h2>
+      <h2 className="subtitle">{t("storage.migration.latest")}</h2>
       <JobProgress
         title={t(`storage.migration.state.${status}`)}
         state={running ? "running" : status === "committed" ? "done" : status === "failed" ? "failed" : "attention"}
@@ -148,8 +148,8 @@ function DestinationForm({ current, locked }: { current: FileStorageSettings; lo
 
   return (
     <form className="storage-block" onSubmit={onSubmit} noValidate aria-label={t("storage.migration.target")}>
-      <h2 className="ops-subtitle">{t("storage.migration.target")}</h2>
-      {locked && <p className="ops-note">{t("storage.migration.running")}</p>}
+      <h2 className="subtitle">{t("storage.migration.target")}</h2>
+      {locked && <p className="warning-note">{t("storage.migration.running")}</p>}
       {failed && (
         <Notice tone="danger">{t(storageErrorKey(failed, "migration"))}</Notice>
       )}

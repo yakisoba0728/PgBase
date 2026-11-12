@@ -1,5 +1,4 @@
 import { CopyButton } from "./CopyButton";
-import "../styles/widgets.css";
 
 interface CodeBlockProps {
   /** One text, or several statements where some are marked dangerous. */

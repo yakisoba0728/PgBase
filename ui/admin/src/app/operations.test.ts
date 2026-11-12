@@ -16,6 +16,12 @@ describe("running operations", () => {
     expect(operationState(op("import"), { status: "committed" }).state).toBe("done");
     // Not answered yet (or a transient error): still running, never dropped.
     expect(operationState(op("schema"), undefined).state).toBe("running");
+    // A requested job run: queued until it starts, then its own outcome.
+    expect(operationState(op("job"), { running: false, lastStartedAt: new Date(now - 60_000).toISOString() }, false, now + 1000).state).toBe("running");
+    expect(operationState(op("job"), { running: false }, false, now + 3 * 60_000).state).toBe("gone");
+    expect(operationState(op("job"), { running: true }).state).toBe("running");
+    expect(operationState(op("job"), { running: false, failed: false, lastStartedAt: new Date(now + 2000).toISOString() }).state).toBe("done");
+    expect(operationState(op("job"), { running: false, failed: true, lastStartedAt: new Date(now + 2000).toISOString() }).state).toBe("failed");
   });
 
   it("does not let a lost start or an older migration end an entry early", () => {

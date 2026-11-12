@@ -4,7 +4,9 @@ import { ApiError } from "../api/http";
 import { listSchemaOperations } from "../api/schema";
 import { RunningOperations } from "../components/Nav";
 import { toast } from "../components/Toast";
+import type { ManagedJobList } from "../api/jobs";
 import { importOperationQuery, schemaOperationQuery } from "../devtools/queries";
+import { jobsQuery } from "../ops/queries";
 import { useT, type MessageKey } from "../i18n";
 import { backupJobQuery, migrationQuery, migrationRunning } from "../storage/queries";
 import { findOperation, isWatched, operations, operationState, trackOperation, untrackOperation, useOperations, type OperationKind, type TrackedOperation } from "./operations";
@@ -20,6 +22,8 @@ function queryFor(operation: TrackedOperation): UseQueryOptions<unknown> {
       return migrationQuery(operation.id) as UseQueryOptions<unknown>;
     case "import":
       return importOperationQuery(operation.id) as UseQueryOptions<unknown>;
+    case "job":
+      return { ...jobsQuery, select: (list: ManagedJobList) => list.items.find((job) => job.id === operation.id) ?? null, refetchInterval: 3000 } as UseQueryOptions<unknown>;
     case "schema":
       // The page polls "unknown" too; from the navigation it only waits for a resend.
       return { ...schemaOperationQuery(operation.id), refetchInterval: (query) => ((query.state.data as { status?: string } | undefined)?.status === "running" ? 2000 : false) } as UseQueryOptions<unknown>;
@@ -32,6 +36,7 @@ const hrefs: Record<OperationKind, (operation: TrackedOperation) => string> = {
   migration: (operation) => `/storage/migration?migration=${encodeURIComponent(operation.id)}`,
   import: () => "/schema-transfer/import",
   schema: (operation) => `/schema-operations?op=${encodeURIComponent(operation.id)}`,
+  job: (operation) => `/jobs?job=${encodeURIComponent(operation.id)}`,
 };
 
 // Discovery runs once per tab session (a reload re-attaches from storage); the latest-migration
@@ -79,13 +84,14 @@ export function RunningFeed() {
       if (state === "running" || state === "attention" || isWatched(operation.id)) return;
       if (!untrackOperation(operation.id) || state === "gone") return;
       const kind = operation.kind;
-      const name = kind === "schema" && operation.subject ? ` · ${operation.subject}` : "";
+      const name = (kind === "schema" || kind === "job") && operation.subject ? ` · ${operation.subject}` : "";
       if (state === "done") toast(t(`ops.running.done.${kind}` as MessageKey) + name);
       else toast(t(`ops.running.failed.${kind}` as MessageKey) + name, "danger");
       // A restore swaps the whole project: every cached screen is stale.
       if (kind === "restore" && state === "done") void queryClient.invalidateQueries();
       else if (kind === "backup" || kind === "restore") void queryClient.invalidateQueries({ queryKey: ["backups"] });
       else if (kind === "migration") void queryClient.invalidateQueries({ queryKey: ["storage"] });
+      else if (kind === "job") void queryClient.invalidateQueries({ queryKey: jobsQuery.queryKey });
       else {
         void queryClient.invalidateQueries({ queryKey: ["collections"] });
         void queryClient.invalidateQueries({ queryKey: ["schema-operations"] });
@@ -98,7 +104,7 @@ export function RunningFeed() {
     return {
       id: operation.id,
       href: hrefs[operation.kind](operation),
-      label: t(`ops.running.${operation.kind}` as MessageKey) + (operation.kind === "schema" && operation.subject ? ` · ${operation.subject}` : ""),
+      label: t(`ops.running.${operation.kind}` as MessageKey) + ((operation.kind === "schema" || operation.kind === "job") && operation.subject ? ` · ${operation.subject}` : ""),
       progress: state === "attention" ? t("ops.running.attention") : progress,
       attention: state === "attention",
     };

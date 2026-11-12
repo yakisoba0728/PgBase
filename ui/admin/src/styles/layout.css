@@ -487,6 +487,19 @@ a.nav-op:focus-visible {
   margin-right: auto;
 }
 
+/* A pane whose body and footer belong to one form. */
+.pane-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pane-form .pane-body.form {
+  align-content: start;
+}
+
 .pane-notice {
   display: grid;
   gap: 8px;

@@ -19,6 +19,7 @@ import { en } from "../i18n/en";
 import { importSections, problemList, readPending, writePending, type PendingImport } from "./model";
 import { runImport } from "./queries";
 import { PaneHeader } from "../components/SplitView";
+import "../styles/devtools.css";
 
 class InvalidJson extends Error {}
 

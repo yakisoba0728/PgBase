@@ -10,7 +10,7 @@
   gap: var(--space-sm);
 }
 
-.storage-block .ops-subtitle {
+.storage-block .subtitle {
   margin: 0;
 }
 

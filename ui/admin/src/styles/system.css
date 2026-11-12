@@ -1,17 +1,5 @@
 /* System slice: settings, status, administrators, profile, service tokens. */
 
-.sys-pane {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-}
-
-.sys-pane .pane-body.form {
-  align-content: start;
-}
-
 .sys-scroll {
   flex: 1;
   min-height: 0;

@@ -9,6 +9,7 @@ import { useT } from "../i18n";
 import { useSearchState } from "../app/search";
 import { pickCollections } from "./model";
 import { exportQuery } from "./queries";
+import "../styles/devtools.css";
 
 /** Collection picker on the left, the exported document on the right. Skipped names live in ?skip=. */
 export function SchemaExport() {

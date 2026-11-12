@@ -159,3 +159,116 @@ dialog::backdrop {
     opacity: 0;
   }
 }
+
+.records-toolbar .dropdown-btn-text {
+  font-size: var(--font-size-sm);
+}
+
+/* Popover panels (column settings, filter help, value peek). */
+.popover {
+  inset: auto;
+  max-width: calc(100vw - 16px);
+  margin: 0;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.peek {
+  width: min(480px, calc(100vw - 16px));
+  padding: 0;
+}
+
+.peek-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 14px;
+  font-size: var(--font-size-sm);
+  box-shadow: 0 1px 0 var(--line);
+}
+
+.peek-title {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.peek-head .txt-hint {
+  margin-right: auto;
+}
+
+.peek-body {
+  max-height: min(50vh, 420px);
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* File preview dialog. */
+.file-preview {
+  width: min(100vw - 32px, 960px);
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+
+.file-preview[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.file-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 16px;
+  font-size: var(--font-size-sm);
+  box-shadow: 0 1px 0 var(--line);
+}
+
+.file-preview-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-preview-head .txt-hint {
+  margin-right: auto;
+  white-space: nowrap;
+}
+
+.file-preview-body {
+  display: grid;
+  flex: 1;
+  min-height: 200px;
+  place-items: center;
+  padding: 16px;
+  overflow: auto;
+  background: var(--surface-1);
+}
+
+.file-preview-body img {
+  max-width: 100%;
+  max-height: calc(100vh - 160px);
+  object-fit: contain;
+}
+
+.file-preview-other {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  color: var(--text-hint);
+}

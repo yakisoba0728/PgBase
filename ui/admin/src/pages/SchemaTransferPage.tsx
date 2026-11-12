@@ -3,8 +3,6 @@ import { Page } from "../components/Page";
 import { SchemaExport } from "../devtools/SchemaExport";
 import { SchemaImport } from "../devtools/SchemaImport";
 import { useT } from "../i18n";
-import "../styles/schema.css";
-import "../styles/devtools.css";
 
 /** /schema-transfer (export) and /schema-transfer/import. */
 export function SchemaTransferPage() {

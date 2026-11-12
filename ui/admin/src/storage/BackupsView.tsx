@@ -21,7 +21,6 @@ import { settingsQuery } from "../system/queries";
 import { BackupJobStrip, useJobBusy, useShownJob } from "./BackupJob";
 import { formatBytes } from "../app/format";
 import { backupJobQuery, backupStorageQuery, backupsQuery } from "./queries";
-import "../styles/ops.css";
 import "../styles/storage.css";
 
 function locationText(t: Translate, settings: BackupStorageSettings | undefined): string {
@@ -182,7 +181,7 @@ function BackupPane({ backup, location, jobRunning, onClose }: { backup: BackupE
   const created = time(backup.createdAt, true);
 
   return (
-    <div className="ops-pane-form">
+    <div className="pane-form">
       <PaneHeader title={backup.id} mono onClose={onClose} />
       <div className="pane-body">
         <Facts items={[

@@ -3,7 +3,6 @@ import { useT } from "../i18n";
 import { Button } from "./Button";
 import { CopyButton } from "./CopyButton";
 import { Field } from "./Field";
-import "../styles/kit.css";
 
 /** Keeps a modal <dialog> in step with `open`; Escape and backdrop clicks call onClose. */
 export function useModal(open: boolean, onClose: () => void) {

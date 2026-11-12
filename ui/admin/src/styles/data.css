@@ -280,13 +280,6 @@
   color: var(--text-hint);
 }
 
-.cell-file {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-hint);
-}
-
 .na {
   color: var(--text-disabled);
 }
@@ -421,4 +414,16 @@
   .toolbar-selection {
     margin-left: 0;
   }
+}
+
+/* A timestamp column, muted so the row's subject leads. */
+.cell-time {
+  color: var(--text-hint);
+}
+
+/* A heading inside a pane or section body. */
+.subtitle {
+  margin: var(--space) 0 8px;
+  font-size: var(--font-size);
+  font-weight: 600;
 }

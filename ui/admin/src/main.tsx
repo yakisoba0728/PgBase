@@ -6,8 +6,9 @@ import "./styles/buttons.css";
 import "./styles/forms.css";
 import "./styles/data.css";
 import "./styles/overlays.css";
+import "./styles/kit.css";
+import "./styles/widgets.css";
 import "./styles/layout.css";
-import "./styles/schema.css";
 // Applies the stored theme and language before the first render (no inline script under the CSP).
 import "./app/theme";
 import "./i18n";

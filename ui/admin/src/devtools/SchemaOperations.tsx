@@ -15,7 +15,6 @@ import { useT } from "../i18n";
 import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { schemaOperationQuery, schemaOperationsQuery } from "./queries";
-import "../styles/ops.css";
 import "../styles/devtools.css";
 
 const tone: Record<OperationStatus, string | undefined> = { running: "accent", unknown: "warning", failed: "danger", committed: undefined };
@@ -66,7 +65,7 @@ export function SchemaOperations() {
           <EmptyState icon={RiHistoryLine}>{t("devtools.ops.empty")}</EmptyState>
         ) : (
           <>
-            <table className="grid ops-grid" aria-label={t("nav.schemaOperations")}>
+            <table className="grid" aria-label={t("nav.schemaOperations")}>
               <thead>
                 <tr>
                   <th>{t("ops.logs.time")}</th>
@@ -83,7 +82,7 @@ export function SchemaOperations() {
                     {...openRow(() => update({ op: item.operationId }), open === item.operationId)}
                     data-live={item.status === "running" || item.status === "unknown" ? "" : undefined}
                   >
-                    <td className="mono ops-time">{time(item.createdAt)}</td>
+                    <td className="mono cell-time">{time(item.createdAt)}</td>
                     <td>{t(`devtools.ops.kind.${item.operation}`)}</td>
                     <td><Target id={item.collectionId} catalog={catalog} /></td>
                     <td><StatusChip status={item.status} /></td>
@@ -132,7 +131,7 @@ function OperationDetail({ id, catalog, onClose }: { id: string; catalog: Collec
         ) : (
           <>
             <Facts items={rows.map(([label, value]) => ({ label, value }))} />
-            <h3 className="ops-subtitle">{t("ops.logs.raw")}</h3>
+            <h3 className="subtitle">{t("ops.logs.raw")}</h3>
             <CodeBlock label={t("ops.logs.raw")} text={stringify(receipt, null, 2) ?? ""} />
           </>
         )}

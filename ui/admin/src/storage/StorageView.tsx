@@ -3,7 +3,6 @@ import { Page } from "../components/Page";
 import { useT } from "../i18n";
 import { MigrationView } from "./MigrationView";
 import { StorageSettingsForm } from "./StorageForm";
-import "../styles/ops.css";
 import "../styles/storage.css";
 
 /** /storage/:tab? — uploaded-file storage by default, then file migration and backup storage. */

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { RiErrorWarningLine, RiPlayLine } from "@remixicon/react";
+import { Facts } from "../components/Facts";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { listAuthCollections } from "../api/authCollections";
 import { stringifyJson } from "../api/http";
@@ -99,14 +100,7 @@ function AuthRules({ name }: { name: string }) {
     <section className="rules-section">
       <h2>{t("rules.authTitle")}</h2>
       <p className="field-hint">{t("rules.authHint")}</p>
-      <dl className="rules-auth">
-        {Object.entries(auth.rules).map(([key, value]) => (
-          <div key={key}>
-            <dt className="mono">{key}</dt>
-            <dd className={value === null ? "na" : "mono"}>{value === null ? t("rules.mode.admins") : value === "" ? t("rules.mode.everyone") : value}</dd>
-          </div>
-        ))}
-      </dl>
+      <Facts items={Object.entries(auth.rules).map(([key, value]) => ({ label: <span className="mono">{key}</span>, value: value === null ? <span className="na">{t("rules.mode.admins")}</span> : value === "" ? t("rules.mode.everyone") : value, mono: value !== null && value !== "" }))} />
     </section>
   );
 }

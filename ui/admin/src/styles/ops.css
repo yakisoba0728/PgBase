@@ -134,18 +134,6 @@ select.ops-control {
   font-family: var(--font-mono);
 }
 
-/* Log rows */
-.ops-time {
-  color: var(--text-hint);
-}
-
-/* The request column takes the spare width so time and status stay compact. */
-.ops-grid td.ops-request {
-  width: 100%;
-  max-width: 0;
-  min-width: 320px;
-}
-
 .ops-method {
   display: inline-block;
   min-width: 56px;
@@ -159,28 +147,6 @@ select.ops-control {
 .ops-aside {
   margin-left: 8px;
   color: var(--text-hint);
-  font-size: var(--font-size-sm);
-}
-
-/* Detail pane */
-.ops-pane-form {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
-
-.ops-subtitle {
-  margin: var(--space) 0 8px;
-  font-size: var(--font-size);
-  font-weight: 600;
-}
-
-.ops-note {
-  margin: 0 0 var(--space-sm);
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--warning), var(--surface) 90%);
   font-size: var(--font-size-sm);
 }
 
@@ -223,10 +189,6 @@ select.ops-control {
   max-width: 640px;
 }
 
-.ops-section .ops-subtitle {
-  margin-top: 0;
-}
-
 .ops-section > p {
   margin: 0 0 var(--space-sm);
   font-size: var(--font-size-sm);
@@ -248,4 +210,15 @@ select.ops-control {
 .ops-section > .field-error {
   margin-top: 6px;
   padding: 0 14px;
+}
+
+/* The request column takes the spare width so time and status stay compact. */
+.ops-grid td.ops-request {
+  width: 100%;
+  max-width: 0;
+  min-width: 320px;
+}
+
+.ops-section .subtitle {
+  margin-top: 0;
 }

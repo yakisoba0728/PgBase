@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import "../styles/widgets.css";
 
 interface JobProgressProps {
   title: string;

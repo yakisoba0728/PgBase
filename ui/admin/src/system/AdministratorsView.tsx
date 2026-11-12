@@ -106,7 +106,7 @@ function NewAdministrator({ onClose, onCreated }: { onClose: () => void; onCreat
     create.mutate({ email: String(form.get("email") ?? "").trim(), password: String(form.get("password") ?? "") });
   };
   return (
-    <form className="sys-pane" onSubmit={onSubmit}>
+    <form className="pane-form" onSubmit={onSubmit}>
       <PaneHeader title={t("system.admins.new")} onClose={onClose} />
       <div className="pane-body form">
         {create.isError && <Notice tone="danger">{adminError(t, create.error, "create", false)}</Notice>}
@@ -165,7 +165,7 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
   };
 
   return (
-    <div className="sys-pane">
+    <div className="pane-form">
       <PaneHeader title={admin.email} onClose={onClose} />
       <div className="pane-body">
         {active.isError && <Notice tone="danger">{adminError(t, active.error, "disable", self)}</Notice>}

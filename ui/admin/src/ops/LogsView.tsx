@@ -145,7 +145,7 @@ export function LogsView() {
                       key={id}
                       {...openRow(() => update({ entry: id }), entry === id)}
                     >
-                      <td className="mono ops-time">{time(item.at)}</td>
+                      <td className="mono cell-time">{time(item.at)}</td>
                       <td><span className="chip mono" data-tone={statusTone(item.status)}>{item.status}</span></td>
                       <td className="ops-request">
                         <span className="ops-method">{item.method}</span>
