@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RecordRulesEditor } from "./record-rules-editor";
 import { backendScript, callsTo } from "../test/backend-script";
 import { memoryBackend } from "../test/memory-backend";
 import { memoryHistory } from "../test/memory-history";
+import { UnsavedDrafts, draftLedger } from "../routing/unsaved-draft";
 import { sessionWrapper } from "../test/harness";
 
 it("edits a preset and saves the typed rules", async () => {
@@ -32,4 +33,20 @@ it("previews unsaved rules for bounded existing records", async () => {
     collection: "notes",
     value: { action: "view", userId: "0199ab10-0000-7000-8000-000000000001", recordIds: ["0199ab10-0000-7000-8000-000000000111"] },
   });
+});
+
+it("protects an unsaved rules draft and releases it after an explicit reset", async () => {
+  const script = backendScript();
+  const owner = { list: { op: "owner" }, view: { op: "owner" } };
+  script.getRules.push({ value: { collection: "notes", rules: owner, revision: 4 } });
+  const ledger = draftLedger(() => false);
+  render(<UnsavedDrafts ledger={ledger}><RecordRulesEditor collection="notes" /></UnsavedDrafts>, { wrapper: sessionWrapper(memoryBackend(script), memoryHistory()) });
+  const input = await screen.findByLabelText("Advanced rules JSON");
+  await waitFor(() => expect(input).toBeEnabled());
+  fireEvent.change(input, { target: { value: '{"list":{"op":"deny"}}' } });
+  expect(ledger.held()).toBe(true);
+  expect(screen.getByRole("button", { name: "Reload" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+  expect(ledger.held()).toBe(false);
+  expect(screen.getByRole("button", { name: "Reload" })).toBeEnabled();
 });

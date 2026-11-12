@@ -1,5 +1,7 @@
+import { t } from "../i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBackend } from "../auth/session";
+import { useUnsavedDraft } from "../routing/unsaved-draft";
 import { parseJSON, stringifyJSON } from "../backend/json";
 
 const actions = ["list", "view", "create", "update", "delete"] as const;
@@ -20,7 +22,7 @@ function ruleDraft(text: string): Record<string, unknown> | null {
   } catch { return null; }
 }
 
-export function RecordRulesEditor({ collection }: { collection: string }) {
+export function RecordRulesEditor({ collection, onDirty }: { collection: string; onDirty?(dirty: boolean): void }) {
   const { rules, capabilities } = useBackend();
   const [value, setValue] = useState<Record<string, unknown> | null>(null);
   const [draft, setDraft] = useState("{}");
@@ -31,6 +33,9 @@ export function RecordRulesEditor({ collection }: { collection: string }) {
   const [previewRecordIDs, setPreviewRecordIDs] = useState("");
   const [previewResult, setPreviewResult] = useState<Array<{ recordId: string; allowed: boolean }> | null>(null);
   const draftRules = ruleDraft(draft);
+  const dirty = value !== null && draft !== stringifyJSON(value, 2);
+  useUnsavedDraft(`collection-rules:${collection}`, dirty);
+  useEffect(() => { onDirty?.(dirty); }, [dirty, onDirty]);
   const generation = useRef(0);
   const load = useCallback(() => {
     if (capabilities?.rules === false) { setPending(false); return; }
@@ -67,19 +72,19 @@ export function RecordRulesEditor({ collection }: { collection: string }) {
     }).catch(() => { if (current === generation.current) setError("Unable to preview record rules."); }).finally(() => { if (current === generation.current) setPending(false); });
   }
   if (capabilities?.rules === false) return null;
-  return <section className="record-rules"><h3>Record access rules</h3>
-    <p>Owner limits public users to their records. Authenticated allows signed-in users. Allow permits everyone when an anonymous record API is connected.</p>
-    {error && <p role="alert">{error}</p>}
-    {value && actions.map((action) => <label key={action}>{action}<select disabled={pending} value={preset(draftRules?.[action]) ?? "advanced"} onChange={(event) => event.target.value !== "advanced" && setAction(action, event.target.value)}><option value="advanced">Advanced JSON</option>{presets.map((item) => <option key={item}>{item}</option>)}</select></label>)}
-    <label>Advanced rules JSON<textarea disabled={pending} value={draft} onChange={(event) => setDraft(event.target.value)} rows={12} /></label>
-    <button type="button" disabled={pending} onClick={load}>Reload</button><button type="button" disabled={pending} onClick={() => value && setDraft(stringifyJSON(value, 2))}>Reset</button><button type="button" disabled={pending} onClick={save}>Save rules</button>
-    <fieldset disabled={pending}><legend>Preview saved-record access</legend>
-      <p>Preview evaluates this unsaved JSON against existing records. Create is not previewable.</p>
-      <label>Action<select value={previewAction} onChange={(event) => setPreviewAction(event.target.value as PreviewAction)}>{(["list", "view", "update", "delete"] as const).map((action) => <option key={action}>{action}</option>)}</select></label>
-      <label>User ID (optional for anonymous)<input value={previewUserID} onChange={(event) => setPreviewUserID(event.target.value)} /></label>
-      <label>Record IDs (comma or space separated)<textarea value={previewRecordIDs} onChange={(event) => setPreviewRecordIDs(event.target.value)} /></label>
-      <button type="button" onClick={preview}>Preview access</button>
+  return <section className="record-rules"><h3>{t("Record access rules")}</h3><p className="control-help">{t("Rules are saved separately from the collection schema.")}</p>
+    <p>{t("Owner limits public users to their records. Authenticated allows signed-in users. Allow permits everyone when an anonymous record API is connected.")}</p>
+    {error && <p role="alert">{t(error)}</p>}
+    <div className="rule-presets">{value && actions.map((action) => <label key={action} className="rule-preset">{t(action)}<select disabled={pending} value={preset(draftRules?.[action]) ?? "advanced"} onChange={(event) => event.target.value !== "advanced" && setAction(action, event.target.value)}><option value="advanced">{t("Advanced JSON")}</option>{presets.map((item) => <option key={item} value={item}>{t(item)}</option>)}</select></label>)}</div>
+    <label>{t("Advanced rules JSON")}<textarea disabled={pending} value={draft} onChange={(event) => setDraft(event.target.value)} rows={12} /></label>
+    <button type="button" disabled={pending || dirty} onClick={load}>{t("Reload")}</button><button type="button" disabled={pending} onClick={() => value && setDraft(stringifyJSON(value, 2))}>{t("Reset")}</button><button type="button" disabled={pending} onClick={save}>{t("Save rules")}</button>
+    <fieldset disabled={pending}><legend>{t("Preview saved-record access")}</legend>
+      <p>{t("Preview evaluates this unsaved JSON against existing records. Create is not previewable.")}</p>
+      <label>{t("Action")}<select value={previewAction} onChange={(event) => setPreviewAction(event.target.value as PreviewAction)}>{(["list", "view", "update", "delete"] as const).map((action) => <option key={action} value={action}>{t(action)}</option>)}</select></label>
+      <label>{t("User ID (optional for anonymous)")}<input value={previewUserID} onChange={(event) => setPreviewUserID(event.target.value)} /></label>
+      <label>{t("Record IDs (comma or space separated)")}<textarea value={previewRecordIDs} onChange={(event) => setPreviewRecordIDs(event.target.value)} /></label>
+      <button type="button" onClick={preview}>{t("Preview access")}</button>
     </fieldset>
-    {previewResult && <ul aria-label="Rule preview results">{previewResult.map((item) => <li key={item.recordId}>{item.recordId}: {item.allowed ? "allowed" : "denied"}</li>)}</ul>}
+    {previewResult && <ul aria-label={t("Rule preview results")}>{previewResult.map((item) => <li key={item.recordId}>{item.recordId}: {item.allowed ? "allowed" : "denied"}</li>)}</ul>}
   </section>;
 }

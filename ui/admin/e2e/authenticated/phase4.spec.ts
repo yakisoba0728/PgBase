@@ -11,6 +11,8 @@ test("creates and edits advanced fields without persisting password drafts", asy
     await expect(page.getByLabel("Field 3 set on create")).toBeChecked();
     await expect(page.getByLabel("Field 3 set on update")).toBeChecked();
     await expect(page.getByLabel("Field 4 presentable")).toBeDisabled();
+    const passwordValidation = page.locator(".field-card").filter({ has: page.getByLabel("Field 4 name", { exact: true }) }).locator("details.field-options");
+    if (!await passwordValidation.evaluate(element => (element as HTMLDetailsElement).open)) await passwordValidation.locator("summary").click();
     await page.getByLabel("Field 4 minimum characters").fill("4");
     await applyCollectionEdit(page, name);
     await page.goto(`/admin/collections/${name}/records/new`);

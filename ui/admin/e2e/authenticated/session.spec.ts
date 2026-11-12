@@ -21,7 +21,7 @@ test("signs out and back in against a real backend", async ({ page, baseURL }) =
   await expect(page.getByRole("heading", { name: "Sign in to pgBase" })).toBeVisible();
 
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill("definitely not the password");
+  await page.getByLabel("Password", { exact: true }).fill("definitely not the password");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByText("Email or password is incorrect.")).toBeVisible();
 

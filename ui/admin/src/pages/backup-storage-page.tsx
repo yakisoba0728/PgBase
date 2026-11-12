@@ -1,3 +1,4 @@
+import { t, useLocale } from "../i18n";
 import { ActionBar, Button, FormSection, PageHeading } from "../components/ui";
 import { useUnsavedDraft } from "../routing/unsaved-draft";
 import { useEffect, useRef, useState } from "react";
@@ -17,6 +18,7 @@ const editable = (settings: BackupStorageSettings): BackupStorageUpdate => ({
 });
 
 export function BackupStoragePage() {
+  useLocale();
   const { backupStorage } = useBackend();
   const [saved, setSaved] = useState<BackupStorageSettings>();
   const [form, setForm] = useState<BackupStorageUpdate>();
@@ -56,7 +58,7 @@ export function BackupStoragePage() {
 
   useUnsavedDraft("backup-storage", !!form && !!saved && (JSON.stringify(form) !== JSON.stringify(editable(saved)) || secret !== "" || clearSecret || retentionInput !== String(saved.retention)));
   if (!form) {
-    return <section className="management-page storage-page"><PageHeading title="Backup archive storage" /><p aria-live="polite">{message ?? "Loading backup storage settings…"}</p></section>;
+    return <section className="management-page storage-page"><PageHeading title={t("Backup archive storage")} /><p aria-live="polite">{t(message ?? "Loading backup storage settings…")}</p></section>;
   }
 
   const retention = Number(retentionInput);
@@ -106,25 +108,26 @@ export function BackupStoragePage() {
   }
 
   return <section className="management-page storage-page">
-    <PageHeading title="Backup archive storage" description="Configure backup archives separately from uploaded record files." />
-    <label>Driver<select value={form.driver} disabled={busy} onChange={(event) => set("driver", event.target.value as "local" | "s3")}><option value="local">Local filesystem</option><option value="s3">S3 compatible</option></select></label>
-    {form.driver === "s3" && <FormSection className="management-field-grid" title="S3 connection" disabled={busy}>
-      <label>Endpoint<input value={form.endpoint} onChange={(event) => set("endpoint", event.target.value)} /></label>
-      <label>Bucket<input value={form.bucket} onChange={(event) => set("bucket", event.target.value)} /></label>
-      <label>Prefix<input value={form.prefix} onChange={(event) => set("prefix", event.target.value)} /></label>
-      <label>Region<input value={form.region} onChange={(event) => set("region", event.target.value)} /></label>
-      <label>Access key<input autoComplete="off" value={form.accessKey} onChange={(event) => set("accessKey", event.target.value)} /></label>
-      <label>Secret key<input type="password" autoComplete="new-password" value={secret} disabled={clearSecret} placeholder={saved?.secretConfigured ? "Configured" : ""} onChange={(event) => { setSecret(event.target.value); setClearSecret(false); setMessage(undefined); }} /></label>
-      {saved?.secretConfigured && <label><input type="checkbox" checked={clearSecret} onChange={(event) => { const checked = event.target.checked; setClearSecret(checked); if (checked) setSecret(""); set("accessKey", checked ? "" : saved.accessKey); }} />Clear saved access and secret keys and use the default credential provider</label>}
-      <label><input type="checkbox" checked={form.usePathStyle} onChange={(event) => set("usePathStyle", event.target.checked)} />Use path-style addressing</label>
+    <PageHeading title={t("Backup archive storage")} description={t("Choose where backup archives are stored. Uploaded record files use their own storage configuration.")} />
+    <div className="settings-storage-summary"><strong>{saved?.driver === "s3" ? t("S3-compatible archive repository") : t("Local archive repository")}</strong><span>{saved?.driver === "s3" ? saved.bucket : t("Archives remain on the server filesystem.")}</span></div>
+    <label>{t("Driver")}<select value={form.driver} disabled={busy} onChange={(event) => set("driver", event.target.value as "local" | "s3")}><option value="local">{t("Local filesystem")}</option><option value="s3">{t("S3 compatible")}</option></select></label>
+    {form.driver === "s3" && <FormSection className="management-field-grid" title={t("S3 connection")} disabled={busy}>
+      <label>{t("Endpoint")}<input value={form.endpoint} onChange={(event) => set("endpoint", event.target.value)} /></label>
+      <label>{t("Bucket")}<input value={form.bucket} onChange={(event) => set("bucket", event.target.value)} /></label>
+      <label>{t("Prefix")}<input value={form.prefix} onChange={(event) => set("prefix", event.target.value)} /></label>
+      <label>{t("Region")}<input value={form.region} onChange={(event) => set("region", event.target.value)} /></label>
+      <label>{t("Access key")}<input autoComplete="off" value={form.accessKey} onChange={(event) => set("accessKey", event.target.value)} /></label>
+      <label>{t("Secret key")}<input type="password" autoComplete="new-password" value={secret} disabled={clearSecret} placeholder={saved?.secretConfigured ? t("Configured") : ""} onChange={(event) => { setSecret(event.target.value); setClearSecret(false); setMessage(undefined); }} /></label>
+      {saved?.secretConfigured && <label><input type="checkbox" checked={clearSecret} onChange={(event) => { const checked = event.target.checked; setClearSecret(checked); if (checked) setSecret(""); set("accessKey", checked ? "" : saved.accessKey); }} />{t("Clear saved access and secret keys and use the default credential provider")}</label>}
+      <label><input type="checkbox" checked={form.usePathStyle} onChange={(event) => set("usePathStyle", event.target.checked)} />{t("Use path-style addressing")}</label>
     </FormSection>}
-    <label>Backups to retain<input type="number" min={0} step={1} disabled={busy} value={retentionInput} aria-invalid={!retentionValid} aria-describedby="backup-retention-help" onChange={(event) => { setRetentionInput(event.target.value); setMessage(undefined); }} /></label>
-    <p id="backup-retention-help">This is the repository fallback. Managed apps use Settings &gt; Backups to keep instead, even when automatic backups are disabled. Both count manual, uploaded, and scheduled archives; 0 keeps every archive.</p>
-    {!retentionValid && <p role="alert">Retention must be a whole number from 0 through 2147483647.</p>}
-    <ActionBar description={dirty ? "Unsaved backup storage changes." : "Current backup storage configuration."}>
-    <Button disabled={busy || !dirty || !retentionValid} onClick={() => void save()}>Save backup storage</Button>
-    <Button variant="secondary" disabled={busy || dirty || !retentionValid} onClick={() => void test()}>Test backup storage</Button>
+    <label>{t("Backups to retain")}<input type="number" min={0} step={1} disabled={busy} value={retentionInput} aria-invalid={!retentionValid} aria-describedby="backup-retention-help" onChange={(event) => { setRetentionInput(event.target.value); setMessage(undefined); }} /></label>
+    <p id="backup-retention-help">{t("This is the repository fallback. Managed apps use Settings > Backups to keep instead, even when automatic backups are disabled. Both count manual, uploaded, and scheduled archives; 0 keeps every archive.")}</p>
+    {!retentionValid && <p role="alert">{t("Retention must be a whole number from 0 through 2147483647.")}</p>}
+    <ActionBar sticky description={dirty ? t("Unsaved backup storage changes.") : t("Current backup storage configuration.")}>
+    <Button disabled={busy || !dirty || !retentionValid} onClick={() => void save()}>{t("Save backup storage")}</Button>
+    <Button variant="secondary" disabled={busy || dirty || !retentionValid} onClick={() => void test()}>{t("Test backup storage")}</Button>
     </ActionBar>
-    <p aria-live="polite">{message}</p>
+    <p aria-live="polite">{t(message)}</p>
   </section>;
 }

@@ -1,0 +1,120 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { expect, test, type Page } from "@playwright/test";
+import { deleteCollection, uniqueName } from "./fixtures";
+
+test.use({ locale: "ko-KR" });
+const evidence = path.resolve("../../.local/korean-ui-evidence");
+
+async function koreanSignIn(page: Page) {
+  const email = process.env.PGBASE_ADMIN_EMAIL;
+  const password = process.env.PGBASE_ADMIN_PASSWORD;
+  if (!email || !password) throw new Error("Disposable administrator credentials are required");
+  await page.goto("/admin/login");
+  await expect(page.getByRole("heading", { name: "pgBase 로그인", exact: true })).toBeVisible();
+  await page.getByLabel("이메일", { exact: true }).fill(email);
+  await page.getByLabel("비밀번호", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "컬렉션", exact: true })).toBeVisible();
+}
+
+test("Korean browser defaults and language switching retain login input and error state", async ({ page }) => {
+  await page.goto("/admin/login");
+  await expect(page.locator("html")).toHaveAttribute("lang", "ko");
+  await page.getByLabel("이메일", { exact: true }).fill(process.env.PGBASE_ADMIN_EMAIL!);
+  await page.getByLabel("비밀번호", { exact: true }).fill("wrong-disposable-password");
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("이메일 또는 비밀번호가 올바르지 않습니다.");
+  await expect(page.getByLabel("비밀번호", { exact: true })).toHaveValue("");
+  await page.getByLabel("비밀번호", { exact: true }).fill("unsent-password-draft");
+  await page.getByRole("combobox", { name: "언어", exact: true }).selectOption("en");
+  await expect(page.getByRole("alert")).toHaveText("Email or password is incorrect.");
+  await expect(page.getByLabel("Email", { exact: true })).toHaveValue(process.env.PGBASE_ADMIN_EMAIL!);
+  await expect(page.getByLabel("Password", { exact: true })).toHaveValue("unsent-password-draft");
+  await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("ko");
+  await expect(page.getByRole("alert")).toHaveText("이메일 또는 비밀번호가 올바르지 않습니다.");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("lang", "ko");
+});
+
+test("Korean schema and record workflow preserves drafts and errors across language changes", async ({ page }, info) => {
+  const name = uniqueName("korean_posts", info);
+  await mkdir(evidence, { recursive: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await koreanSignIn(page);
+  const visibleText: Record<string, string> = {};
+  try {
+    await page.goto("/admin/collections/new");
+    await page.getByLabel("컬렉션 이름", { exact: true }).fill(name);
+    await page.getByLabel("필드 1 이름", { exact: true }).fill("title");
+    await page.getByLabel("필드 1 인덱스", { exact: true }).check();
+    await page.getByRole("combobox", { name: "언어", exact: true }).selectOption("en");
+    await expect(page.getByLabel("Field 1 name", { exact: true })).toHaveValue("title");
+    await expect(page.getByLabel("Collection name", { exact: true })).toHaveValue(name);
+    await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("ko");
+    await page.getByRole("button", { name: "컬렉션 미리보기", exact: true }).click();
+    await page.getByRole("button", { name: "컬렉션 적용", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "컬렉션", exact: true })).toBeVisible();
+    await page.goto(`/admin/collections/${name}/records/new`);
+    await page.getByLabel("title 입력 방식", { exact: true }).selectOption("value");
+    await page.getByLabel("title", { exact: true }).fill("첫 번째 게시물");
+    await page.getByRole("button", { name: "레코드 만들기", exact: true }).click();
+    await page.getByRole("row").filter({ hasText: "첫 번째 게시물" }).getByRole("link").click();
+    await page.getByLabel("title", { exact: true }).fill("수정한 게시물");
+    const otherTab = await page.context().newPage();
+    await otherTab.goto("/admin/settings");
+    await otherTab.locator(".workspace-header").getByRole("combobox", { name: "언어", exact: true }).selectOption("en");
+    await expect(page.getByRole("combobox", { name: "Language", exact: true })).toHaveValue("en");
+    await expect(page.getByLabel("title", { exact: true })).toHaveValue("수정한 게시물");
+    await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("ko");
+    await expect(otherTab.locator(".workspace-header").getByRole("combobox", { name: "언어", exact: true })).toHaveValue("ko");
+    await otherTab.close();
+    await page.getByRole("button", { name: "변경 사항 저장", exact: true }).click();
+    await expect(page.getByLabel("필터", { exact: true })).toHaveAttribute("placeholder", "예: title = '값' && rank >= 2");
+    await page.getByLabel("필터", { exact: true }).fill("title ===");
+    await page.getByRole("button", { name: "필터 적용", exact: true }).click();
+    await expect(page.getByRole("alert")).toHaveText("필터 또는 정렬 조건이 올바르지 않습니다.");
+    await page.getByRole("combobox", { name: "언어", exact: true }).selectOption("en");
+    await expect(page.getByRole("alert")).toHaveText("The filter or sort expression is invalid.");
+    await expect(page.getByLabel("Filter", { exact: true })).toHaveValue("title ===");
+    await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("ko");
+    await page.getByLabel("필터", { exact: true }).fill("title = '수정한 게시물'");
+    await page.getByRole("button", { name: "필터 적용", exact: true }).click();
+    await expect(page.getByRole("cell", { name: "수정한 게시물", exact: true })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "생성일", exact: true })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "수정일", exact: true })).toBeVisible();
+    const created = page.locator(".record-time-cell time").first();
+    const rawTimestamp = await created.getAttribute("datetime");
+    expect(rawTimestamp).toMatch(/^\d{4}-\d\d-\d\dT/);
+    await expect(created).not.toHaveText(rawTimestamp!);
+    visibleText.records = await page.locator("body").innerText();
+    await page.screenshot({ path: path.join(evidence, "korean-records-desktop.png"), fullPage: true, animations: "disabled" });
+    await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+    await page.screenshot({ path: path.join(evidence, "korean-records-dark.png"), fullPage: true, animations: "disabled" });
+    await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: path.join(evidence, "korean-records-mobile.png"), fullPage: true, animations: "disabled" });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("/admin/settings");
+    await expect(page.getByRole("heading", { name: "애플리케이션 설정", exact: true })).toBeVisible();
+    visibleText.settings = await page.locator("body").innerText();
+    await page.screenshot({ path: path.join(evidence, "korean-settings.png"), fullPage: true, animations: "disabled" });
+    await page.getByRole("tab", { name: "내 계정", exact: true }).click();
+    await expect(page.getByRole("tabpanel", { name: "내 계정", exact: true })).toBeVisible();
+    await page.goto("/admin/auth-collections");
+    await expect(page.getByRole("heading", { name: "인증 컬렉션", exact: true })).toBeVisible();
+    visibleText.auth = await page.locator("body").innerText();
+    await page.screenshot({ path: path.join(evidence, "korean-auth.png"), fullPage: true, animations: "disabled" });
+    await page.goto("/admin/logs");
+    await expect(page.getByRole("heading", { name: "로그", exact: true })).toBeVisible();
+    visibleText.logs = await page.locator("body").innerText();
+    await page.screenshot({ path: path.join(evidence, "korean-logs.png"), fullPage: true, animations: "disabled" });
+    await writeFile(path.join(evidence, "korean-visible-text.json"), JSON.stringify(visibleText, null, 2) + "\n");
+  } finally {
+    page.once("dialog", dialog => dialog.accept());
+    const picker = page.locator(".language-select");
+    if (await picker.count()) await picker.selectOption("en");
+    await deleteCollection(page, name);
+  }
+});

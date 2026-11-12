@@ -260,3 +260,10 @@ describe("late results", () => {
     expect(result.current[0].filter).toBe("");
   });
 });
+
+
+it("round trips the dedicated logs route", () => {
+  expect(parseAdminRoute("/admin/logs")).toEqual({ kind: "logs" });
+  expect(adminRoutePath({ kind: "logs" })).toBe("/admin/logs");
+  expect(adminRouteIdentity({ kind: "logs" })).not.toBe(adminRouteIdentity({ kind: "system" }));
+});

@@ -24,6 +24,7 @@ test("reports operational diagnostics without leaking a secret", async ({ page }
 
   // The address a new tab or "copy link address" would use has to be the same
   // typed route an in-place click reaches.
+  await page.getByRole("link", { name: "Settings section", exact: true }).click();
   const system = page.getByRole("link", { name: "System" });
   await expect(system).toHaveAttribute("href", "/admin/system");
   await system.click();
@@ -31,7 +32,7 @@ test("reports operational diagnostics without leaking a secret", async ({ page }
   await expect(page.getByRole("heading", { name: "System" })).toBeVisible();
   expect(new URL(page.url()).pathname).toBe("/admin/system");
 
-  const status = page.locator("dl.system-status").first();
+  const status = page.getByRole("region", { name: "Instance status", exact: true });
   await expect(status).toBeVisible();
   for (const label of [
     "Binary version", "Database", "Migrations", "Migration history",
@@ -52,7 +53,7 @@ test("reports operational diagnostics without leaking a secret", async ({ page }
   await expect(page.locator("p.health-state")).toHaveAttribute("data-state", "healthy");
   await expect(page.getByText("No drift detected")).toBeVisible();
   await expect(page.getByText("No findings reported.")).toBeVisible();
-  const health = page.locator("dl.system-status").last();
+  const health = page.getByRole("region", { name: "Schema health", exact: true });
   await expect(health.getByText("Last successful diagnosis", { exact: true })).toBeVisible();
   await expect(health.getByText("Retries since the last diagnosis", { exact: true })).toBeVisible();
   await expect(health.locator("time")).toHaveCount(1);

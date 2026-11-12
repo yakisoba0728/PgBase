@@ -1,4 +1,5 @@
 import type { AdminSettings } from "../backend/ports";
+import { t } from "../i18n";
 
 // Before authentication, appearance belongs to the current computer rather
 // than the administrator settings left by a previous session.
@@ -20,5 +21,5 @@ export function applyWorkspaceTheme(application: AdminSettings["application"]) {
     const luminance = channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
     document.documentElement.style.setProperty("--action-text", luminance > .179 ? "#000" : "#fff");
   }
-  document.title = application.branding || "pgBase administration";
+  document.title = application.branding || t("pgBase administration");
 }

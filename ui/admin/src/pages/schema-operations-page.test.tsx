@@ -79,4 +79,19 @@ describe("schema operations page", () => {
     expect(await screen.findByText("No schema operations yet.")).toBeVisible();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+  it("filters loaded receipts without changing ledger order or discarding pagination", async () => {
+    const harness = scriptedAdmin("/admin/schema-operations");
+    harness.script.operations.push({ value: { items: [receipt("op-new"), receipt("op-failed", { status: "failed" })], nextCursor: "older" } });
+    renderAdmin(harness);
+    await screen.findByText("op-new");
+    await userEvent.selectOptions(screen.getByLabelText("Operation status"), "failed");
+    expect(rowOrder()).toEqual(["op-failed"]);
+    await userEvent.type(screen.getByLabelText("Search operations"), "missing");
+    expect(screen.getByRole("status")).toHaveTextContent("No loaded operations match");
+    expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
+    await userEvent.clear(screen.getByLabelText("Search operations"));
+    await userEvent.selectOptions(screen.getByLabelText("Operation status"), "");
+    expect(rowOrder()).toEqual(["op-new", "op-failed"]);
+  });
+
 });

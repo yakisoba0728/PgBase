@@ -57,6 +57,21 @@ const session = (csrfToken = "csrf-token") => respond(200, JSON.stringify({
 afterEach(() => vi.unstubAllGlobals());
 
 describe("HTTP adapter wire contract", () => {
+  it("does not adopt a late resumed session over a fresh login", async () => {
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>(resolve => { finish = resolve; });
+    const mock = vi.fn().mockReturnValueOnce(pending).mockResolvedValueOnce(session("fresh-csrf")).mockResolvedValueOnce(respond(204));
+    vi.stubGlobal("fetch", mock);
+    const backend = httpBackend();
+    const resumed = backend.session.resume();
+    const rejected = expect(resumed).rejects.toMatchObject({ name: "AbortError" });
+    await backend.session.login({ email: "admin@example.com", password: "fresh password" });
+    finish(session("stale-csrf"));
+    await rejected;
+    await backend.session.logout();
+    expect(headerOf(mock, 2, "X-PgBase-CSRF")).toBe("fresh-csrf");
+  });
+
   it.each([[400, "invalid_record_id"], [409, "record_id_conflict"]] as const)("exposes %s %s on the record ID input", async (status, code) => {
     const mock = stub(session(), respond(status, envelope(code)));
     const backend = await authenticated(mock);

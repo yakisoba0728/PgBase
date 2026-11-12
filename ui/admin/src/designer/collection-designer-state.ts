@@ -1,3 +1,4 @@
+import type { Message } from "../i18n";
 import {
   CollectionCatalog,
   type AuthCollectionScaffold,
@@ -51,11 +52,11 @@ export interface State {
   authPlan: AuthImportPlan | null;
   confirmed: boolean;
   pending: boolean;
-  error: string | null;
+  error: Message | null;
   deletePlan: PlannedChange | null;
   deleteConfirmText: string;
   deletePending: boolean;
-  deleteError: string | null;
+  deleteError: Message | null;
   pristine: string;
   undecided: UndecidedApply | null;
   terminal: boolean;

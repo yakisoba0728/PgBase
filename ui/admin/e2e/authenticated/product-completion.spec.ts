@@ -40,6 +40,7 @@ test("completes the record productivity workflow", async ({ page }, info) => {
     await expect(page.getByText("second", { exact: true })).toBeVisible();
 
     await page.goto(`/admin/collections/${name}/edit`);
+    await page.locator(".field-card").filter({ has: page.getByLabel("Field 2 name", { exact: true }) }).locator("details.field-options > summary").click();
     await page.getByLabel(/Field 2 allowed values/).fill('["draft", "published"]');
     await page.getByRole("button", { name: "Preview change" }).click();
     await expect(page.getByRole("button", { name: "Apply change" })).toBeVisible();

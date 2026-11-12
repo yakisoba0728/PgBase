@@ -15,6 +15,7 @@ describe("record identity administration", () => {
 
     await user.type(await screen.findByLabelText("Collection name"), "notes");
     await user.type(screen.getByLabelText("Field 1 name"), "title");
+    await user.click(screen.getByRole("tab", { name: "Options" }));
     await user.selectOptions(screen.getByLabelText("Record ID kind"), "text");
     await user.clear(screen.getByLabelText("Record ID minimum length"));
     await user.type(screen.getByLabelText("Record ID minimum length"), "1");

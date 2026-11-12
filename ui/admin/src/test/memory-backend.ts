@@ -87,6 +87,8 @@ function failure(fault: Fault, surface: Surface): Error {
  */
 export function memoryBackend(script: BackendScript): AdminBackend {
   const expired = new Set<() => void>();
+  let lastCatalog: CollectionCatalog | undefined;
+  let readingCatalog: Promise<CollectionCatalog> | undefined;
 
   async function take<T>(operation: string, detail: Record<string, unknown>, surface: Surface, anonymous = false): Promise<T> {
     const step = await settledStep(nextStep<T>(script, operation as never, detail));
@@ -118,9 +120,14 @@ export function memoryBackend(script: BackendScript): AdminBackend {
       },
     },
     schema: {
-      catalog: (signal) => guard(signal, async () => {
-        const scripted = await take<ScriptedCatalog>("catalog", {}, "schema");
-        return new CollectionCatalog(scripted.version, scripted.collections);
+      catalog: (signal) => guard(signal, () => {
+        if (readingCatalog) return readingCatalog;
+        if (!script.catalog.length && lastCatalog) return Promise.resolve(lastCatalog);
+        readingCatalog = take<ScriptedCatalog>("catalog", {}, "schema").then(value => {
+          lastCatalog = new CollectionCatalog(value.version, value.collections);
+          return lastCatalog;
+        }).finally(() => { readingCatalog = undefined; });
+        return readingCatalog;
       }),
       plan: (change: CollectionChange, signal) => guard(signal, async () => {
         const scripted = await take<ScriptedPlan>("plan", { change }, "schema");

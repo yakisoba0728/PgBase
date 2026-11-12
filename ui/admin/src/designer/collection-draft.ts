@@ -1,3 +1,5 @@
+import { t, message, type Message } from "../i18n";
+import { collectionMessages } from "../i18n/collections";
 import { parseJSON, stringifyJSON } from "../backend/json";
 import {
   CollectionCatalog,
@@ -15,6 +17,7 @@ import {
   type ViewDefinition,
 } from "../backend/ports";
 import {
+  FieldOptionsError,
   fieldOptionsInput,
   draftFieldOptions,
   type DraftFieldOptions,
@@ -83,7 +86,9 @@ export type DesignerMode =
   | { kind: "edit" | "duplicate"; collection: string }
   | { kind: "scaffold"; scaffold: "base" | "auth" | "view" };
 
-export class DraftError extends Error {}
+export class DraftError extends Error {
+  constructor(readonly description: Message) { super(typeof description === "string" ? description : description.en); }
+}
 
 export const dataBlockedText =
   "Existing data blocks this change (for example missing or duplicate values).";
@@ -151,7 +156,7 @@ function parseBound(
 ): number {
   if (!/^(?:0|[1-9][0-9]*)$/.test(value))
     throw new DraftError(
-      `Field ${fieldNumber} relation ${label} must be a non-negative integer.`,
+      message(`Field ${fieldNumber} relation ${label} must be a non-negative integer.`, `필드 ${fieldNumber} 관계의 ${label === "minimum" ? "최소" : "최대"} 선택 수는 0 이상의 정수여야 합니다.`),
     );
   return Number(value);
 }
@@ -164,14 +169,14 @@ function relationInput(
   const fieldNumber = index + 1;
   if (relation === undefined || relation.targetCollection === "") {
     throw new DraftError(
-      `Choose a target collection for field ${fieldNumber}.`,
+      message(`Choose a target collection for field ${fieldNumber}.`, `필드 ${fieldNumber}의 대상 컬렉션을 선택하세요.`),
     );
   }
   const minSelect = parseBound(relation.minSelect, fieldNumber, "minimum");
   const maxSelect = parseBound(relation.maxSelect, fieldNumber, "maximum");
   if (relation.cardinality === "single" && (minSelect > 1 || maxSelect !== 1)) {
     throw new DraftError(
-      `Field ${fieldNumber} single relation must use minimum 0 or 1 and maximum 1.`,
+      message(`Field ${fieldNumber} single relation must use minimum 0 or 1 and maximum 1.`, `필드 ${fieldNumber}의 단일 관계는 최소 0 또는 1, 최대 1이어야 합니다.`),
     );
   }
   if (
@@ -179,22 +184,22 @@ function relationInput(
     (maxSelect < 2 || maxSelect > 1000 || minSelect > maxSelect)
   ) {
     throw new DraftError(
-      `Field ${fieldNumber} multiple relation must use maximum 2–1000 and minimum no greater than maximum.`,
+      message(`Field ${fieldNumber} multiple relation must use maximum 2–1000 and minimum no greater than maximum.`, `필드 ${fieldNumber}의 복수 관계는 최대 2~1000이며 최소 선택 수가 최대를 넘을 수 없습니다.`),
     );
   }
   if (field.required !== minSelect > 0) {
     throw new DraftError(
-      `Field ${fieldNumber} required setting must match whether its relation minimum is greater than zero.`,
+      message(`Field ${fieldNumber} required setting must match whether its relation minimum is greater than zero.`, `필드 ${fieldNumber}의 필수 설정은 관계 최소 선택 수가 0보다 큰지 여부와 일치해야 합니다.`),
     );
   }
   if (relation.onDelete === "set_null" && minSelect !== 0) {
     throw new DraftError(
-      `Field ${fieldNumber} set-null relation must be optional.`,
+      message(`Field ${fieldNumber} set-null relation must be optional.`, `필드 ${fieldNumber}의 set_null 관계는 선택 사항이어야 합니다.`),
     );
   }
   if (relation.cardinality === "multiple" && field.unique) {
     throw new DraftError(
-      `Field ${fieldNumber} multiple relation cannot be unique.`,
+      message(`Field ${fieldNumber} multiple relation cannot be unique.`, `필드 ${fieldNumber}의 복수 관계에는 고유 제약을 설정할 수 없습니다.`),
     );
   }
   return {
@@ -255,11 +260,11 @@ export function buildInput(
   const fieldInputs = fields.map((field, index) => {
     if (Array.from(field.help ?? "").length > 300)
       throw new DraftError(
-        `Field ${index + 1} help must be at most 300 characters.`,
+        message(`Field ${index + 1} help must be at most 300 characters.`, `필드 ${index + 1} 도움말은 300자 이하여야 합니다.`),
       );
     if (field.hidden && field.presentable)
       throw new DraftError(
-        `Field ${index + 1} cannot be hidden and presentable.`,
+        message(`Field ${index + 1} cannot be hidden and presentable.`, `필드 ${index + 1}는 숨김과 대표 표시를 동시에 설정할 수 없습니다.`),
       );
     const base: FieldInput = {
       name: field.name,
@@ -294,24 +299,24 @@ export function buildInput(
 
 export function previewField(field: PlannedField): string {
   const flags = [
-    field.required && "required",
-    field.unique && "unique",
-    field.indexed && "indexed",
+    field.required && t("required"),
+    field.unique && t("unique"),
+    field.indexed && t("indexed"),
     field.default !== undefined &&
-      `default: ${typeof field.default === "string" ? field.default : stringifyJSON(field.default)}`,
+      `${t("default")}: ${typeof field.default === "string" ? field.default : stringifyJSON(field.default)}`,
   ].filter(Boolean);
   if (field.relation !== undefined) {
     flags.push(
-      `target: ${field.relation.targetCollection}`,
-      field.relation.cardinality,
-      `min: ${field.relation.minSelect}`,
-      `max: ${field.relation.maxSelect}`,
-      `on delete: ${field.relation.onDelete}`,
+      `${t("target")}: ${field.relation.targetCollection}`,
+      t(field.relation.cardinality),
+      `${t("min")}: ${field.relation.minSelect}`,
+      `${t("max")}: ${field.relation.maxSelect}`,
+      `${t("on delete")}: ${t(field.relation.onDelete)}`,
     );
   }
   if (field.options && Object.keys(field.options).length)
-    flags.push(`validation: ${JSON.stringify(field.options)}`);
-  return `${field.name} · ${field.type}${flags.length > 0 ? ` · ${flags.join(" · ")}` : ""}`;
+    flags.push(`${t("validation")}: ${JSON.stringify(field.options)}`);
+  return `${field.name} · ${t(field.type)}${flags.length > 0 ? ` · ${flags.join(" · ")}` : ""}`;
 }
 
 function defaultTextFor(type: string, value: unknown): string {
@@ -550,15 +555,15 @@ export function relationTargets(
     }));
 }
 
-export function draftMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+export function draftMessage(error: unknown, fallback: string): Message {
+  return error instanceof DraftError || error instanceof FieldOptionsError ? error.description : error instanceof Error ? error.message : fallback;
 }
 
 export function schemaMessage(
   error: unknown,
   fallback: string,
   validationFallback = "Collection input is invalid.",
-): string {
+): Message {
   if (!(error instanceof SchemaError)) return fallback;
   const detailPrefix =
     error.code === "collection_referenced"
@@ -567,10 +572,10 @@ export function schemaMessage(
   const details = Object.entries(error.details)
     .flatMap(([path, codes]) => codes.map((code) => `${path}: ${code}`))
     .sort();
-  if (details.length > 0) return `${detailPrefix} ${details.join("; ")}`;
+  if (details.length > 0) return message(`${detailPrefix} ${details.join("; ")}`, `${collectionMessages[detailPrefix] ?? detailPrefix} ${details.join("; ")}`);
   if (error.code === "validation_failed") return validationFallback;
   if (error.code !== "request_failed" && error.code !== "schema_conflict")
-    return `${fallback} (${error.code})`;
+    return message(`${fallback} (${error.code})`, `${collectionMessages[fallback] ?? fallback} (${error.code})`);
   return fallback;
 }
 

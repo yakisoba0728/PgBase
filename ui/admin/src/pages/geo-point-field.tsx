@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useRef, useState } from "react";
 import land from "../assets/world-land-paths.json";
 
@@ -31,11 +32,11 @@ export function GeoPointField({ id, label, value, disabled, describedBy, invalid
     change({ lon: String(Number(clamp(longitude, -180, 180).toFixed(6))), lat: String(Number(clamp(latitude, -90, 90).toFixed(6))) });
   }
   return <fieldset className="geo-point-field" disabled={disabled} aria-describedby={describedBy}>
-    <legend>{label} coordinates</legend>
-    <label htmlFor={id}>Longitude<input id={id} aria-label={`${label} longitude`} aria-invalid={invalid} type="number" min={-180} max={180} step="any" value={point.lon} onChange={event => change({ ...point, lon: event.target.value })} /></label>
-    <label>Latitude<input aria-label={`${label} latitude`} aria-invalid={invalid} type="number" min={-90} max={90} step="any" value={point.lat} onChange={event => change({ ...point, lat: event.target.value })} /></label>
-    <p id={`${id}-map-help`}>Click the map to set coordinates. Arrow keys move the point; hold Shift for smaller steps. Enter precise coordinates above.</p>
-    <svg className="coordinate-map" role="group" aria-label={`${label} coordinate map`} aria-describedby={`${id}-map-help`} aria-disabled={disabled} tabIndex={disabled ? -1 : 0} viewBox={`${x} ${y} ${width} ${height}`} preserveAspectRatio="none" onClick={event => {
+    <legend>{t("{label} coordinates", { label })}</legend>
+    <label htmlFor={id}>{t("Longitude")}<input id={id} aria-label={t("{label} longitude", { label })} aria-invalid={invalid} type="number" min={-180} max={180} step="any" value={point.lon} onChange={event => change({ ...point, lon: event.target.value })} /></label>
+    <label>{t("Latitude")}<input aria-label={t("{label} latitude", { label })} aria-invalid={invalid} type="number" min={-90} max={90} step="any" value={point.lat} onChange={event => change({ ...point, lat: event.target.value })} /></label>
+    <p id={`${id}-map-help`}>{t("Click the map to set coordinates. Arrow keys move the point; hold Shift for smaller steps. Enter precise coordinates above.")}</p>
+    <svg className="coordinate-map" role="group" aria-label={t("{label} coordinate map", { label })} aria-describedby={`${id}-map-help`} aria-disabled={disabled} tabIndex={disabled ? -1 : 0} viewBox={`${x} ${y} ${width} ${height}`} preserveAspectRatio="none" onClick={event => {
       if (disabled) return;
       const box = event.currentTarget.getBoundingClientRect();
       if (box.width && box.height) select(x + (event.clientX - box.left) / box.width * width - 180, 90 - y - (event.clientY - box.top) / box.height * height);
@@ -51,9 +52,9 @@ export function GeoPointField({ id, label, value, disabled, describedBy, invalid
       {Array.from({ length: 5 }, (_, index) => <path key={`lat${index}`} d={`M0,${30 * (index + 1)}h360`} stroke="#8da8b3" strokeWidth={0.2 / zoom} />)}
       {valid && <circle cx={lon + 180} cy={90 - lat} r={2.5 / zoom} fill="#d83243" stroke="white" strokeWidth={0.8 / zoom} />}
     </svg>
-    <button type="button" disabled={disabled || zoom >= 64} onClick={() => setZoom(zoom * 2)}>Zoom in</button>
-    <button type="button" disabled={disabled || zoom <= 1} onClick={() => setZoom(zoom / 2)}>Zoom out</button>
-    <button type="button" disabled={disabled} onClick={() => setZoom(1)}>World view</button>
-    <small>Made with Natural Earth. The offline map shows approximate coastlines.</small>
+    <button type="button" disabled={disabled || zoom >= 64} onClick={() => setZoom(zoom * 2)}>{t("Zoom in")}</button>
+    <button type="button" disabled={disabled || zoom <= 1} onClick={() => setZoom(zoom / 2)}>{t("Zoom out")}</button>
+    <button type="button" disabled={disabled} onClick={() => setZoom(1)}>{t("World view")}</button>
+    <small>{t("Made with Natural Earth. The offline map shows approximate coastlines.")}</small>
   </fieldset>;
 }

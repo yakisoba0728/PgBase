@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./ui";
+import { t, useLocale, type Message } from "../i18n";
 
 /** Abort old reads and ignore completions after leaving the resource. Mutations
  * are never auto-retried: a lost response can still have committed on the server. */
 export function useFeatureResource<T>(loader: (signal: AbortSignal) => Promise<T>) {
+  useLocale();
   const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<Message>("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -26,13 +28,14 @@ export function useFeatureResource<T>(loader: (signal: AbortSignal) => Promise<T
     catch { if (alive.current && !c.signal.aborted) setError("The server could not confirm the change. Reload the data before retrying."); }
     finally { pending.current = false; if (alive.current) { setBusy(false); setLoading(false); } }
   }
-  return { data, setData, error, setError, loading, busy, run, reload: () => { if (!pending.current) setRevision(v => v + 1); } };
+  return { data, setData, error: t(error), setError, loading, busy, run, reload: () => { if (!pending.current) setRevision(v => v + 1); } };
 }
 export function TypedConfirmation({ subject, action, busy, onConfirm, onCancel }: { subject: string; action: string; busy: boolean; onConfirm(): void; onCancel(): void }) {
+  useLocale();
   const [typed, setTyped] = useState("");
-  return <div className="inline-confirmation" role="group" aria-label={`Confirm ${action}`}>
-    <label>Type {subject} to confirm {action.toLowerCase()}<input autoFocus autoComplete="off" value={typed} disabled={busy} onChange={e => setTyped(e.target.value)} /></label>
-    <div className="page-action-buttons"><Button variant="danger" disabled={busy || typed !== subject} onClick={onConfirm}>{busy ? "Working…" : action}</Button><Button variant="secondary" disabled={busy} onClick={onCancel}>Cancel</Button></div>
+  return <div className="inline-confirmation" role="group" aria-label={t("Confirm {action}", { action: t(action) })}>
+    <label>{t("Type {subject} to confirm {action}", { subject, action: t(action).toLowerCase() })}<input autoFocus autoComplete="off" value={typed} disabled={busy} onChange={e => setTyped(e.target.value)} /></label>
+    <div className="page-action-buttons"><Button variant="danger" disabled={busy || typed !== subject} onClick={onConfirm}>{busy ? t("Working…") : t(action)}</Button><Button variant="secondary" disabled={busy} onClick={onCancel}>{t("Cancel")}</Button></div>
   </div>;
 }
 

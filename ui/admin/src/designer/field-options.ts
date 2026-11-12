@@ -1,3 +1,8 @@
+import { message, type Message } from "../i18n";
+
+export class FieldOptionsError extends Error {
+  constructor(readonly description: Message) { super(typeof description === "string" ? description : description.en); }
+}
 import type { FieldOptions } from "../backend/ports";
 
 export type DraftFieldOptions = Partial<Record<keyof FieldOptions, string>>;
@@ -14,17 +19,17 @@ export function fieldOptionsInput(draft?: DraftFieldOptions): FieldOptions | und
   for (const key of counts) {
     const value = draft[key];
     if (value === undefined || value === "") continue;
-    if (!/^(0|[1-9][0-9]*)$/.test(value) || !Number.isSafeInteger(Number(value))) throw new Error(`${key} must be a non-negative integer.`);
+    if (!/^(0|[1-9][0-9]*)$/.test(value) || !Number.isSafeInteger(Number(value))) throw new FieldOptionsError(message(`${key} must be a non-negative integer.`, `${key} 값은 0 이상의 정수여야 합니다.`));
     result[key] = Number(value);
   }
   for (const key of ["convertURLs", "onCreate", "onUpdate"] as const) {
     if (draft[key] === undefined || draft[key] === "") continue;
-    if (draft[key] !== "true" && draft[key] !== "false") throw new Error(`${key} must be true or false.`);
+    if (draft[key] !== "true" && draft[key] !== "false") throw new FieldOptionsError(message(`${key} must be true or false.`, `${key} 값은 true 또는 false여야 합니다.`));
     result[key] = draft[key] === "true";
   }
   for (const key of ["pattern", "autogeneratePattern", "min", "max"] as const) if (draft[key]) result[key] = draft[key];
   if (draft.format) {
-    if (draft.format !== "email" && draft.format !== "url") throw new Error("Choose email or URL format.");
+    if (draft.format !== "email" && draft.format !== "url") throw new FieldOptionsError("Choose email or URL format.");
     result.format = draft.format;
   }
   if (draft.allowedDomains) result.allowedDomains = draft.allowedDomains.split("\n").filter(value => value !== "");
@@ -33,11 +38,11 @@ export function fieldOptionsInput(draft?: DraftFieldOptions): FieldOptions | und
   if (draft.thumbs) result.thumbs = draft.thumbs.split("\n").filter(value => value !== "");
   if (draft.allowedValues) {
     let values: unknown;
-    try { values = JSON.parse(draft.allowedValues); } catch { throw new Error('Allowed values must be a JSON string array, for example ["draft", "published"].'); }
-    if (!Array.isArray(values) || values.some(value => typeof value !== "string")) throw new Error("Allowed values must contain only strings.");
+    try { values = JSON.parse(draft.allowedValues); } catch { throw new FieldOptionsError('Allowed values must be a JSON string array, for example ["draft", "published"].'); }
+    if (!Array.isArray(values) || values.some(value => typeof value !== "string")) throw new FieldOptionsError("Allowed values must contain only strings.");
     result.allowedValues = values;
   }
-  if (result.minLength !== undefined && result.maxLength !== undefined && result.minLength > result.maxLength) throw new Error("Minimum length exceeds maximum length.");
-  if (result.minSelect !== undefined && result.maxSelect !== undefined && result.minSelect > result.maxSelect) throw new Error("Minimum selections exceeds maximum selections.");
+  if (result.minLength !== undefined && result.maxLength !== undefined && result.minLength > result.maxLength) throw new FieldOptionsError("Minimum length exceeds maximum length.");
+  if (result.minSelect !== undefined && result.maxSelect !== undefined && result.minSelect > result.maxSelect) throw new FieldOptionsError("Minimum selections exceeds maximum selections.");
   return Object.keys(result).length ? result : undefined;
 }

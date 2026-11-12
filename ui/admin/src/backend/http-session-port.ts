@@ -42,18 +42,20 @@ export function createSessionPort(transport: SessionTransport): SessionPort {
   };
   return {
     resume: async (signal?: AbortSignal): Promise<ResumedSession> => {
+      const generation = transport.authGeneration();
+      const requireCurrent = () => {
+        if (signal?.aborted || generation !== transport.authGeneration())
+          throw new DOMException("Session changed while resuming.", "AbortError");
+      };
       try {
+        const reply = await transport.send({ path: "/api/admin/session", signal, anonymous: true });
+        requireCurrent();
         return {
           kind: "authenticated",
-          session: transport.adopt(
-            await transport.send({
-              path: "/api/admin/session",
-              signal,
-              anonymous: true,
-            }),
-          ),
+          session: transport.adopt(reply),
         };
       } catch (caught) {
+        requireCurrent();
         if (!(caught instanceof WireError)) throw caught;
         if (caught.wire.status === 404 && caught.wire.code === "setup_required")
           return { kind: "setup-required" };
@@ -64,11 +66,12 @@ export function createSessionPort(transport: SessionTransport): SessionPort {
             signal,
             anonymous: true,
           });
+          requireCurrent();
           return (status.data as { setupRequired: boolean }).setupRequired
             ? { kind: "setup-required" }
             : { kind: "anonymous" };
         } catch (probe) {
-          if (signal?.aborted) throw probe;
+          requireCurrent();
           return { kind: "setup-unknown" };
         }
       }

@@ -1,3 +1,4 @@
+import { t, useLocale } from "../i18n";
 import type { AdminSettings, APIRateLimitRule } from "../backend/ports";
 import { Button, FormSection } from "../components/ui";
 
@@ -40,6 +41,7 @@ export function APIRateLimitSettings({
   change(patch: Partial<AdminSettings["rateLimits"]>): void;
   disabled: boolean;
 }) {
+  useLocale();
   const rules = Array.isArray(value.rateLimits.rules)
     ? value.rateLimits.rules
     : [];
@@ -53,16 +55,11 @@ export function APIRateLimitSettings({
       ),
     });
   return (
-    <FormSection disabled={disabled} title="API request rate limits">
+    <FormSection disabled={disabled} title={t("API request rate limits")}>
       <details className="settings-explanation">
-        <summary>How route rules are matched</summary>
+        <summary>{t("How route rules are matched")}</summary>
       <p className="settings-help">
-        Labels match registered route patterns, not individual record URLs.
-        Use /api/v1/collections/{"{collection}"}/records for administrator lists,
-        /api/v1/user/collections/{"{collection}"}/records for user lists,
-        or a prefix ending in /. Method rules take precedence;
-        the first matching rule is used within each group. Limits are counted
-        per caller and client IP for the selected audience.
+        {t("Labels match registered route patterns, not individual record URLs. Use /api/v1/collections/{collection}/records for administrator lists, /api/v1/user/collections/{collection}/records for user lists, or a prefix ending in /. Method rules take precedence; the first matching rule is used within each group. Limits are counted per caller and client IP for the selected audience.")}
       </p>
       </details>
       <label className="settings-toggle">
@@ -71,24 +68,24 @@ export function APIRateLimitSettings({
           type="checkbox"
           onChange={(event) => change({ enabled: event.target.checked })}
         />{" "}
-        Enable API request rate limits
+        {t("Enable API request rate limits")}
       </label>
       {rules.map((rule, index) => (
-        <FormSection key={index} title={`Rule ${index + 1}`} className="settings-api-rule">
+        <FormSection key={index} title={t("Rule {number}", { number: index + 1 })} className="settings-api-rule">
           <div className="settings-field-grid">
           <label>
-            Rule {index + 1} label
+            {t("Rule {number} label", { number: index + 1 })}
             <input
               value={rule.label}
               maxLength={256}
-              placeholder="GET /api/items or /api/items/"
+              placeholder={t("GET /api/items or /api/items/")}
               onChange={(event) =>
                 changeRule(index, { label: event.target.value })
               }
             />
           </label>
           <label>
-            Rule {index + 1} audience
+            {t("Rule {number} audience", { number: index + 1 })}
             <select
               value={rule.audience}
               onChange={(event) =>
@@ -97,13 +94,13 @@ export function APIRateLimitSettings({
                 })
               }
             >
-              <option value="">All callers</option>
-              <option value="@guest">Guests</option>
-              <option value="@auth">Signed-in callers</option>
+              <option value="">{t("All callers")}</option>
+              <option value="@guest">{t("Guests")}</option>
+              <option value="@auth">{t("Signed-in callers")}</option>
             </select>
           </label>
           <label>
-            Rule {index + 1} duration seconds
+            {t("Rule {number} duration seconds", { number: index + 1 })}
             <input
               type="number"
               min="1"
@@ -115,7 +112,7 @@ export function APIRateLimitSettings({
             />
           </label>
           <label>
-            Rule {index + 1} maximum requests
+            {t("Rule {number} maximum requests", { number: index + 1 })}
             <input
               type="number"
               min="1"
@@ -135,7 +132,7 @@ export function APIRateLimitSettings({
               })
             }
           >
-            Remove rule {index + 1}
+            {t("Remove rule {number}", { number: index + 1 })}
           </Button>
         </FormSection>
       ))}
@@ -151,10 +148,10 @@ export function APIRateLimitSettings({
           })
         }
       >
-        Add API rate rule
+        {t("Add API rate rule")}
       </Button>
       <label>
-        Excluded client IPs or CIDRs, one per line
+        {t("Excluded client IPs or CIDRs, one per line")}
         <textarea
           rows={3}
           spellCheck={false}

@@ -7,16 +7,19 @@ test("preserves custom text IDs through record editing and relation selection", 
   const posts = uniqueName("text_links", info);
   try {
     await page.goto("/admin/collections/new");
-    await page.getByLabel("Collection name").fill(targets);
+    await page.getByLabel("Collection name", { exact: true }).fill(targets);
+    await page.getByRole("tab", { name: "Options", exact: true }).click();
     await page.getByLabel("Record ID kind").selectOption("text");
     await page.getByLabel("Record ID minimum length").fill("1");
     await page.getByLabel("Record ID maximum length").fill("32");
     await page.getByLabel("Record ID pattern", { exact: true }).fill("^[A-Za-z][A-Za-z0-9_]*$");
     await page.getByLabel("Record ID generation pattern").fill("");
+    await page.getByRole("tab", { name: "Fields", exact: true }).click();
     await fillField(page, 0, { name: "label", indexed: true });
     await applyNewCollection(page);
 
     await page.goto(`/admin/collections/${targets}/edit`);
+    await page.getByRole("tab", { name: "Options", exact: true }).click();
     await expect(page.getByLabel("Record ID kind")).toHaveValue("text");
     await expect(page.getByLabel("Record ID kind")).toBeDisabled();
     await expect(page.getByLabel("Record ID minimum length")).toHaveValue("1");
@@ -109,7 +112,7 @@ test("previews and applies projection and filter edits to a builder view", async
     await createRecord(page, source, { title: "Draft item", status: "draft" });
     await createRecord(page, source, { title: "Published item", status: "published" });
     await page.goto("/admin/collections/new");
-    await page.getByLabel("Collection name").fill(view);
+    await page.getByLabel("Collection name", { exact: true }).fill(view);
     await page.getByLabel("Collection kind").selectOption("view");
     await page.getByLabel("Source collection").selectOption(source);
     await page.getByLabel("Project title", { exact: true }).check();
@@ -161,7 +164,8 @@ test("applies a text ID policy to an auth scaffold and preserves exact auth reco
   try {
     await page.goto("/admin/collections/new/auth");
     await expect(page.getByLabel("Field 1 name")).toHaveValue("password");
-    await page.getByLabel("Collection name").fill(name);
+    await page.getByLabel("Collection name", { exact: true }).fill(name);
+    await page.getByRole("tab", { name: "Options", exact: true }).click();
     await page.getByRole("combobox", { name: "Record ID kind", exact: true }).selectOption("text");
     await page.getByLabel("Record ID minimum length").fill(String(policy.minLength));
     await page.getByLabel("Record ID maximum length").fill(String(policy.maxLength));

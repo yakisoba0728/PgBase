@@ -1,3 +1,4 @@
+import { t, message as bilingual, useLocale } from "../i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBackend } from "../auth/session";
 import type { AuthCollection, AuthRecord, AuthRecordInput, AuthRecordsPort, RecordData } from "../backend/ports";
@@ -41,36 +42,37 @@ function RecordEditor({ collection, id, port, onDone }: { collection: AuthCollec
     const result = await resource.run(signal => port.remove(collection.id, id, signal));
     if (result) { release(); onDone(); }
   }
-  function cancel() { if (!dirty || window.confirm("Discard the changes to this user?")) { release(); onDone(); } }
+  function cancel() { if (!dirty || window.confirm(t("Discard the changes to this user?"))) { release(); onDone(); } }
   const disabled = resource.busy || resource.loading;
   let profile: RecordData | null = null;
   try { const parsed = parseJSON(json); if (parsed !== null && !Array.isArray(parsed) && typeof parsed === "object") profile = parsed as RecordData; } catch { /* preserve invalid raw JSON until corrected */ }
   const scalarFields = (collection.fields ?? []).filter(field => !field.system && ["text", "uuid", "timestamptz", "boolean"].includes(field.type));
   function editProfileField(name: string, value: string | boolean) { if (!profile) return; setJSON(stringifyJSON({ ...profile, [name]: value }, 2)); }
 
-  return <FormSection className="auth-record-editor" title={id === null ? `Create user in ${collection.name}` : `Edit user · ${id}`}>
-    <Button variant="secondary" disabled={resource.busy} onClick={cancel}>Back to collection users</Button>
-    {resource.loading && <p role="status">Loading user…</p>}
-    {resource.error && <p role="alert">{resource.error} <Button variant="secondary" disabled={resource.busy || dirty} onClick={resource.reload}>Reload user</Button></p>}
-    {message && <p role="alert">{message}</p>}
+  return <FormSection className="auth-record-editor" title={t(id === null ? bilingual(`Create user in ${collection.name}`, `${collection.name} 사용자 생성`) : bilingual(`Edit user · ${id}`, `사용자 편집 · ${id}`))}>
+    <Button variant="secondary" disabled={resource.busy} onClick={cancel}>{t("Back to collection users")}</Button>
+    {resource.loading && <p role="status">{t("Loading user…")}</p>}
+    {resource.error && <p role="alert">{t(resource.error)} <Button variant="secondary" disabled={resource.busy || dirty} onClick={resource.reload}>{t("Reload user")}</Button></p>}
+    {message && <p role="alert">{t(message)}</p>}
     {!resource.loading && (id === null || resource.data) && <form onSubmit={e => { e.preventDefault(); void save(); }}>
       <fieldset disabled={disabled} className="plain-fields">
         <div className="settings-field-grid">
-          {id === null && collection.recordId?.kind === "text" && <label>User ID<input value={input.id ?? ""} onChange={e => patch({ id: e.target.value })} placeholder={collection.recordId.autogeneratePattern ? "Generated when left empty" : "Required text ID"} /></label>}
-          <label>User email<input autoFocus type="email" required autoComplete="off" value={input.email} onChange={e => patch({ email: e.target.value })} /></label>
-          <label>{id === null ? "Initial password" : "New password"}<input aria-label={id === null ? "Initial password" : "New password"} type="password" autoComplete="new-password" required={id === null} value={input.password ?? ""} onChange={e => patch({ password: e.target.value })} /><span className="settings-help">{id === null ? "The collection password policy applies." : "Leave empty to keep the current password."}</span></label>
+          {id === null && collection.recordId?.kind === "text" && <label>{t("User ID")}<input value={input.id ?? ""} onChange={e => patch({ id: e.target.value })} placeholder={collection.recordId.autogeneratePattern ? t("Generated when left empty") : t("Required text ID")} /></label>}
+          <label>{t("User email")}<input autoFocus type="email" required autoComplete="off" value={input.email} onChange={e => patch({ email: e.target.value })} /></label>
+          <label>{id === null ? t("Initial password") : t("New password")}<input aria-label={id === null ? t("Initial password") : t("New password")} type="password" autoComplete="new-password" required={id === null} value={input.password ?? ""} onChange={e => patch({ password: e.target.value })} /><span className="settings-help">{id === null ? t("The collection password policy applies.") : t("Leave empty to keep the current password.")}</span></label>
         </div>
-        <div className="settings-checks">{([['active','Active'],['verified','Email verified'],['emailVisibility','Expose email to authorized clients']] as const).map(([key,label]) => <label key={key}><input type="checkbox" checked={input[key]} onChange={e => patch({ [key]: e.target.checked })} />{label}</label>)}</div>
-        {scalarFields.length > 0 && <FormSection title="Profile fields"><div className="settings-field-grid">{scalarFields.map(field => field.type === "boolean" ? <label key={field.name}><input type="checkbox" disabled={!profile} checked={profile?.[field.name] === true} onChange={e => editProfileField(field.name, e.target.checked)} />{field.name}</label> : <label key={field.name}>{field.name}<input aria-label={field.name} disabled={!profile} required={field.required} value={String(profile?.[field.name] ?? "")} onChange={e => editProfileField(field.name, e.target.value)} /><span className="settings-help">{field.help}</span></label>)}</div></FormSection>}
-        <details className="advanced-options" open={scalarFields.length === 0 ? true : undefined}><summary>Advanced profile JSON</summary><label>Profile fields JSON<textarea className="access-json" rows={5} autoCapitalize="none" spellCheck={false} value={json} onChange={e => setJSON(e.target.value)} /></label></details>
-        <p className="settings-help">Only collection-defined fields are accepted. Existing values are loaded before editing.</p>
-        <div className="page-action-buttons"><Button type="submit">{resource.busy ? "Saving…" : "Save user"}</Button><Button variant="secondary" onClick={cancel}>Cancel editing</Button>{id !== null && <Button variant="danger" onClick={() => setConfirmDelete(true)}>Delete user</Button>}</div>
+        <div className="settings-checks">{([['active','Active'],['verified','Email verified'],['emailVisibility','Expose email to authorized clients']] as const).map(([key,label]) => <label key={key}><input type="checkbox" checked={input[key]} onChange={e => patch({ [key]: e.target.checked })} />{t(label)}</label>)}</div>
+        {scalarFields.length > 0 && <FormSection title={t("Profile fields")}><div className="settings-field-grid">{scalarFields.map(field => field.type === "boolean" ? <label key={field.name}><input type="checkbox" disabled={!profile} checked={profile?.[field.name] === true} onChange={e => editProfileField(field.name, e.target.checked)} />{field.name}</label> : <label key={field.name}>{field.name}<input aria-label={field.name} disabled={!profile} required={field.required} value={String(profile?.[field.name] ?? "")} onChange={e => editProfileField(field.name, e.target.value)} /><span className="settings-help">{field.help}</span></label>)}</div></FormSection>}
+        <details className="advanced-options" open={scalarFields.length === 0 ? true : undefined}><summary>{t("Advanced profile JSON")}</summary><label>{t("Profile fields JSON")}<textarea className="access-json" rows={5} autoCapitalize="none" spellCheck={false} value={json} onChange={e => setJSON(e.target.value)} /></label></details>
+        <p className="settings-help">{t("Only collection-defined fields are accepted. Existing values are loaded before editing.")}</p>
+        <div className="page-action-buttons"><Button type="submit">{t(resource.busy ? "Saving…" : "Save user")}</Button><Button variant="secondary" onClick={cancel}>{t("Cancel editing")}</Button>{id !== null && <Button variant="danger" onClick={() => setConfirmDelete(true)}>{t("Delete user")}</Button>}</div>
       </fieldset>
     </form>}
-    {confirmDelete && id && <TypedConfirmation subject={resource.data?.email ?? id} action="Delete user permanently" busy={resource.busy} onConfirm={() => void remove()} onCancel={() => setConfirmDelete(false)} />}
+    {confirmDelete && id && <TypedConfirmation subject={resource.data?.email ?? id} action={t("Delete user permanently")} busy={resource.busy} onConfirm={() => void remove()} onCancel={() => setConfirmDelete(false)} />}
   </FormSection>;
 }
 export function AuthRecordsPanel() {
+  useLocale();
   const { authCollections, capabilities } = useBackend();
   const read = useCallback((signal: AbortSignal) => capabilities?.authCollections === false || !authCollections.records ? Promise.resolve([]) : authCollections.listAuthCollections(signal), [authCollections, capabilities?.authCollections]) as (signal: AbortSignal) => Promise<AuthCollection[]>;
   const realms = useFeatureResource(read);
@@ -79,10 +81,10 @@ export function AuthRecordsPanel() {
   const port = authCollections.records;
   if (!port || capabilities?.authCollections === false) return null;
   return <section className="auth-records-panel" aria-labelledby="auth-records-title">
-    <div className="access-list-heading"><h3 id="auth-records-title">Collection users</h3><p>Create and edit users within an authentication collection.</p></div>
-    {realms.error && <p role="alert">{realms.error} <Button variant="secondary" onClick={realms.reload}>Retry collections</Button></p>}
-    <label>Authentication collection<select disabled={realms.loading || editor !== undefined} value={selected} onChange={e => setSelected(e.target.value)}><option value="">Choose a collection…</option>{realms.data?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-    {realms.loading && <p role="status">Loading authentication collections…</p>}
+    <div className="access-list-heading"><h3 id="auth-records-title">{t("Collection users")}</h3><p>{t("Create and edit users within an authentication collection.")}</p></div>
+    {realms.error && <p role="alert">{t(realms.error)} <Button variant="secondary" onClick={realms.reload}>{t("Retry collections")}</Button></p>}
+    <label>{t("Authentication collection")}<select disabled={realms.loading || editor !== undefined} value={selected} onChange={e => setSelected(e.target.value)}><option value="">{t("Choose a collection…")}</option>{realms.data?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    {realms.loading && <p role="status">{t("Loading authentication collections…")}</p>}
     {realms.data?.find(item => item.id === selected) && <AuthRecordList key={selected} collection={realms.data.find(item => item.id === selected)!} port={port} editor={editor} setEditor={setEditor} />}
   </section>;
 }
@@ -93,14 +95,15 @@ function AuthRecordList({ collection, port, editor, setEditor }: { collection: A
   const read = useCallback((signal: AbortSignal) => port.list(collection.id, limit, signal), [collection.id, limit, port]);
   const resource = useFeatureResource(read);
   if (editor !== undefined) return <RecordEditor key={editor ?? "new"} collection={collection} id={editor} port={port} onDone={() => { setEditor(undefined); resource.reload(); }} />;
-  const visible = resource.data?.filter(item => (item.email ?? item.id).toLowerCase().includes(query.toLowerCase()));
+  const term = query.trim().toLowerCase();
+  const visible = resource.data?.filter(item => `${item.email ?? ""} ${item.id}`.toLowerCase().includes(term));
   return <div>
-    <div className="record-actions"><Button onClick={() => setEditor(null)}>Create user</Button><Button variant="secondary" disabled={resource.loading} onClick={resource.reload}>Refresh users</Button><label>Show users<select value={limit} onChange={e => setLimit(Number(e.target.value))}><option value={50}>Up to 50</option><option value={100}>Up to 100</option></select></label></div>
-    <label>Find loaded users<input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Email or ID" /></label>
-    {resource.loading && <p role="status">Loading users…</p>}{resource.error && <p role="alert">{resource.error}</p>}
-    {!resource.loading && visible?.length === 0 && <EmptyState title="No users found." description="Create a user or change the search." />}
-    {!!visible?.length && <div className="table-scroll"><table><thead><tr><th>Email / ID</th><th>Status</th><th>Verification</th><th>Actions</th></tr></thead><tbody>{visible.map(item => <tr key={item.id}><td>{item.email || item.id}<small>{item.email && item.id}</small></td><td>{item.active ? "Active" : "Inactive"}</td><td>{item.verified ? "Verified" : "Unverified"}</td><td><Button variant="secondary" onClick={() => setEditor(item.id)}>Edit user</Button></td></tr>)}</tbody></table></div>}
-    {resource.data?.length === limit && <p className="settings-help">The server returns at most {limit} users. To open a user outside this list, enter their exact ID below.</p>}
-    <form className="record-actions" onSubmit={e => { e.preventDefault(); if (exactID.trim()) setEditor(exactID.trim()); }}><label>User ID to open<input value={exactID} onChange={e => setExactID(e.target.value)} autoComplete="off" /></label><Button variant="secondary" type="submit" disabled={!exactID.trim()}>Open exact user ID</Button></form>
+    <div className="record-actions"><Button onClick={() => setEditor(null)}>{t("Create user")}</Button><Button variant="secondary" disabled={resource.loading} onClick={resource.reload}>{t("Refresh users")}</Button><label>{t("Show users")}<select value={limit} onChange={e => setLimit(Number(e.target.value))}><option value={50}>{t("Up to 50")}</option><option value={100}>{t("Up to 100")}</option></select></label></div>
+    <label>{t("Find loaded users")}<input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder={t("Email or ID")} /></label>
+    {resource.loading && <p role="status">{t("Loading users…")}</p>}{resource.error && <p role="alert">{t(resource.error)}</p>}
+    {!resource.loading && visible?.length === 0 && <EmptyState title={t("No users found.")} description={t("Create a user or change the search.")} />}
+    {!!visible?.length && <div className="table-scroll"><table><thead><tr><th>{t("Email / ID")}</th><th>{t("Status")}</th><th>{t("Verification")}</th><th>{t("Actions")}</th></tr></thead><tbody>{visible.map(item => <tr key={item.id}><td>{item.email || item.id}<small>{item.email && item.id}</small></td><td><span className="status-badge" data-status={item.active ? "active" : "inactive"}>{item.active ? t("Active") : t("Inactive")}</span></td><td><span className="status-badge" data-status={item.verified ? "verified" : "inactive"}>{item.verified ? t("Verified") : t("Unverified")}</span></td><td><Button variant="secondary" onClick={() => setEditor(item.id)}>{t("Edit user")}</Button></td></tr>)}</tbody></table></div>}
+    {resource.data?.length === limit && <p className="settings-help">{t(bilingual(`The server returns at most ${limit} users. To open a user outside this list, enter their exact ID below.`, `서버는 최대 ${limit}명을 반환합니다. 목록 밖의 사용자를 열려면 아래에 정확한 ID를 입력하세요.`))}</p>}
+    <form className="record-actions" onSubmit={e => { e.preventDefault(); if (exactID.trim()) setEditor(exactID.trim()); }}><label>{t("User ID to open")}<input value={exactID} onChange={e => setExactID(e.target.value)} autoComplete="off" /></label><Button variant="secondary" type="submit" disabled={!exactID.trim()}>{t("Open exact user ID")}</Button></form>
   </div>;
 }

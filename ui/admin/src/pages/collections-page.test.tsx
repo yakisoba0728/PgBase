@@ -94,4 +94,26 @@ describe("collections page", () => {
     await user.click(screen.getByRole("button", { name: "Retry user access" }));
     expect(await screen.findByRole("button", { name: "Enable user access" })).toBeEnabled();
   });
+  it("filters collection kinds without hiding a matching base collection", async () => {
+    const harness = scriptedAdmin();
+    harness.script.catalog.push({ value: { version: 3, collections: [collection("notes", "notes-id"), { ...collection("members", "members-id"), type: "auth" }] } });
+    const user = userEvent.setup(); renderAdmin(harness);
+    await screen.findByText("Catalog version 3");
+    await user.selectOptions(screen.getByLabelText("Collection type"), "auth");
+    const list = within(screen.getByRole("list", { name: "Collections" }));
+    expect(list.getByRole("link", { name: "members" })).toBeVisible();
+    expect(list.queryByRole("link", { name: "notes" })).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Collection type"), "base");
+    expect(list.getByRole("link", { name: "notes" })).toBeVisible();
+  });
+
+  it("retries a failed catalog request without reloading the application", async () => {
+    const harness = scriptedAdmin();
+    harness.script.catalog.push({ fault: { kind: "unreachable" } }, { value: { version: 6, collections: [collection("notes", "notes-id")] } });
+    const user = userEvent.setup(); renderAdmin(harness);
+    await user.click(await screen.findByRole("button", { name: "Retry collections" }));
+    expect(await screen.findByText("Catalog version 6")).toBeVisible();
+    expect(within(screen.getByRole("heading", { name: "Collections" }).closest("section")!).queryByText("Unable to load collections.")).not.toBeInTheDocument();
+  });
+
 });

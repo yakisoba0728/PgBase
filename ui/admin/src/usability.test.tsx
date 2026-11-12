@@ -30,7 +30,8 @@ describe("workspace usability", () => {
     expect(nav.queryByRole("link", { name: "Collections" })).toBeNull();
     expect(nav.queryByRole("link", { name: "SQL console" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Clear" }));
-    expect(nav.getByRole("link", { name: "Collections" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Collections section" })).toBeVisible();
+    expect(nav.getByRole("link", { name: "Settings" })).toBeVisible();
   });
 
   it("preserves a collection draft when a context-tab departure is declined", async () => {
@@ -77,6 +78,7 @@ describe("workspace usability", () => {
     const h = configured(); const profile = { id: "admin", email: "admin@example.test", active: true, createdAt: "now", updatedAt: "now" };
     h.backend.profile = { get: vi.fn().mockResolvedValue(profile), ipAllowlist: vi.fn().mockResolvedValue([]), update: vi.fn().mockImplementation(async input => ({ ...profile, ...input })), setIPAllowlist: vi.fn().mockImplementation(async value => value) };
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false); const user = userEvent.setup(); renderAdmin(h);
+    await user.click(await screen.findByRole("tab", { name: "My account" }));
     const email = await screen.findByLabelText("Email", { exact: true });
     await user.clear(email); await user.type(email, "changed@example.test");
     await user.type(screen.getByLabelText("Allowed CIDRs"), "10.0.0.0/8");

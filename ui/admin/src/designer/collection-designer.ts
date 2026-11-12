@@ -1,3 +1,4 @@
+import { t, message } from "../i18n";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useBackend, useSession } from "../auth/session";
 import {
@@ -441,7 +442,7 @@ export function useCollectionDesigner(
         if (!active()) return;
         if (result.status !== "committed") {
           update(identity, {
-            error: `Authentication collection import ${result.status}. Check schema operations before retrying.`,
+            error: message(`Authentication collection import ${result.status}. Check schema operations before retrying.`, `인증 컬렉션 가져오기 상태: ${result.status}. 다시 시도하기 전에 스키마 작업을 확인하세요.`),
           });
           return;
         }
@@ -716,16 +717,15 @@ export function useCollectionDesigner(
     editingBlocked,
     pending: state.pending,
     error: storageBlocked
-      ? recoverabilityText
-      : (state.error ??
-        (ledgerOutran ? (state.create ? createdText : appliedText) : null)),
+      ? t(recoverabilityText)
+      : state.error != null ? t(state.error) : ledgerOutran ? t(state.create ? createdText : appliedText) : null,
     deleteTarget,
     deleteConfirmText: state.deleteConfirmText,
     deleteConfirmed:
       deleteTarget !== null &&
       state.deleteConfirmText === deleteTarget.collection,
     deletePending: state.deletePending,
-    deleteError: state.deleteError,
+    deleteError: state.deleteError == null ? null : t(state.deleteError),
     recovery,
     rename: (name) => {
       if (!editingBlocked)

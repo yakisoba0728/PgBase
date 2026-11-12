@@ -1,3 +1,4 @@
+import { t, message, type Message } from "../i18n";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useBackend, useSession } from "../auth/session";
 import {
@@ -15,9 +16,9 @@ import { useUnsavedDraft } from "../routing/unsaved-draft";
 import { acceptedDraft,
   blankState,
   dirtyNames,
-  encodeDraft,
+  encodeDraftMessages as encodeDraft,
   initialDraft,
-  validationText,
+  validationMessage as validationText,
   type Draft,
   type FieldState,
 } from "./record-codec";
@@ -58,6 +59,8 @@ interface ListState {
   page: RecordPage | null;
   failed: boolean;
   filterInvalid: boolean;
+  loading: boolean;
+  reloads: number;
   filterText: string;
   appliedFilter: string;
   queryOptions: import("../backend/ports").RecordQueryOptions;
@@ -66,12 +69,12 @@ interface ListState {
   // means the first page, so its length is also how far the chain has walked.
   cursors: string[];
   selected: Set<string>;
-  actionMessage: string | null;
+  actionMessage: Message | null;
   actionPending: boolean;
 }
 
 function initialList(identity: string): ListState {
-  return { identity, collection: null, page: null, failed: false, filterInvalid: false, filterText: "", appliedFilter: "", queryOptions: {}, sort: "", cursors: [], selected: new Set(), actionMessage: null, actionPending: false };
+  return { identity, collection: null, page: null, failed: false, filterInvalid: false, loading: true, reloads: 0, filterText: "", appliedFilter: "", queryOptions: {}, sort: "", cursors: [], selected: new Set(), actionMessage: null, actionPending: false };
 }
 
 function nextSort(current: string, column: string): string {
@@ -86,6 +89,8 @@ export interface RecordList {
   page: RecordPage | null;
   failed: boolean;
   filterInvalid: boolean;
+  loading: boolean;
+  refresh(): void;
   filterText: string;
   filtered: boolean;
   filterApplied: boolean;
@@ -126,7 +131,7 @@ export function useRecordList(collectionName: string): RecordList {
       update(identity, definition === undefined ? { failed: true } : { collection: definition });
     }).catch(() => { if (!controller.signal.aborted) update(identity, { failed: true }); });
     return () => controller.abort();
-  }, [collectionName, identity, schema, update]);
+  }, [collectionName, identity, schema, state.reloads, update]);
 
   // Both directions read the same query under the same chain, so stepping back
   // re-reads the page the server issued that cursor for. A continuation fetched
@@ -136,11 +141,12 @@ export function useRecordList(collectionName: string): RecordList {
     inFlight.current?.abort();
     const controller = new AbortController();
     inFlight.current = controller;
+    update(identity, { loading: true, failed: false, filterInvalid: false });
     try {
       const page = await records.list(collectionName, { ...state.queryOptions, cursor: cursors.at(-1), filter: state.appliedFilter, sort: state.sort }, controller.signal);
-      if (!controller.signal.aborted) update(identity, { page, cursors, filterInvalid: false, failed: false });
+      if (!controller.signal.aborted) update(identity, { page, cursors, loading: false, filterInvalid: false, failed: false });
     } catch (caught: unknown) {
-      if (!controller.signal.aborted) update(identity, rejected(caught) ? { filterInvalid: true } : { failed: true });
+      if (!controller.signal.aborted) update(identity, rejected(caught) ? { filterInvalid: true, loading: false } : { failed: true, loading: false });
     }
   }, [collectionName, identity, records, state.appliedFilter, state.sort, state.queryOptions, update]);
 
@@ -153,10 +159,12 @@ export function useRecordList(collectionName: string): RecordList {
 
   const fields = state.collection?.fields;
   return {
+    loading: state.loading,
+    refresh: () => { update(identity, (current) => ({ reloads: current.reloads + 1 })); void openPage(state.cursors); },
     queryOptions: state.queryOptions,
     setQueryOptions: (queryOptions) => update(identity, { queryOptions, selected: new Set(), actionMessage: null }),
     collection: state.collection,
-    columns: state.collection === null ? [] : ["id", "created_at", "updated_at", ...ordered(state.collection).map((field) => field.name)],
+    columns: state.collection === null ? [] : ["id", ...ordered(state.collection).map((field) => field.name), "created_at", "updated_at"],
     page: state.page,
     failed: state.failed,
     filterInvalid: state.filterInvalid,
@@ -173,13 +181,13 @@ export function useRecordList(collectionName: string): RecordList {
       (field.indexed || field.unique),
     ) ?? false),
     setFilterText: (filterText) => update(identity, { filterText }),
-    applyFilter: () => update(identity, (current) => ({ appliedFilter: current.filterText.trim() })),
-    clear: () => update(identity, { filterText: "", appliedFilter: "", queryOptions: {}, sort: "" }),
-    toggleSort: (column) => update(identity, (current) => ({ sort: nextSort(current.sort, column) })),
+    applyFilter: () => update(identity, (current) => ({ appliedFilter: current.filterText.trim(), selected: new Set(), actionMessage: null })),
+    clear: () => update(identity, { filterText: "", appliedFilter: "", queryOptions: {}, sort: "", selected: new Set(), actionMessage: null }),
+    toggleSort: (column) => update(identity, (current) => ({ sort: nextSort(current.sort, column), selected: new Set(), actionMessage: null })),
     previousPage: () => { if (state.cursors.length > 0) void openPage(state.cursors.slice(0, -1)); },
     nextPage: () => { if (state.page?.nextCursor !== undefined) void openPage([...state.cursors, state.page.nextCursor]); },
     selected: state.selected,
-    actionMessage: state.actionMessage,
+    actionMessage: state.actionMessage === null ? null : t(state.actionMessage),
     actionPending: state.actionPending,
     select: (id, selected) => update(identity, (current) => {
       const next = new Set(current.selected); selected ? next.add(id) : next.delete(id); return { selected: next, actionMessage: null };
@@ -189,7 +197,7 @@ export function useRecordList(collectionName: string): RecordList {
     }),
     deleteSelected: () => {
       const ids = [...state.selected];
-      if (ids.length === 0 || state.actionPending || !window.confirm(`Delete ${ids.length} selected record${ids.length === 1 ? "" : "s"}?`)) return;
+      if (ids.length === 0 || state.actionPending || !window.confirm(t(message(`Delete ${ids.length} selected record${ids.length === 1 ? "" : "s"}?`, `선택한 레코드 ${ids.length}개를 삭제할까요?`)))) return;
       update(identity, { actionPending: true, actionMessage: null });
       actionFlight.current?.abort();
       const controller = new AbortController(); actionFlight.current = controller;
@@ -198,8 +206,8 @@ export function useRecordList(collectionName: string): RecordList {
           if (!active()) return;
           const failed = ids.filter((_, index) => outcomes[index].status === "rejected");
           update(identity, { selected: new Set(failed), actionMessage: failed.length === 0
-            ? `Deleted ${ids.length} record${ids.length === 1 ? "" : "s"}.`
-            : `Deleted ${ids.length - failed.length} of ${ids.length} records. ${failed.length} failed and remain selected.` });
+            ? message(`Deleted ${ids.length} record${ids.length === 1 ? "" : "s"}.`, `레코드 ${ids.length}개를 삭제했습니다.`)
+            : message(`Deleted ${ids.length - failed.length} of ${ids.length} records. ${failed.length} failed and remain selected.`, `${ids.length}개 중 ${ids.length - failed.length}개를 삭제했습니다. 실패한 ${failed.length}개는 선택 상태로 남아 있습니다.`) });
           void openPage(state.cursors);
         }).finally(() => { if (active()) update(identity, { actionPending: false }); });
     },
@@ -221,7 +229,7 @@ export function useRecordList(collectionName: string): RecordList {
         if (cursor !== undefined) throw new Error("export page limit");
         if (!active()) return;
         downloadJSON(`${collectionName}-${selected.size > 0 ? "selected" : "filtered"}.json`, items);
-        update(identity, { actionMessage: `Exported ${items.length} ${selected.size > 0 ? "selected" : "filtered"} record${items.length === 1 ? "" : "s"}.` });
+        update(identity, { actionMessage: message(`Exported ${items.length} ${selected.size > 0 ? "selected" : "filtered"} record${items.length === 1 ? "" : "s"}.`, `${selected.size > 0 ? "선택한" : "조회한"} 레코드 ${items.length}개를 내보냈습니다.`) });
       })().catch(() => { if (active()) update(identity, { actionMessage: "Unable to export every matching record within the 100-page limit." }); })
         .finally(() => { if (active()) update(identity, { actionPending: false }); });
     },
@@ -235,8 +243,8 @@ interface EditorState {
   catalog: CollectionCatalog | null;
   draft: Draft;
   initial: Draft;
-  errors: Record<string, string>;
-  message: string | null;
+  errors: Record<string, Message>;
+  message: Message | null;
   pending: boolean;
   loaded: VersionedRecord | null;
   stale: boolean;
@@ -278,7 +286,7 @@ function saveFailure(caught: unknown, collection: CollectionDefinition, catalog:
   // The server uses this code for the primary ID and for relation IDs. It
   // cannot be pinned to one field, and an update has no editable primary ID.
   if (caught.details.id?.includes("invalid_record_id")) return { message: "A record ID is invalid. Check the record ID and any related record IDs against their collection policies." };
-  const errors: Record<string, string> = {};
+  const errors: Record<string, Message> = {};
   for (const [name, codes] of Object.entries(caught.details)) {
     if (name === "id") {
       errors.id = codes.includes("record_id_conflict") ? "This record ID is already in use." : "The record ID does not match this collection's identity policy.";
@@ -393,7 +401,7 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
 
   const remove = useCallback(async () => {
     const record = state.loaded;
-    if (record === null || !window.confirm("Delete this record? This cannot be undone.")) return;
+    if (record === null || !window.confirm(t("Delete this record? This cannot be undone."))) return;
     update(identity, { pending: true, message: null });
     try {
       await records.remove(record);
@@ -418,8 +426,8 @@ export function useRecordEditor(collectionName: string, id: string | undefined, 
     isCreate,
     collection: state.collection,
     fields: ordered(state.collection),
-    errors: state.errors,
-    message: state.message,
+    errors: Object.fromEntries(Object.entries(state.errors).map(([name, value]) => [name, t(value)])),
+    message: state.message === null ? null : t(state.message),
     pending: state.pending,
     stale: state.stale,
     recordID: state.draft.id?.kind === "value" ? String(state.draft.id.value) : "",

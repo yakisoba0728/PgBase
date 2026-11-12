@@ -3,6 +3,7 @@ import { expect, test } from "./fixtures";
 test("persists a guest API rule and limits only a separate guest client", async ({ page }) => {
   await page.goto("/admin/settings");
   await expect(page.getByRole("heading", { name: "Application settings" })).toBeVisible();
+  await page.getByRole("tab", { name: "API rate limits", exact: true }).click();
   await page.getByRole("checkbox", { name: "Enable API request rate limits" }).check();
   await page.getByRole("button", { name: "Add API rate rule" }).click();
   await page.getByLabel("Rule 1 label").fill("/health/live");
@@ -12,6 +13,7 @@ test("persists a guest API rule and limits only a separate guest client", async 
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.getByText("Settings saved.")).toBeVisible();
   await page.reload();
+  await page.getByRole("tab", { name: "API rate limits", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: "Enable API request rate limits" })).toBeChecked();
   await expect(page.getByLabel("Rule 1 label")).toHaveValue("/health/live");
 

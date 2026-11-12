@@ -124,6 +124,7 @@ describe("collection designer page", () => {
     renderAdmin(harness);
 
     expect(await screen.findByText("posts · physical table posts")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Options" }));
     await user.click(screen.getByRole("button", { name: "Delete collection" }));
 
     expect(await screen.findByText("DROP TABLE posts")).toBeVisible();
@@ -141,6 +142,7 @@ describe("collection designer page", () => {
     renderAdmin(harness);
 
     expect(await screen.findByText("posts · physical table posts")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Options" }));
     await user.click(screen.getByRole("button", { name: "Delete collection" }));
 
     expect(await screen.findByText("Deleting posts · physical table posts · catalog version 7")).toBeVisible();
@@ -247,4 +249,45 @@ describe("collection designer page", () => {
     expect(await screen.findByText(/The change was applied\. The edits you made after sending it are not saved yet/)).toHaveAttribute("role", "alert");
     expect(screen.getByLabelText("Field 1 name")).toHaveValue("new_unsaved_title");
   });
+  it("keeps field and index drafts while switching panels with the keyboard", async () => {
+    const harness = scriptedAdmin("/admin/collections/new");
+    harness.script.catalog.push({ value: { version: 4, collections: [] } });
+    const user = userEvent.setup(); renderAdmin(harness);
+    await user.type(await screen.findByLabelText("Field 1 name"), "title");
+    const fields = screen.getByRole("tab", { name: "Fields" }); fields.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "Indexes" })).toHaveFocus();
+    expect(screen.getByRole("tab", { name: "Indexes" })).toHaveAttribute("aria-selected", "true");
+    await user.click(screen.getByRole("button", { name: "Add compound index" }));
+    await user.type(screen.getByLabelText("Index 1 fields"), "title, created");
+    await user.click(fields);
+    expect(screen.getByLabelText("Field 1 name")).toHaveValue("title");
+    expect(screen.queryByRole("button", { name: "Add compound index" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Indexes" }));
+    expect(screen.getByLabelText("Index 1 fields")).toHaveValue("title, created");
+  });
+
+  it("requires saving or resetting rule edits before confirming an already planned deletion", async () => {
+    const harness = scriptedAdmin("/admin/collections/posts/edit");
+    harness.script.catalog.push({ value: { version: 7, collections: [posts] } });
+    harness.script.getRules.push({ value: { collection: "posts", rules: { list: { op: "owner" } }, revision: 1 } });
+    harness.script.plan.push({ value: { baseVersion: 7, checksum: "drop", fields: [], sql: ["DROP TABLE posts"] } });
+    const user = userEvent.setup(); renderAdmin(harness);
+    await screen.findByText("posts · physical table posts");
+    await user.click(screen.getByRole("tab", { name: "Options" }));
+    await user.click(screen.getByRole("button", { name: "Delete collection" }));
+    await user.type(await screen.findByLabelText("Type posts to confirm"), "posts");
+    expect(screen.getByRole("button", { name: "Confirm delete" })).toBeEnabled();
+    await user.click(screen.getByRole("tab", { name: "API Rules" }));
+    await user.selectOptions(await screen.findByLabelText("list", { exact: true }), "deny");
+    await user.click(screen.getByRole("tab", { name: "Options" }));
+    expect(screen.getByRole("button", { name: "Confirm delete" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
+    await user.click(screen.getByRole("tab", { name: "API Rules" }));
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    await user.click(screen.getByRole("tab", { name: "Options" }));
+    expect(screen.getByRole("button", { name: "Confirm delete" })).toBeEnabled();
+    expect(callsTo(harness.script, "apply")).toHaveLength(0);
+  });
+
 });

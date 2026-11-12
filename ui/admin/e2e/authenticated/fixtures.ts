@@ -42,7 +42,7 @@ export async function signIn(page: Page, url: string, email: string, password: s
   await page.goto(url);
   await expect(page.getByRole("heading", { name: "Sign in to pgBase" })).toBeVisible();
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "pgBase administration" })).toBeVisible();
 }
@@ -84,7 +84,7 @@ export interface FieldDraft {
 export async function createCollection(page: Page, name: string, fields: FieldDraft[]): Promise<void> {
   await page.goto("/admin/collections/new");
   await expect(page.getByRole("heading", { name: "Create collection" })).toBeVisible();
-  await page.getByLabel("Collection name").fill(name);
+  await page.getByLabel("Collection name", { exact: true }).fill(name);
   for (const [index, field] of fields.entries()) {
     if (index > 0) await page.getByRole("button", { name: "Add field" }).click();
     await fillField(page, index, field);
@@ -113,6 +113,9 @@ export async function deleteCollection(page: Page, name: string): Promise<void> 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     await page.goto(`/admin/collections/${encodeURIComponent(name)}/edit`);
     const missing = page.getByText("Collection not found.");
+    await expect(missing.or(page.getByRole("tab", { name: "Options", exact: true })).first()).toBeVisible();
+    if (await missing.count() > 0) return;
+    await page.getByRole("tab", { name: "Options", exact: true }).click();
     await expect(missing.or(page.getByRole("button", { name: "Delete collection" })).first()).toBeVisible();
     if (await missing.count() > 0) return;
     await page.getByRole("button", { name: "Delete collection" }).click();

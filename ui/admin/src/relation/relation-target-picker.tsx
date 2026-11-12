@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useState, type KeyboardEvent } from "react";
 import type { CollectionDefinition, FieldDefinition } from "../backend/ports";
 import { useRelationPicker } from "./relation-picker";
@@ -44,9 +45,9 @@ export function RelationTargetPicker({ disabled, draft, field, onChange, target 
   }
 
   return <fieldset>
-    <legend>{field.name} target lookup</legend>
+    <legend>{t("{field} target lookup", { field: field.name })}</legend>
     <label htmlFor={`${base}-search`}>
-      {searchField === undefined ? `${field.name} target ${target.recordId?.kind === "text" ? "record ID" : "UUID"}` : `${field.name} target ${searchField.name}`}
+      {searchField === undefined ? t("{field} target {type}", { field: field.name, type: target.recordId?.kind === "text" ? t("Record ID") : "UUID" }) : t("{field} target {name}", { field: field.name, name: searchField.name })}
     </label>
     <input
       aria-activedescendant={active}
@@ -59,15 +60,15 @@ export function RelationTargetPicker({ disabled, draft, field, onChange, target 
       maxLength={1024}
       onChange={(event) => picker.setQuery(event.target.value)}
       onKeyDown={navigate}
-      placeholder={searchField === undefined ? target.recordId?.kind === "text" ? "Exact target record ID" : "Canonical target UUID" : `Exact ${searchField.name}`}
+      placeholder={searchField === undefined ? target.recordId?.kind === "text" ? t("Exact target record ID") : t("Canonical target UUID") : t("Exact {field}", { field: searchField.name })}
       role="combobox"
       value={picker.query}
     />
     <button disabled={disabled || picker.searching} onClick={picker.search} type="button">
-      {picker.searching ? "Searching…" : `Search ${field.name} targets`}
+      {picker.searching ? t("Searching…") : t("Search {field} targets", { field: field.name })}
     </button>
     {picker.status && <p aria-live="polite" id={statusID}>{picker.status}</p>}
-    {open && <ul aria-label={`${field.name} target results`} className="target-results" id={listID} role="listbox">
+    {open && <ul aria-label={t("{field} target results", { field: field.name })} className="target-results" id={listID} role="listbox">
       {results.map((option, index) => <li
         aria-selected={index === picker.activeIndex}
         className={index === picker.activeIndex ? "active-option" : undefined}
@@ -78,28 +79,28 @@ export function RelationTargetPicker({ disabled, draft, field, onChange, target 
       >{describeTarget(option.label, option.id)}</li>)}
     </ul>}
     {picker.hasMore && <button disabled={disabled || picker.loadingMore} onClick={picker.loadMore} type="button">
-      {picker.loadingMore ? "Loading more…" : `Load more ${field.name} targets`}
+      {picker.loadingMore ? t("Loading more…") : t("Load more {field} targets", { field: field.name })}
     </button>}
     {searchField !== undefined && target.view === undefined && <details>
-      <summary>Create {target.name} inline</summary>
+      <summary>{t("Create {collection} inline", { collection: target.name })}</summary>
       {target.recordId?.kind === "text" && <>
-        <label htmlFor={`${base}-new-id`}>New {target.name} record ID</label>
-        <input id={`${base}-new-id`} value={newRecordID} onChange={(event) => setNewRecordID(event.target.value)} placeholder={target.recordId.autogeneratePattern ? "Leave empty to generate an ID" : "Exact record ID (required)"} />
+        <label htmlFor={`${base}-new-id`}>{t("New {collection} record ID", { collection: target.name })}</label>
+        <input id={`${base}-new-id`} value={newRecordID} onChange={(event) => setNewRecordID(event.target.value)} placeholder={target.recordId.autogeneratePattern ? t("Leave empty to generate an ID") : t("Exact record ID (required)")} />
       </>}
-      <label htmlFor={`${base}-new`}>New {target.name} {searchField.name}</label>
+      <label htmlFor={`${base}-new`}>{t("New {collection} {field}", { collection: target.name, field: searchField.name })}</label>
       <input id={`${base}-new`} value={newValue} onChange={(event) => setNewValue(event.target.value)} />
-      <button disabled={disabled || picker.mutating || newValue.trim() === "" || (target.recordId?.kind === "text" && !target.recordId.autogeneratePattern && newRecordID === "")} onClick={() => { picker.createTarget(newValue, newRecordID); setNewValue(""); }} type="button">Create and select</button>
+      <button disabled={disabled || picker.mutating || newValue.trim() === "" || (target.recordId?.kind === "text" && !target.recordId.autogeneratePattern && newRecordID === "")} onClick={() => { picker.createTarget(newValue, newRecordID); setNewValue(""); }} type="button">{t("Create and select")}</button>
     </details>}
-    {picker.selections.length > 0 && <ul aria-label={`${field.name} selected targets`}>
+    {picker.selections.length > 0 && <ul aria-label={t("{field} selected targets", { field: field.name })}>
       {picker.selections.map((selection) => <li key={selection.id}>
-        {describeTarget(selection.label, selection.id)}{selection.available ? "" : " — unavailable"}
+        {describeTarget(selection.label, selection.id)}{selection.available ? "" : t(" — unavailable")}
         <button disabled={disabled} onClick={() => picker.deselect(selection.id)} type="button">
-          Remove {describeTarget(selection.label, selection.id)}
+          {t("Remove {target}", { target: describeTarget(selection.label, selection.id) })}
         </button>
-        {searchField !== undefined && target.view === undefined && <details><summary>Edit target inline</summary>
+        {searchField !== undefined && target.view === undefined && <details><summary>{t("Edit target inline")}</summary>
           <label htmlFor={`${base}-edit-${selection.id}`}>{searchField.name}</label>
           <input id={`${base}-edit-${selection.id}`} value={edits[selection.id] ?? selection.label} onChange={(event) => setEdits((current) => ({ ...current, [selection.id]: event.target.value }))} />
-          <button disabled={disabled || picker.mutating} onClick={() => picker.editTarget(selection.id, edits[selection.id] ?? selection.label)} type="button">Save target</button>
+          <button disabled={disabled || picker.mutating} onClick={() => picker.editTarget(selection.id, edits[selection.id] ?? selection.label)} type="button">{t("Save target")}</button>
         </details>}
       </li>)}
     </ul>}

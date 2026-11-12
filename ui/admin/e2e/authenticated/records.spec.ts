@@ -60,7 +60,9 @@ test("creates, edits, filters and sorts scalar and relation records", async ({ p
     await page.getByRole("button", { name: "Clear" }).click();
     await expect(page.getByText("edited post")).toBeVisible();
 
-    const titles = page.locator("tbody tr td:nth-child(5)");
+    const recordTable = page.getByRole("region", { name: `${posts} records`, exact: true }).locator("table");
+    const titleColumn = await recordTable.getByRole("columnheader", { name: "title", exact: true }).evaluate(element => (element as HTMLTableCellElement).cellIndex + 1);
+    const titles = recordTable.locator(`tbody tr td:nth-child(${titleColumn})`);
     await page.getByRole("button", { name: /^title/ }).click();
     await expect(page.getByRole("columnheader", { name: "title ↑" })).toHaveAttribute("aria-sort", "ascending");
     await expect(titles).toHaveText(["edited post", "second post"]);

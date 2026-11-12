@@ -8,10 +8,10 @@ test("an empty backend reaches browser setup and persists the administrator sess
 
   await page.goto("/admin/");
   await expect(page.getByRole("heading", { name: "Set up pgBase" })).toBeVisible();
-  await page.getByLabel("Setup token").fill(setupToken);
+  await page.getByLabel("Setup token", { exact: true }).fill(setupToken);
   await page.getByLabel("Email").fill("admin@example.test");
   await page.getByLabel("Password", { exact: true }).fill("correct horse battery staple 2026!");
-  await page.getByLabel("Confirm password").fill("correct horse battery staple 2026!");
+  await page.getByLabel("Confirm password", { exact: true }).fill("correct horse battery staple 2026!");
   await page.getByRole("button", { name: "Create administrator" }).click();
 
   await expect(page.getByRole("heading", { name: "pgBase administration" })).toBeVisible();

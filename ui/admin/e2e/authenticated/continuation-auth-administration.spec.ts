@@ -51,6 +51,7 @@ test("manages a second administrator through creation, activation, password repl
     await other.reload();
     await expect(other.getByRole("heading", { name: "Sign in to pgBase" })).toBeVisible();
     await signIn(other, `${origin}/admin/`, email, replacementPassword);
+    await other.getByRole("link", { name: "Settings section", exact: true }).click();
     await other.getByRole("link", { name: "Administrators", exact: true }).click();
     const own = other.getByRole("row").filter({ has: other.getByRole("cell", { name: `${email} (you)`, exact: true }) });
     await expect(own.getByRole("button", { name: "Deactivate", exact: true })).toBeDisabled();
@@ -80,6 +81,7 @@ test("edits every native authentication policy field and reloads its server-auth
     const response = await created; expect(response.status()).toBe(201); id = (await response.json()).id;
     const realm = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name, exact: true }) });
     await realm.getByText("Authentication settings", { exact: true }).click();
+    await realm.getByRole("tab", { name: "Auth methods", exact: true }).click();
     await realm.getByLabel("Minimum password bytes", { exact: true }).fill("14");
     await realm.getByLabel("Maximum password bytes", { exact: true }).fill("128");
     await realm.getByLabel("Password pattern", { exact: true }).fill("[A-Z]");
@@ -94,6 +96,8 @@ test("edits every native authentication policy field and reloads its server-auth
     await realm.getByLabel("Password pattern", { exact: true }).fill("[");
     await realm.getByRole("button", { name: "Save policy", exact: true }).click();
     await expect(realm.getByRole("status")).toContainText("Unable to save authentication settings");
+    await expect(realm.getByRole("button", { name: "Reload authentication settings", exact: true })).toBeDisabled();
+    await realm.getByLabel("Password pattern", { exact: true }).fill("[A-Z]");
     await realm.getByRole("button", { name: "Reload authentication settings", exact: true }).click();
     await realm.getByText("Authentication settings", { exact: true }).click();
     await expect(realm.getByLabel("Maximum password bytes", { exact: true })).toHaveValue("128");

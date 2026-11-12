@@ -1,3 +1,5 @@
+import { setLocale, t } from "../i18n";
+import { validationMessage } from "./record-codec";
 import { describe, expect, it } from "vitest";
 import type { FieldDefinition, FieldType, RecordData, RecordIDPolicy } from "../backend/ports";
 import {
@@ -213,4 +215,13 @@ describe("relation values", () => {
     expect(selectRelationTarget(tags, `${first}\n${second}`, third)).toEqual({ draft: `${first}\n${second}`, status: "max" });
     expect(selectRelationTarget(relation("owner", "single"), first, second)).toEqual({ draft: second, status: "selected" });
   });
+});
+
+ it("retains bilingual parameterized validation across locale switches", () => {
+  const field = { name: "password", type: "password" as const, required: true, indexed: false, unique: false, ordinal: 0, options: { minLength: 3, maxLength: 8 } };
+  const error = validationMessage(field, "type_mismatch");
+  setLocale("ko");
+  expect(t(error)).toBe("3~8자로 입력하세요. 저장된 비밀번호는 반환되지 않습니다.");
+  setLocale("en");
+  expect(t(error)).toBe("Enter 3–8 characters. Stored passwords are never returned.");
 });

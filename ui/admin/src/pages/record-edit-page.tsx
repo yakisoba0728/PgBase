@@ -1,3 +1,4 @@
+import { t, message, type Message } from "../i18n";
 import { ActionBar, BackLink, Button, PageHeading } from "../components/ui";
 import { RichTextField } from "./rich-text-field";
 import { GeoPointField } from "./geo-point-field";
@@ -6,6 +7,7 @@ import type { FieldDefinition, FileInfo } from "../backend/ports";
 import { useBackend } from "../auth/session";
 import { RelationTargetPicker } from "../relation/relation-target-picker";
 import type { AdminRoute } from "../routing/admin-location";
+import { AdminLink } from "../routing/admin-link";
 import { useRecordEditor, type RecordEditor } from "../workspace/record-workspace";
 import type { FieldState } from "../workspace/record-codec";
 
@@ -34,30 +36,31 @@ function RecordField({ editor, field }: { editor: RecordEditor; field: FieldDefi
   const target = editor.targetOf(field);
   const allowed = field.options?.allowedValues ?? [];
 
-  if (field.type === "autodate") return <div className="record-field"><label htmlFor={`record-${field.name}`}>{field.name}</label><input id={`record-${field.name}`} readOnly value={state.kind === "value" ? String(state.value) : ""} /><p>Set by the server{field.options?.onCreate ? " on creation" : ""}{field.options?.onUpdate ? " on update" : ""}.</p>{field.help && <p>{field.help}</p>}</div>;
+  if (field.type === "autodate") return <div className="record-field"><label htmlFor={`record-${field.name}`}>{field.name}</label><input id={`record-${field.name}`} readOnly value={state.kind === "value" ? String(state.value) : ""} /><p>{t("Set by the server")}{field.options?.onCreate ? t(" on creation") : ""}{field.options?.onUpdate ? t(" on update") : ""}.</p>{field.help && <p>{field.help}</p>}</div>;
   const fixed = ["editor", "geoPoint", "password"].includes(field.type);
   return <div className="record-field">
+    <div className="pb-record-field-header"><strong>{field.name}</strong><span className="field-type">{field.type}</span>{field.required && <span className="field-required">{t("Required")}</span>}</div>
 		{field.help && <p id={helpID}>{field.help}</p>}
-    <label htmlFor={`record-${field.name}-state`}>{field.name} state</label>
+    <label htmlFor={`record-${field.name}-state`}>{t("{field} state", { field: field.name })}</label>
     <select aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}-state`} onChange={(event) => editor.setKind(field, event.target.value as FieldState["kind"])} value={state.kind}>
-      {(editor.isCreate || fixed) && <option value="unset">{editor.isCreate ? "Use default / omit" : "Keep stored value"}</option>}
-      {!fixed && !multipleRelation && (field.type !== "relation" || (relation?.minSelect ?? 0) === 0 || state.kind === "null") && <option value="null">NULL</option>}
-      <option value="value">Value</option>
+      {(editor.isCreate || fixed) && <option value="unset">{editor.isCreate ? t("Use default / omit") : t("Keep stored value")}</option>}
+      {!fixed && !multipleRelation && (field.type !== "relation" || (relation?.minSelect ?? 0) === 0 || state.kind === "null") && <option value="null">{t("NULL")}</option>}
+      <option value="value">{t("Value")}</option>
     </select>
     {relation !== undefined && <p id={relationHintID}>
-      Target: {target?.name ?? "unknown collection"}. {target?.recordId?.kind === "text"
-        ? multipleRelation ? `Enter one exact record ID per line; case and order are preserved (${relation.minSelect}–${relation.maxSelect} selections).` : "Enter one exact record ID. Case is preserved."
-        : multipleRelation ? `Enter one canonical UUID per line; order is preserved (${relation.minSelect}–${relation.maxSelect} selections).` : "Enter one canonical UUID."}
+      {t("Target:")} {target?.name ?? t("unknown collection")}. {target?.recordId?.kind === "text"
+        ? multipleRelation ? t(message(`Enter one exact record ID per line; case and order are preserved (${relation.minSelect}–${relation.maxSelect} selections).`, `레코드 ID를 한 줄에 하나씩 정확하게 입력하세요. 대소문자와 순서는 유지됩니다 (${relation.minSelect}~${relation.maxSelect}개 선택).`)) : t("Enter one exact record ID. Case is preserved.")
+        : multipleRelation ? t(message(`Enter one canonical UUID per line; order is preserved (${relation.minSelect}–${relation.maxSelect} selections).`, `표준 UUID를 한 줄에 하나씩 입력하세요. 순서는 유지됩니다 (${relation.minSelect}~${relation.maxSelect}개 선택).`)) : t("Enter one canonical UUID.")}
     </p>}
     {state.kind === "value" && <>
       <label htmlFor={`record-${field.name}`}>{field.name}</label>
       {field.type === "editor" ? <RichTextField id={`record-${field.name}`} label={field.name} value={String(state.value)} disabled={editor.pending || editor.stale} describedBy={describedBy} invalid={Boolean(error)} convertURLs={field.options?.convertURLs} onChange={value => editor.setValue(field, value)} /> :
         field.type === "geoPoint" ? <GeoPointField id={`record-${field.name}`} label={field.name} value={String(state.value)} disabled={editor.pending || editor.stale} describedBy={describedBy} invalid={Boolean(error)} onChange={value => editor.setValue(field, value)} /> :
         field.type === "boolean" ? <input checked={state.value === true} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.checked)} type="checkbox" /> :
-        field.type === "text" && allowed.length > 0 ? <select aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.value)} value={String(state.value)}><option disabled value="">Choose a value</option>{allowed.map((value) => <option key={value}>{value}</option>)}</select> :
+        field.type === "text" && allowed.length > 0 ? <select aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.value)} value={String(state.value)}><option disabled value="">{t("Choose a value")}</option>{allowed.map((value) => <option key={value}>{value}</option>)}</select> :
         field.type === "jsonb" && allowed.length > 0 ? <select aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} multiple onChange={(event) => editor.setValue(field, JSON.stringify(Array.from(event.target.selectedOptions, (option) => option.value)))} value={jsonSelections(String(state.value))}>{allowed.map((value) => <option key={value}>{value}</option>)}</select> :
         field.type === "jsonb" || multipleRelation ? <textarea aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.value)} rows={multipleRelation ? Math.min(8, Math.max(3, relation?.maxSelect ?? 3)) : 5} value={String(state.value)} /> :
-          field.type === "timestamptz" ? <><input aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.value === "" ? "" : new Date(event.target.value).toISOString())} type="datetime-local" value={datetimeLocal(state.value)} /><p>Your local timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone}. Saved as RFC3339 UTC.</p></> :
+          field.type === "timestamptz" ? <><input aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} onChange={(event) => editor.setValue(field, event.target.value === "" ? "" : new Date(event.target.value).toISOString())} type="datetime-local" value={datetimeLocal(state.value)} /><p>{t("Your local timezone: {zone}. Saved as RFC3339 UTC.", { zone: Intl.DateTimeFormat().resolvedOptions().timeZone })}</p></> :
           <input type={field.type === "password" ? "password" : "text"} autoComplete={field.type === "password" ? "new-password" : undefined} aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}`} inputMode={["integer", "bigint", "numeric"].includes(field.type) ? "decimal" : undefined} maxLength={field.type === "text" && (field.indexed || field.unique) ? 2048 : undefined} onChange={(event) => editor.setValue(field, event.target.value)} value={String(state.value)} />}
       {relation !== undefined && target !== undefined && <RelationTargetPicker
         disabled={editor.pending || editor.stale}
@@ -68,8 +71,8 @@ function RecordField({ editor, field }: { editor: RecordEditor; field: FieldDefi
         target={target}
       />}
     </>}
-    {field.type === "password" && <p>Stored passwords are never shown, copied, or saved in draft recovery. {field.required ? "Enter a password when creating a record." : "Choose Value and leave it empty to clear the password."}</p>}
-    {error && <p className="field-error" id={`record-${field.name}-error`}>{error}</p>}
+    {field.type === "password" && <p>{t("Stored passwords are never shown, copied, or saved in draft recovery.")} {field.required ? t("Enter a password when creating a record.") : t("Choose Value and leave it empty to clear the password.")}</p>}
+    {error && <p className="field-error" id={`record-${field.name}-error`}>{t(error)}</p>}
   </div>;
 }
 
@@ -109,13 +112,13 @@ export function FileField({ collection, recordID, field }: { collection: string;
 		try { const publicURL = item.protected === false ? safePublicURL(item.publicUrl) : null; const blob = publicURL ? await publicBlob(publicURL) : await files.downloadBlob(item.id, await files.createDownloadToken(item.id, "original")); setPreview((current) => { if (current) URL.revokeObjectURL(current.url); const next = URL.createObjectURL(blob); previewURL.current = next; return { name: item.filename, url: next }; }); }
 		catch { setMessage("Preview failed. You may not have permission to read this protected file."); }
 	}
-	if (capabilities?.files === false) return <p>File management is unavailable on this server.</p>;
-	return <fieldset className="record-field"><legend>{field.name} files</legend>
-		{field.required && <p>At least one file is required. Select replacement files above to replace the final file.</p>}
-		<p>Protected previews and downloads mint a short-lived, file-scoped token. A public link appears only when the server explicitly exposes this file.</p>
-		{message && <p role="alert">{message}</p>}<input aria-label={`${field.name} upload`} ref={input} type="file" disabled={pending || items.length >= maximum} /><button type="button" onClick={upload} disabled={pending || items.length >= maximum}>Upload</button>
-		<ul>{items.map((item) => <li key={item.id}>{item.filename} ({item.size} bytes) {item.protected === false && safePublicURL(item.publicUrl) ? <a href={safePublicURL(item.publicUrl)!}>Public link</a> : <small>Protected</small>} <button disabled={pending} type="button" onClick={() => void download(item)}>Download</button>{item.contentType.startsWith("image/") && <button disabled={pending} type="button" onClick={() => void showPreview(item)}>Preview</button>}{item.contentType.startsWith("image/") && field.options?.thumbs?.map((variant) => <button disabled={pending} key={variant} type="button" onClick={() => void download(item, variant)}>Thumbnail {variant}</button>)}<button disabled={pending || (field.required && items.length <= 1)} type="button" onClick={() => { const generation = lifetime.current; setPending(true); void files.deleteFile(item.id).then(() => { if (generation === lifetime.current) setItems((current) => current.filter((value) => value.id !== item.id)); }).catch(() => { if (generation === lifetime.current) setMessage("Delete failed."); }).finally(() => { if (generation === lifetime.current) setPending(false); }); }}>Delete</button></li>)}</ul>
-		{preview && <div role="dialog" aria-label={`Preview ${preview.name}`}><img alt={preview.name} src={preview.url} /><button type="button" onClick={() => { URL.revokeObjectURL(preview.url); previewURL.current = null; setPreview(null); }}>Close preview</button></div>}
+	if (capabilities?.files === false) return <p>{t("File management is unavailable on this server.")}</p>;
+	return <fieldset className="record-field"><legend>{t("{field} files", { field: field.name })}</legend>
+		{field.required && <p>{t("At least one file is required. Select replacement files above to replace the final file.")}</p>}
+		<p>{t("Protected previews and downloads mint a short-lived, file-scoped token. A public link appears only when the server explicitly exposes this file.")}</p>
+		{message && <p role="alert">{t(message)}</p>}<input aria-label={t("{field} upload", { field: field.name })} ref={input} type="file" disabled={pending || items.length >= maximum} /><button type="button" onClick={upload} disabled={pending || items.length >= maximum}>{t("Upload")}</button>
+		<ul>{items.map((item) => <li key={item.id}>{item.filename} ({t("{size} bytes", { size: item.size })}) {item.protected === false && safePublicURL(item.publicUrl) ? <a href={safePublicURL(item.publicUrl)!}>{t("Public link")}</a> : <small>{t("Protected")}</small>} <button disabled={pending} type="button" onClick={() => void download(item)}>{t("Download")}</button>{item.contentType.startsWith("image/") && <button disabled={pending} type="button" onClick={() => void showPreview(item)}>{t("Preview")}</button>}{item.contentType.startsWith("image/") && field.options?.thumbs?.map((variant) => <button disabled={pending} key={variant} type="button" onClick={() => void download(item, variant)}>{t("Thumbnail {variant}", { variant })}</button>)}<button disabled={pending || (field.required && items.length <= 1)} type="button" onClick={() => { const generation = lifetime.current; setPending(true); void files.deleteFile(item.id).then(() => { if (generation === lifetime.current) setItems((current) => current.filter((value) => value.id !== item.id)); }).catch(() => { if (generation === lifetime.current) setMessage("Delete failed."); }).finally(() => { if (generation === lifetime.current) setPending(false); }); }}>{t("Delete")}</button></li>)}</ul>
+		{preview && <div role="dialog" aria-label={t("Preview {name}", { name: preview.name })}><img alt={preview.name} src={preview.url} /><button type="button" onClick={() => { URL.revokeObjectURL(preview.url); previewURL.current = null; setPreview(null); }}>{t("Close preview")}</button></div>}
   </fieldset>;
 }
 
@@ -125,17 +128,17 @@ async function publicBlob(url: string): Promise<Blob> {
   return response.blob();
 }
 
-function AtomicFileInput({ field, files, error, disabled, onChange }: { field: FieldDefinition; files: File[]; error?: string; disabled: boolean; onChange(files: File[]): void }) {
+function AtomicFileInput({ field, files, error, disabled, onChange }: { field: FieldDefinition; files: File[]; error?: Message; disabled: boolean; onChange(files: File[]): void }) {
 	const maximum = field.options?.maxSelect ?? 1;
 	const [previews, setPreviews] = useState<Array<{ name: string; type: string; url: string }>>([]);
 	useEffect(() => { const next = files.filter(file => file.type.startsWith("image/") || file.type.startsWith("video/") || file.type.startsWith("audio/")).map(file => ({ name: file.name, type: file.type, url: URL.createObjectURL(file) })); setPreviews(next); return () => next.forEach(preview => URL.revokeObjectURL(preview.url)); }, [files]);
 	return <fieldset className="record-field">
-		<legend>{field.name} replacement files on save</legend>
-		<input accept={field.options?.mimeTypes?.join(",")} aria-describedby={error ? `record-${field.name}-file-error` : undefined} aria-invalid={error ? "true" : undefined} aria-label={`${field.name} files for save`} disabled={disabled} multiple={maximum > 1} onChange={(event) => onChange(Array.from(event.target.files ?? []))} type="file" />
-		<p>On an existing record, selecting files replaces the current set when you save. Select {maximum === 1 ? "one file" : `up to ${maximum} files`}. File selections stay only in this page and must be selected again after a reload.</p>
+		<legend>{t("{field} replacement files on save", { field: field.name })}</legend>
+		<input accept={field.options?.mimeTypes?.join(",")} aria-describedby={error ? `record-${field.name}-file-error` : undefined} aria-invalid={error ? "true" : undefined} aria-label={t("{field} files for save", { field: field.name })} disabled={disabled} multiple={maximum > 1} onChange={(event) => onChange(Array.from(event.target.files ?? []))} type="file" />
+		<p>{t("On an existing record, selecting files replaces the current set when you save.")} {t(message(`Select ${maximum === 1 ? "one file" : `up to ${maximum} files`}.`, `파일을 ${maximum === 1 ? "하나" : `최대 ${maximum}개`} 선택하세요.`))} {t("File selections stay only in this page and must be selected again after a reload.")}</p>
 		{files.length > 0 && <ul>{files.map((file, index) => <li key={`${file.name}:${index}`}>{file.name}</li>)}</ul>}
-		{previews.length > 0 && <div aria-label={`${field.name} selected file previews`}>{previews.map(preview => preview.type.startsWith("image/") ? <img alt={`Selected ${preview.name}`} key={preview.url} src={preview.url} /> : preview.type.startsWith("video/") ? <video aria-label={`Selected ${preview.name}`} controls key={preview.url} src={preview.url} /> : <audio aria-label={`Selected ${preview.name}`} controls key={preview.url} src={preview.url} />)}</div>}
-		{error && <p className="field-error" id={`record-${field.name}-file-error`}>{error}</p>}
+		{previews.length > 0 && <div aria-label={t("{field} selected file previews", { field: field.name })}>{previews.map(preview => preview.type.startsWith("image/") ? <img alt={t("Selected {name}", { name: preview.name })} key={preview.url} src={preview.url} /> : preview.type.startsWith("video/") ? <video aria-label={t("Selected {name}", { name: preview.name })} controls key={preview.url} src={preview.url} /> : <audio aria-label={t("Selected {name}", { name: preview.name })} controls key={preview.url} src={preview.url} />)}</div>}
+		{error && <p className="field-error" id={`record-${field.name}-file-error`}>{t(error)}</p>}
 	</fieldset>;
 }
 
@@ -143,41 +146,44 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
   const { capabilities } = useBackend();
 	const [files, setFiles] = useState<Record<string, File[]>>({});
 	const editor = useRecordEditor(collectionName, id, navigate, Object.values(files).some(items => items.length > 0));
-	const [fileErrors, setFileErrors] = useState<Record<string, string>>({});
+	const [fileErrors, setFileErrors] = useState<Record<string, Message>>({});
 	useEffect(() => { setFiles({}); setFileErrors({}); }, [collectionName, id]);
 	function save() {
-		const errors: Record<string, string> = {};
+		const errors: Record<string, Message> = {};
 		for (const field of editor.fields.filter((candidate) => candidate.type === "file")) {
 			const selected = files[field.name] ?? [];
 			const minimum = field.required ? 1 : 0;
 			const maximum = field.options?.maxSelect ?? 1;
-			if (editor.isCreate && selected.length < minimum) errors[field.name] = `Select at least ${minimum} file${minimum === 1 ? "" : "s"}.`;
-			else if (selected.length > maximum) errors[field.name] = `Select no more than ${maximum} file${maximum === 1 ? "" : "s"}.`;
+			if (editor.isCreate && selected.length < minimum) errors[field.name] = message(`Select at least ${minimum} file${minimum === 1 ? "" : "s"}.`, `파일을 최소 ${minimum}개 선택하세요.`);
+			else if (selected.length > maximum) errors[field.name] = message(`Select no more than ${maximum} file${maximum === 1 ? "" : "s"}.`, `파일을 최대 ${maximum}개 선택하세요.`);
 		}
 		setFileErrors(errors);
 		if (Object.keys(errors).length === 0) editor.save(files);
 	}
 
 	return <section className="record-editor-page management-page">
-    <BackLink navigate={navigate} route={{ kind: "records", collection: collectionName }}>Back to records</BackLink>
-    <PageHeading title={`${editor.isCreate ? "Create" : "Edit"} ${collectionName} record`} description="Edit the fields below, then save your changes." />
-    {editor.message && <p role="alert">{editor.message}</p>}
-    {capabilities?.files === false && editor.fields.some(field => field.type === "file") && <p role="status">This server does not support file uploads. Existing file values are preserved.</p>}
-    {editor.stale && <button onClick={editor.reload} type="button">Reload record</button>}
-    {!editor.collection && !editor.message && <p aria-live="polite">Loading record…</p>}
+    <BackLink navigate={navigate} route={{ kind: "records", collection: collectionName }}>{t("Back to records")}</BackLink>
+    <PageHeading title={t(editor.isCreate ? "Create {collection} record" : "Edit {collection} record", { collection: collectionName })} description={editor.isCreate ? t("Add a record to this collection. Defaults are applied when a field is omitted.") : t("Update field values. Changes are saved together when you select Save changes.")} />
+    {editor.message && <p role="alert">{t(editor.message)}</p>}
+    {capabilities?.files === false && editor.fields.some(field => field.type === "file") && <p role="status">{t("This server does not support file uploads. Existing file values are preserved.")}</p>}
+    {editor.stale && <button onClick={editor.reload} type="button">{t("Reload record")}</button>}
+    {!editor.collection && !editor.message && <p aria-live="polite">{t("Loading record…")}</p>}
 		{editor.collection && <form onSubmit={(event) => { event.preventDefault(); save(); }}>
+      <div className="pb-record-editor-meta"><h3>{t("Field values")}</h3><span>{t(message(`${editor.fields.length} ${editor.fields.length === 1 ? "field" : "fields"}`, `필드 ${editor.fields.length}개`))}</span>{id && <code title={id}>{id}</code>}</div>
+      <div className="pb-record-editor-fields">
       {editor.isCreate && editor.collection.recordId?.kind === "text" && <div className="record-field">
-        <label htmlFor="record-identity">Record ID</label>
+        <label htmlFor="record-identity">{t("Record ID")}</label>
         <input id="record-identity" type="text" autoComplete="off" aria-describedby="record-identity-hint record-identity-error" aria-invalid={editor.errors.id ? "true" : undefined} disabled={editor.pending || editor.stale} required={!editor.collection.recordId.autogeneratePattern} value={editor.recordID} onChange={(event) => editor.setRecordID(event.target.value)} />
-        <p id="record-identity-hint">Case is preserved. The server validates the ID against this collection's identity policy.{editor.collection.recordId.autogeneratePattern ? " Leave empty to generate an ID." : " Enter an ID to create the record."}</p>
+        <p id="record-identity-hint">{t("Case is preserved. The server validates the ID against this collection's identity policy.")} {editor.collection.recordId.autogeneratePattern ? t("Leave empty to generate an ID.") : t("Enter an ID to create the record.")}</p>
         {editor.errors.id && <p className="field-error" id="record-identity-error">{editor.errors.id}</p>}
       </div>}
 			{editor.fields.map((field) => field.type === "file" ? <div key={field.name}>
 				<AtomicFileInput disabled={editor.pending || editor.stale || capabilities?.files === false} error={fileErrors[field.name] ?? editor.errors[field.name]} field={field} files={files[field.name] ?? []} onChange={(selected) => { setFiles((current) => ({ ...current, [field.name]: selected })); setFileErrors((current) => { const next = { ...current }; delete next[field.name]; return next; }); }} />
 				{id && <FileField collection={collectionName} recordID={id} field={field} />}
 			</div> : <RecordField editor={editor} field={field} key={field.name} />)}
-      <ActionBar sticky description="Changes are saved to this collection."><Button disabled={editor.pending || editor.stale || capabilities?.files === false && editor.isCreate && editor.fields.some(field => field.type === "file" && field.required)} type="submit">{editor.pending ? "Saving…" : editor.isCreate ? "Create record" : "Save changes"}</Button></ActionBar>
+      </div>
+      <ActionBar sticky description={t("Changes are saved to this collection.")}><AdminLink className="link-button secondary" navigate={navigate} route={{ kind: "records", collection: collectionName }}>{t("Cancel")}</AdminLink><Button disabled={editor.pending || editor.stale || capabilities?.files === false && editor.isCreate && editor.fields.some(field => field.type === "file" && field.required)} type="submit">{editor.pending ? t("Saving…") : editor.isCreate ? t("Create record") : t("Save changes")}</Button></ActionBar>
     </form>}
-    {editor.collection && !editor.isCreate && <div className="record-secondary-actions"><Button variant="secondary" disabled={editor.pending} onClick={editor.duplicate}>Duplicate record</Button><Button variant="danger" disabled={editor.pending || editor.stale} onClick={editor.remove}>Delete record</Button></div>}
+    {editor.collection && !editor.isCreate && <div className="record-secondary-actions"><Button variant="secondary" disabled={editor.pending} onClick={editor.duplicate}>{t("Duplicate record")}</Button><Button variant="danger" disabled={editor.pending || editor.stale} onClick={editor.remove}>{t("Delete record")}</Button></div>}
   </section>;
 }

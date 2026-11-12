@@ -16,21 +16,21 @@ test("system appearance follows OS changes while explicit themes remain selected
   try {
     await theme.selectOption("system");
     await saveSettings(page);
-    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(17, 24, 39)");
+    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(25, 29, 34)");
     await page.emulateMedia({ colorScheme: "light" });
-    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(245, 247, 251)");
+    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(247, 248, 250)");
     await theme.selectOption("dark");
     await saveSettings(page);
-    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(17, 24, 39)");
+    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(25, 29, 34)");
     await page.emulateMedia({ colorScheme: "dark" });
     await theme.selectOption("light");
     await saveSettings(page);
-    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(245, 247, 251)");
+    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(247, 248, 250)");
     await theme.selectOption("system");
     await saveSettings(page);
     await page.reload();
     await expect(theme).toHaveValue("system");
-    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(17, 24, 39)");
+    await expect(page.locator("html")).toHaveCSS("background-color", "rgb(25, 29, 34)");
   } finally {
     await theme.selectOption(original);
     await saveSettings(page);
@@ -47,11 +47,13 @@ test("saves rules and previews only the selected unsaved action against the actu
     await createRecord(page, name, { title: "Rule preview target" });
     const recordID = await page.getByRole("row").filter({ hasText: "Rule preview target" }).getByRole("link").innerText();
     await page.goto(`/admin/collections/${name}/edit`);
+    await page.getByRole("tab", { name: "API Rules", exact: true }).click();
     await page.getByRole("combobox", { name: "view", exact: true }).selectOption("allow");
     const saved = page.waitForResponse((response) => response.url().endsWith(`/collections/${name}/rules`) && response.request().method() === "PUT");
     await page.getByRole("button", { name: "Save rules", exact: true }).click();
     expect((await saved).status()).toBe(200);
     await page.reload();
+    await page.getByRole("tab", { name: "API Rules", exact: true }).click();
     await expect(page.getByRole("combobox", { name: "view", exact: true })).toHaveValue("allow");
     await page.getByLabel("Record IDs (comma or space separated)").fill(recordID);
     for (const [rule, decision] of [["deny", "denied"], ["allow", "allowed"]]) {

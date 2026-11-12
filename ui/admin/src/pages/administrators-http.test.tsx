@@ -128,3 +128,22 @@ it("does not expire a replacement session when an earlier own-account revoke fin
   release(); await pending;
   expect(expired).not.toHaveBeenCalled();
 });
+
+it("protects an unsaved replacement password when switching accounts or cancelling", async () => {
+  renderAccounts();
+  const row = await screen.findByRole("row", { name: new RegExp(other.email) });
+  fireEvent.click(within(row).getByRole("button", { name: "Set password" }));
+  fireEvent.change(screen.getByLabelText("New password"), { target: { value: password } });
+  vi.mocked(window.confirm).mockReturnValue(false);
+  const self = screen.getByRole("row", { name: new RegExp(administrator.email) });
+  fireEvent.click(within(self).getByRole("button", { name: "Set password" }));
+  expect(screen.getByRole("form", { name: `Set password for ${other.email}` })).toBeVisible();
+  expect(screen.getByLabelText("New password")).toHaveValue(password);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.getByLabelText("New password")).toHaveValue(password);
+  expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
+  vi.mocked(window.confirm).mockReturnValue(true);
+  fireEvent.click(within(self).getByRole("button", { name: "Set password" }));
+  expect(screen.getByRole("form", { name: `Set password for ${administrator.email}` })).toBeVisible();
+  expect(screen.getByLabelText("New password")).toHaveValue("");
+});
