@@ -1,0 +1,251 @@
+.form {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.field-wrap {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* A filled block: the label sits inside, above a borderless control. */
+.field {
+  display: grid;
+  min-width: 0;
+  border-radius: var(--radius);
+  background: var(--input);
+  transition: background var(--speed), box-shadow var(--speed);
+}
+
+.field:hover {
+  background: color-mix(in srgb, var(--input), var(--text) 3%);
+}
+
+.field:has(> .field-control:focus) {
+  background: var(--input-focus);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
+}
+
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 9px 12px 0;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+  font-weight: 500;
+  transition: color var(--speed);
+}
+
+.field:has(> .field-control:focus) .field-label {
+  color: var(--text);
+}
+
+.field-label svg {
+  flex: none;
+}
+
+.field-label .mono {
+  margin-left: auto;
+  color: var(--text-disabled);
+  font-size: var(--font-size-xs);
+}
+
+.field-required {
+  color: var(--danger);
+}
+
+.field-control {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 3px 12px 9px;
+  border: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: transparent;
+  outline: 0;
+}
+
+.field-control::placeholder {
+  color: var(--text-disabled);
+}
+
+.field-control:focus-visible {
+  outline: 0;
+}
+
+/* Disabled (read-only collections) and read-only inputs: quieter fill, muted value. */
+.field:has(> .field-control:read-only:not(select)),
+.field:has(> .field-control:disabled) {
+  background: var(--surface-1);
+}
+
+.field-control:read-only:not(select),
+.field-control:disabled {
+  color: var(--text-hint);
+}
+
+textarea.field-control {
+  min-height: 92px;
+  resize: vertical;
+}
+
+textarea.field-control.mono {
+  font-size: var(--font-size-sm);
+  line-height: 18px;
+}
+
+select.field-control {
+  cursor: pointer;
+}
+
+select.field-control[multiple] {
+  padding: 2px 8px 8px;
+}
+
+.field-hint,
+.field-error {
+  padding: 0 12px;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+  color: var(--text-hint);
+}
+
+.form > .field-error,
+.pane-body > .field-hint {
+  padding: 0;
+}
+
+.field-error {
+  color: var(--danger);
+}
+
+.field[data-invalid] {
+  background: color-mix(in srgb, var(--danger), var(--input) 90%);
+}
+
+.field[data-invalid] .field-label {
+  color: var(--danger);
+}
+
+.field[data-invalid]:has(> .field-control:focus) {
+  background: var(--input-focus);
+  box-shadow: 0 0 0 1px var(--danger), 0 0 0 4px color-mix(in srgb, var(--danger), transparent 85%);
+}
+
+/* Inside a filled field (file attachments) the hint and list keep the label's inset. */
+.field > .field-hint {
+  padding: 3px 12px 10px;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--control-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox:has(input:disabled) {
+  color: var(--text-hint);
+  cursor: default;
+}
+
+/* Custom box: rounded, filled with the accent when on, a bar when indeterminate. */
+input[type="checkbox"] {
+  position: relative;
+  display: inline-grid;
+  place-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1.5px solid color-mix(in srgb, var(--text-hint), transparent 35%);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  appearance: none;
+  cursor: pointer;
+  transition: background var(--speed), border-color var(--speed);
+}
+
+input[type="checkbox"]:hover:not(:disabled) {
+  border-color: var(--text-hint);
+}
+
+input[type="checkbox"]:checked,
+input[type="checkbox"]:indeterminate {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+input[type="checkbox"]::before {
+  content: "";
+  width: 8px;
+  height: 4.5px;
+  margin-top: -2px;
+  border: solid var(--accent-text);
+  border-width: 0 0 2px 2px;
+  rotate: -45deg;
+  scale: 0;
+  transition: scale var(--speed);
+}
+
+input[type="checkbox"]:checked::before {
+  scale: 1;
+}
+
+input[type="checkbox"]:indeterminate::before {
+  width: 8px;
+  height: 0;
+  margin: 0;
+  border-width: 0 0 2px;
+  rotate: 0deg;
+  scale: 1;
+}
+
+input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.searchbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  background: var(--input);
+  color: var(--text-hint);
+  transition: background var(--speed), box-shadow var(--speed);
+}
+
+.searchbar:hover {
+  background: color-mix(in srgb, var(--input), var(--text) 3%);
+}
+
+.searchbar:focus-within {
+  background: var(--input-focus);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
+}
+
+.searchbar input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  outline: 0;
+}
+
+.searchbar input::placeholder {
+  color: var(--text-disabled);
+}
+
+.searchbar.mono input {
+  font-family: var(--font-mono);
+}

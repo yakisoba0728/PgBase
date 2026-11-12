@@ -1,0 +1,75 @@
+import { useState, type FormEvent } from "react";
+import { Link, Navigate, useLocation, useNavigate } from "react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { RiLockPasswordLine, RiMailLine, RiShieldKeyholeLine } from "@remixicon/react";
+import { ApiError } from "../api/http";
+import { login, type LoginInput } from "../api/session";
+import { sessionQuery, setupStatusQuery } from "../app/queries";
+import { Button } from "../components/Button";
+import { Field } from "../components/Field";
+import { useT } from "../i18n";
+import { FormError, formValue, GuestLayout } from "./GuestLayout";
+
+const otpRequired = (error: unknown) => error instanceof ApiError && error.code === "otp_required";
+
+export function LoginScreen() {
+  const t = useT();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const queryClient = useQueryClient();
+  const status = useQuery(setupStatusQuery);
+  // Set once the server asks for a TOTP code; the code is then re-posted with these credentials.
+  const [pending, setPending] = useState<LoginInput | null>(null);
+  const mutation = useMutation({
+    mutationFn: login,
+    onSuccess: (session) => {
+      queryClient.setQueryData(sessionQuery.queryKey, session);
+      const from = (location.state as { from?: string } | null)?.from;
+      navigate(from ?? "/collections", { replace: true });
+    },
+    onError: (error, input) => {
+      if (otpRequired(error) && !input.otpCode) setPending(input);
+    },
+  });
+
+  if (status.data?.setupRequired) return <Navigate to="/setup" replace />;
+
+  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    if (pending) mutation.mutate({ ...pending, otpCode: formValue(form, "otp").trim() });
+    else mutation.mutate({ email: formValue(form, "email"), password: formValue(form, "password") });
+  };
+  const back = () => {
+    setPending(null);
+    mutation.reset();
+  };
+  // The otp_required answer is the step change itself, not an error to show.
+  const error = pending && !mutation.variables?.otpCode ? null : mutation.error;
+
+  return (
+    <GuestLayout title={pending ? t("login.otpTitle") : t("login.title")}>
+      <form className="form" onSubmit={onSubmit}>
+        {pending ? (
+          <Field key="otp" label={t("field.otp")} icon={RiShieldKeyholeLine} name="otp" required autoFocus inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]*" />
+        ) : (
+          <>
+            <Field label={t("field.email")} icon={RiMailLine} name="email" type="email" required autoFocus autoComplete="username" />
+            <Field label={t("field.password")} icon={RiLockPasswordLine} name="password" type="password" required autoComplete="current-password" />
+          </>
+        )}
+        <FormError error={error} credentialsKey={pending ? "error.invalidOtp" : undefined} />
+        <Button type="submit" block loading={mutation.isPending}>
+          {pending ? t("login.otpSubmit") : t("login.submit")}
+        </Button>
+      </form>
+      <div className="guest-links">
+        {pending ? (
+          <button type="button" className="link" onClick={back}>{t("login.back")}</button>
+        ) : (
+          <Link className="link" to="/reset-password">{t("login.forgot")}</Link>
+        )}
+      </div>
+    </GuestLayout>
+  );
+}

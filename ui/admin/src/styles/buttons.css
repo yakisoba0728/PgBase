@@ -1,0 +1,123 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--control);
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--speed), color var(--speed), opacity var(--speed), scale var(--speed);
+}
+
+.btn:has(> svg:first-child),
+.btn:has(> .loader:first-child) {
+  padding-left: 12px;
+}
+
+.btn:hover {
+  background: var(--accent-hover);
+}
+
+.btn:active:not(:disabled) {
+  scale: 0.98;
+  transition-duration: var(--speed-active);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn-secondary {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.btn-secondary:hover {
+  background: var(--surface-3);
+}
+
+.btn-transparent {
+  background: transparent;
+  color: var(--text-hint);
+}
+
+.btn-transparent:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: var(--danger-text);
+}
+
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--danger), light-dark(#000, #fff) 10%);
+}
+
+.btn-sm {
+  height: var(--control-sm);
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+
+.btn-sm:has(> svg:first-child),
+.btn-sm:has(> .loader:first-child) {
+  padding-left: 9px;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.btn .loader {
+  width: 14px;
+  height: 14px;
+}
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-hint);
+  cursor: pointer;
+  transition: background var(--speed), color var(--speed);
+}
+
+.icon-btn:hover,
+.icon-btn[aria-expanded="true"] {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.icon-btn:active:not(:disabled) {
+  background: var(--surface-3);
+  transition-duration: var(--speed-active);
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.btn.txt-danger {
+  color: var(--danger);
+}
+
+.btn.txt-danger:hover {
+  background: color-mix(in srgb, var(--danger), transparent 90%);
+}

@@ -1,7 +1,12 @@
 import "@testing-library/jest-dom/vitest";
-import { afterEach, beforeEach, vi } from "vitest";
-import { setLocale } from "../i18n";
 
-beforeEach(() => { setLocale("en"); localStorage.removeItem("pgbase.locale"); });
-
-afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
+// jsdom lacks the modal dialog API; this mirrors the parts the components use.
+if (!HTMLDialogElement.prototype.showModal) {
+  HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) {
+    this.open = false;
+    this.dispatchEvent(new Event("close"));
+  };
+}
