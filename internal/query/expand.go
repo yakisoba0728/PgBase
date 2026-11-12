@@ -229,7 +229,14 @@ func (s *Service) readList(ctx context.Context, request ListRequest) (result lis
 		var readErr error
 		result, operation, readErr = s.readListInTx(ctx, tx, catalog, collection, request, filterNode, requestedSort)
 		relationOperation = relationOperation || operation
-		return readErr
+		if readErr != nil || !request.Total {
+			return readErr
+		}
+		total, countErr := s.countListInTx(ctx, tx, catalog, collection, request, filterNode, maximumListTotal+1)
+		result.page.TotalCapped = total > maximumListTotal
+		total = min(total, maximumListTotal)
+		result.page.TotalItems = &total
+		return countErr
 	}, request.Collection)
 	return result, err
 }
@@ -395,7 +402,8 @@ func (s *Service) readListInTx(
 	}, relationOperation, nil
 }
 
-func (s *Service) countListInTx(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, request ListRequest, filterNode filterNode) (int64, error) {
+// countListInTx counts matching records; a positive limit stops counting there.
+func (s *Service) countListInTx(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, request ListRequest, filterNode filterNode, limit int) (int64, error) {
 	stableSort := []SortKey{{Field: systemFieldID}}
 	if err := rejectHiddenQueryFields(catalog, collection, request.Principal, filterNode, stableSort); err != nil {
 		return 0, err
@@ -444,6 +452,7 @@ func (s *Service) countListInTx(ctx context.Context, tx pgx.Tx, catalog schema.C
 	if !collection.IsSQLView() {
 		highWater = &traversal.HighWater
 	}
+	plan.countLimit = limit
 	statement, err := plan.countStatement(highWater)
 	if err != nil {
 		return 0, err

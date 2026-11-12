@@ -206,7 +206,7 @@ export class PgBaseClient {
   ): AsyncGenerator<T> {
     let cursor = query.cursor;
     do {
-      const page = await this.records<T>(collection).list({ ...query, cursor }, signal);
+      const page = await this.records<T>(collection).list({ ...query, cursor, total: undefined }, signal);
       yield* page.items;
       cursor = page.nextCursor;
     } while (cursor);
