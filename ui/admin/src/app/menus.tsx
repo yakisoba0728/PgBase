@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiComputerLine, RiLogoutBoxRLine, RiMoonLine, RiSunLine, RiTranslate2, RiUser3Line } from "@remixicon/react";
+import { RiComputerLine, RiLogoutBoxRLine, RiMoonLine, RiSunLine, RiTranslate2, RiUser3Line, RiUserSettingsLine } from "@remixicon/react";
 import { logout } from "../api/session";
 import { Dropdown, DropdownItem } from "../components/Dropdown";
 import { toast } from "../components/Toast";
@@ -55,6 +55,9 @@ export function AccountMenu() {
   });
   return (
     <Dropdown label={t("menu.account")} heading={session?.administrator.email} text={session?.administrator.email} icon={RiUser3Line} placement="up">
+      <DropdownItem icon={RiUserSettingsLine} onSelect={() => navigate("/profile")}>
+        {t("account.profile")}
+      </DropdownItem>
       <DropdownItem icon={RiLogoutBoxRLine} onSelect={() => signOut.mutate()}>
         {t("account.signOut")}
       </DropdownItem>
