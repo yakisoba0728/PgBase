@@ -89,6 +89,8 @@ func TestManagedBackupHTTPRestoresAndActivatesFreshTarget(t *testing.T) {
 	if restored.Status != "completed" {
 		t.Fatalf("restore job = %#v logs=%s", restored, logs.String())
 	}
+	// Listing right after activation reads through the rebound repository.
+	managedBytes(t, http.MethodGet, origin+"/api/admin/backups", nil, "", cookie, "", http.StatusOK)
 	raw, err := os.ReadFile(filepath.Join(directory, "active-target.json"))
 	if err != nil {
 		t.Fatal(err)
