@@ -4,7 +4,7 @@ import { openRow } from "../components/DataGrid";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiAddLine, RiLockPasswordLine, RiLogoutCircleRLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
-import type { Administrator } from "../api/session";
+import { updateProfile, type Administrator } from "../api/session";
 import { createAdministrator, resetAdministratorPassword, revokeAdministratorSessions, setAdministratorActive } from "../api/system";
 import { errorText, sessionQuery } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
@@ -160,7 +160,9 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
     onSettled: () => setPending(null),
   });
   const password = useMutation({
-    mutationFn: (value: string) => resetAdministratorPassword(admin.id, value),
+    // The server refuses to reset your own password here; that change needs the current one.
+    mutationFn: ({ value, current }: { value: string; current: string }) =>
+      self ? updateProfile({ currentPassword: current, newPassword: value }).then(() => undefined) : resetAdministratorPassword(admin.id, value),
     onSuccess: () => {
       setPending(null);
       if (self) signedOut();
@@ -204,7 +206,8 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
       <ConfirmDialog open={pending === "revoke"} title={t("system.admins.revokeTitle", { email: admin.email })} message={self ? t("system.admins.revokeSelf") : t("system.admins.revokeHint")} confirmLabel={t("system.admins.revoke")} danger busy={revoke.isPending}
         onConfirm={() => revoke.mutate()} onCancel={() => setPending(null)} />
       <TaskDialog open={pending === "password"} title={t("system.admins.passwordTitle", { email: admin.email })} onClose={closePassword}>
-        <PasswordForm self={self} busy={password.isPending} error={password.isError ? adminError(t, password.error, "password", self) : undefined} onSubmit={(value) => password.mutate(value)} onCancel={closePassword} />
+        <PasswordForm self={self} busy={password.isPending} error={password.isError ? adminError(t, password.error, "password", self) : undefined} currentError={currentPasswordError(t, password.error)}
+          onSubmit={(value, current) => password.mutate({ value, current })} onCancel={closePassword} />
       </TaskDialog>
     </div>
   );
@@ -222,8 +225,13 @@ function Action({ title, text, children }: { title: string; text: string; childr
   );
 }
 
-/** New password with confirmation; the server sets it directly and ends the account's sessions. */
-export function PasswordForm({ self, busy, error, onSubmit, onCancel }: { self: boolean; busy: boolean; error?: string; onSubmit: (password: string) => void; onCancel?: () => void }) {
+/** The current-password refusal belongs on that field; anything else is a form-level message. */
+export function currentPasswordError(t: Translate, error: unknown): string | undefined {
+  return error instanceof ApiError && error.code === "current_password_invalid" ? t("system.profile.currentPasswordInvalid") : undefined;
+}
+
+/** New password with confirmation; the server ends the account's sessions. Your own password also needs the current one. */
+export function PasswordForm({ self, busy, error, currentError, onSubmit, onCancel }: { self: boolean; busy: boolean; error?: string; currentError?: string; onSubmit: (password: string, current: string) => void; onCancel?: () => void }) {
   const t = useT();
   const [mismatch, setMismatch] = useState(false);
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -232,12 +240,13 @@ export function PasswordForm({ self, busy, error, onSubmit, onCancel }: { self: 
     const value = String(form.get("newPassword") ?? "");
     const ok = value === String(form.get("confirmPassword") ?? "");
     setMismatch(!ok);
-    if (ok) onSubmit(value);
+    if (ok) onSubmit(value, String(form.get("currentPassword") ?? ""));
   };
   return (
     <form className="form" onSubmit={submit}>
       <p className="txt-hint">{self ? t("system.admins.setPasswordSelf") : t("system.admins.setPasswordHint")}</p>
-      {error && <p className="field-error" role="alert">{error}</p>}
+      {error && !currentError && <p className="field-error" role="alert">{error}</p>}
+      {self && <Field label={t("system.profile.currentPassword")} name="currentPassword" type="password" required autoComplete="current-password" error={currentError} />}
       <Field label={t("system.admins.newPassword")} name="newPassword" type="password" required minLength={12} maxLength={1024} autoComplete="new-password" hint={t("system.admins.passwordHint")} />
       <Field label={t("system.admins.confirmPassword")} name="confirmPassword" type="password" required autoComplete="new-password" error={mismatch ? t("error.password_mismatch") : undefined} />
       <div className="confirm-actions">
