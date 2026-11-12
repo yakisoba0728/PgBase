@@ -1,4 +1,5 @@
 import { opsEn } from "./parts/ops.en";
+import { storageEn } from "./parts/storage.en";
 
 import { rulesEn } from "./parts/rules.en";
 export const en = {
@@ -364,4 +365,5 @@ export const en = {
   "schema.authRenameLocked": "Auth collections keep their name: their sign-in settings are bound to it.",
   ...opsEn,
   ...rulesEn,
+  ...storageEn,
 };

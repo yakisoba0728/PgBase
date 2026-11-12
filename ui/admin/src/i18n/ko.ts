@@ -1,4 +1,5 @@
 import { opsKo } from "./parts/ops.ko";
+import { storageKo } from "./parts/storage.ko";
 import { rulesKo } from "./parts/rules.ko";
 import type { en } from "./en";
 
@@ -365,4 +366,5 @@ export const ko: Record<keyof typeof en, string> = {
   "schema.authRenameLocked": "인증 컬렉션은 이름을 바꿀 수 없습니다. 로그인 설정이 이름에 묶여 있습니다.",
   ...opsKo,
   ...rulesKo,
+  ...storageKo,
 };

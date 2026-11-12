@@ -1,4 +1,4 @@
-import { request, requestBlob } from "./http";
+import { request } from "./http";
 
 export interface BackupEntry {
   id: string;
@@ -43,10 +43,8 @@ export async function uploadBackup(archive: Blob, signal?: AbortSignal): Promise
   });
 }
 
-/** Downloads the archive (served as pgbase-{id}.tar.gz). */
-export async function downloadBackup(id: string, signal?: AbortSignal): Promise<Blob> {
-  return requestBlob(`/api/admin/backups/${encodeURIComponent(id)}`, { signal });
-}
+/** The archive (served as pgbase-{id}.tar.gz); a same-origin link streams it to disk instead of buffering up to 2 GiB. */
+export const backupDownloadPath = (id: string) => `/api/admin/backups/${encodeURIComponent(id)}`;
 
 export async function deleteBackup(id: string): Promise<void> {
   await request<void>("DELETE", `/api/admin/backups/${encodeURIComponent(id)}`);

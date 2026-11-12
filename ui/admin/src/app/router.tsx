@@ -12,8 +12,10 @@ import { navGroups } from "./navigation";
 import { JobsPage } from "../pages/JobsPage";
 import { LogsPage } from "../pages/LogsPage";
 import { RealtimePage } from "../pages/RealtimePage";
+import { BackupsPage } from "../pages/BackupsPage";
+import { StoragePage } from "../pages/StoragePage";
 
-const implemented = new Set<string>(["logs", "jobs", "realtime"]);
+const implemented = new Set<string>(["logs", "jobs", "realtime", "backups", "storage"]);
 
 export const router = createBrowserRouter(
   [
@@ -34,6 +36,8 @@ export const router = createBrowserRouter(
         { path: "logs", element: <LogsPage /> },
         { path: "jobs", element: <JobsPage /> },
         { path: "realtime", element: <RealtimePage /> },
+        { path: "backups", element: <BackupsPage /> },
+        { path: "storage/:tab?", element: <StoragePage /> },
         ...navGroups.flatMap((group) => group.items.filter((item) => !implemented.has(item.path)).map((item) => ({ path: item.path, element: <PlaceholderPage title={item.label} icon={item.icon} /> }))),
         { path: "ext/:id/*", element: <ExtensionScreenPage /> },
         { path: "*", element: <NotFoundPage /> },
