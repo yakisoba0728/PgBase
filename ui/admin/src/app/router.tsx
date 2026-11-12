@@ -15,7 +15,7 @@ import { RealtimePage } from "../pages/RealtimePage";
 import { BackupsPage } from "../pages/BackupsPage";
 import { StoragePage } from "../pages/StoragePage";
 
-const implemented = new Set<string>(["logs", "jobs", "realtime", "auth/collections", "auth/users", "logs", "jobs", "realtime", "backups", "storage"]);
+const implemented = new Set<string>(["logs", "jobs", "realtime", "auth/collections", "auth/users", "backups", "storage"]);
 import { AuthCollectionsPage } from "../pages/AuthCollectionsPage";
 import { AuthUsersPage } from "../pages/AuthUsersPage";
 
