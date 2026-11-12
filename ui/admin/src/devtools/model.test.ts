@@ -8,6 +8,7 @@ describe("mayHaveRun", () => {
   it("treats only a refusal before the start as proof that a write did not run", () => {
     const cases: [ApiError | Error, boolean][] = [
       [new ApiError(0, "network_error", ""), true],
+      [new ApiError(202, "invalid_response", ""), true],
       [new ApiError(408, "invalid_response", ""), true],
       [new ApiError(500, "internal_error", ""), true],
       [new ApiError(502, "invalid_response", ""), true],

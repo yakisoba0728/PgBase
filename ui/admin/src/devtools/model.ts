@@ -137,5 +137,6 @@ export function rememberStatement(scope: string, id: string, sql: string): void 
  * result clears the lost-write state.
  */
 export function mayHaveRun(error: unknown): boolean {
-  return !(error instanceof ApiError) || error.status === 0 || error.status === 408 || error.status >= 500;
+  // Below 400: no answer (0) or an accepted request whose body could not be read.
+  return !(error instanceof ApiError) || error.status < 400 || error.status === 408 || error.status >= 500;
 }

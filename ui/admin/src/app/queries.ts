@@ -11,11 +11,15 @@ export const signingOutKey = "pgbase.signingOut";
 
 /** Ends the session a confirmed sign-out left behind (the page was left before the server answered), so its cookie is never trusted again. */
 export async function endSignedOutSession(): Promise<void> {
+  const gone = (error: unknown) => {
+    if (!isUnauthorized(error)) throw error;
+  };
   try {
     await getSession();
     await logout();
   } catch (error) {
-    if (!isUnauthorized(error)) throw error;
+    // The earlier request may have ended it in between; a session that is gone now is all this needs.
+    await getSession().then(() => Promise.reject(error), gone);
   }
   removeStorage(signingOutKey);
 }

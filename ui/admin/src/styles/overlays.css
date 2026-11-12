@@ -280,7 +280,7 @@ dialog::backdrop {
 
 /* Actions can sit anywhere in the main column, so in the app the toasts live in a status line the shell always
    reserves under it: a toast appearing or expiring moves nothing, and no control is ever placed where it shows.
-   The line has a fixed height whatever it holds (one toast, at most two lines of text). */
+   The line has a fixed height whatever it holds (one toast, at most two lines of text; three on phones). */
 #root:has(> .app) {
   display: flex;
   flex-direction: column;
@@ -337,6 +337,17 @@ dialog::backdrop {
 #root > .app ~ .toasts .icon-btn {
   width: 26px;
   height: 26px;
+}
+
+/* Phones have no hover to reveal a cut-off message, so the line is taller there and holds three lines. */
+@media (max-width: 599px) {
+  #root > .app ~ .toasts {
+    height: 56px;
+  }
+
+  #root > .app ~ .toasts .toast p {
+    -webkit-line-clamp: 3;
+  }
 }
 
 .toast-action {
