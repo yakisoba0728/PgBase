@@ -34,10 +34,23 @@ const hrefs: Record<OperationKind, (operation: TrackedOperation) => string> = {
   schema: (operation) => `/schema-operations?op=${encodeURIComponent(operation.id)}`,
 };
 
+// Discovery runs once per tab session (a reload re-attaches from storage); the latest-migration
+// endpoint answers 404 when no migration ever ran, which would otherwise log on every load.
+function firstInSession(): boolean {
+  try {
+    if (sessionStorage.getItem("pgbase.operations.discovered")) return false;
+    sessionStorage.setItem("pgbase.operations.discovered", "1");
+  } catch {
+    // Without session storage discovery runs on every load.
+  }
+  return true;
+}
+const discover = firstInSession();
+
 /** What the server may have started without this browser: the latest file migration and own running schema applies. */
 function useDiscovery() {
-  const migration = useQuery({ ...migrationQuery(null), refetchInterval: false, staleTime: Infinity });
-  const schema = useQuery({ queryKey: ["schema-operations", "discovery"], queryFn: ({ signal }) => listSchemaOperations({ limit: 20, signal }), staleTime: Infinity, retry: false });
+  const migration = useQuery({ ...migrationQuery(null), refetchInterval: false, staleTime: Infinity, enabled: discover });
+  const schema = useQuery({ queryKey: ["schema-operations", "discovery"], queryFn: ({ signal }) => listSchemaOperations({ limit: 20, signal }), staleTime: Infinity, retry: false, enabled: discover });
   useEffect(() => {
     const latest = migration.data;
     if (latest && migrationRunning(latest.status) && !findOperation("migration")) trackOperation({ kind: "migration", id: latest.id });
@@ -57,11 +70,7 @@ export function RunningFeed() {
   useDiscovery();
   // A screen settling its own operation polls it already; the feed waits until it lets go.
   const results = useQueries({ queries: list.map((operation) => ({ ...queryFor(operation), enabled: !isWatched(operation.id) })) });
-  const states = list.map((operation, index) => {
-    const result = results[index];
-    if (isNotFound(result?.error)) return { state: "gone" as const };
-    return operationState(operation.kind, result?.data as Parameters<typeof operationState>[1]);
-  });
+  const states = list.map((operation, index) => operationState(operation, results[index]?.data as Parameters<typeof operationState>[1], isNotFound(results[index]?.error)));
   const signature = states.map((entry, index) => `${list[index].id}:${entry.state}`).join(",");
 
   useEffect(() => {

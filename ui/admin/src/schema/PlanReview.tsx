@@ -3,6 +3,7 @@ import { RiCloseLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
+import { untrackOperation } from "../app/operations";
 import { ChangeList } from "../components/ChangeList";
 import { EmptyState, Loader } from "../components/Feedback";
 import { useT } from "../i18n";
@@ -58,6 +59,8 @@ export function PlanReview({ editor }: { editor: SchemaEditor }) {
             <strong>{t("schema.pendingTitle")}</strong>
             <p>{t("schema.pendingText")}</p>
             <Link to={`/schema-operations?op=${encodeURIComponent(editor.pending.id)}`} className="mono">{editor.pending.id}</Link>
+            {/* The way out once the operation is checked as finished or abandoned. */}
+            <Button size="sm" variant="secondary" onClick={() => untrackOperation(editor.pending!.id)}>{t("schema.pendingForget")}</Button>
           </div>
         )}
         {lost && (

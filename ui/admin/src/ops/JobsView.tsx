@@ -7,6 +7,7 @@ import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
 import { EmptyState, ErrorState, Loader } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
+import { useSaveShortcut } from "../components/SaveBar";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
@@ -141,6 +142,7 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
   const dirty = schedule !== job.schedule || timezone !== job.timezone || enabled !== job.enabled;
   const refresh = () => queryClient.invalidateQueries({ queryKey: jobsQuery.queryKey });
 
+  const saveId = useSaveShortcut();
   const save = useMutation({
     mutationFn: () => updateJob(job.id, { schedule: schedule.trim(), timezone: timezone.trim(), enabled }),
     onSuccess: () => toast(t("ops.jobs.saved")),
@@ -213,7 +215,7 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
       <footer className="pane-footer">
         <Button variant="secondary" icon={RiPlayLine} className="pane-footer-start" disabled={locked || job.running || !job.enabled} loading={run.isPending} onClick={() => run.mutate()}>{t("ops.jobs.run")}</Button>
         <Button variant="secondary" onClick={onClose}>{t("common.close")}</Button>
-        <Button type="submit" disabled={locked || !dirty} loading={save.isPending}>{t("records.save")}</Button>
+        <Button id={saveId} type="submit" disabled={locked || !dirty} loading={save.isPending}>{t("records.save")}</Button>
       </footer>
     </form>
   );

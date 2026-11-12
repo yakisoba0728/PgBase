@@ -142,4 +142,5 @@ export const rulesKo: Record<keyof typeof rulesEn, string> = {
   "schema.index.expression": "식",
   "schema.index.addExpression": "식 추가",
   "schema.index.keysHint": "키는 순서대로 8개까지입니다. 식은 필드 이름을 씁니다(예: lower(title)). 파일, 관계, JSON, 위치, 비밀번호 필드는 인덱스에 쓸 수 없습니다.",
+  "schema.pendingForget": "확인했으니 기다리지 않기",
 };

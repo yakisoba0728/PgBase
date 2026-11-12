@@ -17,21 +17,28 @@ interface SaveBarProps {
   children?: ReactNode;
 }
 
-/** The editing state and Discard / Save, laid out by the toolbar or pane footer around it. */
-export function SaveBar({ dirty, busy = false, onDiscard, form, onSave, saveLabel, saveDisabled, clean, children }: SaveBarProps) {
-  const t = useT();
+/** Cmd/Ctrl+S presses the save button returned id is given to; the first mounted handler wins. */
+export function useSaveShortcut(): string {
   const id = useId();
-  // Cmd/Ctrl+S presses Save; the first mounted bar that handles the key wins.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== "s" || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.defaultPrevented) return;
       event.preventDefault();
+      // Not from behind a confirmation dialog.
+      if (document.querySelector("dialog[open]")) return;
       const button = document.getElementById(id) as HTMLButtonElement | null;
       if (button && !button.disabled) button.click();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [id]);
+  return id;
+}
+
+/** The editing state and Discard / Save, laid out by the toolbar or pane footer around it. */
+export function SaveBar({ dirty, busy = false, onDiscard, form, onSave, saveLabel, saveDisabled, clean, children }: SaveBarProps) {
+  const t = useT();
+  const id = useSaveShortcut();
   return (
     <>
       <span className="save-state" data-dirty={dirty ? "" : undefined}>{dirty ? t("common.unsaved") : (clean ?? t("common.saved"))}</span>

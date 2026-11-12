@@ -80,18 +80,28 @@ export function watchOperation(id: string): () => void {
 
 export const isWatched = (id: string) => watched.has(id);
 
-/** Where an operation stands, read from its status payload (null: the server no longer knows it). */
-export type OperationState = "running" | "attention" | "done" | "failed" | "gone";
+type OperationState = "running" | "attention" | "done" | "failed" | "gone";
 
 interface StatusPayload {
+  id?: string;
   status?: string;
   phase?: string;
   copiedObjects?: number;
   totalObjects?: number;
 }
 
-export function operationState(kind: OperationKind, data: StatusPayload | null | undefined): { state: OperationState; progress?: string } {
+// A request whose response was lost may still be on its way, and its replay identity must survive meanwhile.
+const replayWindow = 65 * 60 * 1000;
+const startWindow = 2 * 60 * 1000;
+
+/** Where an operation stands, read from its status payload; `notFound` is a 404 for its id. */
+export function operationState(operation: TrackedOperation, data: StatusPayload | null | undefined, notFound = false, now = Date.now()): { state: OperationState; progress?: string } {
+  const { kind } = operation;
+  const age = now - operation.startedAt;
+  if (notFound) return operation.idempotencyKey && age < replayWindow ? { state: "attention" } : { state: "gone" };
   if (data === undefined) return { state: "running" };
+  // The migration query falls back to the latest one; another migration says nothing about this start yet.
+  if (data !== null && kind === "migration" && data.id !== operation.id) return age < startWindow ? { state: "running" } : { state: "gone" };
   if (data === null) return { state: "gone" };
   const status = data.status ?? "";
   if (kind === "backup" || kind === "restore") {

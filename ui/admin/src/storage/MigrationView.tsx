@@ -6,7 +6,7 @@ import { ConfirmDialog } from "../components/Dialog";
 import { ErrorState, Loader } from "../components/Feedback";
 import { toast } from "../components/Toast";
 import { ApiError } from "../api/http";
-import { trackOperation, untrackOperation } from "../app/operations";
+import { trackOperation, untrackOperation, watchOperation } from "../app/operations";
 import { JobProgress } from "../components/JobProgress";
 import { useT, type Translate } from "../i18n";
 import { useTimeFormat } from "../ops/queries";
@@ -119,11 +119,15 @@ function DestinationForm({ current, locked }: { current: FileStorageSettings; lo
       // Recorded before the request: a lost response is recovered by id after a reload, from any page.
       update({ migration: id });
       trackOperation({ kind: "migration", id });
-      return startStorageMigration(id, destinationOf(draft)).catch((error: unknown) => {
-        // Only a definite refusal frees the id; a lost response may still have started it.
-        if (!(error instanceof ApiError && error.code === "network_error")) untrackOperation(id);
-        throw error;
-      });
+      // The navigation waits for the answer instead of reading the previous migration as this one.
+      const release = watchOperation(id);
+      return startStorageMigration(id, destinationOf(draft))
+        .catch((error: unknown) => {
+          // Only a definite refusal frees the id; a lost response may still have started it.
+          if (!(error instanceof ApiError && error.code === "network_error")) untrackOperation(id);
+          throw error;
+        })
+        .finally(release);
     },
     onSuccess: (started) => {
       queryClient.setQueryData(migrationQuery(started.id).queryKey, started);

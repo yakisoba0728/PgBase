@@ -140,4 +140,5 @@ export const rulesEn = {
   "schema.index.expression": "Expression",
   "schema.index.addExpression": "Add expression",
   "schema.index.keysHint": "Up to 8 keys, in order. Expressions use field names, e.g. lower(title); file, relation, JSON, location and password fields cannot be indexed.",
+  "schema.pendingForget": "It is settled; stop waiting",
 } as const;

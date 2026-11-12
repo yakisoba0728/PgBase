@@ -414,7 +414,7 @@ export function filterRows(filter: ViewFilter | undefined): { join: "all" | "any
 }
 
 /** A typed value as the JSON literal the planner expects for the field type. */
-export function filterValue(type: FieldType | undefined, text: string): unknown {
+function filterValue(type: FieldType | undefined, text: string): unknown {
   const trimmed = text.trim();
   if (trimmed === "null") return null;
   if (type === "boolean") return trimmed === "true";
