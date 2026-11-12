@@ -105,3 +105,10 @@
   margin: -6px 0 -6px 4px;
   vertical-align: middle;
 }
+
+/* Notes that open a list, pane or block keep space before what they describe. */
+.grid-scroll > .warning-note,
+.pane-body > .warning-note,
+.storage-block > .warning-note {
+  margin: 0 0 var(--space-sm);
+}

@@ -110,10 +110,10 @@ dialog::backdrop {
 }
 
 .toasts {
-  /* Top centre, over the page title: never over footers, Save buttons or the header's actions. */
+  /* Top centre of the main column, over the page title: never over pane footers or Save buttons. */
   position: fixed;
   top: 8px;
-  left: 50%;
+  left: calc((100vw + var(--toast-offset, 0px)) / 2);
   translate: -50% 0;
   z-index: 100;
   display: grid;

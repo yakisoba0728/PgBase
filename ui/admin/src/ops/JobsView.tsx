@@ -154,7 +154,7 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
     mutationFn: () => runJob(job.id),
     onSuccess: () => {
       toast(t("ops.jobs.runRequested", { name: job.name }));
-      trackOperation({ kind: "job", id: job.id, subject: job.name });
+      trackOperation({ kind: "job", id: job.id, subject: job.name, since: job.lastStartedAt });
     },
     onError: (error) => toast(errorText(t, error), "danger"),
     onSettled: refresh,

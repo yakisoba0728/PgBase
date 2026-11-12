@@ -33,7 +33,6 @@ export const shellKo: Record<keyof typeof shellEn, string> = {
 
   "nav.recent": "최근",
 
-  "field.showPassword": "비밀번호 표시",
-  "field.hidePassword": "비밀번호 숨기기",
+  "field.reveal": "표시",
   "field.capsLock": "Caps Lock이 켜져 있습니다.",
 };

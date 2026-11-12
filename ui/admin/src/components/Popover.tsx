@@ -97,6 +97,17 @@ export function Dropdown({ label, icon: Icon, heading, text, align = "end", chil
     list[(index + step + list.length) % list.length]?.focus();
   };
 
+  // Arrow keys on the button open the menu and move into it at once, so a fast keyboard choice never waits for the toggle event.
+  const onButtonKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const list = items();
+    // Already open from a click: its first item counts as current even before focus has moved there.
+    const open = menu.current?.matches(":popover-open") ?? false;
+    if (!open) menu.current?.showPopover();
+    list[event.key === "ArrowDown" ? (open ? 1 : 0) : list.length - 1]?.focus();
+  };
+
   const onClick = (event: MouseEvent) => {
     if ((event.target as HTMLElement).closest(".dropdown-item")) {
       menu.current?.hidePopover();
@@ -115,6 +126,7 @@ export function Dropdown({ label, icon: Icon, heading, text, align = "end", chil
         aria-expanded={open}
         aria-label={label}
         title={text ? undefined : label}
+        onKeyDown={onButtonKeyDown}
       >
         <Icon size={16} aria-hidden />
         {text && <span className="dropdown-btn-text">{text}</span>}

@@ -109,7 +109,7 @@ function PasswordField(props: InputField & { id: string }) {
           onBlur?.(event);
         }}
       />
-      <button type="button" className="icon-btn field-reveal" aria-label={shown ? t("field.hidePassword") : t("field.showPassword")} title={shown ? t("field.hidePassword") : t("field.showPassword")} aria-pressed={shown} onClick={() => setShown(!shown)}>
+      <button type="button" className="icon-btn field-reveal" aria-label={t("field.reveal")} title={t("field.reveal")} aria-pressed={shown} onClick={() => setShown(!shown)}>
         {shown ? <RiEyeOffLine size={16} aria-hidden /> : <RiEyeLine size={16} aria-hidden />}
       </button>
     </FieldFrame>

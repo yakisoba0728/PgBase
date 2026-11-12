@@ -31,7 +31,6 @@ export const shellEn = {
 
   "nav.recent": "Recent",
 
-  "field.showPassword": "Show password",
-  "field.hidePassword": "Hide password",
+  "field.reveal": "Reveal",
   "field.capsLock": "Caps Lock is on.",
 };

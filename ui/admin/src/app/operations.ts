@@ -16,6 +16,8 @@ export interface TrackedOperation {
   /** Collection apply: the replay identity and the plan it belongs to. */
   idempotencyKey?: string;
   checksum?: string;
+  /** Scheduled job: its lastStartedAt when "Run now" was pressed (a new value means the run started; no clock comparison). */
+  since?: string;
   startedAt: number;
 }
 
@@ -109,8 +111,8 @@ export function operationState(operation: TrackedOperation, data: StatusPayload 
   if (data === null) return { state: "gone" };
   if (kind === "job") {
     if (data.running) return { state: "running" };
-    // The worker picks a requested run up on its next tick; a run that started before the request says nothing yet.
-    const started = data.lastStartedAt !== undefined && Date.parse(data.lastStartedAt) >= operation.startedAt - 5000;
+    // The worker picks a requested run up on its next tick; until lastStartedAt moves, it has not started.
+    const started = data.lastStartedAt !== undefined && data.lastStartedAt !== operation.since;
     if (!started) return age < startWindow ? { state: "running" } : { state: "gone" };
     return { state: data.failed ? "failed" : "done" };
   }
