@@ -1,5 +1,7 @@
 # Administrator UI rebuild
 
+> Historical record of the previous administrator UI, which was replaced by the from-scratch rewrite on branch `frontend-rebuild` (2026-11-13; see [project status](project-status.md) §11).
+
 Work started 2026-11-12 from `82411a18fa6a42a225b0609c9e3dd176b0916c14`.
 
 ## Product direction

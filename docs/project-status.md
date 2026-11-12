@@ -1,6 +1,10 @@
 # PgBase 구현 이력과 현재 상태
 
-2026-10-22 현재 기준: main은 `5c495e1`([PR #92](https://github.com/yakisoba0728/PgBase/pull/92))이며 system migration은 `000065`(schema 65) 그대로다. [PR #87](https://github.com/yakisoba0728/PgBase/pull/87)은 Go toolchain 1.26.10·`golang.org/x/net` v0.60.0·vite 8.3.5·vitest 4.1.12로 예약 Security의 Go·npm 취약점 실패를 해소했고, [PR #88](https://github.com/yakisoba0728/PgBase/pull/88)은 Dependabot 10건을 통합했으며, [PR #89](https://github.com/yakisoba0728/PgBase/pull/89)는 릴리스 restore gate와 OTP 동시성 test를 고쳤다(test만 변경). [PR #90](https://github.com/yakisoba0728/PgBase/pull/90)은 release gate의 race 실행을 17.9 하나로 줄이고 2개 shard로 나눴으며 flake 2건을 고쳤다. 같은 날 저장소를 public으로 전환하고 self-hosted runner 경로(`PGBASE_CI_RUNNER`)를 지웠으며, [PR #92](https://github.com/yakisoba0728/PgBase/pull/92)의 policy test 수정 후 [v0.2.3](https://github.com/yakisoba0728/PgBase/releases/tag/v0.2.3)을 릴리스했다. 로컬 설치는 백업 후 binary를 `ad7783c`로 교체했다(schema 65, doctor 0 finding). 릴리스 결과는 §1 표와 §9를 따른다. 아래 2026-10-01 기록은 당시 상태다.
+2026-11-13 현재 기준: main은 그대로 `7fbf1db`(schema 65)이다. 관리자 UI를 브랜치 `frontend-rebuild`에서 처음부터 다시 작성했다(React/TypeScript/Vite 유지, 새 디자인 시스템·레이아웃, Go handler에서 도출한 typed API client, 모든 관리자 route, 한국어·영어). 서버 API 계약과 schema 65는 바뀌지 않았다. 이 문서 작성 시점에 main 병합과 운영 서버 배포는 하지 않았으며(대기), 병합·배포는 후속 기록에 남긴다. 검증·미검증 범위와 UI 재작성 중 발견한 백엔드 문제(수정하지 않음)는 §11을 따른다. 아래 2026-11-12 기록은 당시 상태다.
+
+2026-11-12 기준: main은 `7fbf1db`([PR #107](https://github.com/yakisoba0728/PgBase/pull/107))이며 system migration은 `000065`(schema 65) 그대로다. 10-22 이후 [PR #103](https://github.com/yakisoba0728/PgBase/pull/103)(관리자 워크스페이스 정리), [PR #106](https://github.com/yakisoba0728/PgBase/pull/106)(보안 의존성 패치·의존성 통합·Go toolchain 1.26.11·Dokploy 배포 구성), PR #107(PocketBase 스타일 관리자 UI 재구축과 한국어 지원)이 병합됐다. 서버 API 계약은 바뀌지 않았다. `https://pgbase.yaki.kr`(Dokploy Compose)에 `c1e6ef3`을 배포했고 첫 관리자는 아직 없다. 공개 릴리스는 v0.2.3 그대로여서 11월 UI 작업은 릴리스에 없다. 세부는 §2 표의 마지막 행들과 §10, [UI 재구축](admin-ui-rebuild.md), [한국어 UI](admin-korean-ui.md), [배포 기록](deployment-2026-11-12.md)을 따른다. 아래 2026-10-22 기록은 당시 상태다.
+
+2026-10-22 기준: main은 `5c495e1`([PR #92](https://github.com/yakisoba0728/PgBase/pull/92))이며 system migration은 `000065`(schema 65) 그대로다. [PR #87](https://github.com/yakisoba0728/PgBase/pull/87)은 Go toolchain 1.26.10·`golang.org/x/net` v0.60.0·vite 8.3.5·vitest 4.1.12로 예약 Security의 Go·npm 취약점 실패를 해소했고, [PR #88](https://github.com/yakisoba0728/PgBase/pull/88)은 Dependabot 10건을 통합했으며, [PR #89](https://github.com/yakisoba0728/PgBase/pull/89)는 릴리스 restore gate와 OTP 동시성 test를 고쳤다(test만 변경). [PR #90](https://github.com/yakisoba0728/PgBase/pull/90)은 release gate의 race 실행을 17.9 하나로 줄이고 2개 shard로 나눴으며 flake 2건을 고쳤다. 같은 날 저장소를 public으로 전환하고 self-hosted runner 경로(`PGBASE_CI_RUNNER`)를 지웠으며, [PR #92](https://github.com/yakisoba0728/PgBase/pull/92)의 policy test 수정 후 [v0.2.3](https://github.com/yakisoba0728/PgBase/releases/tag/v0.2.3)을 릴리스했다. 로컬 설치는 백업 후 binary를 `ad7783c`로 교체했다(schema 65, doctor 0 finding). 릴리스 결과는 §1 표와 §9를 따른다. 아래 2026-10-01 기록은 당시 상태다.
 
 2026-10-01 기준: main은 `31a9694`([PR #66](https://github.com/yakisoba0728/PgBase/pull/66))이며 system migration은 `000065`(schema 65)까지다. 2026-09-11 이후의 병합은 §2 표의 PR #36–#66 행, CI·운영 항목은 §9에 기록한다. 실제 로컬 설치는 2026-10-01 문서 작성 Mac(Darwin ARM64)에 새로 만든 설치다. 기존 기록의 N1–N5/schema40 설치(`.local/pgbase`, `pgbase-local_data` volume)는 이 Mac에 존재하지 않아 40→65 upgrade가 아니라 fresh install로 진행했다. `scripts/dev-local.sh` 구성(PostgreSQL 17.9 `pgbase-local-postgres-1`/`127.0.0.1:55440`, HTTP `127.0.0.1:8090`, devmail `8025`)에서 `pgbase migrate up`으로 schema 0→65를 적용했고, binary는 main `8568458`(PR #65, `vcs.modified=false`, Go 1.26.8)이다. doctor finding 0, `/health/live`·`/health/ready` 200, 관리자 UI 200, 알 수 없는 경로 404를 확인했다. 새 DB이므로 관리자는 아직 없다(setup token으로 생성). 이전 기록의 데이터 보존이나 공개 배포를 주장하지 않으며 공개 릴리스는 v0.1.0뿐이다.
 
@@ -12,7 +16,7 @@
 
 ## Status applicability
 
-This document has a current status section and historical sections. Baseline SHA: `0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b`; verification SHA: `5c495e10d900a7acc08b2b757d6348bda666c248`. Historical entries are scoped to their own dated evidence. Run `python3 docs/check-status-index.py` from the repository root to check the applicability index.
+This document has a current status section and historical sections. Baseline SHA: `0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b`; verification SHA: `7fbf1db39fdee02d9f52c1a928591ea8797870f6`. Historical entries are scoped to their own dated evidence. Run `python3 docs/check-status-index.py` from the repository root to check the applicability index.
 
 기록일: 2026-09-11. 이 문서는 지금까지의 작업을 통합한 현재 상태 문서다. 세부 작업 기록은 [TODO](../TODO.md), 다음 실행 순서와 완료 기준은 [후속 작업](next-work.md), PocketBase와의 차이는 [현재 기능 비교](pocketbase-feature-comparison-current-2026-09-10.md)를 따른다. 과거 감사·마일스톤 문서는 당시 증거를 보존하는 기록이다.
 
@@ -25,7 +29,7 @@ This document has a current status section and historical sections. Baseline SHA
 | 항목 | 확인된 상태 |
 | --- | --- |
 | 현재 저장소 | [yakisoba0728/PgBase](https://github.com/yakisoba0728/PgBase) |
-| 최신 main 병합 기준 | 2026-10-22 [PR #92](https://github.com/yakisoba0728/PgBase/pull/92), `5c495e10d900a7acc08b2b757d6348bda666c248`, schema 65. 2026-10-01 기록은 [PR #66](https://github.com/yakisoba0728/PgBase/pull/66), `31a9694aff133eda7404c304d4a970acdb324fe6`. main schema 65(`000065_optional_auth_email_uniqueness.sql`). 2026-09-11 기록의 최신 제품 병합은 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) `2939f1543e4889c0ffa967eae398c91d0ecbb6ce` |
+| 최신 main 병합 기준 | 2026-11-12 [PR #107](https://github.com/yakisoba0728/PgBase/pull/107), `7fbf1db39fdee02d9f52c1a928591ea8797870f6`, schema 65. 이전 기록: 2026-10-22 [PR #92](https://github.com/yakisoba0728/PgBase/pull/92), `5c495e10d900a7acc08b2b757d6348bda666c248`, schema 65. 2026-10-01 기록은 [PR #66](https://github.com/yakisoba0728/PgBase/pull/66), `31a9694aff133eda7404c304d4a970acdb324fe6`. main schema 65(`000065_optional_auth_email_uniqueness.sql`). 2026-09-11 기록의 최신 제품 병합은 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) `2939f1543e4889c0ffa967eae398c91d0ecbb6ce` |
 | N1–N5 개발 기준 | 구현·독립 검토·전체 로컬 인수 및 필수 원격 CI5/5·정상 병합 완료. [기존 설치·인수](workstreams/n1-n5/release-install.md) 완료 |
 | N6–N9 소스 기준 | **구현·독립 검토·G5 로컬 인수 및 원격 병합 완료**. 최종 제품/UI `b7674f704e14b07104ebf6f1c9ee5e53092f367e`, 후속 수정은 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)로 main `53a474143e117251d9b322441508ac85d776ef2a`에 병합. [인수 증거](workstreams/n6-n9/acceptance.md) |
 | PocketBase Round 3 검증 소스 | `codex/round3-integration`의 `bd76b1d1aaf28839072fa71e6b05cf39219053e9`. 고정 232행은 구현 232·부분 0·미구현 0. [21행 완료 ledger](pocketbase-unimplemented-completion-round3-2026-09-11.md). 이후 [PR #36](https://github.com/yakisoba0728/PgBase/pull/36)으로 main `5cb721f`에 병합(2026-09-11) |
@@ -33,6 +37,7 @@ This document has a current status section and historical sections. Baseline SHA
 | 실제 로컬 설치 | 2026-10-22: 같은 Mac의 설치를 `.local/backups/pre-upgrade-8568458-20261022-173026`에 백업(DB dump·binary·environment·files·SHA256SUMS)한 뒤 binary 교체. schema 65→65, doctor 0 finding, `/health/live`·`/health/ready`·`/admin/` 200, 알 수 없는 경로 404. 관리자는 소유자가 직접 생성할 몫으로 남김. 2026-10-01 문서 작성 Mac에 fresh install. PostgreSQL 17.9, schema 65, `http://127.0.0.1:8090/admin`. 이전 기록의 N1–N5/schema40 설치는 이 Mac에 없었다. doctor 0 finding·readiness·관리자 UI·알 수 없는 경로 404 확인. 관리자 미생성 |
 | P8 개발 DB | migration 33–38, 임시 PostgreSQL 18/MinIO 및 populated 복사본 인수 완료 |
 | 공개 릴리스 | 2026-10-22 [v0.2.3](https://github.com/yakisoba0728/PgBase/releases/tag/v0.2.3), source `5c495e10d900a7acc08b2b757d6348bda666c248`, image `ghcr.io/yakisoba0728/pgbase@sha256:a56d96d4ad748276a963318fcf538eda77a5f635e9fb2459f15273574bb94ccb`(`v0.2.3`·`latest`). 릴리스 run 39768062106 전체 gate 통과(13m14s). `v0.2.0`·`v0.2.1`·`v0.2.2` tag는 gate 실패로 promotion되지 않았다(§9). 이전 릴리스는 v0.1.0 |
+| 서버 배포 | 2026-11-12 `https://pgbase.yaki.kr`(Dokploy Compose), source `c1e6ef3bfd341f935fcb236d9559b91535769a8f`. 자동 배포는 꺼져 있고 첫 관리자 setup 대기. 릴리스 이미지가 아닌 source build. [배포 기록](deployment-2026-11-12.md), §10 |
 | 비교 대상 | 로컬 PocketBase v0.40.3, `5684ee24f1e88f71a2ede73d20cf547fbd509e16` |
 | 승인된 범위 | 로컬에서 구현·검증 가능한 제품 기능. 외부 서버·도메인·실제 provider 계정·공개 패키지 배포는 대기 |
 
@@ -74,6 +79,11 @@ N1–N5 구현·로컬 통합 인수·필수 원격 CI 5개·PR 병합·기존 �
 | release gate 속도·flake | release/manual matrix의 race를 17.9에만, 17.9 race를 `./pgbase`와 나머지 2개 shard로 병렬 실행, race `-timeout 20m`, cli watch·database backup gate flake 수정 | [PR #90](https://github.com/yakisoba0728/PgBase/pull/90), `8267984`(2026-10-22) 병합 |
 | shard env policy test | sharded job의 `PGBASE_INTEGRATION_EXCLUDE_PACKAGES`가 integration script policy test로 새던 문제 수정(test만 변경) | [PR #92](https://github.com/yakisoba0728/PgBase/pull/92), `5c495e1`(2026-10-22) 병합 |
 | v0.2.3 릴리스 | v0.1.0 이후 첫 릴리스. 전체 gate 통과·promotion·GitHub release | [v0.2.3](https://github.com/yakisoba0728/PgBase/releases/tag/v0.2.3), run 39768062106 |
+| 관리자 워크스페이스 정리 | 워크스페이스 간소화와 지원 백엔드 기능 노출(`5927520`). PR #106에 `a6718b2`로도 통합 | [PR #103](https://github.com/yakisoba0728/PgBase/pull/103)(2026-11-12) 병합 |
+| 보안 패치·Dokploy 배포 구성 | 보안 의존성 패치와 대기 중이던 의존성 통합, Go toolchain 1.26.11, `deployments/dokploy` 구성과 [Dokploy 문서](dokploy.md), 워크스페이스 구조 예산 조정 | [PR #106](https://github.com/yakisoba0728/PgBase/pull/106), `82411a1`(2026-11-12) 병합. main push Backend·Frontend·Security 통과 |
+| 관리자 UI 재구축·한국어 | PocketBase 스타일 워크스페이스 재구축과 rename된 필드 binding 수정(`f7de2f5`), 한국어/영어 전환과 화면 정리(`c1e6ef3`). API 계약·schema 65 유지 | [PR #107](https://github.com/yakisoba0728/PgBase/pull/107), `7fbf1db`(2026-11-12) 병합. main push Backend·Frontend·Security 통과. 기록된 검증: UI 64파일/742 tests, 브라우저 32개 통과·4개 opt-in skip. [UI 재구축](admin-ui-rebuild.md), [한국어 UI](admin-korean-ui.md) |
+| 서버 배포 | `https://pgbase.yaki.kr`에 `f7de2f5` 후 `c1e6ef3`을 Dokploy로 배포. 배포 전 DB dump, health 200, 제공 asset SHA256 일치 | [배포 기록](deployment-2026-11-12.md). 릴리스·관리자 생성과는 별개(§10) |
+| 관리자 UI 전면 재작성 | 이전 관리자 UI를 지우고 `frontend-rebuild` 브랜치에서 새로 작성. 새 브라우저 suite 15개 시나리오. API 계약·schema 65 유지 | 2026-11-13 브랜치 작업(main `7fbf1db`에서 분기). main 병합·운영 배포 대기. §11 |
 
 M/P 번호는 시기별 작업 묶음이다. 이전 단계에서 제외했던 항목을 후속 단계가 구현한 경우 후속 기록을 우선한다. 예를 들어 과거 M6의 'JS runtime 범위 결정 완료'는 JSVM 구현 완료가 아니다.
 
@@ -195,3 +205,79 @@ N6–N9 구현·독립 검토·전체 G5 로컬 인수는 `b7674f7`에서 완료
 | 구조 예산 | `internal/repositorypolicy/loc_budget_test.go`의 handwritten runtime 상한은 106,112줄이며 main은 이 상한에 도달해 있다. PR #62 작업 중 제품 코드에 3줄 주석을 더한 첫 버전이 `TestRuntimeStructuralBudgetsDoNotDrift`에서 실패했다. 제품 코드를 순증가시키는 변경은 다른 곳을 줄이거나 근거와 함께 예산을 조정해야 한다 | 관측 기록 |
 
 설치 상태는 §1 표를 따른다. 2026-10-01 설치는 기존 schema40 설치의 upgrade가 아니라 새 DB의 fresh install이다.
+
+## 10. 2026-11-12 CI·운영 항목
+
+기록일: 2026-11-12. `gh run list/view`, 공개 health 요청, 로컬 실행으로 확인한 사실만 적는다.
+
+| 항목 | 확인된 사실 | 상태 |
+| --- | --- | --- |
+| main 로컬 확인 | `7fbf1db`에서 `go build ./...`, `go vet ./...`, `go test ./...`(63 package), UI typecheck와 742 tests 통과. 로컬 Go는 1.27.1이어서 고정 toolchain 1.26.11 실행이 아니다. PostgreSQL/MinIO integration·race·브라우저·SDK test는 이 확인에서 실행하지 않았다 | 관측 기록. integration은 11-12 main push CI 결과를 따른다 |
+| main push CI | `82411a1`(PR #106)과 `7fbf1db`(PR #107)의 Backend·Frontend·Security 통과 | 통과 |
+| 예약 Security | 10-26·11-02·11-09 예약 실행이 실패했다. 11-09 run 42611818483의 원인은 `npm audit --audit-level=high`의 high 1건이다(10-26·11-02 원인은 조회하지 않음). PR #106 이후 11-12 push Security는 통과했다 | 다음 예약 Security 성공으로 확인 필요 |
+| 예약 Backup restore drill | 10-28·11-04·11-11 성공 | 통과 |
+| 서버 배포 | `https://pgbase.yaki.kr`의 `/health/live`·`/health/ready`가 11-12에 200. 배포 source는 `c1e6ef3`(main `7fbf1db`와 제품 코드 동일, 이후 commit은 문서뿐) | 실행 중 |
+| 서버 첫 관리자 | 공개 호스트가 첫 관리자 setup 대기 상태다. 계정은 소유자가 만든다 | 소유자 몫 |
+| 서버 백업 | 배포 전 DB dump는 같은 서버의 DB volume에만 있고 파일 volume 백업은 없다. 서버 밖 백업이 없다 | 열림 |
+| 로컬 설치 | 11-12 확인 시 `127.0.0.1:8090`이 응답하지 않았다(실행 중이 아님). binary는 10-22 기록의 `ad7783c` 이후 갱신 기록이 없다 | 관측 기록 |
+| 릴리스 | 최신 릴리스는 v0.2.3(`5c495e1`). PR #103·#106·#107은 릴리스되지 않았다 | 새 릴리스는 소유자 결정 |
+
+## 11. 2026-11-13 관리자 UI 전면 재작성(`frontend-rebuild`)
+
+기록일: 2026-11-13. 브랜치 `frontend-rebuild`(main `7fbf1db`에서 분기)의 작업이다. 이 기록 작성 시점에 main 병합·릴리스·운영 서버(`https://pgbase.yaki.kr`) 배포는 하지 않았고 대기 중이다. 병합과 배포는 후속 기록에 남긴다.
+
+### 바뀐 것
+
+| 항목 | 내용 |
+| --- | --- |
+| 범위 | 이전 관리자 UI(`ui/admin/src`)를 지우고 처음부터 다시 작성. 스택(React 19·TypeScript·Vite)은 유지 |
+| 디자인·레이아웃 | 새 token 기반 CSS 디자인 시스템(Pretendard). 왼쪽 navigation 하나(Data: collections / Auth: auth collections·users / Operations: logs·jobs·backups·realtime / System: settings·storage·service tokens·schema transfer·schema operations·SQL console·administrators), collection 화면의 Records·Schema·Rules·API 탭, 목록/상세 split view, 실행 중 작업 영역, toast 띠 |
+| API client | Go handler에서 도출한 typed API client. 모든 관리자 route를 화면에서 다룬다 |
+| 언어·편집 | 한국어·영어. rich text는 Tiptap |
+| 조작 | command palette(Cmd/Ctrl+K), keyboard shortcut, route 단위 code splitting |
+| 브라우저 test | 이전 suite를 대체하는 새 Playwright suite: onboarding 1개 + authenticated 14개(opt-in backup 1개 포함) = 15개 시나리오. command palette 이동, typed 확인이 필요한 데이터 손실 schema 변경, record editor의 relation 선택 포함 |
+| 서버 | 서버 API 계약과 schema 65는 바뀌지 않았다. Go 제품 코드는 수정하지 않았다 |
+
+### 검증한 것과 방법
+
+| 항목 | 결과 |
+| --- | --- |
+| slice별·전체 실행 | 기능 slice마다, 그리고 통합 후 전체를 격리된 실제 서버(PostgreSQL 17, 실제 CSP 적용)에 대해 실행해 확인 |
+| UI unit test | `npx tsc -b` 통과, `npx vitest run` 29파일 153 tests 통과(2026-11-13) |
+| 브라우저 suite | 최종 UI(`6ced1a7`)를 embed한 `go1.26.11` source build 두 개(onboarding용·authenticated용, 각자 PostgreSQL 17 DB)에 대해 `npm run test:e2e` 15개 시나리오를 3회 연속 통과(opt-in backup 시나리오 포함). console error·CSP 위반·5xx 응답은 test 실패로 처리 |
+| 독립 코드 리뷰 | 세 영역의 독립 리뷰에서 나온 25개 finding을 수정 |
+
+### 검증하지 않은 것
+
+- S3 file storage migration은 일부만 확인했다.
+- SQL console을 production binary로 확인하지 않았다(표준 binary에는 SQL console을 켜는 스위치가 없다, 아래 목록).
+- Chromium 외 브라우저.
+- release gate 실행. CI의 E2E workflow(PostgreSQL 16 Compose)에서 새 suite를 돌리는 것도 이 작업에서는 실행하지 않았다.
+- 구조 예산(`internal/repositorypolicy`)과 commit된 `ui/admin/dist` 비교는 마지막 단계에서 다시 맞출 예정이라 이 기록 시점에는 red다.
+
+### UI 재작성 중 발견한 백엔드 문제(수정하지 않음)
+
+UI를 다시 만들며 서버 응답과 코드에서 관찰한 사항이다. 이 작업에서는 서버를 고치지 않았고, 각 항목은 별도 확인과 결정이 필요하다.
+
+1. IP allowlist 저장이 호출자 자신의 주소를 검사하지 않아 스스로를 차단할 수 있고, 호출자 주소를 돌려주는 endpoint가 없다(UI는 저장 전에 호출자 주소를 직접 입력하게 한다).
+2. 관리자가 자기 비밀번호를 바꿀 때 현재 비밀번호를 요구하지 않는다.
+3. auth collection을 삭제하거나 이름을 바꿔도 auth 등록이 남거나 그대로 유지된다.
+4. `collections/plan`으로 만든 auth collection에는 system field와 realm이 없다.
+5. schema designer에서 바꾼 field가 auth 등록에 반영되지 않는다.
+6. view sample이 uuid를 byte 배열로 돌려준다.
+7. schema를 한정하지 않은 view SQL이 세부 내용 없이 409를 돌려준다.
+8. `invalid_rule` 오류가 어느 rule인지 알려주지 않는다.
+9. rule에서 `id`·`created_at`·`updated_at`을 참조할 수 없다.
+10. relation field가 `docs/user-access.md`의 설명과 달리 공개 접근을 막지 않는다.
+11. `pgbase serve`는 backup job을 등록하지 않는다.
+12. request log에 clientIP와 auth 값이 없다.
+13. log level·검색·기간별 통계·조건부 삭제 API가 없고 dead-letter event 목록도 없다.
+14. users 목록에 `authCollectionId`, 검색, 개수, 단건 조회가 없다.
+15. token policy의 `keyConfigured`가 항상 false다.
+16. 여러 endpoint의 서버 오류에 field 단위 세부 정보가 없다.
+17. settings PATCH가 숫자 null을 0으로 다룬다(코드에서 추론, 실행 확인 아님).
+18. auth policy·provider·template에 revision이 없다.
+19. backup이 끝나는 순간 `GET /backups`가 500을 돌려줄 수 있다.
+20. 실행 중인 backup을 나열하는 endpoint가 없다.
+21. 목록 응답에 total과 file metadata가 없다(thumbnail은 행·field마다 요청 하나가 든다).
+22. 표준 binary에는 SQL console을 켜는 스위치가 없다.

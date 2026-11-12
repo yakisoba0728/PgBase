@@ -1,5 +1,7 @@
 # Korean administrator UI and visual refinement
 
+> Historical record of the previous administrator UI, which was replaced by the from-scratch rewrite on branch `frontend-rebuild` (2026-11-13; see [project status](project-status.md) §11).
+
 Started 2026-11-12 from deployed baseline `f7de2f5` on
 `codex/korean-admin-polish`. The earlier claim that the complete UI/UX was
 finished described functional coverage, not visual acceptance. This pass adds

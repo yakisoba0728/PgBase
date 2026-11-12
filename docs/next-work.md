@@ -1,5 +1,28 @@
 # 다음 작업과 완료 기준
 
+2026-11-13 갱신: main은 그대로 `7fbf1db`(schema 65)다. 관리자 UI를 브랜치 `frontend-rebuild`에서 처음부터 다시 작성했고 서버 API 계약과 schema는 바뀌지 않았다. 세부는 [현재 상태](project-status.md) §11을 따른다. 아래 표의 O11–O13을 더하고, 2026-11-12 열린 항목은 그대로 남는다.
+
+## 2026-11-13 열린 항목
+
+| ID | 작업 | 완료 증거 |
+| --- | --- | --- |
+| O11 | `frontend-rebuild`의 main 병합. 구조 예산 test와 commit된 `ui/admin/dist`는 병합 전 마지막 단계에서 다시 맞춘다 | 필수 CI와 E2E workflow(새 15개 시나리오 suite) 통과 후 병합 |
+| O12 | 새 UI의 운영 서버 배포. 이 기록 시점에 대기 | 병합된 commit을 `https://pgbase.yaki.kr`에 배포하고 health·asset 확인 |
+| O13 | UI 재작성 중 발견한 백엔드 문제 22건(수정하지 않음, [현재 상태](project-status.md) §11) | 항목별로 재현·결정 후 수정하거나 의도된 동작으로 문서화 |
+
+2026-11-12 갱신: main은 `7fbf1db`([PR #107](https://github.com/yakisoba0728/PgBase/pull/107)), schema 65다. 10-22 이후 관리자 UI 재구축·한국어 지원·보안 의존성 패치·Dokploy 배포 구성이 병합됐고 `https://pgbase.yaki.kr`에 `c1e6ef3`을 배포했다. 남은 일은 아래 "2026-11-12 열린 항목"과 [현재 상태](project-status.md) §10을 따른다. 아래 기록은 당시 상태다.
+
+## 2026-11-12 열린 항목
+
+| ID | 작업 | 완료 증거 |
+| --- | --- | --- |
+| O4 | 로컬 관리자 생성은 그대로 남음. 11-12 확인 시 로컬 서버는 실행 중이 아니었고 binary는 `ad7783c` 그대로다 | 소유자가 관리자를 만들고 실제 사용 데이터로 인수. 필요하면 binary를 현재 main으로 교체 |
+| O5 | npm/pub.dev 배포는 그대로 소유자 결정 대기 | 10-22 표와 같음 |
+| O7 | 서버 첫 관리자 생성. `https://pgbase.yaki.kr/admin/`이 setup 대기 상태로 공개돼 있다 | 소유자가 setup token으로 첫 관리자 생성 |
+| O8 | 서버 밖 백업. 배포 전 DB dump가 같은 서버 volume에만 있고 파일 volume 백업이 없다 | 서버 밖 저장소의 DB·파일 백업과 복원 확인([Dokploy 문서](dokploy.md)) |
+| O9 | 예약 Security 확인. 10-26·11-02·11-09 예약 실행 실패(11-09는 `npm audit` high 1건), PR #106 이후 11-12 push Security는 통과 | 다음 예약 Security 성공 |
+| O10 | 11월 UI 작업의 릴리스. 최신 릴리스는 v0.2.3(`5c495e1`)이고 서버는 source build다 | 소유자 결정 후 새 tag의 release gate 통과와 promotion |
+
 2026-10-01 갱신: 2026-09-22 로드맵의 구현은 [PR #54](https://github.com/yakisoba0728/PgBase/pull/54)로 main `8e78392`에 병합됐고, 의존성 통합 [PR #58](https://github.com/yakisoba0728/PgBase/pull/58) `5ccab67`과 CI Node 24.21.0 정렬 [PR #59](https://github.com/yakisoba0728/PgBase/pull/59) `bf7e5f2`가 뒤따랐다. 그 전에 Round 3·감사 결함 수정은 [PR #36](https://github.com/yakisoba0728/PgBase/pull/36) `5cb721f`, 유지보수 45개 항목은 [PR #39](https://github.com/yakisoba0728/PgBase/pull/39) `9a02663`로 병합됐다. main은 schema 65이고, 2026-10-01 문서 작성 Mac에 schema 65 fresh install(`8568458`)을 만들었다(이전 schema40 설치는 이 Mac에 없었음). 남은 일은 아래 "2026-10-01 열린 항목"과 [현재 상태](project-status.md) §9를 따른다.
 
 2026-09-22 현재 실행 기준: [PgBase 자체 제품 로드맵](workstreams/independent-product-2026-09-22/README.md)의 재현 가능한 결함, API·관리 화면·SDK의 사용 흐름, 설치·복구 인수를 우선한다. [PocketBase 비교 감사](audits/2026-09-22-pocketbase-comparison/README.md)의 차이는 설계 참고이며 전부 구현해야 하는 작업 목록이 아니다. 아래 N 단계는 당시 실행 이력이다.
