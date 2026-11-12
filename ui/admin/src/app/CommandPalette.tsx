@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useMemo, useState, type KeyboardEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -22,11 +22,12 @@ import { collectionsQuery } from "../collections/queries";
 import { Button } from "../components/Button";
 import { TaskDialog, useModal } from "../components/Dialog";
 import { languages, setLanguage, useT, type MessageKey } from "../i18n";
-import { keyLabel, registerShortcut, useShortcut } from "./keys";
+import { keyLabel } from "./keys";
+import { general, gotoEntries } from "./shortcuts";
 import { navGroups, screenTabs } from "./navigation";
 import { rankItems, type PaletteItem } from "./palette";
 import { collectionPath, useRecentCollections } from "./recent";
-import { setHelp, setPalette, togglePalette, useHelp, usePalette } from "./shell";
+import { setHelp, setPalette, useHelp, usePalette } from "./shell";
 import { useSignOut } from "./signout";
 import { setTheme, themeModes } from "./theme";
 
@@ -78,7 +79,7 @@ function useItems(): Item[] {
 }
 
 /** Cmd/Ctrl+K: type to jump to any collection or screen, or run a command; arrows move, Enter runs, Esc closes. */
-export function CommandPalette() {
+function CommandPalette() {
   const open = usePalette();
   const close = () => setPalette(false);
   const modal = useModal(open, close);
@@ -174,39 +175,6 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   );
 }
 
-// The shell's shortcuts; also the list the help overlay shows.
-const general: { keys: string; label: MessageKey }[] = [
-  { keys: "mod+k", label: "shortcuts.palette" },
-  { keys: "?", label: "shortcuts.help" },
-  { keys: "/", label: "shortcuts.filter" },
-  { keys: "n", label: "shortcuts.new" },
-  { keys: "Escape", label: "shortcuts.close" },
-  { keys: "mod+s", label: "shortcuts.save" },
-];
-const gotoEntries = [{ key: "c", path: "/collections", label: "nav.collections" as MessageKey }, ...navGroups.flatMap((group) => group.items.map((entry) => ({ key: entry.key, path: `/${entry.path}`, label: entry.label })))];
-
-/** Registers the shell shortcuts (palette, help, filter, new, go-to); Esc and save belong to panes and save bars. */
-export function useShellShortcuts(): void {
-  const navigate = useNavigate();
-  useShortcut("mod+k", togglePalette, { inFields: true });
-  useShortcut("?", () => setHelp(true));
-  useShortcut("/", () => {
-    const input = document.querySelector<HTMLInputElement>("main [data-filter]");
-    if (!input) return false;
-    input.focus();
-    input.select();
-  });
-  useShortcut("n", () => {
-    const button = document.querySelector<HTMLElement>("main [data-new]");
-    if (!button || (button as HTMLButtonElement).disabled) return false;
-    button.click();
-  });
-  useEffect(() => {
-    const cleanups = gotoEntries.map((entry) => registerShortcut({ keys: `g ${entry.key}`, run: () => void navigate(entry.path) }));
-    return () => cleanups.forEach((cleanup) => cleanup());
-  }, [navigate]);
-}
-
 function Keys({ keys }: { keys: string }) {
   const t = useT();
   const steps = keyLabel(keys);
@@ -223,7 +191,7 @@ function Keys({ keys }: { keys: string }) {
 }
 
 /** "?": every shortcut, grouped. */
-export function ShortcutsHelp() {
+function ShortcutsHelp() {
   const t = useT();
   const open = useHelp();
   return (
@@ -256,5 +224,15 @@ export function ShortcutsHelp() {
         <Button variant="secondary" onClick={() => setHelp(false)}>{t("common.close")}</Button>
       </div>
     </TaskDialog>
+  );
+}
+
+/** The palette and the shortcut list, loaded together on first use. */
+export function ShellOverlays() {
+  return (
+    <>
+      <CommandPalette />
+      <ShortcutsHelp />
+    </>
   );
 }
