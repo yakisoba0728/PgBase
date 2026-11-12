@@ -9,7 +9,7 @@ import { importOperationQuery, schemaOperationQuery } from "../devtools/queries"
 import { jobsQuery } from "../ops/queries";
 import { useT, type MessageKey } from "../i18n";
 import { backupJobQuery, migrationQuery, migrationRunning } from "../storage/queries";
-import { findOperation, isWatched, operations, operationState, trackOperation, untrackOperation, useOperations, type OperationKind, type TrackedOperation } from "./operations";
+import { findOperation, isWatched, operations, operationState, pollWhileRunning, trackOperation, untrackOperation, useOperations, type OperationKind, type TrackedOperation } from "./operations";
 
 const isNotFound = (error: unknown) => error instanceof ApiError && error.status === 404;
 
@@ -21,12 +21,12 @@ function queryFor(operation: TrackedOperation): UseQueryOptions<unknown> {
     case "migration":
       return migrationQuery(operation.id) as UseQueryOptions<unknown>;
     case "import":
-      return importOperationQuery(operation.id) as UseQueryOptions<unknown>;
+      return { ...importOperationQuery(operation.id), refetchInterval: pollWhileRunning } as UseQueryOptions<unknown>;
     case "job":
       return { ...jobsQuery, select: (list: ManagedJobList) => list.items.find((job) => job.id === operation.id) ?? null, refetchInterval: 3000 } as UseQueryOptions<unknown>;
     case "schema":
       // The page polls "unknown" too; from the navigation it only waits for a resend.
-      return { ...schemaOperationQuery(operation.id), refetchInterval: (query) => ((query.state.data as { status?: string } | undefined)?.status === "running" ? 2000 : false) } as UseQueryOptions<unknown>;
+      return { ...schemaOperationQuery(operation.id), refetchInterval: pollWhileRunning } as UseQueryOptions<unknown>;
   }
 }
 

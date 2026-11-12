@@ -1,11 +1,11 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { RiLockPasswordLine, RiMailLine, RiShieldKeyholeLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { login, type LoginInput } from "../api/session";
-import { sessionQuery, setupStatusQuery } from "../app/queries";
-import { forgetSession } from "../app/signout";
+import { setupStatusQuery } from "../app/queries";
+import { adoptSession, finishSignOut } from "../app/signout";
 import { Button } from "../components/Button";
 import { Field } from "../components/Field";
 import { useT } from "../i18n";
@@ -17,18 +17,23 @@ export function LoginScreen() {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
-  const queryClient = useQueryClient();
   const status = useQuery(setupStatusQuery);
-  const signedOut = (location.state as { signedOut?: boolean } | null)?.signedOut;
+  // A sign-out reaches here only once the navigation committed (an unsaved-changes Cancel keeps the session).
+  // The state is consumed once, so a reload of /login does not end a session signed in since.
+  const leaving = location.state as { signedOut?: boolean; end?: boolean } | null;
+  const finished = useRef(false);
   useEffect(() => {
-    if (signedOut) forgetSession();
-  }, [signedOut]);
+    if (!leaving?.signedOut || finished.current) return;
+    finished.current = true;
+    finishSignOut(leaving.end === true, t);
+    void navigate(".", { replace: true, state: null });
+  }, [leaving, navigate, t]);
   // Set once the server asks for a TOTP code; the code is then re-posted with these credentials.
   const [pending, setPending] = useState<LoginInput | null>(null);
   const mutation = useMutation({
     mutationFn: login,
     onSuccess: (session) => {
-      queryClient.setQueryData(sessionQuery.queryKey, session);
+      adoptSession(session);
       const from = (location.state as { from?: string } | null)?.from;
       navigate(from ?? "/collections", { replace: true });
     },
@@ -42,7 +47,7 @@ export function LoginScreen() {
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    if (pending) mutation.mutate({ ...pending, otpCode: formValue(form, "otp").trim() });
+    if (pending) mutation.mutate({ ...pending, otpCode: formValue(form, "otp").replace(/\s+/g, "") });
     else mutation.mutate({ email: formValue(form, "email"), password: formValue(form, "password") });
   };
   const back = () => {
