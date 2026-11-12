@@ -45,7 +45,11 @@ describe("useRulesEditor split save", () => {
     await act(() => result.current.save.mutateAsync().catch(() => undefined));
     await waitFor(() => expect(result.current.partial).toEqual(["update"]));
     expect(api.setCollectionRules).not.toHaveBeenCalled();
+    // The edits are saved, but leaving would lose the Retry: the guard still asks.
+    expect(result.current.dirty).toBe(false);
+    expect(result.current.guard.dirty).toBe(true);
     await act(() => result.current.finish.mutateAsync());
+    expect(result.current.guard.dirty).toBe(false);
     expect(server.update).toEqual({ op: "owner" });
     expect(server.list).toMatchObject({ pocketbase: "status = 'open'" });
     expect(result.current.partial).toEqual([]);

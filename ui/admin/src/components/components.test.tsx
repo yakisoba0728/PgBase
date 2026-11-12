@@ -68,6 +68,27 @@ describe("Toast", () => {
       vi.useRealTimers();
     }
   });
+
+  it("shows only the newest; an error underneath waits without timing out, a plain note is replaced", () => {
+    vi.useFakeTimers();
+    try {
+      render(<ToastHost />);
+      act(() => toast("Failed", "danger"));
+      act(() => toast("Saved"));
+      act(() => toast("Saved again"));
+      expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+      expect(screen.queryByText("Saved")).not.toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(5_000));
+      // The error had no time running while hidden, so it now shows for its full time.
+      expect(screen.getByText("Failed")).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(4_000));
+      expect(screen.getByText("Failed")).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(1_000));
+      expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("SaveBar", () => {

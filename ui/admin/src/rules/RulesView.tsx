@@ -145,7 +145,7 @@ export function RulesView({ collection, basePath }: { collection: Collection; ba
     </Notice>
   );
   if (editor.loading) return <Loader />;
-  if (editor.loadError || !editor.drafts) return <div className="page-content">{partial}<EmptyState icon={RiErrorWarningLine}>{errorText(t, editor.loadError)}</EmptyState></div>;
+  if (editor.loadError || !editor.drafts) return <div className="page-content">{partial}<EmptyState icon={RiErrorWarningLine}>{errorText(t, editor.loadError)}</EmptyState><UnsavedGuard {...editor.guard} /></div>;
   const isView = collection.type === "view";
   const list = (
     <>

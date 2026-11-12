@@ -91,9 +91,9 @@ export function login(input: LoginInput): Promise<AdminSession> {
   return adopt(request<AdminSession>("POST", "/api/admin/auth/login", { body: input }));
 }
 
-export async function logout(): Promise<void> {
+export async function logout(keepalive = false): Promise<void> {
   try {
-    await request<void>("POST", "/api/admin/auth/logout");
+    await request<void>("POST", "/api/admin/auth/logout", { keepalive });
   } finally {
     clearCsrfToken();
   }

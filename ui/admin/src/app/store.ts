@@ -26,6 +26,14 @@ export function readStorage(key: string): string | null {
   }
 }
 
+export function removeStorage(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Nothing stored.
+  }
+}
+
 export function writeStorage(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);

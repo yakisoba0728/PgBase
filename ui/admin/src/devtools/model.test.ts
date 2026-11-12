@@ -1,7 +1,27 @@
 import { describe, expect, it } from "vitest";
 import type { Collection } from "../api/collections";
 import type { SchemaDocument, SchemaImportPreview } from "../api/schema";
-import { errorLocation, importSections, pickCollections, problemList, recallStatements, rememberStatement, statementText } from "./model";
+import { ApiError } from "../api/http";
+import { errorLocation, importSections, mayHaveRun, pickCollections, problemList, recallStatements, rememberStatement, statementText } from "./model";
+
+describe("mayHaveRun", () => {
+  it("treats only a refusal before the start as proof that a write did not run", () => {
+    const cases: [ApiError | Error, boolean][] = [
+      [new ApiError(0, "network_error", ""), true],
+      [new ApiError(408, "invalid_response", ""), true],
+      [new ApiError(500, "internal_error", ""), true],
+      [new ApiError(502, "invalid_response", ""), true],
+      [new ApiError(503, "unavailable", ""), true],
+      [new ApiError(504, "invalid_response", ""), true],
+      [new Error("boom"), true],
+      [new ApiError(400, "invalid_request", ""), false],
+      [new ApiError(403, "csrf_rejected", ""), false],
+      [new ApiError(409, "conflict", ""), false],
+      [new ApiError(429, "busy", ""), false],
+    ];
+    for (const [error, expected] of cases) expect([error instanceof ApiError ? error.status : error.message, mayHaveRun(error)]).toEqual([error instanceof ApiError ? error.status : error.message, expected]);
+  });
+});
 
 const field = (name: string, id?: string) => ({ id, name, type: "text", required: false, unique: false, indexed: false, ordinal: 0, hidden: false, presentable: false });
 const doc = (names: string[]): SchemaDocument => ({ format: "pgbase.schema/v1", collections: names.map((name) => ({ name, userAccess: false, rules: null })), authCollections: [] });

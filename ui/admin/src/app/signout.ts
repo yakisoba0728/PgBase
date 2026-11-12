@@ -1,14 +1,14 @@
 import { useNavigate } from "react-router";
 import { toast } from "../components/Toast";
-import { tNow, type Translate } from "../i18n";
-import { ApiError, type CsrfRecovery } from "../api/http";
+import { tNow } from "../i18n";
+import { ApiError } from "../api/http";
 import { getSession, logout, type AdminSession } from "../api/session";
 import { clearAllDrafts } from "../collections/recordDraft";
 import { drafts } from "../schema/drafts";
 import { forgetOperations } from "./operations";
-import { errorText, isUnauthorized, queryClient, sessionQuery } from "./queries";
+import { errorText, isUnauthorized, queryClient, sessionQuery, signingOutKey } from "./queries";
 import { forgetRecent } from "./recent";
-import { readStorage, writeStorage } from "./store";
+import { readStorage, removeStorage, writeStorage } from "./store";
 
 /** This tab's own content: schema drafts in memory and its SQL text and pending import. */
 function forgetTab(): void {
@@ -39,15 +39,17 @@ export function adoptSession(session: AdminSession): void {
   const owner = readStorage(ownerKey);
   if (owner !== null && owner !== session.administrator.id) forgetDevice();
   writeStorage(ownerKey, session.administrator.id);
+  removeStorage(signingOutKey);
   queryClient.clear();
   queryClient.setQueryData(sessionQuery.queryKey, session);
 }
 
 /**
- * Renews this tab's session after a CSRF rejection or another tab's sign-in: the same administrator keeps working
- * (the request is retried); a different one replaces everything this tab showed (the shell remounts on the new id).
+ * Renews this tab's session after a CSRF rejection or another tab's sign-in and returns who is signed in now: the
+ * same administrator keeps working; a different one replaces everything this tab showed (the shell remounts on the
+ * new id). Whether a rejected request is resent is decided against the administrator it was issued under (http.ts).
  */
-export async function recoverSession(): Promise<CsrfRecovery> {
+export async function recoverSession(): Promise<string | null> {
   const cached = queryClient.getQueryData(sessionQuery.queryKey);
   if (!cached) return null;
   let session: AdminSession;
@@ -57,17 +59,19 @@ export async function recoverSession(): Promise<CsrfRecovery> {
     if (isUnauthorized(error)) void queryClient.resetQueries({ queryKey: sessionQuery.queryKey });
     return null;
   }
-  if (session.administrator.id === cached.administrator.id) {
-    queryClient.setQueryData(sessionQuery.queryKey, session);
-    return "retry";
+  const id = session.administrator.id;
+  if (id !== cached.administrator.id) {
+    forgetTab();
+    queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== sessionQuery.queryKey[0] });
+    // The screen that asked has been remounted, so the reason is told here.
+    toast(tNow("error.session_changed"), "danger");
   }
-  forgetTab();
-  queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== sessionQuery.queryKey[0] });
   queryClient.setQueryData(sessionQuery.queryKey, session);
-  // The screen that asked has been remounted, so the reason is told here.
-  toast(tNow("error.session_changed"), "danger");
-  return "changed";
+  return id;
 }
+
+/** The administrator this tab's requests are issued under. */
+export const currentAdministrator = () => queryClient.getQueryData(sessionQuery.queryKey)?.administrator.id ?? null;
 
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
@@ -75,25 +79,46 @@ if (typeof window !== "undefined") {
   });
 }
 
-/** Leaves for /login; LoginScreen then forgets this device's content (see finishSignOut), so a blocked navigation keeps everything. */
+/** Leaves for /login; the committed navigation then signs out (see followSignOut), so a blocked navigation keeps everything. */
 export function useLeaveSession(end = false): () => void {
   const navigate = useNavigate();
   return () => void navigate("/login", { replace: true, state: { signedOut: true, end } });
 }
 
-/** The one sign-out, for menus and the command palette: ends the server session once /login is reached. */
+/** The one sign-out, for menus and the command palette: ends the server session once leaving is confirmed. */
 export const useSignOut = () => useLeaveSession(true);
 
-/** Runs on /login after a sign-out committed: forgets this device's content and cache, then ends the server session (best effort). */
-export function finishSignOut(end: boolean, t: Translate): void {
+let followed: string | null = null;
+
+/**
+ * Router subscriber: a sign-out takes effect the moment its navigation commits (an unsaved-changes Cancel never
+ * commits it), before /login renders, so a reload or a typed address right after cannot skip it.
+ */
+export function followSignOut(location: { key: string; state: unknown }): void {
+  const leaving = location.state as { signedOut?: boolean; end?: boolean } | null;
+  if (!leaving?.signedOut || followed === location.key) return;
+  followed = location.key;
+  finishSignOut(leaving.end === true);
+}
+
+/**
+ * Forgets this device's content and cache at once (the guard then has no session to show), then ends the server
+ * session. The request outlives the page, and until the server confirms it the next session check ends it first.
+ */
+export function finishSignOut(end: boolean): void {
   forgetDevice();
   queryClient.clear();
   if (!end) return;
+  writeStorage(signingOutKey, "1");
   // The cache is gone, so a stale token (another tab signed in again) is renewed here rather than by recoverSession.
-  const renewed = (error: unknown) => (error instanceof ApiError && error.code === "csrf_rejected" ? getSession().then(logout) : Promise.reject(error));
-  logout()
+  const renewed = (error: unknown) => (error instanceof ApiError && error.code === "csrf_rejected" ? getSession().then(() => logout(true)) : Promise.reject(error));
+  logout(true)
     .catch(renewed)
-    .catch((error: unknown) => {
-      if (!isUnauthorized(error)) toast(errorText(t, error), "danger");
-    });
+    .then(
+      () => removeStorage(signingOutKey),
+      (error: unknown) => {
+        if (isUnauthorized(error)) removeStorage(signingOutKey);
+        else toast(errorText(tNow, error), "danger");
+      },
+    );
 }

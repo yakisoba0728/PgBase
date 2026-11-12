@@ -16,7 +16,7 @@ import { useT } from "../i18n";
 import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { newIdentity } from "../schema/apply";
-import { recallStatements, rememberStatement, statementText } from "./model";
+import { mayHaveRun, recallStatements, rememberStatement, statementText } from "./model";
 import { sqlExecutionQuery, sqlHistoryQuery } from "./queries";
 import { SqlResult, statusTone } from "./SqlResult";
 import "../styles/devtools.css";
@@ -73,8 +73,11 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
   const writing = settings.writeEnabled && mode === "write";
 
   // A write whose response was lost: resending it unchanged (same execution id, idempotency key and body)
-  // makes the server replay the stored outcome instead of running it again. Kept for this page view only.
+  // makes the server replay the stored outcome instead of running it again. Kept for this page view only, and
+  // cleared only by that write's own result or a confirmed "set aside": a resend refused as busy or unavailable
+  // says nothing about the first attempt.
   const [lostWrite, setLostWrite] = useState<SqlAttempt | null>(null);
+  const [setAside, setSetAside] = useState(false);
   const newAttempt = (): SqlAttempt => {
     const text = statementText(sql);
     return { text, identity: newIdentity(), input: { mode: writing ? "write" : "read", dryRun: writing && dryRun ? true : undefined, statements: [{ sql: text }] } };
@@ -87,18 +90,16 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
       try {
         return await submitSql(input, { executionId: identity.operationId, idempotencyKey: input.mode === "write" ? identity.idempotencyKey : undefined });
       } catch (error) {
-        if (error instanceof ApiError && error.code === "network_error") {
+        if (mayHaveRun(error)) {
           // The request may have landed; its id is ours, so the result pane can still look it up.
           update({ run: identity.operationId });
           if (input.mode === "write") setLostWrite(attempt);
-        } else {
-          setLostWrite(null);
         }
         throw error;
       }
     },
-    onSuccess: (execution) => {
-      setLostWrite(null);
+    onSuccess: (execution, attempt) => {
+      setLostWrite((lost) => (lost?.identity.operationId === attempt.identity.operationId ? null : lost));
       queryClient.setQueryData(sqlExecutionQuery(execution.id).queryKey, execution);
       // The result pane refreshes the history once this run settles.
       update({ run: execution.id });
@@ -154,7 +155,7 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
         {lostWrite && (
           <Notice tone="danger" title={t("devtools.sql.lostTitle")} actions={<>
             <Button size="sm" variant="secondary" loading={submit.isPending} onClick={() => submit.mutate(lostWrite)}>{t("devtools.sql.resend")}</Button>
-            <Button size="sm" variant="transparent" disabled={submit.isPending} onClick={() => setLostWrite(null)}>{t("devtools.sql.forget")}</Button>
+            <Button size="sm" variant="transparent" disabled={submit.isPending} onClick={() => setSetAside(true)}>{t("devtools.sql.forget")}</Button>
           </>}>
             <p>{t("devtools.sql.lostText")}</p>
             <pre className="dt-caret mono">{lostWrite.text}</pre>
@@ -194,6 +195,18 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
         )}
         {more && <Button size="sm" variant="secondary" loading={loadingMore} onClick={more}>{t("common.loadMore")}</Button>}
       </aside>
+      <ConfirmDialog
+        open={setAside}
+        title={t("devtools.sql.forgetTitle")}
+        message={t("devtools.sql.forgetText")}
+        confirmLabel={t("devtools.sql.forget")}
+        danger
+        onConfirm={() => {
+          setLostWrite(null);
+          setSetAside(false);
+        }}
+        onCancel={() => setSetAside(false)}
+      />
       <ConfirmDialog
         open={confirm}
         title={t("devtools.sql.confirmTitle")}
