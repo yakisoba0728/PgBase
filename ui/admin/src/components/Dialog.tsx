@@ -28,6 +28,7 @@ interface ConfirmDialogProps {
   title: string;
   message?: ReactNode;
   confirmLabel?: string;
+  cancelLabel?: string;
   danger?: boolean;
   busy?: boolean;
   /** Keeps the confirm button off until a condition holds (e.g. a typed name). */
@@ -38,7 +39,7 @@ interface ConfirmDialogProps {
   onCancel: () => void;
 }
 
-export function ConfirmDialog({ open, title, message, confirmLabel, danger, busy, confirmDisabled, children, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({ open, title, message, confirmLabel, cancelLabel, danger, busy, confirmDisabled, children, onConfirm, onCancel }: ConfirmDialogProps) {
   const t = useT();
   const titleId = useId();
   const modal = useModal(open, onCancel);
@@ -50,7 +51,7 @@ export function ConfirmDialog({ open, title, message, confirmLabel, danger, busy
           {message && <p>{message}</p>}
           {children}
           <div className="confirm-actions">
-            <Button variant="secondary" onClick={onCancel} autoFocus>{t("common.cancel")}</Button>
+            <Button variant="secondary" onClick={onCancel} autoFocus>{cancelLabel ?? t("common.cancel")}</Button>
             <Button variant={danger ? "danger" : "primary"} loading={busy} disabled={confirmDisabled} onClick={onConfirm}>
               {confirmLabel ?? t("common.confirm")}
             </Button>
