@@ -2,7 +2,7 @@ import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { getAuthAdministration, getAuthRecord, listAuthCollections, listAuthRecords, listOAuthProviderCatalog, listTokenPolicies, type AuthCollection, type AuthRecord } from "../api/authCollections";
 import { ApiError } from "../api/http";
 import { listUserOAuthIdentities, listUsers, type ManagedUser } from "../api/users";
-import { matchesUser } from "./forms";
+import { matchesUser, uuidBefore } from "./forms";
 
 export const authCollectionsQuery = queryOptions({
   queryKey: ["auth", "collections"],
@@ -28,6 +28,18 @@ export const usersQuery = infiniteQueryOptions({
   initialPageParam: undefined as string | undefined,
   getNextPageParam: (page) => page.nextAfter,
 });
+
+/** One user by id, for a ?user= link beyond the loaded pages (the API has no single-user read). */
+export const userQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["auth", "users", "one", id],
+    queryFn: async ({ signal }) => {
+      const after = uuidBefore(id);
+      if (after === null) return null;
+      const page = await listUsers({ after, limit: 1, signal });
+      return page.items.find((user) => user.id === id) ?? null;
+    },
+  });
 
 export const identitiesQuery = (userId: string) =>
   queryOptions({ queryKey: ["auth", "identities", userId], queryFn: ({ signal }) => listUserOAuthIdentities(userId, signal) });

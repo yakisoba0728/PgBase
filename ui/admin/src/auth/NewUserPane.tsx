@@ -11,7 +11,8 @@ import { useT } from "../i18n";
 import { bareEmail, profileChanges, profileDraft, profileFields, type Problems, type ProfileDraft } from "./forms";
 import { ProfileFields } from "./ProfileFields";
 import { administrationQuery, authCollectionsQuery } from "./queries";
-import { problemText, reportFailure, SaveBar, UnsavedGuard, useDraft } from "./useDraft";
+import { problemText, reportFailure, UnsavedGuard, useDraft } from "./useDraft";
+import { SaveBar } from "../components/SaveBar";
 
 /** Creates a user with credentials through the auth-collection records endpoint. */
 export function NewUserPane({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
@@ -96,7 +97,7 @@ function NewUserForm({ collections, onClose, onCreated }: { collections: AuthCol
         </form>
       </div>
       <footer className="pane-footer">
-        <SaveBar form="auth-new-user" dirty busy={create.isPending} onDiscard={onClose} label={t("auth.users.create")} />
+        <SaveBar form="auth-new-user" dirty busy={create.isPending} onDiscard={onClose} saveLabel={t("auth.users.create")} />
       </footer>
       <UnsavedGuard dirty={form.dirty} release={form.release} />
     </>

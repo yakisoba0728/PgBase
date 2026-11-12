@@ -8,7 +8,8 @@ import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState, Loader } from "../components/Feedback";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
-import { useParams, useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../ops/queries";
+import { useSearchState } from "../app/search";
 import { newIdentity } from "../schema/apply";
 import { destinationOf, draftFrom, storageErrorKey, validateDraft, type StorageDraft } from "./model";
 import { fileStorageQuery, migrationQuery, migrationRunning } from "./queries";
@@ -25,7 +26,7 @@ function describeSettings(t: Translate, settings: Pick<FileStorageSettings, "dri
 export function MigrationView() {
   const t = useT();
   const files = useQuery(fileStorageQuery);
-  const { params } = useParams();
+  const { params } = useSearchState();
   const migration = useQuery(migrationQuery(params.get("migration")));
   if (files.isPending || migration.isPending) return <Loader />;
   if (files.isError || migration.isError) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, files.error ?? migration.error)}</EmptyState>;
@@ -64,7 +65,7 @@ function MigrationStatus({ migration }: { migration: StorageMigrationStatus | nu
     <section className="storage-block" aria-label={t("storage.migration.latest")}>
       <h2 className="ops-subtitle">{t("storage.migration.latest")}</h2>
       <dl className="ops-props">
-        <div><dt>{t("storage.migration.status")}</dt><dd><span className="ops-dot" data-tone={stateTone[status]}>{t(`storage.migration.state.${status}`)}</span></dd></div>
+        <div><dt>{t("storage.migration.status")}</dt><dd><span className="dot" data-tone={stateTone[status]}>{t(`storage.migration.state.${status}`)}</span></dd></div>
         <div>
           <dt>{t("storage.migration.copied")}</dt>
           <dd>
@@ -92,7 +93,7 @@ function MigrationStatus({ migration }: { migration: StorageMigrationStatus | nu
 function DestinationForm({ current, locked }: { current: FileStorageSettings; locked: boolean }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const { update } = useParams();
+  const { update } = useSearchState();
   // Starts from the other driver: a migration to the same location is rejected.
   const [draft, setDraft] = useState<StorageDraft>(() => ({ ...draftFrom(current), driver: current.driver === "local" ? "s3" : "local", accessKey: "", secretKey: "" }));
   const [touched, setTouched] = useState(false);

@@ -7,14 +7,14 @@ import { EmptyState, Loader } from "../components/Feedback";
 import { Checkbox } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { useParams } from "../ops/queries";
+import { useSearchState } from "../app/search";
 import { pickCollections } from "./model";
 import { exportQuery } from "./queries";
 
 /** Collection picker on the left, the exported document on the right. Skipped names live in ?skip=. */
 export function SchemaExport() {
   const t = useT();
-  const { params, update } = useParams();
+  const { params, update } = useSearchState();
   const query = useQuery(exportQuery);
   if (query.isPending) return <Loader />;
   if (query.isError) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, query.error)}</EmptyState>;

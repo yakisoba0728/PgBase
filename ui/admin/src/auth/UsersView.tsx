@@ -1,30 +1,21 @@
-import { useCallback } from "react";
-import { useSearchParams } from "react-router";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchState } from "../app/search";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiAddLine, RiErrorWarningLine, RiRefreshLine, RiUser3Line } from "@remixicon/react";
 import { errorText } from "../app/queries";
-import { shortDate } from "../collections/fields";
+import { useTimeFormat } from "../ops/queries";
 import { Button, IconButton } from "../components/Button";
 import { EmptyState, Loader } from "../components/Feedback";
 import { SplitView } from "../components/SplitView";
 import { useT } from "../i18n";
 import { NewUserPane } from "./NewUserPane";
-import { usersQuery } from "./queries";
+import { userQuery, usersQuery } from "./queries";
 import { UserPane } from "./UserPane";
 import "../styles/auth.css";
 
 /** ?user=<uuid> opens a user, ?new=1 the create form. */
 function useUsersUrl() {
-  const [params, setParams] = useSearchParams();
-  const set = useCallback((user: string | null, creating = false) =>
-    setParams((previous) => {
-      const next = new URLSearchParams(previous);
-      next.delete("user");
-      next.delete("new");
-      if (user) next.set("user", user);
-      if (creating) next.set("new", "1");
-      return next;
-    }), [setParams]);
+  const { params, update } = useSearchState();
+  const set = (user: string | null, creating = false) => update({ user, new: creating ? "1" : null });
   return { user: params.get("user"), creating: params.has("new"), open: (id: string) => set(id), create: () => set(null, true), close: () => set(null) };
 }
 
@@ -43,10 +34,13 @@ export function UsersActions() {
 /** Every user across auth collections, in id order with cursor paging (the API has no filters). */
 export function UsersView() {
   const t = useT();
+  const time = useTimeFormat();
   const url = useUsersUrl();
   const users = useInfiniteQuery(usersQuery);
   const items = users.data?.pages.flatMap((page) => page.items) ?? [];
-  const openUser = items.find((user) => user.id === url.user);
+  const listed = items.find((user) => user.id === url.user);
+  const direct = useQuery({ ...userQuery(url.user ?? ""), enabled: Boolean(url.user) && !users.isPending && !listed });
+  const openUser = listed ?? direct.data ?? undefined;
 
   const list = (
     <>
@@ -78,9 +72,9 @@ export function UsersView() {
                     <td>
                       <button type="button" className="auth-cell-button" onClick={(event) => { event.stopPropagation(); url.open(user.id); }}>{user.email}</button>
                     </td>
-                    <td><span className="auth-chip" data-tone={user.active ? undefined : "danger"}>{user.active ? t("auth.users.active") : t("auth.users.disabled")}</span></td>
-                    <td><span className="auth-chip" data-tone={user.verified ? "on" : undefined}>{user.verified ? t("auth.users.yes") : t("auth.users.no")}</span></td>
-                    <td className="txt-hint">{shortDate(user.createdAt)}</td>
+                    <td><span className="dot" data-tone={user.active ? "success" : undefined}>{user.active ? t("auth.users.active") : t("auth.users.disabled")}</span></td>
+                    <td><span className="dot" data-tone={user.verified ? "success" : undefined}>{user.verified ? t("auth.users.yes") : t("auth.users.no")}</span></td>
+                    <td className="mono">{time(user.createdAt)}</td>
                     <td className="mono txt-hint">{user.id}</td>
                   </tr>
                 ))}
@@ -100,6 +94,7 @@ export function UsersView() {
   let pane = null;
   if (url.creating) pane = <NewUserPane onClose={url.close} onCreated={url.open} />;
   else if (openUser) pane = <UserPane key={openUser.id} user={openUser} onClose={url.close} />;
-  else if (url.user && !users.isPending && !users.hasNextPage) pane = <EmptyState icon={RiErrorWarningLine}>{t("auth.users.missing")}</EmptyState>;
+  else if (url.user && !users.isPending && direct.isError) pane = <EmptyState icon={RiErrorWarningLine}>{errorText(t, direct.error)}</EmptyState>;
+  else if (url.user && !users.isPending && direct.data === null) pane = <EmptyState icon={RiErrorWarningLine}>{t("auth.users.missing")}</EmptyState>;
   return <SplitView list={list} paneLabel={t("auth.users.detail")} onClose={url.close} pane={pane} />;
 }

@@ -1,34 +1,4 @@
 /* Schema tab: draft status bar, sectioned field and index rows, plan review, new-collection choice. */
-.schema-toolbar {
-  gap: 6px;
-}
-
-.schema-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-right: auto;
-  color: var(--text-hint);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-}
-
-.schema-status::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-3);
-}
-
-.schema-status[data-dirty] {
-  color: var(--text);
-}
-
-.schema-status[data-dirty]::before {
-  background: var(--warning);
-}
-
 .schema-content {
   display: grid;
   align-content: start;

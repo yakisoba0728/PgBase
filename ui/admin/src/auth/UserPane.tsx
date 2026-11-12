@@ -15,7 +15,7 @@ import {
 } from "../api/users";
 import { ApiError } from "../api/http";
 import { errorText } from "../app/queries";
-import { shortDate } from "../collections/fields";
+import { useTimeFormat } from "../ops/queries";
 import { Button, IconButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { Loader } from "../components/Feedback";
@@ -25,7 +25,8 @@ import { useT, type MessageKey } from "../i18n";
 import { bareEmail, profileChanges, profileDraft, profileFields, type Problems } from "./forms";
 import { ProfileFields } from "./ProfileFields";
 import { authCollectionsQuery, identitiesQuery, userRecordQuery } from "./queries";
-import { problemText, reportFailure, SaveBar, UnsavedGuard, useDraft } from "./useDraft";
+import { problemText, reportFailure, UnsavedGuard, useDraft } from "./useDraft";
+import { SaveBar } from "../components/SaveBar";
 
 type Action =
   | { kind: "disable" | "enable" | "verify" | "unverify" | "sendVerification" | "sendReset" | "revoke" | "impersonate" | "delete" }
@@ -47,6 +48,7 @@ const actionText: Record<Action["kind"], { title: MessageKey; text: MessageKey; 
 /** One user: lifecycle actions on /api/admin/users and profile editing on the auth record. */
 export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => void }) {
   const t = useT();
+  const time = useTimeFormat();
   const queryClient = useQueryClient();
   const collections = useQuery(authCollectionsQuery);
   const resolved = useQuery({ ...userRecordQuery(user, collections.data ?? []), enabled: Boolean(collections.data) });
@@ -121,20 +123,20 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
           <dt>{t("auth.users.collection")}</dt>
           <dd className="mono">{resolved.data ? resolved.data.collection.name : resolved.isPending ? "…" : t("auth.user.unresolved")}</dd>
           <dt>{t("auth.users.created")}</dt>
-          <dd>{shortDate(user.createdAt)}</dd>
+          <dd>{time(user.createdAt, true)}</dd>
           <dt>{t("auth.users.updated")}</dt>
-          <dd>{shortDate(user.updatedAt)}</dd>
+          <dd>{time(user.updatedAt, true)}</dd>
         </dl>
 
         <div className="auth-actions">
           <div className="auth-action">
             <span>{t("auth.users.status")}</span>
-            <span className="auth-chip" data-tone={user.active ? undefined : "danger"}>{user.active ? t("auth.users.active") : t("auth.users.disabled")}</span>
+            <span className="dot" data-tone={user.active ? "success" : undefined}>{user.active ? t("auth.users.active") : t("auth.users.disabled")}</span>
             <Button size="sm" variant="secondary" onClick={() => ask({ kind: user.active ? "disable" : "enable" })}>{user.active ? t("auth.user.disable") : t("auth.user.enable")}</Button>
           </div>
           <div className="auth-action">
             <span>{t("auth.users.verified")}</span>
-            <span className="auth-chip" data-tone={user.verified ? "on" : undefined}>{user.verified ? t("auth.users.yes") : t("auth.users.no")}</span>
+            <span className="dot" data-tone={user.verified ? "success" : undefined}>{user.verified ? t("auth.users.yes") : t("auth.users.no")}</span>
             <Button size="sm" variant="secondary" onClick={() => ask({ kind: user.verified ? "unverify" : "verify" })}>{user.verified ? t("auth.user.markUnverified") : t("auth.user.markVerified")}</Button>
             {!user.verified && <Button size="sm" variant="secondary" onClick={() => ask({ kind: "sendVerification" })}>{t("auth.user.sendVerification")}</Button>}
           </div>

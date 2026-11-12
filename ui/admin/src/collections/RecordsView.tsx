@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { RiAddLine, RiDeleteBinLine, RiErrorWarningLine, RiFilterLine, RiInboxLine, RiRefreshLine } from "@remixicon/react";
 import type { Collection } from "../api/collections";
@@ -38,6 +38,11 @@ export function RecordsView({ collection }: { collection: Collection }) {
   const records = useInfiniteQuery(recordsQuery(collection.name, buildFilter(url.filter, collection.fields), url.sort));
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulk, setConfirmBulk] = useState(false);
+  const filterInput = useRef<HTMLInputElement>(null);
+  // Follows URL changes from elsewhere (clear, history) without remounting: a remount would drop what is being typed.
+  useEffect(() => {
+    if (filterInput.current && document.activeElement !== filterInput.current) filterInput.current.value = url.filter;
+  }, [url.filter]);
   const items = records.data?.pages.flatMap((page) => page.items) ?? [];
   const readOnly = collection.type === "view";
 
@@ -82,7 +87,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
         <form role="search" onSubmit={onFilter}>
           <div className="searchbar mono">
             <RiFilterLine size={14} aria-hidden />
-            <input key={url.filter} name="filter" type="search" defaultValue={url.filter} aria-label={t("records.filter")} placeholder={t("records.filterPlaceholder")} spellCheck={false} autoComplete="off" />
+            <input ref={filterInput} name="filter" type="search" defaultValue={url.filter} aria-label={t("records.filter")} placeholder={t("records.filterPlaceholder")} spellCheck={false} autoComplete="off" />
           </div>
         </form>
         {count > 0 && !readOnly ? (

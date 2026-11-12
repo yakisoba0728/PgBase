@@ -6,6 +6,7 @@ import { ApiView } from "../apidocs/ApiView";
 import { RulesView } from "../rules/RulesView";
 import { useCollection } from "../collections/queries";
 import { SchemaView } from "../schema/SchemaView";
+import { SchemaDraftGuard } from "../schema/DraftGuard";
 import { EmptyState, Loader } from "../components/Feedback";
 import { Page } from "../components/Page";
 import { useT } from "../i18n";
@@ -44,6 +45,7 @@ export function CollectionPage() {
       ) : (
         <RecordsView key={collection.name} collection={collection} />
       )}
+      {tab !== "schema" && <SchemaDraftGuard draftKey={collection.id} basePath={base} />}
     </Page>
   );
 }

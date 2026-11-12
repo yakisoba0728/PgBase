@@ -6,7 +6,8 @@ import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { policyDraft, policyInput, policyProblems, type PolicyDraft } from "./forms";
 import { administrationQuery } from "./queries";
-import { problemText, reportFailure, SaveBar, UnsavedGuard, useDraft } from "./useDraft";
+import { problemText, reportFailure, UnsavedGuard, useDraft } from "./useDraft";
+import { SaveBar } from "../components/SaveBar";
 
 export function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
@@ -57,39 +58,43 @@ export function PolicyTab({ collection, administration }: { collection: AuthColl
   );
 
   return (
-    <div className="page-content">
-      <form id="auth-policy" className="auth-form" onSubmit={onSubmit} noValidate>
+    <div className="page-form">
+      <div className="toolbar">
         <SaveBar form="auth-policy" dirty={form.dirty} busy={save.isPending} onDiscard={form.reset} />
-        <Section title={t("auth.policy.registration")} hint={t("auth.policy.registrationHint")}>
-          <Checkbox label={t("auth.policy.registrationEnabled")} checked={draft.registrationEnabled} onChange={(event) => patch({ registrationEnabled: event.target.checked })} />
-        </Section>
-        <Section title={t("auth.policy.password")}>
-          <Checkbox label={t("auth.policy.passwordEnabled")} checked={draft.passwordEnabled} onChange={(event) => patch({ passwordEnabled: event.target.checked })} />
-          <div className="auth-grid">
-            {number("minimumPasswordBytes", t("auth.policy.minBytes"), "12–128")}
-            {number("maximumPasswordBytes", t("auth.policy.maxBytes"), "≤ 4096")}
-            <Field label={t("auth.policy.pattern")} mono spellCheck={false} value={draft.passwordPattern} error={error("passwordPattern")} hint={t("auth.policy.patternHint")} onChange={(event) => patch({ passwordPattern: event.target.value })} />
-          </div>
-        </Section>
-        <Section title={t("auth.policy.identity")} hint={t("auth.policy.identityHint")}>
-          <Field label={t("auth.policy.identityFields")} mono spellCheck={false} value={draft.identityFields} error={error("identityFields")} onChange={(event) => patch({ identityFields: event.target.value })} />
-        </Section>
-        <Section title={t("auth.policy.mfa")} hint={t("auth.policy.mfaHint")}>
-          <Checkbox label={t("auth.policy.mfaEnabled")} checked={draft.mfaEnabled} onChange={(event) => patch({ mfaEnabled: event.target.checked })} />
-          <div className="auth-grid">
-            {number("mfaDurationSeconds", t("auth.policy.mfaDuration"), "60–86400")}
-            <Field label={t("auth.policy.mfaRule")} mono spellCheck={false} placeholder='{"field":"verified","equals":true}' value={draft.mfaRule} error={error("mfaRule")} hint={t("auth.policy.mfaRuleHint")} onChange={(event) => patch({ mfaRule: event.target.value })} />
-          </div>
-        </Section>
-        <Section title={t("auth.policy.otp")} hint={t("auth.policy.otpHint")}>
-          <Checkbox label={t("auth.policy.otpEnabled")} checked={draft.otpEnabled} onChange={(event) => patch({ otpEnabled: event.target.checked })} />
-          <div className="auth-grid">
-            {number("otpDurationSeconds", t("auth.policy.otpDuration"), "60–900")}
-            {number("otpMaxAttempts", t("auth.policy.otpAttempts"), "1–10")}
-          </div>
-        </Section>
-        <p className="txt-hint">{t("auth.policy.sessionHint")}</p>
-      </form>
+      </div>
+      <div className="page-content">
+        <form id="auth-policy" className="auth-form" onSubmit={onSubmit} noValidate>
+          <Section title={t("auth.policy.registration")} hint={t("auth.policy.registrationHint")}>
+            <Checkbox label={t("auth.policy.registrationEnabled")} checked={draft.registrationEnabled} onChange={(event) => patch({ registrationEnabled: event.target.checked })} />
+          </Section>
+          <Section title={t("auth.policy.password")}>
+            <Checkbox label={t("auth.policy.passwordEnabled")} checked={draft.passwordEnabled} onChange={(event) => patch({ passwordEnabled: event.target.checked })} />
+            <div className="auth-grid">
+              {number("minimumPasswordBytes", t("auth.policy.minBytes"), "12–128")}
+              {number("maximumPasswordBytes", t("auth.policy.maxBytes"), "≤ 4096")}
+              <Field label={t("auth.policy.pattern")} mono spellCheck={false} value={draft.passwordPattern} error={error("passwordPattern")} hint={t("auth.policy.patternHint")} onChange={(event) => patch({ passwordPattern: event.target.value })} />
+            </div>
+          </Section>
+          <Section title={t("auth.policy.identity")} hint={t("auth.policy.identityHint")}>
+            <Field label={t("auth.policy.identityFields")} mono spellCheck={false} value={draft.identityFields} error={error("identityFields")} onChange={(event) => patch({ identityFields: event.target.value })} />
+          </Section>
+          <Section title={t("auth.policy.mfa")} hint={t("auth.policy.mfaHint")}>
+            <Checkbox label={t("auth.policy.mfaEnabled")} checked={draft.mfaEnabled} onChange={(event) => patch({ mfaEnabled: event.target.checked })} />
+            <div className="auth-grid">
+              {number("mfaDurationSeconds", t("auth.policy.mfaDuration"), "60–86400")}
+              <Field label={t("auth.policy.mfaRule")} mono spellCheck={false} placeholder='{"field":"verified","equals":true}' value={draft.mfaRule} error={error("mfaRule")} hint={t("auth.policy.mfaRuleHint")} onChange={(event) => patch({ mfaRule: event.target.value })} />
+            </div>
+          </Section>
+          <Section title={t("auth.policy.otp")} hint={t("auth.policy.otpHint")}>
+            <Checkbox label={t("auth.policy.otpEnabled")} checked={draft.otpEnabled} onChange={(event) => patch({ otpEnabled: event.target.checked })} />
+            <div className="auth-grid">
+              {number("otpDurationSeconds", t("auth.policy.otpDuration"), "60–900")}
+              {number("otpMaxAttempts", t("auth.policy.otpAttempts"), "1–10")}
+            </div>
+          </Section>
+          <p className="txt-hint">{t("auth.policy.sessionHint")}</p>
+        </form>
+      </div>
       <UnsavedGuard dirty={form.dirty} />
     </div>
   );

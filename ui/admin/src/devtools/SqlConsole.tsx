@@ -11,7 +11,8 @@ import { Checkbox } from "../components/Field";
 import { Tabs } from "../components/Tabs";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { useParams, useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../ops/queries";
+import { useSearchState } from "../app/search";
 import { newIdentity } from "../schema/apply";
 import { recallStatements, rememberStatement, statementText } from "./model";
 import { sqlExecutionQuery, sqlHistoryQuery } from "./queries";
@@ -54,7 +55,7 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
   const t = useT();
   const time = useTimeFormat();
   const queryClient = useQueryClient();
-  const { params, update } = useParams();
+  const { params, update } = useSearchState();
   const scope = settings.sessionIdentity;
   const [sql, setSql] = useState(() => recallStatements(scope)[params.get("run") ?? ""] ?? "");
   const [mode, setMode] = useState<SqlMode>("read");
@@ -155,8 +156,8 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
                     }}
                   >
                     <span className="dt-history-meta">
-                      <span className="dt-status" data-tone={statusTone[execution.status]}>{t(`devtools.sql.status.${execution.status}`)}</span>
-                      {execution.mode === "write" && <span className="chip dt-write">{t("devtools.sql.mode.write")}</span>}
+                      <span className="chip" data-tone={statusTone[execution.status]}>{t(`devtools.sql.status.${execution.status}`)}</span>
+                      {execution.mode === "write" && <span className="chip" data-tone="warning">{t("devtools.sql.mode.write")}</span>}
                       <span className="mono dt-muted">{time(execution.createdAt)}</span>
                     </span>
                     <span className={text === undefined ? "dt-history-sql dt-muted" : "dt-history-sql mono"}>{text ?? t("devtools.sql.notStored")}</span>

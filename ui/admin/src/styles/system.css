@@ -1,6 +1,5 @@
 /* System slice: settings, status, administrators, profile, service tokens. */
 
-.sys-settings,
 .sys-pane {
   display: flex;
   flex-direction: column;
@@ -75,10 +74,6 @@
   margin-top: var(--space-sm);
 }
 
-.sys-footer {
-  background: var(--surface);
-}
-
 /* Rate-limit rules: one row per rule. */
 .sys-rules {
   display: grid;
@@ -110,33 +105,6 @@
 
 .sys-rule > .icon-btn {
   margin-top: 12px;
-}
-
-.sys-dot {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.sys-dot::before {
-  content: "";
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--tone, var(--text-disabled));
-}
-
-.sys-dot[data-tone="success"] {
-  --tone: var(--success);
-}
-
-.sys-dot[data-tone="warning"] {
-  --tone: var(--warning);
-}
-
-.sys-dot[data-tone="danger"] {
-  --tone: var(--danger);
 }
 
 .sys-props {
@@ -188,10 +156,6 @@
   background: color-mix(in srgb, var(--warning), var(--surface-raised) 88%);
   font-size: var(--font-size-sm);
   line-height: var(--line-height-sm);
-}
-
-.sys-chip {
-  margin-left: 8px;
 }
 
 /* Detail pane actions: a title and its effect, with the button on the right. */

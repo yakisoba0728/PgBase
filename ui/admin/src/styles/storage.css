@@ -31,19 +31,10 @@
   gap: var(--space-sm);
 }
 
-.storage-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 .storage-actions > :first-child:not(:only-child) {
   margin-right: auto;
 }
 
-.storage-revision,
 .storage-preview {
   font-size: var(--font-size-sm);
 }

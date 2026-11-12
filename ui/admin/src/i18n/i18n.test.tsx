@@ -20,6 +20,8 @@ describe("i18n", () => {
     expect(translate("en", "setup.restoring", { phase: "copy" })).toBe("Restoring: copy");
     expect(translate("ko", "setup.restoring", { phase: "copy" })).toBe("복원 중: copy");
     expect(translate("en", "setup.restoring")).toBe("Restoring: {phase}");
+    expect(translate("en", "records.count", { count: 1 })).toBe("1 record");
+    expect(translate("en", "records.count", { count: 2 })).toBe("2 records");
   });
 
   it("defaults to the browser language", async () => {

@@ -4,11 +4,11 @@ export const devtoolsEn = {
 
   "devtools.export.tab": "Export",
   "devtools.export.collections": "Collections to export",
-  "devtools.export.picked": "{count} of {total} collections",
+  "devtools.export.picked": "{count} of {total} {total|collection|collections}",
   "devtools.export.all": "All",
   "devtools.export.authKept": "Auth settings ({count}) are always included.",
   "devtools.export.document": "Schema document",
-  "devtools.export.size": "{lines} lines",
+  "devtools.export.size": "{lines} {lines|line|lines}",
 
   "devtools.import.tab": "Import",
   "devtools.import.document": "Document to import",

@@ -5,6 +5,7 @@ import type { BackupStorageSettings, FileStorageSettings, StorageDriver } from "
 import { testBackupStorage, testFileStorage, updateBackupStorageSettings, updateFileStorageSettings } from "../api/storage";
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
+import { SaveBar } from "../components/SaveBar";
 import { EmptyState, Loader } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
@@ -95,7 +96,15 @@ function SettingsEditor({ kind, saved }: { kind: "files" | "backups"; saved: Fil
   const conflict = save.error && storageErrorKey(save.error, kind).startsWith("storage.error.conflict");
 
   return (
-    <form className="storage-form" onSubmit={onSubmit} noValidate>
+    <form className="page-form" onSubmit={onSubmit} noValidate>
+      <div className="toolbar">
+        <SaveBar dirty={dirty} busy={save.isPending} onDiscard={() => { setDraft(draftFrom(saved)); setTouched(false); save.reset(); }}>
+          <span className="txt-hint">{t("storage.form.revision", { revision: saved.revision })}</span>
+          <Button size="sm" variant="secondary" icon={RiPlugLine} disabled={dirty} title={dirty ? t("storage.form.testDirty") : undefined} loading={test.isPending} onClick={() => test.mutate()}>{t("storage.form.test")}</Button>
+        </SaveBar>
+      </div>
+      <div className="page-content">
+        <div className="storage-form">
       <p className="storage-note">{t(backups ? "storage.backups.note" : "storage.files.note")}</p>
       {save.isError && (
         <div className="pane-notice" data-tone="danger" role="alert">
@@ -106,12 +115,8 @@ function SettingsEditor({ kind, saved }: { kind: "files" | "backups"; saved: Fil
       <fieldset className="form" disabled={save.isPending}>
         <StorageFields draft={draft} errors={errors} secretConfigured={saved.secretConfigured} backups={backups} onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} />
       </fieldset>
-      <footer className="storage-actions">
-        <Button variant="secondary" icon={RiPlugLine} disabled={dirty} title={dirty ? t("storage.form.testDirty") : undefined} loading={test.isPending} onClick={() => test.mutate()}>{t("storage.form.test")}</Button>
-        <span className="storage-revision txt-hint">{t("storage.form.revision", { revision: saved.revision })}</span>
-        <Button variant="secondary" disabled={!dirty || save.isPending} onClick={() => { setDraft(draftFrom(saved)); setTouched(false); save.reset(); }}>{t("storage.form.discard")}</Button>
-        <Button type="submit" disabled={!dirty} loading={save.isPending}>{t("storage.form.save")}</Button>
-      </footer>
+        </div>
+      </div>
     </form>
   );
 }

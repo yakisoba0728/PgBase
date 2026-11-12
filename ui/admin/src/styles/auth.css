@@ -10,49 +10,6 @@
   max-width: 1040px;
 }
 
-.auth-savebar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  flex: 1;
-}
-
-.page-content > .auth-form > .auth-savebar {
-  position: sticky;
-  top: calc(var(--space) * -1);
-  z-index: 2;
-  margin: calc(var(--space) * -1) calc(var(--space) * -1) 0;
-  padding: var(--space-sm) var(--space);
-  background: var(--surface);
-}
-
-.auth-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-right: auto;
-  color: var(--text-hint);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-}
-
-.auth-state::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-3);
-}
-
-.auth-state[data-dirty] {
-  color: var(--text);
-}
-
-.auth-state[data-dirty]::before {
-  background: var(--warning);
-}
-
 .auth-section {
   display: grid;
   gap: var(--space-sm);
@@ -87,29 +44,6 @@
 
 .auth-inline > .field-wrap {
   flex: 1;
-}
-
-/* State chips: neutral by default, colour only when the state matters. */
-.auth-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-2);
-  color: var(--text-hint);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-}
-
-.auth-chip[data-tone="on"] {
-  background: color-mix(in srgb, var(--success), var(--surface) 86%);
-  color: var(--success);
-}
-
-.auth-chip[data-tone="danger"] {
-  background: color-mix(in srgb, var(--danger), var(--surface) 86%);
-  color: var(--danger);
 }
 
 /* Provider and identity rows: tone, not borders. */

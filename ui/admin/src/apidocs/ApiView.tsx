@@ -1,4 +1,4 @@
-import { useSearchParams } from "react-router";
+import { useSearchState } from "../app/search";
 import { useQuery } from "@tanstack/react-query";
 import { RiFileCopyLine } from "@remixicon/react";
 import { listAuthCollections } from "../api/authCollections";
@@ -103,7 +103,7 @@ function EndpointPane({ endpoint, collection, audience, language, ruleText, onLa
 /** The API tab: a reference generated from this collection's schema and current rules. */
 export function ApiView({ collection }: { collection: Collection }) {
   const t = useT();
-  const [params, setParams] = useSearchParams();
+  const { params, update } = useSearchState();
   const rules = useQuery({ queryKey: rulesQueryKey(collection.name), queryFn: ({ signal }) => getCollectionRules(collection.name, signal) });
   const access = useQuery({ queryKey: [...rulesQueryKey(collection.name), "access"], queryFn: ({ signal }) => getCollectionUserAccess(collection.name, signal) });
   const audience: Audience = params.get("as") === "user" ? "user" : "guest";
@@ -111,13 +111,7 @@ export function ApiView({ collection }: { collection: Collection }) {
   const realms = useQuery({ queryKey: ["auth-collections"], queryFn: ({ signal }) => listAuthCollections(signal), enabled: collection.type === "auth" });
   const endpoints = buildEndpoints(collection, audience, Boolean(realms.data?.some((realm) => realm.name === collection.name)));
   const selected = endpoints.find((endpoint) => endpoint.id === (params.get("endpoint") ?? "list"));
-  const set = (key: string, value: string | null) =>
-    setParams((current) => {
-      const next = new URLSearchParams(current);
-      if (value === null) next.delete(key);
-      else next.set(key, value);
-      return next;
-    }, { replace: true });
+  const set = (key: string, value: string | null) => update({ [key]: value }, { replace: true });
 
   const ruleText = (endpoint: Endpoint) => {
     if (endpoint.id === "batch") return t("api.rule.perOperation");

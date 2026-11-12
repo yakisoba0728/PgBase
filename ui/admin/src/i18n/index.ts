@@ -28,7 +28,11 @@ export function setLanguage(language: Language): void {
 
 export function translate(language: Language, key: MessageKey, vars?: Record<string, string | number>): string {
   const text = dictionaries[language][key];
-  return vars ? text.replace(/\{(\w+)\}/g, (match, name: string) => (name in vars ? String(vars[name]) : match)) : text;
+  if (!vars) return text;
+  // {name|one|other} picks the English singular or plural word by the variable.
+  return text
+    .replace(/\{(\w+)\|([^|}]*)\|([^}]*)\}/g, (match, name: string, one: string, other: string) => (name in vars ? (Number(vars[name]) === 1 ? one : other) : match))
+    .replace(/\{(\w+)\}/g, (match, name: string) => (name in vars ? String(vars[name]) : match));
 }
 
 export const useLanguage = store.use;

@@ -13,7 +13,8 @@ import { Field } from "../components/Field";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
-import { useParams, useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../ops/queries";
+import { useSearchState } from "../app/search";
 import { administratorsQuery } from "./queries";
 import { TaskDialog } from "./SecretDialog";
 import "../styles/system.css";
@@ -28,14 +29,14 @@ function adminError(t: Translate, error: unknown, context: "create" | "disable" 
 
 export function AdministratorsActions() {
   const t = useT();
-  const { update } = useParams();
+  const { update } = useSearchState();
   return <Button icon={RiAddLine} onClick={() => update({ admin: "new" })}>{t("system.admins.new")}</Button>;
 }
 
 export function AdministratorsView() {
   const t = useT();
   const time = useTimeFormat();
-  const { params, update } = useParams();
+  const { params, update } = useSearchState();
   const session = useQuery(sessionQuery);
   const query = useInfiniteQuery(administratorsQuery);
   const items = query.data?.pages.flatMap((page) => page.items) ?? [];
@@ -66,10 +67,10 @@ export function AdministratorsView() {
                 <tr key={item.id} tabIndex={0} aria-current={openId === item.id ? "true" : undefined} onClick={() => update({ admin: item.id })}
                   onKeyDown={(event) => { if (event.key === "Enter") update({ admin: item.id }); }}>
                   <td>
-                    {item.email}
-                    {item.id === selfId && <span className="chip sys-chip">{t("system.admins.you")}</span>}
+                    {item.email}{" "}
+                    {item.id === selfId && <span className="chip">{t("system.admins.you")}</span>}
                   </td>
-                  <td><span className="sys-dot" data-tone={item.active ? "success" : undefined}>{item.active ? t("system.admins.active") : t("system.admins.disabled")}</span></td>
+                  <td><span className="dot" data-tone={item.active ? "success" : undefined}>{item.active ? t("system.admins.active") : t("system.admins.disabled")}</span></td>
                   <td className="mono">{time(item.createdAt)}</td>
                   <td className="mono">{time(item.updatedAt)}</td>
                 </tr>
@@ -177,7 +178,7 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
       <div className="pane-body">
         {active.isError && <div className="pane-notice" data-tone="danger" role="alert"><p>{adminError(t, active.error, "disable", self)}</p></div>}
         <dl className="sys-props">
-          <div><dt>{t("system.admins.status")}</dt><dd><span className="sys-dot" data-tone={admin.active ? "success" : undefined}>{admin.active ? t("system.admins.active") : t("system.admins.disabled")}</span>{self && <span className="chip sys-chip">{t("system.admins.you")}</span>}</dd></div>
+          <div><dt>{t("system.admins.status")}</dt><dd><span className="dot" data-tone={admin.active ? "success" : undefined}>{admin.active ? t("system.admins.active") : t("system.admins.disabled")}</span>{" "}{self && <span className="chip">{t("system.admins.you")}</span>}</dd></div>
           <div><dt>{t("system.admins.created")}</dt><dd>{time(admin.createdAt, true)}</dd></div>
           <div><dt>{t("system.admins.updated")}</dt><dd>{time(admin.updatedAt, true)}</dd></div>
           <div><dt>ID</dt><dd className="mono">{admin.id}</dd></div>

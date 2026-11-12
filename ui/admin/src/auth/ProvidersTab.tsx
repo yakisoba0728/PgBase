@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useSearchParams } from "react-router";
+import { useSearchState } from "../app/search";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiAddLine, RiCloseLine, RiKey2Line } from "@remixicon/react";
 import { deleteOAuthProvider, putOAuthProvider, type AuthAdministration, type AuthCollection, type OAuthProviderConfig } from "../api/authCollections";
@@ -13,24 +13,18 @@ import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { providerDraft, providerInput, providerProblems, type ProviderDraft } from "./forms";
 import { administrationQuery, providerCatalogQuery } from "./queries";
-import { problemText, reportFailure, SaveBar, UnsavedGuard, useDraft } from "./useDraft";
+import { problemText, reportFailure, UnsavedGuard, useDraft } from "./useDraft";
+import { SaveBar } from "../components/SaveBar";
 
 /** Configured providers on the left; ?provider=name edits one, ?add=preset starts a new one. */
 export function ProvidersTab({ collection, administration }: { collection: AuthCollection; administration: AuthAdministration }) {
   const t = useT();
-  const [params, setParams] = useSearchParams();
+  const { params, update } = useSearchState();
   const catalog = useQuery(providerCatalogQuery);
   const providers = administration.providers ?? [];
   const openName = params.get("provider");
   const adding = params.get("add");
-  const open = (changes: Record<string, string | null>) =>
-    setParams((previous) => {
-      const next = new URLSearchParams(previous);
-      next.delete("provider");
-      next.delete("add");
-      for (const [key, value] of Object.entries(changes)) if (value !== null) next.set(key, value);
-      return next;
-    });
+  const open = (changes: { provider?: string; add?: string }) => update({ provider: changes.provider, add: changes.add });
   const close = () => open({});
 
   const current = providers.find((provider) => provider.name === openName);
@@ -57,7 +51,7 @@ export function ProvidersTab({ collection, administration }: { collection: AuthC
               <button type="button" className="auth-row" aria-current={provider.name === openName} onClick={() => open({ provider: provider.name })}>
                 <span className="mono">{provider.name}</span>
                 <span className="txt-hint auth-row-meta">{provider.clientId}</span>
-                <span className="auth-chip" data-tone={provider.enabled ? "on" : undefined}>{provider.enabled ? t("auth.on") : t("auth.off")}</span>
+                <span className="dot" data-tone={provider.enabled ? "success" : undefined}>{provider.enabled ? t("auth.on") : t("auth.off")}</span>
               </button>
             </li>
           ))}

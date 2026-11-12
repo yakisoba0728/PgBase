@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { RiArrowGoBackLine, RiPlayLine } from "@remixicon/react";
+import { RiPlayLine } from "@remixicon/react";
 import { sampleView, truncateCollection, type Collection, type CollectionType } from "../api/collections";
 import { ApiError, stringifyJson } from "../api/http";
 import type { CollectionScaffolds } from "../api/schema";
@@ -9,6 +9,7 @@ import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { Field } from "../components/Field";
+import { SaveBar } from "../components/SaveBar";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
@@ -196,12 +197,8 @@ export function SchemaView({ collection, type, catalog, scaffolds, basePath }: S
 
   const list = (
     <>
-      <div className="toolbar schema-toolbar">
-        <span className="schema-status" data-dirty={dirty ? "" : undefined}>
-          {dirty ? t("schema.unsaved") : creating ? t("schema.draftNew") : t("schema.upToDate")}
-        </span>
-        {dirty && <Button size="sm" variant="transparent" icon={RiArrowGoBackLine} onClick={editor.discard}>{t("schema.discard")}</Button>}
-        <Button size="sm" disabled={!dirty && !creating} onClick={() => editor.setPane({ review: true })}>{t("schema.reviewChanges")}</Button>
+      <div className="toolbar">
+        <SaveBar dirty={dirty} clean={creating ? t("schema.draftNew") : undefined} onDiscard={editor.discard} onSave={() => editor.setPane({ review: true })} saveLabel={t("schema.reviewChanges")} saveDisabled={!dirty && !creating} />
       </div>
       <div className="page-content schema-content">
         <CollectionSection editor={editor} />

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { RiArrowGoBackLine, RiErrorWarningLine, RiPlayLine } from "@remixicon/react";
+import { RiErrorWarningLine, RiPlayLine } from "@remixicon/react";
 import { listAuthCollections } from "../api/authCollections";
 import { stringifyJson } from "../api/http";
 import type { Collection } from "../api/collections";
@@ -8,6 +8,7 @@ import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState, Loader } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
+import { SaveBar } from "../components/SaveBar";
 import { SplitView } from "../components/SplitView";
 import { useT, type MessageKey } from "../i18n";
 import { expressionChanged, modes, previewable, typedRule, type Action } from "./model";
@@ -148,10 +149,8 @@ export function RulesView({ collection, basePath }: { collection: Collection; ba
   const isView = collection.type === "view";
   const list = (
     <>
-      <div className="toolbar schema-toolbar">
-        <span className="schema-status" data-dirty={editor.dirty ? "" : undefined}>{t(editor.dirty ? "rules.unsaved" : "rules.upToDate")}</span>
-        {editor.dirty && <Button size="sm" variant="transparent" icon={RiArrowGoBackLine} onClick={editor.discard}>{t("rules.discard")}</Button>}
-        <Button size="sm" disabled={!editor.dirty} loading={editor.save.isPending} onClick={() => editor.save.mutate()}>{t("rules.save")}</Button>
+      <div className="toolbar">
+        <SaveBar dirty={editor.dirty} busy={editor.save.isPending} onDiscard={editor.discard} onSave={() => editor.save.mutate()} />
       </div>
       <div className="page-content rules-layout">
         <div className="rules-main">

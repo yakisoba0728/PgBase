@@ -57,7 +57,7 @@ export function AuthCollectionsIndex() {
               {query.data.map((collection) => (
                 <tr key={collection.id} className="auth-link-row" onClick={() => navigate(`${root}/${encodeURIComponent(collection.name)}`)}>
                   <td><Link className="mono" to={`${root}/${encodeURIComponent(collection.name)}`}>{collection.name}</Link></td>
-                  <td><span className="auth-chip" data-tone={collection.registrationEnabled ? "on" : undefined}>{collection.registrationEnabled ? t("auth.on") : t("auth.off")}</span></td>
+                  <td><span className="dot" data-tone={collection.registrationEnabled ? "success" : undefined}>{collection.registrationEnabled ? t("auth.on") : t("auth.off")}</span></td>
                   <td className="num">{collection.fields.filter((field) => !field.system).length}</td>
                   <td className="mono">{collection.recordId?.kind ?? "uuid"}</td>
                   <td className="mono txt-hint">{collection.id}</td>

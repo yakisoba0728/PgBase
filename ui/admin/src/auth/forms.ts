@@ -310,3 +310,15 @@ export function profileChanges(fields: AuthCollectionField[], draft: ProfileDraf
   }
   return { changes, problems };
 }
+
+/**
+ * The UUID just below `id`: the users list is `id > after` in id order, so `after` set to it
+ * starts the page exactly at `id`. Undefined for the lowest UUID; null when `id` is not a UUID.
+ */
+export function uuidBefore(id: string): string | undefined | null {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
+  const value = BigInt(`0x${id.replace(/-/g, "")}`);
+  if (value === BigInt(0)) return undefined;
+  const hex = (value - BigInt(1)).toString(16).padStart(32, "0");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}

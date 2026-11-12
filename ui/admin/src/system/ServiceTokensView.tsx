@@ -12,7 +12,8 @@ import { Field } from "../components/Field";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
-import { useParams, useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../ops/queries";
+import { useSearchState } from "../app/search";
 import { serviceTokensQuery } from "./queries";
 import { SecretView, TaskDialog } from "./SecretDialog";
 import "../styles/system.css";
@@ -28,14 +29,14 @@ function tokenState(t: Translate, token: ServiceToken): { label: string; tone?: 
 
 export function ServiceTokensActions() {
   const t = useT();
-  const { update } = useParams();
+  const { update } = useSearchState();
   return <Button icon={RiAddLine} onClick={() => update({ token: "new" })}>{t("system.tokens.new")}</Button>;
 }
 
 export function ServiceTokensView() {
   const t = useT();
   const time = useTimeFormat();
-  const { params, update } = useParams();
+  const { params, update } = useSearchState();
   const query = useQuery(serviceTokensQuery);
   const collections = useQuery(collectionsQuery);
   const names = new Map((collections.data ?? []).map((collection) => [collection.id, collection.name]));
@@ -71,7 +72,7 @@ export function ServiceTokensView() {
                   <tr key={item.id} tabIndex={0} aria-current={openId === item.id ? "true" : undefined} onClick={() => update({ token: item.id })}
                     onKeyDown={(event) => { if (event.key === "Enter") update({ token: item.id }); }}>
                     <td>{item.name}</td>
-                    <td><span className="sys-dot" data-tone={state.tone}>{state.label}</span></td>
+                    <td><span className="dot" data-tone={state.tone}>{state.label}</span></td>
                     <td className="sys-scope-cell">{[...new Set(item.scopes.map((scope) => names.get(scope.collectionId) ?? scope.collectionId))].join(", ")}</td>
                     <td className="mono">{time(item.expiresAt)}</td>
                     <td className="mono">{time(item.createdAt)}</td>
@@ -115,7 +116,7 @@ function TokenPane({ token, names, onClose }: { token: ServiceToken; names: Map<
       </header>
       <div className="pane-body">
         <dl className="sys-props">
-          <div><dt>{t("system.tokens.state")}</dt><dd><span className="sys-dot" data-tone={state.tone}>{state.label}</span></dd></div>
+          <div><dt>{t("system.tokens.state")}</dt><dd><span className="dot" data-tone={state.tone}>{state.label}</span></dd></div>
           <div><dt>{t("system.tokens.expires")}</dt><dd>{time(token.expiresAt, true)}</dd></div>
           <div><dt>{t("system.tokens.created")}</dt><dd>{time(token.createdAt, true)}</dd></div>
           {token.revokedAt && <div><dt>{t("system.tokens.revokedAt")}</dt><dd>{time(token.revokedAt, true)}</dd></div>}

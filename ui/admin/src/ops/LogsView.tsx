@@ -12,7 +12,8 @@ import { useT } from "../i18n";
 import { statusTone } from "./format";
 import { LogDetail } from "./LogDetail";
 import { LogStats } from "./LogStats";
-import { logFilterFrom, logsKey, logsQuery, useParams, useTimeFormat } from "./queries";
+import { logFilterFrom, logsKey, logsQuery, useTimeFormat } from "./queries";
+import { useSearchState } from "../app/search";
 import "../styles/ops.css";
 
 const methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -21,7 +22,7 @@ const filterKeys = ["status", "method", "route", "from", "to"];
 /** Header actions: refresh and delete-all. */
 export function LogsActions() {
   const t = useT();
-  const { update } = useParams();
+  const { update } = useSearchState();
   const queryClient = useQueryClient();
   const [confirm, setConfirm] = useState(false);
   const clear = useMutation({
@@ -57,7 +58,7 @@ export function LogsActions() {
 export function LogsView() {
   const t = useT();
   const time = useTimeFormat();
-  const { params, update } = useParams();
+  const { params, update } = useSearchState();
   const filter = logFilterFrom(params);
   const logs = useInfiniteQuery(logsQuery(filter));
   const items = logs.data?.pages.flatMap((page) => page.items) ?? [];
@@ -136,7 +137,7 @@ export function LogsView() {
                       }}
                     >
                       <td className="mono ops-time">{time(item.at)}</td>
-                      <td><span className="ops-status" data-tone={statusTone(item.status)}>{item.status}</span></td>
+                      <td><span className="chip mono" data-tone={statusTone(item.status)}>{item.status}</span></td>
                       <td className="ops-request">
                         <span className="ops-method">{item.method}</span>
                         <span className="mono">{item.route}</span>

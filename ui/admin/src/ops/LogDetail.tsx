@@ -31,7 +31,7 @@ export function LogDetail({ id, onClose, onFilterRoute }: LogDetailProps) {
   const rows: [string, ReactNode][] = entry
     ? [
         [t("ops.logs.time"), <>{time(entry.at, true)} <span className="txt-hint mono">{entry.at}</span></>],
-        [t("ops.logs.status"), <span className="ops-status" data-tone={statusTone(entry.status)}>{entry.status}</span>],
+        [t("ops.logs.status"), <span className="chip mono" data-tone={statusTone(entry.status)}>{entry.status}</span>],
         [t("ops.logs.method"), <span className="mono">{entry.method}</span>],
         [t("ops.logs.route"), <span className="mono">{entry.route}</span>],
         [t("ops.logs.duration"), <span className="mono">{String(entry.durationMs)} ms</span>],

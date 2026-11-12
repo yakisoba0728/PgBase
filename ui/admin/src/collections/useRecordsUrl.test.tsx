@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { act, renderHook } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router";
+import { BrowserRouter, useLocation } from "react-router";
 import { describe, expect, it } from "vitest";
 import type { CollectionField } from "../api/collections";
 import { leavesRecord } from "./useRecordForm";
@@ -26,7 +26,9 @@ describe("buildFilter", () => {
 
 describe("useRecordsUrl", () => {
   const setup = (entry: string) => {
-    const wrapper = ({ children }: { children: ReactNode }) => <MemoryRouter initialEntries={[entry]}>{children}</MemoryRouter>;
+    // Updates read the live URL (window.location), so the tests run on the browser history.
+    window.history.replaceState(null, "", entry);
+    const wrapper = ({ children }: { children: ReactNode }) => <BrowserRouter>{children}</BrowserRouter>;
     return renderHook(() => ({ url: useRecordsUrl(), location: useLocation() }), { wrapper });
   };
 
@@ -42,6 +44,17 @@ describe("useRecordsUrl", () => {
     expect(params.get("record")).toBe("r1");
     expect(params.get("filter")).toBe("published = true");
     expect(result.current.location.pathname).toBe("/collections/posts");
+  });
+
+  it("keeps both of two changes made before a re-render", () => {
+    const { result } = setup("/collections/posts?filter=old");
+    act(() => {
+      result.current.url.setFilter("first");
+      result.current.url.open("r1");
+    });
+    const params = new URLSearchParams(result.current.location.search);
+    expect(params.get("filter")).toBe("first");
+    expect(params.get("record")).toBe("r1");
   });
 
   it("keeps creating separate from a record id and clears both on close", () => {

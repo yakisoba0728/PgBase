@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { useBlocker } from "react-router";
 import { ApiError } from "../api/http";
 import { errorText } from "../app/queries";
-import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
@@ -44,18 +43,6 @@ export function UnsavedGuard({ dirty, release }: { dirty: boolean; release?: Ref
       onConfirm={() => blocker.proceed?.()}
       onCancel={() => blocker.reset?.()}
     />
-  );
-}
-
-/** Save / Discard with a state dot; the form's submit button lives here. */
-export function SaveBar({ form, dirty, busy, onDiscard, label }: { form: string; dirty: boolean; busy: boolean; onDiscard: () => void; label?: string }) {
-  const t = useT();
-  return (
-    <div className="auth-savebar">
-      <span className="auth-state" data-dirty={dirty ? "" : undefined}>{dirty ? t("auth.unsaved") : t("auth.saved")}</span>
-      <Button variant="secondary" size="sm" disabled={!dirty || busy} onClick={onDiscard}>{t("auth.discard")}</Button>
-      <Button type="submit" size="sm" form={form} loading={busy} disabled={!dirty}>{label ?? t("auth.save")}</Button>
-    </div>
   );
 }
 

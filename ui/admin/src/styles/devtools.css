@@ -16,44 +16,6 @@
 }
 
 /* State pill: neutral when settled, coloured only for live or failed states. */
-.dt-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-2);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.dt-status[data-tone="accent"] {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.dt-status[data-tone="warning"] {
-  background: color-mix(in srgb, var(--warning), var(--surface) 86%);
-  color: var(--warning);
-}
-
-.dt-status[data-tone="danger"] {
-  background: color-mix(in srgb, var(--danger), var(--surface) 86%);
-  color: var(--danger);
-}
-
-.dt-status .loader {
-  width: 10px;
-  height: 10px;
-}
-
-.chip.dt-write {
-  background: color-mix(in srgb, var(--warning), var(--surface) 86%);
-  color: var(--warning);
-}
-
 .dt-code {
   margin: 0;
   padding: 12px 14px;

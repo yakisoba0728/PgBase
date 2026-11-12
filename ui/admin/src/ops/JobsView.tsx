@@ -11,7 +11,8 @@ import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
 import { describeSchedule } from "./format";
-import { jobsQuery, useParams, useTimeFormat } from "./queries";
+import { jobsQuery, useTimeFormat } from "./queries";
+import { useSearchState } from "../app/search";
 import "../styles/ops.css";
 
 // Not every engine lists zones; the input stays free text either way.
@@ -51,7 +52,7 @@ export function JobsActions() {
 export function JobsView() {
   const t = useT();
   const time = useTimeFormat();
-  const { params, update } = useParams();
+  const { params, update } = useSearchState();
   const jobs = useQuery(jobsQuery);
   const items = jobs.data?.items ?? [];
   const openId = params.get("job");
@@ -96,7 +97,7 @@ export function JobsView() {
                     <td className="mono">{job.name}</td>
                     <td><ScheduleText schedule={job.schedule} /></td>
                     <td className="mono">{job.timezone}</td>
-                    <td><span className="ops-dot" data-tone={state.tone}>{state.label}</span></td>
+                    <td><span className="dot" data-tone={state.tone}>{state.label}</span></td>
                     <td>
                       {job.lastStartedAt ? (
                         <>
@@ -185,7 +186,7 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
         <dl className="ops-props">
           <div>
             <dt>{t("ops.jobs.state")}</dt>
-            <dd><span className="ops-dot" data-tone={stateOf(t, job).tone}>{stateOf(t, job).label}</span></dd>
+            <dd><span className="dot" data-tone={stateOf(t, job).tone}>{stateOf(t, job).label}</span></dd>
           </div>
           <div>
             <dt>{t("ops.jobs.nextRun")}</dt>

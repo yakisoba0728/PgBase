@@ -18,9 +18,13 @@ export function StorageView() {
   ];
   return (
     <Page title={t("nav.storage")} tabs={tabs}>
-      <div className="page-content">
-        {tab === "migration" ? <MigrationView /> : <StorageSettingsForm key={tab ?? "files"} kind={tab === "backups" ? "backups" : "files"} />}
-      </div>
+      {tab === "migration" ? (
+        <div className="page-content">
+          <MigrationView />
+        </div>
+      ) : (
+        <StorageSettingsForm key={tab ?? "files"} kind={tab === "backups" ? "backups" : "files"} />
+      )}
     </Page>
   );
 }

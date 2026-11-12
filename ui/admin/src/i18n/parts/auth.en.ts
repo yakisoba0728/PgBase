@@ -1,10 +1,6 @@
 export const authEn = {
   "auth.on": "On",
   "auth.off": "Off",
-  "auth.save": "Save",
-  "auth.discard": "Discard",
-  "auth.saved": "Saved",
-  "auth.unsaved": "Unsaved changes",
   "auth.savedToast": "Saved.",
   "auth.rejected": "The server rejected these settings. Check the values.",
   "auth.secretStored": "A secret is stored. Leave empty to keep it.",
@@ -141,7 +137,7 @@ export const authEn = {
 
   "auth.users.refresh": "Refresh",
   "auth.users.new": "New user",
-  "auth.users.count": "{count} users",
+  "auth.users.count": "{count} {count|user|users}",
   "auth.users.loadedMore": "{count} loaded",
   "auth.users.empty": "No users.",
   "auth.users.missing": "This user is not in the loaded list.",
@@ -187,7 +183,7 @@ export const authEn = {
   "auth.user.revoke": "Revoke sessions",
   "auth.user.revokeTitle": "Revoke all sessions of {email}?",
   "auth.user.revokeText": "Every signed-in device is signed out.",
-  "auth.user.revoked": "{count} sessions revoked.",
+  "auth.user.revoked": "{count} {count|session|sessions} revoked.",
   "auth.user.impersonate": "Impersonate",
   "auth.user.impersonateTitle": "Impersonate {email}?",
   "auth.user.impersonateText": "Creates a short-lived session token for this user. Its use is recorded as yours.",

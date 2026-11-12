@@ -88,11 +88,11 @@ export function SqlResult({ id, sql }: { id: string; sql: string | undefined }) 
   return (
     <div className="dt-outcome">
       <div className="toolbar dt-figures">
-        <span className="dt-status" data-tone={statusTone[execution.status]}>
+        <span className="chip" data-tone={statusTone[execution.status]}>
           {active && <span className="loader" aria-hidden />}
           {t(`devtools.sql.status.${execution.status}`)}
         </span>
-        <span className={execution.mode === "write" ? "chip dt-write" : "chip"}>{t(`devtools.sql.mode.${execution.mode}`)}</span>
+        <span className="chip" data-tone={execution.mode === "write" ? "warning" : undefined}>{t(`devtools.sql.mode.${execution.mode}`)}</span>
         {execution.dryRun && <span className="chip">{t("devtools.sql.dryRun")}</span>}
         {result && (
           <>

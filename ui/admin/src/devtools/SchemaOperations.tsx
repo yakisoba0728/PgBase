@@ -10,7 +10,8 @@ import { EmptyState, Loader } from "../components/Feedback";
 import { SplitView } from "../components/SplitView";
 import { collectionsQuery } from "../collections/queries";
 import { useT } from "../i18n";
-import { useParams, useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../ops/queries";
+import { useSearchState } from "../app/search";
 import { schemaOperationQuery, schemaOperationsQuery } from "./queries";
 import "../styles/ops.css";
 import "../styles/devtools.css";
@@ -20,7 +21,7 @@ const tone: Record<OperationStatus, string | undefined> = { running: "accent", u
 function StatusChip({ status }: { status: OperationStatus }) {
   const t = useT();
   return (
-    <span className="dt-status" data-tone={tone[status]}>
+    <span className="chip" data-tone={tone[status]}>
       {(status === "running" || status === "unknown") && <span className="loader" aria-hidden />}
       {t(`devtools.ops.status.${status}`)}
     </span>
@@ -42,7 +43,7 @@ export function SchemaOperationsActions() {
 export function SchemaOperations() {
   const t = useT();
   const time = useTimeFormat();
-  const { params, update } = useParams();
+  const { params, update } = useSearchState();
   const list = useInfiniteQuery(schemaOperationsQuery);
   const catalog = useQuery(collectionsQuery).data;
   const items = list.data?.pages.flatMap((page) => page.items) ?? [];

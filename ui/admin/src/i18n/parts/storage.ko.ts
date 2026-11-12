@@ -76,8 +76,6 @@ export const storageKo: Record<keyof typeof storageEn, string> = {
   "storage.form.pathStyle": "경로 방식 주소",
   "storage.form.retention": "보관할 백업 수",
   "storage.form.retentionHint": "0이면 모두 보관합니다. 설정 페이지의 값이 이 값보다 우선합니다.",
-  "storage.form.discard": "되돌리기",
-  "storage.form.save": "저장",
   "storage.form.saved": "저장소 설정을 저장했습니다.",
   "storage.form.test": "연결 테스트",
   "storage.form.testOk": "연결에 성공했습니다.",

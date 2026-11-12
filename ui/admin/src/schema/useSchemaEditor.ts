@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useBlocker, useNavigate, useSearchParams } from "react-router";
+import { useBlocker, useNavigate } from "react-router";
+import { useSearchState } from "../app/search";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { planCollectionChange, type ApplyIdentity, type Collection, type CollectionType, type CreateCollectionChange, type FieldType } from "../api/collections";
 import { ApiError, stringifyJson } from "../api/http";
 import { previewSchemaImport, type CollectionScaffolds, type SchemaDocument } from "../api/schema";
-import { createStore } from "../app/store";
 import { errorText } from "../app/queries";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
+import { drafts, dropDraft } from "./drafts";
 import { applyCollection, applyImport, newIdentity, Undecided } from "./apply";
 import {
   buildChange,
@@ -26,14 +27,6 @@ import {
   type DraftIndex,
   type MappedErrors,
 } from "./draft";
-
-// Drafts live outside React so switching between the collection's tabs keeps them.
-const drafts = createStore<Record<string, { base: Draft; draft: Draft }>>({});
-
-function dropDraft(key: string) {
-  const { [key]: _dropped, ...rest } = drafts.get();
-  drafts.set(rest);
-}
 
 /** New auth collections go through the schema document import, which also creates the auth policy. */
 function authDocument(change: CreateCollectionChange, scaffolds: CollectionScaffolds): SchemaDocument {
@@ -64,7 +57,7 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
   const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [params, setParams] = useSearchParams();
+  const { params, update: setSearch } = useSearchState();
   const key = collection?.id ?? `new:${type}`;
   const creating = !collection;
   const initial = useMemo(
@@ -85,16 +78,8 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
 
   // Pane state lives in the query string: ?field=, ?index= or ?review.
   const setPane = useCallback(
-    (pane: { field?: string; index?: string; review?: boolean } | null) =>
-      setParams((previous) => {
-        const next = new URLSearchParams(previous);
-        ["field", "index", "review"].forEach((name) => next.delete(name));
-        if (pane?.field) next.set("field", pane.field);
-        if (pane?.index) next.set("index", pane.index);
-        if (pane?.review) next.set("review", "1");
-        return next;
-      }),
-    [setParams],
+    (pane: { field?: string; index?: string; review?: boolean } | null) => setSearch({ field: pane?.field, index: pane?.index, review: pane?.review ? "1" : null }),
+    [setSearch],
   );
   const openField = draft.fields.find((field) => field.key === params.get("field"));
   const openIndex = draft.indexes.find((index) => index.key === params.get("index"));

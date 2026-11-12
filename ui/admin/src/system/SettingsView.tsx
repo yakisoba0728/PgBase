@@ -5,6 +5,7 @@ import { ApiError } from "../api/http";
 import { reloadSettings, updateSettings, type RuntimeSettings } from "../api/system";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
+import { SaveBar } from "../components/SaveBar";
 import { EmptyState, Loader } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
@@ -77,7 +78,13 @@ function SettingsForm({ settings }: { settings: RuntimeSettings }) {
   const fieldError = (path: string) => message(t, errors[path]);
 
   return (
-    <form className="sys-settings" noValidate onSubmit={onSubmit}>
+    <form className="page-form" noValidate onSubmit={onSubmit}>
+      <div className="toolbar">
+        <SaveBar dirty={dirty} busy={save.isPending} onDiscard={() => { setDraft(toDraft(settings)); setShowErrors(false); save.reset(); }}>
+          <Button size="sm" variant="secondary" icon={RiRefreshLine} disabled={dirty} title={dirty ? t("system.settings.reloadDirty") : undefined}
+            loading={reload.isPending} onClick={() => reload.mutate()}>{t("system.settings.reload")}</Button>
+        </SaveBar>
+      </div>
       <div className="sys-scroll">
         {save.isError && (
           <div className="pane-notice sys-notice" data-tone="danger" role="alert">
@@ -103,13 +110,6 @@ function SettingsForm({ settings }: { settings: RuntimeSettings }) {
           </section>
         ))}
       </div>
-      <footer className="pane-footer sys-footer">
-        <Button variant="secondary" icon={RiRefreshLine} className="pane-footer-start" disabled={dirty} title={dirty ? t("system.settings.reloadDirty") : undefined}
-          loading={reload.isPending} onClick={() => reload.mutate()}>{t("system.settings.reload")}</Button>
-        {dirty && <span className="txt-hint">{t("system.settings.unsaved")}</span>}
-        <Button variant="secondary" disabled={!dirty || save.isPending} onClick={() => { setDraft(toDraft(settings)); setShowErrors(false); save.reset(); }}>{t("records.discard")}</Button>
-        <Button type="submit" disabled={!dirty} loading={save.isPending}>{t("records.save")}</Button>
-      </footer>
     </form>
   );
 }

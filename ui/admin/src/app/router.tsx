@@ -1,32 +1,33 @@
+import { lazy, type ComponentType } from "react";
 import { createBrowserRouter, Navigate } from "react-router";
 import { LoginScreen } from "../guest/LoginScreen";
 import { ResetPasswordScreen } from "../guest/ResetPasswordScreen";
 import { SetupScreen } from "../guest/SetupScreen";
-import { CollectionPage, CollectionsIndexPage } from "../pages/CollectionPage";
-import { NewCollectionPage } from "../pages/NewCollectionPage";
-import { NotFoundPage, PlaceholderPage } from "../pages/placeholders";
+import { NotFoundPage } from "../pages/NotFoundPage";
 import { AppShell } from "./AppShell";
 import { ExtensionScreenPage } from "./extensions";
 import { RequireAuth } from "./guard";
-import { navGroups } from "./navigation";
-import { JobsPage } from "../pages/JobsPage";
-import { LogsPage } from "../pages/LogsPage";
-import { RealtimePage } from "../pages/RealtimePage";
-import { BackupsPage } from "../pages/BackupsPage";
-import { StoragePage } from "../pages/StoragePage";
 
-const implemented = new Set<string>(["logs", "jobs", "realtime", "auth/collections", "auth/users", "backups", "storage", "settings", "service-tokens", "administrators", "schema-transfer", "schema-operations", "sql"]);
-import { SchemaOperationsPage } from "../pages/SchemaOperationsPage";
-import { SchemaTransferPage } from "../pages/SchemaTransferPage";
-import { SqlConsolePage } from "../pages/SqlConsolePage";
-import { AuthCollectionsPage } from "../pages/AuthCollectionsPage";
-import { AuthUsersPage } from "../pages/AuthUsersPage";
+// Each screen is its own chunk, loaded on first visit; the shell's Suspense shows the loader meanwhile.
+const page = <M,>(load: () => Promise<M>, name: keyof M) => lazy(() => load().then((module) => ({ default: module[name] as ComponentType })));
 
-import { AdministratorsPage } from "../pages/AdministratorsPage";
-import { ProfilePage } from "../pages/ProfilePage";
-import { ServiceTokensPage } from "../pages/ServiceTokensPage";
-import { SettingsPage } from "../pages/SettingsPage";
-
+const CollectionPage = page(() => import("../pages/CollectionPage"), "CollectionPage");
+const CollectionsIndexPage = page(() => import("../pages/CollectionPage"), "CollectionsIndexPage");
+const NewCollectionPage = page(() => import("../pages/NewCollectionPage"), "NewCollectionPage");
+const LogsPage = page(() => import("../pages/LogsPage"), "LogsPage");
+const JobsPage = page(() => import("../pages/JobsPage"), "JobsPage");
+const RealtimePage = page(() => import("../pages/RealtimePage"), "RealtimePage");
+const AuthCollectionsPage = page(() => import("../pages/AuthCollectionsPage"), "AuthCollectionsPage");
+const AuthUsersPage = page(() => import("../pages/AuthUsersPage"), "AuthUsersPage");
+const BackupsPage = page(() => import("../pages/BackupsPage"), "BackupsPage");
+const StoragePage = page(() => import("../pages/StoragePage"), "StoragePage");
+const SettingsPage = page(() => import("../pages/SettingsPage"), "SettingsPage");
+const ServiceTokensPage = page(() => import("../pages/ServiceTokensPage"), "ServiceTokensPage");
+const AdministratorsPage = page(() => import("../pages/AdministratorsPage"), "AdministratorsPage");
+const ProfilePage = page(() => import("../pages/ProfilePage"), "ProfilePage");
+const SchemaTransferPage = page(() => import("../pages/SchemaTransferPage"), "SchemaTransferPage");
+const SchemaOperationsPage = page(() => import("../pages/SchemaOperationsPage"), "SchemaOperationsPage");
+const SqlConsolePage = page(() => import("../pages/SqlConsolePage"), "SqlConsolePage");
 
 export const router = createBrowserRouter(
   [
@@ -58,7 +59,6 @@ export const router = createBrowserRouter(
         { path: "schema-transfer/:tab?", element: <SchemaTransferPage /> },
         { path: "schema-operations", element: <SchemaOperationsPage /> },
         { path: "sql", element: <SqlConsolePage /> },
-        ...navGroups.flatMap((group) => group.items.filter((item) => !implemented.has(item.path)).map((item) => ({ path: item.path, element: <PlaceholderPage title={item.label} icon={item.icon} /> }))),
         { path: "ext/:id/*", element: <ExtensionScreenPage /> },
         { path: "*", element: <NotFoundPage /> },
       ],

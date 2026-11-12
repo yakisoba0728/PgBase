@@ -354,6 +354,15 @@
   padding: var(--space);
 }
 
+/* A whole-page form: the save toolbar on top, its content scrolling below. */
+.page-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 /* Split view: list on the left, detail pane on the right. */
 .split {
   display: flex;
@@ -540,7 +549,17 @@
   }
 
   .page-header {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: var(--header);
+    padding-block: 8px;
     padding-left: 12px;
+  }
+
+  /* The title keeps its room; actions wrap below it when they do not fit. */
+  .page-title {
+    flex: 1 1 auto;
+    min-width: 40%;
   }
 }
 

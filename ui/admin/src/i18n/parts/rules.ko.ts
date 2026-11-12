@@ -5,10 +5,7 @@ export const rulesKo: Record<keyof typeof rulesEn, string> = {
   "error.rules_unavailable": "지금은 규칙을 사용할 수 없습니다.",
 
   "rules.title": "규칙",
-  "rules.unsaved": "저장하지 않은 변경",
-  "rules.upToDate": "저장됨",
   "rules.discard": "되돌리기",
-  "rules.save": "저장",
   "rules.saved": "규칙을 저장했습니다.",
   "rules.leaveTitle": "규칙 변경을 버릴까요?",
   "rules.leaveText": "저장하지 않은 규칙 변경이 사라집니다.",

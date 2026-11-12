@@ -11,7 +11,8 @@ import { Checkbox, Field } from "../components/Field";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
-import { useParams, useTimeFormat } from "../ops/queries";
+import { useTimeFormat } from "../ops/queries";
+import { useSearchState } from "../app/search";
 import { BackupJobStrip, useJobBusy } from "./BackupJob";
 import { formatBytes } from "./model";
 import { backupJobQuery, backupStorageQuery, backupsQuery } from "./queries";
@@ -28,7 +29,7 @@ function locationText(t: Translate, settings: BackupStorageSettings | undefined)
 export function BackupsActions() {
   const t = useT();
   const queryClient = useQueryClient();
-  const { update } = useParams();
+  const { update } = useSearchState();
   const input = useRef<HTMLInputElement>(null);
   const busy = useJobBusy();
 
@@ -71,7 +72,7 @@ export function BackupsActions() {
 export function BackupsView() {
   const t = useT();
   const time = useTimeFormat();
-  const { params, update } = useParams();
+  const { params, update } = useSearchState();
   const backups = useQuery(backupsQuery);
   const storage = useQuery(backupStorageQuery);
   const items = backups.data ?? [];
@@ -126,7 +127,7 @@ function BackupPane({ backup, location, jobRunning, onClose }: { backup: BackupE
   const t = useT();
   const time = useTimeFormat();
   const queryClient = useQueryClient();
-  const { update } = useParams();
+  const { update } = useSearchState();
   const [dialog, setDialog] = useState<"delete" | "restore" | null>(null);
   const [typed, setTyped] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);

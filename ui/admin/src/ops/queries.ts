@@ -1,5 +1,4 @@
-import { useCallback, useMemo } from "react";
-import { useSearchParams } from "react-router";
+import { useMemo } from "react";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { listJobs } from "../api/jobs";
 import { getRequestLog, getRequestLogStatistics, listRequestLogs, type RequestLogFilter } from "../api/logs";
@@ -40,24 +39,6 @@ export const realtimeQuery = queryOptions({
   queryFn: ({ signal }) => getRealtimeStatus(signal),
   refetchInterval: 5000,
 });
-
-/** Query-string state for an ops screen; empty values are removed. */
-export function useParams() {
-  const [params, setParams] = useSearchParams();
-  const update = useCallback(
-    (changes: Record<string, string | null>) => {
-      // The live URL, not the render's params: a quick second change would otherwise undo the first.
-      const next = new URLSearchParams(window.location.search);
-      for (const [key, value] of Object.entries(changes)) {
-        if (value) next.set(key, value);
-        else next.delete(key);
-      }
-      setParams(next);
-    },
-    [setParams],
-  );
-  return { params, update };
-}
 
 /** The logs filter as the API takes it, read from the URL. */
 export function logFilterFrom(params: URLSearchParams): Omit<RequestLogFilter, "before"> {

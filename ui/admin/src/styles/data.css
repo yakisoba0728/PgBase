@@ -60,6 +60,33 @@
   max-width: 560px;
 }
 
+/* Editing state at the start of a toolbar: a quiet dot, amber while there are unsaved changes. */
+.save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.save-state::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+}
+
+.save-state[data-dirty] {
+  color: var(--text);
+}
+
+.save-state[data-dirty]::before {
+  background: var(--warning);
+}
+
 .toolbar-count {
   margin-left: auto;
   color: var(--text-hint);
@@ -283,6 +310,52 @@
 
 .chip.mono {
   font-size: 11px;
+}
+
+/* State tones, shared by chips, dots and figures. */
+[data-tone="danger"] {
+  --tone: var(--danger);
+}
+
+[data-tone="warning"] {
+  --tone: var(--warning);
+}
+
+[data-tone="success"] {
+  --tone: var(--success);
+}
+
+[data-tone="accent"] {
+  --tone: var(--accent);
+}
+
+.chip[data-tone] {
+  background: color-mix(in srgb, var(--tone), var(--surface) 86%);
+  color: var(--tone);
+}
+
+.chip .loader {
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+
+/* A state as a coloured dot and its label (active, disabled, healthy …). */
+.dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.dot::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tone, var(--text-disabled));
 }
 
 .grid-foot {

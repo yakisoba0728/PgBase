@@ -12,7 +12,7 @@ import "../styles/system.css";
 type Tone = "success" | "warning" | "danger" | undefined;
 
 function Dot({ tone, children }: { tone: Tone; children: ReactNode }) {
-  return <span className="sys-dot" data-tone={tone}>{children}</span>;
+  return <span className="dot" data-tone={tone}>{children}</span>;
 }
 
 function Props({ rows }: { rows: [string, ReactNode][] }) {

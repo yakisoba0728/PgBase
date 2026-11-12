@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuthCollectionField, AuthPolicy, AuthRecord } from "../api/authCollections";
-import { matchesUser, policyDraft, policyInput, policyProblems, profileChanges, profileDraft, providerDraft, providerInput, providerProblems, templateProblems, tokenProblems, validEndpoint } from "./forms";
+import { matchesUser, policyDraft, policyInput, policyProblems, profileChanges, profileDraft, providerDraft, providerInput, providerProblems, templateProblems, tokenProblems, uuidBefore, validEndpoint } from "./forms";
 
 const policy: AuthPolicy = {
   passwordEnabled: true,
@@ -78,5 +78,15 @@ describe("users", () => {
     expect(initial).toEqual({ nick: "a", age: "3", tags: '[\n  "x"\n]', pro: false });
     expect(profileChanges(fields, { ...initial, age: "4", pro: true }, initial)).toEqual({ changes: { age: 4, pro: true }, problems: {} });
     expect(profileChanges(fields, { ...initial, nick: "", age: "1.5", tags: "[" }, initial).problems).toEqual({ nick: "required", age: "range", tags: "json" });
+  });
+});
+
+describe("uuidBefore", () => {
+  it("returns the previous UUID across borrows and rejects non-UUIDs", () => {
+    expect(uuidBefore("0190a1b2-0000-7000-8000-000000000010")).toBe("0190a1b2-0000-7000-8000-00000000000f");
+    expect(uuidBefore("0190A1B2-0000-7000-8000-000000000000")).toBe("0190a1b2-0000-7000-7fff-ffffffffffff");
+    expect(uuidBefore("0190a1b2-0000-0000-0000-000000000000")).toBe("0190a1b1-ffff-ffff-ffff-ffffffffffff");
+    expect(uuidBefore("00000000-0000-0000-0000-000000000000")).toBeUndefined();
+    expect(uuidBefore("not-a-uuid")).toBeNull();
   });
 });
