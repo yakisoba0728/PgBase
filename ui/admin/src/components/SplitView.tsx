@@ -1,0 +1,109 @@
+import { useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { RiCloseLine } from "@remixicon/react";
+import { useShortcut } from "../app/keys";
+import { readStorage, writeStorage } from "../app/store";
+import { useT } from "../i18n";
+import { IconButton } from "./Button";
+import { CopyButton } from "./CopyButton";
+
+const storageKey = "pgbase.split";
+const minPane = 340;
+const minList = 280;
+
+interface SplitViewProps {
+  list: ReactNode;
+  /** The detail pane; null closes it. */
+  pane: ReactNode | null;
+  paneLabel: string;
+  /** Called on Escape while no dialog or menu is open. */
+  onClose: () => void;
+}
+
+/** List on the left, a resizable detail pane on the right (full screen under 900px). */
+export function SplitView({ list, pane, paneLabel, onClose }: SplitViewProps) {
+  const root = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(() => Number(readStorage(storageKey)) || 520);
+  const [dragging, setDragging] = useState(false);
+  const open = pane !== null;
+
+  useShortcut("Escape", onClose, { inFields: true, enabled: open });
+
+  const clamp = (next: number) => {
+    const total = root.current?.clientWidth ?? window.innerWidth;
+    return Math.round(Math.max(minPane, Math.min(next, total - minList)));
+  };
+  const commit = (next: number) => {
+    setWidth(next);
+    writeStorage(storageKey, String(next));
+  };
+
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging(true);
+  };
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const right = root.current?.getBoundingClientRect().right;
+    if (dragging && right !== undefined) setWidth(clamp(right - event.clientX));
+  };
+  const onPointerUp = () => {
+    setDragging(false);
+    commit(width);
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = event.key === "ArrowLeft" ? 24 : event.key === "ArrowRight" ? -24 : 0;
+    if (!step) return;
+    event.preventDefault();
+    commit(clamp(width + step));
+  };
+
+  return (
+    <div ref={root} className="split">
+      <div className="split-list">{list}</div>
+      {open && (
+        <>
+          <div
+            className="split-divider"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={paneLabel}
+            aria-valuenow={width}
+            tabIndex={0}
+            data-dragging={dragging ? "" : undefined}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onKeyDown={onKeyDown}
+          />
+          <section className="split-pane" aria-label={paneLabel} style={{ width }}>
+            {pane}
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
+interface PaneHeaderProps {
+  title: ReactNode;
+  /** Ids and other machine values are set in monospace. */
+  mono?: boolean;
+  /** A value worth copying from the header (the record or user id). */
+  copy?: { label: string; value: string };
+  /** Extra header actions, placed before Close. */
+  children?: ReactNode;
+  /** Omitted for panes that are not dismissible. */
+  onClose?: () => void;
+}
+
+/** The one detail-pane header: title, optional copy, actions, then Close (Esc does the same). */
+export function PaneHeader({ title, mono, copy, children, onClose }: PaneHeaderProps) {
+  const t = useT();
+  return (
+    <header className="pane-header">
+      <h2 className={mono ? "pane-title mono" : "pane-title"}>{title}</h2>
+      {copy && <CopyButton label={copy.label} value={copy.value} />}
+      {children}
+      {onClose && <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />}
+    </header>
+  );
+}

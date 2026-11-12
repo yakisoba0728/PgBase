@@ -1,41 +1,50 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import { useState } from "react";
-import { getLocale, message, setLocale, t, useLocale } from ".";
-import { LanguagePicker } from "./language-picker";
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { en } from "./en";
+import { ko } from "./ko";
 
-describe("administrator language", () => {
-  it("updates the document and translated feedback without losing a draft", () => {
-    function Editor() {
-      useLocale();
-      const [draft, setDraft] = useState("user-owned title");
-      const [notice] = useState(() => message("Saved 2 records.", "레코드 2개를 저장했습니다."));
-      return <><LanguagePicker /><input aria-label="draft" value={draft} onChange={event => setDraft(event.target.value)} /><p>{t(notice)}</p></>;
-    }
-    render(<Editor />);
-    fireEvent.change(screen.getByLabelText("draft"), { target: { value: "unsubmitted value" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "Language" }), { target: { value: "ko" } });
+afterEach(() => {
+  localStorage.clear();
+  vi.unstubAllGlobals();
+  vi.resetModules();
+});
+
+describe("i18n", () => {
+  it("has a non-empty Korean string for every English key", () => {
+    expect(Object.keys(ko).sort()).toEqual(Object.keys(en).sort());
+    expect(Object.values(ko).every((text) => text.trim() !== "")).toBe(true);
+  });
+
+  it("interpolates variables and leaves unknown placeholders alone", async () => {
+    const { translate } = await import("./index");
+    expect(translate("en", "setup.restoring", { phase: "copy" })).toBe("Restoring: copy");
+    expect(translate("ko", "setup.restoring", { phase: "copy" })).toBe("복원 중: copy");
+    expect(translate("en", "setup.restoring")).toBe("Restoring: {phase}");
+    expect(translate("en", "records.count", { count: 1 })).toBe("1 record");
+    expect(translate("en", "records.count", { count: 2 })).toBe("2 records");
+  });
+
+  it("defaults to the browser language", async () => {
+    vi.stubGlobal("navigator", { ...navigator, language: "ko-KR" });
+    const { useT } = await import("./index");
+    expect(renderHook(() => useT()).result.current("login.title")).toBe("로그인");
+  });
+
+  it("switches, persists and re-renders on setLanguage", async () => {
+    vi.stubGlobal("navigator", { ...navigator, language: "en-US" });
+    const { setLanguage, useT } = await import("./index");
+    const { result } = renderHook(() => useT());
+    expect(result.current("login.title")).toBe("Sign in");
+    act(() => setLanguage("ko"));
+    expect(result.current("login.title")).toBe("로그인");
+    expect(localStorage.getItem("pgbase.language")).toBe("ko");
     expect(document.documentElement.lang).toBe("ko");
-    expect(screen.getByText("레코드 2개를 저장했습니다.")).toBeVisible();
-    expect(screen.getByLabelText("draft")).toHaveValue("unsubmitted value");
-    fireEvent.change(screen.getByRole("combobox", { name: "언어" }), { target: { value: "en" } });
-    expect(screen.getByText("Saved 2 records.")).toBeVisible();
   });
-  it("keeps interpolation literal and leaves unknown technical text unchanged", () => {
-    setLocale("ko");
-    expect(t(message("Open {name}", "{name} 열기"), { name: "$& <script> {id}" })).toBe("$& <script> {id} 열기");
-    expect(t("SELECT id FROM app.posts")).toBe("SELECT id FROM app.posts");
-    expect(t(message("{missing}", "{missing}"), {})).toBe("{missing}");
-  });
-  it("still switches when browser storage is unavailable", () => {
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("denied"); });
-    setLocale("ko");
-    expect(getLocale()).toBe("ko");
-    expect(t("Save")).toBe("저장");
-  });
-  it("applies another tab's language selection while subscribed", () => {
-    render(<LanguagePicker />);
-    fireEvent(window, new StorageEvent("storage", { key: "pgbase.locale", newValue: "ko" }));
-    expect(screen.getByRole("combobox", { name: "언어" })).toHaveValue("ko");
+
+  it("prefers the stored language over the browser one", async () => {
+    localStorage.setItem("pgbase.language", "en");
+    vi.stubGlobal("navigator", { ...navigator, language: "ko-KR" });
+    const { useLanguage } = await import("./index");
+    expect(renderHook(() => useLanguage()).result.current).toBe("en");
   });
 });

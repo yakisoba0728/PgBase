@@ -29,11 +29,6 @@ if (authenticatedBaseURL !== undefined) {
   });
 }
 
-if (process.env.PGBASE_LOCAL_BROWSER_BASE_URL) {
-  projects.push({ name: "local-features-chromium", testDir: "./e2e/local", workers: 1,
-    use: { ...devices["Desktop Chrome"], baseURL: process.env.PGBASE_LOCAL_BROWSER_BASE_URL } });
-}
-
 export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
@@ -41,6 +36,8 @@ export default defineConfig({
   fullyParallel: false,
   use: {
     trace: "retain-on-failure",
+    // The UI follows navigator.language; specs assert English text unless they switch language themselves.
+    locale: "en-US",
   },
   projects,
 });

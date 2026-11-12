@@ -1,6 +1,32 @@
 # pgBase 구현 현황 / TODO
 
-## 2026-10-22 현재 — 보안 패치, 의존성 정리, 로컬 설치 갱신, public 전환, v0.2.3 릴리스
+## 2026-11-13 현재 — 관리자 UI 전면 재작성(`frontend-rebuild`)
+
+main은 그대로 `7fbf1db`(schema 65)다. 관리자 UI를 브랜치 `frontend-rebuild`에서 처음부터 다시 작성했다. 세부·검증 범위·백엔드 관찰 목록은 [현재 상태](docs/project-status.md) §11을 따른다.
+
+- [x] 관리자 UI 재작성: React/TypeScript/Vite 유지, 새 디자인 시스템·레이아웃(왼쪽 navigation 하나, Records·Schema·Rules·API 탭, split view), Go handler에서 도출한 typed API client, 모든 관리자 route, 한국어·영어, Tiptap rich text, command palette·shortcut, route 단위 code splitting. 서버 API 계약·schema 65 변경 없음.
+- [x] 검증: 격리된 실제 서버(PostgreSQL 17, 실제 CSP)에 대한 slice별·전체 실행, `vitest` 29파일 153 tests, 새 Playwright suite 15개 시나리오 3회 연속 통과(opt-in backup 포함), 세 영역 독립 리뷰의 25개 finding 수정.
+- [ ] 미검증: S3 migration(일부만), production binary의 SQL console, Chromium 외 브라우저, release gate, CI E2E workflow에서의 새 suite(이 작업에서는 실행하지 않음).
+- [ ] 구조 예산 test와 commit된 `ui/admin/dist` 재생성: 마지막 단계에서 맞춘다(현재 red).
+- [ ] main 병합과 운영 서버 배포: 이 기록 시점에 대기. 후속 기록에 남긴다.
+- [ ] UI 재작성 중 발견한 백엔드 문제 22건(수정하지 않음): [현재 상태](docs/project-status.md) §11 목록. 항목별 확인·결정 필요.
+
+## 2026-11-12 — 관리자 UI 재구축, 한국어 지원, Dokploy 서버 배포
+
+main은 `7fbf1db`([PR #107](https://github.com/yakisoba0728/PgBase/pull/107))이고 system migration은 `000065`(schema 65) 그대로다. 세부는 [현재 상태](docs/project-status.md) §10과 [후속 작업](docs/next-work.md)을 따른다.
+
+- [x] [PR #103](https://github.com/yakisoba0728/PgBase/pull/103) `5927520`: 관리자 워크스페이스 간소화와 지원 백엔드 기능 노출.
+- [x] [PR #106](https://github.com/yakisoba0728/PgBase/pull/106) `82411a1`: 보안 의존성 패치, 의존성 통합, Go toolchain 1.26.11, Dokploy 배포 구성([문서](docs/dokploy.md)).
+- [x] [PR #107](https://github.com/yakisoba0728/PgBase/pull/107) `7fbf1db`: PocketBase 스타일 관리자 UI 재구축([기록](docs/admin-ui-rebuild.md))과 한국어 지원([기록](docs/admin-korean-ui.md)). API 계약·schema 변경 없음.
+- [x] 서버 배포: `https://pgbase.yaki.kr`(Dokploy Compose)에 `c1e6ef3` 배포, health 200([배포 기록](docs/deployment-2026-11-12.md)). 아래 "실제 staging TLS/proxy/외부 PostgreSQL 배포" 항목은 staging·upgrade/rollback·복구 증거를 요구하므로 이 배포로 닫지 않는다.
+- [x] 11-12 main 로컬 확인: build, vet, `go test ./...` 63 package, UI typecheck·742 tests 통과(로컬 Go 1.27.1). integration·race·브라우저·SDK test는 실행하지 않음.
+- [ ] 서버 첫 관리자 생성(O7): 공개 호스트가 setup 대기 상태다. 소유자가 직접 만든다.
+- [ ] 서버 밖 백업(O8): 배포 전 DB dump가 같은 서버 volume에만 있고 파일 volume 백업이 없다.
+- [ ] 예약 Security 확인(O9): 10-26·11-02·11-09 실패(11-09는 `npm audit` high 1건). PR #106 이후 push Security는 통과했고 다음 예약 실행 성공이 남았다.
+- [ ] 11월 UI 작업의 릴리스(O10): 최신 릴리스는 v0.2.3(`5c495e1`). 소유자 결정.
+- [ ] 로컬 관리자 생성·npm/pub.dev 배포: 아래 2026-10-22 항목 그대로 남음.
+
+## 2026-10-22 — 보안 패치, 의존성 정리, 로컬 설치 갱신, public 전환, v0.2.3 릴리스
 
 main은 `5c495e1`([PR #92](https://github.com/yakisoba0728/PgBase/pull/92))이고 system migration은 `000065`(schema 65) 그대로다. 아래 PR은 모두 필수 CI(Go unit, Observability, PostgreSQL integration 17.9, Frontend test, Security audit) 통과 후 merge commit으로 병합했다.
 

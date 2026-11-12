@@ -1,0 +1,357 @@
+/* Confirm dialog, dropdown and toasts. */
+dialog {
+  color: var(--text);
+}
+
+dialog::backdrop {
+  background: var(--backdrop);
+}
+
+.confirm {
+  width: min(100vw - 32px, 420px);
+  padding: 22px 22px 18px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+
+.confirm[open] {
+  animation: rise var(--speed) ease-out;
+}
+
+.confirm[open]::backdrop {
+  animation: fade var(--speed) ease-out;
+}
+
+.confirm-title {
+  margin-bottom: 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.confirm p {
+  color: var(--text-hint);
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.dropdown {
+  inset: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-width: 190px;
+  margin: 0;
+  padding: 5px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  transition: opacity var(--speed), translate var(--speed), display var(--speed) allow-discrete, overlay var(--speed) allow-discrete;
+}
+
+.dropdown:not(:popover-open) {
+  opacity: 0;
+  translate: 0 3px;
+}
+
+@starting-style {
+  .dropdown:popover-open {
+    opacity: 0;
+    translate: 0 3px;
+  }
+}
+
+.dropdown-label {
+  padding: 7px 10px 5px;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--speed);
+}
+
+.dropdown-item:hover,
+.dropdown-item:focus-visible {
+  background: var(--surface-1);
+  outline: 0;
+}
+
+.dropdown-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+
+.dropdown-item svg {
+  color: var(--text-hint);
+}
+
+.dropdown-item .check {
+  margin-left: auto;
+  color: var(--accent);
+}
+
+.toasts {
+  /* Guest screens: floating at the top centre. In the app they take a band above it (below). */
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  translate: -50% 0;
+  z-index: 100;
+  display: grid;
+  gap: 8px;
+  max-width: min(420px, calc(100vw - 32px));
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 7px 7px 14px;
+  border-radius: var(--radius);
+  background: var(--text);
+  color: var(--surface);
+  box-shadow: var(--shadow);
+  animation: rise var(--speed) ease-out;
+}
+
+.toast-danger {
+  background: var(--danger);
+  color: var(--danger-text);
+}
+
+.toast p {
+  flex: 1;
+  padding-top: 4px;
+}
+
+.toast .icon-btn {
+  color: inherit;
+}
+
+.toast .icon-btn:hover {
+  background: color-mix(in srgb, currentcolor, transparent 85%);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.records-toolbar .dropdown-btn-text {
+  font-size: var(--font-size-sm);
+}
+
+/* Popover panels (column settings, filter help, value peek). */
+.popover {
+  inset: auto;
+  overflow-y: auto;
+  max-width: calc(100vw - 16px);
+  margin: 0;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.peek {
+  width: min(480px, calc(100vw - 16px));
+  padding: 0;
+}
+
+.peek-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 14px;
+  font-size: var(--font-size-sm);
+  box-shadow: 0 1px 0 var(--line);
+}
+
+.peek-title {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.peek-head .txt-hint {
+  margin-right: auto;
+}
+
+.peek-body {
+  max-height: min(50vh, 420px);
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* File preview dialog. */
+.file-preview {
+  width: min(100vw - 32px, 960px);
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+
+.file-preview[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.file-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 16px;
+  font-size: var(--font-size-sm);
+  box-shadow: 0 1px 0 var(--line);
+}
+
+.file-preview-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-preview-head .txt-hint {
+  margin-right: auto;
+  white-space: nowrap;
+}
+
+.file-preview-body {
+  display: grid;
+  flex: 1;
+  min-height: 200px;
+  place-items: center;
+  padding: 16px;
+  overflow: auto;
+  background: var(--surface-1);
+}
+
+.file-preview-body img {
+  max-width: 100%;
+  max-height: calc(100vh - 160px);
+  object-fit: contain;
+}
+
+.file-preview-other {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  color: var(--text-hint);
+}
+
+/* Actions can sit anywhere in the main column, so in the app the toasts live in a status line the shell always
+   reserves under it: a toast appearing or expiring moves nothing, and no control is ever placed where it shows.
+   The line has a fixed height whatever it holds (one toast, at most two lines of text; three on phones). */
+#root:has(> .app) {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
+#root > .app {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  /* The drawer and full-screen panes (position: fixed) stay inside the app, above the status line. */
+  contain: layout;
+}
+
+/* The status line takes the place of the main sheet's bottom gutter. */
+#root > .app .main {
+  margin-bottom: 0;
+}
+
+#root > .app ~ .toasts {
+  position: static;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  max-width: none;
+  padding: 0 8px;
+  overflow: hidden;
+  translate: none;
+  background: var(--bg);
+}
+
+#root > .app ~ .toasts .toast {
+  align-items: center;
+  min-width: 0;
+  max-width: min(560px, 100%);
+  min-height: 30px;
+  padding: 2px 2px 2px 12px;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+  box-shadow: none;
+  animation-name: fade;
+}
+
+#root > .app ~ .toasts .toast p {
+  display: -webkit-box;
+  padding: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+#root > .app ~ .toasts .icon-btn {
+  width: 26px;
+  height: 26px;
+}
+
+/* Phones have no hover to reveal a cut-off message, so the line is taller there and holds three lines. */
+@media (max-width: 599px) {
+  #root > .app ~ .toasts {
+    height: 56px;
+  }
+
+  #root > .app ~ .toasts .toast p {
+    -webkit-line-clamp: 3;
+  }
+}
+
+.toast-action {
+  flex: none;
+  align-self: center;
+  font-weight: 600;
+}

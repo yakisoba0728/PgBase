@@ -1,0 +1,36 @@
+export const shellEn = {
+  "unsaved.title": "Discard unsaved changes?",
+  "unsaved.text": "Leaving now discards the changes you have not saved.",
+  "unsaved.discard": "Discard",
+
+  "palette.open": "Command palette",
+  "palette.title": "Go to or run a command",
+  "palette.placeholder": "Search collections, screens and commands…",
+  "palette.empty": "Nothing matches.",
+  "palette.group.recent": "Recent collections",
+  "palette.group.collections": "Collections",
+  "palette.group.screens": "Screens",
+  "palette.group.actions": "Commands",
+  "palette.newCollection": "New collection",
+  "palette.newRecord": "New record in {name}",
+  "palette.theme": "Theme: {mode}",
+  "palette.language": "Language: {name}",
+  "palette.signOut": "Sign out",
+  "palette.shortcuts": "Keyboard shortcuts",
+
+  "shortcuts.title": "Keyboard shortcuts",
+  "shortcuts.palette": "Command palette",
+  "shortcuts.help": "Show this list",
+  "shortcuts.filter": "Focus the search or filter",
+  "shortcuts.new": "Create a new item on this screen",
+  "shortcuts.close": "Close the open pane or dialog",
+  "shortcuts.save": "Save changes",
+  "shortcuts.then": "then",
+  "shortcuts.group.general": "General",
+  "shortcuts.group.navigation": "Go to",
+
+  "nav.recent": "Recent",
+
+  "field.reveal": "Reveal",
+  "field.capsLock": "Caps Lock is on.",
+};

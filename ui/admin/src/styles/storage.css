@@ -1,0 +1,78 @@
+/* Backups and storage settings. */
+.storage-form {
+  display: grid;
+  gap: var(--space);
+  max-width: 680px;
+}
+
+.storage-block {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.storage-block .subtitle {
+  margin: 0;
+}
+
+.storage-block > p {
+  margin: 0;
+}
+
+.storage-note {
+  margin: 0;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
+.storage-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  align-items: start;
+  gap: var(--space-sm);
+}
+
+.storage-actions > :first-child:not(:only-child) {
+  margin-right: auto;
+}
+
+.storage-preview {
+  font-size: var(--font-size-sm);
+}
+
+.storage-preview {
+  color: var(--text);
+}
+
+.storage-schedule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: var(--space-sm) var(--space-sm) 0;
+  font-size: var(--font-size-sm);
+}
+
+/* The running/finished backup job above the list. */
+.storage-job {
+  margin: var(--space-sm) var(--space-sm) var(--space-xs);
+}
+
+.storage-steps {
+  margin: 12px 0;
+  padding-left: 18px;
+  font-size: var(--font-size-sm);
+}
+
+.storage-steps li + li {
+  margin-top: 6px;
+}
+
+.storage-steps-id {
+  margin: 0 0 12px;
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.pane-footer a.btn {
+  text-decoration: none;
+}

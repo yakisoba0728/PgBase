@@ -1,0 +1,505 @@
+/* Records workspace: windowed grid, cells, toolbar extras, pickers, files, shared popovers. */
+
+/* Fixed layout: column widths come from <col>, so swapping rows while scrolling never reflows. */
+.records-grid {
+  table-layout: fixed;
+  min-width: 0;
+}
+
+.records-grid td {
+  max-width: none;
+}
+
+/* Header and selection/id columns stay put; their cells need an opaque background over scrolled rows. */
+.records-grid .sticky-check,
+.records-grid .sticky-id {
+  position: sticky;
+  z-index: 1;
+  background: var(--surface);
+}
+
+.records-grid .sticky-check {
+  left: 0;
+}
+
+.records-grid .sticky-id {
+  left: 40px;
+  box-shadow: inset -1px 0 0 var(--line);
+}
+
+.records-grid th.sticky-check,
+.records-grid th.sticky-id {
+  z-index: 2;
+}
+
+.records-grid thead th.sticky-id {
+  box-shadow: inset 0 -1px 0 var(--line), inset -1px 0 0 var(--line);
+}
+
+.records-grid tbody tr:hover td.sticky-check,
+.records-grid tbody tr:hover td.sticky-id {
+  background: var(--surface-1);
+}
+
+.records-grid tbody tr[data-checked] td.sticky-check,
+.records-grid tbody tr[data-checked] td.sticky-id {
+  background: color-mix(in srgb, var(--accent), var(--surface) 95%);
+}
+
+.records-grid tbody tr[aria-current="true"] td.sticky-check,
+.records-grid tbody tr[aria-current="true"] td.sticky-id {
+  background: var(--accent-soft);
+}
+
+.records-grid .grid-spacer td {
+  padding: 0;
+  background: none;
+}
+
+.records-grid .grid-spacer {
+  cursor: default;
+}
+
+.records-grid .id-cell .cell-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The copy button floats over the id so a full uuid fits the column. */
+.records-grid .id-cell .icon-btn {
+  position: absolute;
+  right: 6px;
+  background: var(--surface-raised);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.th-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Long values: one truncated line, with a button to see the whole value. */
+.cell-long {
+  position: relative;
+}
+
+.cell-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.peek-btn {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: var(--surface-raised);
+  color: var(--text-hint);
+  box-shadow: 0 0 0 1px var(--line);
+  opacity: 0;
+  translate: 0 -50%;
+  cursor: pointer;
+  transition: opacity var(--speed);
+}
+
+.grid tr:hover .peek-btn,
+.grid tr:focus-within .peek-btn {
+  opacity: 1;
+}
+
+.peek-btn:hover {
+  color: var(--text);
+}
+
+.cell-files {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: middle;
+}
+
+.file-thumb {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  overflow: hidden;
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  color: var(--text-hint);
+}
+
+/* Beats data.css ".file-list li span:first-of-type", which stretches the first span. */
+.file-list li span.file-thumb.file-thumb {
+  flex: none;
+}
+
+.file-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* List body: the scroller plus the jump-to-top button above it. */
+.records-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.records-scroll {
+  overscroll-behavior: contain;
+}
+
+.to-top {
+  position: absolute;
+  right: var(--space);
+  bottom: var(--space);
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+
+.grid-foot {
+  gap: 10px;
+  align-items: center;
+}
+
+.searchbar[data-invalid] {
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.searchbar-help {
+  width: 26px;
+  height: 26px;
+  margin-right: -6px;
+}
+
+.records-problem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -2px var(--space) var(--space-xs);
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+}
+
+/* Some columns hidden: the button keeps a quiet accent dot so the grid's partial view is not forgotten. */
+.columns-btn-hidden {
+  position: relative;
+}
+
+.columns-btn-hidden::after {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  content: "";
+}
+
+.columns-panel {
+  width: 300px;
+}
+
+.columns-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 4px 6px 10px;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
+.columns-list {
+  max-height: min(60vh, 480px);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.columns-list li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  padding: 0 2px 0 8px;
+  border-radius: var(--radius-sm);
+}
+
+.columns-list li:hover {
+  background: var(--surface-1);
+}
+
+.columns-list .checkbox {
+  flex: 1;
+  min-width: 0;
+}
+
+.columns-list .checkbox span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.columns-list .icon-btn {
+  width: 26px;
+  height: 26px;
+}
+
+.filter-help {
+  width: 360px;
+  padding: 12px 14px;
+  font-size: var(--font-size-sm);
+}
+
+.filter-help ul {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.filter-help button {
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.filter-help button:hover {
+  background: var(--surface-2);
+}
+
+/* Detail pane extras. Positioned so visually hidden inputs (file pickers) stay inside the scrolled
+   pane instead of stretching the document, which focus scrolling would then scroll. */
+.split-pane .pane-body,
+.file-list li {
+  position: relative;
+}
+
+.pane-progress {
+  width: 120px;
+}
+
+/* Relation picker. */
+.relation-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 6px 6px 2px;
+  list-style: none;
+}
+
+.relation-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 2px 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.relation-chip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relation-chip .mono {
+  font-size: 11px;
+}
+
+.relation-chip-btn {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--text-hint);
+  cursor: pointer;
+}
+
+.relation-chip-btn:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.relation-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--text-hint);
+}
+
+.relation-search input {
+  flex: 1;
+  min-width: 0;
+  height: var(--control);
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  outline: 0;
+}
+
+.relation-results {
+  margin: 0 4px 4px;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.relation-results ul {
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.relation-results li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius-xs);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.relation-results li > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relation-results li .mono {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relation-results li:hover,
+.relation-results li[data-active] {
+  background: var(--surface-1);
+}
+
+.relation-results li[aria-disabled] {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+.relation-results .relation-create {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.relation-note {
+  padding: 6px 8px;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
+/* geoPoint inputs. */
+.geo-inputs {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 0 6px 6px;
+}
+
+.geo-inputs label {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  font-size: var(--font-size-xs);
+}
+
+/* Files in the form. */
+.file-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-open span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-open:hover span:last-child {
+  text-decoration: underline;
+}
+
+.file-uploading progress {
+  width: 120px;
+}
+
+.file-staged-note {
+  padding: 0 8px 6px;
+}
+
+@media (max-width: 599px) {
+  .records-toolbar .toolbar-count,
+  .records-toolbar .toolbar-selection {
+    margin-right: auto;
+  }
+
+  .records-grid .sticky-id {
+    position: static;
+  }
+}

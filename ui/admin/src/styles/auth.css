@@ -1,0 +1,265 @@
+/* Auth collections and users: settings forms, provider rows, state chips, user actions. */
+.auth-form {
+  display: grid;
+  align-content: start;
+  gap: var(--space);
+  max-width: 760px;
+}
+
+.auth-form-wide {
+  max-width: 1040px;
+}
+
+.auth-section {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.auth-section > header {
+  display: grid;
+  gap: 2px;
+}
+
+.auth-section h2 {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.auth-section p {
+  font-size: var(--font-size-sm);
+}
+
+.auth-grid {
+  display: grid;
+  align-items: start;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-xs);
+}
+
+.auth-inline {
+  display: flex;
+  align-items: end;
+  gap: var(--space-xs);
+}
+
+.auth-inline > .field-wrap {
+  flex: 1;
+}
+
+/* Provider and identity rows: tone, not borders. */
+.auth-rows {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0 calc(var(--space) - 8px);
+  list-style: none;
+}
+
+.auth-pane .auth-rows {
+  padding: 0;
+}
+
+.auth-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  min-height: var(--row);
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--speed);
+}
+
+.auth-row:hover {
+  background: var(--surface-1);
+}
+
+.auth-row[aria-current="true"] {
+  background: var(--accent-soft);
+}
+
+.auth-row-static {
+  cursor: default;
+  background: var(--surface-1);
+}
+
+.auth-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-content > .auth-table {
+  width: 100%;
+}
+
+.auth-form .auth-table tbody tr {
+  cursor: default;
+}
+
+.auth-form .auth-table tbody tr:hover td {
+  background: transparent;
+}
+
+.auth-form .auth-table td {
+  overflow: visible;
+  height: auto;
+  padding-block: 4px;
+  vertical-align: top;
+  line-height: var(--control-sm);
+}
+
+.auth-cell-input {
+  height: var(--control-sm);
+  width: 100%;
+  min-width: 120px;
+}
+
+.auth-table .field-error {
+  display: block;
+  line-height: var(--line-height-sm);
+  font-size: var(--font-size-sm);
+  white-space: normal;
+}
+
+.auth-preview {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.auth-code {
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+}
+
+/* User pane */
+.auth-pane {
+  display: grid;
+  align-content: start;
+  gap: var(--space);
+}
+
+.auth-actions {
+  display: grid;
+  gap: 1px;
+}
+
+.auth-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--row);
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+
+.auth-action > span:first-child {
+  min-width: 72px;
+  margin-right: auto;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
+.auth-record-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.auth-link-row a,
+.crumb a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.crumb a:hover {
+  color: var(--text);
+}
+
+/* Mail preview: the rebuilt HTML beside the plain-text version. */
+.auth-preview-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--space-sm);
+  align-items: start;
+}
+
+.auth-preview-pair figure {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+}
+
+.auth-preview-pair figcaption {
+  font-size: var(--font-size-sm);
+}
+
+.auth-mail-frame {
+  max-height: 520px;
+  overflow: auto;
+  border-radius: var(--radius);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+@media (max-width: 1199px) {
+  .auth-preview-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.auth-apple {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+
+.auth-apple p {
+  flex: 1;
+  font-size: var(--font-size-sm);
+}
+
+.auth-row:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* Users: search and status filter above the list, and the scan progress line. */
+.auth-user-filter {
+  gap: var(--space-xs);
+  align-items: end;
+}
+
+.auth-user-filter .field-wrap:first-child {
+  flex: 1;
+  max-width: 420px;
+}
+
+.auth-scan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px var(--space-sm);
+  margin: 0;
+  padding: 6px var(--space);
+  font-size: var(--font-size-sm);
+}

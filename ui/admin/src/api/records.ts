@@ -1,0 +1,216 @@
+import { request, requestBlob, requestWithHeaders, stringifyJson, uploadForm } from "./http";
+
+// Contracts mirror internal/api/record_handlers.go, batch_handlers.go and file_handlers.go.
+// An administrator cookie session uses /api/v1/collections/... for records (the
+// /api/v1/user, /service and /public prefixes belong to other principals) and
+// /api/admin/... for files.
+//
+// ETags travel in response headers for single-record calls (returned alongside the
+// record); batch results carry `etag` in the body. Without If-Match an
+// update/delete is last-write-wins; without Idempotency-Key a create is not retry-safe.
+
+const seg = encodeURIComponent;
+const recordsPath = (collection: string) => `/api/v1/collections/${seg(collection)}/records`;
+
+/** Field values are arbitrary JSON (unsafe numbers arrive as exact non-number values). */
+export interface RecordData {
+  /** Public id: uuid, or text for collections with a text record-id policy. */
+  id: string;
+  /** RFC 3339 UTC; may be absent when `fields` projects them away. */
+  created_at?: string;
+  updated_at?: string;
+  /** Present when `expand` was requested: relation field -> related record(s). */
+  expand?: Record<string, RecordData | RecordData[] | null>;
+  [field: string]: unknown;
+}
+
+export interface RecordPage {
+  items: RecordData[];
+  /** Present when more records follow; pass back as `cursor`. */
+  nextCursor?: string;
+}
+
+export interface ListRecordsOptions {
+  /** e.g. `title ~ 'draft' && published = true`. */
+  filter?: string;
+  /** Comma-separated, `-` prefix for descending; system fields are id, created_at, updated_at. */
+  sort?: string;
+  /** Comma-separated relation paths. */
+  expand?: string;
+  /** Comma-separated projection. */
+  fields?: string;
+  cursor?: string;
+  /** 1..200, default 50. */
+  limit?: number;
+  signal?: AbortSignal;
+}
+
+export function listRecords(collection: string, options: ListRecordsOptions = {}): Promise<RecordPage> {
+  const { signal, ...query } = options;
+  return request("GET", recordsPath(collection), { query: { ...query }, signal });
+}
+
+/** A record plus its strong ETag (pass back as `ifMatch`). */
+export interface RecordWithETag {
+  record: RecordData;
+  etag: string;
+}
+
+async function withETag(response: Promise<{ data: RecordData; headers: Headers }>): Promise<RecordWithETag> {
+  const { data, headers } = await response;
+  return { record: data, etag: headers.get("ETag") ?? "" };
+}
+
+export function getRecord(
+  collection: string,
+  id: string,
+  options: { expand?: string; fields?: string; signal?: AbortSignal } = {},
+): Promise<RecordWithETag> {
+  return withETag(
+    requestWithHeaders("GET", `${recordsPath(collection)}/${seg(id)}`, {
+      query: { expand: options.expand, fields: options.fields },
+      signal: options.signal,
+    }),
+  );
+}
+
+/** `input` maps field names to JSON values. `idempotencyKey`: 16..128 chars of
+ * [A-Za-z0-9._~-]; reuse it to retry the same create safely. */
+export function createRecord(
+  collection: string,
+  input: Record<string, unknown>,
+  options: { idempotencyKey?: string; fields?: string } = {},
+): Promise<RecordWithETag> {
+  return withETag(
+    requestWithHeaders("POST", recordsPath(collection), {
+      body: input,
+      query: { fields: options.fields },
+      headers: options.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined,
+    }),
+  );
+}
+
+/** Partial update. `ifMatch` is an ETag (or "*"); a mismatch throws ApiError 412 precondition_failed. */
+export function updateRecord(
+  collection: string,
+  id: string,
+  input: Record<string, unknown>,
+  options: { ifMatch?: string; fields?: string } = {},
+): Promise<RecordWithETag> {
+  return withETag(
+    requestWithHeaders("PATCH", `${recordsPath(collection)}/${seg(id)}`, {
+      body: input,
+      query: { fields: options.fields },
+      headers: options.ifMatch ? { "If-Match": options.ifMatch } : undefined,
+    }),
+  );
+}
+
+export async function deleteRecord(collection: string, id: string, options: { ifMatch?: string } = {}): Promise<void> {
+  await request("DELETE", `${recordsPath(collection)}/${seg(id)}`, {
+    headers: options.ifMatch ? { "If-Match": options.ifMatch } : undefined,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Files
+// ---------------------------------------------------------------------------
+
+/** "original" (default), "thumbnail", or a size from the field's `thumbs` option. */
+export type FileVariant = string;
+
+export interface StoredFile {
+  id: string;
+  field: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  thumbnail: boolean;
+  protected: boolean;
+  /** Present for unprotected files: /api/files/{id}. */
+  publicUrl?: string;
+}
+
+const recordFilesPath = (collection: string, id: string, field: string) =>
+  `/api/admin/collections/${seg(collection)}/records/${seg(id)}/files/${seg(field)}`;
+
+export async function listRecordFiles(
+  collection: string,
+  id: string,
+  field: string,
+  signal?: AbortSignal,
+): Promise<StoredFile[]> {
+  return (await request<{ items: StoredFile[] }>("GET", recordFilesPath(collection, id, field), { signal })).items;
+}
+
+const sha256Hex = async (file: File) =>
+  Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer())), (byte) => byte.toString(16).padStart(2, "0")).join("");
+
+/** Uploads one attachment; the server verifies the declared size and SHA-256. */
+export async function uploadRecordFile(
+  collection: string,
+  id: string,
+  field: string,
+  file: File,
+  options: { onProgress?: (fraction: number) => void; signal?: AbortSignal } = {},
+): Promise<StoredFile> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  return uploadForm(recordFilesPath(collection, id, field), form, {
+    headers: { "X-PgBase-File-Size": String(file.size), "X-PgBase-File-SHA256": await sha256Hex(file) },
+    ...options,
+  });
+}
+
+/** Creates a record and its attachments in one atomic multipart batch (required file fields need this).
+ * Each file part is referenced from the body as { $file: partName }. */
+export async function createRecordWithFiles(
+  collection: string,
+  input: Record<string, unknown>,
+  files: Record<string, File[]>,
+  options: { idempotencyKey?: string; onProgress?: (fraction: number) => void } = {},
+): Promise<RecordWithETag> {
+  const form = new FormData();
+  const body: Record<string, unknown> = { ...input };
+  const parts: [string, File][] = [];
+  for (const [field, list] of Object.entries(files)) {
+    if (list.length === 0) continue;
+    const refs = list.map((file) => {
+      const name = `file_${parts.length}`;
+      parts.push([name, file]);
+      return { $file: name };
+    });
+    body[field] = refs.length === 1 ? refs[0] : refs;
+  }
+  const headers = options.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined;
+  form.append("requests", stringifyJson({ requests: [{ method: "POST", url: recordsPath(collection), body, headers }] }));
+  for (const [name, file] of parts) form.append(name, file, file.name);
+  const result = await uploadForm<{ results: { body: RecordData; etag?: string }[] }>("/api/v1/collections/batch", form, { onProgress: options.onProgress });
+  return { record: result.results[0].body, etag: result.results[0].etag ?? "" };
+}
+
+/** Short-lived token required by downloadFile, bound to one variant. */
+export async function mintFileToken(fileId: string, variant: FileVariant = "original"): Promise<string> {
+  return (await request<{ token: string }>("POST", `/api/admin/files/${seg(fileId)}/token`, { body: { variant } })).token;
+}
+
+export function downloadFile(fileId: string, token: string, variant?: FileVariant, signal?: AbortSignal): Promise<Blob> {
+  return requestBlob(fileURL(fileId, token, variant), { signal });
+}
+
+/** Same-origin URL of a protected file, usable as an <img> source or download link until the token expires. */
+export function fileURL(fileId: string, token: string, variant?: FileVariant): string {
+  const query = new URLSearchParams({ token });
+  if (variant && variant !== "original") query.set("variant", variant);
+  return `/api/admin/files/${seg(fileId)}?${query}`;
+}
+
+export async function deleteFile(fileId: string): Promise<void> {
+  await request("DELETE", `/api/admin/files/${seg(fileId)}`);
+}
+
+/** Unauthenticated URL; works only for files whose field has `protected: false`. */
+export function publicFileURL(fileId: string, variant?: FileVariant): string {
+  const path = `/api/files/${seg(fileId)}`;
+  return variant ? `${path}?variant=${seg(variant)}` : path;
+}

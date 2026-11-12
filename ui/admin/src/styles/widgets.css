@@ -1,0 +1,241 @@
+/* Shared building blocks: code viewer, code editor, job progress, result grid. */
+
+/* Read-only code: bounded height, scrolls inside, copy in the corner. */
+.code-block {
+  position: relative;
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+}
+
+.code-block-body {
+  max-height: min(420px, 50vh);
+  overflow: auto;
+  padding: 8px 40px 8px 10px;
+  border-radius: inherit;
+  outline: 0;
+}
+
+.code-block-body:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.code-block pre {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.code-block[data-wrap] pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.code-block pre + pre {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--surface-3);
+}
+
+.code-block pre[data-danger] {
+  color: var(--danger);
+}
+
+.code-block-copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+/* Monospace editor. */
+.code-area {
+  width: 100%;
+  min-height: 72px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  tab-size: 2;
+  outline: 0;
+  resize: vertical;
+}
+
+.code-area[data-fill] {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  white-space: pre;
+  resize: none;
+}
+
+.code-area:focus-visible {
+  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
+}
+
+/* Text that will write carries the warning tone so the mode is never missed. */
+.code-area[data-tone="warning"] {
+  background: color-mix(in srgb, var(--warning), var(--surface-1) 92%);
+  box-shadow: inset 3px 0 0 var(--warning);
+}
+
+/* One long-running job. */
+.job-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--tone, var(--accent)), var(--surface) 90%);
+}
+
+.job-progress-text {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+}
+
+.job-progress-error {
+  flex-basis: 100%;
+  color: var(--tone);
+  overflow-wrap: anywhere;
+}
+
+.job-progress-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-sm);
+}
+
+.progress-bar {
+  width: 160px;
+  height: 6px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  accent-color: var(--accent);
+  appearance: none;
+  overflow: hidden;
+}
+
+.progress-bar::-webkit-progress-bar {
+  background: var(--surface-2);
+}
+
+.progress-bar::-webkit-progress-value {
+  background: var(--accent);
+}
+
+.progress-bar::-moz-progress-bar {
+  background: var(--accent);
+}
+
+/* Read-only result rows: exact text, monospace. */
+.data-grid tbody tr {
+  cursor: default;
+}
+
+.data-grid td {
+  max-width: 480px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+}
+
+.data-grid td[data-muted] {
+  color: var(--text-hint);
+}
+
+.data-grid-null {
+  color: var(--text-disabled);
+  font-style: italic;
+}
+
+/* Plan review. */
+.schema-plan + .schema-plan {
+  margin-top: var(--space);
+}
+
+.schema-plan-title {
+  margin-bottom: 6px;
+  font-size: var(--font-size-sm);
+}
+
+.schema-changes {
+  display: grid;
+  gap: 1px;
+  margin: 0 0 var(--space-sm);
+  padding: 0;
+  list-style: none;
+}
+
+.schema-changes li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+
+.schema-changes li:nth-child(odd) {
+  background: var(--surface-1);
+}
+
+.schema-change-kind {
+  flex: none;
+  width: 72px;
+  font-weight: 600;
+}
+
+.schema-changes li[data-kind="add"] .schema-change-kind {
+  color: var(--success);
+}
+
+.schema-change-target {
+  flex: none;
+  width: 56px;
+  color: var(--text-hint);
+}
+
+.schema-change-detail {
+  overflow: hidden;
+  color: var(--text-hint);
+  font-size: var(--font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schema-changes li[data-danger] {
+  background: color-mix(in srgb, var(--danger), var(--surface-raised) 90%);
+  color: var(--danger);
+}
+
+.schema-changes li[data-danger] .schema-change-target,
+.schema-changes li[data-danger] .schema-change-detail {
+  color: inherit;
+}
+
+.schema-changes li > svg {
+  flex: none;
+  margin-left: auto;
+}
+
+.schema-sql summary {
+  padding: 6px 2px;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+}

@@ -1,0 +1,114 @@
+/* Shared form and detail building blocks (src/components): sections, key/value rows, notes, task dialogs. */
+
+/* Sections are separated by space and tone, not rules. */
+.form-section {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 720px);
+  gap: var(--space-sm) var(--space);
+  padding: var(--space) 0;
+}
+
+.form-section + .form-section {
+  box-shadow: 0 -1px 0 var(--line);
+}
+
+.form-section > header h2 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.form-section > header p {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+}
+
+.form-section > :not(header) {
+  grid-column: 2;
+}
+
+.facts {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 var(--space-sm);
+}
+
+.facts > div {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: 8px;
+  border-radius: var(--radius-sm);
+}
+
+.facts > div:nth-child(odd) {
+  background: var(--surface-1);
+}
+
+.facts dt {
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.warning-note {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning), var(--surface-raised) 88%);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+}
+
+/* Short-task dialogs: wider than a confirmation. */
+.task-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.task-dialog .form,
+.task-dialog > p {
+  margin-bottom: 4px;
+}
+
+.secret-box {
+  display: block;
+  margin: var(--space-sm) 0 0;
+}
+
+.secret-box textarea {
+  width: 100%;
+  border-radius: var(--radius);
+  background: var(--input);
+  word-break: break-all;
+}
+
+@media (max-width: 899px) {
+  .form-section {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .form-section > :not(header) {
+    grid-column: 1;
+  }
+}
+
+.facts dd[data-tone] {
+  color: var(--tone);
+}
+
+.facts-copy {
+  margin: -6px 0 -6px 4px;
+  vertical-align: middle;
+}
+
+/* Notes that open a list, pane or block keep space before what they describe. */
+.grid-scroll > .warning-note,
+.pane-body > .warning-note,
+.storage-block > .warning-note {
+  margin: 0 0 var(--space-sm);
+}
