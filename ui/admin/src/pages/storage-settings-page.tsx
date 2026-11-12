@@ -1,3 +1,5 @@
+import { ActionBar, Button, FormSection, PageHeading } from "../components/ui";
+import { useUnsavedDraft } from "../routing/unsaved-draft";
 import { StorageMigrationNotFound, StorageMigrationRejected } from "../backend/storage-port";
 import { useEffect, useRef, useState } from "react";
 import { useBackend, useSession } from "../auth/session";
@@ -9,7 +11,7 @@ import type {
 
 const editable = (value: FileStorageSettings): FileStorageUpdate => ({ driver: value.driver, bucket: value.bucket, region: value.region, endpoint: value.endpoint, accessKey: value.accessKey, usePathStyle: value.usePathStyle, revision: value.revision });
 export function StorageSettingsPage() {
-  const { storage } = useBackend();
+  const { storage, capabilities } = useBackend();
   const { state: session } = useSession();
   const [saved, setSaved] = useState<FileStorageSettings>();
   const [form, setForm] = useState<FileStorageUpdate>();
@@ -53,6 +55,7 @@ export function StorageSettingsPage() {
     ? `${window.location.origin}:pgbase-file-storage-migration:${session.administrator.id}` : "";
   const migrationID = migration?.status === "preview" ? undefined : migration?.id;
   useEffect(() => {
+    if (capabilities?.storageMigrations === false) { setRecoveryPending(false); return; }
     if (!recoveryKey || !pollEnabled) return;
     let id = pollID;
     try { id ||= window.sessionStorage.getItem(recoveryKey) ?? ""; } catch { /* polling works without persistence */ }
@@ -92,7 +95,7 @@ export function StorageSettingsPage() {
     }
     void poll();
     return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [pollID, pollRevision, pollEnabled, recoveryKey, storage]);
+  }, [pollID, pollRevision, pollEnabled, recoveryKey, storage, capabilities?.storageMigrations]);
   function findCurrentMigration() {
     try { window.sessionStorage.removeItem(recoveryKey); } catch { /* server discovery remains available */ }
     setMigration(undefined); setPreviewInput(undefined); setStartAttemptID(undefined);
@@ -153,12 +156,14 @@ export function StorageSettingsPage() {
     return secret ? { ...base, secretKey: secret } : base;
   };
   async function previewMigration() {
+    if (capabilities?.storageMigrations === false) return;
     setBusy(true); setMessage(undefined); setMigration(undefined); setPreviewInput(undefined);
     try { const input = migrationInput(); setMigration(await storage.previewMigration(input)); setPreviewInput(JSON.stringify(input)); }
     catch { setMessage("Unable to preview storage migration."); }
     finally { setBusy(false); }
   }
   async function startMigration() {
+    if (capabilities?.storageMigrations === false) return;
     if (!previewInput) return;
     const id = startAttemptID ?? crypto.randomUUID();
     setStartAttemptID(id);
@@ -180,17 +185,20 @@ export function StorageSettingsPage() {
     } finally { setBusy(false); }
   }
   async function resumeMigration() {
+    if (capabilities?.storageMigrations === false) return;
     if (!migration?.id) return;
     setBusy(true); try { await storage.resumeMigration(migration.id); setPollID(migration.id); setPollRevision(value => value + 1); } catch { setMessage("Unable to resume storage migration. Retry to check its state."); setPollRevision(value => value + 1); } finally { setBusy(false); }
   }
   async function cancelMigration() {
+    if (capabilities?.storageMigrations === false) return;
     if (!migration?.id) return;
     setBusy(true); try { await storage.cancelMigration(migration.id); setPollID(migration.id); setPollRevision(value => value + 1); } catch { setMessage("Unable to cancel storage migration. Retry to check its state."); setPollRevision(value => value + 1); } finally { setBusy(false); }
   }
+  useUnsavedDraft("file-storage", !!form && !!saved && (JSON.stringify(form) !== JSON.stringify(editable(saved)) || secret !== ""));
   if (!form)
     return (
-      <section>
-        <h2>File storage</h2>
+      <section className="management-page storage-page">
+        <PageHeading title="File storage" />
         <p aria-live="polite">{message ?? "Loading file storage settings…"}</p>
       </section>
     );
@@ -198,11 +206,8 @@ export function StorageSettingsPage() {
   const migrationRequired = !!saved && (form.driver !== saved.driver || form.bucket !== saved.bucket || form.region !== saved.region || form.endpoint !== saved.endpoint || form.usePathStyle !== saved.usePathStyle);
   const migrationActive = !!migration?.id && !["preview", "committed", "canceled"].includes(migration.status);
   return (
-    <section>
-      <h2>File storage</h2>
-      <p>
-        Configure storage for uploaded record files. Backup archive storage is configured separately.
-      </p>
+    <section className="management-page storage-page">
+      <PageHeading title="File storage" description="Configure storage for uploaded record files. Backup archive storage is configured separately." />
       <label>
         Driver
         <select
@@ -215,8 +220,7 @@ export function StorageSettingsPage() {
         </select>
       </label>
       {form.driver === "s3" && (
-        <fieldset disabled={busy || recoveryPending || migrationActive || !!startAttemptID}>
-          <legend>S3 connection</legend>
+        <FormSection className="management-field-grid" disabled={busy || recoveryPending || migrationActive || !!startAttemptID} title="S3 connection">
           <label>
             Endpoint
             <input
@@ -268,40 +272,41 @@ export function StorageSettingsPage() {
             />
             Use path-style addressing
           </label>
-        </fieldset>
+        </FormSection>
       )}
       {migrationRequired && (
         <p role="note">
           Use the migration workflow below to copy and verify existing objects before switching destinations.
         </p>
       )}
-      <button
-        type="button"
+      <ActionBar description={dirty ? "Unsaved storage changes." : "Current storage configuration."}>
+      <Button
         disabled={busy || recoveryPending || migrationActive || !dirty || migrationRequired}
         onClick={() => void save()}
       >
         Save storage settings
-      </button>
+      </Button>
       {saved?.driver === "s3" && (
-        <button
-          type="button"
+        <Button variant="secondary"
           disabled={busy || recoveryPending || dirty}
           onClick={() => void test()}
         >
           Test saved S3 connection
-        </button>
+        </Button>
       )}
-      {message && <p aria-live="polite">{message}</p>}
-      {missingMigration && !startAttemptID && <button type="button" disabled={busy} onClick={findCurrentMigration}>Find current migration</button>}
-      {(migrationRequired || !!migration?.id) && (
+      </ActionBar>
+      {message && <p className="management-feedback" aria-live="polite">{message}</p>}
+      {capabilities?.storageMigrations !== false && missingMigration && !startAttemptID && <Button variant="secondary" disabled={busy} onClick={findCurrentMigration}>Find current migration</Button>}
+      {capabilities?.storageMigrations === false && migrationRequired && <p role="status">Storage migration is unavailable on this server. Keep the current storage location.</p>}
+      {capabilities?.storageMigrations !== false && (migrationRequired || !!migration?.id) && (
         <section aria-labelledby="storage-migration-title">
           <h3 id="storage-migration-title">Move existing uploaded files</h3>
           <p>The current destination stays active until every referenced object is copied and verified.</p>
-          <button type="button" disabled={busy || recoveryPending || migrationActive || !!startAttemptID || !migrationRequired} onClick={() => void previewMigration()}>Preview migration</button>
-          {migration?.status === "preview" && <button type="button" disabled={busy || recoveryPending || migrationActive} onClick={() => void startMigration()}>{startAttemptID ? "Retry migration start" : `Start migration of ${migration.totalObjects} objects`}</button>}
+          <Button variant="secondary" disabled={busy || recoveryPending || migrationActive || !!startAttemptID || !migrationRequired} onClick={() => void previewMigration()}>Preview migration</Button>
+          {migration?.status === "preview" && <Button variant="secondary" disabled={busy || recoveryPending || migrationActive} onClick={() => void startMigration()}>{startAttemptID ? "Retry migration start" : `Start migration of ${migration.totalObjects} objects`}</Button>}
           {migrationID && migration && <p aria-live="polite">Migration {migration.status}: {migration.copiedObjects} of {migration.totalObjects} verified.</p>}
-          {migration?.status === "failed" && <button type="button" disabled={busy} onClick={() => void resumeMigration()}>Resume migration</button>}
-          {migration?.id && ["copying", "ready", "canceling", "failed"].includes(migration.status) && <button type="button" disabled={busy || migration.status === "canceling"} onClick={() => void cancelMigration()}>Cancel migration</button>}
+          {migration?.status === "failed" && <Button variant="secondary" disabled={busy} onClick={() => void resumeMigration()}>Resume migration</Button>}
+          {migration?.id && ["copying", "ready", "canceling", "failed"].includes(migration.status) && <Button variant="secondary" disabled={busy || migration.status === "canceling"} onClick={() => void cancelMigration()}>Cancel migration</Button>}
         </section>
       )}
     </section>

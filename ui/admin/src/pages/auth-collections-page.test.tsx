@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { callsTo } from "../test/backend-script";
 import { renderAdmin, scriptedAdmin } from "../test/harness";
 
@@ -96,7 +96,9 @@ describe("auth collections page", () => {
     fireEvent.change(subject, { target: { value: "Edited subject" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Save template" })[0]);
     expect(await screen.findByDisplayValue("Normalized subject")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Reload authentication settings" }));
+    const reload = screen.getByRole("button", { name: "Reload authentication settings" });
+    await waitFor(() => expect(reload).toBeEnabled());
+    fireEvent.click(reload);
     expect(await screen.findByDisplayValue("Reloaded subject")).toHaveValue(
       "Reloaded subject",
     );

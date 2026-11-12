@@ -1,3 +1,4 @@
+import { ActionBar, BackLink, Button, PageHeading } from "../components/ui";
 import { RichTextField } from "./rich-text-field";
 import { GeoPointField } from "./geo-point-field";
 import { useEffect, useRef, useState } from "react";
@@ -73,7 +74,7 @@ function RecordField({ editor, field }: { editor: RecordEditor; field: FieldDefi
 }
 
 export function FileField({ collection, recordID, field }: { collection: string; recordID: string; field: FieldDefinition }) {
-  const { files } = useBackend();
+  const { files, capabilities } = useBackend();
   const [items, setItems] = useState<FileInfo[]>([]);
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
@@ -84,12 +85,13 @@ export function FileField({ collection, recordID, field }: { collection: string;
 	const maximum = field.options?.maxSelect ?? 1;
   useEffect(() => {
     lifetime.current += 1;
+    if (capabilities?.files === false) return;
     const controller = new AbortController();
     void files.listFiles(collection, recordID, field.name, controller.signal).then((value) => {
       if (!controller.signal.aborted) setItems(value);
     }).catch(() => { if (!controller.signal.aborted) setMessage("Unable to load files."); });
     return () => controller.abort();
-  }, [collection, field.name, files, recordID]);
+  }, [collection, field.name, files, recordID, capabilities?.files]);
   useEffect(() => () => {
     if (previewURL.current) URL.revokeObjectURL(previewURL.current);
   }, []);
@@ -107,6 +109,7 @@ export function FileField({ collection, recordID, field }: { collection: string;
 		try { const publicURL = item.protected === false ? safePublicURL(item.publicUrl) : null; const blob = publicURL ? await publicBlob(publicURL) : await files.downloadBlob(item.id, await files.createDownloadToken(item.id, "original")); setPreview((current) => { if (current) URL.revokeObjectURL(current.url); const next = URL.createObjectURL(blob); previewURL.current = next; return { name: item.filename, url: next }; }); }
 		catch { setMessage("Preview failed. You may not have permission to read this protected file."); }
 	}
+	if (capabilities?.files === false) return <p>File management is unavailable on this server.</p>;
 	return <fieldset className="record-field"><legend>{field.name} files</legend>
 		{field.required && <p>At least one file is required. Select replacement files above to replace the final file.</p>}
 		<p>Protected previews and downloads mint a short-lived, file-scoped token. A public link appears only when the server explicitly exposes this file.</p>
@@ -137,8 +140,9 @@ function AtomicFileInput({ field, files, error, disabled, onChange }: { field: F
 }
 
 export function RecordEditPage({ collectionName, id, navigate }: { collectionName: string; id?: string; navigate(route: AdminRoute): void }) {
-	const editor = useRecordEditor(collectionName, id, navigate);
+  const { capabilities } = useBackend();
 	const [files, setFiles] = useState<Record<string, File[]>>({});
+	const editor = useRecordEditor(collectionName, id, navigate, Object.values(files).some(items => items.length > 0));
 	const [fileErrors, setFileErrors] = useState<Record<string, string>>({});
 	useEffect(() => { setFiles({}); setFileErrors({}); }, [collectionName, id]);
 	function save() {
@@ -154,9 +158,11 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
 		if (Object.keys(errors).length === 0) editor.save(files);
 	}
 
-	return <section>
-    <h2>{editor.isCreate ? "Create" : "Edit"} {collectionName} record</h2>
+	return <section className="record-editor-page management-page">
+    <BackLink navigate={navigate} route={{ kind: "records", collection: collectionName }}>Back to records</BackLink>
+    <PageHeading title={`${editor.isCreate ? "Create" : "Edit"} ${collectionName} record`} description="Edit the fields below, then save your changes." />
     {editor.message && <p role="alert">{editor.message}</p>}
+    {capabilities?.files === false && editor.fields.some(field => field.type === "file") && <p role="status">This server does not support file uploads. Existing file values are preserved.</p>}
     {editor.stale && <button onClick={editor.reload} type="button">Reload record</button>}
     {!editor.collection && !editor.message && <p aria-live="polite">Loading record…</p>}
 		{editor.collection && <form onSubmit={(event) => { event.preventDefault(); save(); }}>
@@ -167,12 +173,11 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
         {editor.errors.id && <p className="field-error" id="record-identity-error">{editor.errors.id}</p>}
       </div>}
 			{editor.fields.map((field) => field.type === "file" ? <div key={field.name}>
-				<AtomicFileInput disabled={editor.pending || editor.stale} error={fileErrors[field.name] ?? editor.errors[field.name]} field={field} files={files[field.name] ?? []} onChange={(selected) => { setFiles((current) => ({ ...current, [field.name]: selected })); setFileErrors((current) => { const next = { ...current }; delete next[field.name]; return next; }); }} />
+				<AtomicFileInput disabled={editor.pending || editor.stale || capabilities?.files === false} error={fileErrors[field.name] ?? editor.errors[field.name]} field={field} files={files[field.name] ?? []} onChange={(selected) => { setFiles((current) => ({ ...current, [field.name]: selected })); setFileErrors((current) => { const next = { ...current }; delete next[field.name]; return next; }); }} />
 				{id && <FileField collection={collectionName} recordID={id} field={field} />}
 			</div> : <RecordField editor={editor} field={field} key={field.name} />)}
-      <button disabled={editor.pending || editor.stale} type="submit">{editor.pending ? "Saving…" : editor.isCreate ? "Create record" : "Save changes"}</button>
-      {!editor.isCreate && <button disabled={editor.pending} onClick={editor.duplicate} type="button">Duplicate record</button>}
-      {!editor.isCreate && <button className="danger" disabled={editor.pending || editor.stale} onClick={editor.remove} type="button">Delete record</button>}
+      <ActionBar sticky description="Changes are saved to this collection."><Button disabled={editor.pending || editor.stale || capabilities?.files === false && editor.isCreate && editor.fields.some(field => field.type === "file" && field.required)} type="submit">{editor.pending ? "Saving…" : editor.isCreate ? "Create record" : "Save changes"}</Button></ActionBar>
     </form>}
+    {editor.collection && !editor.isCreate && <div className="record-secondary-actions"><Button variant="secondary" disabled={editor.pending} onClick={editor.duplicate}>Duplicate record</Button><Button variant="danger" disabled={editor.pending || editor.stale} onClick={editor.remove}>Delete record</Button></div>}
   </section>;
 }

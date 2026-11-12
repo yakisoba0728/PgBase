@@ -1,3 +1,5 @@
+import { AuthRecordsPanel } from "./auth-records-panel";
+import { Button, EmptyState, PageHeading } from "../components/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ManagedUser, OAuthIdentity, UserPage } from "../backend/ports";
 import { useBackend } from "../auth/session";
@@ -8,7 +10,7 @@ function displayDate(value: string): string {
 }
 
 export function UsersPage() {
-  const { users } = useBackend();
+  const { users, capabilities } = useBackend();
   const [page, setPage] = useState<UserPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -127,18 +129,15 @@ export function UsersPage() {
 	}
 
   const busy = pending || loading;
-  return <section>
-    <div className="page-heading">
-      <h2>Users</h2>
-      <button type="button" onClick={() => load()} disabled={busy}>Refresh</button>
-    </div>
+  return <section className="users-page management-page">
+    <PageHeading title="Users" description="Manage app users, verification and active sessions." actions={<Button variant="secondary" onClick={() => load()} disabled={busy}>Refresh</Button>} />
     {error && <p role="alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
     {impersonation && <div role="region" aria-label="Impersonation session">
       <p>This temporary token acts as {impersonation.email} until {displayDate(impersonation.expiresAt)}. Credential and MFA changes are blocked.</p>
       <textarea readOnly aria-label="Impersonation token" value={impersonation.token} rows={3} />
-      <button type="button" onClick={() => void navigator.clipboard.writeText(impersonation.token)}>Copy token</button>
-      <button type="button" onClick={() => setImpersonation(null)}>Dismiss</button>
+      <Button variant="secondary" onClick={() => void navigator.clipboard.writeText(impersonation.token)}>Copy token</Button>
+      <Button variant="secondary" onClick={() => setImpersonation(null)}>Dismiss</Button>
     </div>}
     {loading && <p aria-live="polite">Loading users…</p>}
     {page && <>
@@ -152,19 +151,19 @@ export function UsersPage() {
             <small>Updated</small><time dateTime={user.updatedAt}>{displayDate(user.updatedAt)}</time>
           </td>
           <td><div className="user-actions">
-            <button type="button" disabled={busy} onClick={() => change(user, !user.active)}>{user.active ? "Deactivate" : "Activate"}</button>
-            <button type="button" disabled={busy} onClick={() => revoke(user)}>Revoke sessions</button>
-            <button type="button" disabled={busy} onClick={() => verification(user, !user.verified)}>{user.verified ? "Mark unverified" : "Mark verified"}</button>
-            {!user.verified && <button type="button" disabled={busy} onClick={() => sendAction(user, "verification")}>Send verification</button>}
-            <button type="button" disabled={busy} onClick={() => sendAction(user, "reset")}>Send password reset</button>
-			{users.oauthIdentities && <button type="button" disabled={busy} onClick={() => loadIdentities(user)}>OAuth providers</button>}
-            <button type="button" disabled={busy || !user.active} onClick={() => impersonate(user)}>Impersonate</button>
-			{identities?.userID === user.id && <div aria-label={`OAuth providers for ${user.email}`}><ul>{identities.items.map(identity => <li key={`${identity.provider}:${identity.subject}`}>{identity.provider} · {identity.subject} <button type="button" disabled={busy || !users.unlinkOAuthIdentity} onClick={() => unlinkIdentity(user, identity.provider)}>Unlink {identity.provider}</button></li>)}</ul>{identities.items.length === 0 && <p>No OAuth providers linked.</p>}</div>}
+            <Button variant="secondary" disabled={busy} onClick={() => change(user, !user.active)}>{user.active ? "Deactivate" : "Activate"}</Button>
+            <Button variant="secondary" disabled={busy} onClick={() => revoke(user)}>Revoke sessions</Button>
+            {capabilities?.authAdministration !== false && <Button variant="secondary" disabled={busy} onClick={() => verification(user, !user.verified)}>{user.verified ? "Mark unverified" : "Mark verified"}</Button>}
+            {capabilities?.authAdministration !== false && !user.verified && <Button variant="secondary" disabled={busy} onClick={() => sendAction(user, "verification")}>Send verification</Button>}
+            {capabilities?.authAdministration !== false && <Button variant="secondary" disabled={busy} onClick={() => sendAction(user, "reset")}>Send password reset</Button>}
+			{capabilities?.authAdministration !== false && users.oauthIdentities && <Button variant="secondary" disabled={busy} onClick={() => loadIdentities(user)}>OAuth providers</Button>}
+            <Button variant="secondary" disabled={busy || !user.active} onClick={() => impersonate(user)}>Impersonate</Button>
+			{capabilities?.authAdministration !== false && identities?.userID === user.id && <div aria-label={`OAuth providers for ${user.email}`}><ul>{identities.items.map(identity => <li key={`${identity.provider}:${identity.subject}`}>{identity.provider} · {identity.subject} <Button variant="secondary" disabled={busy || !users.unlinkOAuthIdentity} onClick={() => unlinkIdentity(user, identity.provider)}>Unlink {identity.provider}</Button></li>)}</ul>{identities.items.length === 0 && <p>No OAuth providers linked.</p>}</div>}
           </div></td>
         </tr>)}</tbody>
       </table></div>
-      {page.items.length === 0 && <p>No public users yet.</p>}
-      {page.nextAfter && <button type="button" disabled={busy} onClick={() => load(page.nextAfter)}>Next page</button>}
+      {page.items.length === 0 && <EmptyState title="No public users yet." description="App users will appear here when they register through an auth collection." />}
+      {page.nextAfter && <Button variant="secondary" disabled={busy} onClick={() => load(page.nextAfter)}>Next page</Button>}
     </>}
-  </section>;
+  <AuthRecordsPanel /></section>;
 }

@@ -87,6 +87,25 @@
           "id": "12345678-1234-4567-8901-123456789abc",
           "updatedAt": "<time>"
         },
+        "capabilities": {
+          "administrators": false,
+          "authAdministration": false,
+          "authCollections": false,
+          "backupStorage": false,
+          "backups": false,
+          "files": false,
+          "jobs": false,
+          "logs": false,
+          "profile": false,
+          "realtime": false,
+          "rules": false,
+          "schemaTransfer": false,
+          "serviceTokens": false,
+          "settings": false,
+          "storage": false,
+          "storageMigrations": false,
+          "users": false
+        },
         "csrfToken": "6nY1MEBlcXJ8G0ZYhHnSS7QrtrSIeotz4iAyPNYTbF4",
         "expiresAt": "<expiry>",
         "sqlConsoleEnabled": false

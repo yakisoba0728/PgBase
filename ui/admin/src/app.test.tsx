@@ -71,10 +71,13 @@ describe("administration shell", () => {
     const harness = scriptedAdmin("/admin/collections");
     harness.script.catalog.push({ value: { version: 9, collections: [] } });
     harness.script.operations.push({ value: { items: [] } });
+    harness.script.status.push({ value: scriptedStatus() });
+    harness.script.health.push({ value: scriptedHealth() });
     const user = userEvent.setup();
     renderAdmin(harness);
 
     await screen.findByRole("heading", { name: "Collections" });
+    await user.click(screen.getByRole("link", { name: "System" }));
     const link = screen.getByRole("link", { name: "Schema operations" });
     expect(link).toHaveAttribute("href", "/admin/schema-operations");
     await user.click(link);

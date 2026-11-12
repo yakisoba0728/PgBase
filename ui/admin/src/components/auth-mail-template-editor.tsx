@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useUnsavedDraft } from "../routing/unsaved-draft";
+import { stringifyJSON } from "../backend/json";
+import { useEffect, useId, useState } from "react";
 import type { AuthMailPreview, AuthMailTemplate } from "../backend/ports";
 
 export function MailTemplateEditor({
@@ -6,14 +8,20 @@ export function MailTemplateEditor({
   disabled,
   save,
   preview,
+  onDirty,
 }: {
   value: AuthMailTemplate;
   disabled: boolean;
+  onDirty?(purpose: string, dirty: boolean): void;
   save(value: AuthMailTemplate): void;
   preview(value: AuthMailTemplate): Promise<AuthMailPreview>;
 }) {
   const [draft, setDraft] = useState(value);
   const [rendered, setRendered] = useState<AuthMailPreview | null>(null);
+  const resource = useId();
+  const dirty = stringifyJSON(draft) !== stringifyJSON(value);
+  useUnsavedDraft(`mail-template:${resource}`, dirty);
+  useEffect(() => { onDirty?.(value.purpose, dirty); return () => onDirty?.(value.purpose, false); }, [dirty, value.purpose, onDirty]);
   const [previewError, setPreviewError] = useState("");
   function runPreview() {
     setPreviewError("");

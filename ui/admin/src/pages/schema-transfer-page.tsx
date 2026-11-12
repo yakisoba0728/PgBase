@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useBackend, useSession } from "../auth/session";
 import type { SchemaDocument, SchemaImportPlan, SchemaImportResult } from "../backend/ports";
 import { parseJSON, stringifyJSON } from "../backend/json";
+import { Button, PageHeading } from "../components/ui";
 
 type ImportOutcome = SchemaImportResult;
 type Recovery = { version: 1; administratorId: string; operationId: string; idempotencyKey: string; baseVersion: number; checksum: string; policyChecksum: string; documentDigest: string };
@@ -127,19 +128,34 @@ export function SchemaTransferPage() {
 	 setBusy(false); setText(value); setPlan(undefined);
   }
 
-  if (!schema.exportDocument || !schema.previewImport || !schema.applyImport) return <section><h2>Schema import and export</h2><p>This server does not support schema transfer.</p></section>;
-  return <section>
-    <h2>Schema import and export</h2>
-    <p>Export a portable logical schema, or paste one below. Import preserves collections, fields, and indexes omitted from the document.</p>
-    <button disabled={busy} onClick={() => void exportSchema()} type="button">Export schema</button>
-    <label>Schema document<textarea aria-label="Schema document" onChange={(event) => changeDocument(event.target.value)} rows={18} value={text} /></label>
-    <button disabled={busy || !!recovery || text.trim() === ""} onClick={() => void preview()} type="button">Preview import</button>
-    {recovery && <div aria-label="Import recovery"><button disabled={busy || !schema.importStatus} onClick={() => void checkStatus()} type="button">Check import status</button><button disabled={busy || text.trim() === ""} onClick={() => void restoreExactRetry()} type="button">Recover exact retry</button></div>}
-    {plan && <div aria-label="Import preview">
+  const heading = <PageHeading title="Schema transfer" description="Export your collection definitions or review a schema before importing it." />;
+  if (!schema.exportDocument || !schema.previewImport || !schema.applyImport) return <section className="schema-transfer">{heading}<p>This server does not support schema transfer.</p></section>;
+  return <section className="schema-transfer">
+    {heading}
+    <section aria-labelledby="schema-export-title" className="schema-export">
+      <div><h3 id="schema-export-title">Export schema</h3><p>Download the current schema as a JSON file.</p></div>
+      <Button disabled={busy} onClick={() => void exportSchema()} variant="secondary">Export schema</Button>
+    </section>
+    <section aria-labelledby="schema-import-title" className="schema-import">
+      <div className="schema-section-heading"><h3 id="schema-import-title">Import schema</h3><p>Paste a pgBase schema document to review its changes.</p></div>
+      <div className="schema-editor-label"><label htmlFor="schema-document">Schema document</label><span>JSON</span></div>
+      <textarea aria-describedby="schema-import-help" autoCapitalize="none" autoComplete="off" className="schema-document" id="schema-document" onChange={(event) => changeDocument(event.target.value)} placeholder="Paste your schema JSON here…" rows={12} spellCheck={false} value={text} />
+      <div className="schema-import-actions">
+        <p id="schema-import-help">Collections, fields, and indexes omitted from the document are preserved.</p>
+        <Button disabled={busy || !!recovery || text.trim() === ""} onClick={() => void preview()}>Preview import</Button>
+      </div>
+    </section>
+    {recovery && <section aria-label="Import recovery" className="schema-recovery">
+      <h3>Pending import</h3>
+      <p>Check the operation status, or paste the original document to recover the exact request.</p>
+      <div className="schema-result-actions"><Button disabled={busy || !schema.importStatus} onClick={() => void checkStatus()} variant="secondary">Check import status</Button><Button disabled={busy || text.trim() === ""} onClick={() => void restoreExactRetry()} variant="secondary">Recover exact retry</Button></div>
+    </section>}
+    {plan && <section aria-label="Import preview" className="schema-preview">
+      <h3>Import preview</h3>
       <p>{plan.changes.length} schema changes from version {plan.baseVersion}.</p>
       <ol>{plan.document.collections.map((collection) => <li key={collection.name}><strong>{collection.name}</strong>: {collection.view ? "view" : `${collection.fields?.length ?? 0} supplied fields`}; user access {collection.userAccess ? "enabled" : "disabled"}; {Object.keys(collection.rules).length} rule actions</li>)}</ol>
-      <button disabled={busy} onClick={() => void apply()} type="button">{recovery && plan.operationId === recovery.operationId ? "Retry exact import" : "Apply import"}</button>
-    </div>}
-    {message && <p aria-live="polite">{message}</p>}
+      <Button disabled={busy} onClick={() => void apply()}>{recovery && plan.operationId === recovery.operationId ? "Retry exact import" : "Apply import"}</Button>
+    </section>}
+    {message && <p className="schema-message" role="status">{message}</p>}
   </section>;
 }

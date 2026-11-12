@@ -105,6 +105,7 @@ export function useCollectionDesigner(
     state.view,
     state.collectionType,
     state.recordId,
+    state.advanced,
   );
   const live = useRef(signature);
   live.current = signature;
@@ -691,6 +692,8 @@ export function useCollectionDesigner(
     ),
     collectionType:
       state.collectionType ?? (state.view === undefined ? "base" : "view"),
+    advanced: state.advanced,
+    setAdvanced: (advanced) => { if (!editingBlocked) update(identity, { advanced, plan: null, authPlan: null, confirmed: false }); },
     recordId: state.recordId,
     setRecordIDPolicy: (recordId) => {
       if (!editingBlocked && state.create && state.view === undefined)
