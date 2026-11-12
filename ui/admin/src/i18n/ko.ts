@@ -1,6 +1,7 @@
 import { opsKo } from "./parts/ops.ko";
 import { storageKo } from "./parts/storage.ko";
 import { rulesKo } from "./parts/rules.ko";
+import { systemKo } from "./parts/system.ko";
 import type { en } from "./en";
 import { authKo } from "./parts/auth.ko";
 
@@ -369,4 +370,5 @@ export const ko: Record<keyof typeof en, string> = {
   ...rulesKo,
   ...authKo,
   ...storageKo,
+  ...systemKo,
 };

@@ -4,6 +4,7 @@ import { storageEn } from "./parts/storage.en";
 import { rulesEn } from "./parts/rules.en";
 import { authEn } from "./parts/auth.en";
 
+import { systemEn } from "./parts/system.en";
 export const en = {
   "nav.main": "Main",
 
@@ -369,4 +370,5 @@ export const en = {
   ...rulesEn,
   ...authEn,
   ...storageEn,
+  ...systemEn,
 };

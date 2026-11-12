@@ -1,0 +1,330 @@
+/* System slice: settings, status, administrators, profile, service tokens. */
+
+.sys-settings,
+.sys-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sys-pane .pane-body.form {
+  align-content: start;
+}
+
+.sys-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px var(--space) var(--space);
+}
+
+/* Sections are separated by space and tone, not rules. */
+.sys-section {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 720px);
+  gap: var(--space-sm) var(--space);
+  padding: var(--space) 0;
+}
+
+.sys-section + .sys-section {
+  box-shadow: 0 -1px 0 var(--line);
+}
+
+.sys-section > header h2 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sys-section > header p {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+}
+
+.sys-section > :not(header) {
+  grid-column: 2;
+}
+
+.sys-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-sm);
+  align-items: start;
+}
+
+.sys-wide {
+  grid-column: 1 / -1;
+}
+
+/* Toggles get a line each so the value fields stay aligned. */
+.sys-check {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 2px;
+  padding: 2px 4px;
+}
+
+.sys-check .field-hint {
+  padding-left: 26px;
+}
+
+.sys-notice {
+  max-width: 980px;
+  margin-top: var(--space-sm);
+}
+
+.sys-footer {
+  background: var(--surface);
+}
+
+/* Rate-limit rules: one row per rule. */
+.sys-rules {
+  display: grid;
+  gap: var(--space-xs);
+  justify-items: start;
+  margin-top: var(--space-xs);
+}
+
+.sys-rules h3,
+.sys-action h3,
+.sys-subtitle {
+  margin: 0;
+  font-size: var(--font-size);
+  font-weight: 600;
+}
+
+.sys-rules > .txt-hint {
+  margin-top: -6px;
+  font-size: var(--font-size-sm);
+}
+
+.sys-rule {
+  display: grid;
+  grid-template-columns: minmax(200px, 2fr) minmax(120px, 1fr) minmax(90px, 0.8fr) minmax(90px, 0.8fr) auto;
+  gap: var(--space-xs);
+  align-items: start;
+  width: 100%;
+}
+
+.sys-rule > .icon-btn {
+  margin-top: 12px;
+}
+
+.sys-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sys-dot::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tone, var(--text-disabled));
+}
+
+.sys-dot[data-tone="success"] {
+  --tone: var(--success);
+}
+
+.sys-dot[data-tone="warning"] {
+  --tone: var(--warning);
+}
+
+.sys-dot[data-tone="danger"] {
+  --tone: var(--danger);
+}
+
+.sys-props {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 var(--space-sm);
+}
+
+.sys-props > div {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: 8px;
+  border-radius: var(--radius-sm);
+}
+
+.sys-props > div:nth-child(odd) {
+  background: var(--surface-1);
+}
+
+.sys-props dt {
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
+.sys-props dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.sys-findings {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sys-findings li {
+  display: grid;
+  gap: 2px;
+}
+
+.sys-warning {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning), var(--surface-raised) 88%);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+}
+
+.sys-chip {
+  margin-left: 8px;
+}
+
+/* Detail pane actions: a title and its effect, with the button on the right. */
+.sys-actions {
+  display: grid;
+  gap: 2px;
+  margin-top: var(--space);
+}
+
+.sys-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 10px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.sys-action > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.sys-action p {
+  font-size: var(--font-size-sm);
+}
+
+.sys-subtitle {
+  margin: var(--space) 0 8px;
+}
+
+.sys-inline {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  max-width: 520px;
+}
+
+.sys-inline .field-wrap {
+  flex: 1;
+}
+
+.sys-inline > .btn {
+  margin-top: 8px;
+}
+
+.sys-narrow {
+  max-width: 520px;
+}
+
+.sys-row-end {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sys-code {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Short-task dialogs: wider than a confirmation. */
+.sys-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.sys-dialog .form,
+.sys-dialog > p {
+  margin-bottom: 4px;
+}
+
+.sys-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-xs);
+}
+
+.sys-secret {
+  display: block;
+  margin: var(--space-sm) 0 0;
+}
+
+.sys-secret textarea {
+  width: 100%;
+  border-radius: var(--radius);
+  background: var(--input);
+  word-break: break-all;
+}
+
+.sys-scopes {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.sys-scopes legend {
+  margin-bottom: 6px;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
+.sys-scopes .grid td,
+.sys-scopes .grid th {
+  height: 34px;
+}
+
+.sys-center {
+  text-align: center;
+}
+
+.sys-scope-cell {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 899px) {
+  .sys-section {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sys-section > :not(header) {
+    grid-column: 1;
+  }
+
+  .sys-rule {
+    grid-template-columns: 1fr 1fr;
+  }
+}
