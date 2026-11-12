@@ -712,6 +712,20 @@
         "x-pgbase-maximum-request-bytes": 16384
       }
     },
+    "/api/admin/backup-jobs": {
+      "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      }
+    },
     "/api/admin/backup-jobs/{id}": {
       "get": {
         "parameters": [
@@ -1440,6 +1454,20 @@
           }
         ],
         "x-pgbase-csrf-required": true
+      }
+    },
+    "/api/admin/realtime/dead": {
+      "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
       }
     },
     "/api/admin/realtime/status": {

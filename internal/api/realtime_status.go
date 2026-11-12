@@ -11,6 +11,7 @@ import (
 type realtimeOperations interface {
 	Status(context.Context) (realtime.Status, error)
 	Retry(context.Context, uuid.UUID) error
+	DeadEvents(context.Context, string, int) (realtime.DeadPage, error)
 }
 
 func realtimeOperationRoutes(dependencies Dependencies) []route {
@@ -26,6 +27,14 @@ func realtimeOperationRoutes(dependencies Dependencies) []route {
 				return
 			}
 			writeJSON(w, http.StatusOK, status)
+		})},
+		{method: "GET", pattern: "/api/admin/realtime/dead", access: accessAdminSameOriginRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			page, err := operations.DeadEvents(r.Context(), r.URL.Query().Get("before"), 0)
+			if err != nil {
+				writeRealtimeError(w, r, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, page)
 		})},
 		{method: "POST", pattern: "/api/admin/realtime/{eventId}/retry", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id, err := uuid.Parse(r.PathValue("eventId"))

@@ -4,6 +4,7 @@ package realtime
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -41,6 +42,34 @@ func TestDeliveryFailureBackoffDeadLetterAndOperatorRetry(t *testing.T) {
 	status, err := s.Status(ctx)
 	if err != nil || status.Dead != 1 || status.Delivered != 0 {
 		t.Fatalf("dead status=%+v err=%v", status, err)
+	}
+	dead, err := s.DeadEvents(ctx, "", 0)
+	if err != nil || len(dead.Items) != 1 || dead.Items[0].EventID != event || dead.Items[0].Attempts != 10 || dead.NextBefore != "" {
+		t.Fatalf("dead page=%+v err=%v", dead, err)
+	}
+	// A second dead row pages newest first with an opaque position cursor.
+	second := seedEvent(t, s, user, collection)
+	if _, err := s.pool.Exec(ctx, `INSERT INTO pgbase_meta.outbox_delivery(event_id,attempts,dead_at) VALUES($1,10,clock_timestamp())`, second); err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.DeadEvents(ctx, "", 1)
+	if err != nil || len(first.Items) != 1 || first.Items[0].EventID != second || first.NextBefore == "" {
+		t.Fatalf("first page=%+v err=%v", first, err)
+	}
+	// Retrying the cursor row must not invalidate the cursor.
+	if err := s.Retry(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.DeadEvents(ctx, first.NextBefore, 1)
+	if err != nil || len(next.Items) != 1 || next.Items[0].EventID != event || next.NextBefore != "" {
+		t.Fatalf("next page=%+v err=%v", next, err)
+	}
+	if _, err := s.DeadEvents(ctx, "not-a-cursor", 1); !errors.Is(err, ErrCursorInvalid) {
+		t.Fatalf("invalid cursor err=%v", err)
+	}
+	// Keep the remaining assertions about the first event exact.
+	if _, err := s.pool.Exec(ctx, `DELETE FROM pgbase_meta.record_outbox WHERE event_id=$1`, second); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := s.pool.Exec(ctx, `DROP TRIGGER fixture_delivery_failure ON pgbase_meta.realtime_events; DROP FUNCTION pgbase_meta.fail_delivery()`); err != nil {
 		t.Fatal(err)
