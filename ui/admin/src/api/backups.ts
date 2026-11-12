@@ -55,6 +55,12 @@ export async function restoreBackup(id: string): Promise<BackupJob> {
   return request<BackupJob>("POST", `/api/admin/backups/${encodeURIComponent(id)}/restore`);
 }
 
+/** Create or restore operations still running on the server (at most one). */
+export async function listRunningBackupJobs(signal?: AbortSignal): Promise<BackupJob[]> {
+  const response = await request<{ items: BackupJob[] }>("GET", "/api/admin/backup-jobs", { signal });
+  return response.items;
+}
+
 export async function getBackupJob(id: string, signal?: AbortSignal): Promise<BackupJob> {
   return request<BackupJob>("GET", `/api/admin/backup-jobs/${encodeURIComponent(id)}`, { signal });
 }

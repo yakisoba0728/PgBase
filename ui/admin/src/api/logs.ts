@@ -30,6 +30,8 @@ export interface RequestLogFilter {
   statusClass?: 1 | 2 | 3 | 4 | 5;
   method?: string;
   route?: string;
+  /** Case-insensitive substring of the route, client IP or auth kind/id (at most 256 characters). */
+  q?: string;
   /** RFC 3339 timestamp. */
   from?: string;
   /** RFC 3339 timestamp. */
@@ -50,13 +52,19 @@ export async function listRequestLogs(filter: RequestLogFilter = {}, signal?: Ab
   return request<RequestLogPage>("GET", "/api/admin/logs", { query: { ...filter }, signal });
 }
 
-/** Deletes every request log entry (no filters) and restarts ids at 1. */
+/** Deletes every request log entry and restarts ids at 1. */
 export async function clearRequestLogs(): Promise<void> {
   await request<void>("DELETE", "/api/admin/logs");
 }
 
-export async function getRequestLogStatistics(signal?: AbortSignal): Promise<RequestLogStatistics> {
-  return request<RequestLogStatistics>("GET", "/api/admin/logs/statistics", { signal });
+/** Deletes entries older than `to` (RFC 3339); ids are kept. */
+export async function deleteRequestLogsBefore(to: string): Promise<{ deleted: Int64 }> {
+  return request<{ deleted: Int64 }>("DELETE", "/api/admin/logs", { query: { to } });
+}
+
+/** Statistics for the optional [from, to) window; `dropped` is process-wide. */
+export async function getRequestLogStatistics(range: Pick<RequestLogFilter, "from" | "to"> = {}, signal?: AbortSignal): Promise<RequestLogStatistics> {
+  return request<RequestLogStatistics>("GET", "/api/admin/logs/statistics", { query: { ...range }, signal });
 }
 
 export async function getRequestLog(id: string, signal?: AbortSignal): Promise<RequestLogEntry> {

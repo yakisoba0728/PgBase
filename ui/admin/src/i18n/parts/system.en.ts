@@ -63,7 +63,7 @@ export const systemEn = {
   "system.hint.proxy.trustedProxyCIDRs": "One masked CIDR per line, e.g. 10.0.0.0/8. Never 0.0.0.0/0.",
   "system.hint.rateLimits.excludedIPs": "One address or CIDR per line; these skip the quotas.",
   "system.hint.logs.includeIP": "Uses the trusted-proxy policy below.",
-  "system.hint.logs.includeAuth": "Stores the administrator, user or token id.",
+  "system.hint.logs.includeAuth": "Stores the administrator or user id. Service-token and anonymous requests carry none.",
 
   "system.option.system": "Follow system",
   "system.option.light": "Light",

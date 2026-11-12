@@ -2,8 +2,8 @@ import { useState, type FormEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Searchbar } from "../components/Field";
 import { openRow } from "../components/DataGrid";
-import { RiDeleteBinLine, RiFileList3Line, RiRouteLine } from "@remixicon/react";
-import { clearRequestLogs } from "../api/logs";
+import { RiDeleteBinLine, RiFileList3Line, RiRouteLine, RiSearchLine } from "@remixicon/react";
+import { clearRequestLogs, deleteRequestLogsBefore } from "../api/logs";
 import { errorText } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
@@ -20,22 +20,24 @@ import { useSearchState } from "../app/search";
 import "../styles/ops.css";
 
 const methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
-const filterKeys = ["status", "method", "route", "from", "to"];
+const filterKeys = ["status", "method", "route", "q", "from", "to"];
 
-/** Header actions: refresh and delete-all. */
+/** Header actions: refresh, and delete — everything, or only what is older than the "To" filter when one is set. */
 export function LogsActions() {
   const t = useT();
-  const { update } = useSearchState();
+  const time = useTimeFormat();
+  const { params, update } = useSearchState();
   const queryClient = useQueryClient();
   const [confirm, setConfirm] = useState(false);
-  const stats = useQuery({ ...logStatsQuery, enabled: confirm });
+  const before = logFilterFrom(params).to;
+  const stats = useQuery({ ...logStatsQuery({ to: before }), enabled: confirm });
   const clear = useMutation({
-    mutationFn: clearRequestLogs,
-    onSuccess: () => {
-      // Ids restart at 1, so nothing cached may survive.
+    mutationFn: async () => (before ? (await deleteRequestLogsBefore(before)).deleted : clearRequestLogs()),
+    onSuccess: (deleted) => {
+      // A full delete restarts ids at 1, so nothing cached may survive.
       update({ entry: null });
       void queryClient.resetQueries({ queryKey: logsKey });
-      toast(t("ops.logs.cleared"));
+      toast(deleted === undefined ? t("ops.logs.cleared") : t("ops.logs.deletedBefore", { count: String(deleted) }));
     },
     onError: (error) => toast(errorText(t, error), "danger"),
     onSettled: () => setConfirm(false),
@@ -44,12 +46,16 @@ export function LogsActions() {
     <>
       {/* Back to the newest page; refetching every loaded page would cost one request each. */}
       <RefreshButton queryKey={logsKey} reset />
-      <Button size="sm" variant="secondary" icon={RiDeleteBinLine} onClick={() => setConfirm(true)}>{t("ops.logs.clear")}</Button>
+      <Button size="sm" variant="secondary" icon={RiDeleteBinLine} onClick={() => setConfirm(true)}>{before ? t("ops.logs.deleteBefore") : t("ops.logs.clear")}</Button>
       <ConfirmDialog
         open={confirm}
-        title={t("ops.logs.clearTitle")}
-        message={stats.data ? t("ops.logs.clearTextCount", { count: String(stats.data.total) }) : t("ops.logs.clearText")}
-        confirmLabel={t("ops.logs.clearConfirm")}
+        title={before ? t("ops.logs.deleteBeforeTitle", { time: time(before) }) : t("ops.logs.clearTitle")}
+        message={
+          before
+            ? t("ops.logs.deleteBeforeText", { count: stats.data ? String(stats.data.total) : "?" })
+            : stats.data ? t("ops.logs.clearTextCount", { count: String(stats.data.total) }) : t("ops.logs.clearText")
+        }
+        confirmLabel={before ? t("ops.logs.deleteBefore") : t("ops.logs.clearConfirm")}
         danger
         busy={clear.isPending}
         onConfirm={() => clear.mutate()}
@@ -74,14 +80,14 @@ export function LogsView() {
   const filtered = filterKeys.some((key) => params.has(key));
   const set = (key: string) => (value: string) => update({ [key]: value || null });
 
-  const onRoute = (event: FormEvent<HTMLFormElement>) => {
+  const onSearch = (key: "route" | "q") => (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    update({ route: String(new FormData(event.currentTarget).get("route") ?? "").trim() || null });
+    update({ [key]: String(new FormData(event.currentTarget).get(key) ?? "").trim() || null });
   };
 
   const list = (
     <>
-      <LogStats active={params.get("status") ?? ""} onPick={set("status")} />
+      <LogStats range={{ from: filter.from, to: filter.to }} active={params.get("status") ?? ""} onPick={set("status")} />
       <div className="toolbar ops-filters">
         <select className="ops-control" aria-label={t("ops.logs.status")} value={params.get("status") ?? ""} onChange={(event) => set("status")(event.target.value)}>
           <option value="">{t("ops.logs.anyStatus")}</option>
@@ -95,8 +101,11 @@ export function LogsView() {
             <option key={method} value={method}>{method}</option>
           ))}
         </select>
-        <form role="search" onSubmit={onRoute}>
-          <Searchbar key={params.get("route") ?? ""} label={t("ops.logs.route")} icon={RiRouteLine} mono primary name="route" defaultValue={params.get("route") ?? ""} placeholder={t("ops.logs.routePlaceholder")} />
+        <form role="search" onSubmit={onSearch("q")}>
+          <Searchbar key={params.get("q") ?? ""} label={t("ops.logs.search")} icon={RiSearchLine} primary name="q" maxLength={256} defaultValue={params.get("q") ?? ""} placeholder={t("ops.logs.searchPlaceholder")} />
+        </form>
+        <form role="search" onSubmit={onSearch("route")}>
+          <Searchbar key={params.get("route") ?? ""} label={t("ops.logs.route")} icon={RiRouteLine} mono name="route" defaultValue={params.get("route") ?? ""} placeholder={t("ops.logs.routePlaceholder")} />
         </form>
         <label className="ops-range">
           <span>{t("ops.logs.from")}</span>

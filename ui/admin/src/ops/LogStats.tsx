@@ -5,6 +5,7 @@ import { settingsQuery } from "../system/queries";
 import { errorText } from "../app/queries";
 import { useT } from "../i18n";
 import { logStatsQuery } from "./queries";
+import type { RequestLogFilter } from "../api/logs";
 import { useTimeFormat } from "../app/format";
 
 const classes = ["1", "2", "3", "4", "5"] as const;
@@ -13,11 +14,11 @@ const barWidth = 28;
 const gap = 10;
 const height = 44;
 
-/** Totals for all retained entries (the API does not filter statistics). Bars are status classes; a click filters the list. */
-export function LogStats({ active, onPick }: { active: string; onPick: (statusClass: string) => void }) {
+/** Totals for the list's time window (other filters do not narrow them). Bars are status classes; a click filters the list. */
+export function LogStats({ range, active, onPick }: { range: Pick<RequestLogFilter, "from" | "to">; active: string; onPick: (statusClass: string) => void }) {
   const t = useT();
   const time = useTimeFormat();
-  const stats = useQuery(logStatsQuery);
+  const stats = useQuery(logStatsQuery(range));
   const settings = useQuery({ ...settingsQuery, refetchOnMount: true, staleTime: 60_000 });
   const retention = settings.data?.logs.retentionDays;
   const [hover, setHover] = useState<string | null>(null);

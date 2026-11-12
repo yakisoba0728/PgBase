@@ -10,13 +10,14 @@ import { useT } from "../i18n";
 import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { describePhase } from "./model";
-import { backupJobQuery, backupsQuery } from "./queries";
+import { backupJobQuery, backupsQuery, runningBackupJobsQuery } from "./queries";
 
-/** The job to show: the one in the URL, else a backup or restore this browser started and has not seen finish. */
+/** The job to show: the one in the URL, else one this browser started and has not seen finish, else one the server is running. */
 export function useShownJob(): string | null {
   const { params } = useSearchState();
   useOperations();
-  return params.get("job") ?? (findOperation("backup") ?? findOperation("restore"))?.id ?? null;
+  const running = useQuery(runningBackupJobsQuery);
+  return params.get("job") ?? (findOperation("backup") ?? findOperation("restore"))?.id ?? running.data?.[0]?.id ?? null;
 }
 
 /** True while a job this browser knows of has not finished; the server runs one backup operation at a time. */
@@ -48,6 +49,7 @@ export function BackupJobStrip({ id }: { id: string }) {
     if (!job.data || job.data.status === "running" || settled.current) return;
     settled.current = true;
     void queryClient.invalidateQueries({ queryKey: backupsQuery.queryKey });
+    void queryClient.invalidateQueries({ queryKey: runningBackupJobsQuery.queryKey });
   }, [job.data, queryClient]);
 
   const data = job.data;
