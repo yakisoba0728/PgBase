@@ -6,8 +6,8 @@
 
 | ID | 작업 | 완료 증거 |
 | --- | --- | --- |
-| O11 | `frontend-rebuild`의 main 병합. 구조 예산 test와 commit된 `ui/admin/dist`는 병합 전 마지막 단계에서 다시 맞춘다 | 필수 CI와 E2E workflow(새 15개 시나리오 suite) 통과 후 병합 |
-| O12 | 새 UI의 운영 서버 배포. 이 기록 시점에 대기 | 병합된 commit을 `https://pgbase.yaki.kr`에 배포하고 health·asset 확인 |
+| O11 | **병합 완료(2026-11-13, [PR #108](https://github.com/yakisoba0728/PgBase/pull/108) `2912e39`, 필수 CI 5개 통과). E2E workflow는 release gate에서만 실행되어 아직 돌지 않았다.** `frontend-rebuild`의 main 병합. 구조 예산 test와 commit된 `ui/admin/dist`는 병합 전 마지막 단계에서 다시 맞춘다 | 필수 CI와 E2E workflow(새 15개 시나리오 suite) 통과 후 병합 |
+| O12 | **완료(2026-11-13).** 새 UI의 운영 서버 배포. [배포 기록](deployment-2026-11-13.md) | 병합된 commit을 `https://pgbase.yaki.kr`에 배포하고 health·asset 확인 |
 | O13 | UI 재작성 중 발견한 백엔드 문제 22건(수정하지 않음, [현재 상태](project-status.md) §11) | 항목별로 재현·결정 후 수정하거나 의도된 동작으로 문서화 |
 
 2026-11-12 갱신: main은 `7fbf1db`([PR #107](https://github.com/yakisoba0728/PgBase/pull/107)), schema 65다. 10-22 이후 관리자 UI 재구축·한국어 지원·보안 의존성 패치·Dokploy 배포 구성이 병합됐고 `https://pgbase.yaki.kr`에 `c1e6ef3`을 배포했다. 남은 일은 아래 "2026-11-12 열린 항목"과 [현재 상태](project-status.md) §10을 따른다. 아래 기록은 당시 상태다.
