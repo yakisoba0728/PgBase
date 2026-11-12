@@ -1,7 +1,9 @@
 import { Navigate, useParams } from "react-router";
-import { RiDatabase2Line, RiErrorWarningLine, RiToolsLine } from "@remixicon/react";
+import { RiDatabase2Line, RiErrorWarningLine } from "@remixicon/react";
 import { errorText } from "../app/queries";
 import { RecordsActions, RecordsView } from "../collections/RecordsView";
+import { ApiView } from "../apidocs/ApiView";
+import { RulesView } from "../rules/RulesView";
 import { useCollection } from "../collections/queries";
 import { SchemaView } from "../schema/SchemaView";
 import { EmptyState, Loader } from "../components/Feedback";
@@ -10,7 +12,7 @@ import { useT } from "../i18n";
 
 const subTabs = ["schema", "rules", "api"] as const;
 
-/** /collections/:name/:tab? — Records by default; Rules and API are later phases. */
+/** /collections/:name/:tab? — Records by default. */
 export function CollectionPage() {
   const t = useT();
   const { name = "", tab } = useParams();
@@ -35,8 +37,10 @@ export function CollectionPage() {
     <Page title={collection.name} crumb={t(`collections.type.${collection.type ?? "base"}`)} tabs={tabs} actions={!tab && <RecordsActions collection={collection} />}>
       {tab === "schema" ? (
         <SchemaView key={collection.id} collection={collection} type={collection.type ?? "base"} catalog={data ?? []} basePath={base} />
-      ) : tab ? (
-        <EmptyState icon={RiToolsLine}>{t("placeholder.empty")}</EmptyState>
+      ) : tab === "rules" ? (
+        <RulesView key={collection.name} collection={collection} basePath={base} />
+      ) : tab === "api" ? (
+        <ApiView key={collection.name} collection={collection} />
       ) : (
         <RecordsView key={collection.name} collection={collection} />
       )}

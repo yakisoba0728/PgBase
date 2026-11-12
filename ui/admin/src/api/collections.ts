@@ -542,8 +542,8 @@ export interface RulePreviewRequest {
 export interface RulePreviewInput {
   rule: AccessRule;
   action: "list" | "view" | "update" | "delete";
-  /** Internal user UUID to evaluate as. */
-  userId: string;
+  /** Internal user UUID to evaluate as; omitted = anonymous. */
+  userId?: string;
   /** 1..50 distinct internal record UUIDs. */
   recordIds: string[];
   request?: RulePreviewRequest;

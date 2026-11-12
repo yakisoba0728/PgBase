@@ -1,0 +1,380 @@
+/* Rules and API tabs of a collection. */
+
+.rules-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  align-items: start;
+  gap: 28px;
+  padding-top: var(--space-xs);
+}
+
+.rules-main {
+  display: grid;
+  gap: 28px;
+  min-width: 0;
+  max-width: 920px;
+}
+
+.rules-section {
+  display: grid;
+  gap: 8px;
+}
+
+.rules-section h2,
+.api-syntax h2 {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.rules-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rule-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+
+.rule-row[data-invalid] {
+  background: color-mix(in srgb, var(--danger), var(--surface) 92%);
+}
+
+.rule-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--control-sm);
+}
+
+.rule-action {
+  min-width: 52px;
+  font-weight: 600;
+}
+
+.rule-desc {
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
+.rule-modes {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.rule-mode {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--speed), color var(--speed);
+}
+
+.rule-mode:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.rule-mode[aria-checked="true"] {
+  background: light-dark(var(--surface-raised), var(--surface-3));
+  color: var(--text);
+  box-shadow: 0 1px 2px var(--shadow-near);
+}
+
+.rule-mode:disabled:not([aria-checked="true"]) {
+  cursor: default;
+}
+
+.rule-mode:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.rule-row .field {
+  background: var(--surface);
+}
+
+.rule-json {
+  margin: 0;
+  padding: 8px 12px;
+  overflow-x: auto;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.rule-test {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+}
+
+.rule-test:empty {
+  display: none;
+}
+
+.rule-test .btn {
+  margin-left: -8px;
+}
+
+.rule-result {
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.rules-auth,
+.api-facts,
+.api-syntax dl {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.rules-auth > div,
+.api-facts > div,
+.api-syntax dl > div {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.rules-auth > div:nth-child(odd),
+.api-syntax dl > div:nth-child(odd) {
+  background: var(--surface-1);
+}
+
+.rules-auth dt,
+.api-facts dt {
+  color: var(--text-hint);
+}
+
+.rules-auth dd,
+.api-facts dd,
+.api-syntax dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rules-ref {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.rules-ref-group h3,
+.api-pane h3 {
+  margin-bottom: 6px;
+  color: var(--text-hint);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.rules-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rules-token {
+  max-width: 100%;
+  margin: 0;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.rules-token:hover {
+  background: var(--surface-3);
+}
+
+@media (max-width: 1099px) {
+  .rules-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rules-ref {
+    position: static;
+  }
+
+  .rule-modes {
+    margin-left: 0;
+  }
+}
+
+/* API tab */
+
+.api-content {
+  display: grid;
+  align-content: start;
+  gap: 28px;
+  padding-top: var(--space-xs);
+}
+
+.api-gate {
+  color: var(--warning);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.api-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.api-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: var(--row);
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--speed);
+}
+
+.api-row:hover {
+  background: var(--surface-1);
+}
+
+.api-row[aria-current="true"] {
+  background: var(--accent-soft);
+}
+
+.api-row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.api-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.api-row-rule {
+  max-width: 180px;
+  overflow: hidden;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.api-method {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-hint);
+}
+
+.api-method[data-method="POST"] {
+  color: var(--success);
+}
+
+.api-method[data-method="PATCH"] {
+  color: var(--warning);
+}
+
+.api-method[data-method="DELETE"] {
+  color: var(--danger);
+}
+
+.api-syntax {
+  display: grid;
+  gap: 8px;
+  max-width: 920px;
+}
+
+.api-syntax dl > div {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.api-pane {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 18px;
+}
+
+.api-route {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+
+.api-route code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.api-facts > div {
+  padding: 2px 0;
+}
+
+.api-code {
+  position: relative;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+
+.api-code pre {
+  margin: 0;
+  padding: 10px 40px 10px 12px;
+  max-height: 360px;
+  overflow: auto;
+  font-size: var(--font-size-sm);
+  line-height: 18px;
+  white-space: pre;
+}
+
+.api-code .icon-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+.api-pane > * {
+  min-width: 0;
+}
+
+.api-pane .tabs {
+  margin-bottom: 8px;
+}
