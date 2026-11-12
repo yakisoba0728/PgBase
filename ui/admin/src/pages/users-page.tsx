@@ -18,6 +18,7 @@ export function UsersPage() {
   const [pending, setPending] = useState(false);
 	const [identities, setIdentities] = useState<{ userID: string; items: OAuthIdentity[] } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
   const lifetime = useRef(0);
   const request = useRef(0);
   const pendingRef = useRef(false);
@@ -109,8 +110,7 @@ export function UsersPage() {
   }
 
   function sendAction(user: ManagedUser, kind: "verification" | "reset") {
-    const action = kind === "verification" ? users.sendVerification(user.id) : users.sendPasswordReset(user.id);
-    void mutate(() => action, () => setNotice(`${kind === "verification" ? "Verification" : "Password reset"} email requested for ${user.email}.`), "Unable to request email action.");
+    void mutate(() => kind === "verification" ? users.sendVerification(user.id) : users.sendPasswordReset(user.id), () => setNotice(`${kind === "verification" ? "Verification" : "Password reset"} email requested for ${user.email}.`), "Unable to request email action.");
   }
 
   function impersonate(user: ManagedUser) {
@@ -129,6 +129,7 @@ export function UsersPage() {
 	}
 
   const busy = pending || loading;
+  const visibleUsers = page?.items.filter(user => `${user.email} ${user.id}`.toLowerCase().includes(query.trim().toLowerCase())) ?? [];
   return <section className="users-page management-page">
     <PageHeading title="Users" description="Manage app users, verification and active sessions." actions={<Button variant="secondary" onClick={() => load()} disabled={busy}>Refresh</Button>} />
     {error && <p role="alert">{error}</p>}
@@ -136,16 +137,17 @@ export function UsersPage() {
     {impersonation && <div role="region" aria-label="Impersonation session">
       <p>This temporary token acts as {impersonation.email} until {displayDate(impersonation.expiresAt)}. Credential and MFA changes are blocked.</p>
       <textarea readOnly aria-label="Impersonation token" value={impersonation.token} rows={3} />
-      <Button variant="secondary" onClick={() => void navigator.clipboard.writeText(impersonation.token)}>Copy token</Button>
+      <Button variant="secondary" onClick={() => { if (!navigator.clipboard) { setError("Clipboard is unavailable. Select and copy the token manually."); return; } void navigator.clipboard.writeText(impersonation.token).then(() => setNotice("Impersonation token copied.")).catch(() => setError("Unable to copy the token. Select and copy it manually.")); }}>Copy token</Button>
       <Button variant="secondary" onClick={() => setImpersonation(null)}>Dismiss</Button>
     </div>}
     {loading && <p aria-live="polite">Loading users…</p>}
     {page && <>
+      <div className="access-search-toolbar"><label>Search loaded users<input type="search" value={query} placeholder="Email or user ID…" onChange={event => setQuery(event.target.value)} /></label><span className="settings-help">{visibleUsers.length} of {page.items.length} on this page</span></div>
       <div className="table-scroll" role="region" aria-label="Public users" tabIndex={0}><table className="users-table">
         <thead><tr><th>User</th><th>Status</th><th>Dates</th><th>Actions</th></tr></thead>
-        <tbody>{page.items.map((user) => <tr key={user.id}>
+        <tbody>{visibleUsers.map((user) => <tr key={user.id}>
           <td><span className="user-identity">{user.email}</span><small className="user-identity">{user.id}</small></td>
-          <td>{user.active ? "Active" : "Inactive"}<br /><small>{user.verified ? "Verified" : "Unverified"}</small></td>
+          <td><span className="status-badge" data-status={user.active ? "active" : "inactive"}>{user.active ? "Active" : "Inactive"}</span><br /><small>{user.verified ? "Verified" : "Unverified"}</small></td>
           <td>
             <small>Created</small><time dateTime={user.createdAt}>{displayDate(user.createdAt)}</time>
             <small>Updated</small><time dateTime={user.updatedAt}>{displayDate(user.updatedAt)}</time>
@@ -162,6 +164,7 @@ export function UsersPage() {
           </div></td>
         </tr>)}</tbody>
       </table></div>
+      {page.items.length > 0 && visibleUsers.length === 0 && <p role="status">No users match “{query}” on this page.</p>}
       {page.items.length === 0 && <EmptyState title="No public users yet." description="App users will appear here when they register through an auth collection." />}
       {page.nextAfter && <Button variant="secondary" disabled={busy} onClick={() => load(page.nextAfter)}>Next page</Button>}
     </>}

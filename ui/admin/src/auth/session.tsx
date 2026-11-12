@@ -45,14 +45,17 @@ export function SessionProvider({ backend, children, history = browserHistory }:
 
   useEffect(() => {
     const controller = new AbortController();
+    const generation = transitionGeneration.current;
+    const current = () => !controller.signal.aborted && generation === transitionGeneration.current;
     void admin.session.resume(controller.signal).then((resumed) => {
+      if (!current()) return;
       if (resumed.kind === "authenticated") { settle({ kind: "authenticated", ...resumed.session }); return; }
       if (resumed.kind === "setup-required") { settle(resumed); return; }
       if (resumed.kind === "setup-unknown") setSessionError("Unable to check administrator setup status. Please retry.");
       if (resumed.kind === "unreachable") setSessionError("Unable to check the current session. Please sign in.");
       settle({ kind: "anonymous" });
     }).catch(() => {
-      if (controller.signal.aborted) return;
+      if (!current()) return;
       setSessionError("Unable to check the current session. Please sign in.");
       settle({ kind: "anonymous" });
     });

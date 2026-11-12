@@ -2,6 +2,7 @@ import { useHasUnsavedDrafts, useUnsavedDraft } from "../routing/unsaved-draft";
 import { AuthRecordsPanel } from "./auth-records-panel";
 import { AuthCollectionSchema } from "../components/auth-collection-schema";
 import { AuthTokenPolicies } from "../components/auth-token-policies";
+import { TypedConfirmation } from "../components/feature-state";
 import { RecordIDPolicyEditor } from "./record-id-policy-editor";
 import type { RecordIDPolicy } from "../backend/ports";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -28,6 +29,8 @@ export function AuthCollectionsPage() {
   const [items, setItems] = useState<AuthCollection[]>([]);
   const [recordId, setRecordID] = useState<RecordIDPolicy | undefined>();
   const [name, setName] = useState("");
+  const [query, setQuery] = useState("");
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [newProfileSchema, setNewProfileSchema] = useState("{}");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState("");
@@ -40,6 +43,7 @@ export function AuthCollectionsPage() {
   useUnsavedDraft("auth-collections-basic", basicDirty);
   const generation = useRef(0);
   const mounted = useRef(true);
+  const mutationPending = useRef(false);
 
   const load = useCallback(() => {
     const issued = ++generation.current;
@@ -64,13 +68,15 @@ export function AuthCollectionsPage() {
   }, [load]);
 
   function withMutation(action: (signal: AbortSignal) => Promise<void>): void {
-    if (pending) return;
+    if (mutationPending.current) return;
+    mutationPending.current = true;
     const issued = ++generation.current;
     const controller = new AbortController();
     setPending(true); setError(null);
     void action(controller.signal).catch(() => {
       if (mounted.current && generation.current === issued && !controller.signal.aborted) setError("Unable to save auth collection. Try again.");
     }).finally(() => {
+      mutationPending.current = false;
       if (mounted.current && generation.current === issued) setPending(false);
     });
   }
@@ -100,9 +106,10 @@ export function AuthCollectionsPage() {
   }
 
   function remove(item: AuthCollection): void {
+    if (hasUnsavedDrafts) { setError("Save or discard unsaved changes before deleting an auth collection."); return; }
     withMutation(async (signal) => {
       await authCollections.deleteAuthCollection(item.id, signal);
-      if (mounted.current) setItems((current) => current.filter((entry) => entry.id !== item.id));
+      if (mounted.current) { setItems((current) => current.filter((entry) => entry.id !== item.id)); setDeleting(null); setNotice(`${item.name} deleted.`); }
     });
   }
 
@@ -120,16 +127,19 @@ export function AuthCollectionsPage() {
       <div className="access-form-actions"><Button onClick={create}>Create auth collection</Button></div>
     </FormSection>
     <div className="access-list-heading"><h3>Existing collections</h3><p>Update profile fields and registration for each collection.</p></div>
-    {loading ? <p role="status">Loading auth collections…</p> : <ul aria-label="Auth collections" className="access-item-list">{items.map((item) => <li key={item.id}>
+    <div className="access-search-toolbar"><label>Search auth collections<input type="search" placeholder="Collection name…" value={query} onChange={event => setQuery(event.target.value)} /></label><span className="settings-help">{items.length} collections</span></div>
+    {loading ? <p role="status">Loading auth collections…</p> : <ul aria-label="Auth collections" className="access-item-list">{items.map((item) => <li key={item.id} className="auth-collection-card" hidden={!item.name.toLowerCase().includes(query.trim().toLowerCase())}>
       <div className="access-item-heading"><h3>{item.name}</h3><label className="access-toggle"><input disabled={pending || structuredDirty.has(item.id)} checked={item.registrationEnabled} onChange={(event) => save(item, event.target.checked)} type="checkbox" />Registration enabled</label></div>
       <details className="advanced-options"><summary>Compatibility profile schema</summary>      <label className="access-field">Profile schema JSON<textarea disabled={structuredDirty.has(item.id)} readOnly={item.fields !== undefined} aria-label={`${item.name} profile schema`} autoCapitalize="none" className="access-json" rows={4} spellCheck={false} value={drafts[item.id] ?? profileSchemaText(item.profileSchema)} onChange={(event) => setDrafts((current) => ({ ...current, [item.id]: event.target.value }))} /></label></details>
       {item.fields !== undefined && <p className="settings-help">Use the structured fields editor below to preserve validation and access settings.</p>}
-      <div className="access-item-actions">{item.fields === undefined && <Button disabled={pending || structuredDirty.has(item.id)} onClick={() => save(item)}>Save</Button>}<Button disabled={pending || structuredDirty.has(item.id) || item.name === "users"} onClick={() => remove(item)} variant="danger">Delete</Button></div>
+      <div className="access-item-actions">{item.fields === undefined && <Button disabled={pending || structuredDirty.has(item.id)} onClick={() => save(item)}>Save</Button>}<Button disabled={pending || hasUnsavedDrafts || structuredDirty.has(item.id) || item.name === "users"} onClick={() => setDeleting(item.id)} variant="danger">Delete</Button></div>
+      {deleting === item.id && <TypedConfirmation subject={item.name} action="Delete auth collection" busy={pending} onConfirm={() => remove(item)} onCancel={() => setDeleting(null)} />}
       {item.name === "users" && <p className="access-help">The default users realm cannot be deleted.</p>}
       <AuthCollectionSchema authCollections={items} disabled={drafts[item.id] !== undefined && drafts[item.id] !== profileSchemaText(item.profileSchema)} onDirty={onStructuredDirty} collection={item} onSaved={saved => { setNotice(`${saved.name} fields and rules saved.`); setItems(current => current.map(v => v.id === saved.id ? saved : v)); setDrafts(current => ({ ...current, [saved.id]: current[saved.id] === profileSchemaText(item.profileSchema) ? profileSchemaText(saved.profileSchema) : current[saved.id] })); }} />
       <AuthTokenPolicies collectionId={item.id} />
       {capabilities?.authAdministration !== false && <AuthAdministrationPanel collectionId={item.id} />}
     </li>)}</ul>}
+    {!loading && items.length > 0 && !items.some(item => item.name.toLowerCase().includes(query.trim().toLowerCase())) && <p role="status">No auth collections match “{query}”.</p>}
     {!loading && !error && items.length === 0 && <p className="access-empty">No auth collections yet. Create one above to get started.</p>}
   </section>;
 }

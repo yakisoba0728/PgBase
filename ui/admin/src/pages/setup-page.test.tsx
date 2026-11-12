@@ -134,7 +134,7 @@ describe("administrator setup", () => {
   it("uploads a setup-scoped backup and only starts restore after destructive confirmation", async () => {
 		const user = userEvent.setup(); const upload = vi.fn().mockResolvedValue({ id: "initial-backup" }); const restore = vi.fn().mockResolvedValue({ id: "job" }); const status = vi.fn().mockResolvedValue({ id: "job", status: "running" }); vi.spyOn(window, "confirm").mockReturnValue(true);
 		render(<SetupPage onRestoreBackup={restore} onSetup={vi.fn()} onSetupBackupJob={status} onUploadBackup={upload} />);
-		await user.type(screen.getByLabelText("Setup token"), "first-run-token"); await user.upload(screen.getByLabelText("Gzip backup"), new File(["gzip"], "initial.tar.gz", { type: "application/gzip" })); await user.click(screen.getByRole("button", { name: "Upload and restore backup" }));
+		await user.click(screen.getByText("Restore an initial backup")); await user.type(screen.getByLabelText("Setup token"), "first-run-token"); await user.upload(screen.getByLabelText("Gzip backup"), new File(["gzip"], "initial.tar.gz", { type: "application/gzip" })); await user.click(screen.getByRole("button", { name: "Upload and restore backup" }));
 		expect(upload).toHaveBeenCalledWith("first-run-token", expect.any(File)); expect(restore).toHaveBeenCalledWith("first-run-token", "initial-backup"); expect(await screen.findByText(/Restore started/)).toBeVisible(); expect(screen.getByRole("button", { name: "Waiting for backup restore…" })).toBeDisabled();
 		await new Promise((resolve) => window.setTimeout(resolve, 1_050));
 		expect(status).toHaveBeenCalledWith("first-run-token", "job", expect.any(AbortSignal));
@@ -148,6 +148,7 @@ describe("administrator setup", () => {
       vi.spyOn(window, "confirm").mockReturnValue(true);
       const user = userEvent.setup();
       const view = render(<SetupPage onSetup={vi.fn()} onUploadBackup={vi.fn().mockResolvedValue({ id: "backup" })} onRestoreBackup={vi.fn().mockResolvedValue({ id: "old-job" })} onSetupBackupJob={poll} />);
+      await user.click(screen.getByText("Restore an initial backup"));
       await user.type(screen.getByLabelText("Setup token"), "first-run-token");
       await user.upload(screen.getByLabelText("Gzip backup"), new File(["gzip"], "backup.gz"));
       await user.click(screen.getByRole("button", { name: "Upload and restore backup" }));
@@ -174,6 +175,7 @@ describe("administrator setup", () => {
         onRestoreBackup: vi.fn().mockResolvedValue({ id: "old-job" }),
       };
       const view = render(<SetupPage {...common} onSetupBackupJob={oldPoll} />);
+      await user.click(screen.getByText("Restore an initial backup"));
       await user.type(screen.getByLabelText("Setup token"), "first-run-token");
       await user.upload(screen.getByLabelText("Gzip backup"), new File(["gzip"], "backup.gz"));
       await user.click(screen.getByRole("button", { name: "Upload and restore backup" }));
@@ -199,14 +201,17 @@ describe("administrator setup", () => {
       const poll = vi.fn().mockResolvedValueOnce({ id: "job", status: "completed" });
       const user = userEvent.setup();
       const first = render(<SetupPage onSetup={vi.fn()} onUploadBackup={vi.fn().mockResolvedValue({ id: "backup" })} onRestoreBackup={vi.fn().mockResolvedValue({ id: "job" })} onSetupBackupJob={poll} />);
-      await user.type(screen.getByLabelText("Setup token"), "first-run-token"); await user.upload(screen.getByLabelText("Gzip backup"), new File(["gzip"], "backup.gz")); await user.click(screen.getByRole("button", { name: "Upload and restore backup" })); await act(async () => {});
+      await user.click(screen.getByText("Restore an initial backup")); await user.type(screen.getByLabelText("Setup token"), "first-run-token"); await user.upload(screen.getByLabelText("Gzip backup"), new File(["gzip"], "backup.gz")); await user.click(screen.getByRole("button", { name: "Upload and restore backup" })); await act(async () => {});
       await act(async () => { vi.advanceTimersByTime(1_000); });
       expect(screen.getByText(/Restore completed/)).toBeVisible();
+      expect(screen.getByRole("button", { name: "Waiting for backup restore…" })).toBeDisabled();
+      expect(screen.getByLabelText("Email")).toBeDisabled();
       first.unmount();
 
       const failedPoll = vi.fn().mockResolvedValueOnce({ id: "failed-job", status: "failed", error: "integrity check failed" });
       const secondUser = userEvent.setup();
       render(<SetupPage onSetup={vi.fn()} onUploadBackup={vi.fn().mockResolvedValue({ id: "backup" })} onRestoreBackup={vi.fn().mockResolvedValue({ id: "failed-job" })} onSetupBackupJob={failedPoll} />);
+      await secondUser.click(screen.getByText("Restore an initial backup"));
       await secondUser.type(screen.getByLabelText("Setup token"), "first-run-token");
       await secondUser.upload(screen.getByLabelText("Gzip backup"), new File(["gzip"], "backup.gz"));
       await secondUser.click(screen.getByRole("button", { name: "Upload and restore backup" }));
@@ -215,4 +220,15 @@ describe("administrator setup", () => {
       expect(screen.getByText("integrity check failed")).toBeVisible();
     } finally { vi.useRealTimers(); }
   });
+  it("keeps account creation locked when a dispatched restore response is lost", async () => {
+    const user = userEvent.setup(); const setup = vi.fn(); const restore = vi.fn().mockRejectedValue(new Error("connection lost"));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<SetupPage onSetup={setup} onUploadBackup={vi.fn().mockResolvedValue({ id: "backup" })} onRestoreBackup={restore} />);
+    await user.click(screen.getByText("Restore an initial backup")); await user.type(screen.getByLabelText("Setup token"), "first-run-token");
+    await user.upload(screen.getByLabelText("Gzip backup"), new File(["gzip"], "backup.gz")); await user.click(screen.getByRole("button", { name: "Upload and restore backup" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Restore outcome is unknown.");
+    expect(screen.getByRole("button", { name: "Waiting for backup restore…" })).toBeDisabled(); expect(screen.getByLabelText("Email")).toBeDisabled();
+    expect(restore).toHaveBeenCalledOnce(); expect(setup).not.toHaveBeenCalled();
+  });
+
 });

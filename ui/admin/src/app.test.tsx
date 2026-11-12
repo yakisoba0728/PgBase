@@ -192,6 +192,7 @@ describe("administration shell", () => {
 
     await user.click(await screen.findByRole("button", { name: "Add field" }));
     await user.type(screen.getByLabelText("Field 2 name"), "headline");
+    await user.click(screen.getByRole("tab", { name: "Options" }));
     await user.click(screen.getByRole("button", { name: "Delete collection" }));
     await user.type(await screen.findByLabelText("Type posts to confirm"), "posts");
     await user.click(screen.getByRole("button", { name: "Confirm delete" }));

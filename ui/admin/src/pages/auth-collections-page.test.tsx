@@ -36,6 +36,9 @@ describe("auth collections page", () => {
     const deletes = screen.getAllByRole("button", { name: "Delete" });
     expect(deletes[0]).toBeDisabled();
     fireEvent.click(deletes[1]);
+    expect(callsTo(harness.script, "deleteAuthCollection")).toHaveLength(0);
+    fireEvent.change(screen.getByRole("textbox", { name: /Type members to confirm/ }), { target: { value: "members" } });
+    fireEvent.click(screen.getByRole("button", { name: "Delete auth collection" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Unable to save auth collection");
     expect(screen.getByText("members")).toBeVisible();
   });
@@ -64,6 +67,7 @@ describe("auth collections page", () => {
     renderAdmin(harness);
     await screen.findByText("users");
     fireEvent.click(await screen.findByText("Authentication settings"));
+    fireEvent.click(screen.getByRole("tab", { name: "Mail server" }));
     await screen.findByLabelText("Server address");
     expect(screen.getByLabelText("Password")).toHaveValue("");
     expect(screen.getByLabelText("Password")).toHaveAttribute("placeholder", "Stored; leave blank to keep");
@@ -92,6 +96,7 @@ describe("auth collections page", () => {
     harness.script.putAuthMailTemplate.push({ value: normalized });
     renderAdmin(harness);
     fireEvent.click(await screen.findByText("Authentication settings"));
+    fireEvent.click(screen.getByRole("tab", { name: "Email templates" }));
     const subject = (await screen.findAllByLabelText("Subject"))[0];
     fireEvent.change(subject, { target: { value: "Edited subject" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Save template" })[0]);

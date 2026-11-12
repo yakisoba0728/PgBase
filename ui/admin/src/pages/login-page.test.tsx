@@ -135,6 +135,10 @@ describe("administrator login", () => {
     await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByText("Enter the code from your authenticator app.")).toBeVisible();
+    expect(screen.getByLabelText("Authenticator code")).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByText("Enter the six-digit authenticator code.")).toBeVisible();
+    expect(callsTo(harness.script, "login")).toHaveLength(1);
     await user.type(screen.getByLabelText("Authenticator code"), "123456");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
@@ -151,4 +155,17 @@ describe("administrator login", () => {
 		await user.type(screen.getByLabelText("Reset token"), "one-time-token"); await user.type(screen.getByLabelText("New password"), "correct horse battery staple"); await user.click(screen.getByRole("button", { name: "Reset password" }));
 		expect(confirm).toHaveBeenCalledWith("one-time-token", "correct horse battery staple"); expect(await screen.findByText("Password reset. You can now sign in.")).toBeVisible();
 	});
+  it("validates recovery fields without sending empty requests and announces rejected tokens as errors", async () => {
+    const user = userEvent.setup(); const request = vi.fn().mockResolvedValue(undefined); const confirm = vi.fn().mockRejectedValue(new Error("invalid token"));
+    render(<LoginPage onLogin={vi.fn()} onRequestPasswordReset={request} onConfirmPasswordReset={confirm} />);
+    await user.click(screen.getByRole("button", { name: "Forgot administrator password?" }));
+    await user.click(screen.getByRole("button", { name: "Send reset link" }));
+    expect(screen.getByText("Email is required.")).toBeVisible(); expect(screen.getByLabelText("Email")).toHaveFocus(); expect(request).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText("Email"), administrator.email); await user.click(screen.getByRole("button", { name: "Send reset link" }));
+    await screen.findByLabelText("Reset token"); await user.click(screen.getByRole("button", { name: "Reset password" }));
+    expect(screen.getByText("Reset token is required.")).toBeVisible(); expect(screen.getByText("Password must be 12 to 1024 bytes.")).toBeVisible(); expect(confirm).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText("Reset token"), "expired"); await user.type(screen.getByLabelText("New password"), "correct horse battery staple"); await user.click(screen.getByRole("button", { name: "Reset password" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The reset link is invalid or expired."); expect(screen.getByRole("alert")).toHaveFocus();
+  });
+
 });

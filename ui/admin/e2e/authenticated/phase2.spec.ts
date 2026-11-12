@@ -6,7 +6,7 @@ test("creates and reads an inferred SQL view", async ({ page }, info) => {
     await createCollection(page,source,[{name:"title"}]);
     await createRecord(page,source,{title:"view result"});
     await page.goto("/admin/collections/new");
-    await page.getByLabel("Collection name").fill(view);
+    await page.getByLabel("Collection name", { exact: true }).fill(view);
     await page.getByLabel("Collection kind").selectOption("view");
     await page.getByLabel("Definition mode").selectOption("sql");
     await page.getByLabel("SQL SELECT").fill(`SELECT id, upper(title)::text AS headline FROM app.${source}`);
@@ -53,12 +53,13 @@ test("creates a record with required files atomically and replaces them", async 
   const collection=uniqueName("required_file",info);
   try {
     await page.goto("/admin/collections/new");
-    await page.getByLabel("Collection name").fill(collection);
+    await page.getByLabel("Collection name", { exact: true }).fill(collection);
     await page.getByLabel("Field 1 name").fill("title");
     await page.getByRole("button",{name:"Add field"}).click();
     await page.getByLabel("Field 2 name").fill("attachment");
     await page.getByLabel("Field 2 type").selectOption("file");
     await page.getByLabel("Field 2 required").check();
+    await page.locator(".field-card").filter({ has: page.getByLabel("Field 2 name", { exact: true }) }).getByText("Validation", { exact: false }).first().click();
     await page.getByLabel("Field 2 maximum files").fill("1");
     await page.getByRole("button",{name:"Preview collection"}).click();
     await page.getByRole("button",{name:"Apply collection"}).click();

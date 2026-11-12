@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { stringifyJSON } from "../backend/json";
 import { useUnsavedDraft } from "../routing/unsaved-draft";
 import { useBackend } from "../auth/session";
@@ -57,6 +57,9 @@ export function AuthAdministrationPanel({
   collectionId: string;
 }) {
   const { authCollections } = useBackend();
+  const sectionID = useId();
+  const [section, setSection] = useState(0);
+  const sections = ["Auth methods", "OAuth providers", "Email templates", "Mail server"];
   const [value, setValue] = useState<AuthAdministration | null>(null);
   const [provider, setProvider] = useState(emptyProvider);
   const [smtp, setSMTP] = useState(emptySMTP);
@@ -269,12 +272,21 @@ export function AuthAdministrationPanel({
       >
         Reload authentication settings
       </button>
+      <div className="context-tabs auth-section-navigation" role="tablist" aria-label="Authentication configuration">
+        {sections.map((label, index) => <button key={label} type="button" role="tab" id={`${sectionID}-tab-${index}`} aria-controls={`${sectionID}-panel-${index}`} aria-selected={section === index} tabIndex={section === index ? 0 : -1} onClick={() => setSection(index)} onKeyDown={event => {
+          const next = event.key === "ArrowRight" ? (index + 1) % sections.length : event.key === "ArrowLeft" ? (index + sections.length - 1) % sections.length : event.key === "Home" ? 0 : event.key === "End" ? sections.length - 1 : null;
+          if (next === null) return; event.preventDefault(); setSection(next); document.getElementById(`${sectionID}-tab-${next}`)?.focus();
+        }}>{label}</button>)}
+      </div>
+      <div role="tabpanel" id={`${sectionID}-panel-0`} aria-labelledby={`${sectionID}-tab-0`} hidden={section !== 0}>
       <PolicyEditor
         disabled={busy}
         value={value.policy}
         change={(policy) => setValue({ ...value, policy })}
         save={() => savePolicy(value.policy)}
       />
+      </div>
+      <div role="tabpanel" id={`${sectionID}-panel-1`} aria-labelledby={`${sectionID}-tab-1`} hidden={section !== 1}>
       <ProviderEditor
         disabled={busy}
         providers={value.providers}
@@ -284,6 +296,8 @@ export function AuthAdministrationPanel({
         remove={removeProvider}
         generateAppleSecret={generateAppleSecret}
       />
+      </div>
+      <div role="tabpanel" id={`${sectionID}-panel-2`} aria-labelledby={`${sectionID}-tab-2`} hidden={section !== 2}>
       <fieldset disabled={busy}>
         <legend>Mail templates</legend>
         <p>
@@ -310,6 +324,8 @@ export function AuthAdministrationPanel({
           );
         })}
       </fieldset>
+      </div>
+      <div role="tabpanel" id={`${sectionID}-panel-3`} aria-labelledby={`${sectionID}-tab-3`} hidden={section !== 3}>
       <SMTPSettings
         disabled={busy}
         value={smtp}
@@ -323,6 +339,7 @@ export function AuthAdministrationPanel({
           )
         }
       />
+      </div>
     </details>
   );
 }

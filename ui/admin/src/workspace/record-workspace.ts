@@ -58,6 +58,8 @@ interface ListState {
   page: RecordPage | null;
   failed: boolean;
   filterInvalid: boolean;
+  loading: boolean;
+  reloads: number;
   filterText: string;
   appliedFilter: string;
   queryOptions: import("../backend/ports").RecordQueryOptions;
@@ -71,7 +73,7 @@ interface ListState {
 }
 
 function initialList(identity: string): ListState {
-  return { identity, collection: null, page: null, failed: false, filterInvalid: false, filterText: "", appliedFilter: "", queryOptions: {}, sort: "", cursors: [], selected: new Set(), actionMessage: null, actionPending: false };
+  return { identity, collection: null, page: null, failed: false, filterInvalid: false, loading: true, reloads: 0, filterText: "", appliedFilter: "", queryOptions: {}, sort: "", cursors: [], selected: new Set(), actionMessage: null, actionPending: false };
 }
 
 function nextSort(current: string, column: string): string {
@@ -86,6 +88,8 @@ export interface RecordList {
   page: RecordPage | null;
   failed: boolean;
   filterInvalid: boolean;
+  loading: boolean;
+  refresh(): void;
   filterText: string;
   filtered: boolean;
   filterApplied: boolean;
@@ -126,7 +130,7 @@ export function useRecordList(collectionName: string): RecordList {
       update(identity, definition === undefined ? { failed: true } : { collection: definition });
     }).catch(() => { if (!controller.signal.aborted) update(identity, { failed: true }); });
     return () => controller.abort();
-  }, [collectionName, identity, schema, update]);
+  }, [collectionName, identity, schema, state.reloads, update]);
 
   // Both directions read the same query under the same chain, so stepping back
   // re-reads the page the server issued that cursor for. A continuation fetched
@@ -136,11 +140,12 @@ export function useRecordList(collectionName: string): RecordList {
     inFlight.current?.abort();
     const controller = new AbortController();
     inFlight.current = controller;
+    update(identity, { loading: true, failed: false, filterInvalid: false });
     try {
       const page = await records.list(collectionName, { ...state.queryOptions, cursor: cursors.at(-1), filter: state.appliedFilter, sort: state.sort }, controller.signal);
-      if (!controller.signal.aborted) update(identity, { page, cursors, filterInvalid: false, failed: false });
+      if (!controller.signal.aborted) update(identity, { page, cursors, loading: false, filterInvalid: false, failed: false });
     } catch (caught: unknown) {
-      if (!controller.signal.aborted) update(identity, rejected(caught) ? { filterInvalid: true } : { failed: true });
+      if (!controller.signal.aborted) update(identity, rejected(caught) ? { filterInvalid: true, loading: false } : { failed: true, loading: false });
     }
   }, [collectionName, identity, records, state.appliedFilter, state.sort, state.queryOptions, update]);
 
@@ -153,6 +158,8 @@ export function useRecordList(collectionName: string): RecordList {
 
   const fields = state.collection?.fields;
   return {
+    loading: state.loading,
+    refresh: () => { update(identity, (current) => ({ reloads: current.reloads + 1 })); void openPage(state.cursors); },
     queryOptions: state.queryOptions,
     setQueryOptions: (queryOptions) => update(identity, { queryOptions, selected: new Set(), actionMessage: null }),
     collection: state.collection,
@@ -173,9 +180,9 @@ export function useRecordList(collectionName: string): RecordList {
       (field.indexed || field.unique),
     ) ?? false),
     setFilterText: (filterText) => update(identity, { filterText }),
-    applyFilter: () => update(identity, (current) => ({ appliedFilter: current.filterText.trim() })),
-    clear: () => update(identity, { filterText: "", appliedFilter: "", queryOptions: {}, sort: "" }),
-    toggleSort: (column) => update(identity, (current) => ({ sort: nextSort(current.sort, column) })),
+    applyFilter: () => update(identity, (current) => ({ appliedFilter: current.filterText.trim(), selected: new Set(), actionMessage: null })),
+    clear: () => update(identity, { filterText: "", appliedFilter: "", queryOptions: {}, sort: "", selected: new Set(), actionMessage: null }),
+    toggleSort: (column) => update(identity, (current) => ({ sort: nextSort(current.sort, column), selected: new Set(), actionMessage: null })),
     previousPage: () => { if (state.cursors.length > 0) void openPage(state.cursors.slice(0, -1)); },
     nextPage: () => { if (state.page?.nextCursor !== undefined) void openPage([...state.cursors, state.page.nextCursor]); },
     selected: state.selected,

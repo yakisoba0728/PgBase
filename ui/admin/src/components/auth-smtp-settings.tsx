@@ -18,8 +18,10 @@ export function SMTPSettings({
   const patch = (next: Partial<AuthSMTPSettings>) =>
     change({ ...value, ...next });
   return (
-    <fieldset disabled={disabled}>
+    <fieldset disabled={disabled} className="smtp-settings">
       <legend>SMTP</legend>
+      <p className="settings-help">Configure delivery for authentication emails. Save the connection before sending a test message.</p>
+      <div className="settings-field-grid">
       <label>
         Server address{" "}
         <input
@@ -31,7 +33,7 @@ export function SMTPSettings({
       <label>
         From{" "}
         <input
-          value={value.from}
+          type="email" autoComplete="off" value={value.from}
           onChange={(e) => patch({ from: e.target.value })}
         />
       </label>
@@ -45,7 +47,7 @@ export function SMTPSettings({
       <label>
         Password{" "}
         <input
-          type="password"
+          type="password" autoComplete="new-password"
           placeholder={
             value.passwordConfigured ? "Stored; leave blank to keep" : ""
           }
@@ -60,6 +62,8 @@ export function SMTPSettings({
           onChange={(e) => patch({ serverName: e.target.value })}
         />
       </label>
+      </div>
+      <div className="settings-checks">
       <label>
         <input
           type="checkbox"
@@ -76,17 +80,18 @@ export function SMTPSettings({
         />
         Allow insecure local SMTP
       </label>
+      </div>
       <button type="button" onClick={save}>
         Save SMTP
       </button>
       <label>
         Local test recipient{" "}
         <input
-          value={recipient}
+          type="email" autoComplete="off" value={recipient}
           onChange={(e) => setRecipient(e.target.value)}
         />
       </label>
-      <button type="button" onClick={() => test(recipient)}>
+      <button type="button" className="secondary" disabled={!recipient.trim()} onClick={() => test(recipient.trim())}>
         Send test
       </button>
     </fieldset>

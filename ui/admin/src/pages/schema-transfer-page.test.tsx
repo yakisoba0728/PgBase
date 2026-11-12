@@ -76,7 +76,7 @@ describe("schema transfer recovery", () => {
     digest.mockRestore();
   });
 
-  it("invalidates an old plan when export replaces the editor and shows no-op document details", async () => {
+  it("exports without replacing an edited import document or its preview", async () => {
     const harness = harnessWithSchema();
     Object.assign(harness.backend.schema, { previewImport: vi.fn(async () => ({ ...plan, changes: [] })) });
     renderAdmin(harness);
@@ -85,6 +85,55 @@ describe("schema transfer recovery", () => {
     expect(await screen.findByText(/posts/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Export schema" }));
     await act(async () => {});
-    expect(screen.queryByLabelText("Import preview")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Import preview")).toBeInTheDocument();
+    expect(screen.getByLabelText("Schema document")).toHaveValue(JSON.stringify(document));
   });
+});
+
+
+it("reads a chosen JSON file into the import draft without sending a write", async () => {
+  const harness = harnessWithSchema(); renderAdmin(harness);
+  const file = new File([JSON.stringify(document)], "collections.json", { type: "application/json" });
+  Object.assign(file, { text: async () => JSON.stringify(document) });
+  fireEvent.change(await screen.findByLabelText("Import JSON file"), { target: { files: [file] } });
+  await waitFor(() => expect(screen.getByLabelText("Schema document")).toHaveValue(JSON.stringify(document)));
+  expect(harness.backend.schema.previewImport).not.toHaveBeenCalled(); expect(harness.backend.schema.applyImport).not.toHaveBeenCalled();
+});
+
+it("keeps schema transfer usable when session storage is denied", async () => {
+  const remove = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => { throw new DOMException("blocked", "SecurityError"); });
+  try { const harness = harnessWithSchema(); renderAdmin(harness); expect(await screen.findByLabelText("Schema document")).toBeEnabled(); }
+  finally { remove.mockRestore(); }
+});
+
+
+it("keeps a replacement import draft protected when an older import status becomes committed", async () => {
+  sessionStorage.clear();
+  const harness = harnessWithSchema();
+  Object.assign(harness.backend.schema, { importStatus: vi.fn(async () => ({ operationId: "operation-1", status: "committed", version: 2, applied: 1 })) });
+  renderAdmin(harness);
+  const editor = await screen.findByLabelText("Schema document");
+  fireEvent.change(editor, { target: { value: JSON.stringify(document) } });
+  fireEvent.click(screen.getByRole("button", { name: "Preview import" }));
+  await screen.findByLabelText("Import preview"); fireEvent.click(screen.getByRole("button", { name: "Apply import" }));
+  await screen.findByText(/cannot confirm operation operation-1/i);
+  const replacement = JSON.stringify({ ...document, collections: [] });
+  fireEvent.change(editor, { target: { value: replacement } });
+  fireEvent.click(screen.getByRole("button", { name: "Check import status" }));
+  await screen.findByText(/committed at version 2/i);
+  expect(editor).toHaveValue(replacement);
+  const leaving = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(leaving);
+  expect(leaving.defaultPrevented).toBe(true);
+});
+
+it("releases the imported draft guard only after its own apply response confirms commitment", async () => {
+  sessionStorage.clear(); const harness = harnessWithSchema();
+  Object.assign(harness.backend.schema, { applyImport: vi.fn(async () => ({ operationId: "operation-1", status: "committed", version: 2, applied: 1 })) });
+  renderAdmin(harness);
+  fireEvent.change(await screen.findByLabelText("Schema document"), { target: { value: JSON.stringify(document) } });
+  fireEvent.click(screen.getByRole("button", { name: "Preview import" }));
+  await screen.findByLabelText("Import preview"); fireEvent.click(screen.getByRole("button", { name: "Apply import" }));
+  await screen.findByText(/committed at version 2/i);
+  const leaving = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(leaving);
+  expect(leaving.defaultPrevented).toBe(false);
 });

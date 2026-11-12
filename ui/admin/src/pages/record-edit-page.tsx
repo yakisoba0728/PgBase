@@ -6,6 +6,7 @@ import type { FieldDefinition, FileInfo } from "../backend/ports";
 import { useBackend } from "../auth/session";
 import { RelationTargetPicker } from "../relation/relation-target-picker";
 import type { AdminRoute } from "../routing/admin-location";
+import { AdminLink } from "../routing/admin-link";
 import { useRecordEditor, type RecordEditor } from "../workspace/record-workspace";
 import type { FieldState } from "../workspace/record-codec";
 
@@ -37,6 +38,7 @@ function RecordField({ editor, field }: { editor: RecordEditor; field: FieldDefi
   if (field.type === "autodate") return <div className="record-field"><label htmlFor={`record-${field.name}`}>{field.name}</label><input id={`record-${field.name}`} readOnly value={state.kind === "value" ? String(state.value) : ""} /><p>Set by the server{field.options?.onCreate ? " on creation" : ""}{field.options?.onUpdate ? " on update" : ""}.</p>{field.help && <p>{field.help}</p>}</div>;
   const fixed = ["editor", "geoPoint", "password"].includes(field.type);
   return <div className="record-field">
+    <div className="pb-record-field-header"><strong>{field.name}</strong><span className="field-type">{field.type}</span>{field.required && <span className="field-required">Required</span>}</div>
 		{field.help && <p id={helpID}>{field.help}</p>}
     <label htmlFor={`record-${field.name}-state`}>{field.name} state</label>
     <select aria-describedby={describedBy} aria-invalid={error ? "true" : undefined} id={`record-${field.name}-state`} onChange={(event) => editor.setKind(field, event.target.value as FieldState["kind"])} value={state.kind}>
@@ -160,12 +162,14 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
 
 	return <section className="record-editor-page management-page">
     <BackLink navigate={navigate} route={{ kind: "records", collection: collectionName }}>Back to records</BackLink>
-    <PageHeading title={`${editor.isCreate ? "Create" : "Edit"} ${collectionName} record`} description="Edit the fields below, then save your changes." />
+    <PageHeading title={`${editor.isCreate ? "Create" : "Edit"} ${collectionName} record`} description={editor.isCreate ? "Add a record to this collection. Defaults are applied when a field is omitted." : "Update field values. Changes are saved together when you select Save changes."} />
     {editor.message && <p role="alert">{editor.message}</p>}
     {capabilities?.files === false && editor.fields.some(field => field.type === "file") && <p role="status">This server does not support file uploads. Existing file values are preserved.</p>}
     {editor.stale && <button onClick={editor.reload} type="button">Reload record</button>}
     {!editor.collection && !editor.message && <p aria-live="polite">Loading record…</p>}
 		{editor.collection && <form onSubmit={(event) => { event.preventDefault(); save(); }}>
+      <div className="pb-record-editor-meta"><h3>Field values</h3><span>{editor.fields.length} {editor.fields.length === 1 ? "field" : "fields"}</span>{id && <code title={id}>{id}</code>}</div>
+      <div className="pb-record-editor-fields">
       {editor.isCreate && editor.collection.recordId?.kind === "text" && <div className="record-field">
         <label htmlFor="record-identity">Record ID</label>
         <input id="record-identity" type="text" autoComplete="off" aria-describedby="record-identity-hint record-identity-error" aria-invalid={editor.errors.id ? "true" : undefined} disabled={editor.pending || editor.stale} required={!editor.collection.recordId.autogeneratePattern} value={editor.recordID} onChange={(event) => editor.setRecordID(event.target.value)} />
@@ -176,7 +180,8 @@ export function RecordEditPage({ collectionName, id, navigate }: { collectionNam
 				<AtomicFileInput disabled={editor.pending || editor.stale || capabilities?.files === false} error={fileErrors[field.name] ?? editor.errors[field.name]} field={field} files={files[field.name] ?? []} onChange={(selected) => { setFiles((current) => ({ ...current, [field.name]: selected })); setFileErrors((current) => { const next = { ...current }; delete next[field.name]; return next; }); }} />
 				{id && <FileField collection={collectionName} recordID={id} field={field} />}
 			</div> : <RecordField editor={editor} field={field} key={field.name} />)}
-      <ActionBar sticky description="Changes are saved to this collection."><Button disabled={editor.pending || editor.stale || capabilities?.files === false && editor.isCreate && editor.fields.some(field => field.type === "file" && field.required)} type="submit">{editor.pending ? "Saving…" : editor.isCreate ? "Create record" : "Save changes"}</Button></ActionBar>
+      </div>
+      <ActionBar sticky description="Changes are saved to this collection."><AdminLink className="link-button secondary" navigate={navigate} route={{ kind: "records", collection: collectionName }}>Cancel</AdminLink><Button disabled={editor.pending || editor.stale || capabilities?.files === false && editor.isCreate && editor.fields.some(field => field.type === "file" && field.required)} type="submit">{editor.pending ? "Saving…" : editor.isCreate ? "Create record" : "Save changes"}</Button></ActionBar>
     </form>}
     {editor.collection && !editor.isCreate && <div className="record-secondary-actions"><Button variant="secondary" disabled={editor.pending} onClick={editor.duplicate}>Duplicate record</Button><Button variant="danger" disabled={editor.pending || editor.stale} onClick={editor.remove}>Delete record</Button></div>}
   </section>;

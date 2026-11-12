@@ -14,7 +14,7 @@ test("creates a compound index and a filtered read-only view", async ({ page }, 
     await createRecord(page, source, { title: "visible", category: "public" });
     await createRecord(page, source, { title: "hidden", category: "private" });
     await page.goto("/admin/collections/new");
-    await page.getByLabel("Collection name").fill(view);
+    await page.getByLabel("Collection name", { exact: true }).fill(view);
     await page.getByLabel("Collection kind").selectOption("view");
     await page.getByLabel("Source collection").selectOption(source);
     await page.getByLabel("Project title").check();

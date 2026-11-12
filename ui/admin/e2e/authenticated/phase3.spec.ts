@@ -30,7 +30,7 @@ test("imports, exports and updates schema without rounding JSON defaults or drop
   const document = `{"format":"pgbase.schema/v1","collections":[{"name":"${name}","userAccess":false,${rules},"fields":[{"name":"title","type":"text","presentable":true,"help":"Imported title help"},{"name":"metadata","type":"jsonb","default":{"precise":9007199254740993}},{"name":"secret","type":"text","hidden":true,"default":"private"}]}]}`;
   try {
     await page.goto("/admin/schema-transfer");
-    await expect(page.getByRole("heading", { name: "Schema import and export" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Schema transfer", exact: true })).toBeVisible();
     await page.getByLabel("Schema document").fill(document);
     await page.getByRole("button", { name: "Preview import" }).click();
     await expect(page.getByRole("button", { name: "Apply import" })).toBeVisible();
@@ -47,7 +47,8 @@ test("imports, exports and updates schema without rounding JSON defaults or drop
       };
     });
     await page.getByRole("button", { name: "Export schema" }).click();
-    await expect(page.getByLabel("Schema document")).toHaveValue(new RegExp(name));
+    await expect(page.getByLabel("Schema document")).toHaveValue("");
+    await page.waitForFunction(() => (window as unknown as { schemaExport?: Blob }).schemaExport instanceof Blob);
     const exported = await page.evaluate(() => (window as unknown as { schemaExport: Blob }).schemaExport.text());
     expect(exported).toContain("9007199254740993");
     expect(exported).not.toContain("9007199254740992");
@@ -83,6 +84,7 @@ test("saves and reloads OTP policy and mail template in a separate realm", async
     await realm.getByLabel("OTP attempts").fill("4");
     await realm.getByRole("button", { name: "Save policy", exact: true }).click();
     await expect(realm.getByText(/^Policy saved\./)).toBeVisible();
+    await realm.getByRole("tab", { name: "Email templates", exact: true }).click();
     const template = realm.getByRole("heading", { name: "otp", exact: true }).locator("..");
     await template.getByLabel("Subject", { exact: true }).fill("Your application login code");
     await template.getByLabel("Plain text alternative").fill("Use {{otp}} to sign in.");
@@ -91,6 +93,7 @@ test("saves and reloads OTP policy and mail template in a separate realm", async
     await template.getByRole("button", { name: "Validate and preview" }).click();
     await expect(template.getByText("Use 123456 to sign in.", { exact: true })).toBeVisible();
 
+    await realm.getByRole("tab", { name: "OAuth providers", exact: true }).click();
     const provider = realm.getByRole("group", { name: "OAuth providers", exact: true });
     await provider.getByLabel("Provider preset").selectOption("google");
     await provider.getByLabel("Client ID", { exact: true }).fill("local-browser-client");
@@ -103,6 +106,7 @@ test("saves and reloads OTP policy and mail template in a separate realm", async
     await provider.getByRole("button", { name: "Save provider" }).click();
     await expect(realm.getByText("OAuth provider saved.", { exact: true })).toBeVisible();
 
+    await realm.getByRole("tab", { name: "Mail server", exact: true }).click();
     const smtp = realm.getByRole("group", { name: "SMTP", exact: true });
     await smtp.getByLabel("Server address").fill("127.0.0.1:2525");
     await smtp.getByLabel("From", { exact: true }).fill("noreply@example.test");
@@ -114,12 +118,16 @@ test("saves and reloads OTP policy and mail template in a separate realm", async
     await expect(realm.getByLabel("Email one-time-code login")).toBeChecked();
     await expect(realm.getByLabel("OTP lifetime in seconds")).toHaveValue("120");
     await expect(realm.getByLabel("OTP attempts")).toHaveValue("4");
+    await realm.getByRole("tab", { name: "Email templates", exact: true }).click();
     await expect(template.getByLabel("Subject", { exact: true })).toHaveValue("Your application login code");
+    await realm.getByRole("tab", { name: "Mail server", exact: true }).click();
     await expect(smtp.getByLabel("Server address")).toHaveValue("127.0.0.1:2525");
     await smtp.getByRole("button", { name: "Save SMTP", exact: true }).click();
     await expect(realm.getByText(/^SMTP settings saved\./)).toBeVisible();
   } finally {
     await realm.getByRole("button", { name: "Delete", exact: true }).click();
+    await realm.getByLabel(`Type ${name} to confirm delete auth collection`).fill(name);
+    await realm.getByRole("button", { name: "Delete auth collection", exact: true }).click();
     await expect(realm).toHaveCount(0);
   }
 });

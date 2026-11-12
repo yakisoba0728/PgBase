@@ -17,6 +17,7 @@ describe("application settings", () => {
     backend.settings = { get: vi.fn().mockResolvedValue(settings), save, reload: vi.fn() };
     const user = userEvent.setup();
     render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) });
+    await user.click(await screen.findByRole("tab", { name: "Backups" }));
     const keep = await screen.findByLabelText("Backups to keep");
     expect(keep).toHaveValue(7);
     expect(keep).toHaveAccessibleDescription("Counts all archives: manual, uploaded, and scheduled. Use 0 to keep every archive.");
@@ -32,13 +33,13 @@ describe("application settings", () => {
   it("saves log capture controls and backup schedule as one revision", async () => {
     const backend = memoryBackend(backendScript()); const save = vi.fn().mockImplementation(async (value: AdminSettings) => ({ ...value, revision: 2 })); backend.settings = { get: vi.fn().mockResolvedValue(settings), save, reload: vi.fn() };
     const user = userEvent.setup(); render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) });
-    await screen.findByDisplayValue("info"); await user.selectOptions(screen.getByLabelText("Level"), "warn"); await user.click(screen.getByLabelText("Include IP addresses")); await user.click(screen.getByLabelText("Include authentication events")); await user.clear(screen.getByLabelText("Schedule")); await user.type(screen.getByLabelText("Schedule"), "@every 6h"); await user.click(screen.getByRole("button", { name: "Save settings" }));
+    await user.click(await screen.findByRole("tab", { name: "Logs" })); await screen.findByDisplayValue("info"); await user.selectOptions(screen.getByLabelText("Level"), "warn"); await user.click(screen.getByLabelText("Include IP addresses")); await user.click(screen.getByLabelText("Include authentication events")); await user.click(screen.getByRole("tab", { name: "Backups" })); await user.clear(screen.getByLabelText("Schedule")); await user.type(screen.getByLabelText("Schedule"), "@every 6h"); await user.click(screen.getByRole("button", { name: "Save settings" }));
     expect(save).toHaveBeenCalledWith(expect.objectContaining({ revision: 1, logs: expect.objectContaining({ level: "warn", includeIP: true, includeAuth: true }), backups: expect.objectContaining({ schedule: "@every 6h" }) }), expect.any(AbortSignal)); expect(await screen.findByText("Settings saved.")).toBeVisible();
   });
 
 	it("edits the current administrator and canonical IP allowlist through their dedicated endpoints", async () => {
 		const backend = memoryBackend(backendScript()); backend.settings = { get: vi.fn().mockResolvedValue(settings), save: vi.fn().mockResolvedValue(settings), reload: vi.fn() }; const update = vi.fn().mockResolvedValue({ id: "admin", email: "new@example.test", active: true, createdAt: "now", updatedAt: "now" }); const setIPs = vi.fn().mockResolvedValue(["10.0.0.0/8"]); backend.profile = { get: vi.fn().mockResolvedValue({ id: "admin", email: "admin@example.test", active: true, createdAt: "now", updatedAt: "now" }), update, ipAllowlist: vi.fn().mockResolvedValue([]), setIPAllowlist: setIPs };
-		const user = userEvent.setup(); render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) }); const email = await screen.findByDisplayValue("admin@example.test"); await user.clear(email); await user.type(email, "new@example.test"); await user.click(screen.getByRole("button", { name: "Save administrator email" })); expect(update).toHaveBeenCalledWith({ email: "new@example.test" }); await user.type(screen.getByLabelText("Allowed CIDRs"), "10.0.0.0/8"); await user.click(screen.getByRole("button", { name: "Save IP allowlist" })); expect(setIPs).toHaveBeenCalledWith(["10.0.0.0/8"]);
+		const user = userEvent.setup(); render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) }); await user.click(await screen.findByRole("tab", { name: "My account" })); const email = await screen.findByDisplayValue("admin@example.test"); await user.clear(email); await user.type(email, "new@example.test"); await user.click(screen.getByRole("button", { name: "Save administrator email" })); expect(update).toHaveBeenCalledWith({ email: "new@example.test" }); await user.type(screen.getByLabelText("Allowed CIDRs"), "10.0.0.0/8"); await user.click(screen.getByRole("button", { name: "Save IP allowlist" })); expect(setIPs).toHaveBeenCalledWith(["10.0.0.0/8"]);
 	});
 
   it("serializes IP allowlist saves until the active security policy write settles", async () => {
@@ -61,6 +62,7 @@ describe("application settings", () => {
     };
     const user = userEvent.setup();
     render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) });
+    await user.click(await screen.findByRole("tab", { name: "My account" }));
     const input = await screen.findByLabelText("Allowed CIDRs");
     await user.type(input, "10.0.0.0/8");
     await user.click(screen.getByRole("button", { name: "Save IP allowlist" }));
@@ -98,6 +100,7 @@ describe("application settings", () => {
     };
     const user = userEvent.setup();
     render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) });
+    await user.click(await screen.findByRole("tab", { name: "My account" }));
     await screen.findByDisplayValue("admin@example.test");
     await user.click(screen.getByRole("button", { name: "Save administrator email" }));
     await user.type(screen.getByLabelText("Allowed CIDRs"), "10.0.0.0/8");
@@ -115,12 +118,36 @@ describe("application settings", () => {
 
   it("adds, validates, removes and persists global API rules without changing authentication limits", async () => {
     const backend = memoryBackend(backendScript()); const save = vi.fn().mockImplementation(async (value: AdminSettings) => value); backend.settings = { get: vi.fn().mockResolvedValue(settings), save, reload: vi.fn() };
-    const user = userEvent.setup(); render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) }); await screen.findByText("API request rate limits"); await user.click(screen.getByRole("checkbox", { name: "Enable API request rate limits" })); await user.click(screen.getByRole("button", { name: "Add API rate rule" })); await user.type(screen.getByLabelText("Rule 1 label"), "/health/live"); await user.selectOptions(screen.getByLabelText("Rule 1 audience"), "@guest"); await user.clear(screen.getByLabelText("Rule 1 duration seconds")); await user.type(screen.getByLabelText("Rule 1 duration seconds"), "60"); await user.clear(screen.getByLabelText("Rule 1 maximum requests")); await user.type(screen.getByLabelText("Rule 1 maximum requests"), "1"); await user.type(screen.getByLabelText("Excluded client IPs or CIDRs, one per line"), "192.0.2.0/24"); await user.click(screen.getByRole("button", { name: "Save settings" }));
+    const user = userEvent.setup(); render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) }); await user.click(await screen.findByRole("tab", { name: "API rate limits" })); await screen.findByText("API request rate limits"); await user.click(screen.getByRole("checkbox", { name: "Enable API request rate limits" })); await user.click(screen.getByRole("button", { name: "Add API rate rule" })); await user.type(screen.getByLabelText("Rule 1 label"), "/health/live"); await user.selectOptions(screen.getByLabelText("Rule 1 audience"), "@guest"); await user.clear(screen.getByLabelText("Rule 1 duration seconds")); await user.type(screen.getByLabelText("Rule 1 duration seconds"), "60"); await user.clear(screen.getByLabelText("Rule 1 maximum requests")); await user.type(screen.getByLabelText("Rule 1 maximum requests"), "1"); await user.type(screen.getByLabelText("Excluded client IPs or CIDRs, one per line"), "192.0.2.0/24"); await user.click(screen.getByRole("button", { name: "Save settings" }));
     expect(save).toHaveBeenCalledWith(expect.objectContaining({ rateLimits: expect.objectContaining({ enabled: true, rules: [{ label: "/health/live", audience: "@guest", duration: 60, maxRequests: 1 }], excludedIPs: ["192.0.2.0/24"], admin: settings.rateLimits.admin, user: settings.rateLimits.user }) }), expect.any(AbortSignal)); await user.click(screen.getByRole("button", { name: "Remove rule 1" })); expect(screen.queryByLabelText("Rule 1 label")).toBeNull();
   });
 
   it("does not submit an invalid global API rule", async () => {
     const backend = memoryBackend(backendScript()); const save = vi.fn(); backend.settings = { get: vi.fn().mockResolvedValue(settings), save, reload: vi.fn() };
-    const user = userEvent.setup(); render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) }); await screen.findByText("API request rate limits"); await user.click(screen.getByRole("button", { name: "Add API rate rule" })); await user.click(screen.getByRole("button", { name: "Save settings" })); expect(await screen.findByText(/Use a route pattern or METHOD/)).toBeVisible(); expect(save).not.toHaveBeenCalled();
+    const user = userEvent.setup(); render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) }); await user.click(await screen.findByRole("tab", { name: "API rate limits" })); await screen.findByText("API request rate limits"); await user.click(screen.getByRole("button", { name: "Add API rate rule" })); await user.click(screen.getByRole("button", { name: "Save settings" })); expect(await screen.findByText(/Use a route pattern or METHOD/)).toBeVisible(); expect(save).not.toHaveBeenCalled();
   });
+});
+
+
+it("moves between focused settings panels with the keyboard and preserves a hidden draft", async () => {
+  const backend = memoryBackend(backendScript());
+  backend.settings = { get: vi.fn().mockResolvedValue(settings), save: vi.fn(), reload: vi.fn() };
+  const user = userEvent.setup(); render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) });
+  const application = await screen.findByRole("tab", { name: "Application" });
+  await user.clear(screen.getByLabelText("Branding")); await user.type(screen.getByLabelText("Branding"), "My project");
+  application.focus(); await user.keyboard("{End}");
+  expect(screen.getByRole("tab", { name: "Network" })).toHaveFocus();
+  expect(screen.getByRole("tab", { name: "Network" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.queryByRole("group", { name: "Branding and appearance" })).not.toBeInTheDocument();
+  await user.keyboard("{Home}");
+  expect(application).toHaveFocus(); expect(screen.getByLabelText("Branding")).toHaveValue("My project");
+});
+
+it("retries an initial settings load failure", async () => {
+  const backend = memoryBackend(backendScript());
+  const get = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue(settings);
+  backend.settings = { get, save: vi.fn(), reload: vi.fn() };
+  const user = userEvent.setup(); render(<SettingsPage />, { wrapper: sessionWrapper(backend, memoryHistory()) });
+  await user.click(await screen.findByRole("button", { name: "Retry settings" }));
+  expect(await screen.findByLabelText("Branding")).toHaveValue("pgBase"); expect(get).toHaveBeenCalledTimes(2);
 });

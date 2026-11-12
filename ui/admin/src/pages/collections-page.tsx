@@ -93,6 +93,8 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
   const [catalog, setCatalog] = useState<CollectionCatalog | null>(null);
   const [failed, setFailed] = useState(false);
   const [search, setSearch] = useState("");
+  const [kind, setKind] = useState("all");
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -107,17 +109,17 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
       if (!controller.signal.aborted) setFailed(true);
     });
     return () => controller.abort();
-  }, [schema]);
+  }, [schema, reload]);
 
   const collections = catalog?.all() ?? [];
-  const visibleCollections = collections.filter(collection => collection.name.toLowerCase().includes(search.trim().toLowerCase()));
+  const visibleCollections = collections.filter(collection => collection.name.toLowerCase().includes(search.trim().toLowerCase()) && (kind === "all" || (collection.view ? "view" : collection.type ?? "base") === kind));
   return <section className="collections-page">
     <PageHeading title="Collections" description="Manage schemas and records in your PostgreSQL project." actions={<AdminLink className="link-button" navigate={navigate} route={{ kind: "collection-create" }}><WorkspaceIcon name="plus" />Create collection</AdminLink>} />
-    <div className="collection-toolbar"><label className="collection-search"><WorkspaceIcon name="search" /><input aria-label="Search collections" placeholder="Search collections…" type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>{catalog && <span className="catalog-meta">{collections.length} {collections.length === 1 ? "collection" : "collections"}<span className="catalog-divider">/</span><span>Catalog version {catalog.version}</span></span>}</div>
-    {failed && <p role="alert">Unable to load collections.</p>}
+    <div className="collection-toolbar"><label className="collection-search"><WorkspaceIcon name="search" /><input aria-label="Search collections" placeholder="Search collections…" type="search" value={search} onChange={event => setSearch(event.target.value)} /></label><select className="collection-type-filter" aria-label="Collection type" value={kind} onChange={event => setKind(event.target.value)}><option value="all">All collections</option><option value="base">Base collections</option><option value="auth">Auth collections</option><option value="view">Views</option></select><Button variant="secondary" disabled={!catalog && !failed} onClick={() => setReload(value => value + 1)}>Refresh collections</Button>{catalog && <span className="catalog-meta">{collections.length} {collections.length === 1 ? "collection" : "collections"}<span className="catalog-divider">/</span><span>Catalog version {catalog.version}</span></span>}</div>
+    {failed && <p role="alert">Unable to load collections. <Button variant="secondary" onClick={() => setReload(value => value + 1)}>Retry collections</Button></p>}
     {!catalog && !failed && <p aria-live="polite">Loading collections…</p>}
     {catalog && collections.length === 0 && <EmptyState title="No collections yet." icon="database" description={<>A collection gives your records a home.<br />Start with a blank schema, or choose a template below.</>} action={<AdminLink className="text-button empty-create" navigate={navigate} route={{ kind: "collection-create" }}>Create your first collection<WorkspaceIcon name="arrow" /></AdminLink>} />}
-    {catalog && collections.length > 0 && visibleCollections.length === 0 && <p className="search-empty" role="status">No collections match “{search}”.</p>}
+    {catalog && collections.length > 0 && visibleCollections.length === 0 && <p className="search-empty" role="status">{search.trim() ? `No collections match “${search}”.` : `No ${kind === "view" ? "view" : kind} collections found.`}</p>}
     {catalog && visibleCollections.length > 0 && <ul className="collection-list" aria-label="Collections">
       {visibleCollections.map((collection) => {
         const relationCount = collection.fields.filter((field) => field.type === "relation").length;
@@ -127,7 +129,7 @@ export function CollectionsPage({ navigate }: CollectionsPageProps) {
           <div className="collection-row-actions"><UserAccess collection={collection} />
           <AdminLink className="text-button" navigate={navigate} route={{ kind: "collection-edit", collection: collection.name }}>Edit</AdminLink>
           <AdminLink className="text-button" navigate={navigate} route={{ kind: "collection-duplicate", collection: collection.name }}>Duplicate</AdminLink>
-          <TruncateCollection collection={collection} /></div>
+          <details className="collection-more"><summary aria-label={`More actions for ${collection.name}`}>More</summary><TruncateCollection collection={collection} /></details></div>
         </li>;
       })}
     </ul>}

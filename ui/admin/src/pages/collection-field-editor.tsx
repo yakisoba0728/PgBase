@@ -41,7 +41,7 @@ export function CollectionFieldEditor({
   const locked = field.system === true;
 
   return <div className="field-card">
-    <div className="field-card-heading"><h3>Field {fieldNumber}</h3>{fieldCount > 1 && <button className="secondary" disabled={locked || pending} onClick={onRemove} type="button">Remove field</button>}</div>
+    <div className="field-card-heading"><div><h3>{field.name || `Field ${fieldNumber}`}</h3><span className="field-type-badge">{field.type}{field.required ? " · required" : ""}{locked ? " · system" : ""}</span></div>{fieldCount > 1 && <button className="secondary" disabled={locked || pending} onClick={onRemove} type="button">Remove field</button>}</div>
     {locked && <p>System field. Its schema is managed by the auth collection.</p>}
     <div className="field-basics">
     <div className="form-control">

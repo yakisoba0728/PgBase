@@ -1,12 +1,37 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { backendScript, deferredStep } from "../test/backend-script";
+import { backendScript, deferredStep, type Step } from "../test/backend-script";
+import type { ResumedSession } from "../backend/ports";
 import { activeSessionExpiresAt, administrator, renderAdmin, scriptedAdmin } from "../test/harness";
 
 afterEach(() => vi.useRealTimers());
 
 describe("session lifecycle", () => {
+  it.each<Step<ResumedSession>>([
+    { value: { kind: "setup-required" } },
+    { fault: { kind: "unreachable" } },
+  ])("ignores a stale resume outcome after a fresh login: %j", async (outcome) => {
+    const script = backendScript();
+    const resume = deferredStep<ResumedSession>();
+    script.resume.push(resume.step);
+    script.status.push({ fault: { kind: "unauthorized" } });
+    script.login.push({ value: { administrator, expiresAt: activeSessionExpiresAt() } });
+    script.catalog.push({ value: { version: 0, collections: [] } });
+    const harness = scriptedAdmin("/admin/collections", script);
+    const user = userEvent.setup();
+    renderAdmin(harness);
+    await act(async () => { await expect(harness.backend.system.status()).rejects.toThrow(); });
+    await user.type(await screen.findByLabelText("Email"), administrator.email);
+    await user.type(screen.getByLabelText("Password"), "fresh password");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await screen.findByRole("heading", { name: "pgBase administration" });
+    await act(async () => { resume.settle(outcome); });
+    expect(screen.getByRole("heading", { name: "pgBase administration" })).toBeVisible();
+    expect(harness.history.path()).toBe("/admin/collections");
+    expect(screen.queryByText("Unable to check the current session. Please sign in.")).not.toBeInTheDocument();
+  });
+
   it("clears the authenticated shell when the server session expires", async () => {
     // The expiry timer is the behaviour under test, so it runs on a clock the
     // test owns rather than on a real deadline the machine could miss.

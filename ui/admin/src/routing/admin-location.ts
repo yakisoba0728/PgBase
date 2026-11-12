@@ -13,6 +13,7 @@ export type AdminRoute =
   | { kind: "operations" }
 	| { kind: "sql-console" }
 	| { kind: "system" }
+  | { kind: "logs" }
 	| { kind: "settings" }
   | { kind: "users" }
   | { kind: "administrators" }
@@ -63,6 +64,7 @@ export function parseAdminRoute(path: string): AdminRoute {
   if (path === operationsPath) return { kind: "operations" };
 	if (path === "/admin/sql") return { kind: "sql-console" };
 	if (path === "/admin/system") return { kind: "system" };
+  if (path === "/admin/logs") return { kind: "logs" };
 	if (path === "/admin/settings") return { kind: "settings" };
 	if (path === "/admin/users") return { kind: "users" };
   if (path === "/admin/administrators") return { kind: "administrators" };
@@ -103,6 +105,7 @@ export function adminRoutePath(route: AdminRoute): string {
   if (route.kind === "operations") return operationsPath;
 	if (route.kind === "sql-console") return "/admin/sql";
 	if (route.kind === "system") return "/admin/system";
+  if (route.kind === "logs") return "/admin/logs";
 	if (route.kind === "settings") return "/admin/settings";
 	if (route.kind === "users") return "/admin/users";
   if (route.kind === "administrators") return "/admin/administrators";

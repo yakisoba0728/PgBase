@@ -78,9 +78,10 @@ func Bind(catalog schema.Catalog, source schema.Collection) (*Bindings, error) {
 	})
 	seenFieldIDs := make(map[uuid.UUID]struct{}, len(canonical.Fields))
 	seenFieldNames := make(map[string]struct{}, len(canonical.Fields))
+	seenColumnNames := make(map[string]struct{}, len(canonical.Fields))
 	for ordinal, field := range canonical.Fields {
 		if field.ID == uuid.Nil || !catalogIdentifier.MatchString(field.Name) ||
-			!catalogIdentifier.MatchString(field.ColumnName) || field.Name != field.ColumnName ||
+			!catalogIdentifier.MatchString(field.ColumnName) ||
 			field.Ordinal != ordinal {
 			return nil, ErrInvalidBinding
 		}
@@ -90,6 +91,10 @@ func Bind(catalog schema.Catalog, source schema.Collection) (*Bindings, error) {
 		if _, duplicate := seenFieldNames[field.Name]; duplicate {
 			return nil, ErrInvalidBinding
 		}
+		if _, duplicate := seenColumnNames[field.ColumnName]; duplicate {
+			return nil, ErrInvalidBinding
+		}
+		seenColumnNames[field.ColumnName] = struct{}{}
 		seenFieldIDs[field.ID] = struct{}{}
 		seenFieldNames[field.Name] = struct{}{}
 
@@ -117,7 +122,7 @@ func Bind(catalog schema.Catalog, source schema.Collection) (*Bindings, error) {
 				return nil, ErrInvalidBinding
 			}
 		case schema.RelationStorageEdgeTableV1:
-			expected := schema.NewRelationPhysicalNames(canonical.TableName, field.Name).MultiTable
+			expected := schema.NewRelationPhysicalNames(canonical.TableName, field.ColumnName).MultiTable
 			if spec.Cardinality != schema.RelationMultiple || spec.Storage.Name != expected {
 				return nil, ErrInvalidBinding
 			}

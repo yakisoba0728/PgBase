@@ -6,6 +6,7 @@ import { WorkspaceIcon, type WorkspaceIconName } from "./workspace-icon";
 import { Button } from "./ui";
 import { routeAvailable } from "../backend/capabilities";
 import { useBackend } from "../auth/session";
+import type { CollectionDefinition } from "../backend/ports";
 
 type NavigationItem = { label: string; route: AdminRoute; icon: WorkspaceIconName; keywords?: string; children?: NavigationItem[] };
 const navigationGroups: { label: string; items: NavigationItem[] }[] = [
@@ -54,6 +55,7 @@ export function workspaceLabel(route: AdminRoute) {
   if (route.kind === "collection-duplicate") return "Duplicate collection";
   if (route.kind === "collection-edit") return "Schema";
   if (route.kind === "records") return "Records";
+  if (route.kind === "logs") return "Logs";
   if (route.kind === "record") return route.id === undefined ? "Create record" : "Edit record";
   return allNavigationItems.find(item => item.route.kind === route.kind)?.label ?? (route.kind === "sql-console" ? "SQL console" : "Extensions");
 }
@@ -88,11 +90,23 @@ export function WorkspaceNavigation({ route, open, navigate, onClose, extensions
   route: AdminRoute; open: boolean; navigate(route: AdminRoute): void; onClose(): void;
   extensions: readonly AdminExtensionScreen[]; sqlEnabled: boolean;
 }) {
+  const backend = useBackend();
   const [query, setQuery] = useState("");
+  const [collections, setCollections] = useState<CollectionDefinition[] | null>(null);
+  const [catalogFailed, setCatalogFailed] = useState(false);
+  const [refresh, setRefresh] = useState(0);
   const root = useRef<HTMLElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const identity = adminRouteIdentity(route);
   useEffect(() => setQuery(""), [identity]);
+  useEffect(() => {
+    const controller = new AbortController();
+    setCatalogFailed(false);
+    void backend.schema.catalog(controller.signal).then(catalog => {
+      if (!controller.signal.aborted) setCollections(catalog.all());
+    }).catch(() => { if (!controller.signal.aborted) setCatalogFailed(true); });
+    return () => controller.abort();
+  }, [backend.schema, identity, refresh]);
   useEffect(() => { if (open) search.current?.focus(); }, [open]);
   const groups = useNavigationGroups();
   const tools: NavigationItem[] = extensions.map(screen => ({ label: screen.label, route: { kind: "extension", id: screen.id, path: screen.path }, icon: "layers" }));
@@ -102,7 +116,7 @@ export function WorkspaceNavigation({ route, open, navigate, onClose, extensions
     groups.splice(utility < 0 ? groups.length : utility, 0, { label: "Tools", items: tools });
   }
   const term = query.trim().toLowerCase();
-  const visible = groups.map(group => ({ ...group, items: group.items.flatMap(item => term ? [item, ...(item.children ?? [])].filter(page => `${group.label} ${page.label} ${page.keywords ?? ""}`.toLowerCase().includes(term)) : [item]) })).filter(group => group.items.length);
+  const visible = groups.map(group => ({ ...group, items: group.items.flatMap(item => term ? [item, ...(item.children ?? [])].filter(page => `${group.label} ${page.label} ${page.keywords ?? ""}`.toLowerCase().includes(term)) : route.kind === "settings" ? [item, ...(item.children ?? [])] : [item]) })).filter(group => group.items.length);
   const active = (item: NavigationItem) => itemMatchesRoute(item, route) || (!term && item.children?.some(child => itemMatchesRoute(child, route))) || false;
   const renderGroup = (group: typeof navigationGroups[number]) => <div className={`navigation-section${group.label === "Workspace" ? " navigation-utility" : ""}`} key={group.label}>
     <h2 className="navigation-label">{group.label}</h2>
@@ -118,13 +132,36 @@ export function WorkspaceNavigation({ route, open, navigate, onClose, extensions
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
+  const railItems: NavigationItem[] = [
+    { label: "Collections", route: { kind: "collections" }, icon: "database" },
+    { label: "Logs", route: { kind: "logs" }, icon: "activity" },
+    { label: "Settings", route: { kind: "settings" }, icon: "settings" },
+  ] satisfies NavigationItem[];
+  const availableRailItems = railItems.filter(item => routeAvailable(backend, item.route));
+  const collectionContext = collectionKinds.has(route.kind);
+  const listed = collections?.filter(collection => collection.name.toLowerCase().includes(term)) ?? [];
+  const resource = "collection" in route ? route.collection : undefined;
   return <>
     {open && <div className="navigation-backdrop" onClick={onClose} aria-hidden="true" />}
     <aside ref={root} onKeyDown={handleKey} role={open ? "dialog" : undefined} aria-modal={open ? true : undefined} aria-label={open ? "Workspace navigation" : undefined} className={`workspace-sidebar${open ? " is-open" : ""}`} id="workspace-navigation">
+      <nav className="workspace-rail" aria-label="Primary sections">
+        <span className="rail-brand" aria-hidden="true"><WorkspaceIcon name="database" /></span>
+        {availableRailItems.map(item => <AdminLink key={item.label} className="rail-link" ariaLabel={`${item.label} section`} current={item.route.kind === "collections" ? collectionContext : item.route.kind === "logs" ? route.kind === "logs" : !collectionContext && route.kind !== "logs"} navigate={navigate} route={item.route}><WorkspaceIcon name={item.icon} /><span>{item.label}</span></AdminLink>)}
+      </nav>
+      <div className="workspace-context-sidebar">
       <div className="navigation-drawer-heading"><strong>Navigation</strong><Button variant="secondary" onClick={onClose}>Close navigation</Button></div>
-      <label className="navigation-search"><WorkspaceIcon name="search" /><input ref={search} aria-label="Find a page" type="search" value={query} placeholder="Find a page…" onChange={event => setQuery(event.target.value)} />{term && <Button variant="ghost" onClick={() => { setQuery(""); search.current?.focus(); }}>Clear</Button>}</label>
+      <div className="sidebar-heading"><strong>{collectionContext ? "Collections" : workspaceGroup(route) === "Operations" ? "Operations" : "Project settings"}</strong></div>
+      <label className="navigation-search"><WorkspaceIcon name="search" /><input ref={search} aria-label="Find a page" type="search" value={query} placeholder={collectionContext ? "Search collections or pages…" : "Find a page…"} onChange={event => setQuery(event.target.value)} />{term && <Button variant="ghost" onClick={() => { setQuery(""); search.current?.focus(); }}>Clear</Button>}</label>
+      {collectionContext && <div className="sidebar-collections">
+        <nav aria-label="Project collections"><ul className="collection-navigation-list">{listed.map(collection => <li key={collection.id ?? collection.name}><AdminLink className="navigation-link collection-navigation-link" ariaLabel={`Open ${collection.name} collection`} current={collection.name === resource} route={{ kind: "records", collection: collection.name }} navigate={navigate}><WorkspaceIcon name={collection.view ? "layers" : collection.type === "auth" ? "shield" : "database"} /><span>{collection.name}</span><span className="collection-navigation-type">{collection.view ? "view" : collection.type === "auth" ? "auth" : ""}</span></AdminLink></li>)}</ul></nav>
+        {collections === null && !catalogFailed && <p className="sidebar-message" role="status">Loading collection navigation…</p>}
+        {catalogFailed && <p className="sidebar-message">Unable to load collections. <Button variant="ghost" onClick={() => setRefresh(value => value + 1)}>Retry collection navigation</Button></p>}
+        {collections && listed.length === 0 && <p className="sidebar-message">{term ? "No matching collections." : "Create a collection to get started."}</p>}
+        <AdminLink className="sidebar-create-collection" ariaLabel="New collection" route={{ kind: "collection-create" }} navigate={navigate}><WorkspaceIcon name="plus" />New collection</AdminLink>
+      </div>}
       <nav aria-label="Administration"><div className="navigation-main">{visible.filter(group => group.label !== "Workspace").map(renderGroup)}</div>{visible.filter(group => group.label === "Workspace").map(renderGroup)}</nav>
       {term && <p className="navigation-results" role="status">{visible.reduce((count, group) => count + group.items.length, 0)} pages match “{query}”.</p>}
+      </div>
     </aside>
   </>;
 }

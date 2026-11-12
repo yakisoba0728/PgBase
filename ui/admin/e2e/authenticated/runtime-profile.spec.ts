@@ -7,12 +7,14 @@ test("persists the administrator profile, network policy and runtime log setting
   const changedEmail = "settings-admin@pgbase.test";
   const adminURL = new URL("/admin/", baseURL).href;
   await page.goto("/admin/settings");
+  await page.getByRole("tab", { name: "My account", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "Application settings" })).toBeVisible();
   const profile = page.getByRole("region", { name: "Administrator profile" });
   await expect(profile).toBeVisible();
   const originalCIDRs = await profile.getByLabel("Allowed CIDRs").inputValue();
 
+  await page.getByRole("tab", { name: "Logs", exact: true }).click();
   await page.getByLabel("Level").selectOption("warn");
   await page.getByLabel("Include IP addresses").check();
   await page.getByLabel("Include authentication events").check();
@@ -20,10 +22,12 @@ test("persists the administrator profile, network policy and runtime log setting
   await expect(page.getByText("Settings saved.")).toBeVisible();
 
   await page.reload();
+  await page.getByRole("tab", { name: "Logs", exact: true }).click();
   await expect(page.getByLabel("Level")).toHaveValue("warn");
   await expect(page.getByLabel("Include IP addresses")).toBeChecked();
   await expect(page.getByLabel("Include authentication events")).toBeChecked();
 
+  await page.getByRole("tab", { name: "My account", exact: true }).click();
   let policyChanged = false;
   let emailChanged = false;
   try {
@@ -42,6 +46,7 @@ test("persists the administrator profile, network policy and runtime log setting
     await page.context().clearCookies();
     await signIn(page, adminURL, originalEmail, password);
     await page.goto("/admin/settings");
+    await page.getByRole("tab", { name: "My account", exact: true }).click();
     await expect(profile.getByLabel("Allowed CIDRs")).toHaveValue(fixtureCIDRs);
 
     const changed = page.waitForResponse(response => response.url().endsWith("/api/admin/profile") && response.request().method() === "PATCH");
@@ -60,6 +65,7 @@ test("persists the administrator profile, network policy and runtime log setting
       await page.context().clearCookies();
       await signIn(page, adminURL, changedEmail, password);
       await page.goto("/admin/settings");
+      await page.getByRole("tab", { name: "My account", exact: true }).click();
       const restoredProfile = page.getByRole("region", { name: "Administrator profile" });
       await restoredProfile.getByLabel("Email").fill(originalEmail);
       await restoredProfile.getByRole("button", { name: "Save administrator email" }).click();
@@ -69,6 +75,7 @@ test("persists the administrator profile, network policy and runtime log setting
       await page.context().clearCookies();
       await signIn(page, adminURL, originalEmail, password);
       await page.goto("/admin/settings");
+      await page.getByRole("tab", { name: "My account", exact: true }).click();
       const restoredPolicy = page.getByRole("region", { name: "Administrator profile" });
       await restoredPolicy.getByLabel("Allowed CIDRs").fill(originalCIDRs);
       await restoredPolicy.getByRole("button", { name: "Save IP allowlist" }).click();

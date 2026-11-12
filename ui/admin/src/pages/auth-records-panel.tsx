@@ -93,13 +93,14 @@ function AuthRecordList({ collection, port, editor, setEditor }: { collection: A
   const read = useCallback((signal: AbortSignal) => port.list(collection.id, limit, signal), [collection.id, limit, port]);
   const resource = useFeatureResource(read);
   if (editor !== undefined) return <RecordEditor key={editor ?? "new"} collection={collection} id={editor} port={port} onDone={() => { setEditor(undefined); resource.reload(); }} />;
-  const visible = resource.data?.filter(item => (item.email ?? item.id).toLowerCase().includes(query.toLowerCase()));
+  const term = query.trim().toLowerCase();
+  const visible = resource.data?.filter(item => `${item.email ?? ""} ${item.id}`.toLowerCase().includes(term));
   return <div>
     <div className="record-actions"><Button onClick={() => setEditor(null)}>Create user</Button><Button variant="secondary" disabled={resource.loading} onClick={resource.reload}>Refresh users</Button><label>Show users<select value={limit} onChange={e => setLimit(Number(e.target.value))}><option value={50}>Up to 50</option><option value={100}>Up to 100</option></select></label></div>
     <label>Find loaded users<input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Email or ID" /></label>
     {resource.loading && <p role="status">Loading users…</p>}{resource.error && <p role="alert">{resource.error}</p>}
     {!resource.loading && visible?.length === 0 && <EmptyState title="No users found." description="Create a user or change the search." />}
-    {!!visible?.length && <div className="table-scroll"><table><thead><tr><th>Email / ID</th><th>Status</th><th>Verification</th><th>Actions</th></tr></thead><tbody>{visible.map(item => <tr key={item.id}><td>{item.email || item.id}<small>{item.email && item.id}</small></td><td>{item.active ? "Active" : "Inactive"}</td><td>{item.verified ? "Verified" : "Unverified"}</td><td><Button variant="secondary" onClick={() => setEditor(item.id)}>Edit user</Button></td></tr>)}</tbody></table></div>}
+    {!!visible?.length && <div className="table-scroll"><table><thead><tr><th>Email / ID</th><th>Status</th><th>Verification</th><th>Actions</th></tr></thead><tbody>{visible.map(item => <tr key={item.id}><td>{item.email || item.id}<small>{item.email && item.id}</small></td><td><span className="status-badge" data-status={item.active ? "active" : "inactive"}>{item.active ? "Active" : "Inactive"}</span></td><td><span className="status-badge" data-status={item.verified ? "verified" : "inactive"}>{item.verified ? "Verified" : "Unverified"}</span></td><td><Button variant="secondary" onClick={() => setEditor(item.id)}>Edit user</Button></td></tr>)}</tbody></table></div>}
     {resource.data?.length === limit && <p className="settings-help">The server returns at most {limit} users. To open a user outside this list, enter their exact ID below.</p>}
     <form className="record-actions" onSubmit={e => { e.preventDefault(); if (exactID.trim()) setEditor(exactID.trim()); }}><label>User ID to open<input value={exactID} onChange={e => setExactID(e.target.value)} autoComplete="off" /></label><Button variant="secondary" type="submit" disabled={!exactID.trim()}>Open exact user ID</Button></form>
   </div>;

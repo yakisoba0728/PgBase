@@ -25,6 +25,46 @@ const posts = collection("posts", "posts-id", [
 ]);
 
 describe("records page", () => {
+  it("keeps saved column choices when a server projection temporarily hides them", async () => {
+    const harness = scriptedAdmin("/admin/collections/posts/records");
+    harness.script.catalog.push({ value: { version: 7, collections: [posts] } });
+    harness.script.list.push({ value: { items: [{ id: recordID, title: "post", created_at: "2026-01-01" }] } });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+    await screen.findByText("post");
+    await user.click(screen.getByText("Query options", { selector: "summary" }));
+    await user.type(screen.getByLabelText("Server fields"), "title");
+    harness.script.list.push({ value: { items: [{ id: recordID, title: "projected" }] } });
+    await user.click(screen.getByRole("button", { name: "Apply query options" }));
+    await screen.findByText("projected");
+    await user.click(screen.getByText("Columns", { selector: "summary" }));
+    expect(screen.getByRole("checkbox", { name: "created_at" })).toBeChecked();
+    await user.click(screen.getByRole("checkbox", { name: "title" }));
+    expect(screen.getByRole("checkbox", { name: "created_at" })).toBeChecked();
+    await user.clear(screen.getByLabelText("Server fields"));
+    harness.script.list.push({ value: { items: [{ id: recordID, created_at: "2026-01-02" }] } });
+    await user.click(screen.getByRole("button", { name: "Apply query options" }));
+    expect(await screen.findByText("2026-01-02")).toBeVisible();
+  });
+
+  it("retries a failed load and marks a partial page selection", async () => {
+    const harness = scriptedAdmin("/admin/collections/posts/records");
+    harness.script.catalog.push({ value: { version: 7, collections: [posts] } });
+    harness.script.list.push({ fault: { kind: "unreachable" } });
+    const user = userEvent.setup();
+    renderAdmin(harness);
+    await screen.findByText("Unable to load records.", { exact: false });
+    harness.script.catalog.push({ value: { version: 7, collections: [posts] } });
+    harness.script.list.push({ value: { items: [{ id: recordID, title: "first" }, { id: ownerID, title: "second" }] } });
+    await user.click(screen.getByRole("button", { name: "Retry loading records" }));
+    await screen.findByText("first");
+    await user.click(screen.getByRole("checkbox", { name: `Select record ${recordID}` }));
+    expect(screen.getByRole("checkbox", { name: "Select page" })).toBePartiallyChecked();
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(screen.getByRole("checkbox", { name: "Select page" })).not.toBePartiallyChecked();
+    expect(screen.getByRole("checkbox", { name: `Select record ${recordID}` })).not.toBeChecked();
+  });
+
   it("renders a value outside the JavaScript safe integer range without rounding it", async () => {
     const harness = scriptedAdmin("/admin/collections/posts/records");
     harness.script.catalog.push({ value: { version: 4, collections: [collection("posts", "posts-id", [{ name: "views", type: "bigint", required: false, unique: false, indexed: false, ordinal: 0 }])] } });

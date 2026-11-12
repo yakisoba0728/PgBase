@@ -118,6 +118,23 @@ func TestDecodeStableValidationCodes(t *testing.T) {
 	}
 }
 
+func TestBindPreservesPhysicalStorageAfterLogicalFieldRename(t *testing.T) {
+	catalog, source := codecCatalog()
+	for index := range source.Fields {
+		source.Fields[index].Name = "renamed_" + source.Fields[index].Name
+	}
+	catalog.Collections[source.Name] = source
+	bindings, err := Bind(catalog, source)
+	if err != nil {
+		t.Fatalf("bind renamed fields: %v", err)
+	}
+	for _, field := range bindings.fields {
+		if field.field.Name == field.field.ColumnName || field.spec.Storage != source.Fields[field.field.Ordinal].Relation.Storage {
+			t.Fatalf("logical rename changed physical relation storage: %#v", field)
+		}
+	}
+}
+
 func TestBindRejectsUntrustedPhysicalStorage(t *testing.T) {
 	catalog, source := codecCatalog()
 	field := source.Fields[3]
@@ -142,6 +159,11 @@ func TestBindRejectsRelationFieldMetadataMismatch(t *testing.T) {
 		{name: "required mismatch", change: func(source *schema.Collection) { source.Fields[0].Required = true }},
 		{name: "multi unique", change: func(source *schema.Collection) { source.Fields[3].Unique = true }},
 		{name: "relation default", change: func(source *schema.Collection) { source.Fields[0].Default = json.RawMessage(`null`) }},
+		{name: "duplicate physical column", change: func(source *schema.Collection) {
+			source.Fields[1].Type = schema.TypeText
+			source.Fields[1].Relation = nil
+			source.Fields[1].ColumnName = source.Fields[0].ColumnName
+		}},
 		{name: "virtual column mismatch", change: func(source *schema.Collection) { source.Fields[3].ColumnName = "other" }},
 		{name: "ordinal mismatch", change: func(source *schema.Collection) { source.Fields[0].Ordinal = 9 }},
 	}

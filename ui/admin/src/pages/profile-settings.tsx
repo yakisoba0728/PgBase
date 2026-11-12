@@ -25,6 +25,8 @@ export function ProfileSettings() {
   useUnsavedDraft("administrator-profile", profile !== null &&
     (draft.email !== profile.email || draft.prefixes !== savedPrefixes.current));
   useEffect(() => {
+    profileSave.current += 1; allowlistSave.current += 1;
+    setProfile(null); setAction({ message: "", savingProfile: false, savingAllowlist: false });
     if (!port) return;
     const controller = new AbortController();
     void Promise.all([
@@ -45,7 +47,7 @@ export function ProfileSettings() {
             message: "Unable to load administrator profile.",
           }));
       });
-    return () => controller.abort();
+    return () => { controller.abort(); profileSave.current += 1; allowlistSave.current += 1; };
   }, [port]);
   if (!port) return null;
   if (!profile) return <section id="settings-profile" className="settings-profile" aria-label="Administrator profile">

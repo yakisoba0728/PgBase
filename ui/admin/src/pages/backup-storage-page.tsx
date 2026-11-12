@@ -106,7 +106,8 @@ export function BackupStoragePage() {
   }
 
   return <section className="management-page storage-page">
-    <PageHeading title="Backup archive storage" description="Configure backup archives separately from uploaded record files." />
+    <PageHeading title="Backup archive storage" description="Choose where backup archives are stored. Uploaded record files use their own storage configuration." />
+    <div className="settings-storage-summary"><strong>{saved?.driver === "s3" ? "S3-compatible archive repository" : "Local archive repository"}</strong><span>{saved?.driver === "s3" ? saved.bucket : "Archives remain on the server filesystem."}</span></div>
     <label>Driver<select value={form.driver} disabled={busy} onChange={(event) => set("driver", event.target.value as "local" | "s3")}><option value="local">Local filesystem</option><option value="s3">S3 compatible</option></select></label>
     {form.driver === "s3" && <FormSection className="management-field-grid" title="S3 connection" disabled={busy}>
       <label>Endpoint<input value={form.endpoint} onChange={(event) => set("endpoint", event.target.value)} /></label>
@@ -121,7 +122,7 @@ export function BackupStoragePage() {
     <label>Backups to retain<input type="number" min={0} step={1} disabled={busy} value={retentionInput} aria-invalid={!retentionValid} aria-describedby="backup-retention-help" onChange={(event) => { setRetentionInput(event.target.value); setMessage(undefined); }} /></label>
     <p id="backup-retention-help">This is the repository fallback. Managed apps use Settings &gt; Backups to keep instead, even when automatic backups are disabled. Both count manual, uploaded, and scheduled archives; 0 keeps every archive.</p>
     {!retentionValid && <p role="alert">Retention must be a whole number from 0 through 2147483647.</p>}
-    <ActionBar description={dirty ? "Unsaved backup storage changes." : "Current backup storage configuration."}>
+    <ActionBar sticky description={dirty ? "Unsaved backup storage changes." : "Current backup storage configuration."}>
     <Button disabled={busy || !dirty || !retentionValid} onClick={() => void save()}>Save backup storage</Button>
     <Button variant="secondary" disabled={busy || dirty || !retentionValid} onClick={() => void test()}>Test backup storage</Button>
     </ActionBar>

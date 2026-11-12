@@ -29,6 +29,7 @@ The bundled Compose file is a development convenience and sets `PGBASE_AUTO_MIGR
 
 ## Documentation
 
+- [PocketBase-inspired administrator UI rebuild and verification](docs/admin-ui-rebuild.md)
 - [Dokploy 배포: Compose, HTTPS, 영구 저장소와 백업](docs/dokploy.md)
 - [Implementation history, current status, and verification evidence](docs/project-status.md)
 - [Next work: priorities, dependencies, and completion criteria](docs/next-work.md)

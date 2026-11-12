@@ -18,6 +18,7 @@ test("creates, edits and deletes collections and follows a direct history jump b
     // rather than leave one collection's draft or delete plan on the other.
     await page.goto(`/admin/collections/${first}/edit`);
     await expect(page.getByLabel("Field 2 name")).toHaveValue("subtitle");
+    await page.getByRole("tab", { name: "Options", exact: true }).click();
     await page.getByRole("button", { name: "Delete collection" }).click();
     await expect(page.getByRole("button", { name: "Confirm delete" })).toBeDisabled();
 

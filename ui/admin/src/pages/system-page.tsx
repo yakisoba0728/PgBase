@@ -41,7 +41,7 @@ function Reading({ label, probes, component, children }: {
   return <div><dt>{label}</dt><dd>{unconfirmed(probes, component) ?? children}</dd></div>;
 }
 
-export function SystemPage() {
+export function SystemPage({ initialSection }: { initialSection?: "requests" | "jobs" | "backups" } = {}) {
   const { system, operations, realtime, capabilities } = useBackend();
   const [load, setLoad] = useState<SystemLoad>({ phase: "loading" });
   const [reloads, setReloads] = useState(0);
@@ -49,6 +49,7 @@ export function SystemPage() {
   // they are asked for together and fail together; a page that showed one of
   // them would be reporting half an instance's state as the whole of it.
   useEffect(() => {
+    if (initialSection) return;
     const controller = new AbortController();
     setLoad({ phase: "loading" });
     const finish = (next?: SystemLoad) => {
@@ -62,11 +63,15 @@ export function SystemPage() {
       .then(([status, health]) => finish({ phase: "ready", view: { status, health } }))
       .catch(() => finish({ phase: "failed" }));
     return () => finish();
-  }, [reloads, system]);
+  }, [reloads, system, initialSection]);
 
   const view = load.phase === "ready" ? load.view : null;
   const refresh = () => setReloads((current) => current + 1);
 
+  if (initialSection) return <section className="system-page">
+    <PageHeading title={initialSection === "requests" ? "Logs" : initialSection === "jobs" ? "Scheduled jobs" : "Backups"} description={initialSection === "requests" ? "Inspect HTTP requests and diagnose errors." : "Manage this instance's operational tasks."} />
+    {operations ? <OperationsConsole port={operations} capabilities={capabilities} initialSection={initialSection} /> : <p role="status">Operations are unavailable on this instance.</p>}
+  </section>;
   return <section className="system-page">
     <PageHeading title="System" description="Operational state reported by pgBase." actions={
     <Button variant="secondary" aria-disabled={load.phase === "loading"} onClick={load.phase === "loading" ? undefined : refresh}>

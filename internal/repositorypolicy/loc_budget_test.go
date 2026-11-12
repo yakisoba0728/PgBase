@@ -118,7 +118,9 @@ import (
 // and 42 schema lines for validated existing-view imports and presentation-only
 // updates (including a three-line same-package helper split). The exact group
 // total is 28,540; package membership and classification are unchanged.
-const dataGroupRuntimeLimit = 28540
+// The administrator rebuild's rename regression corrects physical bindings in
+// internal/relation at +7/-2, net +5; exact group 28,545, no spare allowance.
+const dataGroupRuntimeLimit = 28545
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -476,14 +478,20 @@ type structuralLimit struct {
 // runtime +2054/-488 = +1566 (Go +33, UI +1533), measured against f99cc59.
 // Exact totals are 107678 runtime, 12690 UI, 213 page hooks and 355 UI exports.
 // No classifier exclusions, constructors or spare growth allowance are added.
+// The 2026-11-12 PocketBase-inspired administrator rebuild replaces the shared
+// stylesheet and reorganizes existing workflows, fixing physical-column
+// bindings after rename: runtime +979/-714, net +265 against 82411a1.
+// Exact totals are 107943 runtime (Go 94993, UI 12950), 233
+// page hooks and unchanged exports. No files or classifiers are excluded.
+// Scope and acceptance: docs/admin-ui-rebuild.md.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 107678, "PR 103 administrator workspace exact measurement"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 12690, "PR 103 administrator workspace and backend controls; no spare allowance"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 107943, "PocketBase-inspired administrator rebuild exact measurement"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 12950, "administrator workflow rebuild; no spare allowance"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 104, "optional range transport/store and runtime capability boundaries"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1595, "reviewed managed byte-range service and store boundaries"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 64, "measured final 20-defect correctness constructors"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
-	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 213, "PR 103 workspace forms and request lifecycle"},
+	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 233, "administrator tabs, draft protection and request lifecycle"},
 	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 355, "PR 103 workspace components and typed backend ports"},
 }
 

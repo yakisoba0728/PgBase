@@ -1,3 +1,4 @@
+import { Button, PageHeading } from "../components/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   sqlConsoleParameterKinds, SQLConsoleError, type SQLConsoleCell, type SQLConsoleExecution, type SQLConsoleParameter,
@@ -50,7 +51,7 @@ function executionMessage(error: unknown): string {
   return "Unable to contact the SQL console.";
 }
 
-function csvCell(value: string): string { return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value; }
+function csvCell(value: string): string { return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value; }
 function ResultTable({ statement, filter, copy }: { statement: SQLConsoleStatementResult; filter: string; copy(value: string): void }) {
   const [sort, setSort] = useState<{ index: number; descending: boolean } | null>(null);
   const rows = statement.rows ?? [];
@@ -61,9 +62,10 @@ function ResultTable({ statement, filter, copy }: { statement: SQLConsoleStateme
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = "pgbase-sql-result.csv"; link.click(); URL.revokeObjectURL(url);
   };
   if ((statement.columns?.length ?? 0) === 0) return <p>{statement.command ?? "Command completed"}: {statement.affectedRows} affected rows.</p>;
-  return <div className="table-scroll sql-console-results" tabIndex={0}>
+  return <div className="table-scroll sql-console-results" role="region" aria-label="Query result values" tabIndex={0}>
+    <p className="sql-result-count" role="status">{shown.length} of {rows.length} returned rows</p>
     <table>
-      <thead><tr>{statement.columns?.map((column, index) => <th key={`${column.name}:${index}`} scope="col"><button onClick={() => setSort((current) => current?.index === index ? { index, descending: !current.descending } : { index, descending: false })} type="button">{column.name}{sort?.index === index ? sort.descending ? " ↓" : " ↑" : ""}</button> <small>{column.typeName}</small></th>)}</tr></thead>
+      <thead><tr>{statement.columns?.map((column, index) => <th key={`${column.name}:${index}`} scope="col" aria-sort={sort?.index === index ? sort.descending ? "descending" : "ascending" : "none"}><button onClick={() => setSort((current) => current?.index === index ? { index, descending: !current.descending } : { index, descending: false })} type="button">{column.name}{sort?.index === index ? sort.descending ? " ↓" : " ↑" : ""}</button> <small>{column.typeName}</small></th>)}</tr></thead>
       <tbody>{shown.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex} data-cell-kind={cell.kind}>
         <span>{copiedText(cell)}</span> <small>{cellText[cell.kind]}</small>{" "}<button aria-label={`Copy row ${rowIndex + 1} column ${cellIndex + 1}`} onClick={() => copy(copiedText(cell))} type="button">Copy</button>
       </td>)}</tr>)}</tbody>
@@ -80,6 +82,7 @@ function ExecutionResult({ execution }: { execution: SQLConsoleExecution }) {
   const result = execution.result;
   const copy = useCallback((value: string) => {
     setCopyError(null);
+    if (!navigator.clipboard?.writeText) { setCopyError("The value could not be copied. Select it and copy it manually."); return; }
     void navigator.clipboard.writeText(value).catch(() => setCopyError("The value could not be copied. Select it and copy it manually."));
   }, []);
   const committed = result?.committed === true ? "Committed" : result?.committed === false ? "Rolled back" : "Commit state unknown";
@@ -105,9 +108,9 @@ function ExecutionResult({ execution }: { execution: SQLConsoleExecution }) {
 
 function StatementEditor({ index, statement, update, remove }: { index: number; statement: DraftStatement; update(value: DraftStatement): void; remove(): void }) {
   const replaceParameter = (parameterIndex: number, patch: Partial<SQLConsoleParameter>) => update({ ...statement, params: statement.params.map((parameter, current) => current === parameterIndex ? { ...parameter, ...patch } : parameter) });
-  return <fieldset>
+  return <fieldset className="sql-statement-editor">
     <legend>Statement {index + 1}</legend>
-    <label>SQL<textarea aria-label={`SQL statement ${index + 1}`} onChange={(event) => update({ ...statement, sql: event.target.value })} rows={5} value={statement.sql} /></label>
+    <label>SQL<textarea aria-label={`SQL statement ${index + 1}`} onChange={(event) => update({ ...statement, sql: event.target.value })} rows={9} spellCheck={false} autoCapitalize="off" autoCorrect="off" value={statement.sql} /></label>
     {statement.params.map((parameter, parameterIndex) => <div key={parameterIndex}>
       <label>Parameter {parameterIndex + 1} kind<select aria-label={`Statement ${index + 1} parameter ${parameterIndex + 1} kind`} onChange={(event) => replaceParameter(parameterIndex, { kind: event.target.value as SQLConsoleParameterKind })} value={parameter.kind}>{sqlConsoleParameterKinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}</select></label>
       <label>Exact value<input aria-label={`Statement ${index + 1} parameter ${parameterIndex + 1} value`} disabled={parameter.kind === "null"} onChange={(event) => replaceParameter(parameterIndex, { text: event.target.value })} value={parameter.text ?? ""} /></label>
@@ -175,6 +178,7 @@ export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
     if (execution === null || terminal.has(execution.status)) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => void port.execution(execution.id, controller.signal).then((next) => {
+      if (controller.signal.aborted) return;
       setExecution(next);
       if (activeWrite?.request.operationID === next.id && resolvedWrite(next.status)) releaseWrite(activeWrite);
     }).catch((caught) => { if (!controller.signal.aborted) setError(executionMessage(caught)); }), 750);
@@ -240,12 +244,13 @@ export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
     try { setExecution(await port.cancel(execution.id)); } catch (caught) { setError(executionMessage(caught)); } finally { setCanceling(false); }
   };
 
-  return <section>
-    <h2>SQL console</h2>
-    <p>Queries run in read-only mode by default. Results are bounded and kept briefly; durable history never includes SQL, parameters, or returned values.</p>
+  return <section className="sql-console-page">
+    <PageHeading title="SQL console" description="Run a query, inspect its result, and review execution history." />
+    <p className="settings-help">Queries run in read-only mode by default. Results are bounded and kept briefly; durable history never includes SQL, parameters, or returned values.</p>
     {error !== null && <p role="alert">{error}</p>}
+    <div className="sql-console-workspace"><div className="sql-console-editor">
     <form onSubmit={(event) => void submit(event)}>
-      <fieldset><legend>Execution mode</legend>
+      <fieldset className="sql-console-options"><legend>Execution mode</legend>
         <label><input checked={mode === "read"} name="sql-mode" onChange={() => { setMode("read"); setStatements((current) => [current[0] ?? newStatement()]); setDryRun(false); setWriteConfirmed(false); }} type="radio" />Read only</label>
         <label><input checked={mode === "write"} disabled={!writeEnabled} name="sql-mode" onChange={() => setMode("write")} type="radio" />Transactional write</label>
         {mode === "write" && <><label><input checked={dryRun} onChange={(event) => { setDryRun(event.target.checked); setWriteConfirmed(false); }} type="checkbox" />Dry run and roll back</label>{!dryRun && <label><input checked={writeConfirmed} onChange={(event) => setWriteConfirmed(event.target.checked)} type="checkbox" />I confirm this allowed write transaction should execute once</label>}</>}
@@ -253,10 +258,10 @@ export function SQLConsolePage({ port }: { port: SQLConsolePort }) {
       <label>Timeout in milliseconds<input aria-label="Timeout in milliseconds" inputMode="numeric" onChange={(event) => setTimeoutMS(event.target.value)} placeholder={defaultTimeoutMS === undefined ? "Server default" : `Server default: ${defaultTimeoutMS} ms`} value={timeoutMS} /></label>{defaultTimeoutMS !== undefined && <p>Server default: {defaultTimeoutMS} ms{maximumTimeoutMS === undefined ? "" : `; maximum: ${maximumTimeoutMS} ms`}.</p>}
       {statements.map((statement, index) => <StatementEditor index={index} key={index} remove={() => setStatements((current) => current.filter((_, currentIndex) => currentIndex !== index))} statement={statement} update={(value) => setStatements((current) => current.map((item, currentIndex) => currentIndex === index ? value : item))} />)}
       {mode === "write" && statements.length < 10 && <button onClick={() => setStatements((current) => [...current, newStatement()])} type="button">Add statement</button>}
-      <button disabled={submitting} type="submit">{submitting ? "Submitting…" : mode === "write" && activeWrite !== null ? "Recheck write execution" : mode === "write" && dryRun ? "Dry run write" : mode === "write" ? "Execute write" : "Run read query"}</button>
+      <div className="page-actions is-sticky"><Button disabled={submitting} type="submit">{submitting ? "Submitting…" : mode === "write" && activeWrite !== null ? "Recheck write execution" : mode === "write" && dryRun ? "Dry run write" : mode === "write" ? "Execute write" : "Run read query"}</Button></div>
     </form>
-    <section aria-label="Allowed write targets"><h3>Allowed write targets</h3>{!writeEnabled && <p>No extension write target is configured.</p>}<ul>{targets.map((target) => <li key={`${target.schema}.${target.table}`}><code>{target.schema}.{target.table}</code> — {target.columns.join(", ")}</li>)}</ul></section>
-    {execution !== null && <section aria-live="polite"><h3>Execution</h3><p><strong>{statusText[execution.status]}</strong> — {execution.id}</p>{!terminal.has(execution.status) && <button disabled={canceling} onClick={() => void cancel()} type="button">{canceling ? "Canceling…" : "Cancel execution"}</button>}{execution.status === "unknown" && <><p>The server could not determine the final commit state. Recheck this execution before deciding whether any write can be retried.</p><button onClick={() => void inspectExecution(execution.id)} type="button">Recheck execution</button></>}{execution.failure !== undefined && <p role="alert">{execution.failure.message}{execution.failure.statementIndex !== undefined ? ` Statement ${execution.failure.statementIndex + 1}.` : ""}{execution.failure.position !== undefined && execution.failure.position > 0 ? ` Character ${execution.failure.position}.` : ""}{execution.failure.sqlState !== undefined ? ` SQLSTATE ${execution.failure.sqlState}.` : ""}</p>}<ExecutionResult execution={execution} /></section>}
-    <section aria-label="SQL execution history"><h3>Execution history</h3>{history.length === 0 && <p>No SQL executions are recorded for this administrator session.</p>}<ol>{history.map((item) => <li key={item.id}><button onClick={() => void inspectExecution(item.id)} type="button">Inspect</button> {statusText[item.status]} <time dateTime={item.createdAt}>{item.createdAt}</time></li>)}</ol>{cursor !== undefined && <button onClick={() => void loadHistory(cursor)} type="button">Next history page</button>}</section>
+    <section className="sql-write-targets" aria-label="Allowed write targets"><h3>Allowed write targets</h3>{!writeEnabled && <p>No extension write target is configured.</p>}<ul>{targets.map((target) => <li key={`${target.schema}.${target.table}`}><code>{target.schema}.{target.table}</code> — {target.columns.join(", ")}</li>)}</ul></section>
+    {execution !== null && <section aria-live="polite"><h3>Execution</h3><p><strong>{statusText[execution.status]}</strong> — {execution.id}</p>{!terminal.has(execution.status) && <button disabled={canceling} onClick={() => void cancel()} type="button">{canceling ? "Canceling…" : "Cancel execution"}</button>}{execution.status === "unknown" && <><p>The server could not determine the final commit state. Recheck this execution before deciding whether any write can be retried.</p><button onClick={() => void inspectExecution(execution.id)} type="button">Recheck execution</button></>}{execution.failure !== undefined && <p role="alert">{execution.failure.message}{execution.failure.statementIndex !== undefined ? ` Statement ${execution.failure.statementIndex + 1}.` : ""}{execution.failure.position !== undefined && execution.failure.position > 0 ? ` Character ${execution.failure.position}.` : ""}{execution.failure.sqlState !== undefined ? ` SQLSTATE ${execution.failure.sqlState}.` : ""}</p>}<ExecutionResult key={execution.id} execution={execution} /></section>}
+    </div><section className="sql-console-history" aria-label="SQL execution history"><h3>Execution history</h3>{history.length === 0 && <p>No SQL executions are recorded for this administrator session.</p>}<ol>{history.map((item) => <li key={item.id}><button onClick={() => void inspectExecution(item.id)} type="button">Inspect</button> {statusText[item.status]} <time dateTime={item.createdAt}>{item.createdAt}</time></li>)}</ol>{cursor !== undefined && <button onClick={() => void loadHistory(cursor)} type="button">Next history page</button>}</section></div>
   </section>;
 }

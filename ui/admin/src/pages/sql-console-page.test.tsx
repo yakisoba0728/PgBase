@@ -262,4 +262,21 @@ describe("SQL console page", () => {
     expect(await screen.findByText(/Commit response was lost Statement 1. Character 17. SQLSTATE 08006/)).toBeVisible();
     expect(screen.getByText(/could not determine the final commit state/)).toBeVisible();
   });
+  it("reports unsupported clipboard access without crashing the query result", async () => {
+    render(<SQLConsolePage port={port()} />);
+    await screen.findByText("extension.ledger_entries");
+    await userEvent.click(screen.getByRole("button", { name: "Run read query" }));
+    await screen.findByText("9223372036854775807");
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Copy row 1 column 1" }));
+      expect(screen.getByRole("alert")).toHaveTextContent("The value could not be copied");
+      expect(screen.getByRole("region", { name: "Query result values" })).toBeVisible();
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
 });

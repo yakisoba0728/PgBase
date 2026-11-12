@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useBackend, useSession } from "../auth/session";
 import { AdministratorError, type AdministratorPage, type AdministratorProfile } from "../backend/ports";
 import { Button, FormSection, PageHeading } from "../components/ui";
+import { useUnsavedDraft } from "../routing/unsaved-draft";
 import { PasswordInput } from "../components/password-input";
 
 export function AdministratorsPage() {
@@ -9,6 +10,7 @@ export function AdministratorsPage() {
   const { state } = useSession();
   const [page, setPage] = useState<AdministratorPage | null>(null);
   const [email, setEmail] = useState("");
+  const [query, setQuery] = useState("");
   const [password, setPassword] = useState("");
   const [target, setTarget] = useState<AdministratorProfile | null>(null);
   const [newPassword, setNewPassword] = useState("");
@@ -16,6 +18,9 @@ export function AdministratorsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const request = useRef<AbortController | null>(null);
+  const dirty = email !== "" || password !== "" || newPassword !== "";
+  useUnsavedDraft("administrator-account", dirty);
+  const visibleAccounts = page?.items.filter(account => `${account.email} ${account.id}`.toLowerCase().includes(query.trim().toLowerCase())) ?? [];
   const ownID = state.kind === "authenticated" ? state.administrator.id : "";
 
   const run = useCallback((work: (signal: AbortSignal) => Promise<void>, success?: string) => {
@@ -86,6 +91,12 @@ export function AdministratorsPage() {
     run((signal) => administrators!.revokeSessions(account.id, signal), `All sessions revoked for ${account.email}.`);
   }
 
+  function editPassword(account: AdministratorProfile | null) {
+    if (target?.id === account?.id && account !== null) return;
+    if (newPassword !== "" && !window.confirm("Discard the unsaved administrator password?")) return;
+    setTarget(account); setNewPassword("");
+  }
+
   function reset() {
     if (!target || request.current) return;
     if (target.id === ownID && !window.confirm("Replace your password and revoke all your sessions? You will be signed out immediately.")) return;
@@ -97,7 +108,7 @@ export function AdministratorsPage() {
   }
 
   return <section className="access-page administrators-page">
-    <PageHeading title="Administrators" description="Administrators have full access to this application. Your own account cannot be deactivated here." actions={<Button disabled={busy} onClick={() => load()} variant="secondary">Refresh</Button>} />
+    <PageHeading title="Administrators" description="Administrators have full access to this application. Your own account cannot be deactivated here." actions={<Button disabled={busy || dirty} onClick={() => load()} variant="secondary">Refresh</Button>} />
     {error && <p className="access-feedback form-error" role="alert">{error}</p>}
     {notice && <p className="access-feedback" role="status">{notice}</p>}
     <form aria-label="Create administrator" onSubmit={(event) => { event.preventDefault(); create(); }}>
@@ -114,20 +125,23 @@ export function AdministratorsPage() {
       <FormSection disabled={busy} title={`Set password for ${target.email}`}>
         <p className="access-help" id="administrator-reset-help">The replacement revokes every session for this administrator. No reset email is sent.{target.id === ownID && " You will be signed out immediately."}</p>
         <div className="access-field"><label htmlFor="administrator-new-password">New password</label><PasswordInput disabled={busy} id="administrator-new-password" aria-describedby="administrator-reset-help" required autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></div>
-        <div className="access-form-actions"><Button onClick={() => { setTarget(null); setNewPassword(""); }} variant="secondary">Cancel</Button><Button type="submit">Save password</Button></div>
+        <div className="access-form-actions"><Button onClick={() => editPassword(null)} variant="secondary">Cancel</Button><Button type="submit">Save password</Button></div>
       </FormSection>
     </form>}
+    {!page && busy && <p role="status">Loading administrator accounts…</p>}
     {page && <>
+      <div className="access-search-toolbar"><label>Search administrators<input type="search" placeholder="Email or account ID…" value={query} onChange={event => setQuery(event.target.value)} /></label><span className="settings-help">{visibleAccounts.length} of {page.items.length} on this page</span></div>
       <div className="access-list-heading"><h3>Administrator accounts</h3><p>Manage account status, passwords, and active sessions.</p></div>
       <div className="table-scroll" role="region" aria-label="Administrator accounts" tabIndex={0}><table className="users-table">
         <thead><tr><th>Email</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
-        <tbody>{page.items.map((account) => <tr key={account.id}>
-          <td>{account.email}{account.id === ownID && " (you)"}</td><td>{account.active ? "Active" : "Inactive"}</td><td><time dateTime={account.createdAt}>{new Date(account.createdAt).toLocaleString()}</time></td>
-          <td><div className="access-item-actions"><Button disabled={busy || account.id === ownID} onClick={() => changeActive(account)} variant="secondary">{account.active ? "Deactivate" : "Activate"}</Button><Button disabled={busy} onClick={() => { setTarget(account); setNewPassword(""); }} variant="secondary">Set password</Button><Button disabled={busy} onClick={() => revoke(account)} variant="danger">Revoke sessions</Button></div></td>
+        <tbody>{visibleAccounts.map((account) => <tr key={account.id}>
+          <td>{account.email}{account.id === ownID && " (you)"}</td><td><span className="status-badge" data-status={account.active ? "active" : "inactive"}>{account.active ? "Active" : "Inactive"}</span></td><td><time dateTime={account.createdAt}>{new Date(account.createdAt).toLocaleString()}</time></td>
+          <td><div className="access-item-actions"><Button disabled={busy || account.id === ownID} onClick={() => changeActive(account)} variant="secondary">{account.active ? "Deactivate" : "Activate"}</Button><Button disabled={busy} onClick={() => editPassword(account)} variant="secondary">Set password</Button><Button disabled={busy} onClick={() => revoke(account)} variant="danger">Revoke sessions</Button></div></td>
         </tr>)}</tbody>
       </table></div>
+      {page.items.length > 0 && visibleAccounts.length === 0 && <p role="status">No administrators match “{query}” on this page.</p>}
       {page.items.length === 0 && <p>No administrators on this page.</p>}
-      <nav aria-label="Administrator pagination" className="access-pagination"><Button disabled={busy} onClick={() => load()} variant="secondary">First page</Button><Button disabled={busy || !page.nextAfter} onClick={() => load(page.nextAfter)} variant="secondary">Next page</Button></nav>
+      <nav aria-label="Administrator pagination" className="access-pagination"><Button disabled={busy || dirty} onClick={() => load()} variant="secondary">First page</Button><Button disabled={busy || dirty || !page.nextAfter} onClick={() => load(page.nextAfter)} variant="secondary">Next page</Button></nav>
     </>}
   </section>;
 }

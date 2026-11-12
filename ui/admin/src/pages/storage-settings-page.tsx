@@ -207,7 +207,8 @@ export function StorageSettingsPage() {
   const migrationActive = !!migration?.id && !["preview", "committed", "canceled"].includes(migration.status);
   return (
     <section className="management-page storage-page">
-      <PageHeading title="File storage" description="Configure storage for uploaded record files. Backup archive storage is configured separately." />
+      <PageHeading title="File storage" description="Choose where uploaded record files are stored. Existing files are verified before a destination changes." />
+      <div className="settings-storage-summary"><strong>{saved?.driver === "s3" ? "S3-compatible file storage" : "Local file storage"}</strong><span>{saved?.driver === "s3" ? saved.bucket : "Uploads remain on the server filesystem."}</span></div>
       <label>
         Driver
         <select
@@ -279,7 +280,7 @@ export function StorageSettingsPage() {
           Use the migration workflow below to copy and verify existing objects before switching destinations.
         </p>
       )}
-      <ActionBar description={dirty ? "Unsaved storage changes." : "Current storage configuration."}>
+      <ActionBar sticky description={dirty ? "Unsaved storage changes." : "Current storage configuration."}>
       <Button
         disabled={busy || recoveryPending || migrationActive || !dirty || migrationRequired}
         onClick={() => void save()}

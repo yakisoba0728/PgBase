@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useBackend, useSession } from "../auth/session";
 import type { SchemaDocument, SchemaImportPlan, SchemaImportResult } from "../backend/ports";
 import { parseJSON, stringifyJSON } from "../backend/json";
+import { useUnsavedDraft } from "../routing/unsaved-draft";
 import { Button, PageHeading } from "../components/ui";
 
 type ImportOutcome = SchemaImportResult;
@@ -15,16 +16,16 @@ export function schemaDocumentDigest(document: SchemaDocument): Promise<string> 
 }
 
 function readRecovery(administratorId: string): Recovery | undefined {
-  sessionStorage.removeItem(legacyRecoveryKey);
   const key = recoveryKey(administratorId);
   try {
+    sessionStorage.removeItem(legacyRecoveryKey);
     const parsed = JSON.parse(sessionStorage.getItem(key) ?? "null") as Partial<Recovery> | null;
     const bounded = (value: unknown, maximum: number) => typeof value === "string" && value.length > 0 && value.length <= maximum;
     if (!parsed || parsed.version !== 1 || parsed.administratorId !== administratorId || !bounded(parsed.operationId, 128) || !bounded(parsed.idempotencyKey, 128) || !Number.isSafeInteger(parsed.baseVersion) || (parsed.baseVersion ?? -1) < 0 || !bounded(parsed.checksum, 256) || !bounded(parsed.policyChecksum, 256) || !bounded(parsed.documentDigest, 64)) {
       sessionStorage.removeItem(key); return undefined;
     }
     return parsed as Recovery;
-  } catch { sessionStorage.removeItem(key); return undefined; }
+  } catch { return undefined; }
 }
 
 export function SchemaTransferPage() {
@@ -32,6 +33,8 @@ export function SchemaTransferPage() {
   const { state } = useSession();
   const administratorId = state.kind === "authenticated" ? state.administrator.id : "";
   const [text, setText] = useState("");
+  const [documentDirty, setDocumentDirty] = useState(false);
+  useUnsavedDraft("schema-import", documentDirty);
   const [plan, setPlan] = useState<SchemaImportPlan>();
   const [recovery, setRecovery] = useState<Recovery>();
   const [message, setMessage] = useState<string>();
@@ -39,7 +42,7 @@ export function SchemaTransferPage() {
   const generation = useRef(0);
 
   const clearRecovery = () => {
-    if (administratorId) sessionStorage.removeItem(recoveryKey(administratorId));
+    try { if (administratorId) sessionStorage.removeItem(recoveryKey(administratorId)); } catch { /* terminal server state is already confirmed */ }
     setRecovery(undefined);
   };
   const showOutcome = (result: ImportOutcome) => {
@@ -77,7 +80,7 @@ export function SchemaTransferPage() {
     const issued = ++generation.current; setBusy(true); setMessage(undefined);
     try {
       const schemaDocument = await schema.exportDocument(); if (issued !== generation.current) return;
-      const content = stringifyJSON(schemaDocument); setText(content); setPlan(undefined);
+      const content = stringifyJSON(schemaDocument);
       const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([content], { type: "application/json" }));
       link.download = "pgbase-schema.json"; link.click(); URL.revokeObjectURL(link.href);
     } catch { if (issued === generation.current) setMessage("Unable to export the schema."); }
@@ -117,7 +120,11 @@ export function SchemaTransferPage() {
       if (issued !== generation.current) return;
       sessionStorage.setItem(recoveryKey(administratorId), JSON.stringify(item)); setRecovery(item);
       sent = true;
-      const result = await schema.applyImport(plan) as ImportOutcome; if (issued === generation.current) showOutcome(result);
+      const result = await schema.applyImport(plan) as ImportOutcome;
+      if (issued === generation.current) {
+        showOutcome(result);
+        if (result.status === "committed") setDocumentDirty(false);
+      }
     }
     catch { if (issued === generation.current) setMessage(sent && item ? `The response for operation ${item.operationId} was not confirmed. Check status or retry this exact request.` : "Unable to save the import recovery information. The import was not sent."); }
     finally { if (issued === generation.current) setBusy(false); }
@@ -125,7 +132,19 @@ export function SchemaTransferPage() {
 
   function changeDocument(value: string) {
 	 generation.current += 1;
-	 setBusy(false); setText(value); setPlan(undefined);
+	 setBusy(false); setText(value); setDocumentDirty(value.trim() !== ""); setPlan(undefined);
+  }
+
+  async function readDocument(file: File | undefined) {
+    if (!file) return;
+    if (file.size > 16 * 1024 * 1024) { setMessage("Schema files must be no larger than 16 MiB."); return; }
+    const issued = ++generation.current; setBusy(true); setMessage(undefined);
+    try {
+      const content = await file.text();
+      if (issued !== generation.current) return;
+      setText(content); setPlan(undefined); setDocumentDirty(content.trim() !== "");
+    } catch { if (issued === generation.current) setMessage("Unable to read the schema file. Your current document is preserved."); }
+    finally { if (issued === generation.current) setBusy(false); }
   }
 
   const heading = <PageHeading title="Schema transfer" description="Export your collection definitions or review a schema before importing it." />;
@@ -137,7 +156,8 @@ export function SchemaTransferPage() {
       <Button disabled={busy} onClick={() => void exportSchema()} variant="secondary">Export schema</Button>
     </section>
     <section aria-labelledby="schema-import-title" className="schema-import">
-      <div className="schema-section-heading"><h3 id="schema-import-title">Import schema</h3><p>Paste a pgBase schema document to review its changes.</p></div>
+      <div className="schema-section-heading"><h3 id="schema-import-title">Import schema</h3><p>Choose a JSON file or paste a schema document. Preview the changes before applying them.</p></div>
+      <label className="schema-file-input">Import JSON file<input type="file" accept=".json,application/json" disabled={busy} onChange={event => { void readDocument(event.target.files?.[0]); event.target.value = ""; }} /></label>
       <div className="schema-editor-label"><label htmlFor="schema-document">Schema document</label><span>JSON</span></div>
       <textarea aria-describedby="schema-import-help" autoCapitalize="none" autoComplete="off" className="schema-document" id="schema-document" onChange={(event) => changeDocument(event.target.value)} placeholder="Paste your schema JSON here…" rows={12} spellCheck={false} value={text} />
       <div className="schema-import-actions">

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Button, PageHeading } from "../components/ui";
 import type { OperationReceipt, OperationStatus } from "../backend/ports";
 import { operationFailureMessage } from "../operations/operation-recovery";
@@ -39,14 +40,19 @@ function OperationRow({ receipt }: { receipt: OperationReceipt }) {
 
 export function SchemaOperationsPage() {
   const history = useOperationHistory();
+  const [status, setStatus] = useState("");
+  const [search, setSearch] = useState("");
+  const visible = history.items.filter(item => (!status || item.status === status) && `${item.operationId} ${item.collectionId} ${item.operation}`.toLowerCase().includes(search.trim().toLowerCase()));
   return <section className="management-page schema-operations-page">
     <PageHeading title="Schema operations" description="The most recent schema operations recorded for your administrator account, newest first." />
+    <div className="collection-toolbar"><label className="collection-search">Search operations<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Operation or collection ID…" /></label><label>Operation status<select value={status} onChange={event => setStatus(event.target.value)}><option value="">All statuses</option>{Object.entries(statusText).map(([value, label]) => <option key={value} value={value}>{label} operations</option>)}</select></label></div>
     {history.phase === "loading" && <p aria-live="polite">Loading schema operations…</p>}
     {history.error !== null && <p role="alert">{history.error}</p>}
     {history.phase === "ready" && history.items.length === 0 && <p>No schema operations yet.</p>}
     {history.items.length > 0 && <ol className="operation-list" aria-label="Schema operation history">
-      {history.items.map((receipt) => <OperationRow key={receipt.operationId} receipt={receipt} />)}
+      {visible.map((receipt) => <OperationRow key={receipt.operationId} receipt={receipt} />)}
     </ol>}
+    {history.phase === "ready" && history.items.length > 0 && visible.length === 0 && <p role="status">No loaded operations match these filters. Load the next page to search older operations.</p>}
     {history.hasMore && <Button variant="secondary" disabled={history.loadingMore} onClick={history.loadMore} type="button">
       {history.loadingMore ? "Loading…" : "Next page"}
     </Button>}

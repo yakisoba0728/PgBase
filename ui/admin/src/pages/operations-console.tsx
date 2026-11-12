@@ -24,7 +24,9 @@ function JobEditor({ job, busy, save, run }: { job: ScheduledJob; busy: boolean;
   </li>;
 }
 
-export function OperationsConsole({ port, capabilities }: { port: OperationsPort; capabilities?: AdminCapabilities }) {
+export function OperationsConsole({ port, capabilities, initialSection = "overview" }: { port: OperationsPort; capabilities?: AdminCapabilities; initialSection?: "overview" | "requests" | "jobs" | "backups" }) {
+  const [section, setSection] = useState<string>(initialSection);
+  const detailRequest = useRef<AbortController | null>(null);
   const [logs, setLogs] = useState<RequestLogPage | null>(null);
   const [jobs, setJobs] = useState<JobPage | null>(null);
   const [statusClass, setStatusClass] = useState(0);
@@ -43,7 +45,7 @@ export function OperationsConsole({ port, capabilities }: { port: OperationsPort
   const [message, setMessage] = useState("");
   const request = useRef<AbortController | null>(null);
   const mutation = useRef<AbortController | null>(null);
-  useEffect(() => () => mutation.current?.abort(), []);
+  useEffect(() => () => { mutation.current?.abort(); detailRequest.current?.abort(); }, []);
   useEffect(() => {
     if (!port.backups || capabilities?.backups === false) return;
     const controller=new AbortController();void port.backups(controller.signal).then(items=>{if(!controller.signal.aborted)setBackups(items)}).catch(()=>{if(!controller.signal.aborted)setMessage("Unable to load backups. Refresh to retry.")});return()=>controller.abort();
@@ -56,12 +58,19 @@ export function OperationsConsole({ port, capabilities }: { port: OperationsPort
   useEffect(() => {
     const controller = new AbortController();
     request.current = controller;
-    setLoading(true); setLogs(null); setJobs(null);
+    setLoading(true); setLogs(null); setJobs(null); setStatistics(null); setDetail(null); detailRequest.current?.abort();
     const timeout = window.setTimeout(() => { controller.abort(); setMessage("Operations request timed out. Refresh to retry."); setLoading(false); }, 10_000);
     const logRequest = capabilities?.logs === false ? Promise.resolve(null) : port.searchLogs ? port.searchLogs({ before, statusClass: statusClass || undefined, method: method || undefined, route: route || undefined, from: from ? new Date(from).toISOString() : undefined, to: to ? new Date(to).toISOString() : undefined }, controller.signal) : port.logs(before, statusClass || undefined, controller.signal);
-    void Promise.all([logRequest, capabilities?.jobs === false ? Promise.resolve(null) : port.jobs(controller.signal), capabilities?.logs === false ? undefined : port.logStatistics?.(controller.signal)])
-      .then(([logPage, jobPage, stats]) => { if (!controller.signal.aborted) { setLogs(logPage); setJobs(jobPage); setStatistics(stats ?? null); } })
-      .catch(() => { if (!controller.signal.aborted) setMessage("Unable to load operations. Refresh to retry."); })
+    const reads = [logRequest, capabilities?.jobs === false ? Promise.resolve(null) : port.jobs(controller.signal), capabilities?.logs === false ? Promise.resolve(null) : port.logStatistics?.(controller.signal)] as const;
+    void Promise.allSettled(reads)
+      .then(([logResult, jobResult, statsResult]) => {
+        if (controller.signal.aborted) return;
+        if (logResult?.status === "fulfilled") setLogs(logResult.value);
+        if (jobResult?.status === "fulfilled") setJobs(jobResult.value);
+        if (statsResult?.status === "fulfilled") setStatistics(statsResult.value ?? null);
+        const failed = [logResult?.status === "rejected" && "request logs", jobResult?.status === "rejected" && "scheduled jobs", statsResult?.status === "rejected" && "log statistics"].filter(Boolean);
+        if (failed.length) setMessage(`Unable to load ${failed.join(", ")}. Other available sections are still shown. Refresh to retry.`);
+      })
       .finally(() => { if (!controller.signal.aborted) { window.clearTimeout(timeout); setLoading(false); } });
     return () => { controller.abort(); window.clearTimeout(timeout); };
   }, [port, before, statusClass, method, route, from, to, reload, capabilities?.logs, capabilities?.jobs]);
@@ -89,11 +98,27 @@ export function OperationsConsole({ port, capabilities }: { port: OperationsPort
 		const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = "pgbase-request-logs.csv"; link.click(); URL.revokeObjectURL(url);
 	}
 
+  async function inspectLog(id: number) {
+    if (!port.logDetail) return;
+    detailRequest.current?.abort();
+    const controller = new AbortController(); detailRequest.current = controller;
+    try { const next = await port.logDetail(id, controller.signal); if (!controller.signal.aborted) setDetail(next); }
+    catch { if (!controller.signal.aborted) setMessage("Unable to load request detail."); }
+  }
+  const tabs = [{ id: "overview", label: "Overview" }, ...(capabilities?.logs !== false ? [{ id: "requests", label: "Requests" }] : []), ...(capabilities?.jobs !== false ? [{ id: "jobs", label: "Scheduled jobs" }] : []), ...(capabilities?.backups !== false ? [{ id: "backups", label: "Backups" }] : [])];
   return <section className="operations-console" aria-label="Operations console">
     <div className="system-section-heading"><h3>Operations console</h3>
     <Button variant="secondary" disabled={loading || busy} onClick={() => { setMessage(""); setBefore(undefined); setReload(value => value + 1); }}>Refresh operations</Button></div>
+    <div className="operations-tabs" role="tablist" aria-label="Operations views">{tabs.map(tab => <button key={tab.id} type="button" role="tab" tabIndex={section === tab.id ? 0 : -1} onKeyDown={event => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const current = tabs.findIndex(item => item.id === section);
+      const index = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      const next = tabs[index]!; setSection(next.id); document.getElementById(`operations-tab-${next.id}`)?.focus();
+    }} id={`operations-tab-${tab.id}`} aria-selected={section === tab.id} aria-controls="operations-panels" onClick={() => setSection(tab.id)}>{tab.label}</button>)}</div>
     {message && <p className="system-feedback" role="status">{message}</p>}
-    {capabilities?.logs !== false && <section id="system-requests" className="system-operation-section" aria-labelledby="system-requests-heading">
+    <div id="operations-panels" role="tabpanel" aria-labelledby={`operations-tab-${section}`}>
+    {capabilities?.logs !== false && <section hidden={section !== "overview" && section !== "requests"} id="system-requests" className="system-operation-section" aria-labelledby="system-requests-heading">
     <h4 id="system-requests-heading">Recent HTTP requests</h4>
     <p>Completed requests are retained in PostgreSQL with bounded age and row limits. Only method, route template, status, timing and timestamp are stored.</p>
     <div className="system-filter-grid system-request-filters">
@@ -108,8 +133,8 @@ export function OperationsConsole({ port, capabilities }: { port: OperationsPort
     {statistics && <><p>{statistics.total} retained requests · {statistics.averageDurationMs.toFixed(1)} ms average · {statistics.dropped} dropped before persistence.</p><div className="system-request-chart" aria-label="Request status chart" role="img">{Object.entries(statistics.statusClasses).map(([status, count]) => <div key={status}><span>{status}</span><meter max={Math.max(1, statistics.total)} value={count}>{count}</meter> {count}</div>)}</div></>}
     {loading && <p aria-live="polite">Loading operations…</p>}
     {logs && <>
-      <div className="table-scroll system-request-table" role="region" aria-label="Recent HTTP requests" tabIndex={0}><table><thead><tr><th>Time</th><th>Method</th><th>Route</th><th>Status</th><th>ms</th></tr></thead><tbody>
-        {logs.items.map(entry => <tr key={entry.id}><td><Button variant="secondary" disabled={!port.logDetail} onClick={() => void port.logDetail?.(entry.id).then(setDetail).catch(()=>setMessage("Unable to load request detail."))}>{entry.at}</Button></td><td>{entry.method}</td><td>{entry.route}</td><td>{entry.status}</td><td>{entry.durationMs}</td></tr>)}
+      <div className="table-scroll system-request-table" role="region" aria-label="Recent HTTP requests" tabIndex={0}><table><thead><tr><th scope="col">Time</th><th scope="col">Method</th><th scope="col">Route</th><th scope="col">Status</th><th scope="col">ms</th></tr></thead><tbody>
+        {logs.items.map(entry => <tr key={entry.id}><td><Button variant="secondary" disabled={!port.logDetail} onClick={() => void inspectLog(entry.id)}>{entry.at}</Button></td><td>{entry.method}</td><td><code>{entry.route}</code></td><td><span className="request-status" data-status={Math.floor(entry.status / 100)}>{entry.status}</span></td><td>{entry.durationMs}</td></tr>)}
       </tbody></table></div>
       {logs.items.length === 0 && <p>No retained requests match this page.</p>}
       {before !== undefined && <p>Entries older than retained ID {logs.oldestId} are no longer available.</p>}
@@ -121,19 +146,20 @@ export function OperationsConsole({ port, capabilities }: { port: OperationsPort
     </>}
     {detail && <p className="system-feedback" role="status">Request {detail.id}: {detail.method} {detail.route}, {detail.status}, {detail.durationMs} ms at {detail.at}.</p>}
     </section>}
-    {capabilities?.jobs !== false && <section id="system-jobs" className="system-operation-section" aria-labelledby="system-jobs-heading">
+    {capabilities?.jobs !== false && <section hidden={section !== "overview" && section !== "jobs"} id="system-jobs" className="system-operation-section" aria-labelledby="system-jobs-heading">
     <h4 id="system-jobs-heading">Scheduled jobs</h4>
     <p>Schedules accept @every 1s through @every 24h or five-field calendar cron with an IANA timezone. Queue run makes an enabled job due for the existing worker; it does not bypass a running lease.</p>
     {jobs && (!jobs.workerEnabled ? <p>The job worker is disabled in this instance. Configure named Go handlers and enable jobs to use scheduling.</p> : jobs.items.length === 0 ? <p>No scheduled handlers are registered.</p> : <ul>{jobs.items.map(job => <JobEditor key={`${job.id}:${job.schedule}:${job.timezone}:${job.enabled}`} job={job} busy={busy || loading} save={(schedule, timezone, enabled) => void change(signal => port.configureJobInTimezone ? port.configureJobInTimezone(job.id, schedule, timezone, enabled, signal) : port.configureJob(job.id, schedule, enabled, signal), "Job settings saved.")} run={() => void change(signal => port.runJob(job.id, signal), "Run queued. Refresh to inspect completion.")} />)}</ul>)}
     </section>}
-    {capabilities?.backups !== false && <section id="system-backups" className="system-operation-section" aria-labelledby="system-backups-heading">
+    {capabilities?.backups !== false && <section hidden={section !== "overview" && section !== "backups"} id="system-backups" className="system-operation-section" aria-labelledby="system-backups-heading">
     <h4 id="system-backups-heading">Backup and restore</h4>
     <p>Online backups use a consistent PostgreSQL snapshot and immutable file inventory. Restore builds and verifies a fresh target before activation. A successful activation may require you to sign in again.</p>
     {backups === null && <p>Managed backups are unavailable. Configure the server backup directory to enable backup and restore.</p>}
     {backups !== null && port.createBackup && <Button variant="secondary" disabled={busy||backupJob?.status==="running"} onClick={()=>void change(async signal=>{setBackupJob(await port.createBackup!(signal))},"Backup started.")}>Create backup</Button>}
     {backups !== null && port.uploadBackup && <label>Upload gzip backup<input type="file" accept=".gz,application/gzip" disabled={busy||backupJob?.status==="running"} onChange={event=>{const file=event.target.files?.[0];if(file)void change(async signal=>{await port.uploadBackup!(file,signal)},"Backup uploaded.",30*60_000)}} /></label>}
     {backupJob && <p role="status">{backupJob.operation} backup {backupJob.backupId}: {backupJob.status} ({backupJob.phase}){backupJob.error ? ` — ${backupJob.error}` : ""}</p>}
-    {backups !== null && (backups.length===0?<p>No managed backups are available.</p>:<ul>{backups.map(entry=><li key={entry.id}>{entry.createdAt} · {(entry.size/1048576).toFixed(1)} MiB · PostgreSQL {entry.postgresqlMajor} <Button variant="secondary" disabled={busy} onClick={()=>{if(port.backupDownloadURL){const link=document.createElement("a");link.href=port.backupDownloadURL(entry.id);link.download=`pgbase-${entry.id}.tar.gz`;link.click();return}void port.downloadBackup?.(entry.id).then(blob=>{const url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download=`pgbase-${entry.id}.tar.gz`;link.click();URL.revokeObjectURL(url)}).catch(()=>setMessage("Unable to download backup."))}}>Download</Button> <Button variant="danger" disabled={busy||backupJob?.status==="running"} onClick={()=>{if(window.confirm("Restore this backup to a fresh target and activate it?"))void change(async signal=>{setBackupJob(await port.restoreBackup!(entry.id,signal))},"Restore started.")}}>Restore</Button> <Button variant="danger" disabled={busy||backupJob?.status==="running"} onClick={()=>void change(signal=>port.deleteBackup!(entry.id,signal),"Backup deleted.")}>Delete</Button></li>)}</ul>)}
+    {backups !== null && (backups.length===0?<p>No managed backups are available.</p>:<ul>{backups.map(entry=><li key={entry.id}>{entry.createdAt} · {(entry.size/1048576).toFixed(1)} MiB · PostgreSQL {entry.postgresqlMajor} <Button variant="secondary" disabled={busy || (!port.backupDownloadURL && !port.downloadBackup)} onClick={()=>{if(port.backupDownloadURL){const link=document.createElement("a");link.href=port.backupDownloadURL(entry.id);link.download=`pgbase-${entry.id}.tar.gz`;link.click();return}void port.downloadBackup?.(entry.id).then(blob=>{const url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download=`pgbase-${entry.id}.tar.gz`;link.click();URL.revokeObjectURL(url)}).catch(()=>setMessage("Unable to download backup."))}}>Download</Button> <Button variant="danger" disabled={busy||backupJob?.status==="running"||!port.restoreBackup} onClick={()=>{if(window.confirm("Restore this backup to a fresh target and activate it?"))void change(async signal=>{setBackupJob(await port.restoreBackup!(entry.id,signal))},"Restore started.")}}>Restore</Button> <Button variant="danger" disabled={busy||backupJob?.status==="running"||!port.deleteBackup} onClick={()=>void change(signal=>port.deleteBackup!(entry.id,signal),"Backup deleted.")}>Delete</Button></li>)}</ul>)}
     </section>}
+    </div>
   </section>;
 }

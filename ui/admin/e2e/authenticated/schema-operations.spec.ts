@@ -7,6 +7,7 @@ test("records a guarded apply in the redacted operation history", async ({ page 
 
   // The address a new tab or "copy link address" would use has to be the same
   // typed route an in-place click reaches.
+  await page.getByRole("link", { name: "Settings section", exact: true }).click();
   const link = page.getByRole("link", { name: "Schema operations" });
   await expect(link).toHaveAttribute("href", "/admin/schema-operations");
   await link.click();

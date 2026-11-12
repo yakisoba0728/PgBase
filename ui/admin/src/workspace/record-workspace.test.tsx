@@ -61,6 +61,41 @@ async function loaded(result: { current: RecordEditor }): Promise<void> {
 afterEach(() => vi.restoreAllMocks());
 
 describe("RecordList", () => {
+  it("clears selections when the query changes so hidden records cannot be deleted", async () => {
+    const { result, script } = openList();
+    await waitFor(() => expect(result.current.page).not.toBeNull());
+    act(() => result.current.select(recordID, true));
+    expect(result.current.selected.has(recordID)).toBe(true);
+    script.list.push({ value: { items: [] } });
+    act(() => result.current.setFilterText("title = 'different'"));
+    act(() => result.current.applyFilter());
+    await waitFor(() => expect(result.current.page?.items).toEqual([]));
+    expect(result.current.selected.size).toBe(0);
+    act(() => result.current.select(recordID, true));
+    script.list.push({ value: { items: [] } });
+    act(() => result.current.toggleSort("title"));
+    expect(result.current.selected.size).toBe(0);
+  });
+
+  it("retries a failed page without losing its filter, sort, or cursor", async () => {
+    const { result, script } = openList([posts], { items: [{ id: recordID }], nextCursor: "page two" });
+    await waitFor(() => expect(result.current.page?.nextCursor).toBe("page two"));
+    script.list.push({ value: { items: [{ id: otherID }] } });
+    act(() => result.current.nextPage());
+    await waitFor(() => expect(result.current.hasPrevious).toBe(true));
+    script.catalog.push({ value: { version: 4, collections: [posts] } });
+    script.list.push({ fault: { kind: "unreachable" } });
+    act(() => result.current.refresh());
+    await waitFor(() => expect(result.current.failed).toBe(true));
+    expect(result.current.loading).toBe(false);
+    script.catalog.push({ value: { version: 4, collections: [posts] } });
+    script.list.push({ value: { items: [{ id: targetID }] } });
+    act(() => result.current.refresh());
+    await waitFor(() => expect(result.current.page?.items[0].id).toBe(targetID));
+    expect(result.current.failed).toBe(false);
+    expect(callsTo(script, "list").at(-1)?.detail).toEqual({ collection: "posts", cursor: "page two" });
+  });
+
   it("carries the applied filter and sort into every page including the next cursor", async () => {
     const { result, script } = openList([posts], { items: [{ id: recordID }], nextCursor: "signed cursor" });
     await waitFor(() => expect(result.current.page).not.toBeNull());

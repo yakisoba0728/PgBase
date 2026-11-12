@@ -42,6 +42,7 @@ function outlet(route: AdminRoute, key: string, navigate: Navigate, sqlConsole?:
   if (route.kind === "operations") return <SchemaOperationsPage key={key} />;
 	if (route.kind === "sql-console" && sqlConsole !== undefined) return <SQLConsolePage key={key} port={sqlConsole} />;
   if (route.kind === "system") return <SystemPage key={key} />;
+  if (route.kind === "logs") return <SystemPage key={key} initialSection="requests" />;
   if (route.kind === "settings") return <SettingsPage key={key} />;
   if (route.kind === "users") return <UsersPage key={key} />;
   if (route.kind === "administrators") return <AdministratorsPage key={key} />;

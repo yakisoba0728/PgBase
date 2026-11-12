@@ -1,7 +1,7 @@
 import { useMutationScope } from "../components/feature-state";
 import { RuntimePolicySettings, runtimePolicyError } from "./runtime-policy-settings";
 import { applyWorkspaceTheme } from "../components/workspace-theme";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useUnsavedDraft } from "../routing/unsaved-draft";
 import type { AdminSettings } from "../backend/ports";
 import { useBackend } from "../auth/session";
@@ -11,6 +11,8 @@ import { Button, FormSection, PageHeading } from "../components/ui";
 
 export function SettingsPage() {
   const { settings: port, profile: profilePort } = useBackend();
+  const [section, setSection] = useState("appearance");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [value, setValue] = useState<AdminSettings | null>(null);
   const [keep, setKeep] = useState("");
   const [message, setMessage] = useState("");
@@ -22,13 +24,14 @@ export function SettingsPage() {
   useUnsavedDraft("application-settings", dirty);
   useEffect(() => {
     const c = new AbortController();
+    setValue(null); savedValue.current = null; setMessage("");
     if (port)
       void port
         .get(c.signal)
-        .then((settings) => { savedValue.current = settings; setValue(settings); setKeep(String(settings.backups.keep)); })
-        .catch(() => setMessage("Unable to load application settings."));
+        .then((settings) => { if (c.signal.aborted) return; savedValue.current = settings; setValue(settings); setKeep(String(settings.backups.keep)); })
+        .catch(() => { if (!c.signal.aborted) setMessage("Unable to load application settings."); });
     return () => c.abort();
-  }, [port]);
+  }, [port, loadAttempt]);
   if (!port)
     return (
       <section className="settings-page">
@@ -40,9 +43,24 @@ export function SettingsPage() {
     return (
       <section className="settings-page">
         <PageHeading title="Application settings" />
-        <p role="status">{message || "Loading settings…"}</p>
+        <p role={message ? "alert" : "status"}>{message || "Loading settings…"}</p>
+        {message && <Button variant="secondary" onClick={() => setLoadAttempt(attempt => attempt + 1)}>Retry settings</Button>}
       </section>
     );
+  const sections = [
+    ["appearance", "Application"], ["profile", "My account"], ["logs", "Logs"],
+    ["security", "Authentication limits"], ["api", "API rate limits"],
+    ["batch", "Batch requests"], ["backups", "Backups"], ["network", "Network"],
+  ].filter(([key]) => key !== "profile" || profilePort);
+  function moveTab(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    const direction = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
+    let next = direction === undefined ? -1 : (index + direction + sections.length) % sections.length;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = sections.length - 1;
+    if (next < 0) return;
+    event.preventDefault(); setSection(sections[next][0]);
+    document.getElementById(`settings-tab-${sections[next][0]}`)?.focus();
+  }
   const settingsPort = port;
   const settingsValue = value;
   const change = (
@@ -59,17 +77,18 @@ export function SettingsPage() {
     : [];
   async function save() {
     if (!/^\d+$/.test(keep) || Number(keep) > 10000) {
+      setSection("backups");
       setMessage("Backups to keep must be a whole number from 0 through 10000.");
       return;
     }
     const policyError = runtimePolicyError(settingsValue);
-    if (policyError) { setMessage(policyError); return; }
+    if (policyError) { setSection(policyError.startsWith("Batch") ? "batch" : "security"); setMessage(policyError); return; }
     const error = ruleErrors(
       settingsValue.rateLimits.rules ?? [],
       settingsValue.rateLimits.excludedIPs ?? [],
     );
     if (error) {
-      setMessage(error);
+      setSection("api"); setMessage(error);
       return;
     }
     const signal = mutation.begin(); if (!signal) return;
@@ -101,17 +120,15 @@ export function SettingsPage() {
   }
   return (
     <section className="settings-page">
-      <PageHeading title="Application settings" description="Manage your administrator profile and application preferences." actions={<Button variant="secondary" disabled={busy || dirty} onClick={() => void reloadServer()}>Reload server settings</Button>} />
-      <nav className="section-navigation" aria-label="Settings sections">
-        {profilePort && <a href="#settings-profile">Profile</a>}
-        <a href="#settings-appearance">Appearance</a>
-        <a href="#settings-logs">Logs</a>
-        <a href="#settings-security">Security</a><a href="#settings-batch">Batch requests</a>
-        <a href="#settings-backups">Backups</a>
-        <a href="#settings-network">Network</a>
-      </nav>
+      <PageHeading title="Application settings" description="Application preferences, security policies, and your administrator account." actions={<Button variant="secondary" disabled={busy || dirty} onClick={() => void reloadServer()}>Reload server settings</Button>} />
       {message && <p className="settings-feedback" role="status">{message}</p>}
-      <ProfileSettings />
+      <div className="settings-layout">
+      <nav className="settings-tabs" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
+        {sections.map(([key, label], index) => <button key={key} type="button" role="tab" id={`settings-tab-${key}`} aria-controls={`settings-panel-${key}`} aria-selected={section === key} tabIndex={section === key ? 0 : -1} onKeyDown={event => moveTab(event, index)} onClick={() => setSection(key)}>{label}</button>)}
+      </nav>
+      <div className="settings-panels">
+      <div role="tabpanel" id="settings-panel-profile" aria-labelledby="settings-tab-profile" hidden={section !== "profile"}><ProfileSettings /></div>
+      <div role="tabpanel" id="settings-panel-appearance" aria-labelledby="settings-tab-appearance" hidden={section !== "appearance"}>
       <FormSection id="settings-appearance" disabled={busy} title="Branding and appearance">
         <div className="settings-field-grid">
         <div className="settings-field">
@@ -153,6 +170,8 @@ export function SettingsPage() {
         </label>
         </div>
       </FormSection>
+      </div>
+      <div role="tabpanel" id="settings-panel-logs" aria-labelledby="settings-tab-logs" hidden={section !== "logs"}>
       <FormSection id="settings-logs" disabled={busy} title="Request logs">
         <div className="settings-field-grid">
         <label>
@@ -197,7 +216,8 @@ export function SettingsPage() {
         </label>
         </div>
       </FormSection>
-      <div id="settings-security" className="settings-security">
+      </div>
+      <div role="tabpanel" id="settings-panel-security" aria-labelledby="settings-tab-security" hidden={section !== "security"} className="settings-security">
       <FormSection disabled={busy} title="Administrator rate limits">
         <p className="settings-help">Limit repeated administrator sign-in failures by account and network.</p>
         <div className="settings-field-grid">
@@ -267,13 +287,17 @@ export function SettingsPage() {
         </label>
         </div>
       </FormSection>
-      <RuntimePolicySettings value={value} disabled={busy} change={setValue} />
+      <RuntimePolicySettings section="user" value={value} disabled={busy} change={setValue} />
+      </div>
+      <div role="tabpanel" id="settings-panel-api" aria-labelledby="settings-tab-api" hidden={section !== "api"}>
       <APIRateLimitSettings
         disabled={busy}
         value={value}
         change={(patch) => change("rateLimits", patch)}
       />
       </div>
+      <div role="tabpanel" id="settings-panel-batch" aria-labelledby="settings-tab-batch" hidden={section !== "batch"}><RuntimePolicySettings section="batch" value={value} disabled={busy} change={setValue} /></div>
+      <div role="tabpanel" id="settings-panel-backups" aria-labelledby="settings-tab-backups" hidden={section !== "backups"}>
       <FormSection id="settings-backups" disabled={busy} title="Automatic backups">
         <label className="settings-toggle">
           <input
@@ -305,6 +329,8 @@ export function SettingsPage() {
         </label>
         </div>
       </FormSection>
+      </div>
+      <div role="tabpanel" id="settings-panel-network" aria-labelledby="settings-tab-network" hidden={section !== "network"}>
       <FormSection id="settings-network" disabled={busy} title="Trusted proxies">
         <p className="settings-help">Configure the proxy networks trusted by this application.</p>
         <label>
@@ -326,7 +352,10 @@ export function SettingsPage() {
           />
         </label>
       </FormSection>
-      <div className="settings-save-bar">
+      </div>
+      </div>
+      </div>
+      <div className="settings-save-bar" hidden={section === "profile"}>
         <p>{dirty ? "Unsaved application changes. " : "Application changes are validated and saved as one revision."}{dirty && "Save settings to apply them together."}</p>
       {dirty && <Button variant="secondary" disabled={busy} onClick={() => { if (savedValue.current) { setValue(savedValue.current); setKeep(String(savedValue.current.backups.keep)); setMessage("Unsaved application settings discarded."); } }}>Discard application changes</Button>}
       <Button disabled={busy} onClick={() => void save()}>

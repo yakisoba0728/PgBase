@@ -129,4 +129,47 @@ describe("operations console", () => {
       await waitFor(() => expect(currentPort.backups).toHaveBeenCalledTimes(2));
     } finally { vi.useRealTimers(); }
   });
+  it("keeps request logs usable when the scheduled-job read fails", async () => {
+    const backend = port(); vi.mocked(backend.jobs).mockRejectedValue(new Error("jobs unavailable"));
+    render(<OperationsConsole port={backend} />);
+    expect(await screen.findByText("/records/{id}")).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("Unable to load scheduled jobs");
+    await userEvent.click(screen.getByRole("tab", { name: "Requests" }));
+    expect(screen.getByRole("tab", { name: "Requests" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { name: "Recent HTTP requests" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Scheduled jobs" })).toBeNull();
+  });
+  it("does not offer missing managed-backup actions", async () => {
+    const backend = port(); backend.backups = vi.fn().mockResolvedValue([{ id: "archive", createdAt: "now", size: 1, postgresqlMajor: 18 }]);
+    render(<OperationsConsole port={backend} initialSection="backups" />);
+    expect(await screen.findByRole("button", { name: "Restore" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Download" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+  });
+  it("ignores an obsolete request detail after another request is selected", async () => {
+    const backend = port();
+    vi.mocked(backend.logs).mockResolvedValue({ items: [{ id: 1, at: "first", method: "GET", route: "/one", status: 200, durationMs: 1 }, { id: 2, at: "second", method: "GET", route: "/two", status: 200, durationMs: 2 }], oldestId: 1 });
+    let finish!: (value: { id: number; at: string; method: string; route: string; status: number; durationMs: number }) => void;
+    backend.logDetail = vi.fn().mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockResolvedValue({ id: 2, at: "second", method: "GET", route: "/two", status: 200, durationMs: 2 });
+    render(<OperationsConsole port={backend} />);
+    await userEvent.click(await screen.findByRole("button", { name: "first" }));
+    await userEvent.click(screen.getByRole("button", { name: "second" }));
+    expect(await screen.findByText(/Request 2:/)).toBeVisible();
+    await act(async () => finish({ id: 1, at: "first", method: "GET", route: "/one", status: 200, durationMs: 1 }));
+    expect(screen.queryByText(/Request 1:/)).toBeNull();
+    expect(screen.getByText(/Request 2:/)).toBeVisible();
+  });
+
+  it("moves between operation views with the keyboard", async () => {
+    render(<OperationsConsole port={port()} />);
+    const overview = screen.getByRole("tab", { name: "Overview" }); overview.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "Requests" })).toHaveFocus();
+    expect(screen.getByRole("tab", { name: "Requests" })).toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("{End}");
+    expect(screen.getByRole("tab", { name: "Backups" })).toHaveFocus();
+    await userEvent.keyboard("{Home}");
+    expect(overview).toHaveFocus();
+  });
+
 });
