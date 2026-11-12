@@ -1,9 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { RiPlayLine } from "@remixicon/react";
-import { sampleView, truncateCollection, type Collection, type CollectionType } from "../api/collections";
-import { ApiError, stringifyJson } from "../api/http";
+import { truncateCollection, type Collection, type CollectionType } from "../api/collections";
 import type { CollectionScaffolds } from "../api/schema";
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
@@ -18,6 +16,7 @@ import { FieldPane } from "./FieldPane";
 import { IndexPane } from "./IndexPane";
 import { PlanReview } from "./PlanReview";
 import { describeErrors, FieldRows, IndexRows, Section, ViewFieldRows } from "./SchemaRows";
+import { ViewSection } from "./ViewEditor";
 import { useSchemaEditor, type SchemaEditor } from "./useSchemaEditor";
 
 function CollectionSection({ editor }: { editor: SchemaEditor }) {
@@ -42,6 +41,12 @@ function CollectionSection({ editor }: { editor: SchemaEditor }) {
               options={[{ value: "uuid", label: t("schema.recordId.uuid") }, { value: "text", label: t("schema.recordId.text") }]} />
             {recordId.kind === "text" && (
               <>
+                <div className="schema-pair">
+                  <Field label={t("schema.recordId.minLength")} type="number" min={1} max={255} mono disabled={!creating} value={recordId.minLength ?? ""}
+                    onChange={(event) => editor.setMeta({ recordId: { ...recordId, minLength: event.target.value === "" ? undefined : Number(event.target.value) } })} />
+                  <Field label={t("schema.recordId.maxLength")} type="number" min={1} max={255} mono disabled={!creating} value={recordId.maxLength ?? ""}
+                    onChange={(event) => editor.setMeta({ recordId: { ...recordId, maxLength: event.target.value === "" ? undefined : Number(event.target.value) } })} />
+                </div>
                 <Field label={t("schema.recordId.pattern")} mono disabled={!creating} value={recordId.pattern ?? ""} onChange={(event) => editor.setMeta({ recordId: { ...recordId, pattern: event.target.value } })} />
                 <Field label={t("schema.recordId.autogenerate")} mono disabled={!creating} value={recordId.autogeneratePattern ?? ""} onChange={(event) => editor.setMeta({ recordId: { ...recordId, autogeneratePattern: event.target.value } })} />
               </>
@@ -49,63 +54,6 @@ function CollectionSection({ editor }: { editor: SchemaEditor }) {
           </>
         )}
       </div>
-    </Section>
-  );
-}
-
-// shortcut: the sample endpoint sends uuid columns as 16-byte arrays; shown as a uuid until the server encodes them.
-function sampleCell(value: unknown) {
-  if (value === null || value === undefined) return <span className="na">null</span>;
-  if (Array.isArray(value) && value.length === 16 && value.every((byte) => typeof byte === "number")) {
-    const hex = value.map((byte: number) => byte.toString(16).padStart(2, "0")).join("");
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  }
-  return typeof value === "object" ? stringifyJson(value) : String(value);
-}
-
-function ViewSection({ editor, collection }: { editor: SchemaEditor; collection?: Collection }) {
-  const t = useT();
-  const sample = useMutation({ mutationFn: (query: string) => sampleView(query) });
-  const declarative = collection?.view && !collection.view.sql;
-  if (declarative) {
-    const view = collection.view!;
-    return (
-      <Section title={t("schema.viewQuery")}>
-        <p className="field-hint schema-note">{t("schema.declarativeView")}</p>
-        <pre className="schema-code mono">{`source: ${view.source}\nprojection: ${(view.projection ?? []).join(", ") || "*"}${view.filter ? `\nfilter: ${stringifyJson(view.filter)}` : ""}`}</pre>
-      </Section>
-    );
-  }
-  const columns = sample.data ? ["id", ...sample.data.fields.map((field) => field.Name).filter((name) => name !== "id")] : [];
-  const sampleError = sample.error instanceof ApiError && sample.error.code === "schema_conflict" ? t("schema.sampleRejected") : sample.error && errorText(t, sample.error);
-  return (
-    <Section title={t("schema.viewQuery")} action={<Button size="sm" variant="secondary" icon={RiPlayLine} loading={sample.isPending} disabled={!editor.draft.viewQuery.trim()} onClick={() => sample.mutate(editor.draft.viewQuery)}>{t("schema.sample")}</Button>}>
-      <Field kind="textarea" label={t("schema.sqlLabel")} mono rows={8} spellCheck={false} maxLength={5000} placeholder="select id, title from app.posts where published" value={editor.draft.viewQuery}
-        hint={t("schema.sqlHint")} error={sampleError || (editor.errors.collection.viewQuery && describeErrors(t, editor.errors.collection.viewQuery)) || undefined} onChange={(event) => editor.setMeta({ viewQuery: event.target.value })} />
-      {sample.data && (
-        <div className="schema-sample">
-          <p className="field-hint">{t("schema.sampleResult", { columns: sample.data.fields.length, rows: sample.data.items?.length ?? 0 })}</p>
-          <div className="grid-scroll">
-            <table className="grid">
-              <thead>
-                <tr>
-                  {columns.map((name) => {
-                    const type = sample.data.fields.find((field) => field.Name === name)?.Type;
-                    return <th key={name}>{name} {type && <span className="th-type">{type}</span>}</th>;
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {(sample.data.items ?? []).map((row, position) => (
-                  <tr key={position}>
-                    {columns.map((name) => <td key={name} className="mono">{sampleCell(row[name])}</td>)}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </Section>
   );
 }
@@ -189,7 +137,6 @@ export function SchemaView({ collection, type, catalog, scaffolds, basePath }: S
   const editor = useSchemaEditor({ collection, type, catalog, scaffolds, basePath });
   const { draft, dirty, creating } = editor;
   const isView = draft.type === "view";
-  const editableView = isView && (creating || Boolean(collection?.view?.sql));
   let pane = null;
   if (editor.reviewing) pane = <PlanReview editor={editor} />;
   else if (editor.openField) pane = <FieldPane key={editor.openField.key} editor={editor} field={editor.openField} catalog={catalog} />;
@@ -204,7 +151,7 @@ export function SchemaView({ collection, type, catalog, scaffolds, basePath }: S
         <CollectionSection editor={editor} />
         {isView ? (
           <>
-            {(editableView || collection?.view) && <ViewSection editor={editor} collection={collection} />}
+            <ViewSection editor={editor} catalog={catalog} />
             {collection && <ViewFieldRows fields={collection.fields} />}
           </>
         ) : (

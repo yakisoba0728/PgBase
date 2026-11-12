@@ -1,19 +1,22 @@
 import { useRef, useState, type ChangeEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiAddLine, RiArchive2Line, RiCloseLine, RiDeleteBinLine, RiDownload2Line, RiErrorWarningLine, RiHistoryLine, RiRefreshLine, RiUpload2Line } from "@remixicon/react";
+import { RiAddLine, RiArchive2Line, RiCloseLine, RiDeleteBinLine, RiDownload2Line, RiHistoryLine, RiRefreshLine, RiUpload2Line } from "@remixicon/react";
 import { backupDownloadPath, createBackup, deleteBackup, restoreBackup, uploadBackup, type BackupEntry } from "../api/backups";
 import type { BackupStorageSettings } from "../api/storage";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, Loader } from "../components/Feedback";
+import { EmptyState, ErrorState, Loader } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
 import { useTimeFormat } from "../ops/queries";
 import { useSearchState } from "../app/search";
-import { BackupJobStrip, useJobBusy } from "./BackupJob";
+import { Link } from "react-router";
+import { trackOperation } from "../app/operations";
+import { settingsQuery } from "../system/queries";
+import { BackupJobStrip, useJobBusy, useShownJob } from "./BackupJob";
 import { formatBytes } from "./model";
 import { backupJobQuery, backupStorageQuery, backupsQuery } from "./queries";
 import "../styles/ops.css";
@@ -37,6 +40,7 @@ export function BackupsActions() {
     mutationFn: createBackup,
     onSuccess: (started) => {
       queryClient.setQueryData(backupJobQuery(started.id).queryKey, started);
+      trackOperation({ kind: "backup", id: started.id, subject: started.backupId });
       update({ job: started.id });
     },
     onError: (error) => toast(errorText(t, error), "danger"),
@@ -78,18 +82,19 @@ export function BackupsView() {
   const items = backups.data ?? [];
   const openId = params.get("backup");
   const open = items.find((item) => item.id === openId);
-  const jobId = params.get("job");
+  const jobId = useShownJob();
   const busy = useJobBusy();
   const close = () => update({ backup: null });
   const location = locationText(t, storage.data);
 
   const list = (
     <div className="grid-scroll">
-      {jobId && <BackupJobStrip key={jobId} id={jobId} />}
+      <BackupSchedule />
+      {jobId &&<BackupJobStrip key={jobId} id={jobId} />}
       {backups.isPending ? (
         <Loader />
       ) : backups.isError ? (
-        <EmptyState icon={RiErrorWarningLine}>{errorText(t, backups.error)}</EmptyState>
+        <ErrorState error={backups.error} onRetry={backups.refetch} />
       ) : items.length === 0 ? (
         <EmptyState icon={RiArchive2Line}>{t("storage.backups.empty")}</EmptyState>
       ) : (
@@ -123,6 +128,24 @@ export function BackupsView() {
   return <SplitView list={list} paneLabel={t("storage.backups.detail")} onClose={close} pane={open ? <BackupPane key={open.id} backup={open} location={location} jobRunning={busy} onClose={close} /> : null} />;
 }
 
+/** The automatic-backup policy lives in Settings; shown here so the archive count makes sense. */
+function BackupSchedule() {
+  const t = useT();
+  const settings = useQuery({ ...settingsQuery, refetchOnMount: true, staleTime: 60_000 });
+  const backups = settings.data?.backups;
+  if (!backups) return null;
+  const keep = backups.keep === 0 ? t("storage.backups.keepAll") : backups.keep;
+  return (
+    <p className="storage-schedule">
+      <span className="txt-hint">{t("storage.backups.schedule")}</span>
+      <span className="dot" data-tone={backups.enabled ? "success" : undefined}>
+        {backups.enabled ? t("storage.backups.scheduleOn", { schedule: backups.schedule, timezone: backups.timezone, keep }) : t("storage.backups.scheduleOff")}
+      </span>
+      <Link to="/settings">{t("storage.backups.scheduleEdit")}</Link>
+    </p>
+  );
+}
+
 function BackupPane({ backup, location, jobRunning, onClose }: { backup: BackupEntry; location: string; jobRunning: boolean; onClose: () => void }) {
   const t = useT();
   const time = useTimeFormat();
@@ -146,6 +169,7 @@ function BackupPane({ backup, location, jobRunning, onClose }: { backup: BackupE
     mutationFn: () => restoreBackup(backup.id),
     onSuccess: (started) => {
       queryClient.setQueryData(backupJobQuery(started.id).queryKey, started);
+      trackOperation({ kind: "restore", id: started.id, subject: started.backupId });
       setDialog(null);
       update({ job: started.id, backup: null });
     },

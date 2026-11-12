@@ -45,6 +45,24 @@
   font-weight: 600;
 }
 
+.ops-figures a {
+  color: inherit;
+}
+
+/* The list window moved past the newest entries. */
+.ops-window {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin: 0 8px var(--space-xs);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
 .ops-figures {
   display: flex;
   flex-wrap: wrap;
@@ -186,17 +204,6 @@ select.ops-control {
   margin: var(--space) 0 8px;
   font-size: var(--font-size);
   font-weight: 600;
-}
-
-.ops-code {
-  margin: 0;
-  padding: 12px 14px;
-  overflow: auto;
-  border-radius: var(--radius);
-  background: var(--surface-1);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  line-height: 18px;
 }
 
 .ops-note {

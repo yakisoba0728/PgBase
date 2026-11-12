@@ -1,10 +1,11 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiErrorWarningLine, RiStopLine } from "@remixicon/react";
+import { RiStopLine } from "@remixicon/react";
 import { cancelSqlExecution, type SqlCell, type SqlExecution, type SqlStatementResult } from "../api/sql";
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
-import { EmptyState, Loader } from "../components/Feedback";
+import { DataGrid, type GridCell } from "../components/DataGrid";
+import { ErrorState, Loader } from "../components/Feedback";
 import { toast } from "../components/Toast";
 import { en } from "../i18n/en";
 import { useT, type MessageKey } from "../i18n";
@@ -23,15 +24,8 @@ export const statusTone: Record<SqlExecution["status"], string | undefined> = {
 
 const numeric = new Set(["integer", "decimal"]);
 
-function Cell({ cell }: { cell: SqlCell }) {
-  if (cell.kind === "null") return <td className="dt-null">NULL</td>;
-  // Exact server text: numbers are never parsed, so bigint and numeric keep every digit.
-  return (
-    <td className={numeric.has(cell.kind) ? "num" : undefined} data-kind={cell.kind} title={cell.text}>
-      {cell.text}
-    </td>
-  );
-}
+// Exact server text: numbers are never parsed, so bigint and numeric keep every digit.
+const gridCell = (cell: SqlCell): GridCell => ({ text: cell.kind === "null" ? null : (cell.text ?? ""), numeric: numeric.has(cell.kind), muted: cell.kind === "json" || cell.kind === "bytes" });
 
 function StatementTable({ result, index }: { result: SqlStatementResult; index: number }) {
   const t = useT();
@@ -39,24 +33,11 @@ function StatementTable({ result, index }: { result: SqlStatementResult; index: 
     return <p className="dt-command mono">{result.command || t("devtools.sql.statement", { index: index + 1 })} · {t("devtools.sql.affected", { count: result.affectedRows })}</p>;
   }
   return (
-    <table className="grid dt-grid" aria-label={t("devtools.sql.statement", { index: index + 1 })}>
-      <thead>
-        <tr>
-          {result.columns.map((column, position) => (
-            <th key={position}>
-              {column.name} <span className="th-type">{column.typeName}</span>
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {(result.rows ?? []).map((row, position) => (
-          <tr key={position}>
-            {row.map((cell, column) => <Cell key={column} cell={cell} />)}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <DataGrid
+      label={t("devtools.sql.statement", { index: index + 1 })}
+      columns={result.columns.map((column) => ({ name: column.name, type: column.typeName }))}
+      rows={(result.rows ?? []).map((row) => row.map(gridCell))}
+    />
   );
 }
 
@@ -79,7 +60,7 @@ export function SqlResult({ id, sql }: { id: string; sql: string | undefined }) 
   }, [settled, queryClient]);
 
   if (query.isPending) return <Loader />;
-  if (query.isError) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, query.error)}</EmptyState>;
+  if (query.isError) return <ErrorState error={query.error} onRetry={query.refetch} />;
   const execution = query.data;
   const { result, failure } = execution;
   const location = failure && sql !== undefined ? errorLocation(sql, failure.position, failure.code === "rejected" ? "byte" : "char") : null;

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { NavLink } from "react-router";
+import { Link, NavLink } from "react-router";
 import type { RemixiconComponentType } from "@remixicon/react";
 
 export function NavGroup({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
@@ -36,6 +36,10 @@ interface RunningOperation {
   label: string;
   /** Short progress text such as "42%". */
   progress?: string;
+  /** The screen that shows the operation. */
+  href?: string;
+  /** Stalled until someone acts (no spinner, warning colour). */
+  attention?: boolean;
 }
 
 /** Slim list of long-running work (schema apply, file migration, backup); hidden when idle. */
@@ -43,13 +47,20 @@ export function RunningOperations({ label, items }: { label: string; items: Runn
   if (items.length === 0) return null;
   return (
     <section className="nav-ops" aria-label={label} aria-live="polite">
-      {items.map((item) => (
-        <div key={item.id} className="nav-op" title={item.label}>
-          <span className="loader" aria-hidden />
-          <span className="nav-label">{item.label}</span>
-          {item.progress && <span>{item.progress}</span>}
-        </div>
-      ))}
+      {items.map((item) => {
+        const content = (
+          <>
+            {item.attention ? <span className="dot" data-tone="warning" aria-hidden /> : <span className="loader" aria-hidden />}
+            <span className="nav-label">{item.label}</span>
+            {item.progress && <span className="nav-op-progress">{item.progress}</span>}
+          </>
+        );
+        return item.href ? (
+          <Link key={item.id} to={item.href} className="nav-op" title={item.label}>{content}</Link>
+        ) : (
+          <div key={item.id} className="nav-op" title={item.label}>{content}</div>
+        );
+      })}
     </section>
   );
 }

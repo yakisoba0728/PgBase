@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiCloseLine, RiErrorWarningLine, RiPlayLine, RiRefreshLine, RiTimerLine } from "@remixicon/react";
+import { RiCloseLine, RiPlayLine, RiRefreshLine, RiTimerLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { runJob, updateJob, type ManagedJob } from "../api/jobs";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
-import { EmptyState, Loader } from "../components/Feedback";
+import { EmptyState, ErrorState, Loader } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
@@ -64,7 +64,7 @@ export function JobsView() {
       {jobs.isPending ? (
         <Loader />
       ) : jobs.isError ? (
-        <EmptyState icon={RiErrorWarningLine}>{errorText(t, jobs.error)}</EmptyState>
+        <ErrorState error={jobs.error} onRetry={jobs.refetch} />
       ) : items.length === 0 ? (
         <EmptyState icon={RiTimerLine}>{t("ops.jobs.empty")}</EmptyState>
       ) : (

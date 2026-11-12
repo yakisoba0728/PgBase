@@ -1,10 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiErrorWarningLine, RiRefreshLine, RiReplyLine } from "@remixicon/react";
+import { RiRefreshLine, RiReplyLine } from "@remixicon/react";
 import { retryRealtimeEvent } from "../api/realtime";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
-import { EmptyState, Loader } from "../components/Feedback";
+import { ErrorState, Loader } from "../components/Feedback";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { formatDuration, isUuid } from "./format";
@@ -40,7 +40,7 @@ export function RealtimeView() {
   };
 
   if (status.isPending) return <Loader />;
-  if (status.isError) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, status.error)}</EmptyState>;
+  if (status.isError) return <ErrorState error={status.error} onRetry={status.refetch} />;
   const data = status.data;
   const dead = String(data.dead) !== "0";
   const lag = data.oldestPending ? Date.now() - new Date(data.oldestPending).getTime() : null;

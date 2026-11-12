@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { planCollectionChange, type ApplyIdentity, type Collection, type CollectionType, type CreateCollectionChange, type FieldType } from "../api/collections";
 import { ApiError, stringifyJson } from "../api/http";
 import { previewSchemaImport, type CollectionScaffolds, type SchemaDocument } from "../api/schema";
+import { isWatched, operations, trackOperation, untrackOperation, useOperations, watchOperation } from "../app/operations";
 import { errorText } from "../app/queries";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
@@ -136,20 +137,29 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
 
-  // One identity per plan; it is reused only to retry after a lost or undecided response.
-  const identities = useRef(new Map<string, ApplyIdentity>());
+  // One identity per plan, persisted with the running-operations entry: it is reused only to
+  // retry after a lost or undecided response, including after a reload.
+  const subject = collection?.name ?? draft.name.trim();
+  const tracked = useOperations();
+  const pending = tracked.find((operation) => (operation.kind === "schema" || operation.kind === "import") && operation.subject === subject && operation.idempotencyKey);
   const apply = useMutation({
     mutationFn: async () => {
       const planned = planQuery.data;
       if (!planned) throw new Error("no plan");
-      const identity = identities.current.get(planned.checksum) ?? newIdentity();
-      identities.current.set(planned.checksum, identity);
+      const kind = planned.kind === "import" ? "import" : "schema";
+      const resumed = operations().find((operation) => operation.kind === kind && operation.subject === subject && operation.checksum === planned.checksum && operation.idempotencyKey);
+      const identity: ApplyIdentity = resumed ? { operationId: resumed.id, idempotencyKey: resumed.idempotencyKey! } : newIdentity();
+      trackOperation({ kind, id: identity.operationId, subject, checksum: planned.checksum, idempotencyKey: identity.idempotencyKey });
+      const release = watchOperation(identity.operationId);
       try {
         if (planned.kind === "import") await applyImport(planned.preview, identity);
         else await applyCollection(planned.change, planned.plan, identity);
+        untrackOperation(identity.operationId);
       } catch (error) {
-        if (!(error instanceof Undecided) && !(error instanceof ApiError && error.code === "network_error")) identities.current.delete(planned.checksum);
+        if (!(error instanceof Undecided) && !(error instanceof ApiError && error.code === "network_error")) untrackOperation(identity.operationId);
         throw error;
+      } finally {
+        release();
       }
       return planned.kind === "import" ? planned.preview.document.collections[0].name : planned.plan.definition.name;
     },
@@ -180,6 +190,8 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
     reviewing,
     planQuery,
     apply,
+    /** An earlier apply of this collection whose outcome is still open (another plan, another tab, or before a reload). */
+    pending: pending && !isWatched(pending.id) && pending.checksum !== planQuery.data?.checksum ? pending : undefined,
     blocker,
     setPane,
     setMeta: (patch: Partial<Draft>) => update((current) => ({ ...current, ...patch })),

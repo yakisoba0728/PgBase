@@ -1,7 +1,9 @@
-import { RiAlertLine, RiCloseLine } from "@remixicon/react";
+import { Link } from "react-router";
+import { RiCloseLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
+import { ChangeList } from "../components/ChangeList";
 import { EmptyState, Loader } from "../components/Feedback";
 import { useT } from "../i18n";
 import { Undecided } from "./apply";
@@ -51,6 +53,13 @@ export function PlanReview({ editor }: { editor: SchemaEditor }) {
             <p>{t("schema.dangerText")}</p>
           </div>
         )}
+        {editor.pending && (
+          <div className="pane-notice" data-tone="warning" role="alert">
+            <strong>{t("schema.pendingTitle")}</strong>
+            <p>{t("schema.pendingText")}</p>
+            <Link to={`/schema-operations?op=${encodeURIComponent(editor.pending.id)}`} className="mono">{editor.pending.id}</Link>
+          </div>
+        )}
         {lost && (
           <div className="pane-notice" role="alert">
             <strong>{t(apply.error instanceof Undecided ? "schema.undecidedTitle" : "schema.lostTitle")}</strong>
@@ -60,30 +69,7 @@ export function PlanReview({ editor }: { editor: SchemaEditor }) {
         )}
         {empty && <p className="field-hint">{t("schema.planEmpty")}</p>}
         {sections.map((section, position) => (
-          <section key={position} className="schema-plan">
-            {sections.length > 1 && <h3 className="schema-plan-title mono">{section.title}</h3>}
-            {section.items.length > 0 && (
-              <ul className="schema-changes">
-                {section.items.map((item, position) => (
-                  <li key={position} data-kind={item.kind} data-danger={item.danger ? "" : undefined}>
-                    <span className="schema-change-kind">{t(`schema.kind.${item.kind}`)}</span>
-                    <span className="schema-change-target">{t(`schema.target.${item.target}`)}</span>
-                    <span className="mono">{item.kind === "rename" ? `${item.detail} → ${item.name}` : item.name}</span>
-                    {item.kind !== "rename" && item.detail && <span className="schema-change-detail mono">{item.detail}</span>}
-                    {item.danger && <RiAlertLine size={14} aria-label={t("schema.dataLoss")} />}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {section.sql.length > 0 && (
-              <details className="schema-sql" open={section.sql.some(dangerousStatement)}>
-                <summary>{t("schema.sql", { count: section.sql.length })}</summary>
-                {section.sql.map((statement, position) => (
-                  <pre key={position} className="mono" data-danger={dangerousStatement(statement) ? "" : undefined}>{statement}</pre>
-                ))}
-              </details>
-            )}
-          </section>
+          <ChangeList key={position} title={sections.length > 1 ? section.title : undefined} changes={section.items} sql={section.sql} dangerous={dangerousStatement} />
         ))}
       </>
     );
@@ -98,7 +84,7 @@ export function PlanReview({ editor }: { editor: SchemaEditor }) {
       <div className="pane-body">{body}</div>
       <footer className="pane-footer">
         <Button variant="secondary" onClick={close}>{t("common.cancel")}</Button>
-        <Button variant={danger ? "danger" : "primary"} loading={apply.isPending} disabled={!planQuery.data || planQuery.isFetching || rowErrors > 0 || (empty && !editor.creating)} onClick={() => apply.mutate()}>
+        <Button variant={danger ? "danger" : "primary"} loading={apply.isPending} disabled={!planQuery.data || planQuery.isFetching || Boolean(editor.pending) || rowErrors > 0 || (empty && !editor.creating)} onClick={() => apply.mutate()}>
           {t("schema.apply")}
         </Button>
       </footer>

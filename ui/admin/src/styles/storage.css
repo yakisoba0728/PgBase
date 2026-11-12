@@ -43,59 +43,18 @@
   color: var(--text);
 }
 
-/* The running/finished backup job above the list. */
-.storage-job {
+.storage-schedule {
   display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  margin: var(--space-sm) var(--space-sm) var(--space-xs);
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--tone, var(--accent)), var(--surface) 90%);
-}
-
-.storage-job-text {
-  display: flex;
-  flex: 1;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 4px 12px;
-  min-width: 0;
+  margin: var(--space-sm) var(--space-sm) 0;
   font-size: var(--font-size-sm);
 }
 
-.storage-job-error {
-  flex-basis: 100%;
-  color: var(--tone);
-}
-
-.storage-progress {
-  width: 160px;
-  height: 6px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--surface-2);
-  accent-color: var(--accent);
-  appearance: none;
-  overflow: hidden;
-}
-
-.storage-progress::-webkit-progress-bar {
-  background: var(--surface-2);
-}
-
-.storage-progress::-webkit-progress-value {
-  background: var(--accent);
-}
-
-.storage-progress::-moz-progress-bar {
-  background: var(--accent);
-}
-
-.ops-props dd .storage-progress {
-  display: block;
-  width: 100%;
-  margin-top: 6px;
+/* The running/finished backup job above the list. */
+.storage-job {
+  margin: var(--space-sm) var(--space-sm) var(--space-xs);
 }
 
 .storage-steps {

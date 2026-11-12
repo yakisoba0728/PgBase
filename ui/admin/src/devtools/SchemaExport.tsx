@@ -1,9 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { RiDownloadLine, RiErrorWarningLine, RiFileCopyLine } from "@remixicon/react";
+import { RiDownloadLine, RiFileCopyLine } from "@remixicon/react";
 import { stringify } from "lossless-json";
-import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
-import { EmptyState, Loader } from "../components/Feedback";
+import { ErrorState, Loader } from "../components/Feedback";
 import { Checkbox } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
@@ -17,7 +16,7 @@ export function SchemaExport() {
   const { params, update } = useSearchState();
   const query = useQuery(exportQuery);
   if (query.isPending) return <Loader />;
-  if (query.isError) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, query.error)}</EmptyState>;
+  if (query.isError) return <ErrorState error={query.error} onRetry={query.refetch} />;
 
   const names = query.data.collections.map((collection) => collection.name);
   const skip = (params.get("skip") ?? "").split(",").filter((name) => names.includes(name));

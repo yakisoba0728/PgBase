@@ -1,11 +1,10 @@
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { RiCloseLine, RiErrorWarningLine, RiFileCopyLine, RiFilterLine } from "@remixicon/react";
+import { RiCloseLine, RiFilterLine } from "@remixicon/react";
 import { stringify } from "lossless-json";
-import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
-import { EmptyState, Loader } from "../components/Feedback";
-import { toast } from "../components/Toast";
+import { CodeBlock } from "../components/CodeBlock";
+import { ErrorState, Loader } from "../components/Feedback";
 import { useT } from "../i18n";
 import { statusTone } from "./format";
 import { logQuery, useTimeFormat } from "./queries";
@@ -23,11 +22,6 @@ export function LogDetail({ id, onClose, onFilterRoute }: LogDetailProps) {
   const query = useQuery(logQuery(id));
   const entry = query.data;
   const raw = entry ? stringify(entry, null, 2) ?? "" : "";
-  const copy = () =>
-    navigator.clipboard.writeText(raw).then(
-      () => toast(t("records.copied")),
-      () => toast(t("records.copyFailed"), "danger"),
-    );
   const rows: [string, ReactNode][] = entry
     ? [
         [t("ops.logs.time"), <>{time(entry.at, true)} <span className="txt-hint mono">{entry.at}</span></>],
@@ -43,14 +37,13 @@ export function LogDetail({ id, onClose, onFilterRoute }: LogDetailProps) {
     <>
       <header className="pane-header">
         <h2 className="pane-title mono">#{id}</h2>
-        {entry && <IconButton label={t("ops.logs.copyJson")} icon={RiFileCopyLine} onClick={copy} />}
         <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} />
       </header>
       <div className="pane-body">
         {query.isPending ? (
           <Loader />
         ) : query.isError ? (
-          <EmptyState icon={RiErrorWarningLine}>{errorText(t, query.error)}</EmptyState>
+          <ErrorState error={query.error} onRetry={query.refetch} />
         ) : (
           <>
             <dl className="ops-props">
@@ -62,7 +55,7 @@ export function LogDetail({ id, onClose, onFilterRoute }: LogDetailProps) {
               ))}
             </dl>
             <h3 className="ops-subtitle">{t("ops.logs.raw")}</h3>
-            <pre className="ops-code">{raw}</pre>
+            <CodeBlock label={t("ops.logs.raw")} text={raw} />
           </>
         )}
       </div>

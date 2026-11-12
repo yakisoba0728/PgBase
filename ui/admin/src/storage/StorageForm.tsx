@@ -1,12 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiErrorWarningLine, RiPlugLine } from "@remixicon/react";
+import { RiPlugLine } from "@remixicon/react";
 import type { BackupStorageSettings, FileStorageSettings, StorageDriver } from "../api/storage";
 import { testBackupStorage, testFileStorage, updateBackupStorageSettings, updateFileStorageSettings } from "../api/storage";
-import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
 import { SaveBar } from "../components/SaveBar";
-import { EmptyState, Loader } from "../components/Feedback";
+import { ErrorState, Loader } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
@@ -60,7 +59,7 @@ export function StorageSettingsForm({ kind }: { kind: "files" | "backups" }) {
   const t = useT();
   const query = useQuery(storageSettingsQuery(kind));
   if (query.isPending) return <Loader />;
-  if (query.isError) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, query.error)}</EmptyState>;
+  if (query.isError) return <ErrorState error={query.error} onRetry={query.refetch} />;
   // Keyed by revision: a save or reload starts a clean draft from the server copy.
   return <SettingsEditor key={query.data.revision} kind={kind} saved={query.data} />;
 }

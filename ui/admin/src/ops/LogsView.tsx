@@ -1,23 +1,37 @@
-import { useState, type FormEvent } from "react";
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { RiDeleteBinLine, RiErrorWarningLine, RiFileList3Line, RiRefreshLine, RiRouteLine } from "@remixicon/react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { RiDeleteBinLine, RiFileList3Line, RiRefreshLine, RiRouteLine } from "@remixicon/react";
 import { clearRequestLogs } from "../api/logs";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, Loader } from "../components/Feedback";
+import { EmptyState, ErrorState, Loader } from "../components/Feedback";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { statusTone } from "./format";
 import { LogDetail } from "./LogDetail";
 import { LogStats } from "./LogStats";
-import { logFilterFrom, logsKey, logsQuery, useTimeFormat } from "./queries";
+import { logFilterFrom, logsKey, logsQuery, logStatsQuery, useTimeFormat } from "./queries";
 import { useSearchState } from "../app/search";
 import "../styles/ops.css";
 
 const methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const filterKeys = ["status", "method", "route", "from", "to"];
+
+/** Calls `load` while the returned element is near the visible area (no observer in old engines: the button remains). */
+function useAutoLoad(enabled: boolean, load: () => void) {
+  const [element, setElement] = useState<HTMLElement | null>(null);
+  const latest = useRef(load);
+  latest.current = load;
+  useEffect(() => {
+    if (!element || !enabled || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => entries.some((entry) => entry.isIntersecting) && latest.current(), { rootMargin: "200px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element, enabled]);
+  return setElement;
+}
 
 /** Header actions: refresh and delete-all. */
 export function LogsActions() {
@@ -25,6 +39,7 @@ export function LogsActions() {
   const { update } = useSearchState();
   const queryClient = useQueryClient();
   const [confirm, setConfirm] = useState(false);
+  const stats = useQuery({ ...logStatsQuery, enabled: confirm });
   const clear = useMutation({
     mutationFn: clearRequestLogs,
     onSuccess: () => {
@@ -38,12 +53,13 @@ export function LogsActions() {
   });
   return (
     <>
-      <IconButton label={t("ops.refresh")} icon={RiRefreshLine} onClick={() => queryClient.invalidateQueries({ queryKey: logsKey })} />
+      {/* Back to the newest page; refetching every loaded page would cost one request each. */}
+      <IconButton label={t("ops.refresh")} icon={RiRefreshLine} onClick={() => queryClient.resetQueries({ queryKey: logsKey })} />
       <Button size="sm" variant="secondary" icon={RiDeleteBinLine} onClick={() => setConfirm(true)}>{t("ops.logs.clear")}</Button>
       <ConfirmDialog
         open={confirm}
         title={t("ops.logs.clearTitle")}
-        message={t("ops.logs.clearText")}
+        message={stats.data ? t("ops.logs.clearTextCount", { count: String(stats.data.total) }) : t("ops.logs.clearText")}
         confirmLabel={t("ops.logs.clearConfirm")}
         danger
         busy={clear.isPending}
@@ -61,7 +77,11 @@ export function LogsView() {
   const { params, update } = useSearchState();
   const filter = logFilterFrom(params);
   const logs = useInfiniteQuery(logsQuery(filter));
+  const queryClient = useQueryClient();
   const items = logs.data?.pages.flatMap((page) => page.items) ?? [];
+  // The window moved past the newest entries (see logWindowPages).
+  const shifted = logs.data !== undefined && logs.data.pageParams[0] !== undefined;
+  const sentinel = useAutoLoad(logs.hasNextPage && !logs.isFetchingNextPage, () => void logs.fetchNextPage());
   const entry = params.get("entry");
   const filtered = filterKeys.some((key) => params.has(key));
   const set = (key: string) => (value: string) => update({ [key]: value || null });
@@ -102,17 +122,26 @@ export function LogsView() {
           <input className="ops-control" type="datetime-local" step={1} value={params.get("to") ?? ""} onChange={(event) => set("to")(event.target.value)} />
         </label>
         {filtered && <Button size="sm" variant="transparent" onClick={() => update(Object.fromEntries(filterKeys.map((key) => [key, null])))}>{t("ops.clearFilters")}</Button>}
-        {logs.data && <span className="toolbar-count">{logs.hasNextPage ? t("ops.logs.loadedMore", { count: items.length }) : t("ops.logs.count", { count: items.length })}</span>}
+        {logs.data && <span className="toolbar-count">{logs.hasNextPage || shifted ? t("ops.logs.window", { count: items.length }) : t("ops.logs.count", { count: items.length })}</span>}
       </div>
       <div className="grid-scroll">
         {logs.isPending ? (
           <Loader />
         ) : logs.isError ? (
-          <EmptyState icon={RiErrorWarningLine}>{errorText(t, logs.error)}</EmptyState>
+          <ErrorState error={logs.error} onRetry={logs.refetch} />
         ) : items.length === 0 ? (
           <EmptyState icon={RiFileList3Line}>{filtered ? t("ops.logs.noMatch") : t("ops.logs.empty")}</EmptyState>
         ) : (
           <>
+            {shifted && (
+              <div className="ops-window">
+                <span>{t("ops.logs.shifted", { count: items.length })}</span>
+                <Button size="sm" variant="secondary" onClick={(event) => {
+                  event.currentTarget.closest(".grid-scroll")?.scrollTo(0, 0);
+                  void queryClient.resetQueries({ queryKey: logsQuery(filter).queryKey });
+                }}>{t("ops.logs.newest")}</Button>
+              </div>
+            )}
             <table className="grid ops-grid" aria-label={t("nav.logs")}>
               <thead>
                 <tr>
@@ -153,7 +182,7 @@ export function LogsView() {
               </tbody>
             </table>
             {logs.hasNextPage && (
-              <div className="grid-foot">
+              <div className="grid-foot" ref={sentinel}>
                 <Button size="sm" variant="secondary" loading={logs.isFetchingNextPage} onClick={() => logs.fetchNextPage()}>{t("records.loadMore")}</Button>
               </div>
             )}

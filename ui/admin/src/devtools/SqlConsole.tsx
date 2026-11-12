@@ -1,12 +1,13 @@
-import { useState, type KeyboardEvent } from "react";
+import { useState } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { RiErrorWarningLine, RiPlayLine, RiTerminalBoxLine } from "@remixicon/react";
+import { RiPlayLine, RiTerminalBoxLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { submitSql, type SqlExecutionPage, type SqlMode } from "../api/sql";
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, Loader } from "../components/Feedback";
+import { EmptyState, ErrorState, Loader } from "../components/Feedback";
+import { CodeArea } from "../components/CodeArea";
 import { Checkbox } from "../components/Field";
 import { Tabs } from "../components/Tabs";
 import { toast } from "../components/Toast";
@@ -38,7 +39,7 @@ export function SqlConsole() {
       </div>
     );
   }
-  if (history.isError) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, history.error)}</EmptyState>;
+  if (history.isError) return <ErrorState error={history.error} onRetry={history.refetch} />;
   const pages = history.data.pages;
   return <Workbench settings={pages[0]} executions={pages.flatMap((page) => page.executions)} more={history.hasNextPage ? () => history.fetchNextPage() : undefined} loadingMore={history.isFetchingNextPage} />;
 }
@@ -92,26 +93,20 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
     if (writing && !dryRun) setConfirm(true);
     else submit.mutate();
   };
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      start();
-    }
-  };
 
   return (
     <div className="dt-sql">
       <section className="dt-sql-main" aria-label={t("nav.sql")}>
         <div className="dt-editor-wrap" data-write={writing ? "" : undefined}>
-          <textarea
-            className="dt-code dt-sql-editor mono"
-            aria-label={t("devtools.sql.editor")}
+          <CodeArea
+            label={t("devtools.sql.editor")}
             placeholder="select id, created_at from app.posts limit 50"
-            spellCheck={false}
+            tone={writing ? "warning" : undefined}
             autoFocus
+            rows={7}
             value={sql}
             onChange={(event) => setSql(event.target.value)}
-            onKeyDown={onKeyDown}
+            onSubmit={start}
           />
           <div className="toolbar dt-sql-bar">
             {settings.writeEnabled && (

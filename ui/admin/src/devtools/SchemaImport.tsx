@@ -1,11 +1,14 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiAlertLine, RiFileUploadLine } from "@remixicon/react";
+import { RiFileUploadLine } from "@remixicon/react";
 import { ApiError, parseJson } from "../api/http";
 import { previewSchemaImport, type SchemaDocument } from "../api/schema";
 import { errorText } from "../app/queries";
 import { collectionsQuery } from "../collections/queries";
+import { trackOperation, untrackOperation, watchOperation } from "../app/operations";
 import { Button } from "../components/Button";
+import { ChangeList } from "../components/ChangeList";
+import { CodeArea } from "../components/CodeArea";
 import { EmptyState, Loader } from "../components/Feedback";
 import { Checkbox } from "../components/Field";
 import { toast } from "../components/Toast";
@@ -42,12 +45,22 @@ export function SchemaImport() {
   });
 
   const apply = useMutation({
-    mutationFn: (next: PendingImport) => {
+    mutationFn: async (next: PendingImport) => {
       writePending(next);
       setPending(next);
-      return runImport(next);
+      trackOperation({ kind: "import", id: next.identity.operationId, checksum: next.checksum });
+      const release = watchOperation(next.identity.operationId);
+      try {
+        return await runImport(next);
+      } catch (error) {
+        if (!(error instanceof Undecided) && !(error instanceof ApiError && error.code === "network_error")) untrackOperation(next.identity.operationId);
+        throw error;
+      } finally {
+        release();
+      }
     },
-    onSuccess: (result) => {
+    onSuccess: (result, next) => {
+      untrackOperation(next.identity.operationId);
       writePending(null);
       setPending(null);
       preview.reset();
@@ -149,32 +162,7 @@ export function SchemaImport() {
         )}
         {sections.length === 0 && <p className="dt-muted">{t("schema.planEmpty")}</p>}
         {sections.map((section) => (
-          <section key={section.name} className="schema-plan">
-            <h3 className="schema-plan-title mono">{section.name}</h3>
-            {section.items.length > 0 ? (
-              <ul className="schema-changes">
-                {section.items.map((item, position) => (
-                  <li key={position} data-kind={item.kind} data-danger={item.danger ? "" : undefined}>
-                    <span className="schema-change-kind">{t(`schema.kind.${item.kind}`)}</span>
-                    <span className="schema-change-target">{t(`schema.target.${item.target}`)}</span>
-                    <span className="mono">{item.kind === "rename" ? `${item.detail} → ${item.name}` : item.name}</span>
-                    {item.kind !== "rename" && item.detail && <span className="schema-change-detail mono">{item.detail}</span>}
-                    {item.danger && <RiAlertLine size={14} aria-label={t("schema.dataLoss")} />}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="dt-muted">{t("devtools.import.metadataOnly")}</p>
-            )}
-            {section.sql.length > 0 && (
-              <details className="schema-sql" open={section.danger}>
-                <summary>{t("schema.sql", { count: section.sql.length })}</summary>
-                {section.sql.map((statement, position) => (
-                  <pre key={position} className="mono" data-danger={dangerousStatement(statement) ? "" : undefined}>{statement}</pre>
-                ))}
-              </details>
-            )}
-          </section>
+          <ChangeList key={section.name} title={section.name} changes={section.items} sql={section.sql} dangerous={dangerousStatement} emptyText={t("devtools.import.metadataOnly")} />
         ))}
       </>
     );
@@ -194,14 +182,7 @@ export function SchemaImport() {
             <Button size="sm" variant="secondary" disabled={!text.trim()} loading={preview.isPending} onClick={runPreview}>{t("devtools.import.preview")}</Button>
           </div>
         </div>
-        <textarea
-          className="dt-code dt-editor mono"
-          aria-label={t("devtools.import.document")}
-          placeholder={t("devtools.import.placeholder")}
-          spellCheck={false}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-        />
+        <CodeArea fill label={t("devtools.import.document")} placeholder={t("devtools.import.placeholder")} value={text} onChange={(event) => setText(event.target.value)} onSubmit={() => text.trim() && runPreview()} />
       </section>
       <section className="dt-plan" aria-label={t("devtools.import.plan")}>
         <header className="pane-header">
