@@ -1,4 +1,5 @@
 import { opsEn } from "./parts/ops.en";
+import { storageEn } from "./parts/storage.en";
 
 import { rulesEn } from "./parts/rules.en";
 import { authEn } from "./parts/auth.en";
@@ -367,4 +368,5 @@ export const en = {
   ...opsEn,
   ...rulesEn,
   ...authEn,
+  ...storageEn,
 };
