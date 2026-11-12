@@ -22,6 +22,7 @@ import {
 import type { CollectionField, FieldType, IndexKey } from "../api/collections";
 import { IconButton } from "../components/Button";
 import { Dropdown, DropdownItem } from "../components/Popover";
+import { ApiError } from "../api/http";
 import { en } from "../i18n/en";
 import { useT, type MessageKey, type Translate } from "../i18n";
 import { fieldTypes, rowState, type DraftField, type DraftIndex } from "./draft";
@@ -54,6 +55,19 @@ export function describeErrors(t: Translate, entries: string[]): string {
       return prefix + (key in en ? t(key as MessageKey) : code.replaceAll("_", " "));
     })
     .join(" · ");
+}
+
+/** An `invalid_view_sql` rejection: the server's reason, then PostgreSQL's own message and 1-based position when analysis failed. */
+export function viewSqlProblem(t: Translate, error: unknown): string | undefined {
+  if (!(error instanceof ApiError) || error.code !== "invalid_view_sql") return undefined;
+  const details = (error.details ?? {}) as Record<string, string[] | undefined>;
+  const first = (suffix: string) => details[`view.sql${suffix}`]?.[0];
+  const reason = first("") ?? "invalid";
+  const key = `schema.viewSql.${reason}`;
+  const position = first(".position");
+  return [key in en ? t(key as MessageKey) : reason.replaceAll("_", " "), first(".message"), position && t("schema.viewSql.position", { position }), first(".column") ?? first(".relation")]
+    .filter(Boolean)
+    .join(" — ");
 }
 
 const flagNames = ["required", "unique", "indexed", "hidden", "presentable"] as const;

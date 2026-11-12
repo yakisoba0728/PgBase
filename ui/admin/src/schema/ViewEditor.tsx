@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { RiAddLine, RiCloseLine, RiPlayLine } from "@remixicon/react";
 import { sampleView, type Collection, type FieldType } from "../api/collections";
-import { ApiError, stringifyJson } from "../api/http";
+import { stringifyJson } from "../api/http";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
 import { CodeArea } from "../components/CodeArea";
@@ -11,16 +11,11 @@ import { Checkbox, Field } from "../components/Field";
 import { Tabs } from "../components/Tabs";
 import { useT } from "../i18n";
 import { compareOps, filterable, filterFromRows, filterRows, projectable, type DeclarativeView, type FilterRow } from "./draft";
-import { describeErrors, Section } from "./SchemaRows";
+import { describeErrors, Section, viewSqlProblem } from "./SchemaRows";
 import type { SchemaEditor } from "./useSchemaEditor";
 
-// shortcut: the sample endpoint sends uuid columns as 16-byte arrays; shown as a uuid until the server encodes them.
 function sampleText(value: unknown): string | null {
   if (value === null || value === undefined) return null;
-  if (Array.isArray(value) && value.length === 16 && value.every((byte) => typeof byte === "number")) {
-    const hex = value.map((byte: number) => byte.toString(16).padStart(2, "0")).join("");
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  }
   return typeof value === "object" ? stringifyJson(value) : String(value);
 }
 
@@ -29,15 +24,16 @@ function SqlView({ editor }: { editor: SchemaEditor }) {
   const sample = useMutation({ mutationFn: (query: string) => sampleView(query) });
   const query = editor.draft.viewQuery;
   const columns = sample.data ? ["id", ...sample.data.fields.map((field) => field.Name).filter((name) => name !== "id")] : [];
-  const sampleError = sample.error instanceof ApiError && sample.error.code === "schema_conflict" ? t("schema.sampleRejected") : sample.error && errorText(t, sample.error);
-  const planError = editor.errors.collection.viewQuery ?? editor.errors.collection.view;
+  const sampleError = sample.error && (viewSqlProblem(t, sample.error) ?? errorText(t, sample.error));
+  const planCodes = editor.errors.collection.viewQuery ?? editor.errors.collection.view;
+  const planError = viewSqlProblem(t, editor.planQuery.error) ?? (planCodes && describeErrors(t, planCodes));
   const run = () => query.trim() && sample.mutate(query);
   return (
     <>
       <div className="field-wrap">
         <CodeArea label={t("schema.sqlLabel")} rows={8} maxLength={5000} placeholder="select id, title from app.posts where published" value={query} onChange={(event) => editor.setMeta({ viewQuery: event.target.value })} onSubmit={run} />
         <p className={sampleError || planError ? "field-error" : "field-hint"} role={sampleError || planError ? "alert" : undefined}>
-          {sampleError || (planError && describeErrors(t, planError)) || t("schema.sqlHint")}
+          {sampleError || planError || t("schema.sqlHint")}
         </p>
       </div>
       <div className="schema-sample-bar">
