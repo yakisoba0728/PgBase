@@ -417,6 +417,8 @@ final class PgBaseAdminClient {
     body: JsonObject({'active': JsonBool(active)}),
     cancellation: cancellation,
   );
+  /// Replaces another administrator's password; the server refuses your own
+  /// ID (409), which needs PATCH /api/admin/profile with the current password.
   Future<void> setAdministratorPassword(
     String id,
     String newPassword, {

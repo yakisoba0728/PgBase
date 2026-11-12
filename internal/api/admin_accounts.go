@@ -165,7 +165,7 @@ func writeAdminAccountError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, adminauth.ErrAdministratorNotFound):
 		value = APIError{Status: 404, Code: "administrator_not_found", Message: "Administrator account not found"}
 	case errors.Is(err, adminauth.ErrConflict):
-		value = APIError{Status: 409, Code: "administrator_conflict", Message: "Administrator email is in use or the change would disable the current or last active administrator"}
+		value = APIError{Status: 409, Code: "administrator_conflict", Message: "Administrator email is in use, the change would disable the current or last active administrator, or it would replace your own password without the current one"}
 	case errors.Is(err, adminauth.ErrInvalidCredentials):
 		value = APIError{Status: 401, Code: "authentication_required", Message: "Administrator authentication is required"}
 	case errors.Is(err, adminauth.ErrRateLimited):

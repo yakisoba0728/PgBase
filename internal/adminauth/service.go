@@ -289,39 +289,10 @@ func (s *Service) login(ctx context.Context, email, password, subject, otpCode s
 	}
 	now := s.clock.Now()
 	policy := s.currentRatePolicy()
-	emailBucket := rateLimitBucket{
-		hash:           rateLimitSubjectHash(s.tokenSecret, "login", "account", normalizedEmail),
-		clearOnSuccess: true,
-	}
-	networkBucket := rateLimitBucket{
-		hash:  rateLimitSubjectHash(s.tokenSecret, "login", "network", subject),
-		limit: policy.NetworkMaxFailures, window: policy.Window, block: policy.Block,
-	}
-	if err := s.admitRateLimit(ctx, []rateLimitBucket{networkBucket}, now); err != nil {
-		return Session{}, err
-	}
-	traceLogin(ctx, loginStageNetworkAdmission)
-	failures, err := s.loginFailureCount(ctx, emailBucket.hash, now, policy.Window)
+	candidate, buckets, err := s.checkPasswordAttempt(ctx, normalizedEmail, normalizationErr, password, subject, now, policy)
 	if err != nil {
 		return Session{}, err
 	}
-	traceLogin(ctx, loginStageFailureSignalRead)
-	if err := waitLoginFailureDelay(ctx, failures, policy.AccountMaxFailures); err != nil {
-		return Session{}, err
-	}
-	candidate, valid, err := s.verifyLoginCandidate(ctx, normalizedEmail, normalizationErr, password)
-	if err != nil {
-		return Session{}, err
-	}
-	if !valid {
-		if err := s.recordLoginFailure(ctx, emailBucket.hash, now, policy.Window); err != nil {
-			return Session{}, err
-		}
-		traceLogin(ctx, loginStageFailureRecorded)
-		return Session{}, ErrInvalidCredentials
-	}
-
-	buckets := []rateLimitBucket{emailBucket, networkBucket}
 	var issued Session
 	var operationErr error
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
@@ -381,7 +352,7 @@ func (s *Service) login(ctx context.Context, email, password, subject, otpCode s
 	}
 	if operationErr != nil {
 		if errors.Is(operationErr, ErrInvalidCredentials) {
-			if err := s.recordLoginFailure(ctx, emailBucket.hash, now, policy.Window); err != nil {
+			if err := s.recordLoginFailure(ctx, buckets[0].hash, now, policy.Window); err != nil {
 				return Session{}, err
 			}
 			traceLogin(ctx, loginStageFailureRecorded)
@@ -389,6 +360,40 @@ func (s *Service) login(ctx context.Context, email, password, subject, otpCode s
 		return Session{}, operationErr
 	}
 	return issued, nil
+}
+
+// checkPasswordAttempt runs one password attempt through the login limiter:
+// the network bucket gates admission and a failure is recorded against the
+// account. The returned buckets are cleared by the caller on success.
+func (s *Service) checkPasswordAttempt(ctx context.Context, email string, emailErr error, password, subject string, now time.Time, policy RatePolicy) (loginCandidate, []rateLimitBucket, error) {
+	buckets := []rateLimitBucket{
+		{hash: rateLimitSubjectHash(s.tokenSecret, "login", "account", email), clearOnSuccess: true},
+		{hash: rateLimitSubjectHash(s.tokenSecret, "login", "network", subject), limit: policy.NetworkMaxFailures, window: policy.Window, block: policy.Block},
+	}
+	if err := s.admitRateLimit(ctx, buckets[1:], now); err != nil {
+		return loginCandidate{}, nil, err
+	}
+	traceLogin(ctx, loginStageNetworkAdmission)
+	failures, err := s.loginFailureCount(ctx, buckets[0].hash, now, policy.Window)
+	if err != nil {
+		return loginCandidate{}, nil, err
+	}
+	traceLogin(ctx, loginStageFailureSignalRead)
+	if err := waitLoginFailureDelay(ctx, failures, policy.AccountMaxFailures); err != nil {
+		return loginCandidate{}, nil, err
+	}
+	candidate, valid, err := s.verifyLoginCandidate(ctx, email, emailErr, password)
+	if err != nil {
+		return loginCandidate{}, nil, err
+	}
+	if !valid {
+		if err := s.recordLoginFailure(ctx, buckets[0].hash, now, policy.Window); err != nil {
+			return loginCandidate{}, nil, err
+		}
+		traceLogin(ctx, loginStageFailureRecorded)
+		return loginCandidate{}, nil, ErrInvalidCredentials
+	}
+	return candidate, buckets, nil
 }
 
 // Authenticate resolves a raw session token without persisting the raw material.

@@ -81,14 +81,7 @@ func TestAdministratorSelfProfileAndIPAllowlistRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := NewService(pool, NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), "", time.Hour, &fakeClock{now: now.Add(time.Minute)})
-	updated, err := service.UpdateAdministratorEmail(ctx, admin.ID, " New@Example.com ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if updated.Email != "new@example.com" || !updated.UpdatedAt.Equal(now.Add(time.Minute)) {
-		t.Fatalf("updated profile = %#v", updated)
-	}
-	prefixes, err := service.ReplaceAdministratorIPPrefixes(ctx, admin.ID, []string{"2001:db8::/64", "192.0.2.0/24", "192.0.2.0/24"})
+	prefixes, err := service.ReplaceAdministratorIPPrefixes(ctx, admin.ID, "192.0.2.7", []string{"2001:db8::/64", "192.0.2.0/24", "192.0.2.0/24"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,8 +92,88 @@ func TestAdministratorSelfProfileAndIPAllowlistRoundTrip(t *testing.T) {
 	if err != nil || fmt.Sprint(stored) != fmt.Sprint(prefixes) {
 		t.Fatalf("stored prefixes = %v, err=%v", stored, err)
 	}
-	if _, err := service.ReplaceAdministratorIPPrefixes(ctx, admin.ID, []string{"0.0.0.0/0"}); !errors.Is(err, ErrValidation) {
+	if _, err := service.ReplaceAdministratorIPPrefixes(ctx, admin.ID, "192.0.2.7", []string{"0.0.0.0/0"}); !errors.Is(err, ErrValidation) {
 		t.Fatalf("broad prefix error = %v", err)
+	}
+	for _, tc := range []struct {
+		address  string
+		prefixes []string
+		allowed  bool
+	}{
+		{"2001:db8::9", []string{"2001:db8::/64"}, true},
+		{"2001:db8:1::9", []string{"2001:db8::/64"}, false},
+		{"198.51.100.4", []string{"198.51.100.4/32"}, true},
+		{"198.51.100.5", []string{"198.51.100.4/32", "203.0.113.0/24"}, false},
+		{"unknown", []string{"198.51.100.0/24"}, false},
+		{"unknown", []string{}, true},
+	} {
+		_, err := service.ReplaceAdministratorIPPrefixes(ctx, admin.ID, tc.address, tc.prefixes)
+		if tc.allowed != (err == nil) || (!tc.allowed && !errors.Is(err, ErrIPRestricted)) {
+			t.Fatalf("replace %v from %s error = %v", tc.prefixes, tc.address, err)
+		}
+	}
+	// A refused list leaves the stored one untouched; clearing always works.
+	if stored, err := service.AdministratorIPPrefixes(ctx, admin.ID); err != nil || len(stored) != 0 {
+		t.Fatalf("stored after clearing = %v, err=%v", stored, err)
+	}
+}
+
+func TestAdministratorCredentialChangeRequiresCurrentPassword(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	ctx := context.Background()
+	clock := &fakeClock{now: time.Date(2026, 9, 10, 5, 6, 7, 0, time.UTC)}
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	service := NewService(pool, NewArgon2idPasswords(), secret, "setup-token-012345678901234567890", time.Hour, clock)
+	session, err := service.Setup(ctx, "setup-token-012345678901234567890", "admin@example.test", "correct horse battery staple", "192.0.2.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := session.Administrator.ID
+	if err := service.ConfigureRatePolicy(RatePolicy{AccountMaxFailures: 5, NetworkMaxFailures: 2, Window: time.Hour, Block: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.UpdateAdministratorCredentials(ctx, id, "192.0.2.10", "correct horse battery staple", "", ""); !errors.Is(err, ErrValidation) {
+		t.Fatalf("empty change error = %v", err)
+	}
+	if _, err := service.UpdateAdministratorCredentials(ctx, id, "192.0.2.10", "correct horse battery staple", "", "short"); !errors.Is(err, ErrValidation) {
+		t.Fatalf("weak password error = %v", err)
+	}
+	for _, current := range []string{"", "incorrect horse battery staple"} {
+		if _, err := service.UpdateAdministratorCredentials(ctx, id, "192.0.2.10", current, "", "replacement battery staple"); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("current %q error = %v", current, err)
+		}
+	}
+	// The failures count against the login network limiter.
+	if _, err := service.UpdateAdministratorCredentials(ctx, id, "192.0.2.10", "correct horse battery staple", "new@example.test", ""); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("limited change error = %v", err)
+	}
+	if _, err := service.Login(ctx, "admin@example.test", "correct horse battery staple", "192.0.2.10"); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("login from limited network error = %v", err)
+	}
+	if _, err := service.Login(ctx, "admin@example.test", "replacement battery staple", "192.0.2.11"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("refused change replaced the password: %v", err)
+	}
+	other, err := service.Login(ctx, "admin@example.test", "correct horse battery staple", "192.0.2.12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.UpdateAdministratorCredentials(ctx, id, "192.0.2.13", "correct horse battery staple", " New@Example.test ", "")
+	if err != nil || updated.Email != "new@example.test" || !updated.UpdatedAt.Equal(clock.now) {
+		t.Fatalf("email change = %#v, err=%v", updated, err)
+	}
+	if _, err := service.Authenticate(ctx, session.RawToken); err != nil {
+		t.Fatalf("email change revoked the session: %v", err)
+	}
+	if _, err := service.UpdateAdministratorCredentials(ctx, id, "192.0.2.13", "correct horse battery staple", "", "replacement battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{session.RawToken, other.RawToken} {
+		if _, err := service.Authenticate(ctx, raw); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("password change kept a session: %v", err)
+		}
+	}
+	if _, err := service.Login(ctx, "new@example.test", "replacement battery staple", "192.0.2.14"); err != nil {
+		t.Fatalf("login with the new password: %v", err)
 	}
 }
 

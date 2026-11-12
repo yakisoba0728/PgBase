@@ -191,6 +191,7 @@ export class PgBaseAdminClient {
   setAdministratorActive(id: string, active: boolean, signal?: AbortSignal): Promise<AdministratorAccount> {
     return this.request(`/api/admin/administrators/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ active }) }, signal);
   }
+  /** Replaces another administrator's password; the server refuses your own ID (409), which needs PATCH /api/admin/profile with the current password. */
   async setAdministratorPassword(id: string, newPassword: string, signal?: AbortSignal): Promise<void> {
     await this.request(`/api/admin/administrators/${encodeURIComponent(id)}/password-reset`, { method: "POST", body: JSON.stringify({ newPassword }) }, signal);
   }

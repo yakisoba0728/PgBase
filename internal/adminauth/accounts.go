@@ -118,6 +118,10 @@ func (s *Service) SetAdministratorPassword(ctx context.Context, actor, target uu
 	if err := s.ready(); err != nil {
 		return err
 	}
+	if actor == target {
+		// Changing one's own password requires the current one (UpdateAdministratorCredentials).
+		return ErrConflict
+	}
 	hash, err := s.hashPassword(ctx, password)
 	if err != nil {
 		return err

@@ -1412,7 +1412,8 @@
             "adminCookie": []
           }
         ],
-        "x-pgbase-csrf-required": true
+        "x-pgbase-csrf-required": true,
+        "x-pgbase-maximum-request-bytes": 16384
       }
     },
     "/api/admin/profile/ip-allowlist": {
