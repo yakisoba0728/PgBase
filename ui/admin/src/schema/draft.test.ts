@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Collection, PlannedCollection } from "../api/collections";
-import { buildChange, dangerousStatement, diffPlan, draftFromCollection, DraftInvalid, emptyDraft, filterFromRows, filterRows, indexInput, mapErrors, pruneOptions, rawIndexTemplate } from "./draft";
+import { buildChange, dangerousStatement, diffPlan, draftFromCollection, DraftInvalid, emptyDraft, filterFromRows, filterRows, indexInput, mapErrors, pruneOptions, rawIndexTemplate, rebaseDraft } from "./draft";
 
 const field = (id: string, name: string, type: Collection["fields"][number]["type"], extra: Partial<Collection["fields"][number]> = {}) => ({
   id, name, columnName: name, type, required: false, unique: false, indexed: false, ordinal: 0, hidden: false, presentable: false, ...extra,
@@ -145,5 +145,41 @@ describe("views and index authoring", () => {
       'CREATE UNIQUE INDEX by_title ON app.posts (title COLLATE "C", (lower(slug)) DESC) WHERE published',
     );
     expect(rawIndexTemplate({ name: "Idx", unique: false, fields: ["a"] }, "my posts")).toBe('CREATE INDEX "Idx" ON app."my posts" (a)');
+  });
+});
+
+describe("rebaseDraft", () => {
+  const base = draftFromCollection(posts, [authors, posts]);
+  // Another administrator added "price" and made "cover" required.
+  const latestCollection: Collection = { ...posts, fields: [...posts.fields.map((f) => (f.id === "f3" ? { ...f, required: true } : f)), field("f4", "price", "numeric")] };
+  const latest = draftFromCollection(latestCollection, [authors, latestCollection]);
+
+  it("keeps the other administrator's new field and flag while replaying this draft's edit", () => {
+    const draft = { ...base, fields: base.fields.map((f) => (f.key === "f1" ? { ...f, help: "Shown on cards" } : f)) };
+    const result = rebaseDraft(draft, base, latest);
+    expect(result.conflicts).toEqual([]);
+    expect(result.draft.fields.map((f) => f.name)).toEqual(["title", "author", "cover", "price"]);
+    expect(result.draft.fields.find((f) => f.key === "f1")?.help).toBe("Shown on cards");
+    expect(result.draft.fields.find((f) => f.key === "f3")?.required).toBe(true);
+    // The rebased change no longer drops "price".
+    const { change } = buildChange(result.draft, latestCollection, latest);
+    if (change.operation !== "update") throw new Error("expected update");
+    expect(change.fields?.map((f) => f.name)).toContain("price");
+  });
+
+  it("keeps a local removal and a local addition, and reports edits both sides made", () => {
+    const added = { ...base.fields[0], key: "new1", id: undefined, name: "subtitle" };
+    const draft = { ...base, fields: [base.fields[0], { ...base.fields[2], required: false, help: "mine" }, added] };
+    const result = rebaseDraft(draft, base, latest);
+    expect(result.draft.fields.map((f) => f.name)).toEqual(["title", "cover", "price", "subtitle"]);
+    expect(result.conflicts).toEqual(["cover"]);
+    expect(result.draft.fields.find((f) => f.key === "f3")?.required).toBe(true);
+  });
+
+  it("restores a field removed here but changed there, as a conflict", () => {
+    const draft = { ...base, fields: base.fields.filter((f) => f.key !== "f3") };
+    const result = rebaseDraft(draft, base, latest);
+    expect(result.draft.fields.map((f) => f.name)).toEqual(["title", "author", "cover", "price"]);
+    expect(result.conflicts).toEqual(["cover"]);
   });
 });

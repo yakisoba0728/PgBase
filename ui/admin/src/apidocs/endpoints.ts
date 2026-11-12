@@ -39,10 +39,12 @@ function exampleValue(field: CollectionField): unknown {
     case "editor":
       return "<p>Hello</p>";
     case "integer":
-    case "bigint":
       return options.min !== undefined ? Number(options.min) : 1;
+    // bigint and numeric travel as exact JSON strings (internal/query/codec.go).
+    case "bigint":
+      return options.min ?? "1";
     case "numeric":
-      return options.min !== undefined ? Number(options.min) : 1.5;
+      return options.min ?? "1.5";
     case "boolean":
       return true;
     case "timestamptz":

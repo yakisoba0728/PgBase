@@ -64,10 +64,42 @@ export const recordQuery = (collection: string, id: string, expand = "") =>
     refetchOnReconnect: false,
   });
 
+// shortcut: per-row file requests share one small pool instead of a per-page file endpoint;
+// upgrade when the server lists a page's files (or mints tokens) in one request.
+let free = 4;
+const waiting: (() => void)[] = [];
+
+/** Runs `task` once one of the pool's slots is free; a query cancelled while queued never runs. */
+export async function pooled<T>(signal: AbortSignal | undefined, task: () => Promise<T>): Promise<T> {
+  signal?.throwIfAborted();
+  if (free > 0) free--;
+  else {
+    await new Promise<void>((resolve, reject) => {
+      const start = () => {
+        signal?.removeEventListener("abort", cancel);
+        resolve();
+      };
+      const cancel = () => {
+        waiting.splice(waiting.indexOf(start), 1);
+        reject(signal!.reason);
+      };
+      waiting.push(start);
+      signal?.addEventListener("abort", cancel, { once: true });
+    });
+  }
+  try {
+    return await task();
+  } finally {
+    const next = waiting.shift();
+    if (next) next();
+    else free++;
+  }
+}
+
 export const recordFilesQuery = (collection: string, id: string, field: string) =>
   queryOptions({
     queryKey: ["records", collection, "files", id, field],
-    queryFn: ({ signal }) => listRecordFiles(collection, id, field, signal),
+    queryFn: ({ signal }) => pooled(signal, () => listRecordFiles(collection, id, field, signal)),
     staleTime: 60_000,
   });
 
@@ -75,10 +107,10 @@ export const recordFilesQuery = (collection: string, id: string, field: string) 
 export const fileUrlQuery = (file: StoredFile, variant: "original" | "thumbnail") =>
   queryOptions({
     queryKey: ["file-url", file.id, variant],
-    queryFn: async () =>
-      !file.protected && file.publicUrl ? publicFileURL(file.id, variant === "original" ? undefined : variant) : fileURL(file.id, await mintFileToken(file.id, variant), variant),
-    // Token lifetime is a server setting (at most 15 minutes, possibly far less): reuse briefly,
-    // and FileThumb re-mints when an image fails to load.
-    staleTime: 60_000,
-    gcTime: 2 * 60_000,
+    queryFn: async ({ signal }) =>
+      !file.protected && file.publicUrl ? publicFileURL(file.id, variant === "original" ? undefined : variant) : fileURL(file.id, await pooled(signal, () => mintFileToken(file.id, variant)), variant),
+    // Token lifetime is a server setting (at most 15 minutes, possibly far less). Grid thumbnails
+    // reuse theirs briefly (FileThumb re-mints when an image fails); a preview or download mints on every open.
+    staleTime: variant === "original" ? 0 : 60_000,
+    gcTime: variant === "original" ? 0 : 2 * 60_000,
   });

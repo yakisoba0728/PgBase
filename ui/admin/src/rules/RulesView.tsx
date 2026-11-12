@@ -7,7 +7,7 @@ import { stringifyJson } from "../api/http";
 import type { Collection } from "../api/collections";
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
-import { EmptyState, Loader } from "../components/Feedback";
+import { EmptyState, Loader, Notice } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { SaveBar } from "../components/SaveBar";
 import { SplitView } from "../components/SplitView";
@@ -138,8 +138,14 @@ function Reference({ editor }: { editor: RulesEditor }) {
 export function RulesView({ collection, basePath }: { collection: Collection; basePath: string }) {
   const t = useT();
   const editor = useRulesEditor(collection, basePath);
+  // Shown even when the rules no longer load: the server may still hold the half-saved state.
+  const partial = editor.partial.length > 0 && (
+    <Notice tone="danger" title={t("rules.partialTitle")} actions={<Button size="sm" variant="secondary" loading={editor.finish.isPending} onClick={() => editor.finish.mutate()}>{t("common.retry")}</Button>}>
+      {t("rules.partialText", { actions: editor.partial.join(", ") })}
+    </Notice>
+  );
   if (editor.loading) return <Loader />;
-  if (editor.loadError || !editor.drafts) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, editor.loadError)}</EmptyState>;
+  if (editor.loadError || !editor.drafts) return <div className="page-content">{partial}<EmptyState icon={RiErrorWarningLine}>{errorText(t, editor.loadError)}</EmptyState></div>;
   const isView = collection.type === "view";
   const list = (
     <>
@@ -148,6 +154,7 @@ export function RulesView({ collection, basePath }: { collection: Collection; ba
       </div>
       <div className="page-content rules-layout">
         <div className="rules-main">
+          {partial}
           <section className="rules-section">
             <h2>{t("rules.accessTitle")}</h2>
             <Checkbox label={t("rules.accessLabel")} checked={editor.accessEnabled} onChange={(event) => editor.setAccess(event.target.checked)} />

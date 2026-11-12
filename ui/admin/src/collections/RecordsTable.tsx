@@ -3,7 +3,7 @@ import { RiArrowDownLine, RiArrowUpLine } from "@remixicon/react";
 import type { Collection, CollectionField } from "../api/collections";
 import type { RecordData } from "../api/records";
 import { CopyButton } from "../components/CopyButton";
-import { useVirtualRows } from "../components/virtualRows";
+import { useVirtualRows, visibleRange } from "../components/virtualRows";
 import { useT } from "../i18n";
 import { fieldKind } from "./fields";
 import { columnWidth, RecordCell, type OnPeek } from "./RecordCell";
@@ -41,7 +41,8 @@ export function RecordsTable({ collection, catalog, columns, records, sort, onSo
   const rows = useVirtualRows(scroller, records.length, rowHeight);
   const checkedCount = records.filter((record) => selected.has(record.id)).length;
   const [focus, setFocus] = useState(0);
-  const anchor = useRef<number | null>(null);
+  // The record last checked, by id: a sort, filter or prepend moves rows, so an index would anchor elsewhere.
+  const anchor = useRef<string | null>(null);
   const focusPending = useRef(false);
   const tbody = useRef<HTMLTableSectionElement>(null);
   const width = checkWidth + idWidth + columns.reduce((sum, name) => sum + columnWidth(byName.get(name)), 0);
@@ -85,11 +86,10 @@ export function RecordsTable({ collection, catalog, columns, records, sort, onSo
   };
 
   const onCheck = (index: number, checked: boolean, shift: boolean) => {
-    if (shift && anchor.current !== null) {
-      const [from, to] = [Math.min(anchor.current, index), Math.max(anchor.current, index)];
-      onSelect(records.slice(from, to + 1).map((record) => record.id), checked);
-    } else onSelect([records[index].id], checked);
-    anchor.current = index;
+    const from = shift && anchor.current !== null ? records.findIndex((record) => record.id === anchor.current) : -1;
+    if (from >= 0) onSelect(records.slice(Math.min(from, index), Math.max(from, index) + 1).map((record) => record.id), checked);
+    else onSelect([records[index].id], checked);
+    anchor.current = records[index].id;
   };
 
   // Rows are memoised; they get stable handlers that always call the latest closures.
@@ -111,7 +111,12 @@ export function RecordsTable({ collection, catalog, columns, records, sort, onSo
   };
   const ariaSort = (name: string) => (sort === name ? "ascending" : sort === `-${name}` ? "descending" : undefined);
   const visible = records.slice(rows.start, rows.end);
+  // Per-row requests go to the rows on screen once scrolling stops, not to the overscan.
+  const screen = !rows.scrolling && scroller.current ? visibleRange(scroller.current.scrollTop, scroller.current.clientHeight, rowHeight, records.length, 0) : { start: 0, end: 0 };
   const span = columns.length + 2;
+  // The roving tab stop: the focused row, or the first rendered one once that row has scrolled out.
+  const focusRow = Math.min(focus, records.length - 1);
+  const tabStop = focusRow >= rows.start && focusRow < rows.end ? focusRow : rows.start;
 
   return (
     <table className="grid records-grid" aria-label={collection.name} aria-rowcount={records.length + 1} style={{ width }}>
@@ -166,8 +171,8 @@ export function RecordsTable({ collection, catalog, columns, records, sort, onSo
               byName={byName}
               current={record.id === openId}
               checked={selected.has(record.id)}
-              focusable={index === Math.min(focus, records.length - 1)}
-              settled={!rows.scrolling}
+              focusable={index === tabStop}
+              settled={index >= screen.start && index < screen.end}
               onOpen={onOpen}
               onCheck={stableCheck}
               onKey={stableKey}

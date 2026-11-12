@@ -23,6 +23,11 @@ describe("api reference", () => {
     expect(Object.keys(record)).toEqual(["id", "title", "count", "stamp", "created_at", "updated_at"]);
   });
 
+  it("keeps bigint and numeric bounds exact, as JSON strings", () => {
+    const big: Collection = { ...notes, fields: [field("n", "bigint", { options: { min: "-9223372036854775808" } }), field("d", "numeric")] };
+    expect(requestBody(big)).toEqual({ n: "-9223372036854775808", d: "1.5" });
+  });
+
   it("lists routes by collection type", () => {
     expect(buildEndpoints(notes, "guest").map((endpoint) => endpoint.id)).toEqual(["list", "view", "create", "update", "delete", "batch", "files-photo", "realtime"]);
     expect(buildEndpoints({ ...notes, type: "view" }, "user").map((endpoint) => endpoint.id)).toEqual(["list", "view", "realtime"]);

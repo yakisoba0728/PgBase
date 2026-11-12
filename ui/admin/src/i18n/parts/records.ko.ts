@@ -40,6 +40,10 @@ export const recordsKo: Record<keyof typeof recordsEn, string> = {
 
   "editor.toolbar": "{field} 서식",
   "editor.source": "HTML 소스 편집",
+  "editor.lossyTitle": "이 HTML에는 시각 편집기가 유지할 수 없는 마크업이 있습니다",
+  "editor.lossyText": "잃는 내용이 없도록 HTML 소스로 열었습니다. 시각 편집기는 첫 편집 때 지원하지 않는 태그, 속성, 스타일을 지웁니다.",
+  "editor.lossyVisual": "그래도 시각 편집기 사용",
+  "editor.lossyVisualText": "여기서 처음 편집하면 저장된 HTML이 시각 편집기가 지원하는 형태로 바뀌고, 지원하지 않는 마크업은 지워집니다.",
   "editor.bold": "굵게",
   "editor.italic": "기울임",
   "editor.underline": "밑줄",
