@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CollectionRules } from "../api/collections";
-import { draftFromRule, draftsFromRules, emptyExpressions, insertAt, planSave, visibleActions, type RuleDrafts } from "./model";
+import { draftFromRule, draftsFromRules, emptyExpressions, insertAt, planSave, rejectedRules, visibleActions, type RuleDrafts } from "./model";
 
 const owner = { op: "owner" } as const;
 const parsed = { op: "eq", field: "published", value: true, pocketbase: "published = true" } as const;
@@ -48,5 +48,13 @@ describe("rule drafts", () => {
   it("inserts tokens with a separating space", () => {
     expect(insertAt("title =", 7, 7, "@now")).toEqual({ value: "title = @now", caret: 12 });
     expect(insertAt("", 0, 0, "title")).toEqual({ value: "title", caret: 5 });
+  });
+
+  it("reads which rule the server rejected and where", () => {
+    expect(rejectedRules({ "rules.update": ["invalid_syntax"], "rules.update.position": ["15"], "rules.list": ["invalid_rule"] })).toEqual({
+      list: { reason: "invalid_rule", position: undefined },
+      update: { reason: "invalid_syntax", position: "15" },
+    });
+    expect(rejectedRules(undefined)).toEqual({});
   });
 });

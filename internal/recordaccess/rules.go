@@ -95,6 +95,9 @@ func ValidateRules(catalog schema.Catalog, collection schema.Collection, rules a
 		if _, _, err := compileRecordRule(catalog, collection, rule, principal, ruleCompileOptions{
 			request: request, prospectiveOwner: action == "create", requestFallback: request != nil,
 		}); err != nil {
+			if errors.Is(err, accessrule.ErrInvalid) {
+				return accessrule.ActionError(action, "invalid_rule", err)
+			}
 			return err
 		}
 	}

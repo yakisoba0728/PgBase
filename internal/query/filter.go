@@ -91,18 +91,24 @@ type filterParser struct {
 }
 
 func parseFilter(input string) (filterNode, error) {
+	node, _, err := parseFilterAt(input)
+	return node, err
+}
+
+// parseFilterAt also returns the byte offset where a failed parse stopped.
+func parseFilterAt(input string) (filterNode, int, error) {
 	if len(input) > maximumFilterBytes {
-		return nil, validation("filter", "filter_too_complex")
+		return nil, 0, validation("filter", "filter_too_complex")
 	}
 	parser := &filterParser{input: input}
 	node, err := parser.parseOr()
 	if err != nil {
-		return nil, err
+		return nil, parser.pos, err
 	}
 	if parser.pos != len(parser.input) {
-		return nil, validation("filter", "invalid_filter")
+		return nil, parser.pos, validation("filter", "invalid_filter")
 	}
-	return node, nil
+	return node, 0, nil
 }
 
 func (p *filterParser) parseOr() (filterNode, error) {
