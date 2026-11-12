@@ -278,8 +278,9 @@ dialog::backdrop {
   color: var(--text-hint);
 }
 
-/* Header actions can reach any part of the main column, so in the app the toasts take a band above it and push it
-   down while shown instead of covering anything. */
+/* Actions can sit anywhere in the main column, so in the app the toasts live in a status line the shell always
+   reserves under it: a toast appearing or expiring moves nothing, and no control is ever placed where it shows.
+   The line has a fixed height whatever it holds (one toast, at most two lines of text; three on phones). */
 #root:has(> .app) {
   display: flex;
   flex-direction: column;
@@ -290,25 +291,63 @@ dialog::backdrop {
   flex: 1;
   height: auto;
   min-height: 0;
-  /* The drawer and full-screen panes (position: fixed) stay inside the app, below the band. */
+  /* The drawer and full-screen panes (position: fixed) stay inside the app, above the status line. */
   contain: layout;
+}
+
+/* The status line takes the place of the main sheet's bottom gutter. */
+#root > .app .main {
+  margin-bottom: 0;
 }
 
 #root > .app ~ .toasts {
   position: static;
-  order: -1;
-  translate: none;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
   max-width: none;
-  justify-items: center;
-}
-
-/* The live region stays in the tree while empty, so its first message is announced. */
-#root > .app ~ .toasts:not(:empty) {
-  padding: 8px 8px 0;
+  padding: 0 8px;
+  overflow: hidden;
+  translate: none;
+  background: var(--bg);
 }
 
 #root > .app ~ .toasts .toast {
-  max-width: min(420px, 100%);
+  align-items: center;
+  min-width: 0;
+  max-width: min(560px, 100%);
+  min-height: 30px;
+  padding: 2px 2px 2px 12px;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+  box-shadow: none;
+  animation-name: fade;
+}
+
+#root > .app ~ .toasts .toast p {
+  display: -webkit-box;
+  padding: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+#root > .app ~ .toasts .icon-btn {
+  width: 26px;
+  height: 26px;
+}
+
+/* Phones have no hover to reveal a cut-off message, so the line is taller there and holds three lines. */
+@media (max-width: 599px) {
+  #root > .app ~ .toasts {
+    height: 56px;
+  }
+
+  #root > .app ~ .toasts .toast p {
+    -webkit-line-clamp: 3;
+  }
 }
 
 .toast-action {

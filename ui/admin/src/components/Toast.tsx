@@ -26,7 +26,11 @@ function hold(id: number) {
 
 function dismiss(id: number) {
   hold(id);
-  store.set(store.get().filter((item) => item.id !== id));
+  const rest = store.get().filter((item) => item.id !== id);
+  store.set(rest);
+  // The one waiting underneath shows next, with its full time.
+  const next = rest.at(-1);
+  if (next && !timers.has(next.id)) schedule(next);
 }
 
 function schedule(item: ToastItem) {
@@ -34,10 +38,19 @@ function schedule(item: ToastItem) {
   timers.set(item.id, setTimeout(() => dismiss(item.id), item.action ? 8000 : 5000));
 }
 
-/** One short message; an action (e.g. Undo) keeps it up a little longer, and hover or focus keeps it up until left. */
+/**
+ * One short message; an action (e.g. Undo) keeps it up a little longer, and hover or focus keeps it up until left.
+ * Only the newest shows: an error or an action underneath waits with its timer stopped, so it is never lost unseen;
+ * a plain note underneath is replaced.
+ */
 export function toast(message: string, tone: ToastItem["tone"] = "info", action?: ToastAction): void {
+  const waiting = store.get().filter((item) => {
+    const keep = item.tone === "danger" || item.action !== undefined;
+    hold(item.id);
+    return keep;
+  });
   const item = { id: ++sequence, message, tone, action };
-  store.set([...store.get(), item]);
+  store.set([...waiting, item]);
   schedule(item);
 }
 
@@ -46,7 +59,7 @@ export function ToastHost() {
   const items = store.use();
   return (
     <section className="toasts" role="status" aria-live="polite" aria-label={t("common.notifications")}>
-      {items.map((item) => (
+      {items.slice(-1).map((item) => (
         <div
           key={item.id}
           className={item.tone === "danger" ? "toast toast-danger" : "toast"}
@@ -55,7 +68,7 @@ export function ToastHost() {
           onMouseLeave={(event) => !event.currentTarget.matches(":focus-within") && schedule(item)}
           onBlur={(event) => !event.currentTarget.matches(":hover") && schedule(item)}
         >
-          <p>{item.message}</p>
+          <p title={item.message}>{item.message}</p>
           {item.action && (
             <button
               type="button"

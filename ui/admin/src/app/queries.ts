@@ -1,13 +1,35 @@
 import { MutationCache, QueryCache, QueryClient, queryOptions } from "@tanstack/react-query";
 import { ApiError } from "../api/http";
-import { getSession } from "../api/session";
+import { getSession, logout } from "../api/session";
 import { getSetupStatus } from "../api/system";
 import { en } from "../i18n/en";
 import type { Translate } from "../i18n";
+import { readStorage, removeStorage } from "./store";
+
+/** Set by a confirmed sign-out until the server has ended that session. */
+export const signingOutKey = "pgbase.signingOut";
+
+/** Ends the session a confirmed sign-out left behind (the page was left before the server answered), so its cookie is never trusted again. */
+export async function endSignedOutSession(): Promise<void> {
+  const gone = (error: unknown) => {
+    if (!isUnauthorized(error)) throw error;
+  };
+  try {
+    await getSession();
+    await logout();
+  } catch (error) {
+    // The earlier request may have ended it in between; a session that is gone now is all this needs.
+    await getSession().then(() => Promise.reject(error), gone);
+  }
+  removeStorage(signingOutKey);
+}
 
 export const sessionQuery = queryOptions({
   queryKey: ["session"],
-  queryFn: ({ signal }) => getSession(signal),
+  queryFn: async ({ signal }) => {
+    if (readStorage(signingOutKey)) await endSignedOutSession();
+    return getSession(signal);
+  },
   retry: false,
   staleTime: Infinity,
 });

@@ -1,5 +1,5 @@
 import type { ApplyIdentity, Collection } from "../api/collections";
-import { parseJson, stringifyJson } from "../api/http";
+import { ApiError, parseJson, stringifyJson } from "../api/http";
 import type { SchemaDocument, SchemaImportPreview } from "../api/schema";
 import type { SqlExecutionStatus } from "../api/sql";
 import { dangerousStatement, diffPlan, type ChangeItem } from "../schema/draft";
@@ -128,4 +128,15 @@ export function rememberStatement(scope: string, id: string, sql: string): void 
   } catch {
     // Without storage, history rows just cannot reload their text.
   }
+}
+
+/**
+ * Whether a failed submit may still have run: only a 4xx answer (the server or a proxy refused it before it started)
+ * proves it did not. A dropped connection, a timeout or any 5xx from the server or a proxy (502/503/504) proves nothing.
+ * A busy (429) answer to a resend proves nothing about the first attempt either, which is why only that write's own
+ * result clears the lost-write state.
+ */
+export function mayHaveRun(error: unknown): boolean {
+  // Below 400: no answer (0) or an accepted request whose body could not be read.
+  return !(error instanceof ApiError) || error.status < 400 || error.status === 408 || error.status >= 500;
 }

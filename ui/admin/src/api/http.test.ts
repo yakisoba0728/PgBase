@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LosslessNumber } from "lossless-json";
-import { ApiError, clearCsrfToken, onCsrfRejected, parseJson, request, setCsrfToken, stringifyJson } from "./http";
+import { ApiError, clearCsrfToken, onCsrfRejected, parseJson, request, setCsrfToken, stringifyJson, uploadForm } from "./http";
 
 describe("parseJson / stringifyJson", () => {
   it("keeps safe numbers as numbers and unsafe ones exact", () => {
@@ -64,10 +64,13 @@ describe("request", () => {
 
 describe("CSRF recovery", () => {
   const rejected = () => new Response('{"error":{"code":"csrf_rejected","message":"CSRF verification failed"}}', { status: 403 });
+  let signedIn: string | null = "a";
+  const issuer = () => signedIn;
   afterEach(() => {
     vi.unstubAllGlobals();
     clearCsrfToken();
-    onCsrfRejected(async () => null);
+    signedIn = "a";
+    onCsrfRejected(async () => null, () => null);
   });
 
   it("renews once for concurrent rejections and resends each request with the new token", async () => {
@@ -76,9 +79,9 @@ describe("CSRF recovery", () => {
     vi.stubGlobal("fetch", fetchMock);
     const renew = vi.fn(async () => {
       setCsrfToken("new");
-      return "retry" as const;
+      return "a";
     });
-    onCsrfRejected(renew);
+    onCsrfRejected(renew, issuer);
     await expect(Promise.all([request("POST", "/a"), request("DELETE", "/b")])).resolves.toEqual([{ ok: true }, { ok: true }]);
     expect(renew).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(4);
@@ -86,12 +89,48 @@ describe("CSRF recovery", () => {
 
   it("does not resend for another administrator and retries at most once", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => rejected()));
-    onCsrfRejected(async () => "changed");
+    onCsrfRejected(async () => "b", issuer);
     await expect(request("POST", "/a")).rejects.toMatchObject({ status: 403, code: "session_changed" });
     const fetchMock = vi.fn(async () => rejected());
     vi.stubGlobal("fetch", fetchMock);
-    onCsrfRejected(async () => "retry");
+    onCsrfRejected(async () => "a", issuer);
     await expect(request("POST", "/a")).rejects.toMatchObject({ code: "csrf_rejected" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("never resends a request issued under A once B is signed in, even when the cache already shows B", async () => {
+    // A's write is in flight; another tab signs B in and this tab follows; then A's rejection arrives.
+    let answer!: () => void;
+    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => (answer = () => resolve(rejected()))));
+    vi.stubGlobal("fetch", fetchMock);
+    onCsrfRejected(async () => signedIn, issuer);
+    const pending = request("PUT", "/api/admin/profile/ip-allowlist", { body: { prefixes: [] } });
+    signedIn = "b";
+    answer();
+    await expect(pending).rejects.toMatchObject({ code: "session_changed" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies the same rule to form uploads", async () => {
+    const sent: { onload: (() => void) | null }[] = [];
+    class FakeXhr {
+      status = 403;
+      responseText = '{"error":{"code":"csrf_rejected","message":"no"}}';
+      upload = {};
+      onload: (() => void) | null = null;
+      withCredentials = false;
+      open() {}
+      setRequestHeader() {}
+      send() {
+        sent.push(this);
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", FakeXhr);
+    onCsrfRejected(async () => signedIn, issuer);
+    const pending = uploadForm("/api/files", new FormData());
+    signedIn = "b";
+    sent[0].onload?.();
+    await expect(pending).rejects.toMatchObject({ code: "session_changed" });
+    expect(sent).toHaveLength(1);
   });
 });

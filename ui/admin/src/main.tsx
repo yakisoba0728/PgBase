@@ -20,12 +20,13 @@ import { onCsrfRejected } from "./api/http";
 import { registerScreen } from "./app/extensions";
 import { queryClient } from "./app/queries";
 import { router } from "./app/router";
-import { recoverSession } from "./app/signout";
+import { currentAdministrator, followSignOut, recoverSession } from "./app/signout";
 import { ToastHost } from "./components/Toast";
 
 // Defined before render; the server-injected extensions.js module runs after this one.
 window.pgbaseAdmin = { registerScreen };
-onCsrfRejected(recoverSession);
+onCsrfRejected(recoverSession, currentAdministrator);
+router.subscribe((state) => followSignOut(state.location));
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

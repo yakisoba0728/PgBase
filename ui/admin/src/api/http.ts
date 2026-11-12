@@ -25,6 +25,8 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   /** Sent as-is with no JSON encoding (file or backup upload). */
   raw?: BodyInit;
+  /** Outlives the page (a sign-out followed at once by a reload or tab close). */
+  keepalive?: boolean;
 }
 
 const csrfHeader = "X-PgBase-CSRF";
@@ -38,26 +40,33 @@ export function clearCsrfToken(): void {
   csrfToken = "";
 }
 
-/** What a CSRF rejection turned out to be: the same administrator under a new session, someone else, or neither. */
-export type CsrfRecovery = "retry" | "changed" | null;
-let recover: () => Promise<CsrfRecovery> = async () => null;
-let recovering: Promise<CsrfRecovery> | null = null;
+/** The administrator now signed in after renewing the session, or null when there is none. */
+export type CsrfRecovery = () => Promise<string | null>;
+let recover: CsrfRecovery = async () => null;
+let identity: () => string | null = () => null;
+let recovering: Promise<string | null> | null = null;
 
-/** Registers how a rejected CSRF token is renewed (another tab signed in again and replaced the session cookie). */
-export function onCsrfRejected(handler: () => Promise<CsrfRecovery>): void {
+/**
+ * Registers how a rejected CSRF token is renewed (another tab signed in again and replaced the session cookie) and
+ * which administrator a request is issued under.
+ */
+export function onCsrfRejected(handler: CsrfRecovery, issuer: () => string | null): void {
   recover = handler;
+  identity = issuer;
 }
 
-// A rejected token never reached the handler, so the request is safe to send once more with the renewed one.
+// A rejected token never reached the handler, so the request is safe to send once more with the renewed one, but
+// only for the administrator it was issued under: one recovery is shared, and the cache may already show someone else.
 async function withCsrfRecovery<T>(attempt: () => Promise<T>): Promise<T> {
+  const issuedBy = identity();
   try {
     return await attempt();
   } catch (error) {
     if (!(error instanceof ApiError && error.code === "csrf_rejected")) throw error;
-    const outcome = await (recovering ??= recover().finally(() => (recovering = null)));
-    if (outcome === "retry") return attempt();
-    if (outcome === "changed") throw new ApiError(403, "session_changed", "Another administrator signed in on this browser");
-    throw error;
+    const renewed = await (recovering ??= recover().finally(() => (recovering = null)));
+    if (renewed === null) throw error;
+    if (renewed === issuedBy) return attempt();
+    throw new ApiError(403, "session_changed", "Another administrator signed in on this browser");
   }
 }
 
@@ -103,6 +112,7 @@ async function sendOnce(method: string, path: string, options: RequestOptions): 
       body,
       credentials: "include",
       signal: options.signal,
+      keepalive: options.keepalive,
     });
   } catch (error) {
     // An abort is the caller's own decision, so it propagates untouched.

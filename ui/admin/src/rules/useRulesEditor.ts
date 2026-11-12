@@ -207,8 +207,19 @@ export function useRulesEditor(collection: Collection, basePath: string) {
     preview,
     insert,
     focused,
-    /** Props for the unsaved-changes guard: a save in flight is let through. */
-    guard: { dirty, release: () => save.isPending, leaves: (_current: Location, next: Location) => next.pathname !== `${basePath}/rules`, onDiscard: discard },
+    /**
+     * Props for the unsaved-changes guard: a save in flight is let through. A half-finished save counts as unsaved,
+     * since its Retry lives only here; leaving drops it and the tab then shows the server's rules as they stand.
+     */
+    guard: {
+      dirty: dirty || keep !== null,
+      release: () => save.isPending || finish.isPending,
+      leaves: (_current: Location, next: Location) => next.pathname !== `${basePath}/rules`,
+      onDiscard: () => {
+        discard();
+        setKeep(null);
+      },
+    },
   };
 }
 

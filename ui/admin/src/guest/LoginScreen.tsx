@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { RiLockPasswordLine, RiMailLine, RiShieldKeyholeLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { login, type LoginInput } from "../api/session";
 import { setupStatusQuery } from "../app/queries";
-import { adoptSession, finishSignOut } from "../app/signout";
+import { adoptSession } from "../app/signout";
 import { Button } from "../components/Button";
 import { Field } from "../components/Field";
 import { useT } from "../i18n";
@@ -18,16 +18,12 @@ export function LoginScreen() {
   const navigate = useNavigate();
   const location = useLocation();
   const status = useQuery(setupStatusQuery);
-  // A sign-out reaches here only once the navigation committed (an unsaved-changes Cancel keeps the session).
-  // The state is consumed once, so a reload of /login does not end a session signed in since.
-  const leaving = location.state as { signedOut?: boolean; end?: boolean } | null;
-  const finished = useRef(false);
+  // The sign-out already ran when this navigation committed (followSignOut); its marker is dropped so a
+  // reload of /login does not carry it.
+  const signedOut = (location.state as { signedOut?: boolean } | null)?.signedOut === true;
   useEffect(() => {
-    if (!leaving?.signedOut || finished.current) return;
-    finished.current = true;
-    finishSignOut(leaving.end === true, t);
-    void navigate(".", { replace: true, state: null });
-  }, [leaving, navigate, t]);
+    if (signedOut) void navigate(".", { replace: true, state: null });
+  }, [signedOut, navigate]);
   // Set once the server asks for a TOTP code; the code is then re-posted with these credentials.
   const [pending, setPending] = useState<LoginInput | null>(null);
   const mutation = useMutation({
