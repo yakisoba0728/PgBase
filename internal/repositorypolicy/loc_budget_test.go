@@ -489,15 +489,26 @@ type structuralLimit struct {
 // net +1693 against f7de2f5. Exact runtime is 109636 (Go 94993, UI 14643),
 // page hooks remain 233 and UI exports are 375. No classifier exclusions or
 // growth allowance are added. Evidence: docs/admin-korean-ui.md.
+// The 2026-11-13 frontend-rebuild branch deletes ui/admin/src and rewrites the
+// administrator UI from scratch (React 19, react-router, react-query, plain
+// CSS). It is not an incremental stack, so the UI ceilings are re-measured
+// rather than accounted line by line: Go runtime is unchanged at 94993, and
+// the four UI-derived limits below are the exact repostats values of the
+// rewritten tree. Page hooks drop to 0 because pages/ now holds route-level
+// wrappers only and screen state lives in the feature folders; the classifier
+// is unchanged, so any state hook added to a page fails this gate. UI exports
+// grow with the module-per-feature layout and the split en/ko dictionaries.
+// No classifier exclusions or spare allowance are added. Re-measure with
+// scripts/support/rebaseline-ui-budgets.sh after committing UI changes.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 109636, "Korean administrator and visual refinement exact measurement"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 14643, "Korean messages, language state and compact workbench; no spare allowance"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 115450, "from-scratch administrator UI rewrite exact measurement"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 20457, "from-scratch administrator UI rewrite; no spare allowance"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 104, "optional range transport/store and runtime capability boundaries"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1595, "reviewed managed byte-range service and store boundaries"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 64, "measured final 20-defect correctness constructors"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
-	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 233, "administrator tabs, draft protection and request lifecycle"},
-	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 375, "locale dictionaries and message helpers; existing consumers retained"},
+	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 0, "pages are route wrappers; screen state lives in feature views"},
+	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 658, "feature modules, query hooks and bilingual dictionaries of the rewrite"},
 }
 
 type repositoryMetrics struct {
