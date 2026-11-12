@@ -39,7 +39,7 @@ export function ProvidersTab({ collection, administration }: { collection: AuthC
     <>
       <div className="toolbar">
         <span className="toolbar-count">{t("auth.providers.count", { count: providers.length })}</span>
-        <Button size="sm" icon={RiAddLine} onClick={() => open({ add: "pick" })}>{t("auth.providers.add")}</Button>
+        <Button size="sm" icon={RiAddLine} data-new onClick={() => open({ add: "pick" })}>{t("auth.providers.add")}</Button>
       </div>
       {providers.length === 0 ? (
         <EmptyState icon={RiKey2Line}>{t("auth.providers.empty")}</EmptyState>

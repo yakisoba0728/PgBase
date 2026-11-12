@@ -79,3 +79,12 @@ export function clearDraft(scope: DraftScope): void {
     // Unavailable storage must not block a save or a discard.
   }
 }
+
+/** Sign-out: drops every stored record draft on this device, whoever wrote it. */
+export function clearAllDrafts(): void {
+  try {
+    for (const name of Object.keys(localStorage)) if (name.startsWith(prefix)) localStorage.removeItem(name);
+  } catch {
+    // Blocked storage held nothing.
+  }
+}

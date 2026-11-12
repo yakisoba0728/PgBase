@@ -48,7 +48,7 @@ export function RecordsActions({ collection }: { collection: Collection }) {
       {/* Reset, not invalidate: refetching every loaded page of a long list would cost hundreds of requests. */}
       <IconButton label={t("records.refresh")} icon={RiRefreshLine} onClick={() => queryClient.resetQueries({ queryKey: listKey(collection.name) })} />
       {collection.type !== "view" && (
-        <Button size="sm" icon={RiAddLine} onClick={url.create}>{t("records.new")}</Button>
+        <Button size="sm" icon={RiAddLine} data-new onClick={url.create}>{t("records.new")}</Button>
       )}
     </>
   );

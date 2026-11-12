@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router";
+import { forgetSession } from "../app/signout";
 import { openRow } from "../components/DataGrid";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiAddLine, RiLockPasswordLine, RiLogoutCircleRLine } from "@remixicon/react";
@@ -33,7 +34,7 @@ function adminError(t: Translate, error: unknown, context: "create" | "disable" 
 export function AdministratorsActions() {
   const t = useT();
   const { update } = useSearchState();
-  return <Button icon={RiAddLine} onClick={() => update({ admin: "new" })}>{t("system.admins.new")}</Button>;
+  return <Button icon={RiAddLine} data-new onClick={() => update({ admin: "new" })}>{t("system.admins.new")}</Button>;
 }
 
 export function AdministratorsView() {
@@ -133,13 +134,17 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
   const refresh = () => queryClient.invalidateQueries({ queryKey: administratorsQuery.queryKey });
   // Ending one's own sessions (password, revoke) signs this browser out too.
   const signedOut = () => {
-    queryClient.clear();
+    forgetSession();
     navigate("/login", { replace: true });
   };
 
   const active = useMutation({
     mutationFn: (value: boolean) => setAdministratorActive(admin.id, value),
-    onSuccess: (value) => toast(value.active ? t("system.admins.enabledToast") : t("system.admins.disabledToast")),
+    // Enabling is trivially reversible, so it runs without a confirmation and offers Undo.
+    onSuccess: (value) =>
+      value.active
+        ? toast(t("system.admins.enabledToast"), "info", { label: t("common.undo"), run: () => void setAdministratorActive(admin.id, false).then(refresh, (error) => toast(errorText(t, error), "danger")) })
+        : toast(t("system.admins.disabledToast")),
     onSettled: () => {
       setPending(null);
       void refresh();
@@ -174,7 +179,7 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
             { label: t("system.admins.status"), value: <><span className="dot" data-tone={admin.active ? "success" : undefined}>{admin.active ? t("system.admins.active") : t("system.admins.disabled")}</span>{" "}{self && <span className="chip">{t("system.admins.you")}</span>}</> },
             { label: t("system.admins.created"), value: time(admin.createdAt, true) },
             { label: t("system.admins.updated"), value: time(admin.updatedAt, true) },
-            { label: "ID", value: admin.id, mono: true },
+            { label: "ID", value: admin.id, mono: true, copy: true },
           ]}
         />
         <div className="sys-actions">

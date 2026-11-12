@@ -35,3 +35,10 @@ export function formValue(form: FormData, name: string): string {
   const value = form.get(name);
   return typeof value === "string" ? value : "";
 }
+
+/** Shared by setup and reset: a client-side check reported through the same error mapping. */
+export function matchingPassword(form: FormData): string {
+  const password = formValue(form, "password");
+  if (password !== formValue(form, "passwordConfirm")) throw new ApiError(0, "password_mismatch", "passwords do not match");
+  return password;
+}

@@ -122,7 +122,7 @@ function OperationDetail({ id, catalog, onClose }: { id: string; catalog: Collec
     : [];
   return (
     <>
-      <PaneHeader title={id} mono onClose={onClose} />
+      <PaneHeader title={id} mono copy={{ label: t("common.copyId"), value: id }} onClose={onClose} />
       <div className="pane-body">
         {query.isPending ? (
           <Loader />

@@ -1,6 +1,7 @@
 import type { KeyboardEvent, MouseEvent } from "react";
 import { Link } from "react-router";
-import { RiPuzzle2Line, RiSidebarFoldLine, RiSidebarUnfoldLine } from "@remixicon/react";
+import { RiPuzzle2Line, RiSearchLine, RiSidebarFoldLine, RiSidebarUnfoldLine } from "@remixicon/react";
+import { keyLabel } from "./keys";
 import { CollectionNav } from "../collections/CollectionNav";
 import { IconButton } from "../components/Button";
 import { NavGroup, NavItem } from "../components/Nav";
@@ -9,7 +10,7 @@ import { useExtensionScreens } from "./extensions";
 import { AccountMenu, LanguageMenu, ThemeMenu } from "./menus";
 import { navGroups } from "./navigation";
 import { RunningFeed } from "./RunningFeed";
-import { setDrawer, toggleRail, useRail } from "./shell";
+import { setDrawer, setPalette, toggleRail, useRail } from "./shell";
 
 /** The single navigation column: wordmark, Data / Auth / Operations / System, then account controls. */
 export function AppNav() {
@@ -29,6 +30,7 @@ export function AppNav() {
         <Link to="/" className="wordmark">
           <b>Pg</b>Base
         </Link>
+        <IconButton className="nav-search" label={`${t("palette.open")} (${keyLabel("mod+k").join("")})`} icon={RiSearchLine} onClick={() => setPalette(true)} />
         <IconButton className="nav-collapse" label={rail ? t("nav.expand") : t("nav.collapse")} icon={rail ? RiSidebarUnfoldLine : RiSidebarFoldLine} onClick={toggleRail} />
       </div>
       <div className="nav-scroll">

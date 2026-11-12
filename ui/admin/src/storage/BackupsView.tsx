@@ -182,7 +182,7 @@ function BackupPane({ backup, location, jobRunning, onClose }: { backup: BackupE
 
   return (
     <div className="pane-form">
-      <PaneHeader title={backup.id} mono onClose={onClose} />
+      <PaneHeader title={backup.id} mono copy={{ label: t("storage.backups.id"), value: backup.id }} onClose={onClose} />
       <div className="pane-body">
         <Facts items={[
           { label: t("storage.backups.created"), value: created },
@@ -190,7 +190,7 @@ function BackupPane({ backup, location, jobRunning, onClose }: { backup: BackupE
           { label: t("storage.backups.postgres"), value: backup.postgresqlMajor, mono: true },
           { label: t("storage.backups.location"), value: location },
           { label: t("storage.backups.format"), value: backup.storageFormat, mono: true },
-          { label: t("storage.backups.sha256"), value: backup.sha256, mono: true },
+          { label: t("storage.backups.sha256"), value: backup.sha256, mono: true, copy: true },
         ]} />
       </div>
       <footer className="pane-footer">

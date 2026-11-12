@@ -153,7 +153,7 @@ export const en = {
   "records.deleteOneTitle": "Delete this record?",
   "records.deleted": "Deleted {count}.",
   "records.deleteFailed": "{count} not deleted: {error}",
-  "records.copyId": "Copy id",
+  "common.copyId": "Copy id",
   "records.copied": "Copied.",
   "records.copyFailed": "Could not copy.",
   "records.sortedAsc": "ascending",

@@ -153,7 +153,7 @@ export const ko: Record<keyof typeof en, string> = {
   "records.deleteOneTitle": "이 레코드를 삭제할까요?",
   "records.deleted": "{count}개 삭제했습니다.",
   "records.deleteFailed": "{count}개 삭제 실패: {error}",
-  "records.copyId": "ID 복사",
+  "common.copyId": "ID 복사",
   "records.copied": "복사했습니다.",
   "records.copyFailed": "복사하지 못했습니다.",
   "records.sortedAsc": "오름차순",

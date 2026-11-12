@@ -91,7 +91,7 @@ function MigrationStatus({ migration }: { migration: StorageMigrationStatus | nu
       <Facts items={[
         { label: t("storage.migration.started"), value: time(migration.createdAt, true) },
         { label: t("storage.migration.updated"), value: time(migration.updatedAt, true) },
-        { label: t("storage.migration.id"), value: migration.id, mono: true },
+        { label: t("storage.migration.id"), value: migration.id, mono: true, copy: true },
       ]} />
       <ConfirmDialog open={confirm} danger title={t("storage.migration.cancelTitle")} message={t("storage.migration.cancelText")} confirmLabel={t("storage.migration.cancel")}
         busy={cancel.isPending} onConfirm={() => cancel.mutate(migration.id)} onCancel={() => setConfirm(false)} />

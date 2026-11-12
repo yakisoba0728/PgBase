@@ -35,7 +35,7 @@
   text-decoration: none;
 }
 
-.nav-top .icon-btn {
+.nav-top .icon-btn:first-of-type {
   margin-left: auto;
 }
 
@@ -239,6 +239,7 @@ a.nav-op:focus-visible {
   }
 
   .app[data-rail] .nav-top .wordmark,
+  .app[data-rail] .nav-search,
   .app[data-rail] .nav-label,
   .app[data-rail] .nav-full-only,
   .app[data-rail] .nav-group-title > *,
@@ -705,4 +706,144 @@ a.nav-op:focus-visible {
 
 .empty p {
   max-width: 36ch;
+}
+
+.nav-recent {
+  display: grid;
+  gap: 1px;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  box-shadow: 0 1px 0 var(--line);
+}
+
+.nav-subtitle {
+  padding: 2px 12px;
+  color: var(--text-hint);
+  font-size: var(--font-size-xs);
+}
+
+/* Command palette: a search field over a grouped list, near the top of the screen. */
+.palette {
+  width: min(640px, calc(100vw - 24px));
+  max-height: min(560px, calc(100dvh - 96px));
+  margin: 12vh auto auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.palette[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.palette::backdrop {
+  background: color-mix(in srgb, #000, transparent 70%);
+}
+
+.palette-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  box-shadow: 0 1px 0 var(--line);
+  color: var(--text-hint);
+}
+
+.palette-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-lg, 15px);
+}
+
+.palette-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.palette-group {
+  padding: 10px 10px 4px;
+  color: var(--text-hint);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.palette-item[aria-selected="true"] {
+  background: var(--accent-soft);
+}
+
+.palette-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-hint,
+.palette-empty {
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+}
+
+.palette-empty {
+  padding: 16px 10px;
+}
+
+/* Keyboard shortcut list. */
+.shortcuts {
+  display: grid;
+  gap: var(--space);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.shortcuts h3 {
+  margin: 0 0 6px;
+  font-size: var(--font-size-sm);
+  color: var(--text-hint);
+}
+
+.shortcuts dl {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.shortcuts dl > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 4px 0;
+}
+
+.shortcuts dd {
+  margin: 0;
+}
+
+.shortcut-keys kbd + kbd {
+  margin-left: 4px;
 }

@@ -170,12 +170,6 @@
   padding: 0;
 }
 
-.dt-kbd {
-  color: var(--text-hint);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-}
-
 .dt-outcome {
   display: flex;
   flex: 1;

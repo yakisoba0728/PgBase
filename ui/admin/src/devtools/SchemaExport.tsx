@@ -19,10 +19,12 @@ export function SchemaExport() {
   if (query.isPending) return <Loader />;
   if (query.isError) return <ErrorState error={query.error} onRetry={query.refetch} />;
 
-  const names = query.data.collections.map((collection) => collection.name);
+  // An empty project exports `collections: null`.
+  const data = { ...query.data, collections: query.data.collections ?? [] };
+  const names = data.collections.map((collection) => collection.name);
   const skip = (params.get("skip") ?? "").split(",").filter((name) => names.includes(name));
   const setSkip = (next: string[]) => update({ skip: next.join(",") || null });
-  const text = stringify(pickCollections(query.data, skip), null, 2) ?? "";
+  const text = stringify(pickCollections(data, skip), null, 2) ?? "";
   const picked = names.length - skip.length;
 
   const download = () => {

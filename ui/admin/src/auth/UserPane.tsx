@@ -118,11 +118,11 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
 
   return (
     <>
-      <PaneHeader title={user.email} copy={{ label: t("records.copyId"), value: user.id }} onClose={onClose} />
+      <PaneHeader title={user.email} copy={{ label: t("common.copyId"), value: user.id }} onClose={onClose} />
       <div className="pane-body auth-pane">
         <Facts
           items={[
-            { label: "ID", value: user.id, mono: true },
+            { label: "ID", value: user.id, mono: true, copy: true },
             { label: t("auth.users.collection"), value: resolved.data ? resolved.data.collection.name : resolved.isPending ? "…" : t("auth.user.unresolved"), mono: true },
             { label: t("auth.users.created"), value: time(user.createdAt, true) },
             { label: t("auth.users.updated"), value: time(user.updatedAt, true) },

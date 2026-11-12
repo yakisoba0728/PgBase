@@ -33,7 +33,7 @@ function tokenState(t: Translate, token: ServiceToken): { label: string; tone?: 
 export function ServiceTokensActions() {
   const t = useT();
   const { update } = useSearchState();
-  return <Button icon={RiAddLine} onClick={() => update({ token: "new" })}>{t("system.tokens.new")}</Button>;
+  return <Button icon={RiAddLine} data-new onClick={() => update({ token: "new" })}>{t("system.tokens.new")}</Button>;
 }
 
 export function ServiceTokensView() {
@@ -120,7 +120,7 @@ function TokenPane({ token, names, onClose }: { token: ServiceToken; names: Map<
             { label: t("system.tokens.expires"), value: time(token.expiresAt, true) },
             { label: t("system.tokens.created"), value: time(token.createdAt, true) },
             Boolean(token.revokedAt) && { label: t("system.tokens.revokedAt"), value: time(token.revokedAt!, true) },
-            { label: "ID", value: token.id, mono: true },
+            { label: "ID", value: token.id, mono: true, copy: true },
           ]}
         />
         <h3 className="sys-subtitle">{t("system.tokens.scopes")}</h3>

@@ -1,11 +1,10 @@
 import { useNavigate } from "react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { RiComputerLine, RiLogoutBoxRLine, RiMoonLine, RiSunLine, RiTranslate2, RiUser3Line, RiUserSettingsLine } from "@remixicon/react";
-import { logout } from "../api/session";
 import { Dropdown, DropdownItem } from "../components/Popover";
-import { toast } from "../components/Toast";
 import { languages, setLanguage, useLanguage, useT } from "../i18n";
-import { errorText, sessionQuery } from "./queries";
+import { sessionQuery } from "./queries";
+import { useSignOut } from "./signout";
 import { setTheme, themeModes, useTheme } from "./theme";
 
 const themeIcons = { light: RiSunLine, dark: RiMoonLine, auto: RiComputerLine };
@@ -43,22 +42,14 @@ export function LanguageMenu() {
 export function AccountMenu() {
   const t = useT();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { data: session } = useQuery(sessionQuery);
-  const signOut = useMutation({
-    mutationFn: logout,
-    onError: (error) => toast(errorText(t, error), "danger"),
-    onSettled: () => {
-      queryClient.clear();
-      navigate("/login", { replace: true });
-    },
-  });
+  const signOut = useSignOut();
   return (
     <Dropdown label={t("menu.account")} heading={session?.administrator.email} text={session?.administrator.email} icon={RiUser3Line} align="start">
       <DropdownItem icon={RiUserSettingsLine} onSelect={() => navigate("/profile")}>
         {t("account.profile")}
       </DropdownItem>
-      <DropdownItem icon={RiLogoutBoxRLine} onSelect={() => signOut.mutate()}>
+      <DropdownItem icon={RiLogoutBoxRLine} onSelect={() => signOut()}>
         {t("account.signOut")}
       </DropdownItem>
     </Dropdown>

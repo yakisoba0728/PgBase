@@ -32,7 +32,7 @@ export function AuthCollectionsIndex() {
   const t = useT();
   const navigate = useNavigate();
   const query = useQuery(authCollectionsQuery);
-  const actions = <Link className="btn btn-sm" to="/new-collection/auth"><RiAddLine size={16} aria-hidden />{t("auth.collections.new")}</Link>;
+  const actions = <Link className="btn btn-sm" data-new to="/new-collection/auth"><RiAddLine size={16} aria-hidden />{t("auth.collections.new")}</Link>;
   return (
     <Page title={t("nav.authCollections")} actions={actions}>
       <div className="page-content">

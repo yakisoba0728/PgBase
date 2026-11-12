@@ -1,5 +1,6 @@
 import { Navigate, useParams } from "react-router";
 import { Page } from "../components/Page";
+import { pageTabs, screenTabs } from "../app/navigation";
 import { useT } from "../i18n";
 import { MigrationView } from "./MigrationView";
 import { StorageSettingsForm } from "./StorageForm";
@@ -10,11 +11,7 @@ export function StorageView() {
   const t = useT();
   const { tab } = useParams();
   if (tab && tab !== "migration" && tab !== "backups") return <Navigate to="/storage" replace />;
-  const tabs = [
-    { to: "/storage", label: t("storage.tab.files"), end: true },
-    { to: "/storage/migration", label: t("storage.tab.migration") },
-    { to: "/storage/backups", label: t("storage.tab.backups") },
-  ];
+  const tabs = pageTabs(t, screenTabs.storage);
   return (
     <Page title={t("nav.storage")} tabs={tabs}>
       {tab === "migration" ? (

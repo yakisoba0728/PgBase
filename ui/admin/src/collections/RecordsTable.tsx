@@ -229,7 +229,7 @@ const RecordRow = memo(function RecordRow({ index, record, collection, catalog, 
       <td className="sticky-id">
         <span className="id-cell">
           <span className="cell-text">{record.id}</span>
-          <CopyButton label={t("records.copyId")} value={record.id} />
+          <CopyButton label={t("common.copyId")} value={record.id} />
         </span>
       </td>
       {columns.map((name) => (

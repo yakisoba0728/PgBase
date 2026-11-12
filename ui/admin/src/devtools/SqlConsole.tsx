@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { keyLabel } from "../app/keys";
 import { RiPlayLine, RiTerminalBoxLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { submitSql, type SqlExecutionPage, type SqlMode } from "../api/sql";
@@ -20,7 +21,6 @@ import { sqlExecutionQuery, sqlHistoryQuery } from "./queries";
 import { SqlResult, statusTone } from "./SqlResult";
 import "../styles/devtools.css";
 
-const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 /** The console is opt-in: a server without it answers 404 on its routes. */
 export function SqlConsole() {
@@ -123,7 +123,7 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
             {writing && <Checkbox label={t("devtools.sql.dryRunLabel")} checked={dryRun} onChange={(event) => setDryRun(event.target.checked)} />}
             <span className="dt-muted">{settings.writeEnabled ? (writing ? t("devtools.sql.writeHint") : t("devtools.sql.readHint")) : t("devtools.sql.readOnly")}</span>
             <div className="dt-actions">
-              <kbd className="dt-kbd">{isMac ? "⌘" : "Ctrl"} ↵</kbd>
+              <kbd>{keyLabel("mod").join("")} ↵</kbd>
               <Button size="sm" variant={writing ? "danger" : "primary"} icon={RiPlayLine} loading={submit.isPending} disabled={!statementText(sql)} onClick={start}>
                 {writing ? t("devtools.sql.runWrite") : t("devtools.sql.run")}
               </Button>

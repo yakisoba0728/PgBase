@@ -75,7 +75,7 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
 
   return (
     <>
-      <PaneHeader title={form.record ? form.record.id : t("records.new")} mono={Boolean(form.record)} copy={form.record && { label: t("records.copyId"), value: form.record.id }} onClose={onClose}>
+      <PaneHeader title={form.record ? form.record.id : t("records.new")} mono={Boolean(form.record)} copy={form.record && { label: t("common.copyId"), value: form.record.id }} onClose={onClose}>
         {form.record && (
           <Dropdown label={t("records.more")} icon={RiMore2Line}>
             {!readOnly && <DropdownItem icon={RiFileCopy2Line} onSelect={duplicate}>{t("records.duplicate")}</DropdownItem>}

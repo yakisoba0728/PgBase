@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
+import { forgetSession } from "../app/signout";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiRefreshLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
@@ -65,12 +66,11 @@ function EmailSection({ profile }: { profile: Administrator }) {
 function PasswordSection({ id }: { id: string }) {
   const t = useT();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const change = useMutation({
     mutationFn: (value: string) => resetAdministratorPassword(id, value),
     onSuccess: () => {
       // The server ends every session of the account, this one included.
-      queryClient.clear();
+      forgetSession();
       navigate("/login", { replace: true });
     },
   });

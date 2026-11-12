@@ -2,20 +2,12 @@ import type { FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useMutation } from "@tanstack/react-query";
 import { RiLockPasswordLine, RiMailLine } from "@remixicon/react";
-import { ApiError } from "../api/http";
 import { confirmPasswordReset, requestPasswordReset } from "../api/session";
 import { Button } from "../components/Button";
 import { Field } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { FormError, formValue, GuestLayout } from "./GuestLayout";
-
-/** Shared with setup: a client-side check reported through the same error mapping. */
-export function matchingPassword(form: FormData): string {
-  const password = formValue(form, "password");
-  if (password !== formValue(form, "passwordConfirm")) throw new ApiError(0, "password_mismatch", "passwords do not match");
-  return password;
-}
+import { FormError, formValue, GuestLayout, matchingPassword } from "./GuestLayout";
 
 /** The emailed link carries the token in the fragment (#token=…), so it never reaches server logs. */
 export function ResetPasswordScreen() {
@@ -35,7 +27,7 @@ function RequestReset() {
       {mutation.isSuccess ? (
         <p className="notice" role="status">{t("reset.requestSent")}</p>
       ) : (
-        <form className="form" onSubmit={onSubmit}>
+        <form className="form" onSubmit={onSubmit} onInput={() => mutation.isError && mutation.reset()}>
           <Field label={t("field.email")} icon={RiMailLine} name="email" type="email" required autoFocus autoComplete="username" />
           <FormError error={mutation.error} />
           <Button type="submit" block loading={mutation.isPending}>{t("reset.requestSubmit")}</Button>
@@ -64,7 +56,7 @@ function ConfirmReset({ token }: { token: string }) {
   };
   return (
     <GuestLayout title={t("reset.confirmTitle")}>
-      <form className="form" onSubmit={onSubmit}>
+      <form className="form" onSubmit={onSubmit} onInput={() => mutation.isError && mutation.reset()}>
         <Field label={t("field.newPassword")} icon={RiLockPasswordLine} name="password" type="password" required autoFocus autoComplete="new-password" />
         <Field label={t("field.passwordConfirm")} icon={RiLockPasswordLine} name="passwordConfirm" type="password" required autoComplete="new-password" />
         <FormError error={mutation.error} credentialsKey="error.invalidResetToken" />

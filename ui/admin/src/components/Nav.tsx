@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { Link, NavLink } from "react-router";
+import type { MouseEvent, ReactNode } from "react";
+import { Link, NavLink, useNavigate } from "react-router";
 import type { RemixiconComponentType } from "@remixicon/react";
 
 export function NavGroup({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
@@ -18,13 +18,23 @@ interface NavItemProps {
   to: string;
   icon: RemixiconComponentType;
   className?: string;
+  /** Where a plain click goes instead of `to` (which still decides the active state). */
+  target?: () => string;
+  /** Accessible name when the visible text repeats another entry's. */
+  label?: string;
   children: ReactNode;
 }
 
 /** The label doubles as the tooltip so the icon rail stays readable. */
-export function NavItem({ to, icon: Icon, className, children }: NavItemProps) {
+export function NavItem({ to, icon: Icon, className, target, label, children }: NavItemProps) {
+  const navigate = useNavigate();
+  const onClick = (event: MouseEvent) => {
+    if (!target || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    void navigate(target());
+  };
   return (
-    <NavLink to={to} className={className ? `nav-link ${className}` : "nav-link"} title={typeof children === "string" ? children : undefined}>
+    <NavLink to={to} onClick={onClick} aria-label={label} className={className ? `nav-link ${className}` : "nav-link"} title={typeof children === "string" ? children : undefined}>
       <Icon size={16} aria-hidden />
       <span className="nav-label">{children}</span>
     </NavLink>

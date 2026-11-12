@@ -42,7 +42,7 @@ export function UsersActions() {
   return (
     <>
       <IconButton label={t("auth.users.refresh")} icon={RiRefreshLine} onClick={() => queryClient.invalidateQueries({ queryKey: ["auth", "users"] })} />
-      <Button size="sm" icon={RiAddLine} onClick={url.create}>{t("auth.users.new")}</Button>
+      <Button size="sm" icon={RiAddLine} data-new onClick={url.create}>{t("auth.users.new")}</Button>
     </>
   );
 }

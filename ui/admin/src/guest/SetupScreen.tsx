@@ -9,8 +9,7 @@ import { Button } from "../components/Button";
 import { Field } from "../components/Field";
 import { Tabs } from "../components/Tabs";
 import { useT } from "../i18n";
-import { FormError, formValue, GuestLayout } from "./GuestLayout";
-import { matchingPassword } from "./ResetPasswordScreen";
+import { FormError, formValue, GuestLayout, matchingPassword } from "./GuestLayout";
 
 type Mode = "create" | "restore";
 
@@ -37,7 +36,7 @@ export function SetupScreen() {
 
 function TokenField() {
   const t = useT();
-  return <Field label={t("field.setupToken")} icon={RiKey2Line} name="setupToken" required autoComplete="off" spellCheck={false} hint={t("setup.tokenHint")} />;
+  return <Field label={t("field.setupToken")} icon={RiKey2Line} name="setupToken" required autoFocus autoComplete="off" spellCheck={false} hint={t("setup.tokenHint")} />;
 }
 
 function CreateAdministrator() {
@@ -58,7 +57,7 @@ function CreateAdministrator() {
     mutation.mutate(new FormData(event.currentTarget));
   };
   return (
-    <form className="form" onSubmit={onSubmit}>
+    <form className="form" onSubmit={onSubmit} onInput={() => mutation.isError && mutation.reset()}>
       <TokenField />
       <Field label={t("field.email")} icon={RiMailLine} name="email" type="email" required autoComplete="username" />
       <Field label={t("field.password")} icon={RiLockPasswordLine} name="password" type="password" required autoComplete="new-password" />
@@ -117,7 +116,7 @@ function RestoreBackup() {
   }
 
   return (
-    <form className="form" onSubmit={onSubmit}>
+    <form className="form" onSubmit={onSubmit} onInput={() => start.isError && start.reset()}>
       <TokenField />
       <Field label={t("field.backupFile")} icon={RiUploadCloud2Line} name="archive" type="file" required accept=".gz,.tgz,application/gzip" />
       <FormError error={start.error} credentialsKey="error.invalidSetupToken" />

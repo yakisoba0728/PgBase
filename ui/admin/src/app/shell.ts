@@ -14,3 +14,12 @@ export function toggleRail(): void {
 }
 
 export const setDrawer = (open: boolean) => drawer.set(open);
+
+// The command palette and the shortcut list are shell overlays any screen (or key) can open.
+const palette = createStore(false);
+const help = createStore(false);
+export const usePalette = palette.use;
+export const useHelp = help.use;
+export const setPalette = (open: boolean) => palette.set(open);
+export const setHelp = (open: boolean) => help.set(open);
+export const togglePalette = () => palette.set(!palette.get());

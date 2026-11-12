@@ -100,3 +100,8 @@
 .facts dd[data-tone] {
   color: var(--tone);
 }
+
+.facts-copy {
+  margin: -6px 0 -6px 4px;
+  vertical-align: middle;
+}

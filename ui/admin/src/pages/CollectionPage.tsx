@@ -1,6 +1,5 @@
 import { Navigate, useParams } from "react-router";
 import { RiDatabase2Line, RiErrorWarningLine } from "@remixicon/react";
-import { errorText } from "../app/queries";
 import { RecordsActions, RecordsView } from "../collections/RecordsView";
 import { ApiView } from "../apidocs/ApiView";
 import { RulesView } from "../rules/RulesView";
@@ -10,6 +9,7 @@ import { SchemaDraftGuard } from "../schema/DraftGuard";
 import { EmptyState, ErrorState, Loader } from "../components/Feedback";
 import { Page } from "../components/Page";
 import { useT } from "../i18n";
+import { useCollectionVisit, useRecentCollections } from "../app/recent";
 
 const subTabs = ["schema", "rules", "api"] as const;
 
@@ -18,6 +18,7 @@ export function CollectionPage() {
   const t = useT();
   const { name = "", tab } = useParams();
   const { collection, data, isPending, error, refetch } = useCollection(name);
+  useCollectionVisit(collection ? collection.name : "", tab);
   if (tab && !subTabs.includes(tab as (typeof subTabs)[number])) return <Navigate to={`/collections/${encodeURIComponent(name)}`} replace />;
   if (isPending) return <Loader />;
   if (!collection) {
@@ -53,13 +54,15 @@ export function CollectionPage() {
 /** /collections: opens the first collection, or says there are none. */
 export function CollectionsIndexPage() {
   const t = useT();
-  const { data, isPending, error } = useCollection("");
+  const { data, isPending, error, refetch } = useCollection("");
+  const recent = useRecentCollections(data?.map((collection) => collection.name));
   if (isPending) return <Loader />;
-  const first = data?.[0];
+  // The most recently opened collection, else the first one.
+  const first = recent[0] ? { name: recent[0] } : data?.[0];
   if (first) return <Navigate to={`/collections/${encodeURIComponent(first.name)}`} replace />;
   return (
     <Page title={t("nav.collections")}>
-      <EmptyState icon={RiDatabase2Line}>{error ? errorText(t, error) : t("collections.empty")}</EmptyState>
+      {error ? <ErrorState error={error} onRetry={refetch} /> : <EmptyState icon={RiDatabase2Line}>{t("collections.empty")}</EmptyState>}
     </Page>
   );
 }

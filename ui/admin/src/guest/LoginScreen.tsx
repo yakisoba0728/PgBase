@@ -49,7 +49,7 @@ export function LoginScreen() {
 
   return (
     <GuestLayout title={pending ? t("login.otpTitle") : t("login.title")}>
-      <form className="form" onSubmit={onSubmit}>
+      <form className="form" onSubmit={onSubmit} onInput={() => error && mutation.reset()}>
         {pending ? (
           <Field key="otp" label={t("field.otp")} icon={RiShieldKeyholeLine} name="otp" required autoFocus inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]*" />
         ) : (

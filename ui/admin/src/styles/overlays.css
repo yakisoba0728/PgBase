@@ -43,6 +43,8 @@ dialog::backdrop {
 
 .dropdown {
   inset: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   min-width: 190px;
   margin: 0;
   padding: 5px;
@@ -108,9 +110,11 @@ dialog::backdrop {
 }
 
 .toasts {
+  /* Top centre, over the page title: never over footers, Save buttons or the header's actions. */
   position: fixed;
-  right: 16px;
-  bottom: 16px;
+  top: 8px;
+  left: 50%;
+  translate: -50% 0;
   z-index: 100;
   display: grid;
   gap: 8px;
@@ -167,6 +171,7 @@ dialog::backdrop {
 /* Popover panels (column settings, filter help, value peek). */
 .popover {
   inset: auto;
+  overflow-y: auto;
   max-width: calc(100vw - 16px);
   margin: 0;
   padding: 6px;
@@ -271,4 +276,16 @@ dialog::backdrop {
   justify-items: center;
   gap: 10px;
   color: var(--text-hint);
+}
+
+@media (max-width: 899px) {
+  .toasts {
+    top: 60px;
+  }
+}
+
+.toast-action {
+  flex: none;
+  align-self: center;
+  font-weight: 600;
 }

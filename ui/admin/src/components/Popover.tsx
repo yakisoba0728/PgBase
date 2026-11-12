@@ -7,9 +7,12 @@ import { RiCheckLine, type RemixiconComponentType } from "@remixicon/react";
  */
 export function placeNear(panel: HTMLElement, anchor: DOMRect, align: "start" | "end" = "end", width = 0) {
   const style = panel.style;
-  const below = window.innerHeight - anchor.bottom > 260 || anchor.top < window.innerHeight / 2;
+  const room = { below: window.innerHeight - anchor.bottom - 12, above: anchor.top - 12 };
+  const below = room.below > 260 || room.below >= room.above;
   style.top = below ? `${anchor.bottom + 4}px` : "";
   style.bottom = below ? "" : `${window.innerHeight - anchor.top + 4}px`;
+  // Never past the viewport edge: the panel scrolls instead.
+  style.maxHeight = `${Math.max(120, below ? room.below : room.above)}px`;
   style.right = align === "end" ? `${Math.max(8, window.innerWidth - anchor.right)}px` : "";
   style.left = align === "start" ? `${Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8))}px` : "";
 }
@@ -81,7 +84,8 @@ export function Dropdown({ label, icon: Icon, heading, text, align = "end", chil
 
   const onToggle = (event: ToggleEvent<HTMLDivElement>) => {
     setOpen(event.newState === "open");
-    if (event.newState === "open") items()[0]?.focus();
+    // Only when focus has not moved into the menu already (a fast keyboard choice must not be undone).
+    if (event.newState === "open" && !menu.current?.contains(document.activeElement)) items()[0]?.focus();
   };
 
   const onKeyDown = (event: KeyboardEvent) => {

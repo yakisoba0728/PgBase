@@ -1,5 +1,6 @@
 import { Navigate, useParams } from "react-router";
 import { Page } from "../components/Page";
+import { pageTabs, screenTabs } from "../app/navigation";
 import { useT } from "../i18n";
 import { SettingsView } from "../system/SettingsView";
 import { StatusView } from "../system/StatusView";
@@ -9,10 +10,7 @@ export function SettingsPage() {
   const t = useT();
   const { tab } = useParams();
   if (tab && tab !== "status") return <Navigate to="/settings" replace />;
-  const tabs = [
-    { to: "/settings", label: t("system.tab.settings"), end: true },
-    { to: "/settings/status", label: t("system.tab.status") },
-  ];
+  const tabs = pageTabs(t, screenTabs.settings);
   return (
     <Page title={t("nav.settings")} tabs={tabs}>
       {tab === "status" ? <StatusView /> : <SettingsView />}

@@ -1,5 +1,6 @@
 import { Navigate, useParams } from "react-router";
 import { Page } from "../components/Page";
+import { pageTabs, screenTabs } from "../app/navigation";
 import { SchemaExport } from "../devtools/SchemaExport";
 import { SchemaImport } from "../devtools/SchemaImport";
 import { useT } from "../i18n";
@@ -9,10 +10,7 @@ export function SchemaTransferPage() {
   const t = useT();
   const { tab } = useParams();
   if (tab && tab !== "import") return <Navigate to="/schema-transfer" replace />;
-  const tabs = [
-    { to: "/schema-transfer", label: t("devtools.export.tab"), end: true },
-    { to: "/schema-transfer/import", label: t("devtools.import.tab") },
-  ];
+  const tabs = pageTabs(t, screenTabs.schemaTransfer);
   return (
     <Page title={t("nav.schemaTransfer")} tabs={tabs}>
       {tab === "import" ? <SchemaImport /> : <SchemaExport />}

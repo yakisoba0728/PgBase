@@ -193,7 +193,7 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
           { label: t("ops.jobs.lastStarted"), value: job.lastStartedAt ? time(job.lastStartedAt, true) : <span className="na">{t("ops.jobs.never")}</span> },
           { label: t("ops.jobs.lastFinished"), value: job.lastFinishedAt ? time(job.lastFinishedAt, true) : null },
           { label: t("ops.jobs.result"), value: job.failed ? t("ops.jobs.failed", { count: job.attempts }) : job.lastFinishedAt ? t("ops.jobs.ok") : null, tone: job.failed ? "danger" : undefined },
-          { label: t("ops.jobs.id"), value: job.id, mono: true },
+          { label: t("ops.jobs.id"), value: job.id, mono: true, copy: true },
         ]} />
       </div>
       <footer className="pane-footer">
