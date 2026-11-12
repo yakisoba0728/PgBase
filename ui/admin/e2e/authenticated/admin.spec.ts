@@ -66,6 +66,7 @@ const test = base.extend<{ cleanConsole: void }, { authenticatedStorageState: st
 const suffix = randomBytes(3).toString("hex");
 const products = `e2e_products_${suffix}`;
 const members = `e2e_members_${suffix}`;
+const orders = `e2e_orders_${suffix}`;
 
 async function addField(page: Page, type: string, name: string): Promise<void> {
   const detail = page.getByRole("region", { name: "Schema detail" });
@@ -106,9 +107,12 @@ test.describe("session", () => {
     await page.reload();
     await expect(page.getByRole("button", { name: "Account" })).toContainText(email);
 
+    // The server session ends once /login is reached, so wait for that request before probing it.
+    const loggedOut = page.waitForResponse((response) => response.url().endsWith("/api/admin/auth/logout") && response.ok());
     await page.getByRole("button", { name: "Account" }).click();
     await page.getByRole("menuitem", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/admin\/login$/);
+    await loggedOut;
     await page.goto("/admin/collections");
     await expect(page).toHaveURL(/\/admin\/login$/);
   });
@@ -124,7 +128,7 @@ test.describe.serial("collection workflow", () => {
     await addField(page, "Boolean", "active");
     await reviewAndApply(page);
     await expect(page).toHaveURL(new RegExp(`/admin/collections/${products}`));
-    await expect(page.getByRole("navigation", { name: "Data" }).getByRole("link", { name: products })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Data" }).getByRole("link", { name: products, exact: true })).toBeVisible();
   });
 
   test("creates, edits, filters and deletes records", async ({ page }) => {
@@ -171,6 +175,43 @@ test.describe.serial("collection workflow", () => {
     await page.reload();
     await expect(page.getByRole("checkbox", { name: "Allow requests from users and guests" })).toBeChecked();
     await expect(page.getByRole("radiogroup", { name: "Who can list" }).getByRole("radio", { name: "Everyone" })).toBeChecked();
+  });
+
+  test("picks a related record in the record editor", async ({ page }) => {
+    await page.goto("/admin/new-collection");
+    await page.getByRole("link", { name: /^Base/ }).click();
+    await page.getByRole("region", { name: "Collection" }).getByRole("textbox", { name: "Name", exact: true }).fill(orders);
+    await addField(page, "Relation", "item");
+    await page.getByRole("region", { name: "Schema detail" }).getByRole("combobox", { name: "Target collection" }).selectOption(products);
+    await reviewAndApply(page);
+
+    await page.goto(`/admin/collections/${orders}`);
+    await page.getByRole("button", { name: "New record" }).click();
+    const detail = page.getByRole("region", { name: "Record" });
+    await detail.getByRole("combobox", { name: /^item/ }).fill("Alpha");
+    await detail.getByRole("option", { name: /^Alpha/ }).click();
+    await expect(detail.getByRole("list", { name: /item/ })).toContainText("Alpha");
+    await detail.getByRole("button", { name: "Create", exact: true }).click();
+    await expect(page).toHaveURL(/record=/);
+    await page.reload();
+    await expect(page.getByRole("region", { name: "Record" }).getByRole("list", { name: /item/ })).toContainText("Alpha");
+  });
+
+  test("a data-losing schema change needs the collection name typed", async ({ page }) => {
+    await page.goto(`/admin/collections/${products}/schema`);
+    await page.getByRole("button", { name: /^active/ }).click();
+    await page.getByRole("region", { name: "Schema detail" }).getByRole("button", { name: "Remove field" }).click();
+    await page.getByRole("button", { name: "Review changes" }).click();
+    await page.getByRole("button", { name: "Apply", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "This change loses data" });
+    const confirm = dialog.getByRole("button", { name: "Apply", exact: true });
+    await expect(confirm).toBeDisabled();
+    await dialog.getByRole("textbox", { name: `Type ${products} to confirm` }).fill(products);
+    await confirm.click();
+    await expect(page.getByText("Schema applied.")).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("button", { name: /^title/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^active/ })).toHaveCount(0);
   });
 });
 
@@ -248,6 +289,18 @@ test("switches the interface to Korean", async ({ page }) => {
   await page.getByRole("button", { name: "언어" }).click();
   await page.getByRole("menuitemradio", { name: "English" }).click();
   await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+});
+
+test("the command palette jumps to a screen", async ({ page }) => {
+  await page.goto("/admin/settings");
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+k");
+  const search = page.getByRole("dialog").getByRole("combobox", { name: "Go to or run a command" });
+  await expect(search).toBeFocused();
+  await search.fill("Logs");
+  await search.press("Enter");
+  await expect(page).toHaveURL(/\/admin\/logs(\?|$)/);
+  await expect(page.getByRole("heading", { name: "Logs", level: 1 })).toBeVisible();
 });
 
 test("every navigation entry opens its screen", async ({ page }) => {
