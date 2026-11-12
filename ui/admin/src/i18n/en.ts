@@ -2,6 +2,7 @@ import { opsEn } from "./parts/ops.en";
 
 import { rulesEn } from "./parts/rules.en";
 import { authEn } from "./parts/auth.en";
+import { devtoolsEn } from "./parts/devtools.en";
 
 export const en = {
   "nav.main": "Main",
@@ -367,4 +368,5 @@ export const en = {
   ...opsEn,
   ...rulesEn,
   ...authEn,
+  ...devtoolsEn,
 };
