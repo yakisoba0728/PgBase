@@ -106,6 +106,10 @@ export function planSave(drafts: RuleDrafts, visible: readonly Action[]): SavePl
   return Object.keys(keep).length ? { kind: "split", rules, keep } : { kind: "compat", rules };
 }
 
+/** After a split save stopped halfway (kept rows now read admins only), the kept rules as pending edits: Save writes them back. */
+export const pendingKeep = (keep: Partial<CollectionRules>): Partial<RuleDrafts> =>
+  Object.fromEntries(Object.entries(keep).map(([action, rule]) => [action, draftFromRule(rule as AccessRule)]));
+
 /** Insert text at a textarea selection; returns the new value and caret. */
 export function insertAt(value: string, start: number, end: number, text: string): { value: string; caret: number } {
   const before = value.slice(0, start);

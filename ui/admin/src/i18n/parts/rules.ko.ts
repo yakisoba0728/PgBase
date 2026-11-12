@@ -6,6 +6,8 @@ export const rulesKo: Record<keyof typeof rulesEn, string> = {
 
   "rules.title": "규칙",
   "rules.saved": "규칙을 저장했습니다.",
+  "rules.partialTitle": "규칙이 일부만 저장되었습니다",
+  "rules.partialText": "표현식은 저장했지만 {actions} 복원에 실패해 서버에서는 지금 관리자만 허용됩니다. 이전 규칙은 아래에 저장되지 않은 변경으로 남아 있습니다. 다시 시도해 마무리하세요.",
   "rules.accessTitle": "사용자·게스트 접근",
   "rules.accessLabel": "사용자와 게스트 요청 허용",
   "rules.accessOn": "아래 규칙이 요청마다 판단합니다.",

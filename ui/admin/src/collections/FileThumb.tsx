@@ -5,9 +5,9 @@ import type { StoredFile } from "../api/records";
 import { fileUrlQuery } from "./queries";
 
 /** A small square for one attachment: the server thumbnail for images, else a file icon. */
-export function FileThumb({ file }: { file: StoredFile }) {
+export function FileThumb({ file, active = true }: { file: StoredFile; /** False: show a cached thumbnail but mint nothing (grid rows outside the viewport). */ active?: boolean }) {
   const image = file.thumbnail && file.contentType.startsWith("image/");
-  const url = useQuery({ ...fileUrlQuery(file, "thumbnail"), enabled: image });
+  const url = useQuery({ ...fileUrlQuery(file, "thumbnail"), enabled: image && active });
   // An expired token shows as a broken image: mint a fresh one, once.
   const retried = useRef(false);
   const onError = () => {

@@ -175,6 +175,66 @@ export function draftFromCollection(collection: Collection, catalog: Collection[
 
 export const sameDraft = (a: Draft, b: Draft) => stringifyJson(a) === stringifyJson(b);
 
+/** Thrown by planning when the collection changed on the server since the draft started. */
+export class DraftDrifted extends Error {
+  constructor() {
+    super("draft drifted");
+  }
+}
+
+const same = (a: unknown, b: unknown) => stringifyJson(a ?? null) === stringifyJson(b ?? null);
+
+/** Three-way pick of one value: an untouched side yields to the other; both changed is a conflict, which keeps `latest`. */
+function pick<T>(mine: T, base: T, latest: T): { value: T; conflict: boolean } {
+  if (same(mine, base) || same(mine, latest)) return { value: latest, conflict: false };
+  if (same(latest, base)) return { value: mine, conflict: false };
+  return { value: latest, conflict: true };
+}
+
+function rebaseRows<T extends { key: string; name: string }>(mine: T[], base: T[], latest: T[], conflicts: string[]): T[] {
+  const find = (rows: T[], key: string) => rows.find((row) => row.key === key);
+  const result: T[] = [];
+  for (const row of mine) {
+    const before = find(base, row.key);
+    const now = find(latest, row.key);
+    if (!before) result.push(row); // added in this draft
+    else if (!now) {
+      if (!same(row, before)) conflicts.push(row.name); // edited here, removed there: the removal stands
+    } else {
+      const { value, conflict } = pick(row, before, now);
+      if (conflict) conflicts.push(row.name);
+      result.push(value);
+    }
+  }
+  // Rows only the server has: added there, or removed here after being changed there (that change wins).
+  latest.forEach((row, position) => {
+    if (result.some((kept) => kept.key === row.key)) return;
+    const before = find(base, row.key);
+    if (before && !find(mine, row.key) && same(row, before)) return; // removed in this draft
+    if (before) conflicts.push(row.name);
+    const previous = latest.slice(0, position).reverse().find((candidate) => result.some((kept) => kept.key === candidate.key));
+    result.splice(previous ? result.findIndex((kept) => kept.key === previous.key) + 1 : 0, 0, row);
+  });
+  return result;
+}
+
+/**
+ * Replays this draft's edits (draft vs base) onto the latest catalog state, so a stale draft
+ * never plans another administrator's changes away. Conflicting edits keep the server's version.
+ */
+export function rebaseDraft(draft: Draft, base: Draft, latest: Draft): { draft: Draft; conflicts: string[] } {
+  const conflicts: string[] = [];
+  const next = { ...latest };
+  for (const key of ["name", "compatibilityName", "validationMode", "viewMode", "viewQuery", "view"] as const) {
+    const { value, conflict } = pick(draft[key], base[key], latest[key]);
+    if (conflict) conflicts.push(key);
+    (next as Record<string, unknown>)[key] = value;
+  }
+  next.fields = rebaseRows(draft.fields, base.fields, latest.fields, conflicts);
+  next.indexes = rebaseRows(draft.indexes, base.indexes, latest.indexes, conflicts);
+  return { draft: next, conflicts };
+}
+
 /** Drops unset values and keys the type does not take (left over from a type switch). */
 export function pruneOptions(type: FieldType, options: FieldOptions | undefined): FieldOptions | undefined {
   if (!options) return undefined;

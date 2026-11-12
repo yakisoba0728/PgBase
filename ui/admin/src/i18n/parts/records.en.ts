@@ -38,6 +38,10 @@ export const recordsEn = {
 
   "editor.toolbar": "{field} formatting",
   "editor.source": "Edit HTML source",
+  "editor.lossyTitle": "This HTML has markup the visual editor cannot keep",
+  "editor.lossyText": "It opened as HTML source so nothing is lost. The visual editor would drop unsupported tags, attributes or styles on the first edit.",
+  "editor.lossyVisual": "Use visual editor anyway",
+  "editor.lossyVisualText": "Your first edit here replaces the stored HTML with what the visual editor supports; unsupported markup is dropped.",
   "editor.bold": "Bold",
   "editor.italic": "Italic",
   "editor.underline": "Underline",

@@ -29,7 +29,7 @@ function validationText(t: Translate, code: string): string {
 }
 
 // getRandomValues also works on plain-HTTP hosts, where crypto.randomUUID is absent.
-const randomKey = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+export const randomKey = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
 
 class DraftErrors extends Error {
   constructor(readonly fields: Record<string, string>) {

@@ -10,17 +10,20 @@ import { isWatched, operations, trackOperation, untrackOperation, useOperations,
 import { errorText } from "../app/queries";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { drafts, dropDraft } from "./drafts";
+import { collectionsQuery } from "../collections/queries";
+import { drafts, dropDraft, isDirty } from "./drafts";
 import { applyCollection, applyImport, newIdentity, Undecided } from "./apply";
 import {
   buildChange,
   diffPlan,
   draftFromCollection,
+  DraftDrifted,
   DraftInvalid,
   emptyDraft,
   mapErrors,
   newField,
   newKey,
+  rebaseDraft,
   sameDraft,
   type BuiltChange,
   type ChangeItem,
@@ -66,16 +69,27 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
     () => (collection ? draftFromCollection(collection, catalog) : emptyDraft(type, type === "auth" ? scaffolds?.auth.collection.fields : [])),
     [collection, catalog, type, scaffolds],
   );
-  const entry = drafts.use()[key] ?? { base: initial, draft: initial };
-  const { draft, base } = entry;
+  // An untouched draft simply follows the catalog; an edited one keeps the base it was edited from.
+  const current = useCallback(
+    (entry = drafts.get()[key]) => (entry && (creating || isDirty(entry) || sameDraft(entry.base, initial)) ? entry : { base: initial, draft: initial }),
+    [key, creating, initial],
+  );
+  const { draft, base } = current(drafts.use()[key]);
   const dirty = !sameDraft(draft, base);
+  // Set once the draft is applied or the collection deleted: no more guard, no more planning.
+  const finished = useRef(false);
+  // The collection changed on the server since this draft started: planning waits for a rebase.
+  const drift = useMemo(
+    () => (!creating && dirty && !finished.current && !sameDraft(base, initial) ? rebaseDraft(draft, base, initial) : undefined),
+    [creating, dirty, draft, base, initial],
+  );
 
   const update = useCallback(
     (change: (current: Draft) => Draft) => {
-      const current = drafts.get()[key] ?? { base: initial, draft: initial };
-      drafts.set({ ...drafts.get(), [key]: { base: current.base, draft: change(current.draft) } });
+      const entry = current();
+      drafts.set({ ...drafts.get(), [key]: { base: entry.base, draft: change(entry.draft) } });
     },
-    [key, initial],
+    [key, current],
   );
 
   // Pane state lives in the query string: ?field=, ?index= or ?review.
@@ -96,11 +110,9 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
     }
   }, [draft, collection, base]);
 
-  // Set once the draft is applied or the collection deleted: no more guard, no more planning.
-  const finished = useRef(false);
   const planQuery = useQuery({
-    queryKey: ["schema-plan", key, built.ok ? stringifyJson(built.ok.change) : ""],
-    enabled: reviewing && !finished.current && Boolean(built.ok) && (dirty || creating) && (type !== "auth" || !creating || Boolean(scaffolds)),
+    queryKey: ["schema-plan", key, built.ok ? stringifyJson(built.ok.change) : "", stringifyJson(base)],
+    enabled: reviewing && !finished.current && !drift && Boolean(built.ok) && (dirty || creating) && (type !== "auth" || !creating || Boolean(scaffolds)),
     retry: false,
     gcTime: 0,
     queryFn: async ({ signal }) => {
@@ -112,8 +124,15 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
         const sections = unique.map((plan): PlanSection => ({ title: plan.definition.name, items: diffPlan(undefined, plan.definition), sql: plan.sql ?? [] }));
         return { kind: "import" as const, preview, sections, checksum: preview.checksum };
       }
+      // The update sends the whole field list, so it is planned only against the catalog the draft was edited from.
+      let latest = collection;
+      if (collection) {
+        const catalog = Object.values((await queryClient.fetchQuery({ ...collectionsQuery, staleTime: 0 })).collections);
+        latest = catalog.find((candidate) => candidate.id === collection.id);
+        if (!latest || !sameDraft(draftFromCollection(latest, catalog), base)) throw new DraftDrifted();
+      }
       const plan = await planCollectionChange(change, signal);
-      const sections: PlanSection[] = [{ title: plan.definition.name, items: diffPlan(collection, plan.definition), sql: plan.sql }];
+      const sections: PlanSection[] = [{ title: plan.definition.name, items: diffPlan(latest, plan.definition), sql: plan.sql }];
       return { kind: "collection" as const, plan, change, sections, checksum: plan.checksum };
     },
   });
@@ -183,6 +202,10 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
     openIndex,
     reviewing,
     planQuery,
+    /** Set when the server's collection moved on since the draft started; `conflicts` name edits the latest version overrides. */
+    drift,
+    /** Replays the draft's edits onto the latest catalog state. */
+    rebase: () => drift && drafts.set({ ...drafts.get(), [key]: { base: initial, draft: drift.draft } }),
     apply,
     /** An earlier apply of this collection whose outcome is still open (another plan, another tab, or before a reload). */
     pending: pending && !isWatched(pending.id) && pending.checksum !== planQuery.data?.checksum ? pending : undefined,

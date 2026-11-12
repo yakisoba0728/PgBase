@@ -9,6 +9,7 @@ import {
   setCollectionUserAccess,
   setPocketBaseRules,
   type Collection,
+  type CollectionRules,
 } from "../api/collections";
 import { ApiError } from "../api/http";
 import { listRecords } from "../api/records";
@@ -20,6 +21,7 @@ import {
   emptyExpressions,
   expressionChanged,
   insertAt,
+  pendingKeep,
   planSave,
   previewable,
   sameDraft,
@@ -31,6 +33,13 @@ import {
 } from "./model";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The compat write of a split save landed but restoring the kept rows did not. */
+class PartialSave extends Error {
+  constructor(readonly keep: Partial<CollectionRules>) {
+    super("partial rules save");
+  }
+}
 
 export const rulesQueryKey = (name: string) => ["rules", name] as const;
 
@@ -48,6 +57,8 @@ export function useRulesEditor(collection: Collection, basePath: string) {
   const [errors, setErrors] = useState<Partial<Record<Action, string>>>({});
   const [results, setResults] = useState<Partial<Record<Action, string>>>({});
   const [testAs, setTestAs] = useState("");
+  /** Rows a half-finished save left as admins only on the server. */
+  const [partial, setPartial] = useState<Action[]>([]);
   const focused = useRef<{ action: Action; element: HTMLTextAreaElement } | null>(null);
 
   const loaded = rules.data ? draftsFromRules(rules.data.rules) : undefined;
@@ -68,6 +79,7 @@ export function useRulesEditor(collection: Collection, basePath: string) {
     setEdits({});
     setAccessEdit(undefined);
     setErrors({});
+    setPartial([]);
   };
 
   const save = useMutation({
@@ -83,8 +95,12 @@ export function useRulesEditor(collection: Collection, basePath: string) {
           // shortcut: owner/typed rows have no expression form, so they are written back in a
           // second request; between the two the rows read as admins only (fail-closed).
           // Upgrade when the server can parse an expression without saving.
-          const fresh = await getCollectionRules(name);
-          await setCollectionRules(name, { ...fresh.rules, ...plan.keep });
+          try {
+            const fresh = await getCollectionRules(name);
+            await setCollectionRules(name, { ...fresh.rules, ...plan.keep });
+          } catch {
+            throw new PartialSave(plan.keep);
+          }
         }
       }
       if (accessChanged) await setCollectionUserAccess(name, accessEnabled);
@@ -99,6 +115,13 @@ export function useRulesEditor(collection: Collection, basePath: string) {
       const empty = (error as { empty?: Action[] }).empty;
       if (empty) {
         setErrors(Object.fromEntries(empty.map((action) => [action, t("rules.emptyExpression")])));
+        return;
+      }
+      // Whatever landed, the screen shows the server's rules from here on.
+      void queryClient.invalidateQueries({ queryKey: rulesQueryKey(name) });
+      if (error instanceof PartialSave) {
+        setEdits(pendingKeep(error.keep));
+        setPartial(Object.keys(error.keep) as Action[]);
         return;
       }
       if (error instanceof ApiError && error.code === "invalid_rule" && drafts) {
@@ -155,6 +178,7 @@ export function useRulesEditor(collection: Collection, basePath: string) {
     setAccess: setAccessEdit,
     dirty,
     errors,
+    partial,
     results,
     testAs,
     setTestAs,

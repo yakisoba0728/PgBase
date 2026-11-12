@@ -48,7 +48,7 @@ interface CellProps {
   record: RecordData;
   collection: string;
   catalog: Collection[];
-  /** False while scrolling: per-row requests (file lists) wait until the grid settles. */
+  /** False while scrolling or outside the viewport: per-row requests (file lists, thumbnails) wait. */
   settled: boolean;
   onPeek: OnPeek;
 }
@@ -129,7 +129,7 @@ function FileCell({ collection, record, field, settled }: { collection: string; 
     <td>
       <span className="cell-files">
         {items.slice(0, 3).map((file) => (
-          <FileThumb key={file.id} file={file} />
+          <FileThumb key={file.id} file={file} active={settled} />
         ))}
         {items.length > 3 && <span className="na">+{items.length - 3}</span>}
         {files.data && items.length === 0 && <span className="na">–</span>}

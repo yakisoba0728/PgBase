@@ -434,3 +434,9 @@ select.schema-input {
 .schema-start {
   justify-self: start;
 }
+
+.schema-confirm-list {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: 12px;
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CollectionRules } from "../api/collections";
-import { draftFromRule, draftsFromRules, emptyExpressions, insertAt, planSave, visibleActions, type RuleDrafts } from "./model";
+import { draftFromRule, draftsFromRules, emptyExpressions, insertAt, pendingKeep, planSave, sameDraft, visibleActions, type RuleDrafts } from "./model";
 
 const owner = { op: "owner" } as const;
 const parsed = { op: "eq", field: "published", value: true, pocketbase: "published = true" } as const;
@@ -48,5 +48,17 @@ describe("rule drafts", () => {
   it("inserts tokens with a separating space", () => {
     expect(insertAt("title =", 7, 7, "@now")).toEqual({ value: "title = @now", caret: 12 });
     expect(insertAt("", 0, 0, "title")).toEqual({ value: "title", caret: 5 });
+  });
+});
+
+describe("half-finished split save", () => {
+  it("re-expresses the kept rows over the server's fail-closed state so Save restores them", () => {
+    // The compat write landed: list holds the new expression, delete (owner) now reads admins only.
+    const server: CollectionRules = { ...loaded, list: { ...parsed, pocketbase: "count > 1" }, delete: { op: "deny" } };
+    const base = draftsFromRules(server);
+    const drafts = { ...base, ...pendingKeep({ delete: owner }) } as RuleDrafts;
+    expect(sameDraft(drafts.delete, base.delete)).toBe(false);
+    expect(sameDraft(drafts.list, base.list)).toBe(true);
+    expect(planSave(drafts, visibleActions("base"))).toMatchObject({ kind: "typed", rules: { delete: owner, list: { pocketbase: "count > 1" } } });
   });
 });

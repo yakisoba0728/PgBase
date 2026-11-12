@@ -26,6 +26,7 @@ import {
   type RemixiconComponentType,
 } from "@remixicon/react";
 import { Button } from "../components/Button";
+import { Notice } from "../components/Feedback";
 import { useT } from "../i18n";
 import "../styles/richtext.css";
 
@@ -75,6 +76,26 @@ function withoutStyle(spec: Spec): Spec {
 // recomputes the only styles it keeps (table widths), so incoming ones are renamed before parsing.
 const forEditor = (html: string) => html.replace(/(<[a-z][^<>]*?\s)style(\s*=)/gi, `$1${styleStandIn}$2`);
 
+const tagAlias: Record<string, string> = { B: "STRONG", I: "EM", STRIKE: "S", DEL: "S" };
+
+/** True when every element, attribute and text of `original` survives in `roundTrip`: the editor may add markup, never drop it. */
+export function keepsMarkup(original: string, roundTrip: string): boolean {
+  const parse = (html: string) => new DOMParser().parseFromString(forEditor(html), "text/html").body;
+  const inventory = (root: HTMLElement) => {
+    const tags = new Map<string, number>();
+    const attributes = new Set<string>();
+    for (const element of root.querySelectorAll("*")) {
+      const tag = tagAlias[element.tagName] ?? element.tagName;
+      tags.set(tag, (tags.get(tag) ?? 0) + 1);
+      for (const attribute of element.attributes) attributes.add(`${tag} ${attribute.name}=${attribute.value}`);
+    }
+    return { text: (root.textContent ?? "").replace(/\s/g, ""), tags, attributes };
+  };
+  const before = inventory(parse(original));
+  const after = inventory(parse(roundTrip));
+  return before.text === after.text && [...before.tags].every(([tag, count]) => (after.tags.get(tag) ?? 0) >= count) && [...before.attributes].every((item) => after.attributes.has(item));
+}
+
 let serializer: { schema: Editor["schema"]; value: DOMSerializer } | null = null;
 function serialize(editor: Editor): string {
   if (serializer?.schema !== editor.schema) {
@@ -102,6 +123,13 @@ export default function RichText({ id, label, value, onChange, readOnly, invalid
   const [source, setSource] = useState(false);
   const [urlFor, setUrlFor] = useState<"link" | "image" | null>(null);
   const [url, setUrl] = useState("");
+  // The stored HTML holds markup the visual editor would drop: it opens as source until the user accepts the loss.
+  const [lossy, setLossy] = useState(false);
+  const check = (current: Editor, html: string) => {
+    const loses = html !== "" && !keepsMarkup(html, serialize(current));
+    setLossy(loses);
+    if (loses) setSource(true);
+  };
   // The HTML this editor last produced: a value equal to it is our own echo, anything else came from outside.
   const emitted = useRef(value);
   const touched = useRef(false);
@@ -116,6 +144,7 @@ export default function RichText({ id, label, value, onChange, readOnly, invalid
     injectCSS: false,
     shouldRerenderOnTransaction: true,
     editorProps: { attributes: { id, role: "textbox", "aria-multiline": "true", "aria-label": label, class: "rich-text-doc" } },
+    onCreate: ({ editor: current }) => check(current, value),
     onFocus: touch,
     onUpdate: ({ editor: current }) => {
       // Plugins normalise some documents on load (e.g. table fixes); only edits made by the user count.
@@ -131,6 +160,7 @@ export default function RichText({ id, label, value, onChange, readOnly, invalid
     if (editor && value !== emitted.current) {
       emitted.current = value;
       editor.commands.setContent(forEditor(value), { emitUpdate: false });
+      check(editor, value);
     }
   }, [editor, value]);
   useEffect(() => editor?.setEditable(!readOnly, false), [editor, readOnly]);
@@ -153,11 +183,16 @@ export default function RichText({ id, label, value, onChange, readOnly, invalid
     <div className="rich-text" data-invalid={invalid ? "" : undefined} data-disabled={readOnly ? "" : undefined} onPointerDownCapture={touch} onKeyDownCapture={touch}>
       <div className="rich-text-bar" role="toolbar" aria-label={t("editor.toolbar", { field: label })}>
         {!source && editor && <Tools editor={editor} disabled={readOnly} onUrl={(kind) => setUrlFor(urlFor === kind ? null : kind)} />}
-        <button type="button" className="rt-btn rt-source" aria-pressed={source} onClick={() => setSource(!source)} aria-label={t("editor.source")} title={t("editor.source")}>
+        <button type="button" className="rt-btn rt-source" aria-pressed={source} disabled={lossy && source} onClick={() => setSource(!source)} aria-label={t("editor.source")} title={t("editor.source")}>
           <RiCodeSSlashLine size={16} aria-hidden />
           <span>HTML</span>
         </button>
       </div>
+      {lossy && (
+        <Notice title={t("editor.lossyTitle")} actions={source && !readOnly ? <Button size="sm" variant="secondary" onClick={() => setSource(false)}>{t("editor.lossyVisual")}</Button> : undefined}>
+          {t(source ? "editor.lossyText" : "editor.lossyVisualText")}
+        </Notice>
+      )}
       {urlFor && !source && (
         <div className="rich-text-url">
           <input

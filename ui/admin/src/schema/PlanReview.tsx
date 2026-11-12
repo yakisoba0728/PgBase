@@ -1,13 +1,15 @@
+import { useState } from "react";
 import { Link } from "react-router";
 import { ApiError } from "../api/http";
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
 import { untrackOperation } from "../app/operations";
 import { ChangeList } from "../components/ChangeList";
+import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState, Loader, Notice } from "../components/Feedback";
 import { useT } from "../i18n";
 import { Undecided } from "./apply";
-import { dangerousStatement } from "./draft";
+import { dangerousStatement, DraftDrifted } from "./draft";
 import { describeErrors } from "./SchemaRows";
 import type { SchemaEditor } from "./useSchemaEditor";
 import { PaneHeader } from "../components/SplitView";
@@ -16,6 +18,7 @@ import { PaneHeader } from "../components/SplitView";
 export function PlanReview({ editor }: { editor: SchemaEditor }) {
   const t = useT();
   const { planQuery, apply, errors } = editor;
+  const [confirming, setConfirming] = useState(false);
   const close = () => editor.setPane(null);
   const sections = planQuery.data?.sections ?? [];
   const danger = sections.some((section) => section.items.some((item) => item.danger) || section.sql.some(dangerousStatement));
@@ -23,9 +26,22 @@ export function PlanReview({ editor }: { editor: SchemaEditor }) {
   const rowErrors = Object.keys(errors.fields).length + Object.keys(errors.indexes).length + Object.keys(errors.collection).length;
   const lost = apply.error instanceof Undecided || (apply.error instanceof ApiError && apply.error.code === "network_error");
 
+  const risky = sections.flatMap((section) => section.items.filter((item) => item.danger).map((item) => `${t(`schema.kind.${item.kind}`)} ${item.name}`));
+  const name = editor.draft.name.trim();
+
   let body;
   if (!editor.dirty && !editor.creating) {
     body = <EmptyState>{t("schema.noChanges")}</EmptyState>;
+  } else if (editor.drift) {
+    const { conflicts } = editor.drift;
+    body = (
+      <Notice title={t("schema.driftTitle")} actions={<Button size="sm" variant="secondary" onClick={editor.rebase}>{t("schema.driftRebase")}</Button>}>
+        {t("schema.driftText")}
+        {conflicts.length > 0 && <> {t("schema.driftConflicts", { names: conflicts.join(", ") })}</>}
+      </Notice>
+    );
+  } else if (planQuery.error instanceof DraftDrifted) {
+    body = <Loader />;
   } else if (rowErrors || errors.other.length) {
     body = (
       <div className="pane-notice" data-tone="danger" role="alert">
@@ -76,10 +92,24 @@ export function PlanReview({ editor }: { editor: SchemaEditor }) {
       <div className="pane-body">{body}</div>
       <footer className="pane-footer">
         <Button variant="secondary" onClick={close}>{t("common.cancel")}</Button>
-        <Button variant={danger ? "danger" : "primary"} loading={apply.isPending} disabled={!planQuery.data || planQuery.isFetching || Boolean(editor.pending) || rowErrors > 0 || (empty && !editor.creating)} onClick={() => apply.mutate()}>
+        <Button variant={danger ? "danger" : "primary"} loading={apply.isPending} disabled={!planQuery.data || planQuery.isFetching || Boolean(editor.drift) || Boolean(editor.pending) || rowErrors > 0 || (empty && !editor.creating)} onClick={() => (danger ? setConfirming(true) : apply.mutate())}>
           {t("schema.apply")}
         </Button>
       </footer>
+      {/* Data-losing plans take a typed confirmation, like truncate and delete. */}
+      <ConfirmDialog
+        open={confirming}
+        title={t("schema.dangerTitle")}
+        message={t("schema.dangerText")}
+        confirmLabel={t("schema.apply")}
+        danger
+        busy={apply.isPending}
+        typed={{ phrase: name, label: t("schema.typeName", { name }) }}
+        onConfirm={() => apply.mutate(undefined, { onSettled: () => setConfirming(false) })}
+        onCancel={() => setConfirming(false)}
+      >
+        {risky.length > 0 && <ul className="schema-confirm-list mono">{risky.map((line) => <li key={line}>{line}</li>)}</ul>}
+      </ConfirmDialog>
     </>
   );
 }

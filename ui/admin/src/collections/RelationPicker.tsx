@@ -1,8 +1,9 @@
-import { useEffect, useId, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiAddLine, RiCloseLine, RiExternalLinkLine, RiSearchLine } from "@remixicon/react";
 import type { CollectionField } from "../api/collections";
+import { ApiError } from "../api/http";
 import { createRecord, listRecords, type RecordData } from "../api/records";
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
@@ -10,6 +11,7 @@ import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { collectionsQuery } from "./queries";
 import { idsFilter, labelField, recordLabel, relationSearchFilter } from "./relation";
+import { randomKey } from "./useRecordForm";
 
 interface RelationPickerProps {
   field: CollectionField;
@@ -82,14 +84,33 @@ export function RelationPicker({ field, value, onChange, known = [], error, read
     if (!multiple) setOpen(false);
   };
 
+  // One create at a time (isPending lags a same-tick double Enter), and one Idempotency-Key per
+  // name until the server answers, so a retry after a lost response never creates a twin.
+  const creating = useRef(false);
+  const createKey = useRef<{ name: string; key: string } | null>(null);
   const create = useMutation({
-    mutationFn: () => createRecord(target!.name, { [label!.name]: query.trim() }),
-    onSuccess: (result) => {
-      select(result.record);
-      toast(t("relation.created", { name: query.trim() }));
+    mutationFn: (name: string) => {
+      if (createKey.current?.name !== name) createKey.current = { name, key: randomKey() };
+      return createRecord(target!.name, { [label!.name]: name }, { idempotencyKey: createKey.current.key });
     },
-    onError: (failure) => toast(errorText(t, failure), "danger"),
+    onSuccess: (result, name) => {
+      createKey.current = null;
+      select(result.record);
+      toast(t("relation.created", { name }));
+    },
+    onError: (failure) => {
+      if (failure instanceof ApiError && failure.status > 0) createKey.current = null;
+      toast(errorText(t, failure), "danger");
+    },
+    onSettled: () => {
+      creating.current = false;
+    },
   });
+  const startCreate = () => {
+    if (creating.current) return;
+    creating.current = true;
+    create.mutate(query.trim());
+  };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     const count = options.length + (canCreate ? 1 : 0);
@@ -100,7 +121,7 @@ export function RelationPicker({ field, value, onChange, known = [], error, read
     } else if (event.key === "Enter") {
       event.preventDefault();
       if (active >= 0 && active < options.length) select(options[active]);
-      else if (active === options.length && canCreate) create.mutate();
+      else if (active === options.length && canCreate) startCreate();
     } else if (event.key === "Escape" && open) {
       // Closes the list, not the record pane.
       event.preventDefault();
@@ -193,7 +214,7 @@ export function RelationPicker({ field, value, onChange, known = [], error, read
                 );
               })}
               {canCreate && (
-                <li id={`${id}-option-${options.length}`} role="option" aria-selected={active === options.length} data-active={active === options.length ? "" : undefined} className="relation-create" onMouseDown={(event) => event.preventDefault()} onClick={() => create.mutate()}>
+                <li id={`${id}-option-${options.length}`} role="option" aria-selected={active === options.length} data-active={active === options.length ? "" : undefined} aria-disabled={create.isPending || undefined} className="relation-create" onMouseDown={(event) => event.preventDefault()} onClick={startCreate}>
                   <RiAddLine size={14} aria-hidden />
                   <span>{t("relation.create", { name: query.trim(), collection: target!.name })}</span>
                 </li>
