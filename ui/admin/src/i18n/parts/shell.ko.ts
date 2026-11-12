@@ -5,7 +5,7 @@ export const shellKo: Record<keyof typeof shellEn, string> = {
   "unsaved.text": "지금 나가면 저장하지 않은 변경 내용이 사라집니다.",
   "unsaved.discard": "버리기",
 
-  "palette.open": "검색 및 명령",
+  "palette.open": "명령 팔레트",
   "palette.title": "이동하거나 명령 실행",
   "palette.placeholder": "컬렉션, 화면, 명령 검색…",
   "palette.empty": "일치하는 항목이 없습니다.",
@@ -21,7 +21,7 @@ export const shellKo: Record<keyof typeof shellEn, string> = {
   "palette.shortcuts": "키보드 단축키",
 
   "shortcuts.title": "키보드 단축키",
-  "shortcuts.palette": "검색 및 명령",
+  "shortcuts.palette": "명령 팔레트",
   "shortcuts.help": "이 목록 보기",
   "shortcuts.filter": "검색·필터 입력으로 이동",
   "shortcuts.new": "이 화면에서 새 항목 만들기",

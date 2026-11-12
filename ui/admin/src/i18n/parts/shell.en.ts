@@ -3,7 +3,7 @@ export const shellEn = {
   "unsaved.text": "Leaving now discards the changes you have not saved.",
   "unsaved.discard": "Discard",
 
-  "palette.open": "Search and commands",
+  "palette.open": "Command palette",
   "palette.title": "Go to or run a command",
   "palette.placeholder": "Search collections, screens and commands…",
   "palette.empty": "Nothing matches.",
@@ -19,7 +19,7 @@ export const shellEn = {
   "palette.shortcuts": "Keyboard shortcuts",
 
   "shortcuts.title": "Keyboard shortcuts",
-  "shortcuts.palette": "Search and commands",
+  "shortcuts.palette": "Command palette",
   "shortcuts.help": "Show this list",
   "shortcuts.filter": "Focus the search or filter",
   "shortcuts.new": "Create a new item on this screen",
