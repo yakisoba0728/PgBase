@@ -104,8 +104,11 @@ func operationsConsoleRoutes(d Dependencies) []route {
 				writeJSON(w, http.StatusOK, entry)
 			})},
 			route{method: "DELETE", pattern: "/api/admin/logs", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Only a request without any query parameter deletes everything;
+				// an empty, invalid, repeated or unsupported one must not fall through.
+				query := r.URL.Query()
 				_, to, ok := logTimeRange(r)
-				if !ok {
+				if len(query) > 0 && (!ok || to == nil || len(query) != 1 || len(query["to"]) != 1) {
 					writeOperationsError(w, r, jobs.ErrInvalidSchedule)
 					return
 				}
