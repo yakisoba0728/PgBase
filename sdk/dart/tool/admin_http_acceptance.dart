@@ -33,6 +33,7 @@ Future<void> main() async {
     final account = await client.createAdministrator(
       accountEmail,
       '${password}A1!',
+      password,
     );
     _expect(
       _string(account, 'email') == accountEmail,
@@ -48,10 +49,17 @@ Future<void> main() async {
       'administrator listing',
     );
     _expect(
-      !_bool(await client.setAdministratorActive(accountId, false), 'active'),
+      !_bool(
+        await client.setAdministratorActive(accountId, false, password),
+        'active',
+      ),
       'administrator deactivation',
     );
-    await client.setAdministratorPassword(accountId, '${password}B2!');
+    await client.setAdministratorPassword(
+      accountId,
+      '${password}B2!',
+      password,
+    );
     await client.revokeAdministratorSessions(accountId);
 
     final exported = await client.exportSchema();
