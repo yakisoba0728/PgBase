@@ -92,3 +92,28 @@ func TestPersistentRequestLogRetentionSearchAndShutdown(t *testing.T) {
 		t.Fatalf("after truncate = %#v, %v", page, err)
 	}
 }
+
+func TestRequestLogMalformedEntryDoesNotLoseItsBatch(t *testing.T) {
+	ctx := context.Background()
+	databaseURL := testutil.NewDatabase(t)
+	testutil.ApplySystemMigrationPrefix(t, databaseURL, system.Migrations())
+	pool, err := database.Open(ctx, databaseURL, 5*time.Second, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	log := NewRequestLog(pool, RequestLogOptions{MaximumRows: 100, Retention: time.Hour, QueueCapacity: 8, BatchSize: 8, FlushInterval: time.Hour})
+	log.RecordContext("GET", "/before", 200, time.Millisecond, "192.0.2.4", "", "")
+	log.RecordContext("GET", "/zoned", 200, time.Millisecond, "fe80::1%en0", "", "")
+	log.RecordContext("GET", "/after", 200, time.Millisecond, "2001:db8::1", "", "")
+	if err := log.Flush(ctx); err == nil {
+		t.Fatal("flush of a malformed entry reported no error")
+	}
+	stats, err := log.Statistics(ctx, nil, nil)
+	if err != nil || stats.Total != 2 || stats.Dropped != 1 {
+		t.Fatalf("statistics = %#v %v", stats, err)
+	}
+	if err := log.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+}

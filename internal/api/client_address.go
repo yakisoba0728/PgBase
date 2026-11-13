@@ -70,7 +70,8 @@ func remoteAddress(value string) (netip.Addr, bool) {
 	if err != nil {
 		return netip.Addr{}, false
 	}
-	return address.Unmap(), true
+	// Zones (fe80::1%en0) are interface-local and not valid inet values.
+	return address.WithZone("").Unmap(), true
 }
 
 func addressTrusted(address netip.Addr, trustedProxies []netip.Prefix) bool {

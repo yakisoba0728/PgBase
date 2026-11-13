@@ -16,6 +16,14 @@ func TestClientAddressIgnoresForwardingFromUntrustedPeer(t *testing.T) {
 	}
 }
 
+func TestClientIPDropsTheIPv6ZoneOfTheRemoteAddress(t *testing.T) {
+	request := httptest.NewRequest("GET", "http://pgbase.internal", nil)
+	request.RemoteAddr = "[fe80::1%en0]:4321"
+	if got, ok := clientIP(request, nil); !ok || got != "fe80::1" {
+		t.Fatalf("client IP=%q valid=%t", got, ok)
+	}
+}
+
 func TestClientAddressSelectsNearestUntrustedForwardedAddress(t *testing.T) {
 	request := httptest.NewRequest("GET", "http://pgbase.internal", nil)
 	request.RemoteAddr = "10.0.0.5:4321"

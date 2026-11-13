@@ -457,9 +457,6 @@ func (l *RequestLog) writeLoop() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		err := l.writeBatch(ctx, batch)
-		if err != nil {
-			l.dropped.Add(uint64(len(batch)))
-		}
 		batch = batch[:0]
 		return err
 	}
@@ -496,10 +493,31 @@ func (l *RequestLog) writeLoop() {
 	}
 }
 
+// writeBatch counts every entry it could not store as dropped.
 func (l *RequestLog) writeBatch(ctx context.Context, entries []RequestEntry) error {
 	if len(entries) == 0 {
 		return nil
 	}
+	failed := l.insertEntries(ctx, entries)
+	if failed != nil {
+		if len(entries) == 1 || ctx.Err() != nil {
+			l.dropped.Add(uint64(len(entries)))
+			return failed
+		}
+		// Retry row by row so one malformed entry cannot lose the rest of the batch.
+		failed = nil
+		for index := range entries {
+			if err := l.insertEntries(ctx, entries[index:index+1]); err != nil {
+				l.dropped.Add(1)
+				failed = err
+			}
+		}
+	}
+	_, err := l.pool.Exec(ctx, `DELETE FROM pgbase_meta.request_logs WHERE occurred_at < clock_timestamp()-make_interval(secs=>$1) OR id <= GREATEST(0,(SELECT max(id) FROM pgbase_meta.request_logs)-$2)`, l.retentionSeconds.Load(), l.options.MaximumRows)
+	return errors.Join(failed, err)
+}
+
+func (l *RequestLog) insertEntries(ctx context.Context, entries []RequestEntry) error {
 	values := make([]any, 0, len(entries)*8)
 	var q strings.Builder
 	q.WriteString(`INSERT INTO pgbase_meta.request_logs(occurred_at,method,route,status,duration_ms,client_ip,auth_kind,auth_id) VALUES `)
@@ -511,9 +529,6 @@ func (l *RequestLog) writeBatch(ctx context.Context, entries []RequestEntry) err
 		fmt.Fprintf(&q, "($%d,$%d,$%d,$%d,$%d,nullif($%d,'')::inet,nullif($%d,''),nullif($%d,'')::uuid)", b+1, b+2, b+3, b+4, b+5, b+6, b+7, b+8)
 		values = append(values, e.At, e.Method, e.Route, e.Status, e.DurationMS, e.ClientIP, e.AuthKind, e.AuthID)
 	}
-	if _, err := l.pool.Exec(ctx, q.String(), values...); err != nil {
-		return err
-	}
-	_, err := l.pool.Exec(ctx, `DELETE FROM pgbase_meta.request_logs WHERE occurred_at < clock_timestamp()-make_interval(secs=>$1) OR id <= GREATEST(0,(SELECT max(id) FROM pgbase_meta.request_logs)-$2)`, l.retentionSeconds.Load(), l.options.MaximumRows)
+	_, err := l.pool.Exec(ctx, q.String(), values...)
 	return err
 }
