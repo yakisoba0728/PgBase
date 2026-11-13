@@ -65,10 +65,12 @@ Administrator accounts are separate from auth-collection users. Every active adm
 | Method and route | Request / result |
 | --- | --- |
 | GET `/api/admin/administrators?limit=50&after={uuid}` | `{items:[{id,email,active,createdAt,updatedAt}],nextAfter?}`; ID-ordered pages, limit 1–100 |
-| POST `/api/admin/administrators` | `{email,password}` → HTTP 201 account; does not sign in as that account |
-| PATCH `/api/admin/administrators/{id}` | `{active}` → account; self-deactivation is rejected |
-| POST `/api/admin/administrators/{id}/password-reset` | `{newPassword}` → HTTP 204; directly replaces another administrator's password, without sending email. Your own ID returns 409 `administrator_conflict`; use the profile route below |
+| POST `/api/admin/administrators` | `{currentPassword,email,password}` → HTTP 201 account; does not sign in as that account |
+| PATCH `/api/admin/administrators/{id}` | `{currentPassword,active}` → account; self-deactivation is rejected |
+| POST `/api/admin/administrators/{id}/password-reset` | `{currentPassword,newPassword}` → HTTP 204; directly replaces another administrator's password, without sending email. Your own ID returns 409 `administrator_conflict`; use the profile route below |
 | POST `/api/admin/administrators/{id}/revoke-sessions` | `{}` → HTTP 204; invalidates all of that account's sessions |
+
+Creating an administrator, enabling or disabling one, and replacing another administrator's password require `currentPassword`: the acting administrator's own password, re-checked exactly like the profile changes below (403 `current_password_invalid`, counted by the login limiter). A session alone therefore cannot add a second administrator or take over another account. Revoking sessions needs no password: it cannot lock anyone out, because the target can sign in again.
 
 Deactivation and password replacement invalidate existing sessions and pending password-reset/email-OTP credentials in the same transaction. Password replacement preserves the account's active state, TOTP configuration and IP restrictions. Reactivation does not restore old sessions. Changing your own password or revoking your own sessions requires signing in again; the management UI clears its session after success. Self-deactivation, self password replacement and removing the last active administrator are rejected, including concurrent lifecycle operations. Account deletion remains a local recovery CLI operation; editing your own email, password and IP policy uses the `/api/admin/profile` routes.
 
@@ -81,9 +83,9 @@ Malformed requests return HTTP 400 `invalid_administrator`, an unknown account r
 | GET `/api/admin/profile` | `{id,email,active,createdAt,updatedAt}` |
 | PATCH `/api/admin/profile` | `{currentPassword,email?,newPassword?}` → profile; at least one of `email`/`newPassword` |
 | GET `/api/admin/profile/ip-allowlist` | `{prefixes,clientAddress}` |
-| PATCH `/api/admin/profile/ip-allowlist` | `{prefixes}` → `{prefixes,clientAddress}`; `[]` clears the list |
+| PATCH `/api/admin/profile/ip-allowlist` | `{currentPassword,prefixes}` → `{prefixes,clientAddress}`; `[]` clears the list |
 
-Changing your sign-in email or password requires `currentPassword`. A missing or wrong current password returns HTTP 403 `current_password_invalid` (not 401: the session stays valid) and counts as a failed administrator login from the same address, so repeated failures return 429 `rate_limited` with `Retry-After`, exactly like the login limiter. A password change revokes every session of the account, the one used for the request included, and pending password-reset/email-OTP credentials; sign in again with the new password. An email change alone keeps the sessions. Invalid input returns 400 `invalid_profile`; a duplicate email returns 409 `profile_conflict`.
+Changing your sign-in email, password or IP allowlist (clearing it included) requires `currentPassword`. The same check guards the administrator-account changes above. A missing or wrong current password returns HTTP 403 `current_password_invalid` (not 401: the session stays valid) and counts as a failed administrator login from the same address, so repeated failures return 429 `rate_limited` with `Retry-After`, exactly like the login limiter. A password change revokes every session of the account, the one used for the request included, and pending password-reset/email-OTP credentials; sign in again with the new password. An email change alone keeps the sessions but revokes pending password-reset/email-OTP credentials, which went to the old address. Invalid input returns 400 `invalid_profile`; a duplicate email returns 409 `profile_conflict`.
 
 `clientAddress` is the address the administrator allowlist is checked against, resolved through `PGBASE_TRUSTED_PROXIES` exactly as for login and session requests. A non-empty list that does not admit `clientAddress` returns 409 `ip_allowlist_excludes_caller` and leaves the stored list unchanged, so the HTTP API cannot lock out the administrator making the request. There is no HTTP override; `pgbase admin ip allow|deny|list` remains the recovery and override path.
 

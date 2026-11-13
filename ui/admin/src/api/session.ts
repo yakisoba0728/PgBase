@@ -132,6 +132,7 @@ export function getIpAllowlist(signal?: AbortSignal): Promise<IpAllowlist> {
   return request("GET", "/api/admin/profile/ip-allowlist", { signal });
 }
 
-export function updateIpAllowlist(prefixes: string[]): Promise<IpAllowlist> {
-  return request("PATCH", "/api/admin/profile/ip-allowlist", { body: { prefixes } });
+/** Replaces your allowlist; like every administrator-security change it needs your current password (403 `current_password_invalid`). */
+export function updateIpAllowlist(prefixes: string[], currentPassword: string): Promise<IpAllowlist> {
+  return request("PATCH", "/api/admin/profile/ip-allowlist", { body: { currentPassword, prefixes } });
 }

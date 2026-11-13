@@ -22,6 +22,7 @@ func TestAdministratorAccountHTTPManagement(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler := mustRouter(t, Dependencies{AdminAuth: auth, PublicURL: mustURL("http://pgbase.test")})
+	current := `"currentPassword":"` + securityPassword + `",`
 	request := func(method, path, body string, authenticated, csrf bool) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "http://pgbase.test"+path, strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
@@ -37,7 +38,24 @@ func TestAdministratorAccountHTTPManagement(t *testing.T) {
 		return w
 	}
 	const path = "/api/admin/administrators"
-	created := request(http.MethodPost, path, `{"email":"second@example.test","password":"second administration password"}`, true, true)
+	// A stolen session alone cannot create a second administrator, reset or
+	// toggle another one, or move the caller's allowlist (BA1).
+	other := "/00000000-0000-4000-8000-000000000001"
+	for _, tc := range []struct{ method, path, body string }{
+		{http.MethodPost, path, `{"email":"attacker@example.test","password":"attacker administration password"}`},
+		{http.MethodPost, path + other + "/password-reset", `{"currentPassword":"incorrect battery staple","newPassword":"attacker administration password"}`},
+		{http.MethodPatch, path + other, `{"active":true}`},
+		{http.MethodPatch, "/api/admin/profile/ip-allowlist", `{"prefixes":["192.0.2.0/24"]}`},
+	} {
+		if got := request(tc.method, tc.path, tc.body, true, true); got.Code != http.StatusForbidden || !strings.Contains(got.Body.String(), `"current_password_invalid"`) {
+			t.Fatalf("%s %s without the current password = %d %s", tc.method, tc.path, got.Code, got.Body.String())
+		}
+	}
+	var administrators, prefixes int
+	if err := pool.QueryRow(context.Background(), `select (select count(*) from pgbase_meta.admins),(select count(*) from pgbase_meta.admin_ip_allowlist)`).Scan(&administrators, &prefixes); err != nil || administrators != 1 || prefixes != 0 {
+		t.Fatalf("refused step-up changed state: administrators=%d prefixes=%d err=%v", administrators, prefixes, err)
+	}
+	created :=request(http.MethodPost, path, `{`+current+`"email":"second@example.test","password":"second administration password"}`, true, true)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create administrator status=%d body=%s", created.Code, created.Body.String())
 	}
@@ -66,7 +84,7 @@ func TestAdministratorAccountHTTPManagement(t *testing.T) {
 	if err := json.Unmarshal(next.Body.Bytes(), &nextPage); next.Code != 200 || err != nil || len(nextPage.Items) != 1 || nextPage.NextAfter != "" || nextPage.Items[0].ID == page.Items[0].ID {
 		t.Fatalf("list next page=%s err=%v", next.Body.String(), err)
 	}
-	self := request(http.MethodPatch, path+"/"+session.Administrator.ID.String(), `{"active":false}`, true, true)
+	self := request(http.MethodPatch, path+"/"+session.Administrator.ID.String(), `{`+current+`"active":false}`, true, true)
 	if self.Code != http.StatusConflict {
 		t.Fatalf("self deactivate=%d %s", self.Code, self.Body.String())
 	}
@@ -74,20 +92,20 @@ func TestAdministratorAccountHTTPManagement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deactivated := request(http.MethodPatch, path+"/"+second.ID.String(), `{"active":false}`, true, true)
+	deactivated := request(http.MethodPatch, path+"/"+second.ID.String(), `{`+current+`"active":false}`, true, true)
 	if deactivated.Code != 200 {
 		t.Fatalf("deactivate=%d %s", deactivated.Code, deactivated.Body.String())
 	}
 	if _, err := auth.Authenticate(context.Background(), secondSession.RawToken); err == nil {
 		t.Fatal("deactivation retained the target session")
 	}
-	if got := request(http.MethodPost, path+"/"+second.ID.String()+"/password-reset", `{"newPassword":"replacement administration password"}`, true, true); got.Code != 204 {
+	if got := request(http.MethodPost, path+"/"+second.ID.String()+"/password-reset", `{`+current+`"newPassword":"replacement administration password"}`, true, true); got.Code != 204 {
 		t.Fatalf("password reset=%d %s", got.Code, got.Body.String())
 	}
 	if _, err := auth.Login(context.Background(), second.Email, "replacement administration password", "inactive-login"); err == nil {
 		t.Fatal("password reset activated the account")
 	}
-	if got := request(http.MethodPatch, path+"/"+second.ID.String(), `{"active":true}`, true, true); got.Code != 200 {
+	if got := request(http.MethodPatch, path+"/"+second.ID.String(), `{`+current+`"active":true}`, true, true); got.Code != 200 {
 		t.Fatalf("reactivation=%d %s", got.Code, got.Body.String())
 	}
 	secondSession, err = auth.Login(context.Background(), second.Email, "replacement administration password", "replacement-login")
@@ -107,11 +125,11 @@ func TestAdministratorAccountHTTPManagement(t *testing.T) {
 	}{
 		{http.MethodGet, path, "", false, false, 401},
 		{http.MethodPost, path, `{"email":"third@example.test","password":"third administration password"}`, true, false, 403},
-		{http.MethodPost, path, `{"email":"second@example.test","password":"duplicate administration password"}`, true, true, 409},
-		{http.MethodPatch, path + "/" + second.ID.String(), `{"active":true,"email":"override@example.test"}`, true, true, 400},
+		{http.MethodPost, path, `{`+current+`"email":"second@example.test","password":"duplicate administration password"}`, true, true, 409},
+		{http.MethodPatch, path + "/" + second.ID.String(), `{`+current+`"active":true,"email":"override@example.test"}`, true, true, 400},
 		{http.MethodGet, path + "?limit=101", "", true, false, 400},
 		{http.MethodGet, path + "?after=invalid", "", true, false, 400},
-		{http.MethodPatch, path + "/00000000-0000-4000-8000-000000000001", `{"active":true}`, true, true, 404},
+		{http.MethodPatch, path + "/00000000-0000-4000-8000-000000000001", `{`+current+`"active":true}`, true, true, 404},
 	} {
 		if got := request(tc.method, tc.path, tc.body, tc.auth, tc.csrf); got.Code != tc.status {
 			t.Errorf("%s %s = %d want %d: %s", tc.method, tc.path, got.Code, tc.status, got.Body.String())

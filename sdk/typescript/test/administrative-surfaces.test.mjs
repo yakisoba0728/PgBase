@@ -40,9 +40,9 @@ test("administrator accounts, schema polling and backup archive helpers match HT
   await client.resume();
   assert.equal((await client.schemaImportOperation("operation/id")).applied, 2);
   assert.equal((await client.administratorAccounts({ limit: 20, after: "after/id" })).nextAfter, "next/id");
-  await client.createAdministrator(account.email, "password");
-  await client.setAdministratorActive(account.id, false);
-  await client.setAdministratorPassword(account.id, "replacement");
+  await client.createAdministrator(account.email, "password", "current");
+  await client.setAdministratorActive(account.id, false, "current");
+  await client.setAdministratorPassword(account.id, "replacement", "current");
   await client.revokeAdministratorSessions(account.id);
   assert.equal((await client.backups()).items[0].sha256, "hash");
   await client.createBackup();
@@ -53,7 +53,9 @@ test("administrator accounts, schema polling and backup archive helpers match HT
   assert.equal((await client.backupJob(job.id)).phase, "interrupted");
 
   assert.match(calls.find(call => call.path === "/api/admin/administrators" && !call.init.method).url, /limit=20&after=after%2Fid$/);
-  assert.deepEqual(JSON.parse(calls.find(call => call.path.endsWith("password-reset")).init.body), { newPassword: "replacement" });
+  assert.deepEqual(JSON.parse(calls.find(call => call.path.endsWith("password-reset")).init.body), { currentPassword: "current", newPassword: "replacement" });
+  assert.deepEqual(JSON.parse(calls.find(call => call.path === "/api/admin/administrators" && call.init.method === "POST").init.body), { currentPassword: "current", email: account.email, password: "password" });
+  assert.deepEqual(JSON.parse(calls.find(call => call.init.method === "PATCH").init.body), { currentPassword: "current", active: false });
   assert.equal(calls.find(call => call.path.endsWith("revoke-sessions")).init.body, "{}");
   assert.equal(calls.find(call => call.path.endsWith("/backups/upload")).init.headers.get("Content-Type"), "application/gzip");
   assert.equal(calls.find(call => call.path.endsWith("/backups/upload")).init.body, archive);

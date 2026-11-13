@@ -55,8 +55,31 @@ describe("profile IP allowlist", () => {
     await user.type(field, "203.0.113.0/24");
     await user.click(formOf(field).getAllByRole("button", { name: "Save" })[0]);
     expect(screen.getByText(/pgbase admin ip deny --email owner@example\.test/)).toBeInTheDocument();
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(api.updateIpAllowlist).toHaveBeenCalledWith(["203.0.113.0/24"]));
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByRole("button", { name: "Save" })).toBeDisabled();
+    const current = dialog.getByLabelText(/Current password/);
+    expect(current).toHaveAttribute("autocomplete", "current-password");
+    await user.type(current, "correct password");
+    await user.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(api.updateIpAllowlist).toHaveBeenCalledWith(["203.0.113.0/24"], "correct password"));
+  });
+
+  it("keeps the dialog open on a wrong current password, also when clearing the list", async () => {
+    const user = userEvent.setup();
+    api.getIpAllowlist.mockResolvedValue({ prefixes: ["203.0.113.0/24"], clientAddress: "203.0.113.9" });
+    api.updateIpAllowlist.mockRejectedValue(new ApiError(403, "current_password_invalid", "wrong"));
+    renderProfile();
+    const field = await screen.findByLabelText(/Networks/);
+    await user.clear(field);
+    await user.click(formOf(field).getAllByRole("button", { name: "Save" })[0]);
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByRole("heading")).toHaveTextContent("Remove your allowlist?");
+    const current = dialog.getByLabelText(/Current password/);
+    await user.type(current, "wrong password");
+    await user.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(current).toHaveAccessibleDescription("The current password is incorrect."));
+    expect(api.updateIpAllowlist).toHaveBeenCalledWith([], "wrong password");
+    expect(field).not.toHaveAccessibleDescription(/incorrect/);
   });
 
   it("maps the server's refusal to the field", async () => {
@@ -67,6 +90,7 @@ describe("profile IP allowlist", () => {
     const field = await screen.findByLabelText(/Networks/);
     await user.type(field, "203.0.113.0/24");
     await user.click(formOf(field).getAllByRole("button", { name: "Save" })[0]);
+    await user.type(within(screen.getByRole("dialog")).getByLabelText(/Current password/), "correct password");
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(field).toHaveAccessibleDescription(/is not inside this list/));
   });

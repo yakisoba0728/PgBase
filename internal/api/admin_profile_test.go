@@ -35,7 +35,7 @@ func (f *fakeAdminSelf) UpdateAdministratorCredentials(_ context.Context, _ uuid
 func (f *fakeAdminSelf) AdministratorIPPrefixes(context.Context, uuid.UUID) ([]string, error) {
 	return f.prefixes, nil
 }
-func (f *fakeAdminSelf) ReplaceAdministratorIPPrefixes(_ context.Context, _ uuid.UUID, address string, p []string) ([]string, error) {
+func (f *fakeAdminSelf) ReplaceAdministratorIPPrefixes(_ context.Context, _ uuid.UUID, address, _, _ string, p []string) ([]string, error) {
 	f.address = address
 	f.prefixes = p
 	return p, nil
@@ -72,7 +72,8 @@ func TestAdminProfileAndIPAllowlistWireShapes(t *testing.T) {
 		status int
 		code   string
 	}{
-		{adminauth.ErrInvalidCredentials, 403, "current_password_invalid"},
+		{adminauth.ErrCurrentPasswordInvalid, 403, "current_password_invalid"},
+		{adminauth.ErrInvalidCredentials, 401, "authentication_required"},
 		{adminauth.ErrRateLimited, 429, "rate_limited"},
 		{adminauth.ErrValidation, 400, "invalid_profile"},
 	} {
@@ -90,7 +91,7 @@ func TestAdminProfileAndIPAllowlistWireShapes(t *testing.T) {
 		{"untrusted proxy header ignored", "198.51.100.4:1234", "203.0.113.9", "198.51.100.4"},
 	} {
 		allowlist := httptest.NewRecorder()
-		h.ipAllowlist(allowlist, request(http.MethodPatch, "/api/admin/profile/ip-allowlist", `{"prefixes":["192.0.2.0/24"]}`, tc.remote, tc.forwarded))
+		h.ipAllowlist(allowlist, request(http.MethodPatch, "/api/admin/profile/ip-allowlist", `{"currentPassword":"secret","prefixes":["192.0.2.0/24"]}`, tc.remote, tc.forwarded))
 		want := `{"prefixes":["192.0.2.0/24"],"clientAddress":"` + tc.want + "\"}\n"
 		if allowlist.Code != 200 || allowlist.Body.String() != want || service.address != tc.want {
 			t.Errorf("%s: status=%d body=%s address=%s", tc.name, allowlist.Code, allowlist.Body.String(), service.address)

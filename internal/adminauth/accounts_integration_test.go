@@ -70,7 +70,7 @@ func TestAdministratorAccountsConcurrentMutualDeactivationRetainsOneActiveActor(
 		{other, fixture.second.ID, fixture.first.ID},
 	} {
 		go func() {
-			_, err := call.service.SetAdministratorActive(ctx, call.actor, call.target, false)
+			_, err := call.service.SetAdministratorActive(ctx, call.actor, "192.0.2.1", accountTestPassword, call.target, false)
 			results <- result{call.actor, call.target, err}
 		}()
 	}
@@ -136,7 +136,7 @@ func TestAdministratorAccountsInactiveActorCannotManageAccounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SetAdministratorActive(ctx, fixture.first.ID, fixture.second.ID, false); err != nil {
+	if _, err := s.SetAdministratorActive(ctx, fixture.first.ID, "192.0.2.1", accountTestPassword, fixture.second.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	var beforeHash string
@@ -155,19 +155,19 @@ func TestAdministratorAccountsInactiveActorCannotManageAccounts(t *testing.T) {
 			return err
 		}},
 		{"create", func() error {
-			_, err := s.CreateAdministratorAccount(ctx, fixture.second.ID, "unauthorized@example.test", accountTestReplacementPassword)
+			_, err := s.CreateAdministratorAccount(ctx, fixture.second.ID, "192.0.2.1", accountTestPassword, "unauthorized@example.test", accountTestReplacementPassword)
 			return err
 		}},
 		{"deactivate", func() error {
-			_, err := s.SetAdministratorActive(ctx, fixture.second.ID, fixture.first.ID, false)
+			_, err := s.SetAdministratorActive(ctx, fixture.second.ID, "192.0.2.1", accountTestPassword, fixture.first.ID, false)
 			return err
 		}},
 		{"activate", func() error {
-			_, err := s.SetAdministratorActive(ctx, fixture.second.ID, fixture.second.ID, true)
+			_, err := s.SetAdministratorActive(ctx, fixture.second.ID, "192.0.2.1", accountTestPassword, fixture.second.ID, true)
 			return err
 		}},
 		{"password", func() error {
-			return s.SetAdministratorPassword(ctx, fixture.second.ID, fixture.first.ID, accountTestReplacementPassword)
+			return s.SetAdministratorPassword(ctx, fixture.second.ID, "192.0.2.1", accountTestPassword, fixture.first.ID, accountTestReplacementPassword)
 		}},
 		{"revoke", func() error { return s.RevokeAdministratorSessions(ctx, fixture.second.ID, fixture.first.ID) }},
 	}
@@ -278,11 +278,11 @@ func TestAdministratorAccountsPasswordAndDeactivationInvalidateCredentialsPreser
 			password := accountTestPassword
 			if operation == "password" {
 				password = accountTestReplacementPassword
-				if err := s.SetAdministratorPassword(ctx, fixture.first.ID, fixture.second.ID, password); err != nil {
+				if err := s.SetAdministratorPassword(ctx, fixture.first.ID, "192.0.2.1", accountTestPassword, fixture.second.ID, password); err != nil {
 					t.Fatal(err)
 				}
 			} else {
-				account, err := s.SetAdministratorActive(ctx, fixture.first.ID, fixture.second.ID, false)
+				account, err := s.SetAdministratorActive(ctx, fixture.first.ID, "192.0.2.1", accountTestPassword, fixture.second.ID, false)
 				if err != nil || account.Active {
 					t.Fatalf("deactivation active=%t err=%v", account.Active, err)
 				}
@@ -300,7 +300,7 @@ func TestAdministratorAccountsPasswordAndDeactivationInvalidateCredentialsPreser
 			// Reactivate before trying old credentials so inactive status cannot hide
 			// a missed session/reset/OTP invalidation.
 			if operation == "deactivate" {
-				if _, err := s.SetAdministratorActive(ctx, fixture.first.ID, fixture.second.ID, true); err != nil {
+				if _, err := s.SetAdministratorActive(ctx, fixture.first.ID, "192.0.2.1", accountTestPassword, fixture.second.ID, true); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -340,10 +340,10 @@ func TestAdministratorAccountsPasswordAndDeactivationInvalidateCredentialsPreser
 func TestAdministratorAccountsChangingInactivePasswordDoesNotActivateAccount(t *testing.T) {
 	fixture := newAccountManagementFixture(t)
 	s, ctx := fixture.service, t.Context()
-	if _, err := s.SetAdministratorActive(ctx, fixture.first.ID, fixture.second.ID, false); err != nil {
+	if _, err := s.SetAdministratorActive(ctx, fixture.first.ID, "192.0.2.1", accountTestPassword, fixture.second.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetAdministratorPassword(ctx, fixture.first.ID, fixture.second.ID, accountTestReplacementPassword); err != nil {
+	if err := s.SetAdministratorPassword(ctx, fixture.first.ID, "192.0.2.1", accountTestPassword, fixture.second.ID, accountTestReplacementPassword); err != nil {
 		t.Fatal(err)
 	}
 	var active bool
@@ -360,7 +360,7 @@ func TestAdministratorAccountsChangingInactivePasswordDoesNotActivateAccount(t *
 	if _, err := s.Login(ctx, fixture.second.Email, accountTestReplacementPassword, "192.0.2.1"); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("inactive login error=%v", err)
 	}
-	if _, err := s.SetAdministratorActive(ctx, fixture.first.ID, fixture.second.ID, true); err != nil {
+	if _, err := s.SetAdministratorActive(ctx, fixture.first.ID, "192.0.2.1", accountTestPassword, fixture.second.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Login(ctx, fixture.second.Email, accountTestReplacementPassword, "192.0.2.1"); err != nil {
@@ -372,5 +372,60 @@ func TestAdministratorAccountsChangingInactivePasswordDoesNotActivateAccount(t *
 	}
 	if items[0].ID == items[1].ID {
 		t.Fatal("account inventory duplicated target")
+	}
+}
+
+func TestAdministratorSecurityChangesRequireActorCurrentPassword(t *testing.T) {
+	fixture := newAccountManagementFixture(t)
+	s, ctx := fixture.service, t.Context()
+	const wrong = "incorrect administrator account password"
+	for name, run := range map[string]func() error{
+		"create": func() error {
+			_, err := s.CreateAdministratorAccount(ctx, fixture.first.ID, "192.0.2.9", wrong, "attacker@example.test", accountTestReplacementPassword)
+			return err
+		},
+		"password": func() error {
+			return s.SetAdministratorPassword(ctx, fixture.first.ID, "192.0.2.9", wrong, fixture.second.ID, accountTestReplacementPassword)
+		},
+		"deactivate": func() error {
+			_, err := s.SetAdministratorActive(ctx, fixture.first.ID, "192.0.2.9", "", fixture.second.ID, false)
+			return err
+		},
+		"allowlist": func() error {
+			_, err := s.ReplaceAdministratorIPPrefixes(ctx, fixture.first.ID, "192.0.2.9", "192.0.2.9", wrong, []string{"192.0.2.9/32"})
+			return err
+		},
+	} {
+		if err := run(); !errors.Is(err, ErrCurrentPasswordInvalid) {
+			t.Fatalf("%s without the current password: %v", name, err)
+		}
+	}
+	var count, active, prefixes int
+	if err := s.pool.QueryRow(ctx, `select count(*),count(*) filter(where active),(select count(*) from pgbase_meta.admin_ip_allowlist) from pgbase_meta.admins`).Scan(&count, &active, &prefixes); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 || active != 2 || prefixes != 0 {
+		t.Fatalf("refused step-up changed state: administrators=%d active=%d prefixes=%d", count, active, prefixes)
+	}
+	if _, err := s.Login(ctx, fixture.second.Email, accountTestPassword, "192.0.2.1"); err != nil {
+		t.Fatalf("refused reset replaced the target password: %v", err)
+	}
+}
+
+func TestAdministratorEmailChangeRevokesPendingEmailCredentials(t *testing.T) {
+	fixture := newAccountManagementFixture(t)
+	s, ctx := fixture.service, t.Context()
+	pending := seedPendingAccountCredentials(t, fixture, fixture.first, false)
+	if _, err := s.UpdateAdministratorCredentials(ctx, fixture.first.ID, "192.0.2.1", accountTestPassword, "moved@example.test", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ConfirmPasswordReset(ctx, pending.reset, "attacker chosen recovery password"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("reset link sent to the old address error=%v", err)
+	}
+	if _, err := s.CompleteEmailOTP(ctx, pending.otp.ID, pending.otp.Code, "192.0.2.1"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("OTP sent to the old address error=%v", err)
+	}
+	if _, err := s.Authenticate(ctx, pending.session.RawToken); err != nil {
+		t.Fatalf("email change revoked the session: %v", err)
 	}
 }

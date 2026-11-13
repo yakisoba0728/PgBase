@@ -15,8 +15,12 @@ type adminSelfAdministration interface {
 	Administrator(context.Context, uuid.UUID) (adminauth.Administrator, error)
 	UpdateAdministratorCredentials(context.Context, uuid.UUID, string, string, string, string) (adminauth.Administrator, error)
 	AdministratorIPPrefixes(context.Context, uuid.UUID) ([]string, error)
-	ReplaceAdministratorIPPrefixes(context.Context, uuid.UUID, string, []string) ([]string, error)
+	ReplaceAdministratorIPPrefixes(context.Context, uuid.UUID, string, string, string, []string) ([]string, error)
 }
+
+// currentPasswordInvalid answers a failed step-up re-verification
+// (adminauth.ErrCurrentPasswordInvalid). Not 401: the session is still valid.
+var currentPasswordInvalid = APIError{Status: http.StatusForbidden, Code: "current_password_invalid", Message: "The current password is missing or incorrect"}
 
 type adminProfileEndpoints struct {
 	service        adminSelfAdministration
@@ -53,17 +57,13 @@ func (h adminProfileEndpoints) profile(w http.ResponseWriter, r *http.Request) {
 			Email           string `json:"email"`
 			NewPassword     string `json:"newPassword"`
 		}
-		address, valid := clientIP(r, currentTrustedProxies(h.trustedProxies))
+		// The login limiter's subject, so step-up failures share the login buckets.
+		subject, valid := clientAddress(r, currentTrustedProxies(h.trustedProxies))
 		if decodeStrictJSON(r, &input) != nil || !valid {
 			writeAdminProfileError(w, r, adminauth.ErrValidation)
 			return
 		}
-		value, err = h.service.UpdateAdministratorCredentials(r.Context(), principal.Administrator.ID, address, input.CurrentPassword, input.Email, input.NewPassword)
-		if errors.Is(err, adminauth.ErrInvalidCredentials) {
-			// Not 401: the session is still valid, only the re-verification failed.
-			writeAPIError(w, r, APIError{Status: http.StatusForbidden, Code: "current_password_invalid", Message: "The current password is missing or incorrect"})
-			return
-		}
+		value, err = h.service.UpdateAdministratorCredentials(r.Context(), principal.Administrator.ID, subject, input.CurrentPassword, input.Email, input.NewPassword)
 	}
 	if err != nil {
 		writeAdminProfileError(w, r, err)
@@ -86,13 +86,15 @@ func (h adminProfileEndpoints) ipAllowlist(w http.ResponseWriter, r *http.Reques
 		prefixes, err = h.service.AdministratorIPPrefixes(r.Context(), principal.Administrator.ID)
 	} else {
 		var input struct {
-			Prefixes []string `json:"prefixes"`
+			CurrentPassword string   `json:"currentPassword"`
+			Prefixes        []string `json:"prefixes"`
 		}
-		if decodeStrictJSON(r, &input) != nil || input.Prefixes == nil {
+		subject, valid := clientAddress(r, currentTrustedProxies(h.trustedProxies))
+		if decodeStrictJSON(r, &input) != nil || input.Prefixes == nil || !valid {
 			writeAdminProfileError(w, r, adminauth.ErrValidation)
 			return
 		}
-		prefixes, err = h.service.ReplaceAdministratorIPPrefixes(r.Context(), principal.Administrator.ID, address, input.Prefixes)
+		prefixes, err = h.service.ReplaceAdministratorIPPrefixes(r.Context(), principal.Administrator.ID, address, subject, input.CurrentPassword, input.Prefixes)
 	}
 	if err != nil {
 		writeAdminProfileError(w, r, err)
@@ -110,6 +112,8 @@ func (h adminProfileEndpoints) ipAllowlist(w http.ResponseWriter, r *http.Reques
 func writeAdminProfileError(w http.ResponseWriter, r *http.Request, err error) {
 	value := APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"}
 	switch {
+	case errors.Is(err, adminauth.ErrCurrentPasswordInvalid):
+		value = currentPasswordInvalid
 	case errors.Is(err, adminauth.ErrValidation):
 		value = APIError{Status: 400, Code: "invalid_profile", Message: "Invalid administrator profile"}
 	case errors.Is(err, adminauth.ErrConflict):

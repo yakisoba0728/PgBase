@@ -31,7 +31,7 @@ func TestAccountPasswordChangeSerializesPendingCredentialRedemption(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			target, err := service.CreateAdministratorAccount(ctx, owner.Administrator.ID, "target@example.test", "target account password")
+			target, err := service.CreateAdministratorAccount(ctx, owner.Administrator.ID, "192.0.2.1", "owner account password", "target@example.test", "target account password")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -75,7 +75,7 @@ func TestAccountPasswordChangeSerializesPendingCredentialRedemption(t *testing.T
 			}
 			changed := make(chan error, 1)
 			go func() {
-				changed <- service.SetAdministratorPassword(ctx, owner.Administrator.ID, target.ID, "managed account password")
+				changed <- service.SetAdministratorPassword(ctx, owner.Administrator.ID, "192.0.2.1", "owner account password", target.ID, "managed account password")
 			}()
 			manager := waitCredentialLock(t, ctx, pool, 0)
 			completed := make(chan error, 1)
@@ -115,7 +115,7 @@ func TestAccountDeactivationPreventsLateCredentialIssuance(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			target, err := service.CreateAdministratorAccount(ctx, owner.Administrator.ID, "target@example.test", "target account password")
+			target, err := service.CreateAdministratorAccount(ctx, owner.Administrator.ID, "192.0.2.1", "owner account password", "target@example.test", "target account password")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -140,7 +140,7 @@ func TestAccountDeactivationPreventsLateCredentialIssuance(t *testing.T) {
 			}
 			changed := make(chan error, 1)
 			go func() {
-				_, err := service.SetAdministratorActive(ctx, owner.Administrator.ID, target.ID, false)
+				_, err := service.SetAdministratorActive(ctx, owner.Administrator.ID, "192.0.2.1", "owner account password", target.ID, false)
 				changed <- err
 			}()
 			manager := waitCredentialLock(t, ctx, pool, 0)

@@ -478,9 +478,9 @@ void main() {
       );
       await admin.login('admin@example.test', 'password');
       await admin.administratorAccounts(limit: 25, after: 'cursor');
-      await admin.createAdministrator('next@example.test', 'new-password');
-      await admin.setAdministratorActive('administrator/id', false);
-      await admin.setAdministratorPassword('administrator/id', 'replacement');
+      await admin.createAdministrator('next@example.test', 'new-password', 'current');
+      await admin.setAdministratorActive('administrator/id', false, 'current');
+      await admin.setAdministratorPassword('administrator/id', 'replacement', 'current');
       await admin.revokeAdministratorSessions('administrator/id');
 
       expect(client.requests[1].url.queryParameters, {
@@ -488,6 +488,7 @@ void main() {
         'after': 'cursor',
       });
       expect(client.requests[2].jsonBody, {
+        'currentPassword': 'current',
         'email': 'next@example.test',
         'password': 'new-password',
       });
@@ -495,12 +496,18 @@ void main() {
         client.requests[3].url.path,
         '/api/admin/administrators/administrator%2Fid',
       );
-      expect(client.requests[3].jsonBody, {'active': false});
+      expect(client.requests[3].jsonBody, {
+        'currentPassword': 'current',
+        'active': false,
+      });
       expect(
         client.requests[4].url.path,
         '/api/admin/administrators/administrator%2Fid/password-reset',
       );
-      expect(client.requests[4].jsonBody, {'newPassword': 'replacement'});
+      expect(client.requests[4].jsonBody, {
+        'currentPassword': 'current',
+        'newPassword': 'replacement',
+      });
       expect(client.requests[5].jsonBody, <String, Object?>{});
       for (final request in client.requests.skip(2)) {
         expect(request.headers['cookie'], 'admin-session=surface');

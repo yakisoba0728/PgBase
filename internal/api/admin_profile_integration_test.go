@@ -54,7 +54,7 @@ func TestAdministratorProfileGuardsLockoutAndCredentialChanges(t *testing.T) {
 		{"clearing", "[2001:db8::7]:1", "", `[]`, 200, "2001:db8::7"},
 		{"direct IPv4 CIDR", "192.0.2.1:1", "", `["192.0.2.0/24"]`, 200, "192.0.2.1"},
 	} {
-		got := request(http.MethodPatch, allowlist, `{"prefixes":`+tc.prefixes+`}`, tc.remote, tc.forwarded)
+		got := request(http.MethodPatch, allowlist, `{"currentPassword":"`+securityPassword+`","prefixes":`+tc.prefixes+`}`, tc.remote, tc.forwarded)
 		if got.Code != tc.status {
 			t.Fatalf("%s: status=%d body=%s", tc.name, got.Code, got.Body.String())
 		}
@@ -67,12 +67,12 @@ func TestAdministratorProfileGuardsLockoutAndCredentialChanges(t *testing.T) {
 			t.Fatalf("%s: GET status=%d body=%s", tc.name, read.Code, read.Body.String())
 		}
 	}
-	if got := request(http.MethodPatch, allowlist, `{"prefixes":["198.51.100.0/24"]}`, "192.0.2.1:1", ""); !strings.Contains(got.Body.String(), `"ip_allowlist_excludes_caller"`) {
+	if got := request(http.MethodPatch, allowlist, `{"currentPassword":"`+securityPassword+`","prefixes":["198.51.100.0/24"]}`, "192.0.2.1:1", ""); !strings.Contains(got.Body.String(), `"ip_allowlist_excludes_caller"`) {
 		t.Fatalf("refusal body=%s", got.Body.String())
 	}
 
 	const profile = "/api/admin/profile"
-	self := request(http.MethodPost, "/api/admin/administrators/"+session.Administrator.ID.String()+"/password-reset", `{"newPassword":"hijacked administration password"}`, "192.0.2.1:1", "")
+	self := request(http.MethodPost, "/api/admin/administrators/"+session.Administrator.ID.String()+"/password-reset", `{"currentPassword":"`+securityPassword+`","newPassword":"hijacked administration password"}`, "192.0.2.1:1", "")
 	if self.Code != http.StatusConflict {
 		t.Fatalf("self password reset status=%d body=%s", self.Code, self.Body.String())
 	}
