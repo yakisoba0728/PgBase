@@ -4,6 +4,7 @@ import type { AuthCollection, AuthRecord } from "../api/authCollections";
 import { ApiError } from "../api/http";
 import type { ManagedUser } from "../api/users";
 import { userQuery, userRecordQuery, usersQuery } from "./queries";
+import { hasUsers } from "../schema/apply";
 import { isStale, rejectedFields } from "./useDraft";
 
 const listUsers = vi.hoisted(() => vi.fn());
@@ -54,5 +55,11 @@ describe("save failures", () => {
     expect(isStale(new ApiError(409, "conflict", "conflict"))).toBe(false);
     expect(rejectedFields(new ApiError(400, "invalid_request", "bad", { ttlSeconds: ["invalid"] }))).toEqual(["ttlSeconds"]);
     expect(rejectedFields(new ApiError(400, "invalid_request", "bad", {}))).toEqual([]);
+  });
+
+  it("recognises both refusals of deleting an auth collection that still has users", () => {
+    expect(hasUsers(new ApiError(422, "validation_failed", "bad", { name: ["auth_collection_has_users"] }))).toBe(true);
+    expect(hasUsers(new ApiError(409, "conflict", "conflict", { id: ["has_users"] }))).toBe(true);
+    expect(hasUsers(new ApiError(409, "conflict", "conflict", { id: ["managed_by_schema"] }))).toBe(false);
   });
 });

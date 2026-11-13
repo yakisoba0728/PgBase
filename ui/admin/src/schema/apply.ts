@@ -64,6 +64,11 @@ export async function applyImport(preview: SchemaImportPreview, identity: ApplyI
   await settle(result.operationId, result.status, () => getSchemaImportOperation(result.operationId));
 }
 
+/** A delete refused because the auth collection still has users: the schema delete reports
+ * `name: auth_collection_has_users`, the registration delete `id: has_users`. */
+export const hasUsers = (failure: unknown) =>
+  failure instanceof ApiError && JSON.stringify(failure.details ?? {}).includes("has_users");
+
 /** Plans and applies a delete in one step (the confirm dialog is the review). The server removes an auth
  * collection's sign-in registration in the same transaction, and refuses while it still has users. */
 export async function deleteCollection(collection: Collection): Promise<void> {
