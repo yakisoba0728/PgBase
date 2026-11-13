@@ -161,6 +161,20 @@ func TestExpandedTargetRulesReceiveRequestContextAndFullCatalog(t *testing.T) {
 		t.Fatalf("forward owner = %#v", forward.Expand["owner"])
 	}
 
+	storeRules(catalog.Collections["expand_context_teams"].ID, accessrule.Rules{List: allow, View: accessrule.Rule{Op: "deny"}, Create: allow, Update: allow, Delete: allow})
+	direct, err := records.Get(ctx, GetRequest{Principal: user, Collection: "expand_context_people", ID: uuid.MustParse(person["id"].(string)), RuleContext: ruleContext})
+	if err != nil || direct.Data["team"] != nil {
+		t.Fatalf("direct denied relation = %#v, err=%v", direct.Data, err)
+	}
+	redacted, err := records.GetExpanded(ctx, GetRequest{Principal: user, Collection: "expand_context_posts", ID: uuid.MustParse(post["id"].(string)), Expand: "owner", RuleContext: ruleContext})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner, ok := redacted.Expand["owner"].(map[string]any); !ok || owner["team"] != direct.Data["team"] {
+		t.Fatalf("expanded relation differs from direct read: %#v", redacted.Expand["owner"])
+	}
+	storeRules(catalog.Collections["expand_context_teams"].ID, accessrule.Rules{List: allow, View: allow, Create: allow, Update: allow, Delete: allow})
+
 	reverseRule, err := ParseAccessRule("owner.name = 'Ada' && @request.context.channel = 'allowed'")
 	if err != nil {
 		t.Fatal(err)

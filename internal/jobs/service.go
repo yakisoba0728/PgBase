@@ -281,6 +281,9 @@ func ParseScheduleInLocation(value, timezone string) (Schedule, error) {
 	if err != nil {
 		return Schedule{}, fmt.Errorf("%w: expected @every <duration> or five-field cron", ErrInvalidSchedule)
 	}
+	if calendar.Next(time.Now().In(location)).IsZero() {
+		return Schedule{}, fmt.Errorf("%w: cron has no next occurrence", ErrInvalidSchedule)
+	}
 	return Schedule{calendar: locationSchedule{location, calendar}}, nil
 }
 

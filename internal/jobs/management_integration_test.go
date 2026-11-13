@@ -8,6 +8,40 @@ import (
 	"testing"
 )
 
+func TestImpossibleCalendarScheduleCannotBeSavedOrHotLoop(t *testing.T) {
+	ctx := context.Background()
+	pool := jobsTestPool(t)
+	registry := NewRegistry()
+	calls := 0
+	if err := registry.Register("impossible", func(context.Context, Job) error { calls++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(pool, registry, nil)
+	const impossible = "0 0 31 2 *"
+	if err := service.Schedule(ctx, "impossible", impossible); !errors.Is(err, ErrInvalidSchedule) {
+		t.Fatalf("Schedule = %v, want invalid schedule", err)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pgbase_meta.scheduled_jobs`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("invalid schedule persisted: count=%d err=%v", count, err)
+	}
+	// Older releases accepted this expression; existing rows must back off.
+	insertJob(t, pool, "impossible", impossible)
+	for range 2 {
+		if err := service.RunOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var attempts int
+	var waiting bool
+	if err := pool.QueryRow(ctx, `SELECT attempts,next_run_at>clock_timestamp() FROM pgbase_meta.scheduled_jobs WHERE name='impossible'`).Scan(&attempts, &waiting); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || attempts != 1 || !waiting {
+		t.Fatalf("legacy row did not back off: calls=%d attempts=%d waiting=%t", calls, attempts, waiting)
+	}
+}
+
 func TestAdministratorJobChangesPersistAndRespectLease(t *testing.T) {
 	ctx := context.Background()
 	pool := jobsTestPool(t)

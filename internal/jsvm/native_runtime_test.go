@@ -60,6 +60,16 @@ const pg=require('pgbase');exports.run=input=>({records:pg.records.list({collect
 	}
 }
 
+func TestNativeRuntimePreservesJSONPropertyNamesAndExactNumbers(t *testing.T) {
+	runtime, handler := nativeRuntime(t, `exports.run=input=>({inherited:'administrator' in input,input});`)
+	output, err := runtime.Invoke(t.Context(), jsvm.Invocation{Handler: handler,
+		Input: json.RawMessage(`{"__proto__":{"administrator":true},"__pgbaseExact":"5","number":9007199254740993}`)})
+	const want = `{"inherited":false,"input":{"__pgbaseExact":"5","__proto__":{"administrator":true},"number":9007199254740993}}`
+	if err != nil || string(output) != want {
+		t.Fatalf("native JSON round trip = %s, %v", output, err)
+	}
+}
+
 func TestNativeServiceCapabilityChecksRemainAtTheHostBoundary(t *testing.T) {
 	runtime, handler := nativeRuntime(t, `const pg=require('pgbase');exports.run=()=>{try{pg.schema.export({})}catch(error){return {code:error.code}}}`)
 	host := &nativeHost{}

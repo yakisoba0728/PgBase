@@ -85,7 +85,7 @@ func validateChangedFieldOptions(ctx context.Context, tx pgx.Tx, before, after C
 			} else if field.Type == TypeJSONB {
 				if field.Options.MaxSize != nil && int64(len(value)) > *field.Options.MaxSize {
 					valid = false
-					continue
+					break
 				}
 				if len(field.Options.AllowedValues) == 0 {
 					valid = true

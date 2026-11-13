@@ -17,12 +17,15 @@ import { useT, type MessageKey, type Translate } from "../i18n";
 import { newIdentity, Undecided } from "../schema/apply";
 import { dangerousStatement } from "../schema/draft";
 import { en } from "../i18n/en";
-import { importSections, problemList, readPending, writePending, type PendingImport } from "./model";
+import { importSections, mayHaveRun, problemList, readPending, writePending, type PendingImport } from "./model";
 import { runImport } from "./queries";
 import { PaneHeader } from "../components/SplitView";
 import "../styles/devtools.css";
 
 class InvalidJson extends Error {}
+
+// A refused resend does not settle the original import.
+const uncertainImport = (error: unknown) => mayHaveRun(error) || (error instanceof ApiError && (error.status === 429 || error.code === "idempotency_in_progress"));
 
 const codeText = (t: Translate, code: string) => (`schema.error.${code}` in en ? t(`schema.error.${code}` as MessageKey) : code);
 
@@ -57,7 +60,7 @@ export function SchemaImport() {
       try {
         return await runImport(next);
       } catch (error) {
-        if (!(error instanceof Undecided) && !(error instanceof ApiError && error.code === "network_error")) untrackOperation(next.identity.operationId);
+        if (!uncertainImport(error)) untrackOperation(next.identity.operationId);
         throw error;
       } finally {
         release();
@@ -74,7 +77,7 @@ export function SchemaImport() {
     },
     onError: (error) => {
       // Only a definite answer ends the operation; a lost or undecided one stays resumable.
-      if (error instanceof Undecided || (error instanceof ApiError && error.code === "network_error")) return;
+      if (uncertainImport(error)) return;
       writePending(null);
       setPending(null);
       // A resumed apply after reload has no plan on screen to carry the error.
@@ -110,7 +113,7 @@ export function SchemaImport() {
   const stale = plan !== undefined && (preview.variables?.text !== text || preview.variables?.deleteMissing !== deleteMissing);
   const sections = plan && catalog.data ? importSections(plan, catalog.data) : [];
   const danger = sections.some((section) => section.danger);
-  const lost = apply.error instanceof Undecided || (apply.error instanceof ApiError && apply.error.code === "network_error");
+  const lost = apply.error !== null && uncertainImport(apply.error);
   const start = () => plan && apply.mutate({ identity: newIdentity(), document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum });
 
   let body;

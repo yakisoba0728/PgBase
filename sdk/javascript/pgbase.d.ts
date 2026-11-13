@@ -86,7 +86,7 @@ declare module "pgbase" {
       read(input: { path: string }): { dataBase64: string; size: ExactNumber }
       write(input: { path: string; dataBase64: string; mode?: number }): { written: true }
       stat(input: { path: string }): JSONValue
-      list(input: { path: string }): Array<{ name: string; isDir: boolean; type: number }>
+      list(input: { path: string }): Array<{ name: string; isDir: boolean; type: ExactNumber }>
       mkdir(input: { path: string; mode?: number }): { ok: true }
       rename(input: { oldPath: string; newPath: string }): { ok: true }
       remove(input: { path: string }): { ok: true }
@@ -113,12 +113,13 @@ declare module "pgbase" {
       batch(input: { operations: BatchOperation[] }): { results: RecordResult[] }
     }
     mail: { send(input: { to: string; subject: string; text: string; html?: string }): { sent: true } }
+    template: { render(input: { name: string; data: JSONValue }): { output: string } }
     database: { transaction(input: { statements: DatabaseStatement[] }): { results: Array<{ rowsAffected?: ExactNumber; items?: Array<Record<string, JSONValue>> }> } }
     objects: {
       write(input: { key: string; data: string }): { written: true; size: ExactNumber }
       read(input: { key: string }): { data: string; size: ExactNumber }
       delete(input: { key: string }): { deleted: true }
-      list(input: { prefix?: string; cursor?: string; limit?: number }): { objects: Array<{ key:string; size:ExactNumber; updatedAt:string }>; nextCursor?: string }
+      list(input: { prefix?: string; cursor?: string; limit?: number }): { Objects: Array<{ Key: string; Size: ExactNumber; UpdatedAt: string }>; NextCursor: string }
       copy(input: { sourceKey: string; destinationKey: string }): { copied: true; size: ExactNumber }
     }
     files: {

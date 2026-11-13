@@ -15,19 +15,25 @@ import (
 
 type authCollectionMethodStub struct {
 	AuthCollections
-	collection     userauth.AuthCollection
-	methods        userauth.PublicAuthMethods
-	methodsErr     error
-	refreshed      userauth.Session
-	refreshErr     error
-	refreshID      uuid.UUID
-	refreshTok     string
-	profile        map[string]any
-	updated        userauth.UpdateAuthRecordInput
-	updateID       uuid.UUID
-	actorID        uuid.UUID
-	resolvedPublic string
-	resolvedID     uuid.UUID
+	collection       userauth.AuthCollection
+	methods          userauth.PublicAuthMethods
+	methodsErr       error
+	refreshed        userauth.Session
+	refreshErr       error
+	refreshID        uuid.UUID
+	refreshTok       string
+	profile          map[string]any
+	updated          userauth.UpdateAuthRecordInput
+	updateID         uuid.UUID
+	actorID          uuid.UUID
+	resolvedPublic   string
+	resolvedID       uuid.UUID
+	auxiliaryDeletes int
+}
+
+func (s *authCollectionMethodStub) DeleteAuthAuxiliary(context.Context, uuid.UUID, uuid.UUID, string, uuid.UUID) error {
+	s.auxiliaryDeletes++
+	return nil
 }
 
 func (s *authCollectionMethodStub) ResolveAuthRecordID(_ context.Context, _ uuid.UUID, public string) (uuid.UUID, error) {
@@ -143,6 +149,50 @@ func TestAuthorizedRecordUpdateForwardsManagedCredentialFields(t *testing.T) {
 	}
 	if service.actorID != actor.ID || service.updateID != target || service.updated.Email == nil || *service.updated.Email != "managed@example.test" || service.updated.EmailVisibility == nil || !*service.updated.EmailVisibility || service.updated.Password == nil || service.updated.Verified == nil || service.updated.Active == nil || service.updated.Fields["name"] != "Managed" {
 		t.Fatalf("managed update forwarding actor=%s target=%s input=%#v", service.actorID, service.updateID, service.updated)
+	}
+}
+
+func TestImpersonationCannotChangeGenericAuthCredentials(t *testing.T) {
+	collection := userauth.AuthCollection{ID: uuid.New(), Name: "members"}
+	actor := userauth.User{ID: uuid.New(), AuthCollectionID: collection.ID}
+	for _, body := range []string{`{"password":"replacement"}`, `{"email":"new@example.test"}`, `{"verified":true}`, `{"active":false}`} {
+		t.Run(body, func(t *testing.T) {
+			service := &authCollectionMethodStub{collection: collection}
+			r := httptest.NewRequest(http.MethodPatch, "/records", bytes.NewBufferString(body))
+			r.Header.Set("Content-Type", "application/json")
+			r.SetPathValue("authCollection", collection.Name)
+			r.SetPathValue("record", actor.ID.String())
+			r = r.WithContext(context.WithValue(r.Context(), userPrincipalKey{}, authenticatedUser{principal: userauth.Principal{User: actor, Impersonated: true}}))
+			w := httptest.NewRecorder()
+			authCollectionEndpoints{dependencies: Dependencies{AuthCollections: service}}.authorizedRecordUpdate(w, r)
+			if w.Code != http.StatusUnauthorized || service.updateID != uuid.Nil {
+				t.Fatalf("status=%d updated=%s body=%s", w.Code, service.updateID, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestImpersonationCannotDeleteAuthenticationFactors(t *testing.T) {
+	collection := userauth.AuthCollection{ID: uuid.New(), Name: "members"}
+	actor := userauth.User{ID: uuid.New(), AuthCollectionID: collection.ID}
+	for _, kind := range []string{"mfas", "externalAuths"} {
+		for _, impersonated := range []bool{false, true} {
+			service := &authCollectionMethodStub{collection: collection}
+			r := httptest.NewRequest(http.MethodDelete, "/aux", nil)
+			r.SetPathValue("authCollection", collection.Name)
+			r.SetPathValue("kind", kind)
+			r.SetPathValue("id", uuid.NewString())
+			r = r.WithContext(context.WithValue(r.Context(), userPrincipalKey{}, authenticatedUser{principal: userauth.Principal{User: actor, Impersonated: impersonated}}))
+			w := httptest.NewRecorder()
+			authCollectionEndpoints{dependencies: Dependencies{AuthCollections: service}}.auxiliaryDelete(w, r)
+			wantStatus, wantCalls := http.StatusNoContent, 1
+			if impersonated {
+				wantStatus, wantCalls = http.StatusUnauthorized, 0
+			}
+			if w.Code != wantStatus || service.auxiliaryDeletes != wantCalls {
+				t.Fatalf("kind=%s impersonated=%t status=%d deletes=%d", kind, impersonated, w.Code, service.auxiliaryDeletes)
+			}
+		}
 	}
 }
 

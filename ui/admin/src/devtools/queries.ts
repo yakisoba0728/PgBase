@@ -63,7 +63,15 @@ export async function runImport(pending: PendingImport): Promise<SchemaImportRes
     if (attempt >= 15) throw new Undecided(identity.operationId);
     await sleep(1000);
     // "unknown" is a claim left before execution: only resending the same request resumes it.
-    result = result.status === "unknown" ? await apply() : await getSchemaImportOperation(identity.operationId);
+    if (result.status === "unknown") result = await apply();
+    else {
+      try {
+        result = await getSchemaImportOperation(identity.operationId);
+      } catch {
+        // A failed status read says nothing about the accepted apply.
+        throw new Undecided(identity.operationId);
+      }
+    }
   }
   return result;
 }

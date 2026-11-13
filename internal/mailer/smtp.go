@@ -30,7 +30,10 @@ type SMTPConfig struct {
 	Timeout       time.Duration
 }
 
-type SMTP struct{ config SMTPConfig }
+type SMTP struct {
+	config SMTPConfig
+	from   string
+}
 
 func NewSMTP(config SMTPConfig) (*SMTP, error) {
 	if config.Address == "" || config.From == "" || strings.ContainsAny(config.From, "\r\n") {
@@ -40,7 +43,8 @@ func NewSMTP(config SMTPConfig) (*SMTP, error) {
 		}
 		return nil, &validation.Error{Details: []validation.Detail{{Field: field, Code: "invalid"}}}
 	}
-	if _, err := mail.ParseAddress(config.From); err != nil {
+	from, err := mail.ParseAddress(config.From)
+	if err != nil {
 		return nil, &validation.Error{Details: []validation.Detail{{Field: "from", Code: "invalid"}}}
 	}
 	if config.Timeout <= 0 {
@@ -56,7 +60,7 @@ func NewSMTP(config SMTPConfig) (*SMTP, error) {
 	if config.ServerName == "" {
 		config.ServerName = host
 	}
-	return &SMTP{config: config}, nil
+	return &SMTP{config: config, from: from.Address}, nil
 }
 
 func localSMTPHost(host string) bool {
@@ -71,6 +75,10 @@ func localSMTPHost(host string) bool {
 func (s *SMTP) Send(ctx context.Context, message Message) (err error) {
 	if s == nil || message.To == "" || strings.ContainsAny(message.To+message.Subject, "\r\n") || len(message.Text)+len(message.HTML) > 64<<10 || message.Text == "" {
 		return errors.New("invalid email message")
+	}
+	to, err := mail.ParseAddress(message.To)
+	if err != nil {
+		return errors.New("invalid email recipient")
 	}
 	body, err := encodeMessage(s.config.From, message)
 	if err != nil {
@@ -124,10 +132,10 @@ func (s *SMTP) Send(ctx context.Context, message Message) (err error) {
 			return fmt.Errorf("authenticate SMTP client: %w", err)
 		}
 	}
-	if err := client.Mail(s.config.From); err != nil {
+	if err := client.Mail(s.from); err != nil {
 		return fmt.Errorf("set SMTP sender: %w", err)
 	}
-	if err := client.Rcpt(message.To); err != nil {
+	if err := client.Rcpt(to.Address); err != nil {
 		return fmt.Errorf("set SMTP recipient: %w", err)
 	}
 	w, err := client.Data()

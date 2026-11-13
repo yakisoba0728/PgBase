@@ -23,6 +23,7 @@ const backupCreate: Promise<BackupJob> = adminClient.createBackup();
 const backupUpload: Promise<BackupEntry> = adminClient.uploadBackup(new Blob());
 const backupDownload: Promise<Blob> = adminClient.downloadBackup("id");
 const interruptedBackupJob: BackupJob = { id: "job", operation: "restore", backupId: "backup", status: "failed", phase: "interrupted", createdAt: "created", updatedAt: "updated" };
+const activeBackupJob: BackupJob = { ...interruptedBackupJob, status: "running", phase: "copying_objects_3_of_10" };
 void [administratorPage, schemaImportReceipt, backupList, backupCreate, backupUpload, backupDownload, interruptedBackupJob];
 // @ts-expect-error A typed profile preserves its declared value types.
 const badSignup: AuthCreationOptions<{ newsletter: boolean }> = { profile: { newsletter: "yes" } };
@@ -79,6 +80,7 @@ const invalidUUIDPolicy: RecordIDPolicy = { kind: "uuid", minLength: 1, maxLengt
 // @ts-expect-error A custom text policy requires lengths and a validation pattern.
 const incompleteTextPolicy: RecordIDPolicy = { kind: "text", minLength: 1 };
 const createCollection: CollectionChange = { operation: "create", name: "notes", fields: [{ name: "title", type: "text" }], recordId: textIDPolicy };
+const createPublicFiles: CollectionChange = { operation: "create", name: "assets", fields: [{ name: "attachment", type: "file", options: { protected: false } }] };
 const updateCollection: CollectionChange = { operation: "update", name: "notes", fields: [], recordId: textIDPolicy };
 const updateView: CollectionChange = { operation: "update", name: "note_titles", view: { source: "notes", projection: ["title"], filter: { op: "eq", field: "title", value: "visible" } } };
 const documentCollection: SchemaDocumentCollection = { name: "notes", recordId: textIDPolicy, userAccess: false, rules: {} };

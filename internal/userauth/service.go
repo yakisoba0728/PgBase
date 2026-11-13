@@ -261,7 +261,7 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	if err := s.ready(); err != nil {
 		return Principal{}, err
 	}
-	hash, hashErr := s.sessionHash(ctx, rawToken)
+	hash, hashErr := s.sessionHash(ctx, s.pool, rawToken)
 	if hashErr != nil {
 		return Principal{}, ErrInvalidCredentials
 	}
@@ -290,7 +290,7 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	if err := s.ready(); err != nil {
 		return err
 	}
-	hash, hashErr := s.sessionHash(ctx, rawToken)
+	hash, hashErr := s.sessionHash(ctx, s.pool, rawToken)
 	if hashErr != nil {
 		return ErrValidation
 	}

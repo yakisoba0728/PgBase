@@ -205,6 +205,7 @@ export class PgBaseAdminClient {
         return await responseJSON(response, () => { throw new AdminAPIError(response.status, "invalid_response_body"); });
     }
     async requestText(path, init, signal) {
+        const generation = this.#generation;
         const headers = new Headers(init.headers);
         headers.set("Accept", "application/json");
         if (init.body !== undefined)
@@ -212,10 +213,15 @@ export class PgBaseAdminClient {
         if (init.method && init.method !== "GET")
             headers.set("X-PgBase-CSRF", this.#csrf);
         const response = await this.#fetch(new URL(path, this.baseURL), { ...init, headers, credentials: "include", signal });
-        const text = await response.text();
-        if (!response.ok)
-            throw new AdminAPIError(response.status, "request_failed");
-        return text;
+        if (!response.ok) {
+            if (response.status === 401 && generation === this.#generation) {
+                this.#csrf = "";
+                this.#generation++;
+            }
+            const data = await responseJSON(response, () => undefined);
+            throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details);
+        }
+        return response.text();
     }
     async requestBlob(path, init, signal) {
         const generation = this.#generation;

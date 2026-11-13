@@ -93,7 +93,8 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
       setErrors(Object.fromEntries(Object.entries(error.fields).map(([name, code]) => [name, validationText(t, code)])));
       return;
     }
-    if (error instanceof ApiError && error.status > 0) idempotencyKey.current = null;
+    // Ambiguous replies, including a refused resend, do not prove the first create failed.
+    if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429 && !["idempotency_in_progress", "idempotency_conflict"].includes(error.code)) idempotencyKey.current = null;
     if (error instanceof ApiError && error.code === "precondition_failed") {
       persist();
       setConflict(true);

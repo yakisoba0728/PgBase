@@ -1,1 +1,0 @@
-import{br as e,vr as t}from"./Button-BBQV5TrM.js";import{$n as n}from"./index-CdQFO4kQ.js";var r=e(t(),1);function i(){let[e,t]=n();return{params:e,update:(0,r.useCallback)((e,n)=>{let r=new URLSearchParams(window.location.search);for(let[t,n]of Object.entries(e))n?r.set(t,n):r.delete(t);t(r,n)},[t])}}export{i as t};

@@ -33,6 +33,37 @@ func TestTruncateCountsMultipleRelationsInRelationSchema(t *testing.T) {
 	}
 }
 
+func TestTruncateDeletesTextIdentitiesThroughRecordLifecycle(t *testing.T) {
+	pool, schemas, records, principal := newRecordOperationsTest(t)
+	ctx := context.Background()
+	applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{
+		Name:     "truncate_text_records",
+		RecordID: &schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 32, Pattern: `^[A-Za-z0-9]+$`},
+		Fields:   []schema.FieldInput{{Name: "title", Type: schema.TypeText, Required: true}},
+	})
+	for _, public := range []string{"TextOne", "TextTwo"} {
+		createDeleteRecord(t, ctx, records, principal, "truncate_text_records", "truncate-text-create-"+public, map[string]json.RawMessage{
+			"id": json.RawMessage(`"` + public + `"`), "title": json.RawMessage(`"text record"`),
+		})
+	}
+	result, err := records.Truncate(ctx, TruncateRequest{Principal: principal, RequestID: "truncate-text-request", Collection: "truncate_text_records"})
+	if err != nil {
+		t.Fatalf("truncate text identities: %v", err)
+	}
+	if !result.Truncated || result.RecordsDeleted != 2 {
+		t.Fatalf("truncate result = %#v", result)
+	}
+	var rows, identities, deletes int
+	if err := pool.QueryRow(ctx, `select (select count(*) from app.truncate_text_records),
+		(select count(*) from pgbase_meta.record_identities where collection_id=(select id from pgbase_meta.collections where name='truncate_text_records')),
+		(select count(*) from pgbase_meta.record_audit_events where collection_name='truncate_text_records' and operation='delete')`).Scan(&rows, &identities, &deletes); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 || identities != 0 || deletes != 2 {
+		t.Fatalf("rows=%d identities=%d deletes=%d", rows, identities, deletes)
+	}
+}
+
 func TestTruncateUsesRecordAndDurableFileDeletionLifecycle(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
 	ctx := context.Background()

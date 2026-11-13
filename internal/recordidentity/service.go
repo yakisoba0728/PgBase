@@ -56,9 +56,6 @@ func (s *Service) Reserve(ctx context.Context, db DB, collection schema.Collecti
 			return "", ErrInvalid
 		}
 		if err := reserve(ctx, db, collection.ID, internal, *requested); err != nil {
-			if uniqueViolation(err) {
-				return "", ErrConflict
-			}
 			return "", err
 		}
 		return *requested, nil
@@ -73,7 +70,7 @@ func (s *Service) Reserve(ctx context.Context, db DB, collection schema.Collecti
 		}
 		if err := reserve(ctx, db, collection.ID, internal, candidate); err == nil {
 			return candidate, nil
-		} else if !uniqueViolation(err) {
+		} else if !errors.Is(err, ErrConflict) {
 			return "", err
 		}
 	}
@@ -81,7 +78,10 @@ func (s *Service) Reserve(ctx context.Context, db DB, collection schema.Collecti
 }
 
 func reserve(ctx context.Context, db DB, collectionID, internal uuid.UUID, external string) error {
-	_, err := db.Exec(ctx, `insert into pgbase_meta.record_identities(collection_id,collection_kind,scope_id,internal_id,external_id) values($1,'base',$1,$2,$3)`, collectionID, internal, external)
+	tag, err := db.Exec(ctx, `insert into pgbase_meta.record_identities(collection_id,collection_kind,scope_id,internal_id,external_id) values($1,'base',$1,$2,$3) ON CONFLICT DO NOTHING`, collectionID, internal, external)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrConflict
+	}
 	return err
 }
 
@@ -211,9 +211,4 @@ func (s *Service) ForgetMany(ctx context.Context, db DB, collection schema.Colle
 		return ErrNotFound
 	}
 	return nil
-}
-
-func uniqueViolation(err error) bool {
-	var postgresError *pgconn.PgError
-	return errors.As(err, &postgresError) && postgresError.Code == "23505"
 }

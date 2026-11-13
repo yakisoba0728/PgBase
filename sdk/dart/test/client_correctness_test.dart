@@ -2,10 +2,76 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:pgbase/pgbase.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('malformed JSON strings and UTF-8 use the stable protocol error', () {
+    for (final bytes in [
+      utf8.encode(r'{"value":"\q"}'),
+      [0xff],
+    ]) {
+      expect(
+        () => decodeExactJson(bytes),
+        throwsA(
+          isA<PgBaseProtocolError>().having(
+            (error) => error.code,
+            'code',
+            'invalid_json',
+          ),
+        ),
+      );
+    }
+  });
+
+  test('MFA challenges preserve the server request ID', () async {
+    final client = PgBaseClient(
+      Uri.parse('http://pgbase.test'),
+      httpClient: MockClient(
+        (_) async => http.Response(
+          '{"error":{"code":"mfa_required","requestId":"mfa-request",'
+          '"details":{"challengeToken":["challenge"],"expiresAt":["later"]}}}',
+          403,
+        ),
+      ),
+    );
+    await expectLater(
+      client.login('member@example.test', 'password'),
+      throwsA(
+        isA<MfaChallengeError>().having(
+          (error) => error.requestId,
+          'requestId',
+          'mfa-request',
+        ),
+      ),
+    );
+  });
+
+  test('old auth-clearing responses preserve a newer login', () async {
+    final operations = <Future<void> Function(PgBaseClient)>[
+      (client) => client.logout(),
+      (client) => client.realm('members').logout(),
+      (client) => client.changePassword('old', 'replacement'),
+      (client) => client.confirmEmailChange('confirmation'),
+    ];
+    for (final operation in operations) {
+      for (final changed in [false, true]) {
+        final transport = ControlledClient();
+        final client = PgBaseClient(
+          Uri.parse('http://pgbase.test'),
+          httpClient: transport,
+          auth: AuthStore(initialToken: 'old-login'),
+        );
+        final pending = operation(client);
+        if (changed) await client.auth.save('new-login');
+        transport.calls.single.complete();
+        await pending;
+        expect(client.auth.token, changed ? 'new-login' : isNull);
+      }
+    }
+  });
+
   test(
     'record reads cancel duplicates through body consumption, including query',
     () async {

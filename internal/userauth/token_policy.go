@@ -143,7 +143,7 @@ func policyTokenValid(raw string) bool {
 	b, e := base64.RawURLEncoding.Strict().DecodeString(body)
 	return e == nil && len(b) == 32 && len(raw) <= maximumTokenBytes
 }
-func (s *Service) sessionHash(ctx context.Context, raw string) ([]byte, error) {
+func (s *Service) sessionHash(ctx context.Context, db database.DBTX, raw string) ([]byte, error) {
 	p := strings.Split(raw, ".")
 	if len(p) == 1 {
 		if validateToken(raw) != nil {
@@ -160,7 +160,7 @@ func (s *Service) sessionHash(ctx context.Context, raw string) ([]byte, error) {
 	}
 	var purpose string
 	var cipher []byte
-	e = s.pool.QueryRow(ctx, `select purpose,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and key_version=$2 and purpose in ('session','impersonation')`, realm, p[1]).Scan(&purpose, &cipher)
+	e = db.QueryRow(ctx, `select purpose,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and key_version=$2 and purpose in ('session','impersonation')`, realm, p[1]).Scan(&purpose, &cipher)
 	if e != nil {
 		return nil, ErrInvalidCredentials
 	}

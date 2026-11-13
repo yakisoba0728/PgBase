@@ -197,7 +197,7 @@ func (s *Store) CreateAdministrator(ctx context.Context, administrator Administr
 }
 
 // ResetAdministratorPassword replaces an active administrator password and
-// deletes every existing session in the caller's transaction.
+// deletes existing sessions and pending email credentials in the caller's transaction.
 func (s *Store) ResetAdministratorPassword(ctx context.Context, email, passwordHash string, now time.Time) (Administrator, error) {
 	normalizedEmail, err := NormalizeEmail(email)
 	if err != nil {
@@ -229,8 +229,8 @@ func (s *Store) ResetAdministratorPassword(ctx context.Context, email, passwordH
 	if err != nil {
 		return Administrator{}, fmt.Errorf("reset administrator password: %w", err)
 	}
-	if _, err := s.db.Exec(ctx, "delete from pgbase_meta.admin_sessions where admin_id = $1", administratorID); err != nil {
-		return Administrator{}, fmt.Errorf("revoke administrator sessions after password reset: %w", err)
+	if err := invalidateAccountCredentials(ctx, s.db, administratorID); err != nil {
+		return Administrator{}, fmt.Errorf("revoke administrator credentials after password reset: %w", err)
 	}
 	return administratorUTC(administrator), nil
 }
@@ -273,7 +273,7 @@ func (s *Store) ResetAdministratorPasswordByID(ctx context.Context, administrato
 	if err != nil {
 		return Administrator{}, fmt.Errorf("reset administrator password: %w", err)
 	}
-	if err := s.DeleteAdministratorSessions(ctx, administratorID); err != nil {
+	if err := invalidateAccountCredentials(ctx, s.db, administratorID); err != nil {
 		return Administrator{}, err
 	}
 	return administratorUTC(administrator), nil
@@ -317,7 +317,7 @@ func (s *Store) MarkEmailOTPConsumed(ctx context.Context, id uuid.UUID, now time
 }
 
 // UpsertAdministratorPassword reactivates a locked existing administrator,
-// replaces its password, and removes every existing session. TOTP and IP
+// replaces its password, and removes sessions and pending email credentials. TOTP and IP
 // policy rows remain associated with the administrator's stable ID.
 func (s *Store) UpsertAdministratorPassword(ctx context.Context, administratorID uuid.UUID, passwordHash string, now time.Time) (Administrator, error) {
 	var administrator Administrator
@@ -333,7 +333,7 @@ func (s *Store) UpsertAdministratorPassword(ctx context.Context, administratorID
 	if err != nil {
 		return Administrator{}, fmt.Errorf("upsert administrator password: %w", err)
 	}
-	if err := s.DeleteAdministratorSessions(ctx, administratorID); err != nil {
+	if err := invalidateAccountCredentials(ctx, s.db, administratorID); err != nil {
 		return Administrator{}, err
 	}
 	return administratorUTC(administrator), nil

@@ -63,3 +63,45 @@ func TestValidateMixedDirectModifierChecksResolvedValue(t *testing.T) {
 		t.Fatal("invalid resolved value accepted")
 	}
 }
+
+func TestNumericModifiersRejectUnsupportedOperandEncodings(t *testing.T) {
+	for _, kind := range []schema.FieldType{schema.TypeNumeric, schema.TypeBigInt} {
+		field := schema.Field{Name: "amount", Type: kind}
+		for _, value := range []string{"1e-2", "1/2", "0x10"} {
+			raw, _ := json.Marshal(value)
+			if got, err := modifyNumber(field, "1", raw, modifierAppend); err == nil {
+				t.Errorf("%s modifier accepted %q as %#v", kind, value, got)
+			}
+		}
+		if got, err := modifyNumber(field, "1/2", json.RawMessage(`"1"`), modifierAppend); err == nil {
+			t.Errorf("%s modifier accepted invalid direct assignment as %#v", kind, got)
+		}
+	}
+	field := schema.Field{Name: "amount", Type: schema.TypeBigInt}
+	if got, err := modifyNumber(field, "1.5", json.RawMessage(`"0.5"`), modifierAppend); err == nil {
+		t.Errorf("bigint modifier accepted fractional operands as %#v", got)
+	}
+}
+
+func TestBigIntModifiersPreserveExactIntegers(t *testing.T) {
+	field := schema.Field{Name: "amount", Type: schema.TypeBigInt}
+	got, err := modifyNumber(field, "9007199254740993", json.RawMessage(`"2"`), modifierAppend)
+	if err != nil || got != "9007199254740995" {
+		t.Fatalf("bigint increment = %#v, %v", got, err)
+	}
+}
+
+func TestResolveInputModifiersPreservesExactNumericTransport(t *testing.T) {
+	for _, kind := range []schema.FieldType{schema.TypeNumeric, schema.TypeBigInt} {
+		collection := schema.Collection{Fields: []schema.Field{{Name: "amount", Type: kind}}}
+		input := map[string]json.RawMessage{"amount": json.RawMessage(`9007199254740993`), "amount+": json.RawMessage(`"0"`)}
+		if got, err := resolveInputModifiers(collection, input, nil); err == nil {
+			t.Errorf("%s modifier accepted unquoted direct number: %#v", kind, got)
+		}
+		input["amount"] = json.RawMessage(`"9007199254740993"`)
+		got, err := resolveInputModifiers(collection, input, nil)
+		if err != nil || string(got["amount"]) != `"9007199254740993"` {
+			t.Errorf("%s exact direct assignment + modifier = %s, %v", kind, got["amount"], err)
+		}
+	}
+}

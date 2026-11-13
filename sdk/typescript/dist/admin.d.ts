@@ -19,6 +19,7 @@ export type FieldOptions = {
     maxFileSize?: number;
     mimeTypes?: string[];
     thumbs?: string[];
+    protected?: boolean;
 };
 export type RelationInput = {
     targetCollection: string;
@@ -360,7 +361,7 @@ export type BackupJob = {
     operation: "create" | "restore";
     backupId: string;
     status: "running" | "completed" | "failed";
-    phase: "create" | "restore" | "completed" | "failed" | "interrupted";
+    phase: string;
     error?: string;
     createdAt: string;
     updatedAt: string;

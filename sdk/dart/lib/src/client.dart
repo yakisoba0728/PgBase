@@ -176,10 +176,11 @@ final class PgBaseClient {
   );
 
   Future<void> logout({CancellationToken? cancellation}) async {
+    final generation = auth.generation;
     try {
       await request('POST', '/api/v1/auth/logout', cancellation: cancellation);
     } finally {
-      await auth.clear();
+      if (generation == auth.generation) await auth.clear();
     }
   }
 
@@ -625,6 +626,7 @@ final class PgBaseClient {
             MfaChallenge(token: token, expiresAt: expiresAt),
             details: error.details,
             etag: error.etag,
+            requestId: error.requestId,
           );
       }
       rethrow;
@@ -642,10 +644,11 @@ final class PgBaseClient {
     JsonObject body,
     CancellationToken? cancellation,
   ) async {
+    final generation = auth.generation;
     try {
       await request('POST', path, body: body, cancellation: cancellation);
     } finally {
-      await auth.clear();
+      if (generation == auth.generation) await auth.clear();
     }
   }
 

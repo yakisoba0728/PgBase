@@ -593,6 +593,9 @@ func (s *Service) fetchExpansionTargets(
 			return nil, err
 		}
 	}
+	if err := filterRelationValues(ctx, tx, catalog, collection, records, principal, ruleContext); err != nil {
+		return nil, err
+	}
 	for _, record := range records {
 		id, err := canonicalRecordID(record)
 		if err != nil {

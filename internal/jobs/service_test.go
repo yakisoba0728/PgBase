@@ -82,6 +82,17 @@ func TestCalendarScheduleRejectsTimezoneAndExtendedCron(t *testing.T) {
 	}
 }
 
+func TestCalendarScheduleRejectsDatesThatNeverOccur(t *testing.T) {
+	for _, expression := range []string{"0 0 31 2 *", "0 0 31 4 *"} {
+		if _, err := ParseScheduleInLocation(expression, "UTC"); !errors.Is(err, ErrInvalidSchedule) {
+			t.Errorf("ParseScheduleInLocation(%q) = %v, want invalid schedule", expression, err)
+		}
+	}
+	if _, err := ParseScheduleInLocation("0 0 29 2 *", "UTC"); err != nil {
+		t.Fatalf("leap day should remain valid: %v", err)
+	}
+}
+
 func TestInvokeContainsPanicAndPreservesHandlerError(t *testing.T) {
 	job := Job{ID: uuid.New(), Name: "test"}
 	want := errors.New("handler failed")

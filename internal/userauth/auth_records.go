@@ -207,18 +207,23 @@ func (s *Service) visibleAuthRecordForPrincipal(ctx context.Context, record Auth
 	return record
 }
 func (s *Service) DeleteAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID) error {
-	_, rules, err := s.authRecordRules(ctx, collectionID)
-	if err != nil {
-		return err
-	}
-	current, err := s.GetAuthRecord(ctx, collectionID, target)
-	if err != nil {
-		return err
-	}
-	if rules.IsNull("delete") || !s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.Delete, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: current}) {
-		return ErrInvalidCredentials
-	}
-	return s.DeleteAuthRecord(ctx, collectionID, target)
+	return s.deleteAuthRecord(ctx, collectionID, target, func(tx pgx.Tx) error {
+		var rule *string
+		if err := tx.QueryRow(ctx, `select delete_rule from pgbase_meta.auth_collections where id=$1 for share`, collectionID).Scan(&rule); err != nil {
+			return err
+		}
+		if rule == nil {
+			return ErrInvalidCredentials
+		}
+		allowed, err := EvaluateAuthRecordRuleInTx(ctx, tx, collectionID, *rule, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: AuthRecord{ID: target}})
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return ErrInvalidCredentials
+		}
+		return nil
+	})
 }
 
 func (s *Service) authRecordRules(ctx context.Context, id uuid.UUID) ([]schema.FieldInput, AuthCollectionRules, error) {
@@ -530,6 +535,10 @@ func validateAuthIdentityUnique(ctx context.Context, tx pgx.Tx, collectionID, us
 }
 
 func (s *Service) DeleteAuthRecord(ctx context.Context, collectionID, id uuid.UUID) error {
+	return s.deleteAuthRecord(ctx, collectionID, id, nil)
+}
+
+func (s *Service) deleteAuthRecord(ctx context.Context, collectionID, id uuid.UUID, authorize func(pgx.Tx) error) error {
 	if collectionID == uuid.Nil || id == uuid.Nil {
 		return ErrValidation
 	}
@@ -541,6 +550,11 @@ func (s *Service) DeleteAuthRecord(ctx context.Context, collectionID, id uuid.UU
 		}
 		if err != nil {
 			return err
+		}
+		if authorize != nil {
+			if err := authorize(tx); err != nil {
+				return err
+			}
 		}
 		if err := enforceAuthRelationDeletes(ctx, tx, name, id); err != nil {
 			return err

@@ -73,8 +73,13 @@ final class JsonObject extends JsonValue {
   Object toDart() => values.map((key, value) => MapEntry(key, value.toDart()));
 }
 
-JsonValue decodeExactJson(List<int> bytes) =>
-    _ExactJsonParser(utf8.decode(bytes, allowMalformed: false)).parse();
+JsonValue decodeExactJson(List<int> bytes) {
+  try {
+    return _ExactJsonParser(utf8.decode(bytes, allowMalformed: false)).parse();
+  } on FormatException {
+    throw const PgBaseProtocolError('invalid_json');
+  }
+}
 
 List<int> encodeExactJson(JsonValue value) => utf8.encode(_encode(value));
 

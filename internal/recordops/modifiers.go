@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/fieldvalue"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
@@ -62,6 +63,11 @@ func resolveInputModifiers(collection schema.Collection, input map[string]json.R
 			var direct any
 			if err := json.Unmarshal(input[key], &direct); err != nil {
 				return nil, modifierValidation(name, "type_mismatch")
+			}
+			if (field.Type == schema.TypeBigInt || field.Type == schema.TypeNumeric) && direct != nil {
+				if _, ok := direct.(string); !ok {
+					return nil, modifierValidation(name, "type_mismatch")
+				}
 			}
 			current[name] = direct
 			continue
@@ -134,6 +140,16 @@ func modifyNumber(field schema.Field, current any, raw json.RawMessage, modifier
 		right = strconv.FormatInt(value, 10)
 	} else if json.Unmarshal(raw, &right) != nil {
 		return nil, modifierValidation(field.Name, "type_mismatch")
+	}
+	if fieldvalue.ValidateNumeric(left, fieldvalue.Options{}) != "" || fieldvalue.ValidateNumeric(right, fieldvalue.Options{}) != "" {
+		return nil, modifierValidation(field.Name, "type_mismatch")
+	}
+	if field.Type == schema.TypeBigInt {
+		for _, operand := range []string{left, right} {
+			if _, err := strconv.ParseInt(operand, 10, 64); err != nil {
+				return nil, modifierValidation(field.Name, "type_mismatch")
+			}
+		}
 	}
 	a, okA := new(big.Rat).SetString(left)
 	b, okB := new(big.Rat).SetString(right)

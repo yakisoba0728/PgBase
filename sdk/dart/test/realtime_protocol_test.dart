@@ -5,6 +5,48 @@ import 'package:pgbase/pgbase.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('a pre-cancelled native record stream makes no request', () async {
+    final transport = RealtimeFrames('');
+    final client = PgBaseClient(
+      Uri.parse('http://pgbase.test'),
+      httpClient: transport,
+    );
+    final cancellation = CancellationToken()..cancel();
+    expect(
+      await client
+          .records('notes')
+          .events(cancellation: cancellation, maxReconnects: 0)
+          .toList(),
+      isEmpty,
+    );
+    expect(transport.connections, 0);
+  });
+
+  test('native record streams exhaust reconnects after clean EOF', () async {
+    for (final maxReconnects in [0, 2]) {
+      final transport = RealtimeFrames('');
+      final client = PgBaseClient(
+        Uri.parse('http://pgbase.test'),
+        httpClient: transport,
+      );
+      await expectLater(
+        client
+            .records('notes')
+            .events(maxReconnects: maxReconnects, reconnectDelay: Duration.zero)
+            .drain<void>()
+            .timeout(const Duration(seconds: 1)),
+        throwsA(
+          isA<PgBaseProtocolError>().having(
+            (error) => error.code,
+            'code',
+            'realtime_stream_ended',
+          ),
+        ),
+      );
+      expect(transport.connections, maxReconnects + 1);
+    }
+  });
+
   test(
     'PB_ERROR preserves terminal cursor failure codes before readiness',
     () async {

@@ -198,6 +198,74 @@ func migrationStoreFactory(source ObjectStore, destination ObjectStore) func(con
 	}
 }
 
+type migrationDeleteFailureStore struct {
+	ObjectStore
+	err   error
+	calls int
+}
+
+func (s *migrationDeleteFailureStore) Delete(context.Context, string) error {
+	s.calls++
+	return s.err
+}
+
+func TestObjectMigrationCleanupPersistsFailureBackoff(t *testing.T) {
+	ctx, pool, controller, migrationID, key, source, destination := newLocalMigrationFixture(t, nil)
+	service := NewObjectMigrationService(controller)
+	service.buildStore = migrationStoreFactory(source, destination)
+	if copied, err := service.copyOne(ctx, migrationID); err != nil || !copied {
+		t.Fatalf("copy=%t err=%v", copied, err)
+	}
+	if err := service.Cancel(ctx, migrationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `update pgbase_meta.file_storage_source_cleanup set not_before=CURRENT_TIMESTAMP-interval '1 second' where migration_id=$1`, migrationID); err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("storage unavailable")
+	failing := &migrationDeleteFailureStore{ObjectStore: destination, err: failure}
+	service.buildStore = migrationStoreFactory(source, failing)
+	if worked, err := service.CleanupOne(ctx); worked || !errors.Is(err, failure) {
+		t.Fatalf("failed cleanup=%t err=%v", worked, err)
+	}
+	var attempts int
+	var message string
+	var deferred, completed bool
+	if err := pool.QueryRow(ctx, `select attempts,failure,not_before>CURRENT_TIMESTAMP+interval '14 minutes',completed_at is not null from pgbase_meta.file_storage_source_cleanup where migration_id=$1 and object_key=$2`, migrationID, key).Scan(&attempts, &message, &deferred, &completed); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 1 || message != "source cleanup failed" || !deferred || completed {
+		t.Fatalf("failure receipt: attempts=%d message=%q deferred=%t completed=%t", attempts, message, deferred, completed)
+	}
+	if worked, err := service.CleanupOne(ctx); worked || err != nil || failing.calls != 1 {
+		t.Fatalf("cleanup retried before backoff: worked=%t err=%v calls=%d", worked, err, failing.calls)
+	}
+}
+
+func TestObjectMigrationCleanupPreservesActiveLocalNamespace(t *testing.T) {
+	ctx, pool, controller, migrationID, key, source, _ := newLocalMigrationFixture(t, nil)
+	raw, err := json.Marshal(storageSnapshot{Driver: "local", LocalDirectory: controller.localDirectory, Bucket: "old-unused-bucket", Region: "old-unused-region", UsePathStyle: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, err := controller.encrypt(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `update pgbase_meta.file_storage_migrations set status='canceled' where id=$1;`, migrationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.file_storage_source_cleanup(migration_id,object_key,source_config_ciphertext,not_before) values($1,$2,$3,CURRENT_TIMESTAMP-interval '1 second')`, migrationID, key, blob); err != nil {
+		t.Fatal(err)
+	}
+	failing := &migrationDeleteFailureStore{ObjectStore: source, err: errors.New("active object deleted")}
+	service := NewObjectMigrationService(controller)
+	service.buildStore = migrationStoreFactory(failing, failing)
+	if worked, err := service.CleanupOne(ctx); worked || err != nil || failing.calls != 0 {
+		t.Fatalf("active namespace cleanup: worked=%t err=%v deletes=%d", worked, err, failing.calls)
+	}
+}
+
 type migrationBlockingStore struct {
 	*migrationMemoryStore
 	phase   string

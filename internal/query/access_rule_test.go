@@ -125,3 +125,30 @@ func TestPocketBaseAccessRuleReportsWhereParsingStopped(t *testing.T) {
 		t.Fatalf("err=%v details=%#v", err, validation)
 	}
 }
+
+func TestAccessRuleAuthAnyMatchPreservesComparisonDirection(t *testing.T) {
+	for _, test := range []struct{ operator, want string }{
+		{"?<", "any_gt"}, {"?<=", "any_gte"}, {"?>", "any_lt"}, {"?>=", "any_lte"},
+		{"<", "gt"}, {"<=", "gte"}, {">", "lt"}, {">=", "lte"},
+		{"?=", "any_eq"}, {"?!=", "any_ne"},
+	} {
+		rule, err := ParseAccessRule("@request.auth.email " + test.operator + " reviewer.email")
+		if err != nil || rule.Op != test.want || rule.Field != "reviewer.email" || rule.Auth != "email" {
+			t.Errorf("operator %s: rule=%#v err=%v", test.operator, rule, err)
+		}
+	}
+}
+
+func TestAccessRuleRejectsUnsupportedLeftContainsOperands(t *testing.T) {
+	for _, operator := range []string{"~", "!~", "?~", "?!~"} {
+		for _, left := range []string{"'alphabet'", "@request.auth.email"} {
+			source := left + " " + operator + " title"
+			if _, err := ParseAccessRule(source); !errors.Is(err, accessrule.ErrInvalid) {
+				t.Errorf("unsupported left contains operand accepted: %s (%v)", source, err)
+			}
+		}
+		if _, err := ParseAccessRule("title " + operator + " @request.auth.email"); err != nil {
+			t.Errorf("supported right auth operand rejected: %s (%v)", operator, err)
+		}
+	}
+}

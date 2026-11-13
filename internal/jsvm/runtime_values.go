@@ -12,10 +12,12 @@ import (
 )
 
 var exactNumberPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`)
+var exactNumberMarker = goja.NewSymbol("PgBase exact number")
 
 func exactValue(vm *goja.Runtime, value string) *goja.Object {
 	object := vm.NewObject()
 	_ = object.DefineDataProperty("__pgbaseExact", vm.ToValue(value), goja.FLAG_FALSE, goja.FLAG_FALSE, goja.FLAG_FALSE)
+	_ = object.DefineDataPropertySymbol(exactNumberMarker, vm.ToValue(value), goja.FLAG_FALSE, goja.FLAG_FALSE, goja.FLAG_FALSE)
 	_ = object.Set("toString", func(goja.FunctionCall) goja.Value { return vm.ToValue(value) })
 	return object
 }
@@ -63,7 +65,7 @@ func importValue(vm *goja.Runtime, value any, depth, maximumDepth int) (goja.Val
 			if err != nil {
 				return nil, err
 			}
-			if err := object.Set(name, converted); err != nil {
+			if err := object.DefineDataProperty(name, converted, goja.FLAG_TRUE, goja.FLAG_TRUE, goja.FLAG_TRUE); err != nil {
 				return nil, err
 			}
 		}
@@ -94,25 +96,28 @@ func exportValue(value goja.Value, depth, maximumDepth int, seen map[*goja.Objec
 		}
 		return nil, errors.New("undefined is not a JSON value")
 	}
-	switch exported := value.Export().(type) {
-	case bool, string:
-		return exported, nil
-	case int64:
-		if exported > 1<<53-1 || exported < -(1<<53-1) {
-			return nil, errors.New("unsafe JavaScript integer must use pgbase.exact")
+	object, isObject := value.(*goja.Object)
+	// Export recursively walks containers before our depth and cycle checks.
+	if !isObject || object.ClassName() != "Object" && object.ClassName() != "Array" {
+		switch exported := value.Export().(type) {
+		case bool, string:
+			return exported, nil
+		case int64:
+			if exported > 1<<53-1 || exported < -(1<<53-1) {
+				return nil, errors.New("unsafe JavaScript integer must use pgbase.exact")
+			}
+			return exported, nil
+		case float64:
+			if math.IsNaN(exported) || math.IsInf(exported, 0) {
+				return nil, errors.New("non-finite number is not JSON")
+			}
+			return exported, nil
 		}
-		return exported, nil
-	case float64:
-		if math.IsNaN(exported) || math.IsInf(exported, 0) {
-			return nil, errors.New("non-finite number is not JSON")
-		}
-		return exported, nil
 	}
-	object, ok := value.(*goja.Object)
-	if !ok {
+	if !isObject {
 		return nil, errors.New("unsupported JavaScript value")
 	}
-	if marker := object.Get("__pgbaseExact"); marker != nil && !goja.IsUndefined(marker) {
+	if marker := object.GetSymbol(exactNumberMarker); marker != nil && !goja.IsUndefined(marker) {
 		exact, ok := marker.Export().(string)
 		if !ok || !exactNumberPattern.MatchString(exact) {
 			return nil, errors.New("invalid exact number")

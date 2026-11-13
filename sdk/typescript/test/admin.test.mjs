@@ -247,3 +247,25 @@ test('raw schema export preview and apply preserve integers beyond JavaScript pr
   assert.equal(apply.init.headers.get('PgBase-Operation-ID'),plan.operationId);
   assert.equal(apply.init.headers.get('Idempotency-Key'),plan.idempotencyKey);
 });
+
+test('raw schema export preserves structured errors and clears only the expired CSRF generation', async()=>{
+  for(const replace of [false,true]) {
+    const calls=[];
+    let finish;
+    let resumes=0;
+    const client=new PgBaseAdminClient('http://localhost',{fetch:async(url,init)=>{
+      calls.push({url:String(url),init});
+      if(String(url).endsWith('/session')) return Response.json({csrfToken:`csrf-${++resumes}`});
+      if(String(url).endsWith('/schema/export')) return new Promise(resolve=>{finish=resolve;});
+      return new Response(null,{status:204});
+    }});
+    await client.resume();
+    const exportRequest=client.exportSchemaJSON();
+    const rejected=assert.rejects(exportRequest,error=>error instanceof AdminAPIError&&error.code==='authentication_required'&&error.details.field[0]==='denied');
+    if(replace) await client.resume();
+    finish(Response.json({error:{code:'authentication_required',details:{field:['denied']}}},{status:401}));
+    await rejected;
+    await client.queueJob('job');
+    assert.equal(calls.at(-1).init.headers.get('X-PgBase-CSRF'),replace?'csrf-2':'');
+  }
+});

@@ -76,7 +76,7 @@ func TestStagedPublicationRejectsLostOwnership(t *testing.T) {
 			}
 			defer guarded.CompleteStaged(staged, ErrStorageConflict)
 			var terminated bool
-			if err := pool.QueryRow(ctx, `select pg_terminate_backend($1)`, int32(staged[0].storageLease.backend)).Scan(&terminated); err != nil || !terminated {
+			if err := pool.QueryRow(ctx, `select pg_terminate_backend($1,5000)`, int32(staged[0].storageLease.backend)).Scan(&terminated); err != nil || !terminated {
 				t.Fatalf("terminate=%t err=%v", terminated, err)
 			}
 			if worked, err := guarded.DrainOne(ctx); err != nil || !worked {
@@ -128,7 +128,7 @@ func TestStagedPublicationRejectsLostOwnership(t *testing.T) {
 				return err
 			}
 			var terminated bool
-			if err := pool.QueryRow(ctx, `select pg_terminate_backend($1)`, int32(staged.storageLease.backend)).Scan(&terminated); err != nil || !terminated {
+			if err := pool.QueryRow(ctx, `select pg_terminate_backend($1,5000)`, int32(staged.storageLease.backend)).Scan(&terminated); err != nil || !terminated {
 				t.Fatalf("terminate=%t err=%v", terminated, err)
 			}
 			if worked, err := guarded.DrainOne(ctx); err != nil || worked {

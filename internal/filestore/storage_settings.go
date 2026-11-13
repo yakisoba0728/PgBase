@@ -9,7 +9,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/url"
@@ -352,7 +351,10 @@ func (c *StorageController) Update(ctx context.Context, in StorageUpdate) (Stora
 	return result, err
 }
 func location(s StorageSettings) string {
-	return strings.Join([]string{s.Driver, s.Bucket, s.Region, s.Endpoint, fmt.Sprint(s.UsePathStyle)}, "\x00")
+	if s.Driver == "local" {
+		return "local"
+	}
+	return strings.Join([]string{s.Driver, s.Bucket, strings.TrimRight(s.Endpoint, "/")}, "\x00")
 }
 func (c *StorageController) validate(s StorageSettings) error {
 	if s.Driver == "local" {

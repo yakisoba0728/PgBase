@@ -4,6 +4,7 @@ package accessrule_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -41,6 +42,10 @@ func TestPolicyOperandScopesAndRequestValidation(t *testing.T) {
 		expression string
 		want       bool
 	}{
+		{`@request.auth.email ?< reviewer.email`, true},
+		{`@request.auth.email ?<= reviewer.email`, true},
+		{`@request.auth.email ?> reviewer.email`, false},
+		{`@request.auth.email ?>= reviewer.email`, false},
 		{`author.email ?= reviewer.email`, false}, {`author.email = reviewer.email`, false},
 		{`author.email ?= author.email`, true}, {`author.email = author.email`, true},
 		{`@collection.posts.author.email ?= 'alice'`, true},
@@ -73,6 +78,24 @@ func TestPolicyOperandScopesAndRequestValidation(t *testing.T) {
 				t.Fatalf("allowed=%v want=%v; SQL %s", got, test.want, sql)
 			}
 		})
+	}
+	for _, binding := range []string{"", accessrule.BindingScalar, accessrule.BindingCatalog} {
+		for _, op := range []string{"contains", "not_contains", "any_contains", "any_not_contains"} {
+			t.Run("contains_"+binding+"_"+op, func(t *testing.T) {
+				rule := accessrule.Rule{Binding: binding, Op: op, Field: "email", Value: json.RawMessage(`"li"`)}
+				sql, args, err := accessrule.CompilePolicy(rule, accessrule.PolicyContext{Catalog: catalog, Collection: people, Alias: "people"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var got bool
+				if err := db.QueryRow(ctx, "SELECT ("+sql+") FROM app.people people WHERE email='alice'", args...).Scan(&got); err != nil {
+					t.Fatalf("runtime: %v; SQL %s", err, sql)
+				}
+				if want := op == "contains" || op == "any_contains"; got != want {
+					t.Fatalf("allowed=%v want=%v", got, want)
+				}
+			})
+		}
 	}
 	for _, name := range []string{"pb_operand_left", "pgbase_operand_left", "pgbase_operand_right"} {
 		t.Run(name, func(t *testing.T) {

@@ -22,6 +22,20 @@ func Pack(ctx context.Context, directory string, destination io.Writer) (resultE
 	if err != nil {
 		return err
 	}
+	info, err := os.Stat(filepath.Join(directory, "manifest.json"))
+	if err != nil {
+		return err
+	}
+	if len(manifest.Files) > maximumArchiveEntries-2 || info.Size() > 16<<20 {
+		return errors.New("backup archive exceeds limit")
+	}
+	remaining := maximumUnpackedBytes - info.Size()
+	for _, file := range append([]File{manifest.Database}, manifest.Files...) {
+		if file.Size > remaining {
+			return errors.New("backup archive exceeds limit")
+		}
+		remaining -= file.Size
+	}
 	gz := gzip.NewWriter(destination)
 	tw := tar.NewWriter(gz)
 	defer func() { resultErr = errors.Join(resultErr, tw.Close(), gz.Close()) }()

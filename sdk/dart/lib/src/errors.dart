@@ -59,6 +59,7 @@ final class MfaChallengeError extends PgBaseError {
     this.challenge, {
     super.details,
     super.etag,
+    super.requestId,
   });
 
   final MfaChallenge challenge;

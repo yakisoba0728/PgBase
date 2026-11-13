@@ -203,14 +203,14 @@ func lockAdministratorAccount(ctx context.Context, tx pgx.Tx, target uuid.UUID) 
 	return administratorUTC(value), err
 }
 
-func invalidateAccountCredentials(ctx context.Context, tx pgx.Tx, target uuid.UUID) error {
+func invalidateAccountCredentials(ctx context.Context, tx database.DBTX, target uuid.UUID) error {
 	if err := NewStore(tx).DeleteAdministratorSessions(ctx, target); err != nil {
 		return err
 	}
 	return invalidatePendingEmailCredentials(ctx, tx, target)
 }
 
-func invalidatePendingEmailCredentials(ctx context.Context, tx pgx.Tx, target uuid.UUID) error {
+func invalidatePendingEmailCredentials(ctx context.Context, tx database.DBTX, target uuid.UUID) error {
 	if _, err := tx.Exec(ctx, `delete from pgbase_meta.admin_password_resets where admin_id=$1`, target); err != nil {
 		return err
 	}

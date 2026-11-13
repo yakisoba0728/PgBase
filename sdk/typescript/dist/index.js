@@ -45,14 +45,17 @@ export class PgBaseClient {
         return this.request(authFieldsPath("/api/v1/auth/session", query), {}, requestSignal, query?.requestKey);
     }
     async logout(signal) {
+        const generation = this.auth.generation;
         try {
             await this.request("/api/v1/auth/logout", { method: "POST" }, signal);
         }
         finally {
-            this.auth.clear();
+            if (generation === this.auth.generation)
+                this.auth.clear();
         }
     }
     async changePassword(currentPassword, newPassword, signal) {
+        const generation = this.auth.generation;
         try {
             await this.request("/api/v1/auth/change-password", {
                 method: "POST",
@@ -60,7 +63,8 @@ export class PgBaseClient {
             }, signal);
         }
         finally {
-            this.auth.clear();
+            if (generation === this.auth.generation)
+                this.auth.clear();
         }
     }
     requestPasswordReset(email, signal) {
@@ -114,6 +118,7 @@ export class PgBaseClient {
         }, signal);
     }
     async confirmEmailChange(token, signal) {
+        const generation = this.auth.generation;
         try {
             await this.request("/api/v1/auth/confirm-email-change", {
                 method: "POST",
@@ -121,7 +126,8 @@ export class PgBaseClient {
             }, signal);
         }
         finally {
-            this.auth.clear();
+            if (generation === this.auth.generation)
+                this.auth.clear();
         }
     }
     records(collection) {
@@ -333,11 +339,12 @@ export class AuthRealm {
         return session;
     }
     session(signal) { return this.client._request(this.path("session"), {}, signal); }
-    async logout(signal) { try {
+    async logout(signal) { const generation = this.client.auth.generation; try {
         await this.client._request(this.path("logout"), { method: "POST" }, signal);
     }
     finally {
-        this.client.auth.clear();
+        if (generation === this.client.auth.generation)
+            this.client.auth.clear();
     } }
     requestPasswordReset(email, signal) { return this.client._request(this.path("request-password-reset"), { method: "POST", body: JSON.stringify({ email }) }, signal); }
     requestOTP(email, signal) { return this.client._request(this.path("otp/request"), { method: "POST", body: JSON.stringify({ email }) }, signal); }
@@ -442,13 +449,24 @@ function refreshSession(value) {
         throw new PgBaseError(0, "invalid_session_response");
     return { token: session.token, expiresAt: session.expiresAt, user: details };
 }
-function callbackWithAbort(adapter, signal) {
+async function callbackWithAbort(adapter, signal) {
+    if (signal?.aborted)
+        throw new DOMException("aborted", "AbortError");
     const callback = adapter.waitForCallback(signal).then((value) => typeof value === "string" ? new URL(value) : value);
     if (!signal)
         return callback;
-    if (signal.aborted)
-        return Promise.reject(new DOMException("aborted", "AbortError"));
-    return Promise.race([callback, new Promise((_, reject) => signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true }))]);
+    let abort;
+    try {
+        return await Promise.race([callback, new Promise((_, reject) => {
+                abort = () => reject(new DOMException("aborted", "AbortError"));
+                signal.addEventListener("abort", abort, { once: true });
+                if (signal.aborted)
+                    abort();
+            })]);
+    }
+    finally {
+        signal.removeEventListener("abort", abort);
+    }
 }
 export class OAuthCallbackError extends Error {
     code;
@@ -542,6 +560,11 @@ export class Records {
         }, signal);
     }
     async *events(options = {}) {
+        if (options.maxReconnects !== undefined && (!Number.isInteger(options.maxReconnects) || options.maxReconnects < 0))
+            throw new PgBaseError(0, "invalid_reconnect_options");
+        if (options.reconnectDelayMs !== undefined && (!Number.isFinite(options.reconnectDelayMs) || options.reconnectDelayMs < 0))
+            throw new PgBaseError(0, "invalid_reconnect_options");
+        let lastEventId = options.lastEventId === undefined ? undefined : canonicalDeliveryCursor(options.lastEventId);
         const generation = this.client.auth.generation;
         const controller = new AbortController();
         const stopOnAuthChange = this.client.auth._onChange((nextGeneration) => {
@@ -549,11 +572,14 @@ export class Records {
                 controller.abort();
             }
         });
-        options.signal?.addEventListener("abort", () => controller.abort(), { once: true });
+        const abort = () => controller.abort();
+        if (options.signal?.aborted)
+            abort();
+        else
+            options.signal?.addEventListener("abort", abort, { once: true });
         const maximumReconnects = options.maxReconnects ?? 5;
         const initialDelay = options.reconnectDelayMs ?? 250;
         let reconnects = 0;
-        let lastEventId = options.lastEventId === undefined ? undefined : canonicalDeliveryCursor(options.lastEventId);
         const deliveredEventIDs = new Set();
         try {
             while (!controller.signal.aborted && generation === this.client.auth.generation) {
@@ -584,11 +610,14 @@ export class Records {
                         reconnects = 0;
                         yield event;
                     }
+                    throw new PgBaseError(0, "realtime_stream_ended");
                 }
                 catch (error) {
                     if (controller.signal.aborted || generation !== this.client.auth.generation) {
                         return;
                     }
+                    if (error instanceof PgBaseError && ([400, 401, 403, 410].includes(error.status) || error.code === "cursor_expired"))
+                        throw error;
                     if (reconnects >= maximumReconnects) {
                         throw error;
                     }
@@ -599,6 +628,8 @@ export class Records {
             }
         }
         finally {
+            controller.abort();
+            options.signal?.removeEventListener("abort", abort);
             stopOnAuthChange();
         }
     }
@@ -612,7 +643,7 @@ export class Records {
     }
     path(id, query) {
         const base = `/api/v1/user/collections/${encodeURIComponent(this.collection)}/records`;
-        if (!id) {
+        if (id === undefined) {
             const parameters = new URLSearchParams();
             if (query?.fields !== undefined)
                 parameters.set("fields", query.fields);

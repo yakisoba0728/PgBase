@@ -347,38 +347,34 @@ func escapeLikeLiteral(value string) string {
 	return out.String()
 }
 func matchLike(value, pattern []rune) bool {
-	var visit func(int, int) bool
-	visit = func(i, j int) bool {
-		for j < len(pattern) {
-			if pattern[j] == '\\' && j+1 < len(pattern) {
-				if i >= len(value) || value[i] != pattern[j+1] {
-					return false
-				}
-				i++
-				j += 2
+	i, j, wildcard, retry := 0, 0, -1, 0
+	for i < len(value) {
+		if j < len(pattern) {
+			if pattern[j] == '%' {
+				wildcard, retry = j, i
+				j++
 				continue
 			}
-			if pattern[j] == '%' {
-				for j < len(pattern) && pattern[j] == '%' {
-					j++
-				}
-				if j == len(pattern) {
-					return true
-				}
-				for k := i; k <= len(value); k++ {
-					if visit(k, j) {
-						return true
-					}
-				}
-				return false
+			character, width := pattern[j], 1
+			anyCharacter := character == '_'
+			if character == '\\' && j+1 < len(pattern) {
+				character, width, anyCharacter = pattern[j+1], 2, false
 			}
-			if i >= len(value) || (pattern[j] != '_' && value[i] != pattern[j]) {
-				return false
+			if anyCharacter || character == value[i] {
+				i++
+				j += width
+				continue
 			}
-			i++
-			j++
 		}
-		return i == len(value)
+		if wildcard < 0 {
+			return false
+		}
+		// Retry only the most recent wildcard; recursive splitting is exponential.
+		retry++
+		i, j = retry, wildcard+1
 	}
-	return visit(0, 0)
+	for j < len(pattern) && pattern[j] == '%' {
+		j++
+	}
+	return j == len(pattern)
 }

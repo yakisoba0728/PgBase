@@ -53,7 +53,10 @@ func serviceRecordRoutes(dependencies Dependencies) []route {
 	if dependencies.ServiceTokens == nil || dependencies.Records == nil {
 		return nil
 	}
-	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files}
+	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files, hooks: dependencies.LifecycleHooks}
+	if dependencies.RuntimeSettings != nil {
+		records.settings = dependencies.RuntimeSettings
+	}
 	return []route{
 		{method: "GET", pattern: "/api/v1/service/collections/{collection}/records", access: accessServiceSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.list)},
 		{method: "POST", pattern: "/api/v1/service/collections/{collection}/records", access: accessServiceSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumRecordRequestBytes, recordDocument: true, handler: http.HandlerFunc(records.create)},

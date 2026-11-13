@@ -5,7 +5,7 @@ export type FieldOptions = {
   maxSize?: number; convertURLs?: boolean; onCreate?: boolean; onUpdate?: boolean;
   minLength?: number; maxLength?: number; pattern?: string; autogeneratePattern?: string; format?: "email" | "url";
   allowedDomains?: string[]; deniedDomains?: string[]; allowedValues?: string[]; min?: string; max?: string;
-  minSelect?: number; maxSelect?: number; maxFileSize?: number; mimeTypes?: string[]; thumbs?: string[];
+  minSelect?: number; maxSelect?: number; maxFileSize?: number; mimeTypes?: string[]; thumbs?: string[]; protected?: boolean;
 };
 export type RelationInput = { targetCollection: string; cardinality: "single" | "multiple"; minSelect: number; maxSelect: number; onDelete: "restrict" | "cascade" | "set_null" };
 export type FieldInput = { id?: string; name: string; type: FieldType; required?: boolean; unique?: boolean; indexed?: boolean; hidden?: boolean; presentable?: boolean; help?: string; default?: unknown; relation?: RelationInput; options?: FieldOptions };
@@ -63,7 +63,7 @@ export type AppleClientSecretInput = { clientId: string; teamId: string; keyId: 
 export type AdministratorAccount = { id: string; email: string; active: boolean; createdAt: string; updatedAt: string };
 export type AdministratorAccountPage = { items: AdministratorAccount[]; nextAfter?: string };
 export type BackupEntry = { id: string; createdAt: string; size: number; postgresqlMajor: number; sha256?: string; storageFormat?: string };
-export type BackupJob = { id: string; operation: "create" | "restore"; backupId: string; status: "running" | "completed" | "failed"; phase: "create" | "restore" | "completed" | "failed" | "interrupted"; error?: string; createdAt: string; updatedAt: string };
+export type BackupJob = { id: string; operation: "create" | "restore"; backupId: string; status: "running" | "completed" | "failed"; phase: string; error?: string; createdAt: string; updatedAt: string };
 
 export class AdminAPIError extends Error {
   constructor(readonly status: number, readonly code: string, readonly details: Record<string, string[]> = {}) { super(code); this.name = "AdminAPIError"; }
@@ -248,13 +248,17 @@ export class PgBaseAdminClient {
     return await responseJSON(response, () => { throw new AdminAPIError(response.status, "invalid_response_body"); }) as T;
   }
   private async requestText(path: string, init: RequestInit, signal?: AbortSignal): Promise<string> {
+    const generation = this.#generation;
     const headers = new Headers(init.headers); headers.set("Accept", "application/json");
     if (init.body !== undefined) headers.set("Content-Type", "application/json");
     if (init.method && init.method !== "GET") headers.set("X-PgBase-CSRF", this.#csrf);
     const response = await this.#fetch(new URL(path, this.baseURL), { ...init, headers, credentials:"include", signal });
-    const text = await response.text();
-    if (!response.ok) throw new AdminAPIError(response.status, "request_failed");
-    return text;
+    if (!response.ok) {
+      if (response.status === 401 && generation === this.#generation) { this.#csrf = ""; this.#generation++; }
+      const data = await responseJSON(response, () => undefined) as { error?: { code?: string; details?: Record<string, string[]> } } | undefined;
+      throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details);
+    }
+    return response.text();
   }
   private async requestBlob(path: string, init: RequestInit, signal?: AbortSignal): Promise<Blob> {
     const generation = this.#generation;

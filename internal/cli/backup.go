@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/yakisoba0728/PgBase/internal/backup"
 	"github.com/yakisoba0728/PgBase/internal/config"
 	"github.com/yakisoba0728/PgBase/internal/database"
@@ -53,6 +55,14 @@ func runBackup(ctx context.Context, args []string, env environment, streams IO) 
 	}
 	defer func() { resultErr = errors.Join(resultErr, gate.Close(context.Background())) }()
 	err = runMonitoredBackup(ctx, gate, func(operationContext context.Context) error {
+		connection, err := pgx.Connect(operationContext, options.DatabaseURL)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = connection.Close(operationContext) }()
+		if err := validateBackupStorage(operationContext, connection); err != nil {
+			return err
+		}
 		if operation == "create" {
 			return backup.Create(operationContext, *directory, options.DatabaseURL, files)
 		}
@@ -63,6 +73,22 @@ func runBackup(ctx context.Context, args []string, env environment, streams IO) 
 	}
 	_, err = fmt.Fprintf(streams.stdout(), "backup %s complete: %s\n", operation, *directory)
 	return err
+}
+
+func validateBackupStorage(ctx context.Context, connection *pgx.Conn) error {
+	var driver string
+	err := connection.QueryRow(ctx, `select driver from pgbase_meta.file_storage_settings where singleton`).Scan(&driver)
+	var postgresError *pgconn.PgError
+	if errors.Is(err, pgx.ErrNoRows) || errors.As(err, &postgresError) && (postgresError.Code == "42P01" || postgresError.Code == "3F000") {
+		return nil // Older databases use the startup file-storage configuration.
+	}
+	if err != nil {
+		return err
+	}
+	if driver != "local" {
+		return errors.New("backup supports only local file storage")
+	}
+	return nil
 }
 
 type gateMonitor interface{ Run(context.Context) error }

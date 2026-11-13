@@ -121,19 +121,17 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	operations := make([]recordops.BatchOperation, 0, len(input.Operations))
-	statuses := make([]int, 0, 50)
 	items := input.Operations
 	if len(input.Requests) > 0 {
 		items = make([]batchOperationInput, 0, len(input.Requests))
 		for _, request := range input.Requests {
-			item, status, valid := batchHTTPRequestOperation(request)
+			item, _, valid := batchHTTPRequestOperation(request)
 			if !valid {
 				e.cleanupStaged(r, staged)
 				writeInvalidRecordRequest(w, r)
 				return
 			}
 			items = append(items, item)
-			statuses = append(statuses, status)
 		}
 	}
 	attachments, err := extractBatchAttachments(r.Context(), e.files, items, staged)
@@ -170,6 +168,13 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, err)
 		return
 	}
+	if len(event.Operations) == 0 || len(event.Operations) > maximumRequests {
+		err = errors.New("batch hook changed the request count beyond its limit")
+		finish(err)
+		e.cleanupStaged(r, staged)
+		writeInvalidRecordRequest(w, r)
+		return
+	}
 	if len(attachments) != 0 && !attachmentBindings.compatible(event.Operations) {
 		err = errors.New("batch hook changed a multipart attachment binding")
 		finish(err)
@@ -183,6 +188,18 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		e.cleanupStaged(r, staged)
 		writeInvalidRecordRequest(w, r)
 		return
+	}
+	var statuses []int
+	if len(input.Requests) > 0 {
+		statuses = make([]int, len(event.Operations))
+		for index, operation := range event.Operations {
+			statuses[index] = http.StatusOK
+			if operation.Create != nil {
+				statuses[index] = http.StatusCreated
+			} else if operation.Delete != nil {
+				statuses[index] = http.StatusNoContent
+			}
+		}
 	}
 	var results []recordops.MutationResult
 	err = finishLifecycle(finish, func() error {

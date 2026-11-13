@@ -43,6 +43,7 @@ func (s *Service) Deliver(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var result error
 	for _, item := range claims {
 		if err := s.publish(ctx, item); err != nil && !errors.Is(err, errLeaseLost) {
 			if ctx.Err() != nil {
@@ -53,10 +54,10 @@ func (s *Service) Deliver(ctx context.Context) error {
     available_at=clock_timestamp()+make_interval(secs=>LEAST(300,power(2,LEAST(attempts,8))::integer)),
     dead_at=CASE WHEN attempts>=10 THEN clock_timestamp() ELSE NULL END
     WHERE event_id=$1 AND lease_token=$2 AND delivered_at IS NULL`, item.id, item.token)
-			return errors.Join(err, retryErr)
+			result = errors.Join(result, err, retryErr)
 		}
 	}
-	return nil
+	return result
 }
 
 func (s *Service) claim(ctx context.Context) ([]claim, error) {

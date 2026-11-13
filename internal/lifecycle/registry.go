@@ -118,7 +118,7 @@ func (r *Registry) Begin(ctx context.Context, event *Event) (finish func(error),
 			return finish, err
 		}
 	}
-	return finish, nil
+	return finish, ctx.Err()
 }
 
 func (r *Registry) Run(ctx context.Context, event *Event, operation func() error) (err error) {

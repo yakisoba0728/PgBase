@@ -165,6 +165,10 @@ func accessRuleComparison(value filterComparison) (accessrule.Rule, error) {
 	if !ok {
 		return accessrule.Rule{}, accessrule.ErrInvalid
 	}
+	// The persisted AST cannot preserve a contains predicate's left operand.
+	if value.literalLeft || strings.HasPrefix(value.field, ruleAuthPrefix) && value.otherField != "" && strings.HasSuffix(op, "contains") {
+		return accessrule.Rule{}, accessrule.ErrInvalid
+	}
 	field := joinRuleField(value.field, value.modifier)
 	var function *accessrule.Function
 	if value.function != nil {
@@ -256,6 +260,9 @@ func joinRuleField(field, modifier string) string {
 	return field + ":" + modifier
 }
 func flipRuleOp(op string) string {
+	if strings.HasPrefix(op, "any_") {
+		return "any_" + flipRuleOp(strings.TrimPrefix(op, "any_"))
+	}
 	switch op {
 	case "lt":
 		return "gt"

@@ -74,10 +74,11 @@ final class AuthRealm {
     ),
   );
   Future<void> logout({CancellationToken? cancellation}) async {
+    final generation = client.auth.generation;
     try {
       await client.request('POST', '$_path/logout', cancellation: cancellation);
     } finally {
-      await client.auth.clear();
+      if (generation == client.auth.generation) await client.auth.clear();
     }
   }
 

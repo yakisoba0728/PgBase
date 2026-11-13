@@ -93,7 +93,11 @@ func (s *Service) Truncate(ctx context.Context, request TruncateRequest) (result
 			if len(childRequestID) > 128 {
 				childRequestID = fmt.Sprintf("truncate-%s-%d", collection.ID.String(), i)
 			}
-			_, err = s.Delete(ctx, DeleteRequest{Principal: request.Principal, RequestID: childRequestID, Collection: collection.Name, ID: id, IfMatch: EntityTagSet{Present: true, Any: true}})
+			publicID, err := s.identities.Public(ctx, tx, collection, id)
+			if err != nil {
+				return err
+			}
+			_, err = s.Delete(ctx, DeleteRequest{Principal: request.Principal, RequestID: childRequestID, Collection: collection.Name, PublicID: publicID, IfMatch: EntityTagSet{Present: true, Any: true}})
 			if err != nil {
 				return err
 			}

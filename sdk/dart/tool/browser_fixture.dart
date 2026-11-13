@@ -12,15 +12,13 @@ Future<void> main() async {
   final admin = PgBaseAdminClient(base, httpClient: IOClient(HttpClient()));
   final user = PgBaseClient(base);
   const password = 'correct-horse-browser-N7';
+  const adminPassword = 'correct-horse-battery-staple-N7';
   try {
     try {
-      await admin.setup(setupToken, 'n7-admin@example.test', password);
+      await admin.setup(setupToken, 'n7-admin@example.test', adminPassword);
     } on PgBaseError catch (error) {
       if (error.code != 'setup_unavailable') rethrow;
-      await admin.login(
-        'n7-admin@example.test',
-        'correct-horse-battery-staple-N7',
-      );
+      await admin.login('n7-admin@example.test', adminPassword);
     }
     final collection = 'n7_browser_$suffix';
     final change = JsonObject({

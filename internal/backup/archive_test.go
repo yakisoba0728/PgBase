@@ -71,6 +71,23 @@ func TestArchiveRoundTripAndTamper(t *testing.T) {
 		t.Fatal("tampered archive accepted")
 	}
 }
+
+func TestPackRejectsManifestBeyondRestoreLimit(t *testing.T) {
+	directory := t.TempDir()
+	makeArchiveFixture(t, directory)
+	file, err := os.OpenFile(filepath.Join(directory, "manifest.json"), os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := file.Write(bytes.Repeat([]byte(" "), 16<<20))
+	if err := errors.Join(writeErr, file.Close()); err != nil {
+		t.Fatal(err)
+	}
+	var packed bytes.Buffer
+	if err := Pack(context.Background(), directory, &packed); err == nil || packed.Len() != 0 {
+		t.Fatalf("unrestorable backup emitted: bytes=%d err=%v", packed.Len(), err)
+	}
+}
 func TestArchiveRejectsTraversalLinksAndDuplicate(t *testing.T) {
 	for _, name := range []string{"../escape", "/absolute", "files/../escape", "unexpected", "manifest.json"} {
 		t.Run(name, func(t *testing.T) {
