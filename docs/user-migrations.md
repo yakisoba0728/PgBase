@@ -57,3 +57,7 @@ Do not edit a migration after applying it. Add a later migration that corrects o
 These callbacks are trusted Go code, not a sandbox. PgBase cannot roll back network calls, filesystem changes, or SQL sent through a separate connection. Keep irreversible effects outside retryable callbacks; database rollback applies to work performed through the supplied transaction.
 
 Verification includes cancellation during SQL, failed Up/Down with unchanged history, source changes, concurrent runners, and a schema Apply waiting behind an active user migration. Generated migration verification builds a separate Go module and executes its registered Up/Down against a fresh disposable PostgreSQL database. Focused PostgreSQL tests also cover relation/view ordering, field-ID rename with preserved row values and options, history sync, and automatic-source recovery after commit and filesystem failures.
+
+## Authentication consistency (schema 66 source)
+
+Snapshot replay applies final designer field differences to paired auth realms, preserving profile values through rename and supported Down. Deletion refuses default realms, realms with users and incoming realm relations. Provision auth collections through schema import, which carries both catalog and realm definitions; a snapshot alone cannot provision that pair. `pgbase.ApplyUserMigrationSnapshot` supplies the runtime validator. Direct `schema.ApplyMigrationSnapshot` callers changing auth fields must pass an `AuthExecutablePolicyValidator`; absence fails closed.

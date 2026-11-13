@@ -10,12 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/validation"
 )
 
 var ErrStorageConflict = errors.New("backup storage settings conflict")
@@ -455,14 +457,27 @@ func (c *StorageController) Update(ctx context.Context, in StorageUpdate) (Stora
 	return result, err
 }
 func validateStorageConfig(in StorageConfig) error {
-	if in.Retention < 0 || int64(in.Retention) > 2147483647 {
-		return ErrInvalidStorage
+	field := ""
+	if in.Driver == "s3" && in.Endpoint != "" {
+		endpoint, err := url.Parse(in.Endpoint)
+		if err != nil || endpoint.Hostname() == "" || (endpoint.Scheme != "https" && endpoint.Scheme != "http") || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+			return errors.Join(ErrInvalidStorage, &validation.Error{Details: []validation.Detail{{Field: "endpoint", Code: "invalid"}}})
+		}
 	}
-	if in.Driver != "local" && in.Driver != "s3" {
-		return ErrInvalidStorage
+	switch {
+	case in.Retention < 0 || int64(in.Retention) > 2147483647:
+		field = "retention"
+	case in.Driver != "local" && in.Driver != "s3":
+		field = "driver"
+	case in.Driver == "s3" && in.Bucket == "":
+		field = "bucket"
+	case in.Driver == "s3" && in.Region == "":
+		field = "region"
+	case in.Driver == "s3" && (in.AccessKey == "") != (in.SecretKey == ""):
+		field = "secretKey"
 	}
-	if in.Driver == "s3" && (in.Bucket == "" || in.Region == "" || (in.AccessKey == "") != (in.SecretKey == "")) {
-		return ErrInvalidStorage
+	if field != "" {
+		return errors.Join(ErrInvalidStorage, &validation.Error{Details: []validation.Detail{{Field: field, Code: "invalid"}}})
 	}
 	return nil
 }

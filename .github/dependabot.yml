@@ -6,6 +6,14 @@ updates:
   - package-ecosystem: npm
     directory: /ui/admin
     schedule: { interval: weekly }
+    groups:
+      react:
+        patterns: [react, react-dom]
+      tiptap:
+        patterns: ["@tiptap/*"]
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
   - package-ecosystem: docker
     directory: /deployments
     schedule: { interval: weekly }

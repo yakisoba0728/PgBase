@@ -162,5 +162,5 @@ func validateCollectionRules(collection schema.Collection, raw json.RawMessage) 
 }
 
 func writeInvalidSchemaDocument(w http.ResponseWriter, r *http.Request) {
-	writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_schema_document", Message: "Invalid schema document"})
+	writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_schema_document", Message: "Invalid schema document", Details: map[string][]string{"document": {"invalid"}}})
 }

@@ -27,6 +27,9 @@ func serviceSessionMiddleware(auth ServiceTokens, next http.Handler) http.Handle
 			writeServiceCredentialError(w, r)
 			return
 		}
+		if metadata, ok := r.Context().Value(requestLogContextKey{}).(*requestLogContext); ok && metadata.includeAuth {
+			metadata.authKind, metadata.authID = "service", principal.Subject.ID.String()
+		}
 		ctx := context.WithValue(r.Context(), publicRecordPrincipalKey{}, principal.Subject)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

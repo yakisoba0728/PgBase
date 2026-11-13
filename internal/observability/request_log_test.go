@@ -115,3 +115,11 @@ func TestRequestLogRecentSearchFiltersBeforePagination(t *testing.T) {
 		t.Fatalf("future statistics = %#v %v", stats, err)
 	}
 }
+
+func TestRequestSearchPatternPreservesLiteralWildcards(t *testing.T) {
+	for query, want := range map[string]string{"": "", "Hello": "%hello%", "a_b%": `%a\_b\%%`, `a\b`: `%a\\b%`} {
+		if got := requestSearchPattern(query); got != want {
+			t.Fatalf("pattern(%q)=%q want %q", query, got, want)
+		}
+	}
+}

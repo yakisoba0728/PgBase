@@ -11,6 +11,15 @@ import (
 func TestServiceTokenHTTPScopesAndRevocation(t *testing.T) {
 	app := newPublicUsersApp(t, true)
 	cookie, csrf := setupPublicUsersAdministrator(t, app)
+
+	var settings struct {
+		Revision int64 `json:"revision"`
+	}
+	readSettings := publicUsersRequest(t, app, http.MethodGet, "/api/admin/settings", nil, "", cookie, nil)
+	assertPublicUsersStatus(t, readSettings, http.StatusOK)
+	decodePublicUsersJSON(t, readSettings, &settings)
+	setLogs := publicUsersRequest(t, app, http.MethodPatch, "/api/admin/settings", map[string]any{"revision": settings.Revision, "logs": map[string]any{"includeAuth": true}}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, setLogs, http.StatusOK)
 	createPublicUsersCollection(t, app, cookie, csrf, "service_notes")
 	var collectionID uuid.UUID
 	if err := app.app.pool.QueryRow(t.Context(), `select id from pgbase_meta.collections where name='service_notes'`).Scan(&collectionID); err != nil {
@@ -28,6 +37,14 @@ func TestServiceTokenHTTPScopesAndRevocation(t *testing.T) {
 	}
 	created := publicUsersRequest(t, app, http.MethodPost, "/api/v1/service/collections/service_notes/records", map[string]any{"title": "service record"}, token.Token, nil, map[string]string{"Idempotency-Key": "service-create-record-0001"})
 	assertPublicUsersStatus(t, created, http.StatusCreated)
+	if err := app.app.requestLog.Flush(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var principal string
+	if err := app.app.pool.QueryRow(t.Context(), `select auth_id::text from pgbase_meta.request_logs where auth_kind='service' and method='POST' order by id desc limit 1`).Scan(&principal); err != nil || principal != token.ID {
+		t.Fatalf("service principal=%q want=%q err=%v", principal, token.ID, err)
+	}
+
 	listed := publicUsersRequest(t, app, http.MethodGet, "/api/v1/service/collections/service_notes/records", nil, token.Token, nil, nil)
 	assertPublicUsersStatus(t, listed, http.StatusOK)
 	batch := publicUsersRequest(t, app, http.MethodPost, "/api/v1/service/collections/batch", map[string]any{"operations": []map[string]any{{"operation": "create", "collection": "service_notes", "input": map[string]any{"title": "batch service record"}, "idempotencyKey": "service-batch-create-0001"}}}, token.Token, nil, nil)

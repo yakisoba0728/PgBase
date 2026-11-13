@@ -25,6 +25,7 @@ export interface RecordData {
 }
 
 export interface RecordPage {
+  fileMetadata?: Record<string, Record<string, StoredFile[]>>;
   items: RecordData[];
   /** Present when more records follow; pass back as `cursor`. */
   nextCursor?: string;
@@ -48,6 +49,7 @@ export interface ListRecordsOptions {
   limit?: number;
   /** Adds a bounded count of all matching records (ask on the first page only). */
   total?: true;
+  files?: true;
   signal?: AbortSignal;
 }
 

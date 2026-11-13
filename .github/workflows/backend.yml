@@ -331,6 +331,14 @@ jobs:
         with:
           node-version: 24.22.2
 
+      - name: Analyze and test Dart SDK
+        if: ${{ !matrix.postgres.shard }}
+        working-directory: sdk/dart
+        run: |
+          dart pub get
+          dart analyze
+          dart test
+
       - name: Install and verify TypeScript SDK against PgBase
         if: ${{ !matrix.postgres.shard }}
         run: |

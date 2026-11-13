@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/validation"
 )
 
 var ErrStorageConflict = errors.New("storage settings conflict")
@@ -283,7 +284,7 @@ func (r *leasedReader) Close() error {
 
 func (c *StorageController) Update(ctx context.Context, in StorageUpdate) (StorageSettings, error) {
 	if in.Revision < 1 {
-		return StorageSettings{}, ErrInvalid
+		return StorageSettings{}, invalidStorageField("revision")
 	}
 	var result StorageSettings
 	err := c.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
@@ -349,30 +350,45 @@ func location(s StorageSettings) string {
 func (c *StorageController) validate(s StorageSettings) error {
 	if s.Driver == "local" {
 		if c.localDirectory == "" {
-			return ErrInvalid
+			return invalidStorageField("driver")
 		}
 		return nil
 	}
-	if s.Driver != "s3" || s.Bucket == "" || s.Region == "" || (s.AccessKey == "") != !s.SecretConfigured {
-		return ErrInvalid
+	if s.Driver != "s3" {
+		return invalidStorageField("driver")
 	}
-	if s.Endpoint == "" {
-		return nil
-	}
-	u, err := url.Parse(s.Endpoint)
-	if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" || u.Hostname() == "" {
-		return ErrInvalid
-	}
-	if u.Scheme != "https" {
-		ip := net.ParseIP(u.Hostname())
-		if u.Scheme != "http" || !c.allowInsecureLoopback || ip == nil || !ip.IsLoopback() {
-			return ErrInvalid
+	for _, value := range []struct{ field, value string }{{"bucket", s.Bucket}, {"region", s.Region}} {
+		if value.value == "" {
+			return invalidStorageField(value.field)
 		}
 	}
-	if len(s.Bucket) > 255 || len(s.Region) > 128 || len(s.Endpoint) > 2048 || len(s.AccessKey) > 512 {
-		return ErrInvalid
+	if (s.AccessKey == "") != !s.SecretConfigured {
+		return invalidStorageField("secretKey")
+	}
+	if s.Endpoint != "" {
+		u, err := url.Parse(s.Endpoint)
+		if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" || u.Hostname() == "" {
+			return invalidStorageField("endpoint")
+		}
+		if u.Scheme != "https" {
+			ip := net.ParseIP(u.Hostname())
+			if u.Scheme != "http" || !c.allowInsecureLoopback || ip == nil || !ip.IsLoopback() {
+				return invalidStorageField("endpoint")
+			}
+		}
+	}
+	for _, value := range []struct {
+		field, value string
+		maximum      int
+	}{{"bucket", s.Bucket, 255}, {"region", s.Region, 128}, {"endpoint", s.Endpoint, 2048}, {"accessKey", s.AccessKey, 512}} {
+		if len(value.value) > value.maximum {
+			return invalidStorageField(value.field)
+		}
 	}
 	return nil
+}
+func invalidStorageField(field string) error {
+	return errors.Join(ErrInvalid, &validation.Error{Details: []validation.Detail{{Field: field, Code: "invalid"}}})
 }
 func (c *StorageController) Test(ctx context.Context) error {
 	s, encrypted, err := c.load(ctx)

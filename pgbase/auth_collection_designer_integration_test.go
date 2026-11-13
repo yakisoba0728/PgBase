@@ -8,7 +8,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"context"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 // The schema designer's single-collection plan/apply keeps an auth collection's
@@ -107,6 +110,65 @@ func TestAuthCollectionDesignerChangesReachTheRealm(t *testing.T) {
 	}
 	id, _ := realm("crew")
 	send(http.MethodPost, "/api/admin/auth-collections/"+id+"/records", map[string]any{"email": "nick@example.test", "password": publicUserTwoPass, "fields": map[string]any{"nickname": "Nick"}}, http.StatusCreated)
+
+	before, err := app.app.UserMigrationSnapshot(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot schema.MigrationSnapshot
+	if err := json.Unmarshal(before, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	for i := range snapshot.Collections {
+		if snapshot.Collections[i].Name == "crew" {
+			for j := range snapshot.Collections[i].Fields {
+				if snapshot.Collections[i].Fields[j].Name == "nickname" {
+					snapshot.Collections[i].Fields[j].Name = "migration_alias"
+				}
+			}
+		}
+	}
+	after, err := schema.MarshalMigrationSnapshot(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, transition := range []struct {
+		before, after []byte
+		field         string
+	}{{before, after, "migration_alias"}, {after, before, "nickname"}} {
+		if err := app.app.pool.InTx(t.Context(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+			return ApplyUserMigrationSnapshot(context.Background(), tx, transition.before, transition.after)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		var value string
+		if err := app.app.pool.QueryRow(t.Context(), `select p.attributes->>$1 from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id where u.auth_collection_id=$2 and u.email='nick@example.test'`, transition.field, id).Scan(&value); err != nil || value != "Nick" {
+			t.Fatalf("snapshot rename value=%q err=%v", value, err)
+		}
+	}
+
+	if err := app.app.pool.InTx(t.Context(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return schema.ApplyMigrationSnapshot(t.Context(), tx, before, after, validateUserMigrationRules)
+	}); err == nil {
+		t.Fatal("auth migration accepted without runtime validator")
+	}
+	var deleted schema.MigrationSnapshot
+	if err := json.Unmarshal(before, &deleted); err != nil {
+		t.Fatal(err)
+	}
+	for index, item := range deleted.Collections {
+		if item.Name == "crew" {
+			deleted.Collections = append(deleted.Collections[:index], deleted.Collections[index+1:]...)
+			break
+		}
+	}
+	removed, err := schema.MarshalMigrationSnapshot(deleted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.app.pool.InTx(t.Context(), pgx.TxOptions{}, func(tx pgx.Tx) error { return ApplyUserMigrationSnapshot(t.Context(), tx, before, removed) }); err == nil {
+		t.Fatal("snapshot deleted an auth realm with users")
+	}
 
 	update("crew", func(fields []map[string]any) []map[string]any {
 		for _, field := range fields {

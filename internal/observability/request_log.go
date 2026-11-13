@@ -184,7 +184,7 @@ func (l *RequestLog) Search(ctx context.Context, f RequestFilter) (RequestPage, 
 		limit = 50
 	}
 	method, route := strings.ToUpper(strings.TrimSpace(f.Method)), strings.TrimSpace(f.Route)
-	rows, err := l.pool.Query(ctx, `SELECT id,occurred_at,method,route,status,duration_ms,coalesce(host(client_ip),''),coalesce(auth_kind,''),coalesce(auth_id::text,'') FROM pgbase_meta.request_logs WHERE ($1::bigint=0 OR id<$1) AND ($2::integer=0 OR status/100=$2) AND ($3='' OR method=$3) AND ($4='' OR route=$4) AND ($5::timestamptz IS NULL OR occurred_at >= $5) AND ($6::timestamptz IS NULL OR occurred_at < $6) AND ($8='' OR strpos(lower(concat_ws(' ',route,host(client_ip),auth_kind,auth_id::text)),lower($8))>0) ORDER BY id DESC LIMIT $7`, f.Before, f.StatusClass, method, route, f.From, f.To, limit+1, f.Query)
+	rows, err := l.pool.Query(ctx, `SELECT id,occurred_at,method,route,status,duration_ms,coalesce(host(client_ip),''),coalesce(auth_kind,''),coalesce(auth_id::text,'') FROM pgbase_meta.request_logs WHERE ($1::bigint=0 OR id<$1) AND ($2::integer=0 OR status/100=$2) AND ($3='' OR method=$3) AND ($4='' OR route=$4) AND ($5::timestamptz IS NULL OR occurred_at >= $5) AND ($6::timestamptz IS NULL OR occurred_at < $6) AND ($8='' OR search_text LIKE $8 ESCAPE '\') ORDER BY id DESC LIMIT $7`, f.Before, f.StatusClass, method, route, f.From, f.To, limit+1, requestSearchPattern(f.Query))
 	if err != nil {
 		return RequestPage{}, err
 	}
@@ -531,4 +531,12 @@ func (l *RequestLog) insertEntries(ctx context.Context, entries []RequestEntry) 
 	}
 	_, err := l.pool.Exec(ctx, q.String(), values...)
 	return err
+}
+
+// Escape LIKE metacharacters so searches remain literal substrings.
+func requestSearchPattern(query string) string {
+	if query == "" {
+		return ""
+	}
+	return "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(strings.ToLower(query)) + "%"
 }

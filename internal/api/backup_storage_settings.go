@@ -76,5 +76,6 @@ func writeBackupStorageError(w http.ResponseWriter, r *http.Request, err error) 
 	} else if errors.Is(err, backup.ErrStorageConflict) {
 		response = APIError{Status: 409, Code: "storage_conflict", Message: "Backup storage changed or existing backups prevent this destination change"}
 	}
+	response.Details = validationDetails(err)
 	writeAPIError(w, r, response)
 }

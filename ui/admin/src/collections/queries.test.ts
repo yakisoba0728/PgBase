@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
+import * as api from "../api/records";
 import { translate, type MessageKey } from "../i18n";
-import { countText, pooled } from "./queries";
+import { countText, pooled, recordsQuery, recordFilesQuery } from "./queries";
 
 describe("pooled", () => {
   it("runs at most four tasks at once and skips tasks cancelled while queued", async () => {
@@ -41,4 +43,14 @@ describe("countText", () => {
     expect(countText(t, 200, true, { items: [], totalItems: 10000, totalCapped: true })).toBe("200 of 10,000+ loaded");
     expect(countText(t, 3, false, { items: [], totalItems: 5 })).toBe("3 records");
   });
+});
+
+it("seeds per-field file caches from the record page, including empty fields", async () => {
+ const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+ const spy = vi.spyOn(api, "listRecords").mockResolvedValue({ items: [{ id: "row" }], fileMetadata: { row: { attachment: [] } } });
+ await client.fetchInfiniteQuery(recordsQuery("notes", "", "", ""));
+ expect(client.getQueryData(recordFilesQuery("notes", "row", "attachment").queryKey)).toEqual([]);
+ expect(spy).toHaveBeenCalledWith("notes", expect.objectContaining({ files: true }));
+ spy.mockRestore();
+ client.clear();
 });

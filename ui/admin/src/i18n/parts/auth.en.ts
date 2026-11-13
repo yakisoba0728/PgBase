@@ -164,7 +164,7 @@ export const authEn = {
   "auth.users.empty": "No users.",
   "auth.users.missing": "No user with this id.",
   "auth.users.search": "Search",
-  "auth.users.searchHint": "Exact email or id, then Enter",
+  "auth.users.searchHint": "Email substring or exact id, then Enter",
   "auth.users.allCollections": "All collections",
   "auth.users.noMatch": "No matching users.",
   "auth.users.detail": "User",

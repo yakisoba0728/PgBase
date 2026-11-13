@@ -15,9 +15,7 @@ import (
 // most this many entries however many users exist.
 const maximumUserTotal = 10000
 
-// ListUsers pages users by id. Every filter is index-backed: the collection
-// uses (auth_collection_id,id), an id search the primary key, and an exact
-// email search (auth_collection_id,email) for each realm.
+// ListUsers pages by id and searches literal email substrings or an exact UUID.
 func (s *Service) ListUsers(ctx context.Context, query UserQuery) (UserPage, error) {
 	if err := s.ready(); err != nil {
 		return UserPage{}, err
@@ -35,11 +33,8 @@ func (s *Service) ListUsers(ctx context.Context, query UserQuery) (UserPage, err
 			args = append(args, id)
 			filter += fmt.Sprintf(" and id=$%d", len(args))
 		} else {
-			args = append(args, strings.ToLower(search))
-			filter += fmt.Sprintf(" and email=$%d and email<>''", len(args))
-			if query.AuthCollectionID == uuid.Nil {
-				filter += " and auth_collection_id=any(array(select id from pgbase_meta.auth_collections))"
-			}
+			args = append(args, "%"+strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(strings.ToLower(search))+"%")
+			filter += fmt.Sprintf(` and email LIKE $%d ESCAPE '\' and email<>''`, len(args))
 		}
 	}
 	page := UserPage{}

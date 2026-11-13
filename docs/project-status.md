@@ -1,5 +1,7 @@
 # PgBase 구현 이력과 현재 상태
 
+2026-11-13 최신 기준: 관리자 UI와 backend-fixes 및 의존성 PR #124가 main `8b078a8c`에 병합·운영 반영됐고 main Backend·Frontend·Security가 모두 통과했다. Dart 실제 HTTP·multi-process durability·Windows self-update도 통과했다. 후속 schema 66 변경은 [운영 준비 보완](production-readiness-2026-11-13.md), 실제 남은 작업은 [다음 작업](next-work.md)을 따른다. 아래 날짜별 문단·§11–§12는 당시 상태의 이력이며 현재의 열린 작업 목록이 아니다. 운영 백업은 소유자 요청으로 이번 작업에서 제외했다.
+
 2026-11-13 두 번째 병합·배포 후 기준: `backend-fixes`를 [PR #122](https://github.com/yakisoba0728/PgBase/pull/122)로 main `3bec8b3`에 병합하고 `https://pgbase.yaki.kr`에 배포했다(schema 65 그대로). 결과는 [배포 기록](deployment-2026-11-13.md)의 두 번째 절을 따른다. 아래 문단은 병합 전에 쓴 기록이다.
 
 2026-11-13 후속 기준: main은 `64dad0d`(schema 65)이다. 브랜치 `backend-fixes`가 §11의 "UI 재작성 중 발견한 백엔드 문제"를 서버에서 고치고 관리자 UI·SDK를 그에 맞췄다. migration은 추가하지 않았다(schema 65 그대로). 관리자 보안 요청 body의 `currentPassword` 필수화처럼 client가 알아야 할 계약 변경이 있다. 이 기록 작성 시점에 main 병합과 운영 서버 배포는 하지 않았다(대기). 항목별 처리는 §11, 계약 변경과 검증은 §12를 따른다. 아래 문단은 그 전 기록이다.
