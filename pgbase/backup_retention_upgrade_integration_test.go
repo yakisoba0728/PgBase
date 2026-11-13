@@ -5,6 +5,7 @@ package pgbase
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"testing"
@@ -157,6 +158,9 @@ func TestManagedBackupUpgradeKeepsThePreviousRetention(t *testing.T) {
 		{name: "stored schedule enabled", env: 0, page: -1, stored: runtimesettings.Backups{Enabled: true, Keep: 1}, wantKept: 5},
 		// An embedder whose own manager already registered the job applied keep.
 		{name: "job already registered", env: 2, page: -1, stored: runtimesettings.Backups{Keep: 3}, jobRow: true, wantKept: 3, wantKeep: 3},
+		// Deliberate change for such an embedder: keep 0 is "not set" and no
+		// longer overrides the Backup storage retention with "keep all".
+		{name: "job already registered without keep", env: 2, page: -1, jobRow: true, wantKept: 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			installation := newRetentionInstallation(t, test.env, test.page, test.stored, test.jobRow)
@@ -213,5 +217,33 @@ func TestManagedBackupScheduledRunUsesTheLatestKeep(t *testing.T) {
 	entries, err := installation.storage.List(ctx)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("kept %d archives, want 1 (%v)", len(entries), err)
+	}
+}
+
+// A stored document that predates the rate-limit label rules reloads but
+// cannot be updated, so the inert values cannot be cleared. The job is then
+// left unregistered and pruning keeps the Backup storage retention.
+func TestManagedBackupUpgradeWithUnsavableSettingsKeepsPreviousBehaviour(t *testing.T) {
+	ctx := context.Background()
+	installation := newRetentionInstallation(t, 2, -1, runtimesettings.Backups{Enabled: true, Keep: 3}, false)
+	legacy := installation.settings.Get()
+	legacy.RateLimits.Rules = []runtimesettings.APIRateRule{{Label: "posts:list", Duration: 60, MaxRequests: 5}}
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = installation.pool.Exec(ctx, `UPDATE pgbase_meta.runtime_settings SET document_ciphertext=NULL,document=$1::jsonb,revision=revision+1 WHERE singleton`, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err = installation.settings.Reload(ctx); err != nil {
+		t.Fatal(err)
+	}
+	installation.install(t)
+	items, err := installation.worker.ListJobs(ctx)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("jobs = %#v %v", items, err)
+	}
+	if kept := installation.backupAndCount(t); kept != 2 {
+		t.Fatalf("kept %d archives, want 2", kept)
 	}
 }

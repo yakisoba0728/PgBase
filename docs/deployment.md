@@ -253,7 +253,7 @@ and confirm that the rendered `stop_grace_period` is at least `PGBASE_SHUTDOWN_T
 
 ## Managed backup upgrade note
 
-`pgbase serve` with `PGBASE_BACKUPS_DIRECTORY` registers the scheduled `pgbase.managed-backup` job. The first start that registers it clears stored `backups.enabled`/`backups.keep` values, which earlier releases ignored under `pgbase serve`, and logs a warning. Scheduled backups stay off and archives keep being pruned by the Backup storage retention until an administrator changes the settings. Retention precedence is a positive Settings **Keep**, otherwise the Backup storage value (seeded once from `PGBASE_BACKUPS_RETENTION`); see [S3 backups](backup-s3.md).
+`pgbase serve` with `PGBASE_BACKUPS_DIRECTORY` registers the scheduled `pgbase.managed-backup` job. The first start that registers it clears stored `backups.enabled`/`backups.keep` values, which earlier releases ignored under `pgbase serve`, and logs a warning. Scheduled backups stay off and archives keep being pruned by the Backup storage retention until an administrator changes the settings. Before deploying, check `SELECT enabled FROM pgbase_meta.scheduled_jobs WHERE name='pgbase.managed-backup'`: a row there (created by an embedding application or by `pgbase js watch` / user-migration commands run with `PGBASE_BACKUPS_DIRECTORY`) skips that clearing, so review the stored backups settings first. Retention precedence is a positive Settings **Keep**, otherwise the Backup storage value (seeded once from `PGBASE_BACKUPS_RETENTION`); see [S3 backups](backup-s3.md).
 
 ## Zero-downtime limits
 

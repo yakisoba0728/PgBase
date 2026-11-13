@@ -24,7 +24,12 @@ func installManagedBackupSchedule(ctx context.Context, worker *jobs.Service, man
 	if worker == nil || manager == nil || settings == nil {
 		return nil
 	}
-	if err := adoptInertBackupSettings(ctx, worker, settings, logger); err != nil {
+	if err := adoptInertBackupSettings(ctx, worker, settings, logger); errors.Is(err, runtimesettings.ErrInvalid) {
+		// Without a persisted clear the row must not exist, or the next start
+		// would skip adoption; keep the previous behaviour until it is saved.
+		logger.ErrorContext(ctx, "managed backup schedule not installed: save the runtime settings again (a legacy rate-limit label blocks the update)", "error", err)
+		return nil
+	} else if err != nil {
 		return err
 	}
 	if err := worker.Register(ctx, managedBackupJobName, "@every 24h", "UTC", false, func(ctx context.Context, _ jobs.Job) error {

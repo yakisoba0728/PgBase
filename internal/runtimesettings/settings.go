@@ -210,11 +210,13 @@ func (c *Controller) Reload(ctx context.Context) error {
 		if len(legacy) == 0 {
 			return ErrInvalid
 		}
-		ciphertext, err := c.encrypt(legacy)
+		// Not ciphertext: shadowing it left the re-read below unused, so the
+		// first start after the encryption migration failed to decrypt.
+		encrypted, err := c.encrypt(legacy)
 		if err != nil {
 			return err
 		}
-		_, err = c.pool.Exec(ctx, `update pgbase_meta.runtime_settings set document_ciphertext=$1,document=null where singleton and document_ciphertext is null and document=$2::jsonb and revision=$3`, ciphertext, string(legacy), revision)
+		_, err = c.pool.Exec(ctx, `update pgbase_meta.runtime_settings set document_ciphertext=$1,document=null where singleton and document_ciphertext is null and document=$2::jsonb and revision=$3`, encrypted, string(legacy), revision)
 		if err != nil {
 			return err
 		}
