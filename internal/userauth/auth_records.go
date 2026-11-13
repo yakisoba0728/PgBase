@@ -240,17 +240,19 @@ func (s *Service) authRecordRules(ctx context.Context, id uuid.UUID) ([]schema.F
 	return fields, rules, nil
 }
 
-func (s *Service) ListAuthRecords(ctx context.Context, collectionID uuid.UUID, limit int) ([]AuthRecord, error) {
+// ListAuthRecords pages a realm's records by internal user id (the
+// users_auth_collection_id_id_idx keyset); next is uuid.Nil on the last page.
+func (s *Service) ListAuthRecords(ctx context.Context, collectionID, after uuid.UUID, limit int) ([]AuthRecord, uuid.UUID, error) {
 	if collectionID == uuid.Nil || limit < 1 || limit > 100 {
-		return nil, ErrValidation
+		return nil, uuid.Nil, ErrValidation
 	}
 	fields, err := s.authRecordContract(ctx, collectionID)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
-	rows, err := s.pool.Query(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 order by u.id limit $2`, collectionID, limit)
+	rows, err := s.pool.Query(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id>$2 order by u.id limit $3`, collectionID, after, limit+1)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 	defer rows.Close()
 	result := []AuthRecord{}
@@ -258,24 +260,31 @@ func (s *Service) ListAuthRecords(ctx context.Context, collectionID uuid.UUID, l
 		var v AuthRecord
 		var raw []byte
 		if err := rows.Scan(&v.ID, &v.AuthCollectionID, &v.Email, &v.EmailVisibility, &v.Verified, &v.Active, &raw, &v.CreatedAt, &v.UpdatedAt); err != nil {
-			return nil, err
+			return nil, uuid.Nil, err
 		}
 		if decodeAuthProfile(raw, &v.Fields) != nil {
-			return nil, errors.New("invalid stored auth profile")
-		}
-		v.Fields = publicAuthFields(v.Fields, fields)
-		if err := s.projectAuthRelationIdentities(ctx, s.pool, v.Fields, fields); err != nil {
-			return nil, err
+			return nil, uuid.Nil, errors.New("invalid stored auth profile")
 		}
 		result = append(result, v)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
+	}
+	next := uuid.Nil
+	if len(result) > limit {
+		result = result[:limit]
+		next = result[limit-1].ID
+	}
+	for i := range result {
+		result[i].Fields = publicAuthFields(result[i].Fields, fields)
+		if err := s.projectAuthRelationIdentities(ctx, s.pool, result[i].Fields, fields); err != nil {
+			return nil, uuid.Nil, err
+		}
 	}
 	if err := s.projectAuthRecords(ctx, result); err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
-	return result, nil
+	return result, next, nil
 }
 
 func (s *Service) GetAuthRecord(ctx context.Context, collectionID, id uuid.UUID) (AuthRecord, error) {

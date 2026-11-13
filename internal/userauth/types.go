@@ -136,6 +136,20 @@ type ManagedUser struct {
 type UserPage struct {
 	Items     []ManagedUser
 	NextAfter uuid.UUID
+	// Total is filled only when requested and stops counting at
+	// maximumUserTotal, setting TotalCapped.
+	Total       int
+	TotalCapped bool
+}
+
+// UserQuery selects one page of users. Search is an exact user id or an exact
+// (case-insensitive) email address.
+type UserQuery struct {
+	After            uuid.UUID
+	Limit            int
+	AuthCollectionID uuid.UUID
+	Search           string
+	Total            bool
 }
 
 type Service struct {

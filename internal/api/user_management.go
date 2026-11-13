@@ -14,6 +14,7 @@ import (
 func (e userEndpoints) lifecycleRoutes() []route {
 	return []route{
 		{method: "GET", pattern: "/api/admin/users", access: accessAdminSameOriginRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.listUsers)},
+		{method: "GET", pattern: "/api/admin/users/{id}", access: accessAdminSameOriginRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.getUser)},
 		{method: "PATCH", pattern: "/api/admin/users/{id}", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.setUserActive)},
 		{method: "POST", pattern: "/api/admin/users/{id}/revoke-sessions", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(e.revokeUserSessions)},
 		{method: "POST", pattern: "/api/admin/users/{id}/impersonate", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(e.impersonateUser)},
@@ -59,8 +60,9 @@ func (e userEndpoints) impersonateUser(w http.ResponseWriter, r *http.Request) {
 // The transport enumerates fields rather than serializing a persistence model,
 // keeping future credential/session fields outside the administrator response.
 type managedUserResponse struct {
-	Verified  bool      `json:"verified"`
-	ID        string    `json:"id"`
+	Verified         bool      `json:"verified"`
+	ID               string    `json:"id"`
+	AuthCollectionID string    `json:"authCollectionId"`
 	Email     string    `json:"email"`
 	Active    bool      `json:"active"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -68,25 +70,30 @@ type managedUserResponse struct {
 }
 
 func managedUser(user userauth.ManagedUser) managedUserResponse {
-	return managedUserResponse{ID: user.ID.String(), Email: user.Email, Verified: user.Verified, Active: user.Active, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt}
+	return managedUserResponse{ID: user.ID.String(), AuthCollectionID: user.AuthCollectionID.String(), Email: user.Email, Verified: user.Verified, Active: user.Active, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt}
 }
 
 func (e userEndpoints) listUsers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	after, limit, err := userPageParameters(r.URL.RawQuery)
+	query, err := userPageParameters(r.URL.RawQuery)
 	if err != nil {
 		writeUserManagementError(w, r, err)
 		return
 	}
-	page, err := e.dependencies.UserAuth.ListUsers(r.Context(), after, limit)
+	page, err := e.dependencies.UserAuth.ListUsers(r.Context(), query)
 	if err != nil {
 		writeUserManagementError(w, r, err)
 		return
 	}
 	response := struct {
-		Items     []managedUserResponse `json:"items"`
-		NextAfter string                `json:"nextAfter,omitempty"`
-	}{Items: make([]managedUserResponse, 0, len(page.Items))}
+		Items       []managedUserResponse `json:"items"`
+		NextAfter   string                `json:"nextAfter,omitempty"`
+		Total       *int                  `json:"total,omitempty"`
+		TotalCapped bool                  `json:"totalCapped,omitempty"`
+	}{Items: make([]managedUserResponse, 0, len(page.Items)), TotalCapped: page.TotalCapped}
+	if query.Total {
+		response.Total = &page.Total
+	}
 	for _, user := range page.Items {
 		response.Items = append(response.Items, managedUser(user))
 	}
@@ -96,32 +103,65 @@ func (e userEndpoints) listUsers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-func userPageParameters(rawQuery string) (uuid.UUID, int, error) {
+func (e userEndpoints) getUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil || id == uuid.Nil {
+		writeUserManagementError(w, r, userauth.ErrValidation)
+		return
+	}
+	page, err := e.dependencies.UserAuth.ListUsers(r.Context(), userauth.UserQuery{Search: id.String(), Limit: 1})
+	if err == nil && len(page.Items) == 0 {
+		err = userauth.ErrNotFound
+	}
+	if err != nil {
+		writeUserManagementError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, managedUser(page.Items[0]))
+}
+
+func userPageParameters(rawQuery string) (userauth.UserQuery, error) {
+	query := userauth.UserQuery{Limit: 50}
 	values, err := url.ParseQuery(rawQuery)
 	if err != nil {
-		return uuid.Nil, 0, userauth.ErrValidation
+		return query, userauth.ErrValidation
 	}
-	after, limit := uuid.Nil, 50
 	for key, entries := range values {
 		if len(entries) != 1 || entries[0] == "" {
-			return uuid.Nil, 0, userauth.ErrValidation
+			return query, userauth.ErrValidation
 		}
 		switch key {
 		case "after":
-			after, err = uuid.Parse(entries[0])
-			if err != nil || after == uuid.Nil {
-				return uuid.Nil, 0, userauth.ErrValidation
+			query.After, err = uuid.Parse(entries[0])
+			if err != nil || query.After == uuid.Nil {
+				return query, userauth.ErrValidation
 			}
 		case "limit":
-			limit, err = strconv.Atoi(entries[0])
-			if err != nil || limit < 1 || limit > 100 {
-				return uuid.Nil, 0, userauth.ErrValidation
+			query.Limit, err = strconv.Atoi(entries[0])
+			if err != nil || query.Limit < 1 || query.Limit > 100 {
+				return query, userauth.ErrValidation
 			}
+		case "authCollectionId":
+			query.AuthCollectionID, err = uuid.Parse(entries[0])
+			if err != nil || query.AuthCollectionID == uuid.Nil {
+				return query, userauth.ErrValidation
+			}
+		case "q":
+			if len(entries[0]) > 320 {
+				return query, userauth.ErrValidation
+			}
+			query.Search = entries[0]
+		case "total":
+			if entries[0] != "true" {
+				return query, userauth.ErrValidation
+			}
+			query.Total = true
 		default:
-			return uuid.Nil, 0, userauth.ErrValidation
+			return query, userauth.ErrValidation
 		}
 	}
-	return after, limit, nil
+	return query, nil
 }
 
 func (e userEndpoints) setUserActive(w http.ResponseWriter, r *http.Request) {

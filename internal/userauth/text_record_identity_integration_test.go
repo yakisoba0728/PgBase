@@ -36,7 +36,7 @@ func TestAuthTextRecordIdentityRoundTripsAndPreservesVisibility(t *testing.T) {
 	if err != nil || got.PublicID != "AuthCase01" || got.Email != record.Email || !got.EmailVisibility {
 		t.Fatalf("loaded auth record = %#v, %v", got, err)
 	}
-	listed, err := service.ListAuthRecords(ctx, collectionID, 10)
+	listed, _, err := service.ListAuthRecords(ctx, collectionID, uuid.Nil, 10)
 	if err != nil || len(listed) != 1 || listed[0].PublicID != "AuthCase01" {
 		t.Fatalf("listed auth records = %#v, %v", listed, err)
 	}

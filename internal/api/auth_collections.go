@@ -32,7 +32,7 @@ type AuthCollections interface {
 	CompleteEmailOTPInCollection(context.Context, uuid.UUID, string, string) (userauth.Session, error)
 	GetProfile(context.Context, uuid.UUID) (map[string]any, error)
 	SetProfile(context.Context, uuid.UUID, map[string]any) (map[string]any, error)
-	ListAuthRecords(context.Context, uuid.UUID, int) ([]userauth.AuthRecord, error)
+	ListAuthRecords(context.Context, uuid.UUID, uuid.UUID, int) ([]userauth.AuthRecord, uuid.UUID, error)
 	GetAuthRecord(context.Context, uuid.UUID, uuid.UUID) (userauth.AuthRecord, error)
 	CreateAuthRecord(context.Context, uuid.UUID, userauth.CreateAuthRecordInput) (userauth.AuthRecord, error)
 	UpdateAuthRecord(context.Context, uuid.UUID, uuid.UUID, userauth.UpdateAuthRecordInput) (userauth.AuthRecord, error)
