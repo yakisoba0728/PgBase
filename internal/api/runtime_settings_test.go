@@ -20,7 +20,6 @@ func TestMergeRuntimeSettingsRejectsNullInsteadOfZeroing(t *testing.T) {
 		{`{"revision":1,"backups":{"keep":null}}`, "backups.keep"},
 		{`{"revision":1,"logs":{"includeIP":null}}`, "logs.includeIP"},
 		{`{"revision":1,"application":{"accent":null}}`, "application.accent"},
-		{`{"revision":1,"proxy":{"trustedProxyCIDRs":null}}`, "proxy.trustedProxyCIDRs"},
 		{`{"revision":1,"rateLimits":{"rules":[{"label":"GET /api/","audience":null,"duration":1,"maxRequests":1}]}}`, "rateLimits.rules.0.audience"},
 		{`{"revision":1,"batch":null}`, "batch"},
 		{`{"revision":1,"logs":{"unknown":1}}`, "logs.unknown"},
@@ -34,6 +33,11 @@ func TestMergeRuntimeSettingsRejectsNullInsteadOfZeroing(t *testing.T) {
 		if !errors.Is(err, runtimesettings.ErrInvalid) || !errors.As(err, &invalid) || fmt.Sprint(invalid.Details) != fmt.Sprintf("[{%s invalid}]", test.field) {
 			t.Fatalf("%s: err=%v", test.patch, err)
 		}
+	}
+	// A null list (what older servers returned for an empty one) means empty.
+	cleared, err := mergeRuntimeSettings(current, map[string]json.RawMessage{"revision": json.RawMessage(`1`), "proxy": json.RawMessage(`{"trustedProxyCIDRs":null}`), "rateLimits": json.RawMessage(`{"rules":null,"excludedIPs":null}`)})
+	if err != nil || len(cleared.Proxy.TrustedProxyCIDRs) != 0 || len(cleared.RateLimits.Rules) != 0 || len(cleared.RateLimits.ExcludedIPs) != 0 {
+		t.Fatalf("null lists: %#v err=%v", cleared, err)
 	}
 	merged, err := mergeRuntimeSettings(current, map[string]json.RawMessage{"revision": json.RawMessage(`1`), "backups": json.RawMessage(`{"enabled":true}`)})
 	if err != nil || merged.Backups.Keep != 7 || !merged.Backups.Enabled || !merged.Logs.IncludeIP || merged.Application.Accent != "#123456" {

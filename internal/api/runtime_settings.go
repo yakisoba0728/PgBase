@@ -150,10 +150,14 @@ func invalidRuntimeSetting(path string) error {
 	return errors.Join(runtimesettings.ErrInvalid, &validation.Error{Details: []validation.Detail{{Field: path, Code: "invalid"}}})
 }
 
-// nullPath names the first JSON null below path, or returns "".
+// nullPath names the first JSON null below path, or returns "". A null list
+// is unambiguous (empty), so older GET documents that carried it still PATCH.
 func nullPath(path string, value any) string {
 	switch typed := value.(type) {
 	case nil:
+		if path == "proxy.trustedProxyCIDRs" || path == "rateLimits.rules" || path == "rateLimits.excludedIPs" {
+			return ""
+		}
 		return path
 	case map[string]any:
 		for key, child := range typed {

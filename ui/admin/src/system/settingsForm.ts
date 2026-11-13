@@ -122,7 +122,7 @@ export function toDraft(settings: RuntimeSettings): SettingsDraft {
   const values: SettingsDraft["values"] = {};
   for (const spec of specs) {
     const value = read(settings, spec.path);
-    // List fields arrive as null when unset.
+    // Older servers sent unset list fields as null.
     values[spec.path] = spec.kind === "bool" ? Boolean(value) : spec.kind === "lines" ? ((value as string[] | null) ?? []).join("\n") : String(value ?? "");
   }
   const rules = (settings.rateLimits.rules ?? []).map((rule) => ({

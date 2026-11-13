@@ -363,10 +363,11 @@ func (c *Controller) decrypt(ciphertext []byte) ([]byte, error) {
 	return aead.Open(nil, ciphertext[:aead.NonceSize()], ciphertext[aead.NonceSize():], []byte(encryptionDomain))
 }
 
+// clone also turns absent lists into [] so a GET document can be PATCHed back.
 func clone(v Settings) Settings {
-	v.Proxy.TrustedProxyCIDRs = append([]string(nil), v.Proxy.TrustedProxyCIDRs...)
-	v.RateLimits.Rules = append([]APIRateRule(nil), v.RateLimits.Rules...)
-	v.RateLimits.ExcludedIPs = append([]string(nil), v.RateLimits.ExcludedIPs...)
+	v.Proxy.TrustedProxyCIDRs = append([]string{}, v.Proxy.TrustedProxyCIDRs...)
+	v.RateLimits.Rules = append([]APIRateRule{}, v.RateLimits.Rules...)
+	v.RateLimits.ExcludedIPs = append([]string{}, v.RateLimits.ExcludedIPs...)
 	return v
 }
 

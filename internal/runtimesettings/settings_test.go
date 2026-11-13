@@ -1,7 +1,9 @@
 package runtimesettings
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -92,5 +94,15 @@ func TestGetRateLimitSnapshotsAreSafeForConcurrentCallerMutation(t *testing.T) {
 	workers.Wait()
 	if got := controller.Get(); got.RateLimits.Rules[0].Label != "/api/" || got.RateLimits.ExcludedIPs[0] != "127.0.0.1" {
 		t.Fatalf("concurrent snapshot mutations changed live settings: %#v", got.RateLimits)
+	}
+}
+
+func TestEmptyListsAreReturnedAsArrays(t *testing.T) {
+	raw, err := json.Marshal(clone(Default()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := string(raw); !strings.Contains(text, `"trustedProxyCIDRs":[]`) || !strings.Contains(text, `"rules":[]`) || !strings.Contains(text, `"excludedIPs":[]`) {
+		t.Fatalf("settings document = %s", text)
 	}
 }
