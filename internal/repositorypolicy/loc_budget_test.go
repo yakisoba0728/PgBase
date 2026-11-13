@@ -557,10 +557,11 @@ type structuralLimit struct {
 // the collection-delete refusal text; the client-side user scan and the
 // read-before-write stale check they replace are deleted. No classifier
 // exclusions or spare allowance are added.
+// Follow-up shutdown cancellation normalization adds 6 runtime lines; no new public surface.
 // Readiness stack vs 8b078a8c: runtime +308, UI +7; one optional metadata interface and one service method; dump includes required extensions.
 // SQL/catalog guards, snapshot parity, service logs/search and field diagnostics are authorized fixes; no classifiers or file limits changed.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 122427, "readiness fixes exact measurement; no spare allowance"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 122433, "readiness fixes exact measurement; no spare allowance"},
 	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 25864, "bulk metadata cache seeding; no spare allowance"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 105, "optional administrator bulk metadata capability"},
 	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1603, "administrator bulk metadata boundary"},

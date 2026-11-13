@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 )
 
 func (a *App) startBackground(ctx context.Context) <-chan struct{} {
@@ -40,6 +41,11 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 		for _, runner := range runners {
 			go func(runner namedBackgroundRunner) {
 				err := runner.runner.Run(runCtx)
+				// pgx may surface cancellation of an in-flight write as an I/O timeout.
+				var timeout net.Error
+				if runCtx.Err() != nil && errors.As(err, &timeout) && timeout.Timeout() {
+					err = errors.Join(err, runCtx.Err())
+				}
 				results <- backgroundResult{name: runner.name, err: err, cancellationErr: runCtx.Err()}
 			}(runner)
 		}
