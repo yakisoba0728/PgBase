@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import * as api from "../api/records";
 import { translate, type MessageKey } from "../i18n";
-import { countText, pooled, recordsQuery, recordFilesQuery } from "./queries";
+import { countText, addToLists, replaceInLists, pooled, recordsQuery, recordFilesQuery } from "./queries";
 
 describe("pooled", () => {
   it("runs at most four tasks at once and skips tasks cancelled while queued", async () => {
@@ -53,4 +53,16 @@ it("seeds per-field file caches from the record page, including empty fields", a
  expect(spy).toHaveBeenCalledWith("notes", expect.objectContaining({ files: true }));
  spy.mockRestore();
  client.clear();
+});
+
+it("resets filtered lists instead of inserting a row outside their predicate", async () => {
+  const client = new QueryClient();
+  const key = recordsQuery("notes", "published=true", "-created_at", "").queryKey;
+  client.setQueryData(key, { pages: [{ items: [{ id: "old", published: true }] }, { items: [{ id: "old2" }] }], pageParams: [undefined, "cursor"] });
+  addToLists(client, "notes", { id: "new", published: false });
+  expect(client.getQueryData(key)).toBeUndefined();
+  client.setQueryData(key, { pages: [{ items: [{ id: "old" }] }], pageParams: [undefined] });
+  replaceInLists(client, "notes", { id: "old", published: false });
+  expect(client.getQueryData(key)).toBeUndefined();
+  client.clear();
 });

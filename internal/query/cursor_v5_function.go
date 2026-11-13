@@ -15,13 +15,13 @@ type cursorV5FunctionArgument struct {
 }
 
 type cursorV5FunctionComparison struct {
-	Kind           string                     `json:"kind"`
-	Name           string                     `json:"name"`
-	Arguments      []cursorV5FunctionArgument `json:"arguments"`
-	Type           string                     `json:"type"`
-	Operator       string                     `json:"operator"`
-	Value          json.RawMessage            `json:"value"`
-	PocketBaseLike bool                       `json:"pocketBaseLike,omitempty"`
+	Kind            string                     `json:"kind"`
+	Name            string                     `json:"name"`
+	Arguments       []cursorV5FunctionArgument `json:"arguments"`
+	Type            string                     `json:"type"`
+	Operator        string                     `json:"operator"`
+	Value           json.RawMessage            `json:"value"`
+	PercentWildcard bool                       `json:"pocketBaseLike,omitempty"`
 }
 
 // This is an additive descriptor shape: existing scalar descriptors and their
@@ -51,6 +51,6 @@ func encodeCursorV5FunctionComparison(comparison *plannedRelationComparison) (js
 	return json.Marshal(cursorV5FunctionComparison{
 		Kind: "function-comparison", Name: fn.name, Arguments: arguments,
 		Type: string(fn.result.Type), Operator: comparison.input.operator, Value: value,
-		PocketBaseLike: comparison.input.pocketBaseLike,
+		PercentWildcard: comparison.input.percentWildcard,
 	})
 }

@@ -23,6 +23,7 @@ const backupCreate: Promise<BackupJob> = adminClient.createBackup();
 const backupUpload: Promise<BackupEntry> = adminClient.uploadBackup(new Blob());
 const backupDownload: Promise<Blob> = adminClient.downloadBackup("id");
 const interruptedBackupJob: BackupJob = { id: "job", operation: "restore", backupId: "backup", status: "failed", phase: "interrupted", createdAt: "created", updatedAt: "updated" };
+const activeBackupJob: BackupJob = { ...interruptedBackupJob, status: "running", phase: "copying_objects_3_of_10" };
 void [administratorPage, schemaImportReceipt, backupList, backupCreate, backupUpload, backupDownload, interruptedBackupJob];
 // @ts-expect-error A typed profile preserves its declared value types.
 const badSignup: AuthCreationOptions<{ newsletter: boolean }> = { profile: { newsletter: "yes" } };
@@ -79,6 +80,7 @@ const invalidUUIDPolicy: RecordIDPolicy = { kind: "uuid", minLength: 1, maxLengt
 // @ts-expect-error A custom text policy requires lengths and a validation pattern.
 const incompleteTextPolicy: RecordIDPolicy = { kind: "text", minLength: 1 };
 const createCollection: CollectionChange = { operation: "create", name: "notes", fields: [{ name: "title", type: "text" }], recordId: textIDPolicy };
+const createPublicFiles: CollectionChange = { operation: "create", name: "assets", fields: [{ name: "attachment", type: "file", options: { protected: false } }] };
 const updateCollection: CollectionChange = { operation: "update", name: "notes", fields: [], recordId: textIDPolicy };
 const updateView: CollectionChange = { operation: "update", name: "note_titles", view: { source: "notes", projection: ["title"], filter: { op: "eq", field: "title", value: "visible" } } };
 const documentCollection: SchemaDocumentCollection = { name: "notes", recordId: textIDPolicy, userAccess: false, rules: {} };
@@ -124,3 +126,8 @@ void realm.oauthStartAndOpen("github", "https://app.test/callback", launchOption
 void records.events({ fields: "id,title" });
 declare const realtimeEvent: RealtimeEvent<Note>;
 void realtimeEvent.action;
+
+const modifierBatch: import('../src/types.js').BatchOperation<{id:string;count:number}> = {operation:'update', collection:'notes', id:'one', input:{'count+':1}};
+const modifierUpsert: import('../src/types.js').BatchUpsertOperation<{id:string;count:number}> = {operation:'upsert', collection:'notes', id:'one', input:{'count+':1}};
+const modifierHttp: import('../src/types.js').BatchHTTPRequest<{id:string;count:number}> = {method:'PATCH',url:'/records/one',body:{'count+':1}};
+void [modifierBatch,modifierUpsert,modifierHttp];

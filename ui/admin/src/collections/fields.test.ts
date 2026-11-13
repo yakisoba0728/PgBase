@@ -103,6 +103,22 @@ describe("record form drafts", () => {
     expect(input).toEqual({ title: "New", when: "2026-11-12T10:30:00Z" });
   });
 
+  it("sends false for a required boolean on create without changing nullable boolean omission", () => {
+    const booleans = [field("requiredFlag", "boolean", { required: true }), field("optionalFlag", "boolean")];
+    const initial = initialDrafts(booleans);
+    expect(buildInput(booleans, initial, initial, true)).toEqual({ input: { requiredFlag: false }, errors: {} });
+    expect(buildInput(booleans, initial, initial, false)).toEqual({ input: {}, errors: {} });
+  });
+
+  it("shows boolean defaults on create and keeps an explicit false instead of restoring a true default", () => {
+    const booleans = [field("enabled", "boolean", { default: true }), field("disabled", "boolean", { default: false })];
+    const initial = initialDrafts(booleans);
+    expect(initial).toEqual({ enabled: true, disabled: false });
+    expect(buildInput(booleans, initial, initial, true)).toEqual({ input: { enabled: true, disabled: false }, errors: {} });
+    expect(buildInput(booleans, { ...initial, enabled: false }, initial, true).input).toEqual({ enabled: false, disabled: false });
+    expect(initialDrafts(booleans, { id: "existing", enabled: null, disabled: null })).toEqual({ enabled: false, disabled: false });
+  });
+
   it("edits relations as id lists, geo points as exact coordinates, and keeps editor values non-null", () => {
     const more = [field("tags", "relation", { relation: { cardinality: "multiple" } as CollectionField["relation"] }), field("at", "geoPoint"), field("body", "editor")];
     const initial = initialDrafts(more, { id: "x", tags: ["a,b", "c"], at: { lon: 0, lat: 0 }, body: "<p>x</p>" });
@@ -114,4 +130,10 @@ describe("record form drafts", () => {
     expect(buildInput(more, { ...initial, at: ["200", "0"] }, initial, false).errors).toEqual({ at: "invalid_point" });
     expect(buildInput(more, { ...initialDrafts(more), at: ["", ""] }, initialDrafts(more), true).input).toEqual({});
   });
+});
+
+it("uses the server decimal-string grammar for numeric edits", () => {
+  const f = field("n", "numeric");
+  for (const text of ["+1", ".5", "1e3", "01", "1."]) expect(buildInput([f], { n: text }, { n: "" }, true).errors.n).toBe("invalid_number");
+  expect(buildInput([f], { n: "-0.50" }, { n: "" }, true).input.n).toBe("-0.50");
 });

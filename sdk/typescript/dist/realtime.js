@@ -8,6 +8,8 @@ export class RealtimeService {
     clientId;
     lastEventId;
     running;
+    subscribing;
+    syncing = Promise.resolve();
     ready;
     resolveReady;
     rejectReady;
@@ -34,6 +36,20 @@ export class RealtimeService {
         this.notify({ state: "stopped", attempt: 0, reason: "reset" });
     }
     async subscribe(topic, listener, options = {}) {
+        const generation = this.client.auth.generation;
+        const start = () => {
+            if (generation !== this.client.auth.generation)
+                throw new PgBaseError(0, "realtime_unsubscribed");
+            return this.subscribeNow(topic, listener, options);
+        };
+        const result = this.subscribing ? this.subscribing.then(start) : start();
+        const tail = result.catch(() => { });
+        this.subscribing = tail;
+        void tail.then(() => { if (this.subscribing === tail)
+            this.subscribing = undefined; });
+        return result;
+    }
+    async subscribeNow(topic, listener, options) {
         if (!validRealtimeTopic(topic))
             throw new PgBaseError(0, "invalid_realtime_topic");
         if (options.maxReconnects !== undefined && (!Number.isInteger(options.maxReconnects) || options.maxReconnects < 0))
@@ -47,12 +63,25 @@ export class RealtimeService {
             set = new Set();
             this.listeners.set(topic, set);
         }
+        const added = !set.has(listener);
         set.add(listener);
         this.ensureRunning(options);
-        if (this.clientId)
-            await this.sync();
-        else
-            await this.ready;
+        try {
+            if (this.clientId)
+                await this.sync();
+            else
+                await this.ready;
+        }
+        catch (error) {
+            if (added) {
+                set.delete(listener);
+                if (set.size === 0 && this.listeners.get(topic) === set)
+                    this.listeners.delete(topic);
+                if (this.listeners.size === 0 && !this.controller?.signal.aborted)
+                    await this.unsubscribe();
+            }
+            throw error;
+        }
         return async () => this.unsubscribe(topic, listener);
     }
     /**
@@ -91,10 +120,19 @@ export class RealtimeService {
         this.readySettled = false;
         this.ready = new Promise((resolve, reject) => { this.resolveReady = resolve; this.rejectReady = reject; });
         const controller = this.controller = new AbortController();
-        this.running = Promise.resolve().then(() => this.run(controller)).finally(() => { this.running = undefined; this.ready = undefined; this.resolveReady = undefined; this.rejectReady = undefined; });
+        const stopOnAuthChange = this.client.auth._onChange(() => { void this.unsubscribe(); });
+        this.running = Promise.resolve().then(() => this.run(controller)).finally(() => { stopOnAuthChange(); this.running = undefined; this.ready = undefined; this.resolveReady = undefined; this.rejectReady = undefined; });
     }
-    async sync() { if (this.clientId)
-        await this.client._request("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, this.controller?.signal); }
+    sync() {
+        const controller = this.controller;
+        const result = this.syncing.then(async () => {
+            if (controller !== this.controller || controller?.signal.aborted || !this.clientId)
+                return;
+            await this.client._request("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, controller?.signal);
+        });
+        this.syncing = result.catch(() => { });
+        return result;
+    }
     async run(controller) {
         if (this.listeners.size === 0)
             return;
@@ -105,6 +143,8 @@ export class RealtimeService {
             try {
                 const response = await this.client._eventStream("/api/realtime", this.lastEventId, controller.signal);
                 for await (const message of parseEventStream(response.body, controller.signal)) {
+                    if (controller.signal.aborted)
+                        return;
                     const data = JSON.parse(message.data);
                     if (message.event === "PB_ERROR") {
                         const code = typeof data === "object" && data !== null && "code" in data && typeof data.code === "string" ? data.code : "subscription_failed";
@@ -131,6 +171,8 @@ export class RealtimeService {
                     if (!event)
                         continue;
                     for (const listener of [...(this.listeners.get(topic) ?? [])]) {
+                        if (controller.signal.aborted)
+                            return;
                         this.deliver(listener, event, topic);
                     }
                     if (this.listeners.has(topic))

@@ -3,7 +3,7 @@ import type { Collection, CollectionField, FieldType } from "../api/collections"
 import { visibleRange } from "../components/virtualRows";
 import { collectAll, settleLimited } from "./bulk";
 import { moveColumn, orderedColumns, toggleColumn, visibleColumns } from "./columns";
-import { changedFields, clearDraft, readDraft, writeDraft } from "./recordDraft";
+import { changedFields, keepDraft, clearDraft, readDraft, writeDraft } from "./recordDraft";
 import { expandFor, htmlText, labelField, recordLabel, relationSearchFilter } from "./relation";
 
 const field = (name: string, type: FieldType, extra: Partial<CollectionField> = {}): CollectionField => ({
@@ -97,4 +97,15 @@ describe("visibleRange", () => {
     expect(visibleRange(10_000_000, 400, 40, 100, 5)).toEqual({ start: 99, end: 100 });
     expect(visibleRange(0, 400, 40, 0)).toEqual({ start: 0, end: 0 });
   });
+});
+
+it("keeps sensitive 412 edits only in memory and rejects mismatched persisted shapes", () => {
+  const scope = { admin: "a", collection: "c", record: "r" };
+  const fields = [field("api_token", "text"), field("title", "text"), field("tags", "jsonb", { options: { allowedValues: ["a"] } })];
+  writeDraft(scope, { title: ["wrong"], tags: "wrong" });
+  expect(readDraft(scope, fields)).toBeNull();
+  keepDraft(scope, { api_token: "secret", title: "mine" });
+  expect(readDraft(scope, fields)?.fields).toEqual({ api_token: "secret", title: "mine" });
+  expect(JSON.stringify(localStorage)).not.toContain("secret");
+  clearDraft(scope);
 });

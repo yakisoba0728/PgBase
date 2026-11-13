@@ -138,6 +138,9 @@ export function FieldPane({ editor, field, catalog }: { editor: SchemaEditor; fi
       type,
       options: type === "autodate" ? { onCreate: true } : field.options,
       relation: type === "relation" ? field.relation ?? { targetCollection: "", cardinality: "single", onDelete: "set_null" } : undefined,
+      ...(allowedFlags(type).required ? {} : { required: false }),
+      ...(allowedFlags(type).presentable ? {} : { presentable: false }),
+      ...(allowedFlags(type).default ? {} : { defaultText: "" }),
       ...(allowedFlags(type).unique ? {} : { unique: false }),
       ...(allowedFlags(type).indexed ? {} : { indexed: false }),
     });

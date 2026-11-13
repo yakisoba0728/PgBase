@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/yakisoba0728/PgBase/internal/validation"
 	"net"
+	"net/mail"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,44 @@ func TestSMTPRequiresTLSUnlessExplicitlyAllowed(t *testing.T) {
 	case <-messages:
 		t.Fatal("server received message despite TLS refusal")
 	default:
+	}
+}
+
+func TestSMTPCancellationInterruptsTheProtocolAfterConnect(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		if connection, err := listener.Accept(); err == nil {
+			accepted <- connection
+		}
+	}()
+	sender, err := NewSMTP(SMTPConfig{Address: listener.Addr().String(), From: "sender@example.test", AllowInsecure: true, Timeout: 30 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { result <- sender.Send(ctx, Message{To: "user@example.test", Subject: "subject", Text: "body"}) }()
+	select {
+	case connection := <-accepted:
+		defer connection.Close()
+	case <-time.After(2 * time.Second):
+		t.Fatal("SMTP did not connect")
+	}
+	// The server sends no greeting, so only cancellation can finish the call.
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("SMTP cancellation = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("SMTP protocol ignored caller cancellation")
 	}
 }
 
@@ -47,6 +86,27 @@ func TestSMTPDeliversBoundedMessageToLocalInsecureFixture(t *testing.T) {
 		for _, expected := range []string{"From: sender@example.test", "To: user@example.test", "Subject: Verify", "http://localhost/token"} {
 			if !strings.Contains(message, expected) {
 				t.Fatalf("message missing %q: %q", expected, message)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SMTP fixture received no message")
+	}
+}
+
+func TestSMTPUsesMailboxAddressesForTheEnvelope(t *testing.T) {
+	address, messages := startSMTPFixture(t)
+	sender, err := NewSMTP(SMTPConfig{Address: address, From: "PgBase <sender@example.test>", AllowInsecure: true, Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sender.Send(context.Background(), Message{To: "Recipient <user@example.test>", Subject: "Verify", Text: "body"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case message := <-messages:
+		for _, header := range []string{"From: PgBase <sender@example.test>", "To: Recipient <user@example.test>"} {
+			if !strings.Contains(message, header) {
+				t.Fatalf("message missing %q: %q", header, message)
 			}
 		}
 	case <-time.After(time.Second):
@@ -131,7 +191,20 @@ func serveSMTPFixture(connection net.Conn, messages chan<- string) {
 		switch {
 		case strings.HasPrefix(command, "EHLO"):
 			write("250-localhost\r\n250 8BITMIME\r\n")
-		case strings.HasPrefix(command, "HELO"), strings.HasPrefix(command, "MAIL FROM"), strings.HasPrefix(command, "RCPT TO"):
+		case strings.HasPrefix(command, "HELO"):
+			write("250 ok\r\n")
+		case strings.HasPrefix(command, "MAIL FROM:"), strings.HasPrefix(command, "RCPT TO:"):
+			_, path, _ := strings.Cut(strings.TrimSpace(line), ":")
+			end := strings.IndexByte(path, '>')
+			if !strings.HasPrefix(path, "<") || end < 1 {
+				write("501 invalid mailbox\r\n")
+				continue
+			}
+			address, err := mail.ParseAddress(path[1:end])
+			if err != nil || address.Address != path[1:end] {
+				write("501 invalid mailbox\r\n")
+				continue
+			}
 			write("250 ok\r\n")
 		case command == "DATA":
 			write("354 continue\r\n")

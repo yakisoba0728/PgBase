@@ -3,6 +3,7 @@ package usermigrate
 import (
 	"errors"
 	"fmt"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -102,7 +103,7 @@ func GenerateSnapshotSource(id, packageName string, before, after []byte) (Gener
 	if packageName == "" {
 		packageName = "migrations"
 	}
-	if !validPackage.MatchString(packageName) {
+	if !validPackage.MatchString(packageName) || token.Lookup(packageName).IsKeyword() {
 		return Generated{}, errors.New("invalid Go package name")
 	}
 	canonicalBefore, err := schema.CanonicalMigrationSnapshot(before)

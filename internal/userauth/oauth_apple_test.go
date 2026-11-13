@@ -40,7 +40,7 @@ func TestAppleProviderVerifiesIDTokenAndNonce(t *testing.T) {
 	}))
 	defer server.Close()
 	issuer = server.URL
-	p, err := NewHTTPOAuthProvider(HTTPOAuthConfig{ProviderName: "apple", AuthorizationURL: server.URL + "/authorize", TokenURL: server.URL + "/token", UserInfoURL: server.URL + "/keys", ClientID: "client", ClientSecret: "signed-client-secret", Scopes: []string{"email"}, HTTPClient: server.Client(), AllowInsecureLoopback: true})
+	p, err := NewHTTPOAuthProvider(HTTPOAuthConfig{ProviderName: "apple", AuthorizationURL: server.URL + "/authorize", TokenURL: server.URL + "/token", JWKSURL: server.URL + "/keys", Issuer: server.URL, ClientID: "client", ClientSecret: "signed-client-secret", Scopes: []string{"email"}, HTTPClient: server.Client(), AllowInsecureLoopback: true})
 	if err != nil {
 		t.Fatal(err)
 	}

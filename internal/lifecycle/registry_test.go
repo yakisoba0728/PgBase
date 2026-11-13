@@ -69,6 +69,26 @@ func TestPanicContainmentAndFinishOnce(t *testing.T) {
 	}
 }
 
+func TestCancellationDuringTheLastBeforeHookPreventsTheOperation(t *testing.T) {
+	var registry Registry
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, _ = registry.On("save", Hook{
+		Before: func(context.Context, *Event) error { cancel(); return nil },
+		After: func(ctx context.Context, event *Event) {
+			if ctx.Err() != nil || !errors.Is(event.Err, context.Canceled) {
+				t.Errorf("after hook context=%v operation=%v", ctx.Err(), event.Err)
+			}
+		},
+	})
+	if err := registry.Run(ctx, &Event{Kind: "save"}, func() error {
+		t.Error("operation ran after its final before hook canceled the context")
+		return nil
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run = %v, want context cancellation", err)
+	}
+}
+
 func TestWithoutHooksSkipsCallbacksButRunsOperation(t *testing.T) {
 	var registry Registry
 	callbacks := 0

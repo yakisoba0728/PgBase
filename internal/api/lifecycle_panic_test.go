@@ -40,7 +40,7 @@ func (*panicLifecycleSchemaService) ApplySchemaImport(context.Context, schema.Sc
 func (*panicLifecycleSchemaService) SchemaImportStatus(context.Context, uuid.UUID, uuid.UUID) (schema.SchemaImportResult, error) {
 	return schema.SchemaImportResult{}, nil
 }
-func (*panicLifecycleSchemaService) ValidateSchemaImportPlan(schema.SchemaImportPlan, func(schema.Collection, json.RawMessage) error) error {
+func (*panicLifecycleSchemaService) ValidateSchemaImportPlan(schema.SchemaImportPlan, func(schema.Catalog, schema.Collection, json.RawMessage) error) error {
 	return nil
 }
 

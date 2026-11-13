@@ -20,16 +20,15 @@ func WriteExclusive(path string, mode os.FileMode, write func(*os.File) error, f
 	}
 	completed := false
 	defer func() {
+		_ = file.Close()
 		if !completed {
 			_ = os.Remove(path)
 		}
 	}()
 	if err := write(file); err != nil {
-		_ = closeExclusiveFile(file)
 		return failure("write", err)
 	}
 	if err := syncExclusiveFile(file); err != nil {
-		_ = closeExclusiveFile(file)
 		return failure("sync", err)
 	}
 	if err := closeExclusiveFile(file); err != nil {

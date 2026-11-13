@@ -18,6 +18,18 @@ curl --fail-with-body --request PUT \
 
 `GET` on the same URL reads the setting. `PUT {"enabled":false}` blocks subsequent user operations. Both routes require an administrator session; mutation uses the existing Origin and CSRF requirements.
 
+The native `PUT /api/admin/collections/{collection}/rules` accepts typed rules and
+`{"op":"expression","expression":"title = 'published'"}` together in its
+`rules` object. All five actions are parsed and validated before one policy
+write, so owner rules can be saved alongside expressions without a compatibility
+request or a second restoration write. The response contains the compiled AST
+and its `expression` source. The explicit `binding` selects scalar or catalog
+semantics; the source text is metadata. Historical stored `pocketbase` source keys remain
+readable. See [backend redesign](backend-redesign.md) for the full request and
+the remaining redesign scope.
+
+Declarative views inherit both the access gate and record rules from their source collection. Their `GET` policy endpoints return those effective source settings; `PUT` on either view policy endpoint returns `403 access_denied` without changing the view or source. Follow the source link in the view's Rules screen to edit the shared policy. SQL views retain their own access gate and rules.
+
 The setting defaults to disabled. It is a stored opt-in; the collection's typed action rules still decide each public operation. Relations do not block public access. Instead, every relation path is checked against the target collection's own view rule for the same caller: a hidden target's ID is returned as `null` (or omitted from a multiple relation), filters and sorts through a relation path treat it as absent, expansion skips it, reverse `<collection>_via_<field>` paths apply the source's rule, and a create or update that points a relation at a target the caller cannot view fails as not found. Administrator record operations retain their existing behavior.
 
 ## Register, log in, and use records

@@ -10,15 +10,15 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
 )
 
-const pocketBaseAuthPrefix = "__pgbase_pb_auth_"
-const pocketBaseAuthID = pocketBaseAuthPrefix + "id"
-const pocketBaseRequestPrefix = "__pgbase_request_"
+const ruleAuthPrefix = "__pgbase_auth_"
+const ruleAuthID = ruleAuthPrefix + "id"
+const ruleRequestPrefix = "__pgbase_request_"
 
-// ParsePocketBaseAccessRule reuses the bounded record-filter grammar and
+// ParseAccessRule reuses pgBase's bounded record-filter grammar and
 // projects its dependency-free result into the persisted access-rule AST.
 // Catalog field types remain enforced by accessrule.Compile before storage.
-func ParsePocketBaseAccessRule(expression string) (accessrule.Rule, error) {
-	normalized, shifts, ok := normalizePocketBaseRuleReferences(expression)
+func ParseAccessRule(expression string) (accessrule.Rule, error) {
+	normalized, shifts, ok := normalizeRuleReferences(expression)
 	if !ok {
 		return accessrule.Rule{}, accessrule.ErrInvalid
 	}
@@ -39,18 +39,43 @@ func ParsePocketBaseAccessRule(expression string) (accessrule.Rule, error) {
 		return accessrule.Rule{}, err
 	}
 	source := expression
-	rule.PocketBase = &source
+	rule.Binding = accessrule.BindingCatalog
+	rule.Expression = &source
 	return rule, nil
+}
+
+// ParseAccessRules is the raw policy boundary shared by HTTP, JS and import.
+func ParseAccessRules(raw []byte) (accessrule.Rules, error) {
+	return accessrule.ParseExpressions(raw, ParseAccessRule)
 }
 
 // The shifts record [output offset, cumulative growth] after each rewrite so a
 // parser offset in the output can be mapped back to the input.
-func normalizePocketBaseRuleReferences(input string) (string, [][2]int, bool) {
+func normalizeRuleReferences(input string) (string, [][2]int, bool) {
 	var out strings.Builder
 	var shifts [][2]int
 	for i := 0; i < len(input); {
 		if growth := out.Len() - i; growth != 0 && (len(shifts) == 0 || shifts[len(shifts)-1][1] != growth) {
 			shifts = append(shifts, [2]int{out.Len(), growth})
+		}
+		if input[i] == '"' {
+			start, closed := i, false
+			i++
+			for i < len(input) {
+				ch := input[i]
+				i++
+				if ch == '\\' && i < len(input) {
+					i++
+				} else if ch == '"' {
+					closed = true
+					break
+				}
+			}
+			if !closed {
+				return "", nil, false
+			}
+			out.WriteString(input[start:i])
+			continue
 		}
 		if input[i] == '\'' {
 			start := i
@@ -82,21 +107,21 @@ func normalizePocketBaseRuleReferences(input string) (string, [][2]int, bool) {
 			if i == start {
 				return "", nil, false
 			}
-			out.WriteString(pocketBaseAuthPrefix + input[start:i])
+			out.WriteString(ruleAuthPrefix + input[start:i])
 		case strings.HasPrefix(input[i:], "@request.body."):
-			out.WriteString(pocketBaseRequestPrefix + "body_")
+			out.WriteString(ruleRequestPrefix + "body_")
 			i += len("@request.body.")
 		case strings.HasPrefix(input[i:], "@request.query."):
-			out.WriteString(pocketBaseRequestPrefix + "query_")
+			out.WriteString(ruleRequestPrefix + "query_")
 			i += len("@request.query.")
 		case strings.HasPrefix(input[i:], "@request.headers."):
-			out.WriteString(pocketBaseRequestPrefix + "header_")
+			out.WriteString(ruleRequestPrefix + "header_")
 			i += len("@request.headers.")
 		case strings.HasPrefix(input[i:], "@request.context."):
-			out.WriteString(pocketBaseRequestPrefix + "context_")
+			out.WriteString(ruleRequestPrefix + "context_")
 			i += len("@request.context.")
 		case strings.HasPrefix(input[i:], "@request.method"):
-			out.WriteString(pocketBaseRequestPrefix + "method")
+			out.WriteString(ruleRequestPrefix + "method")
 			i += len("@request.method")
 		default:
 			out.WriteByte(input[i])
@@ -140,8 +165,12 @@ func accessRuleComparison(value filterComparison) (accessrule.Rule, error) {
 	if !ok {
 		return accessrule.Rule{}, accessrule.ErrInvalid
 	}
+	// A literal on the left has no representation in the persisted AST.
+	if value.literalLeft {
+		return accessrule.Rule{}, accessrule.ErrInvalid
+	}
 	field := joinRuleField(value.field, value.modifier)
-	var function *accessrule.PBFunction
+	var function *accessrule.Function
 	if value.function != nil {
 		converted, err := accessRuleFunction(value.function)
 		if err != nil {
@@ -152,15 +181,18 @@ func accessRuleComparison(value filterComparison) (accessrule.Rule, error) {
 	}
 	if value.otherField != "" {
 		other := joinRuleField(value.otherField, value.otherModifier)
-		if strings.HasPrefix(field, pocketBaseAuthPrefix) {
+		if strings.HasPrefix(field, ruleAuthPrefix) && strings.HasSuffix(op, "contains") {
+			return accessrule.Rule{Op: op, Field: ruleRequestPrefix + "auth_" + strings.TrimPrefix(field, ruleAuthPrefix), OtherField: other}, nil
+		}
+		if strings.HasPrefix(field, ruleAuthPrefix) {
 			field, other, op = other, field, flipRuleOp(op)
 		}
-		if strings.HasPrefix(other, pocketBaseAuthPrefix) {
-			return accessrule.Rule{Op: op, Field: field, Auth: strings.TrimPrefix(other, pocketBaseAuthPrefix)}, nil
+		if strings.HasPrefix(other, ruleAuthPrefix) {
+			return accessrule.Rule{Op: op, Field: field, Auth: strings.TrimPrefix(other, ruleAuthPrefix)}, nil
 		}
 		return accessrule.Rule{Op: op, Field: field, OtherField: other}, nil
 	}
-	if field == pocketBaseAuthID {
+	if field == ruleAuthID {
 		if value.value.kind != filterLiteralString || value.value.text != "" {
 			return accessrule.Rule{}, accessrule.ErrInvalid
 		}
@@ -172,8 +204,8 @@ func accessRuleComparison(value filterComparison) (accessrule.Rule, error) {
 		}
 		return accessrule.Rule{}, accessrule.ErrInvalid
 	}
-	if strings.HasPrefix(field, pocketBaseAuthPrefix) {
-		field = pocketBaseRequestPrefix + "auth_" + strings.TrimPrefix(field, pocketBaseAuthPrefix)
+	if strings.HasPrefix(field, ruleAuthPrefix) {
+		field = ruleRequestPrefix + "auth_" + strings.TrimPrefix(field, ruleAuthPrefix)
 	}
 	var literal any
 	switch value.value.kind {
@@ -195,8 +227,8 @@ func accessRuleComparison(value filterComparison) (accessrule.Rule, error) {
 	return accessrule.Rule{Op: op, Field: field, Value: raw, Function: function, Macro: value.value.macro}, nil
 }
 
-func accessRuleFunction(function *filterFunction) (*accessrule.PBFunction, error) {
-	result := &accessrule.PBFunction{Name: function.name, Args: make([]accessrule.PBFuncArg, len(function.args))}
+func accessRuleFunction(function *filterFunction) (*accessrule.Function, error) {
+	result := &accessrule.Function{Name: function.name, Args: make([]accessrule.FunctionArg, len(function.args))}
 	for i, arg := range function.args {
 		if arg.function != nil || arg.modifier != "" {
 			return nil, accessrule.ErrInvalid
@@ -231,6 +263,9 @@ func joinRuleField(field, modifier string) string {
 	return field + ":" + modifier
 }
 func flipRuleOp(op string) string {
+	if strings.HasPrefix(op, "any_") {
+		return "any_" + flipRuleOp(strings.TrimPrefix(op, "any_"))
+	}
 	switch op {
 	case "lt":
 		return "gt"

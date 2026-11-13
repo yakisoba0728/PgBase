@@ -22,8 +22,12 @@ func serviceSessionMiddleware(auth ServiceTokens, next http.Handler) http.Handle
 			writeServiceCredentialError(w, r)
 			return
 		}
+		if auth == nil {
+			writeServiceCredentialError(w, r)
+			return
+		}
 		principal, err := auth.Authenticate(r.Context(), parts[1])
-		if err != nil {
+		if err != nil || principal.Subject.Kind != identity.Service || !principal.Subject.Valid() {
 			writeServiceCredentialError(w, r)
 			return
 		}
@@ -53,7 +57,10 @@ func serviceRecordRoutes(dependencies Dependencies) []route {
 	if dependencies.ServiceTokens == nil || dependencies.Records == nil {
 		return nil
 	}
-	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files}
+	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files, hooks: dependencies.LifecycleHooks}
+	if dependencies.RuntimeSettings != nil {
+		records.settings = dependencies.RuntimeSettings
+	}
 	return []route{
 		{method: "GET", pattern: "/api/v1/service/collections/{collection}/records", access: accessServiceSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(records.list)},
 		{method: "POST", pattern: "/api/v1/service/collections/{collection}/records", access: accessServiceSession, response: atomicJSON(maximumRecordPageResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumRecordRequestBytes, recordDocument: true, handler: http.HandlerFunc(records.create)},

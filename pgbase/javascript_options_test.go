@@ -61,3 +61,31 @@ func TestJavaScriptHooksBypassRequiresOperatorOptIn(t *testing.T) {
 		t.Fatalf("hooks-bypass rejected with operator opt-in: %v", err)
 	}
 }
+
+func TestJavaScriptHostPolicyHasOneOwnerAndNormalizesIdempotently(t *testing.T) {
+	root := t.TempDir()
+	legacy := JavaScriptOptions{Directory: root, PocketBaseCompatibility: PocketBaseCompatibilityOptions{
+		FilesystemRoot: root, HTTPAllowedOrigins: []string{"https://example.test"}, Commands: map[string]string{"echo": "/bin/echo"},
+	}}
+	normalized, err := legacy.normalized()
+	canonicalRoot, pathErr := filepath.EvalSymlinks(root)
+	if pathErr != nil {
+		t.Fatal(pathErr)
+	}
+	if err != nil || normalized.Host.FilesystemRoot != canonicalRoot || normalized.PocketBaseCompatibility.FilesystemRoot != "" {
+		t.Fatalf("legacy policy did not move into native owner: %#v, %v", normalized, err)
+	}
+	legacy.PocketBaseCompatibility.Commands["echo"] = "/unapproved"
+	legacy.PocketBaseCompatibility.HTTPAllowedOrigins[0] = "https://unapproved.test"
+	if normalized.Host.Commands["echo"] != "/bin/echo" || normalized.Host.HTTPAllowedOrigins[0] != "https://example.test" {
+		t.Fatal("normalized host policy retained caller-owned configuration")
+	}
+	if _, err := normalized.normalized(); err != nil {
+		t.Fatalf("host policy cannot be normalized twice: %v", err)
+	}
+	ambiguous := legacy
+	ambiguous.Host.FilesystemRoot = root
+	if _, err := ambiguous.normalized(); err == nil {
+		t.Fatal("conflicting native and legacy host policies accepted")
+	}
+}

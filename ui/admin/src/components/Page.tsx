@@ -20,7 +20,7 @@ export function Page({ title, crumb, actions, tabs, children }: PageProps) {
   return (
     <>
       <header className="page-header">
-        <IconButton className="nav-open" label={t("nav.open")} icon={RiMenuLine} onClick={() => setDrawer(true)} />
+        <IconButton className="nav-open" label={t("nav.open")} icon={RiMenuLine} onClick={(event) => setDrawer(true, event.currentTarget)} />
         <h1 className="page-title">
           {crumb && <span className="crumb">{crumb} /</span>}
           <span>{title}</span>

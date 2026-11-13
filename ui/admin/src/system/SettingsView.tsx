@@ -5,6 +5,7 @@ import { ApiError } from "../api/http";
 import { reloadSettings, updateSettings, type RuntimeSettings } from "../api/system";
 import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
+import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
 import { Loader, Notice } from "../components/Feedback";
 import { ErrorState } from "../components/Feedback";
@@ -23,7 +24,7 @@ const hints = new Set(["batch.maxBodyBytes", "backups.schedule", "backups.timezo
 
 /** Every runtime setting the server exposes, saved as one revisioned document. */
 export function SettingsView() {
-  const query = useQuery(settingsQuery);
+  const query = useQuery({ ...settingsQuery, refetchOnReconnect: false });
   if (query.isPending) return <Loader />;
   if (query.isError) return <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />;
   // A new revision (save, reload, refresh) starts a fresh draft.
@@ -87,7 +88,7 @@ function SettingsForm({ settings }: { settings: RuntimeSettings }) {
             loading={reload.isPending} onClick={() => reload.mutate()}>{t("system.settings.reload")}</Button>
         </SaveBar>
       </div>
-      <div className="sys-scroll">
+      <fieldset disabled={save.isPending} className="sys-scroll" style={{ border: 0, margin: 0, minWidth: 0 }}>
         {save.isError && (
           <Notice tone="danger" className="sys-notice" actions={conflict && <Button size="sm" variant="secondary" loading={latest.isPending} onClick={() => latest.mutate()}>{t("system.settings.loadLatest")}</Button>}>
             {conflict ? t("system.settings.conflict") : invalid ? (rejectedPath ? t("system.settings.invalidAt", { path: rejectedPath }) : t("system.settings.invalid")) : errorText(t, save.error)}
@@ -106,7 +107,8 @@ function SettingsForm({ settings }: { settings: RuntimeSettings }) {
             )}
           </FormSection>
         ))}
-      </div>
+      </fieldset>
+      <UnsavedGuard dirty={dirty} busy={save.isPending} />
     </form>
   );
 }

@@ -19,7 +19,7 @@ import (
 )
 
 func (host *extensionHost) callLocalCreateThumb(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	if host.bridge.compatibility == nil || host.bridge.files == nil {
+	if host.bridge.hostPolicy == nil || host.bridge.files == nil {
 		return nil, extensionError("thumbnail_unavailable", errors.New("local thumbnail service unavailable"))
 	}
 	var request struct {
@@ -30,11 +30,11 @@ func (host *extensionHost) callLocalCreateThumb(_ context.Context, raw json.RawM
 	if err := decodeExtensionInput(raw, &request); err != nil {
 		return nil, err
 	}
-	source, err := host.bridge.compatibility.safePath(request.OriginalPath, false)
+	source, err := host.bridge.hostPolicy.safePath(request.OriginalPath, false)
 	if err != nil {
 		return nil, extensionError("thumbnail_failed", err)
 	}
-	destination, err := host.bridge.compatibility.safePath(request.ThumbPath, true)
+	destination, err := host.bridge.hostPolicy.safePath(request.ThumbPath, true)
 	if err != nil {
 		return nil, extensionError("thumbnail_failed", err)
 	}
@@ -214,13 +214,12 @@ func (host *extensionHost) callFiles(ctx context.Context, method string, raw jso
 }
 
 func (host *extensionHost) fileCoordinates(ctx context.Context, request extensionFileRequest) (uuid.UUID, uuid.UUID, error) {
-	collectionID, err := host.bridge.files.CollectionID(ctx, request.Collection)
+	if request.Field == "" {
+		return uuid.Nil, uuid.Nil, extensionError("invalid_file_request", filestore.ErrInvalid)
+	}
+	collectionID, recordID, err := host.bridge.files.ResolveRecordID(ctx, request.Collection, request.RecordID)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, mapExtensionError(err)
-	}
-	recordID, err := requiredUUID(request.RecordID)
-	if err != nil || request.Field == "" {
-		return uuid.Nil, uuid.Nil, extensionError("invalid_file_request", err)
 	}
 	return collectionID, recordID, nil
 }

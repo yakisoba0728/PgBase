@@ -70,7 +70,6 @@ func preflightCatalogWithLimit(
 		return err
 	})
 	if err != nil {
-		cache.discardPrepared(compiled)
 		return fmt.Errorf("preflight schema catalog: %w", err)
 	}
 	cache.publish(compiled)

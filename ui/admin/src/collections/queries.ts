@@ -47,16 +47,12 @@ function patchLists(queryClient: QueryClient, collection: string, update: (items
   );
 }
 
-/** A saved record replaces its row; without `withExpand` the row keeps its old expand data until a fresh fetch. */
-export function replaceInLists(queryClient: QueryClient, collection: string, record: RecordData, withExpand = false) {
-  patchLists(queryClient, collection, (items) => items.map((item) => (item.id === record.id ? { ...record, expand: withExpand ? record.expand : item.expand } : item)));
+/** Let the server apply filters and sort again, fetching only the first page. */
+export function replaceInLists(queryClient: QueryClient, collection: string, _record: RecordData, _withExpand = false) {
+  void queryClient.resetQueries({ queryKey: ["records", collection, "list"] });
 }
-
-/** A created record goes on top of the loaded list (whatever the sort) until the next refresh. */
-export function addToLists(queryClient: QueryClient, collection: string, record: RecordData) {
-  queryClient.setQueriesData<InfiniteData<RecordPage>>({ queryKey: ["records", collection, "list"] }, (data) =>
-    data ? { ...data, pages: data.pages.map((page, index) => (index === 0 ? { ...page, items: [record, ...page.items.filter((item) => item.id !== record.id)] } : page)) } : data,
-  );
+export function addToLists(queryClient: QueryClient, collection: string, _record: RecordData) {
+  void queryClient.resetQueries({ queryKey: ["records", collection, "list"] });
 }
 
 export function removeFromLists(queryClient: QueryClient, collection: string, ids: string[]) {

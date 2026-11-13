@@ -140,10 +140,12 @@ final class PgBaseTransport {
     Map<String, String>? query,
     CancellationToken? cancellation,
   }) async {
-    final request = http.AbortableStreamedRequest(
+    if (cancellation?.isCancelled ?? false) throw const PgBaseCancellation();
+    final request = _UploadRequest(
       method,
       uri(path, query),
-      abortTrigger: cancellation?.whenCancelled,
+      source,
+      cancellation,
     );
     request.headers.addAll({
       'accept': 'application/json',
@@ -151,14 +153,8 @@ final class PgBaseTransport {
       ...headers,
     });
     request.contentLength = source.length;
-    final uploadStream = source.open();
-    final sending = _client.send(request);
     try {
-      final results = await Future.wait<Object?>([
-        sending,
-        _pipeUpload(request.sink, uploadStream, cancellation),
-      ], eagerError: false);
-      final response = results.first as http.StreamedResponse;
+      final response = await _client.send(request);
       final bytes = await response.stream.toBytes();
       return PgBaseResponse(
         status: response.statusCode,
@@ -219,31 +215,44 @@ final class PgBaseTransport {
   );
 }
 
-Future<void> _pipeUpload(
-  StreamSink<List<int>> sink,
-  Stream<List<int>> source,
-  CancellationToken? cancellation,
-) {
-  final done = Completer<void>();
-  late final StreamSubscription<List<int>> subscription;
-  subscription = source.listen(
-    sink.add,
-    onError: (Object error, StackTrace stackTrace) async {
-      await sink.close();
-      if (!done.isCompleted) done.completeError(error, stackTrace);
-    },
-    onDone: () async {
-      await sink.close();
-      if (!done.isCompleted) done.complete();
-    },
-    cancelOnError: true,
-  );
-  cancellation?.whenCancelled.then((_) async {
-    await subscription.cancel();
-    unawaited(sink.close());
-    if (!done.isCompleted) done.completeError(const PgBaseCancellation());
-  });
-  return done.future;
+final class _UploadRequest extends http.BaseRequest with http.Abortable {
+  _UploadRequest(super.method, super.url, this.source, this.cancellation);
+  final UploadSource source;
+  final CancellationToken? cancellation;
+  @override
+  Future<void>? get abortTrigger => cancellation?.whenCancelled;
+
+  @override
+  http.ByteStream finalize() {
+    super.finalize();
+    return http.ByteStream(
+      Stream<List<int>>.multi((controller) {
+        StreamSubscription<void>? abort;
+        final subscription = source.open().listen(
+          controller.addSync,
+          onError: controller.addErrorSync,
+          onDone: () {
+            abort?.cancel();
+            controller.closeSync();
+          },
+        );
+        controller.onPause = subscription.pause;
+        controller.onResume = subscription.resume;
+        controller.onCancel = () async {
+          await abort?.cancel();
+          await subscription.cancel();
+        };
+        void cancel() {
+          subscription.cancel();
+          controller.addErrorSync(http.RequestAbortedException(url));
+          controller.closeSync();
+        }
+
+        abort = cancellation?.whenCancelled.asStream().listen((_) => cancel());
+        if (cancellation?.isCancelled ?? false) cancel();
+      }),
+    );
+  }
 }
 
 MediaType? _mediaType(String? source) {

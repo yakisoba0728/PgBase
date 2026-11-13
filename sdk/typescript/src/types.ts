@@ -11,7 +11,7 @@ export type RecordPage<T extends RecordData> = { items: T[]; nextCursor?: string
 export type PocketBaseListOptions = Pick<Query, "filter" | "sort" | "expand" | "fields" | "requestKey"> & { skipTotal?: boolean };
 /** PocketBase's page-number list envelope. A skipped count is represented by -1. */
 export type PocketBasePage<T extends RecordData> = { page: number; perPage: number; totalItems: number; totalPages: number; items: T[] };
-/** Record input may include PocketBase mutation keys such as `score+`, `+tags`, and `tags-`. */
+/** Record input may include mutation modifier keys such as `score+`, `+tags`, and `tags-`. */
 export type RecordModifiers = { [key: `${string}+`]: unknown; [key: `+${string}`]: unknown; [key: `${string}-`]: unknown };
 /** An explicit ID is accepted when the collection uses text record identities. */
 export type RecordMutation<T extends RecordData> = Omit<T, "id"> & { id?: string } & RecordModifiers;
@@ -49,14 +49,14 @@ export type RecordEvent = {
   version: number;
 };
 export type EventOptions = {
-  /** Comma-separated record fields requested for realtime payloads. */
+  /** @deprecated Metadata events have no record projection. Use realtime.subscribe for record payloads. Nonempty values reject locally. */
   fields?: string;
   lastEventId?: string | number;
   signal?: AbortSignal;
   maxReconnects?: number;
   reconnectDelayMs?: number;
 };
-/** Reconnect policy for the shared PocketBase-compatible realtime session. */
+/** Reconnect policy for the shared realtime session. */
 export type RealtimeSubscriptionOptions = Pick<EventOptions, "maxReconnects" | "reconnectDelayMs">;
 /** Shared-session lifecycle snapshot; listener failures leave the current state intact. */
 export type RealtimeStatus = Readonly<{
@@ -68,7 +68,7 @@ export type RealtimeStatus = Readonly<{
   source?: "transport" | "listener";
   topic?: string;
 }>;
-/** A collection record event, retained for existing PocketBase subscriptions. */
+/** A collection record event. */
 export type RealtimeEvent<T extends RecordData = RecordData> = { action: "create" | "update" | "delete"; record: T; topic: string };
 /** An application topic event. Its payload is arbitrary valid JSON. */
 export type RealtimeCustomEvent = { topic: string; data: unknown };
@@ -79,7 +79,7 @@ export type OAuthLaunchOptions = { open(url: string): void | Promise<void> };
 export type OAuthBrowserAdapter = OAuthLaunchOptions & { waitForCallback(signal?: AbortSignal): Promise<string | URL>; close?(): void };
 export type BatchOperation<T extends RecordData = RecordData> =
   | { operation: "create"; collection: string; input: RecordMutation<T>; idempotencyKey?: string }
-  | { operation: "update"; collection: string; id: string; input: Partial<T>; ifMatch?: string }
+  | { operation: "update"; collection: string; id: string; input: Partial<T> & RecordModifiers; ifMatch?: string }
   | BatchUpsertOperation<T>
   | { operation: "delete"; collection: string; id: string; ifMatch?: string };
 /** An atomic PUT-equivalent batch operation: creates the ID when absent, otherwise updates it. */
@@ -87,14 +87,14 @@ export type BatchUpsertOperation<T extends RecordData = RecordData> = {
   operation: "upsert";
   collection: string;
   id: string;
-  input: Partial<T>;
+  input: Partial<T> & RecordModifiers;
   ifMatch?: string;
 };
 export type BatchResult<T extends RecordData = RecordData> = { eventId: string; record?: T; etag?: string; version?: number };
-export type BatchHTTPRequest<T extends RecordData = RecordData> = { method: "POST" | "PATCH" | "PUT" | "DELETE"; url: string; body?: Partial<T>; headers?: Record<string,string> };
+export type BatchHTTPRequest<T extends RecordData = RecordData> = { method: "POST" | "PATCH" | "PUT" | "DELETE"; url: string; body?: Partial<T> & RecordModifiers; headers?: Record<string,string> };
 export type BatchHTTPResult<T extends RecordData = RecordData> = { status: number; headers?: Record<string,string>; body?: T; eventId: string; etag?: string; version?: number };
 export type BatchFilePart = { blob: Blob; filename: string };
-export type FileInfo = { id: string; field: string; filename: string; contentType: string; size: number; thumbnail: boolean };
+export type FileInfo = { id: string; field: string; filename: string; contentType: string; size: number; thumbnail: boolean; protected?: boolean; publicUrl?: string };
 export type MFAChallenge = { challengeToken: string; expiresAt: string };
 /** Enabled sign-in methods for one explicit public auth collection. */
 export type AuthMethods = {

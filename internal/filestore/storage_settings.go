@@ -9,7 +9,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/url"
@@ -51,10 +50,11 @@ type StorageUpdate struct {
 type storageLeaseContextKey struct{}
 
 type storageLease struct {
-	store    ObjectStore
-	revision int64
-	backend  uint32
-	conn     *pgx.Conn
+	controller *StorageController
+	store      ObjectStore
+	revision   int64
+	backend    uint32
+	conn       *pgx.Conn
 }
 
 type StorageController struct {
@@ -71,6 +71,9 @@ type StorageController struct {
 // BeginStorageOperation prevents a destination transition until a compound
 // operation has either attached or queued every object it created.
 func (c *StorageController) BeginStorageOperation(ctx context.Context) (context.Context, func(), error) {
+	if lease, ok := ctx.Value(storageLeaseContextKey{}).(storageLease); ok && lease.controller == c {
+		return ctx, func() {}, ctx.Err()
+	}
 	select {
 	case c.operations <- struct{}{}:
 	case <-ctx.Done():
@@ -108,7 +111,8 @@ func (c *StorageController) BeginStorageOperation(ctx context.Context) (context.
 			<-c.operations
 		})
 	}
-	return context.WithValue(ctx, storageLeaseContextKey{}, storageLease{store: store, revision: settings.Revision, backend: backend, conn: conn}), release, nil
+	stop := context.AfterFunc(ctx, release)
+	return context.WithValue(ctx, storageLeaseContextKey{}, storageLease{controller: c, store: store, revision: settings.Revision, backend: backend, conn: conn}), func() { stop(); release() }, nil
 }
 
 func NewStorageController(ctx context.Context, pool *database.Pool, tokenSecret []byte, startup StorageConfig) (*StorageController, error) {
@@ -261,6 +265,13 @@ func (c *StorageController) GuardStoragePublication(ctx context.Context, tx pgx.
 	if !acquired {
 		return ErrStorageConflict
 	}
+	var owned bool
+	if err := tx.QueryRow(ctx, `select exists(select 1 from pg_locks where locktype='advisory' and pid=$1 and database=(select oid from pg_database where datname=current_database()) and classid=($2::bigint >> 32)::oid and objid=($2::bigint & 4294967295)::oid and objsubid=1 and mode='ShareLock' and granted)`, int32(lease.backend), storageTransitionLock).Scan(&owned); err != nil {
+		return err
+	}
+	if !owned {
+		return ErrStorageConflict
+	}
 	var revision int64
 	if err := tx.QueryRow(ctx, `select revision from pgbase_meta.file_storage_settings where singleton`).Scan(&revision); err != nil {
 		return err
@@ -345,7 +356,10 @@ func (c *StorageController) Update(ctx context.Context, in StorageUpdate) (Stora
 	return result, err
 }
 func location(s StorageSettings) string {
-	return strings.Join([]string{s.Driver, s.Bucket, s.Region, s.Endpoint, fmt.Sprint(s.UsePathStyle)}, "\x00")
+	if s.Driver == "local" {
+		return "local"
+	}
+	return strings.Join([]string{s.Driver, s.Bucket, strings.TrimRight(s.Endpoint, "/")}, "\x00")
 }
 func (c *StorageController) validate(s StorageSettings) error {
 	if s.Driver == "local" {

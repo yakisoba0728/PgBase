@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/recordidentity"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 // RulePreview evaluates an unsaved rule against existing rows without modifying
@@ -17,13 +19,13 @@ type RulePreview struct {
 	Rule      accessrule.Rule            `json:"rule"`
 	Action    string                     `json:"action"`
 	UserID    uuid.UUID                  `json:"userId"`
-	RecordIDs []uuid.UUID                `json:"recordIds"`
+	RecordIDs []string                   `json:"recordIds"`
 	Request   *accessrule.RequestContext `json:"request,omitempty"`
 }
 
 type RuleDecision struct {
-	RecordID uuid.UUID `json:"recordId"`
-	Allowed  bool      `json:"allowed"`
+	RecordID string `json:"recordId"`
+	Allowed  bool   `json:"allowed"`
 }
 
 func (s *RuleService) Preview(ctx context.Context, name string, input RulePreview) ([]RuleDecision, error) {
@@ -35,10 +37,10 @@ func (s *RuleService) Preview(ctx context.Context, name string, input RulePrevie
 	default:
 		return nil, accessrule.ErrInvalid
 	}
-	seen := make(map[uuid.UUID]bool, len(input.RecordIDs))
+	seen := make(map[string]bool, len(input.RecordIDs))
 	results := make([]RuleDecision, len(input.RecordIDs))
 	for i, id := range input.RecordIDs {
-		if id == uuid.Nil || seen[id] {
+		if id == "" || seen[id] {
 			return nil, accessrule.ErrInvalid
 		}
 		seen[id] = true
@@ -57,8 +59,31 @@ func (s *RuleService) Preview(ctx context.Context, name string, input RulePrevie
 		if !ok {
 			return ErrNotFound
 		}
+		ids, err := recordidentity.New(nil).LookupMany(ctx, tx, collection, input.RecordIDs)
+		if err != nil {
+			if errors.Is(err, recordidentity.ErrInvalid) || errors.Is(err, recordidentity.ErrNotFound) {
+				return accessrule.ErrInvalid
+			}
+			return err
+		}
+		internalSeen := make(map[uuid.UUID]bool, len(ids))
+		for i, id := range ids {
+			if id != uuid.Nil {
+				if internalSeen[id] {
+					return accessrule.ErrInvalid
+				}
+				internalSeen[id] = true
+				if collection.RecordID.Kind != schema.RecordIDText {
+					results[i].RecordID = id.String()
+				}
+			}
+		}
+		request := input.Request
+		if request == nil && input.Action == "update" {
+			request = &accessrule.RequestContext{Present: map[string]bool{}, Changed: map[string]bool{}}
+		}
 		predicate, args, err := compileRecordRule(catalog, collection, input.Rule, subject, ruleCompileOptions{
-			request: input.Request, argOffset: 1, requestFallback: input.Action == "update",
+			request: request, argOffset: 1,
 		})
 		if err != nil {
 			return err
@@ -69,7 +94,7 @@ func (s *RuleService) Preview(ctx context.Context, name string, input RulePrevie
 			}
 			return err
 		}
-		args = append([]any{input.RecordIDs}, args...)
+		args = append([]any{ids}, args...)
 		rows, err := tx.Query(ctx, "SELECT id FROM "+pgx.Identifier{"app", collection.TableName}.Sanitize()+" WHERE id=ANY($1::uuid[]) AND ("+predicate+")", args...)
 		if err != nil {
 			return err
@@ -87,7 +112,7 @@ func (s *RuleService) Preview(ctx context.Context, name string, input RulePrevie
 			return err
 		}
 		for i := range results {
-			results[i].Allowed = allowed[results[i].RecordID]
+			results[i].Allowed = ids[i] != uuid.Nil && allowed[ids[i]]
 		}
 		return nil
 	})

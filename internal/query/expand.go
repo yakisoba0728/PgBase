@@ -16,7 +16,6 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/recordartifact"
 	"github.com/yakisoba0728/PgBase/internal/relation"
-	"github.com/yakisoba0728/PgBase/internal/responseprojection"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -85,7 +84,7 @@ func (s *Service) readGet(ctx context.Context, request GetRequest) (getResult, e
 	return result, nil
 }
 
-func (s *Service) readGetInTx(
+func (s *Service) readNativeGetInTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	catalog schema.Catalog,
@@ -142,9 +141,6 @@ func (s *Service) readGetInTx(
 	} else {
 		usage := &expansionUsage{limits: s.expandLimits}
 		plan, err := compileExpandPlan(catalog, collection, request.Expand, usage.limits)
-		if request.PocketBaseCompatibility {
-			plan, err = compilePocketBaseExpandPlan(catalog, collection, request.Expand, usage.limits)
-		}
 		if err != nil {
 			return err
 		}
@@ -187,9 +183,6 @@ func (s *Service) readGetInTx(
 	if err != nil {
 		return err
 	}
-	if request.PocketBaseCompatibility {
-		response = responseprojection.PocketBaseRecord(response, collection.ID.String(), collection.Name)
-	}
 	result.record = Record{Data: projection.apply(response), ETag: etag, Version: version}
 	return nil
 }
@@ -212,11 +205,7 @@ func (s *Service) readList(ctx context.Context, request ListRequest) (result lis
 	if !request.Principal.Valid() {
 		return listResult{}, validation("principal", "invalid")
 	}
-	filterNode, err := parseFilterRequest(request.Filter)
-	if request.PocketBaseCompatibility {
-		filterNode, err = parsePocketBaseFilterRequest(request.Filter)
-		filterNode = markPocketBaseLike(filterNode)
-	}
+	filterNode, err := parseListFilter(request)
 	if err != nil {
 		return listResult{}, err
 	}
@@ -241,7 +230,7 @@ func (s *Service) readList(ctx context.Context, request ListRequest) (result lis
 	return result, err
 }
 
-func (s *Service) readListInTx(
+func (s *Service) readNativeListInTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	catalog schema.Catalog,
@@ -250,18 +239,13 @@ func (s *Service) readListInTx(
 	filterNode filterNode,
 	requestedSort []SortKey,
 ) (listResult, bool, error) {
-	if err := rejectHiddenQueryFields(catalog, collection, request.Principal, filterNode, requestedSort); err != nil {
-		return listResult{}, false, err
+	relationOperation := requestAddressesRelationField(collection, filterNode, effectiveSortKeys(requestedSort))
+	rootPlan, err := s.planNativeRead(ctx, tx, catalog, collection, request, filterNode, requestedSort)
+	if err != nil {
+		return listResult{}, relationOperation, err
 	}
-	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "list"); err != nil {
-		return listResult{}, false, err
-	}
-	var err error
 	projection, err := compileRecordProjection(collection, request.Principal, request.Fields)
 	if err != nil {
-		return listResult{}, false, err
-	}
-	if err := validateSQLViewIdentity(ctx, tx, collection); err != nil {
 		return listResult{}, false, err
 	}
 	var expansion expandPlan
@@ -269,9 +253,6 @@ func (s *Service) readListInTx(
 	if request.Expand != "" {
 		usage = &expansionUsage{limits: s.expandLimits, pageResult: true}
 		expansion, err = compileExpandPlan(catalog, collection, request.Expand, usage.limits)
-		if request.PocketBaseCompatibility {
-			expansion, err = compilePocketBaseExpandPlan(catalog, collection, request.Expand, usage.limits)
-		}
 		if err != nil {
 			return listResult{}, false, err
 		}
@@ -279,44 +260,7 @@ func (s *Service) readListInTx(
 			return listResult{}, false, err
 		}
 	}
-	relationOperation := requestAddressesRelationField(collection, filterNode, effectiveSortKeys(requestedSort))
-	if request.PocketBaseCompatibility {
-		requestedSort = pocketBaseSortKeys(collection, requestedSort)
-	}
-	relationPlan, err := compileRelationListPlan(catalog, collection, filterNode, effectiveSortKeys(requestedSort))
-	if err != nil {
-		if request.Cursor != "" && validationField(err, "sort") {
-			return listResult{}, relationOperation, invalidCursor()
-		}
-		return listResult{}, relationOperation, err
-	}
-	if err := rejectHiddenRelationPlan(request.Principal, relationPlan); err != nil {
-		return listResult{}, relationOperation, err
-	}
-	if relationListPlanUsesRelation(relationPlan) {
-		if err := bindRelationPolicies(ctx, tx, &relationPlan, request.Principal); err != nil {
-			return listResult{}, relationOperation, err
-		}
-	}
-	rootPlan := plannedRootPlan(filterNode, relationPlan)
-	rootPlan.catalogVersion, rootPlan.principal = catalog.Version, request.Principal
-	rootPlan.ruleContext = request.RuleContext
-	rootPlan.policyCollection, err = sourcePolicyCollection(catalog, collection)
-	if err != nil {
-		return listResult{}, relationOperation, err
-	}
 	if request.Principal.Kind == identity.User || request.Principal.Kind == identity.Anonymous {
-		rules, revision, err := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
-		if err != nil {
-			return listResult{}, false, err
-		}
-		if revision == 0 && request.Principal.Kind == identity.User {
-			ownerID := request.Principal.ID
-			rootPlan.ownerID = &ownerID
-		} else {
-			rootPlan.rule = &rules.List
-			rootPlan.ruleRevision = revision
-		}
 		rootPlan.outputRuleScope, err = bindOutputRuleScope(ctx, tx, catalog, collection, expansion)
 		if err != nil {
 			return listResult{}, false, err
@@ -359,11 +303,6 @@ func (s *Service) readListInTx(
 		for _, item := range root.page.Items {
 			hideRecordFields(collection, request.Principal, item)
 		}
-		if request.PocketBaseCompatibility {
-			for index, item := range root.page.Items {
-				root.page.Items[index] = responseprojection.PocketBaseRecord(item, collection.ID.String(), collection.Name)
-			}
-		}
 		return listResult{page: projection.applyPage(root.page)}, relationOperation, nil
 	}
 
@@ -392,9 +331,6 @@ func (s *Service) readListInTx(
 		if err != nil {
 			return listResult{}, relationOperation, err
 		}
-		if request.PocketBaseCompatibility {
-			items[index] = responseprojection.PocketBaseRecord(items[index], collection.ID.String(), collection.Name)
-		}
 	}
 	return listResult{
 		page:     projection.applyPage(RecordPage{Items: items, NextCursor: cursor}),
@@ -402,48 +338,64 @@ func (s *Service) readListInTx(
 	}, relationOperation, nil
 }
 
-// countListInTx counts matching records; a positive limit stops counting there.
-func (s *Service) countListInTx(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, request ListRequest, filterNode filterNode, limit int) (int64, error) {
-	stableSort := []SortKey{{Field: systemFieldID}}
-	if err := rejectHiddenQueryFields(catalog, collection, request.Principal, filterNode, stableSort); err != nil {
-		return 0, err
+func (s *Service) planNativeRead(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, request ListRequest, filterNode filterNode, requestedSort []SortKey) (rootPlan, error) {
+	if err := rejectHiddenQueryFields(catalog, collection, request.Principal, filterNode, requestedSort); err != nil {
+		return rootPlan{}, err
 	}
 	if err := authorizePrincipal(ctx, tx, collection, request.Principal, "list"); err != nil {
-		return 0, err
+		return rootPlan{}, err
 	}
 	if err := validateSQLViewIdentity(ctx, tx, collection); err != nil {
-		return 0, err
+		return rootPlan{}, err
 	}
-	relationPlan, err := compileRelationListPlan(catalog, collection, filterNode, stableSort)
+	relationPlan, err := compileRelationListPlan(catalog, collection, filterNode, effectiveSortKeys(requestedSort))
 	if err != nil {
-		return 0, err
+		if request.Cursor != "" && validationField(err, "sort") {
+			return rootPlan{}, invalidCursor()
+		}
+		return rootPlan{}, err
 	}
 	if err := rejectHiddenRelationPlan(request.Principal, relationPlan); err != nil {
-		return 0, err
+		return rootPlan{}, err
 	}
 	if relationListPlanUsesRelation(relationPlan) {
 		if err := bindRelationPolicies(ctx, tx, &relationPlan, request.Principal); err != nil {
-			return 0, err
+			return rootPlan{}, err
 		}
 	}
 	plan := plannedRootPlan(filterNode, relationPlan)
-	plan.catalogVersion, plan.principal, plan.ruleContext = catalog.Version, request.Principal, request.RuleContext
+	plan.catalogVersion, plan.principal = catalog.Version, request.Principal
+	plan.ruleContext = request.RuleContext
 	plan.policyCollection, err = sourcePolicyCollection(catalog, collection)
 	if err != nil {
-		return 0, err
+		return rootPlan{}, err
 	}
 	if request.Principal.Kind == identity.User || request.Principal.Kind == identity.Anonymous {
-		rules, revision, loadErr := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
-		if loadErr != nil {
-			return 0, loadErr
+		rules, revision, err := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
+		if err != nil {
+			return rootPlan{}, err
 		}
 		if revision == 0 && request.Principal.Kind == identity.User {
 			ownerID := request.Principal.ID
 			plan.ownerID = &ownerID
 		} else {
-			plan.rule, plan.ruleRevision = &rules.List, revision
+			plan.rule = &rules.List
+			plan.ruleRevision = revision
 		}
 	}
+	return plan, nil
+}
+
+// countListInTx counts matching records; a positive limit stops counting there.
+func (s *Service) countListInTx(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, request ListRequest, filterNode filterNode, limit int) (int64, error) {
+	plan, err := s.planRead(ctx, tx, catalog, collection, request, filterNode, nil)
+	if err != nil {
+		return 0, err
+	}
+	return s.countPlanInTx(ctx, tx, collection, plan, limit)
+}
+
+func (s *Service) countPlanInTx(ctx context.Context, tx pgx.Tx, collection schema.Collection, plan rootPlan, limit int) (int64, error) {
 	traversal, err := s.resolveReadTraversal(ctx, tx, collection)
 	if err != nil {
 		return 0, err
@@ -640,6 +592,9 @@ func (s *Service) fetchExpansionTargets(
 		if err := usage.takeRows(used); err != nil {
 			return nil, err
 		}
+	}
+	if err := filterRelationValues(ctx, tx, catalog, collection, records, principal, ruleContext); err != nil {
+		return nil, err
 	}
 	for _, record := range records {
 		id, err := canonicalRecordID(record)

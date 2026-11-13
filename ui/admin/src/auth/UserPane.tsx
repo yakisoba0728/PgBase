@@ -237,17 +237,17 @@ function ProfileForm({ userId, collection, record, onDelete }: { userId: string;
         <h2>{t("auth.user.record")}</h2>
         {record.id !== userId && <p className="txt-hint mono">{record.id}</p>}
       </header>
-      <form id="auth-user-record" className="form" onSubmit={onSubmit} noValidate autoComplete="off">
+      <form id="auth-user-record" className="form" onSubmit={onSubmit} noValidate autoComplete="off"><fieldset disabled={save.isPending} className="form">
         <Field label={t("auth.users.email")} type="email" value={draft.email} error={problemText(t, problems, "email")} onChange={(event) => patch({ email: event.target.value })} />
         <Field label={t("auth.user.newPassword")} type="password" autoComplete="new-password" value={draft.password} hint={t("auth.user.newPasswordHint")} onChange={(event) => patch({ password: event.target.value })} />
         <Checkbox label={t("auth.user.emailVisibility")} checked={draft.emailVisibility} onChange={(event) => patch({ emailVisibility: event.target.checked })} />
         <ProfileFields t={t} fields={fields} draft={draft.profile} problems={profileProblems} onChange={(name, value) => patch({ profile: { ...draft.profile, [name]: value } })} />
-      </form>
+      </fieldset></form>
       <div className="auth-record-footer">
         <Button size="sm" variant="transparent" className="txt-danger" onClick={onDelete}>{t("auth.user.delete")}</Button>
         <SaveBar form="auth-user-record" dirty={form.dirty} busy={save.isPending} onDiscard={form.reset} />
       </div>
-      <UnsavedGuard dirty={form.dirty} />
+      <UnsavedGuard dirty={form.dirty} busy={save.isPending} />
     </section>
   );
 }

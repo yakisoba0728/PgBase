@@ -61,14 +61,8 @@ func (r *Runner) UpThrough(ctx context.Context, target int64) (receipt UpThrough
 	appliedTarget := false
 	var executionMS int64
 	err = r.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, "set local lock_timeout = '5s'"); err != nil {
-			return fmt.Errorf("set migration lock timeout: %w", err)
-		}
-		if _, err := tx.Exec(ctx, "set local statement_timeout = 0"); err != nil {
-			return fmt.Errorf("disable request statement timeout for migrations: %w", err)
-		}
-		if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", advisoryLockKey); err != nil {
-			return fmt.Errorf("acquire migration advisory lock: %w", err)
+		if err := lockMigrationTransaction(ctx, tx); err != nil {
+			return err
 		}
 		applied, present, err := readAppliedIfPresent(ctx, tx)
 		if err != nil {
@@ -95,15 +89,9 @@ func (r *Runner) UpThrough(ctx context.Context, target int64) (receipt UpThrough
 			return nil
 		}
 
-		migrationStarted := time.Now()
-		if _, err := tx.Exec(ctx, targetMigration.SQL); err != nil {
-			return fmt.Errorf("apply system migration %d (%s): %w", targetMigration.Version, targetMigration.Name, err)
-		}
-		executionMS = time.Since(migrationStarted).Milliseconds()
-		if _, err := tx.Exec(ctx, `
-			insert into pgbase_meta.system_migrations (version, name, checksum, execution_ms)
-			values ($1, $2, $3, $4)`, targetMigration.Version, targetMigration.Name, targetMigration.SHA256[:], executionMS); err != nil {
-			return fmt.Errorf("record system migration %d (%s): %w", targetMigration.Version, targetMigration.Name, err)
+		executionMS, err = applyMigration(ctx, tx, targetMigration)
+		if err != nil {
+			return err
 		}
 		appliedTarget = true
 		return nil

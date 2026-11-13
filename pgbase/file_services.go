@@ -140,7 +140,7 @@ func withFileServices(ctx context.Context, dependencies api.Dependencies, pool *
 		if operation == filestore.OperationWrite {
 			action = "update"
 		}
-		allowed, err := recordaccess.AllowsRecord(ctx, tx, collection, principal, action, recordID, false)
+		allowed, err := recordaccess.AllowsRecordInCatalog(ctx, tx, catalog, collection, principal, action, recordID, false, nil)
 		if err != nil {
 			return err
 		}

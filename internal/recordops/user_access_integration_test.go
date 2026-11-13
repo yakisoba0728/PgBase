@@ -120,7 +120,7 @@ func TestCountForwardsRequestContextUsedByListRule(t *testing.T) {
 	ctx := context.Background()
 	f.create(t, f.admin, "counted", "request-context-count-admin-01")
 	f.enable(t, "records")
-	listRule, err := query.ParsePocketBaseAccessRule("@request.context.channel = 'allowed'")
+	listRule, err := query.ParseAccessRule("@request.context.channel = 'allowed'")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -25,7 +25,7 @@ func TestExtensionCompatibilityUsesBoundedConfiguredAdapters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapter := newExtensionCompatibility(options)
+	adapter := newExtensionHostPolicy(options)
 	call := func(method, input string) json.RawMessage {
 		t.Helper()
 		out, err := adapter.call(context.Background(), method, json.RawMessage(input))
@@ -58,7 +58,7 @@ func TestExtensionCompatibilityUsesBoundedConfiguredAdapters(t *testing.T) {
 }
 
 func TestExtensionCompatibilityProcessControlDefaultsToDenied(t *testing.T) {
-	adapter := newExtensionCompatibility(PocketBaseCompatibilityOptions{})
+	adapter := newExtensionHostPolicy(PocketBaseCompatibilityOptions{})
 	if _, err := adapter.call(context.Background(), "os.exit", json.RawMessage(`{"code":0}`)); err == nil {
 		t.Fatal("process exit accepted without callback")
 	}
@@ -80,7 +80,7 @@ func TestExtensionCompatibilityGlobIsRooted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapter := newExtensionCompatibility(options)
+	adapter := newExtensionHostPolicy(options)
 	raw, err := adapter.call(context.Background(), "os.glob", json.RawMessage(`{"path":"*.txt"}`))
 	if err != nil {
 		t.Fatal(err)

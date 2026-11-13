@@ -61,7 +61,7 @@ func waitFinalJob(t *testing.T, manager *Manager, id string) {
 			t.Fatal(err)
 		}
 		if job.Status != "running" {
-			manager.wg.Wait()
+			waitManagerIdle(t, manager)
 			return
 		}
 		time.Sleep(time.Millisecond)

@@ -22,6 +22,10 @@ func TestJavaScriptLocalSystemServesRootedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	external := t.TempDir()
+	// Existing siblings prove rejection comes from the selected subroot, not a missing target.
+	if err := os.WriteFile(filepath.Join(root, "asset.txt"), []byte("private sibling"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(files, "asset.txt"), []byte("local served"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -29,6 +33,9 @@ func TestJavaScriptLocalSystemServesRootedFile(t *testing.T) {
 	value := image.NewRGBA(image.Rect(0, 0, 4, 2))
 	value.Set(0, 0, color.RGBA{R: 255, A: 255})
 	if err := png.Encode(&source, value); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "image.png"), source.Bytes(), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(files, "image.png"), source.Bytes(), 0o600); err != nil {

@@ -490,6 +490,10 @@ func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw 
 		return err
 	}
 	initialCatalog := catalog
+	initialManifest, err := ExpectedPhysicalSchemaForCatalog(catalog)
+	if err != nil {
+		return err
+	}
 	beforeMap, afterMap := migrationCollectionMap(before), migrationCollectionMap(after)
 	currentViews := orderedMigrationViews(before, true)
 	for _, item := range currentViews {
@@ -606,6 +610,13 @@ func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw 
 		if _, err := tx.Exec(ctx, `insert into pgbase_meta.collection_rules(collection_id,rules) values($1,$2::jsonb) on conflict(collection_id) do update set rules=excluded.rules,revision=pgbase_meta.collection_rules.revision+1,updated_at=clock_timestamp()`, collection.ID, string(item.Rules)); err != nil {
 			return err
 		}
+	}
+	finalManifest, err := ExpectedPhysicalSchemaForCatalog(catalog)
+	if err != nil {
+		return err
+	}
+	if err := settleCompanionIndexCapability(ctx, tx, companions && !companionGapAfterChange(initialManifest.companion, finalManifest.companion), catalog.Version, int64(len(finalManifest.companion))); err != nil {
+		return err
 	}
 	finalRaw, err := ExportMigrationSnapshot(ctx, tx)
 	if err != nil {

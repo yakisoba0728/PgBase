@@ -169,7 +169,6 @@ func (s *Service) applyClaimedOperation(
 	if err != nil {
 		rollbackOperationTx(tx)
 		txClosed = true
-		s.cache.discardPrepared(nextCatalog)
 		releaseConnection()
 		return s.failClaimedOperation(claim, err)
 	}
@@ -183,7 +182,6 @@ func (s *Service) applyClaimedOperation(
 		txClosed = true
 		releaseConnection()
 		if schemaCommitDefinitelyFailed(err) {
-			s.cache.discardPrepared(nextCatalog)
 			return s.failClaimedOperation(claim, fmt.Errorf("commit schema operation: %w", err))
 		}
 		return s.resolveAmbiguousSchemaCommit(claim, result, nextCatalog)
@@ -532,7 +530,6 @@ func (s *Service) resolveAmbiguousSchemaCommit(
 	row, err := s.markOperationUnknown(cleanupCtx, claim)
 	cancel()
 	if err != nil {
-		s.cache.discardPrepared(nextCatalog)
 		receipt := operationReceipt(claim.row)
 		ref := OperationRef{actorID: claim.row.actorID, operationID: claim.row.operationID}
 		return ApplyResult{Receipt: receipt}, newOperationRecoveryError(ref, nil)
@@ -543,7 +540,6 @@ func (s *Service) resolveAmbiguousSchemaCommit(
 		s.materializeSchemaMigration(context.Background(), claim.row.operationID)
 		return committedResult, nil
 	}
-	s.cache.discardPrepared(nextCatalog)
 	result, terminalErr := replayedApplyResult(row)
 	result.Replayed = false
 	return result, terminalErr

@@ -39,7 +39,7 @@ func (s *RuleService) Get(ctx context.Context, name string) (RulePolicy, error) 
 		if !ok {
 			return ErrNotFound
 		}
-		rules, revision, err := LoadRules(ctx, tx, collection.ID)
+		rules, revision, err := LoadRules(ctx, tx, collection.AccessCollectionID())
 		result = RulePolicy{name, rules, revision}
 		return err
 	})
@@ -56,6 +56,9 @@ func (s *RuleService) Set(ctx context.Context, name string, rules accessrule.Rul
 		collection, ok := catalog.Collections[name]
 		if !ok {
 			return ErrNotFound
+		}
+		if collection.IsView() && !collection.IsSQLView() {
+			return ErrUnsupported
 		}
 		// Schema imports use the collection row as the common lock even before
 		// either optional policy row exists. This prevents concurrent first
@@ -88,12 +91,9 @@ func ValidateRules(catalog schema.Catalog, collection schema.Collection, rules a
 	for _, action := range []string{"list", "view", "create", "update", "delete"} {
 		rule, _ := rules.Action(action)
 		principal := identity.Subject{Kind: identity.User, ID: uuid.New()}
-		var request *accessrule.RequestContext
-		if action == "create" || action == "update" {
-			request = &accessrule.RequestContext{Present: map[string]bool{}, Changed: map[string]bool{}}
-		}
-		if _, _, err := compileRecordRule(catalog, collection, rule, principal, ruleCompileOptions{
-			request: request, prospectiveOwner: action == "create", requestFallback: request != nil,
+		if err := accessrule.ValidatePolicy(rule, accessrule.PolicyContext{
+			Catalog: catalog, Collection: collection, Alias: collection.TableName, Principal: principal,
+			ProspectiveOwner: action == "create",
 		}); err != nil {
 			if errors.Is(err, accessrule.ErrInvalid) {
 				return accessrule.ActionError(action, "invalid_rule", err)

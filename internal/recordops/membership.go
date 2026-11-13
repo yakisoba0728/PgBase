@@ -20,6 +20,13 @@ type membershipWriterProvider struct {
 	injected bool
 }
 
+type compoundMembershipKey struct{}
+
+type compoundMembership struct {
+	provider *membershipWriterProvider
+	writer   membership.Writer
+}
+
 type transactionalMembershipError struct {
 	cause error
 }
@@ -44,10 +51,20 @@ func (p *membershipWriterProvider) writer(ctx context.Context) (membership.Write
 		return membership.Writer{}, membership.ErrUnavailable
 	}
 
+	if ready, ok := ctx.Value(compoundMembershipKey{}).(compoundMembership); ok && ready.provider == p {
+		return ready.writer, nil
+	}
+
 	p.mu.Lock()
 	runtime := p.runtime
 	injected := p.injected
 	if runtime == nil {
+		if _, borrowed := database.TransactionFromContext(ctx); borrowed {
+			// Registration takes control-plane locks and must precede the
+			// caller's schema-pinned transaction.
+			p.mu.Unlock()
+			return membership.Writer{}, membership.ErrUnavailable
+		}
 		var err error
 		runtime, err = membership.RegisterWriter(ctx, membership.New(p.pool), membership.WriterC)
 		if err != nil {

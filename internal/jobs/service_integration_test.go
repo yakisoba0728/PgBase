@@ -32,8 +32,8 @@ func TestRunnerClaimsOnceFencesStaleWorkersAndRecoversFailures(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	first := NewService(pool, registry, nil, uuid.New())
-	second := NewService(pool, registry, nil, uuid.New())
+	first := NewService(pool, registry, nil)
+	second := NewService(pool, registry, nil)
 	done := make(chan error, 1)
 	go func() { done <- first.RunOnce(ctx) }()
 	<-started
@@ -108,7 +108,7 @@ func TestRunnerTimeoutAndShutdown(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	runner := NewService(pool, registry, nil, uuid.New())
+	runner := NewService(pool, registry, nil)
 	runner.timeout = 20 * time.Millisecond // execution stays below the fixed one-minute lease.
 	if err := runner.RunOnce(ctx); err != nil {
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestIgnoringHandlerMayRunTwiceButStaleCompletionIsFenced(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	first, second := NewService(pool, registry, nil, uuid.New()), NewService(pool, registry, nil, uuid.New())
+	first, second := NewService(pool, registry, nil), NewService(pool, registry, nil)
 	first.timeout = 10 * time.Millisecond
 	done := make(chan error, 1)
 	go func() { done <- first.RunOnce(ctx) }()

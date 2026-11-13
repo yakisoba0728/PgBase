@@ -1,3 +1,4 @@
+import { parseJson } from "../api/http";
 import type { Collection, CollectionField } from "../api/collections";
 import type { Action } from "../rules/model";
 
@@ -39,12 +40,12 @@ function exampleValue(field: CollectionField): unknown {
     case "editor":
       return "<p>Hello</p>";
     case "integer":
-      return options.min !== undefined ? Number(options.min) : 1;
+      return parseJson(options.min ?? options.max ?? "1");
     // bigint and numeric travel as exact JSON strings (internal/query/codec.go).
     case "bigint":
-      return options.min ?? "1";
+      return options.min ?? options.max ?? "1";
     case "numeric":
-      return options.min ?? "1.5";
+      return options.min ?? options.max ?? "1.5";
     case "boolean":
       return true;
     case "timestamptz":
@@ -53,7 +54,7 @@ function exampleValue(field: CollectionField): unknown {
     case "uuid":
       return exampleId;
     case "jsonb":
-      return options.allowedValues?.length ? [options.allowedValues[0]] : { key: "value" };
+      return options.allowedValues?.length ? options.allowedValues.slice(0, options.minSelect ?? (options.maxSelect === 0 ? 0 : 1)) : { key: "value" };
     case "relation":
       return field.relation?.cardinality === "multiple" ? [exampleId] : exampleId;
     case "geoPoint":
@@ -111,6 +112,7 @@ export function buildEndpoints(collection: Collection, audience: Audience, realm
     { id: "delete", method: "DELETE", path: one, rule: "delete", headers: { "If-Match": '"etag"' }, status: 204 },
     {
       id: "batch",
+      userOnly: audience === "user",
       method: "POST",
       path: `${prefix}/collections/batch`,
       body: { operations: [{ operation: "create", collection: collection.name, input: body, idempotencyKey: "batch-create-000001" }] },
@@ -133,10 +135,15 @@ export function buildEndpoints(collection: Collection, audience: Audience, realm
   if (collection.type === "auth" && realm) {
     const auth = `/api/v1/auth/${name}`;
     const session = { token: "<token>", user: { id: exampleId, email: "person@example.com", createdAt: exampleTime }, expiresAt: exampleTime };
+    const profile = { ...body };
+    for (const field of collection.fields.filter((field) => !field.system)) {
+      if (["integer", "bigint", "numeric"].includes(field.type)) profile[field.name] = parseJson(String(exampleValue(field)));
+      if (field.type === "file" && field.required) profile[field.name] = Array.from({ length: Number(field.options?.minSelect ?? 0) }, () => exampleId);
+    }
     const credentials = { email: "person@example.com", password: "a-long-passphrase" };
     endpoints.push(
       { id: "authMethods", method: "GET", path: `${auth}/methods`, status: 200, response: { passwordEnabled: true, identityFields: ["email"], otpEnabled: false, mfaEnabled: false, oauthProviders: [], oauth2: { enabled: false, providers: [] } } },
-      { id: "authRegister", method: "POST", path: `${auth}/register`, body: credentials, status: 201, response: session },
+      { id: "authRegister", method: "POST", path: `${auth}/register`, body: { ...credentials, fields: profile }, status: 201, response: session },
       { id: "authLogin", method: "POST", path: `${auth}/login`, body: credentials, status: 200, response: session },
       { id: "authRefresh", method: "POST", path: `${auth}/refresh`, userOnly: true, status: 200, response: session },
       { id: "authProfile", method: "GET", path: `${auth}/profile`, userOnly: true, status: 200, response: { attributes: body } },

@@ -31,6 +31,9 @@ export interface RequestOptions {
 
 const csrfHeader = "X-PgBase-CSRF";
 let csrfToken = "";
+let generation = 0;
+export const sessionGeneration = () => generation;
+export const advanceSession = () => { generation++; };
 
 export function setCsrfToken(token: string): void {
   csrfToken = token;
@@ -78,8 +81,8 @@ export function parseJson(text: string): unknown {
   return parse(text, null, (value) => (isSafeNumber(value) ? Number(value) : new LosslessNumber(value)));
 }
 
-export function stringifyJson(value: unknown): string {
-  const text = stringify(value);
+export function stringifyJson(value: unknown, space?: number): string {
+  const text = stringify(value, null, space);
   if (text === undefined) throw new TypeError("value is not JSON-serializable");
   return text;
 }
@@ -168,6 +171,7 @@ export function uploadForm<T>(path: string, form: FormData, options: { headers?:
 
 function uploadOnce<T>(path: string, form: FormData, options: { headers?: Record<string, string>; onProgress?: (fraction: number) => void; signal?: AbortSignal }): Promise<T> {
   return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) { reject(options.signal.reason ?? new DOMException("Aborted", "AbortError")); return; }
     const xhr = new XMLHttpRequest();
     xhr.open("POST", path);
     xhr.withCredentials = true;

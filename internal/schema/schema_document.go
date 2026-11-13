@@ -1,12 +1,14 @@
 package schema
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"sort"
 	"time"
@@ -58,7 +60,8 @@ type SchemaImportIntent struct {
 	Actor          uuid.UUID
 	OperationID    uuid.UUID
 	IdempotencyKey string
-	ValidateRules  func(Collection, json.RawMessage) error
+	// Custom policies require a validator; nil permits only the built-in owner policy.
+	ValidateRules func(Catalog, Collection, json.RawMessage) error
 }
 
 type SchemaImportResult struct {
@@ -131,6 +134,9 @@ func exportDocumentCollection(ctx context.Context, tx pgx.Tx, catalog Catalog, c
 			item.DependsOn = append(item.DependsOn, c.View.Source)
 		}
 		sort.Strings(item.DependsOn)
+	}
+	if c.IsView() && !c.IsSQLView() {
+		return item, nil
 	}
 	if err := tx.QueryRow(ctx, `select coalesce((select enabled from pgbase_meta.collection_access where collection_id=$1),false)`, c.ID).Scan(&item.UserAccess); err != nil {
 		return item, err
@@ -249,14 +255,36 @@ func (s *Service) planSchemaImport(ctx context.Context, tx pgx.Tx, catalog Catal
 	return SchemaImportPlan{BaseVersion: catalog.Version, Checksum: checksum, PolicyChecksum: policyChecksum, Changes: plans, Document: document, validationCatalog: projected}, err
 }
 
-func (s *Service) ValidateSchemaImportPlan(plan SchemaImportPlan, validate func(Collection, json.RawMessage) error) error {
+func (s *Service) ValidateSchemaImportPlan(plan SchemaImportPlan, validate func(Catalog, Collection, json.RawMessage) error) error {
 	if validate == nil {
-		return nil
+		validate = validateDefaultOwnerRules
 	}
 	for _, item := range plan.Document.Collections {
 		collection, ok := plan.validationCatalog.Collections[item.Name]
-		if !ok || validate(collection, item.Rules) != nil {
+		if !ok || validate(plan.validationCatalog, collection, item.Rules) != nil {
 			return validation("collections."+item.Name+".rules", "invalid")
+		}
+	}
+	return nil
+}
+
+// Schema-only callers may retain the built-in owner policy without installing
+// the policy engine. Every custom policy needs an explicit validator.
+func validateDefaultOwnerRules(_ Catalog, _ Collection, raw json.RawMessage) error {
+	if len(raw) == 0 || len(raw) > 16384 {
+		return validation("rules", "validator_required")
+	}
+	var rules map[string]struct {
+		Op string `json:"op"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&rules) != nil || len(rules) != 5 || decoder.Decode(new(any)) != io.EOF {
+		return validation("rules", "validator_required")
+	}
+	for _, action := range []string{"list", "view", "create", "update", "delete"} {
+		if rules[action].Op != "owner" {
+			return validation("rules", "validator_required")
 		}
 	}
 	return nil
@@ -266,6 +294,14 @@ func importChanges(catalog Catalog, document SchemaDocument) ([]Change, error) {
 	seen := map[string]struct{}{}
 	base, views := []SchemaDocumentCollection{}, []SchemaDocumentCollection{}
 	for i, item := range document.Collections {
+		if item.View != nil && item.View.SQL == "" {
+			if item.UserAccess {
+				return nil, validation("collections."+item.Name+".userAccess", "inherited_policy")
+			}
+			if validateDefaultOwnerRules(Catalog{}, Collection{}, item.Rules) != nil {
+				return nil, validation("collections."+item.Name+".rules", "inherited_policy")
+			}
+		}
 		if _, ok := seen[item.Name]; ok {
 			return nil, validation(fmt.Sprintf("collections.%d.name", i), "duplicate_name")
 		}
@@ -502,6 +538,14 @@ func importedIndexes(current Collection, imported []IndexInput) []IndexInput {
 }
 
 func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportIntent) (result SchemaImportResult, err error) {
+	if intent.ValidateRules == nil {
+		for _, item := range intent.Document.Collections {
+			if validateDefaultOwnerRules(Catalog{}, Collection{}, item.Rules) != nil {
+				return result, validation("collections."+item.Name+".rules", "invalid")
+			}
+		}
+		intent.ValidateRules = validateDefaultOwnerRules
+	}
 	if intent.Actor == uuid.Nil || intent.OperationID == uuid.Nil || !validOperationIdempotencyKey(intent.IdempotencyKey) {
 		return result, validation("actor", "required")
 	}
@@ -570,6 +614,10 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 			return ErrConflict
 		}
 		catalog, err := store.ReadCatalog(ctx, version)
+		if err != nil {
+			return err
+		}
+		initialManifest, err := ExpectedPhysicalSchemaForCatalog(catalog)
 		if err != nil {
 			return err
 		}
@@ -686,8 +734,11 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 				}
 			}
 			collection := catalog.Collections[item.Name]
-			if intent.ValidateRules != nil && intent.ValidateRules(collection, item.Rules) != nil {
+			if intent.ValidateRules(catalog, collection, item.Rules) != nil {
 				return validation("collections."+item.Name+".rules", "invalid")
+			}
+			if collection.IsView() && !collection.IsSQLView() {
+				continue
 			}
 			if _, err := tx.Exec(ctx, `insert into pgbase_meta.collection_access(collection_id,enabled) values($1,$2) on conflict(collection_id) do update set enabled=excluded.enabled`, collection.ID, item.UserAccess); err != nil {
 				return err
@@ -707,23 +758,32 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 		if err != nil {
 			return err
 		}
+		if err := settleCompanionIndexCapability(ctx, tx, companions && !companionGapAfterChange(initialManifest.companion, prepared.expectedPhysicalSchema.companion), catalog.Version, int64(len(prepared.expectedPhysicalSchema.companion))); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, "select pg_notify('pgbase_schema_changed',$1)", fmt.Sprint(catalog.Version)); err != nil {
 			return err
 		}
-		if s.migrationRecorder != nil && len(changes) != 0 {
+		if s.migrationRecorder != nil {
 			migrationAfter, snapshotErr := ExportMigrationSnapshot(ctx, tx)
 			if snapshotErr != nil {
 				return fmt.Errorf("snapshot schema after automatic migration recording: %w", snapshotErr)
 			}
-			var committedAt time.Time
-			if scanErr := tx.QueryRow(ctx, `select clock_timestamp()`).Scan(&committedAt); scanErr != nil {
-				return scanErr
+			equivalent, err := migrationSnapshotMatches(migrationBefore, migrationAfter)
+			if err != nil {
+				return err
 			}
-			if recordErr := s.migrationRecorder.RecordSchemaMigration(ctx, tx, MigrationRecording{
-				OperationID: intent.OperationID, Name: "schema_import", Before: migrationBefore,
-				After: migrationAfter, CommittedAt: committedAt.UTC(),
-			}); recordErr != nil {
-				return fmt.Errorf("record automatic user migration: %w", recordErr)
+			if !equivalent {
+				var committedAt time.Time
+				if scanErr := tx.QueryRow(ctx, `select clock_timestamp()`).Scan(&committedAt); scanErr != nil {
+					return scanErr
+				}
+				if recordErr := s.migrationRecorder.RecordSchemaMigration(ctx, tx, MigrationRecording{
+					OperationID: intent.OperationID, Name: "schema_import", Before: migrationBefore,
+					After: migrationAfter, CommittedAt: committedAt.UTC(),
+				}); recordErr != nil {
+					return fmt.Errorf("record automatic user migration: %w", recordErr)
+				}
 			}
 		}
 		if _, err := tx.Exec(ctx, `update pgbase_meta.schema_import_operations set status='committed',committed_version=$2,applied=$3,updated_at=clock_timestamp(),completed_at=clock_timestamp() where operation_id=$1`, intent.OperationID, catalog.Version, len(changes)); err != nil {
@@ -733,7 +793,6 @@ func (s *Service) ApplySchemaImport(ctx context.Context, intent SchemaImportInte
 		return nil
 	})
 	if err != nil {
-		s.cache.discardPrepared(prepared)
 		if ownsClaim {
 			s.finalizeSchemaImportFailure(ctx, intent, idempotencyHash[:], requestHash)
 		}

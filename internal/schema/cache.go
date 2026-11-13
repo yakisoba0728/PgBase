@@ -1,15 +1,11 @@
 package schema
 
-import (
-	"sync"
-	"sync/atomic"
-)
+import "sync/atomic"
 
-// Cache publishes immutable catalog snapshots atomically.
+// Cache contains only committed immutable catalogs. Candidates belong to the
+// transaction that compiled them and never enter shared state before commit.
 type Cache struct {
-	current   atomic.Pointer[compiledCatalog]
-	compileMu sync.Mutex
-	prepared  map[int64]*compiledCatalog
+	current atomic.Pointer[compiledCatalog]
 }
 
 // Load returns a caller-owned copy of the currently published catalog.
@@ -24,83 +20,45 @@ func (c *Cache) Load() Catalog {
 	return cloneCatalog(current.catalog)
 }
 
-// find returns a compiled snapshot only for the requested catalog version.
-// A prepared snapshot is not globally visible until a transaction that reads
-// the same committed schema version proves it is safe to publish.
 func (c *Cache) find(version int64) *compiledCatalog {
-	if c == nil {
-		return nil
-	}
-	if current := c.current.Load(); current != nil && current.catalog.Version == version {
-		return current
-	}
-	c.compileMu.Lock()
-	defer c.compileMu.Unlock()
-	if current := c.current.Load(); current != nil && current.catalog.Version == version {
-		return current
-	}
-	return c.prepared[version]
-}
-
-// prepare validates and compiles one immutable snapshot per committed version.
-// Callers must publish it only after their transaction commits, or discard it
-// when the transaction rolls back.
-func (c *Cache) prepare(catalog Catalog, wireLimit int) (*compiledCatalog, error) {
-	if c == nil {
-		return compileCatalogWithLimit(catalog, wireLimit)
-	}
-	c.compileMu.Lock()
-	defer c.compileMu.Unlock()
-	if current := c.current.Load(); current != nil {
-		switch {
-		case current.catalog.Version == catalog.Version:
-			return current, nil
-		case current.catalog.Version > catalog.Version:
-			return nil, ErrConflict
+	if c != nil {
+		if current := c.current.Load(); current != nil && current.catalog.Version == version {
+			return current
 		}
 	}
-	if prepared := c.prepared[catalog.Version]; prepared != nil && sameCatalogContent(catalog, prepared.catalog) {
-		return prepared, nil
-	}
-	compiled, err := compileCatalogWithLimit(catalog, wireLimit)
-	if err != nil {
-		return nil, err
-	}
-	if c.prepared == nil {
-		c.prepared = make(map[int64]*compiledCatalog)
-	}
-	c.prepared[catalog.Version] = compiled
-	return compiled, nil
+	return nil
 }
 
-func (c *Cache) discardPrepared(compiled *compiledCatalog) {
-	if c == nil || compiled == nil {
-		return
+// prepare returns a transaction-local candidate, reusing only committed data.
+func (c *Cache) prepare(catalog Catalog, wireLimit int) (*compiledCatalog, error) {
+	if c != nil {
+		if current := c.current.Load(); current != nil {
+			if current.catalog.Version > catalog.Version {
+				return nil, ErrConflict
+			}
+			if current.catalog.Version == catalog.Version {
+				if !sameCatalogContent(catalog, current.catalog) {
+					return nil, ErrConflict
+				}
+				return current, nil
+			}
+		}
 	}
-	c.compileMu.Lock()
-	defer c.compileMu.Unlock()
-	if c.prepared[compiled.catalog.Version] == compiled {
-		delete(c.prepared, compiled.catalog.Version)
-	}
+	return compileCatalogWithLimit(catalog, wireLimit)
 }
 
+// publish is called only after the owning transaction has committed.
 func (c *Cache) publish(compiled *compiledCatalog) {
 	if c == nil || compiled == nil {
 		return
 	}
-	c.compileMu.Lock()
-	defer c.compileMu.Unlock()
-	current := c.current.Load()
-	if current == nil || current.catalog.Version < compiled.catalog.Version {
-		c.current.Store(compiled)
-		c.removePreparedThrough(compiled.catalog.Version)
-	}
-}
-
-func (c *Cache) removePreparedThrough(version int64) {
-	for candidate := range c.prepared {
-		if candidate <= version {
-			delete(c.prepared, candidate)
+	for {
+		current := c.current.Load()
+		if current != nil && current.catalog.Version >= compiled.catalog.Version {
+			return
+		}
+		if c.current.CompareAndSwap(current, compiled) {
+			return
 		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/backup"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/jobs"
 	"github.com/yakisoba0728/PgBase/internal/migrate"
@@ -43,11 +44,11 @@ func newExtensionAppControl(app *App, options *JavaScriptOptions) *extensionAppC
 		if options.MaximumAppStoreEntries > 0 {
 			control.storeEntryLimit = options.MaximumAppStoreEntries
 		}
-		control.dataDir = options.PocketBaseCompatibility.DataDirectory
-		control.encryptEnv = options.PocketBaseCompatibility.EncryptionEnvironment
-		control.dev = options.PocketBaseCompatibility.Development
-		control.restart = options.PocketBaseCompatibility.ProcessRestart
-		control.lifecycle = options.PocketBaseCompatibility.ProcessAppControl
+		control.dataDir = options.Host.DataDirectory
+		control.encryptEnv = options.Host.EncryptionEnvironment
+		control.dev = options.Host.Development
+		control.restart = options.Host.ProcessRestart
+		control.lifecycle = options.Host.ProcessAppControl
 	}
 	return control
 }
@@ -99,16 +100,16 @@ func (host *extensionHost) callAppControl(ctx context.Context, method string, ra
 	case "app-control.storeGet", "app-control.storeSet", "app-control.storeDelete":
 		return control.callStore(method, raw)
 	case "app-control.createBackup":
-		if control.app.backupManager == nil {
+		if control.backupManager() == nil {
 			return nil, extensionError("backup_unavailable", errors.New("backup manager is unavailable"))
 		}
-		job, err := control.app.backupManager.Create(ctx)
+		job, err := control.backupManager().Create(ctx)
 		if err != nil {
 			return nil, extensionError("backup_create_failed", err)
 		}
 		return json.Marshal(job)
 	case "app-control.restoreBackup":
-		if control.app.backupManager == nil {
+		if control.backupManager() == nil {
 			return nil, extensionError("backup_unavailable", errors.New("backup manager is unavailable"))
 		}
 		var request struct {
@@ -117,7 +118,7 @@ func (host *extensionHost) callAppControl(ctx context.Context, method string, ra
 		if err := decodeExtensionInput(raw, &request); err != nil || request.ID == "" {
 			return nil, extensionError("invalid_backup", err)
 		}
-		job, err := control.app.backupManager.Restore(ctx, request.ID)
+		job, err := control.backupManager().Restore(ctx, request.ID)
 		if err != nil {
 			return nil, extensionError("backup_restore_failed", err)
 		}
@@ -248,12 +249,19 @@ func (control *extensionAppControl) callBackupFilesystem(ctx context.Context, me
 	return json.Marshal(map[string]string{"data": base64.StdEncoding.EncodeToString(data)})
 }
 
+func (control *extensionAppControl) backupManager() *backup.Manager {
+	if control.app.backupManager != nil {
+		return control.app.backupManager
+	}
+	return control.app.options.Backups.manager
+}
+
 func (control *extensionAppControl) runAppMigrations(ctx context.Context) ([]UserMigrationResult, error) {
 	migrations, err := control.app.JavaScriptMigrations()
 	if err != nil {
 		return nil, err
 	}
-	runner, err := NewUserMigrationRunner(control.app, migrations)
+	runner, err := NewUserMigrationRunner(control.app, append(RegisteredUserMigrations(), migrations...))
 	if err != nil {
 		return nil, err
 	}

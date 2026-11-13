@@ -101,7 +101,11 @@ func (p *HTTPOAuthProvider) applePublicKey(ctx context.Context, kid string, refr
 			return key, nil
 		}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.config.UserInfoURL, nil)
+	endpoint := p.config.JWKSURL
+	if endpoint == "" {
+		endpoint = p.config.UserInfoURL
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}

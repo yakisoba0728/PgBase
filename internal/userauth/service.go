@@ -104,7 +104,7 @@ func (s *Service) RegisterInCollectionWithFields(ctx context.Context, collection
 		return Session{}, err
 	}
 	user := User{ID: uuid.New(), AuthCollectionID: collectionID, Email: normalized, CreatedAt: now}
-	issued, err := s.createUserAndSession(ctx, user, passwordHash, now, fields)
+	issued, err := s.createUserAndSession(ctx, user, passwordHash, now, fields, password)
 	if database.Classify(err) == database.KindConflict {
 		return Session{}, ErrConflict
 	}
@@ -194,7 +194,7 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 		}
 		return Session{}, ErrInvalidCredentials
 	}
-	issued, err := s.issueCheckedSession(ctx, user, hash, now)
+	issued, err := s.issueCheckedSession(ctx, user, hash, now, password)
 	if errors.Is(err, ErrInvalidCredentials) {
 		_ = s.recordFailures(ctx, buckets, now)
 	}
@@ -261,7 +261,7 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	if err := s.ready(); err != nil {
 		return Principal{}, err
 	}
-	hash, hashErr := s.sessionHash(ctx, rawToken)
+	hash, hashErr := s.sessionHash(ctx, s.pool, rawToken)
 	if hashErr != nil {
 		return Principal{}, ErrInvalidCredentials
 	}
@@ -290,7 +290,7 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	if err := s.ready(); err != nil {
 		return err
 	}
-	hash, hashErr := s.sessionHash(ctx, rawToken)
+	hash, hashErr := s.sessionHash(ctx, s.pool, rawToken)
 	if hashErr != nil {
 		return ErrValidation
 	}
@@ -306,12 +306,20 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	return nil
 }
 
-func (s *Service) createUserAndSession(ctx context.Context, user User, passwordHash string, now time.Time, fields map[string]json.RawMessage) (Session, error) {
+func (s *Service) createUserAndSession(ctx context.Context, user User, passwordHash string, now time.Time, fields map[string]json.RawMessage, password string) (Session, error) {
 	var issued Session
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if user.AuthCollectionID == uuid.Nil {
 			user.AuthCollectionID = DefaultCollectionID
 		}
+		currentPolicy, err := lockedAuthPolicyTx(ctx, tx, user.AuthCollectionID)
+		if err != nil {
+			return err
+		}
+		if !passwordMatchesPolicy(password, currentPolicy) {
+			return ErrValidation
+		}
+
 		policy, err := authRecordIDPolicy(ctx, tx, user.AuthCollectionID)
 		if err != nil {
 			return err
@@ -333,7 +341,7 @@ func (s *Service) createUserAndSession(ctx context.Context, user User, passwordH
 	return issued, err
 }
 
-func (s *Service) issueCheckedSession(ctx context.Context, user User, expectedHash string, now time.Time) (Session, error) {
+func (s *Service) issueCheckedSession(ctx context.Context, user User, expectedHash string, now time.Time, password string) (Session, error) {
 	var issued Session
 	var opErr error
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
@@ -341,6 +349,14 @@ func (s *Service) issueCheckedSession(ctx context.Context, user User, expectedHa
 		if collectionID == uuid.Nil {
 			collectionID = DefaultCollectionID
 		}
+		policy, err := lockedAuthPolicyTx(ctx, tx, collectionID)
+		if err != nil {
+			return err
+		}
+		if !passwordMatchesPolicy(password, policy) {
+			return ErrInvalidCredentials
+		}
+
 		current, hash, err := userByEmailDB(ctx, tx, collectionID, user.Email, true)
 		if err != nil {
 			return err
@@ -455,8 +471,9 @@ func (s *Service) ensureBucketsNotBlocked(ctx context.Context, buckets []rateLim
 // Stable non-blocking advisory locks serialize decisions across server
 // instances without allowing one contended subject to hold another lock while
 // waiting. Successful authentication deliberately does not clear account
-// history; signals decay when the 15-minute window rolls over.
+// history; signals decay when the configured window rolls over.
 func (s *Service) recordFailures(ctx context.Context, buckets []rateLimitBucket, now time.Time) error {
+	policy := s.currentRatePolicy()
 	ordered := append([]rateLimitBucket(nil), buckets...)
 	sort.Slice(ordered, func(i, j int) bool { return advisoryKey(ordered[i].hash) < advisoryKey(ordered[j].hash) })
 	var blocked bool
@@ -471,7 +488,14 @@ func (s *Service) recordFailures(ctx context.Context, buckets []rateLimitBucket,
 			}
 		}
 		for _, bucket := range buckets {
-			bucketBlocked, err := recordFailureInTx(ctx, tx, bucket.hash, bucket.limit, now, bucket.window, bucket.block)
+			window, block := bucket.window, bucket.block
+			if window <= 0 {
+				window = policy.Window
+			}
+			if block <= 0 {
+				block = policy.Block
+			}
+			bucketBlocked, err := recordFailureInTx(ctx, tx, bucket.hash, bucket.limit, now, window, block)
 			if err != nil {
 				return err
 			}
@@ -499,7 +523,8 @@ func (s *Service) ensureNotBlocked(ctx context.Context, hash []byte, now time.Ti
 	return nil
 }
 func (s *Service) recordFailure(ctx context.Context, hash []byte, limit int, now time.Time, durations ...time.Duration) error {
-	window, block := 15*time.Minute, 15*time.Minute
+	policy := s.currentRatePolicy()
+	window, block := policy.Window, policy.Block
 	if len(durations) == 2 {
 		if durations[0] > 0 {
 			window = durations[0]
@@ -585,12 +610,13 @@ func (s *Service) maybeCleanup(ctx context.Context) error {
 	if _, err := s.pool.Exec(ctx, `
 		with stale as (
 			select subject_hash from pgbase_meta.user_auth_rate_limits
-			where updated_at <= CURRENT_TIMESTAMP - interval '30 minutes'
+			where updated_at <= CURRENT_TIMESTAMP - make_interval(secs=>$1)
+			  and coalesce(blocked_until<=CURRENT_TIMESTAMP,true)
 			order by updated_at
 			limit 100 for update skip locked
 		)
 		delete from pgbase_meta.user_auth_rate_limits as limits
-		using stale where limits.subject_hash = stale.subject_hash`); err != nil {
+		using stale where limits.subject_hash = stale.subject_hash`, int64(max(30*time.Minute, s.currentRatePolicy().Window).Seconds())); err != nil {
 		return fmt.Errorf("delete stale user rate limits: %w", err)
 	}
 	if _, err := s.pool.Exec(ctx, `

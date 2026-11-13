@@ -172,11 +172,11 @@ export async function uploadRecordFile(
 
 /** Creates a record and its attachments in one atomic multipart batch (required file fields need this).
  * Each file part is referenced from the body as { $file: partName }. */
-export async function createRecordWithFiles(
+async function writeRecordWithFiles(
   collection: string,
   input: Record<string, unknown>,
   files: Record<string, File[]>,
-  options: { idempotencyKey?: string; onProgress?: (fraction: number) => void } = {},
+  options: { idempotencyKey?: string; onProgress?: (fraction: number) => void; update?: { id: string; etag: string } } = {},
 ): Promise<RecordWithETag> {
   const form = new FormData();
   const body: Record<string, unknown> = { ...input };
@@ -190,12 +190,18 @@ export async function createRecordWithFiles(
     });
     body[field] = refs.length === 1 ? refs[0] : refs;
   }
-  const headers = options.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined;
-  form.append("requests", stringifyJson({ requests: [{ method: "POST", url: recordsPath(collection), body, headers }] }));
+  const headers = options.update ? { "If-Match": options.update.etag } : options.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined;
+  form.append("requests", stringifyJson({ requests: [{ method: options.update ? "PATCH" : "POST", url: recordsPath(collection) + (options.update ? `/${seg(options.update.id)}` : ""), body, headers }] }));
   for (const [name, file] of parts) form.append(name, file, file.name);
   const result = await uploadForm<{ results: { body: RecordData; etag?: string }[] }>("/api/v1/collections/batch", form, { onProgress: options.onProgress });
   return { record: result.results[0].body, etag: result.results[0].etag ?? "" };
 }
+
+export const createRecordWithFiles = (collection: string, input: Record<string, unknown>, files: Record<string, File[]>, options: { idempotencyKey?: string; onProgress?: (fraction: number) => void } = {}) => writeRecordWithFiles(collection, input, files, options);
+
+/** Atomic replacement keeps required/maxSelect constraints valid throughout the mutation. */
+export const replaceRecordFiles = (collection: string, id: string, etag: string, field: string, files: File[]) =>
+  writeRecordWithFiles(collection, {}, { [field]: files }, { update: { id, etag } });
 
 /** Short-lived token required by downloadFile, bound to one variant. */
 export async function mintFileToken(fileId: string, variant: FileVariant = "original"): Promise<string> {

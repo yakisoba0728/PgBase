@@ -10,6 +10,38 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestDeliveryFailureDoesNotStrandTheRestOfTheClaimedBatch(t *testing.T) {
+	s, user, collection := realtimeFixture(t)
+	ctx := context.Background()
+	seedEvent(t, s, user, collection)
+	seedEvent(t, s, user, collection)
+	if _, err := s.pool.Exec(ctx, `CREATE FUNCTION pgbase_meta.fail_delivery() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture publish failure'; END $$;
+ CREATE TRIGGER fixture_delivery_failure BEFORE INSERT ON pgbase_meta.realtime_events FOR EACH ROW EXECUTE FUNCTION pgbase_meta.fail_delivery()`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Deliver(ctx); err == nil {
+		t.Fatal("delivery should report the failed batch")
+	}
+	var retrying int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM pgbase_meta.outbox_delivery WHERE attempts=1 AND lease_token IS NULL AND lease_until IS NULL AND available_at>clock_timestamp()`).Scan(&retrying); err != nil {
+		t.Fatal(err)
+	}
+	if retrying != 2 {
+		t.Fatalf("retrying=%d, want both claims released for backoff", retrying)
+	}
+	if _, err := s.pool.Exec(ctx, `DROP TRIGGER fixture_delivery_failure ON pgbase_meta.realtime_events; DROP FUNCTION pgbase_meta.fail_delivery();
+ UPDATE pgbase_meta.outbox_delivery SET available_at=clock_timestamp()-interval '1 second'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Deliver(ctx); err != nil {
+		t.Fatal(err)
+	}
+	status, err := s.Status(ctx)
+	if err != nil || status.Delivered != 2 || status.Pending != 0 {
+		t.Fatalf("recovered status=%+v err=%v", status, err)
+	}
+}
+
 func TestDeliveryFailureBackoffDeadLetterAndOperatorRetry(t *testing.T) {
 	s, user, collection := realtimeFixture(t)
 	ctx := context.Background()

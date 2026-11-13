@@ -1,3 +1,4 @@
+import { parseJson, stringifyJson } from "../api/http";
 import { providerPresets } from "./presets";
 import { describe, expect, it } from "vitest";
 import { precondition, type AuthCollectionField, type AuthPolicy, type AuthRecord } from "../api/authCollections";
@@ -28,7 +29,7 @@ describe("policy", () => {
 
   it("mirrors the server bounds", () => {
     const draft = { ...policyDraft(policy, true), minimumPasswordBytes: "8", maximumPasswordBytes: "5000", passwordPattern: "(", identityFields: "email, email", otpMaxAttempts: "11", mfaRule: "{" };
-    expect(policyProblems(draft)).toEqual({ minimumPasswordBytes: "range", maximumPasswordBytes: "range", passwordPattern: "pattern", identityFields: "name", otpMaxAttempts: "range", mfaRule: "json" });
+    expect(policyProblems(draft)).toEqual({ minimumPasswordBytes: "range", maximumPasswordBytes: "range", identityFields: "name", otpMaxAttempts: "range", mfaRule: "json" });
   });
 });
 
@@ -109,4 +110,32 @@ describe("write preconditions", () => {
     expect(precondition(null)).toEqual({ "If-None-Match": "*" });
     expect(precondition(undefined)).toBeUndefined();
   });
+});
+
+it("round-trips exact JSONB profile numbers while another key changes", () => {
+  const fields: AuthCollectionField[] = [{ name: "data", type: "jsonb", required: false, unique: false, indexed: false }];
+  const initial = profileDraft(fields, { data: parseJson('{"n":9007199254740993,"label":"old"}') });
+  expect(initial.data).toContain('9007199254740993');
+  const next = profileChanges(fields, { data: String(initial.data).replace('old', 'new') }, initial);
+  expect(stringifyJson(next.changes.data)).toBe('{"n":9007199254740993,"label":"new"}');
+});
+it("accepts a Go regexp without interpreting it as JavaScript", () => {
+  expect(policyProblems({ ...policyDraft(policy, true), passwordPattern: "(?i)^[a-z]+$" })).toEqual({});
+});
+
+it("creates false/custom-password/file-reference profile fields and matches no-email text IDs", () => {
+  const field = (name: string, type: AuthCollectionField["type"], options?: Record<string, unknown>): AuthCollectionField => ({ name, type, required: true, unique: false, indexed: false, options });
+  const fields = [field("accepted", "boolean"), field("pin", "password"), field("photo", "file", { minSelect: 1 })];
+  const initial = profileDraft(fields, null);
+  const draft = { ...initial, pin: "secret123456", photo: '["00000000-0000-4000-8000-000000000001"]' };
+  expect(profileChanges(fields, draft, initial, true)).toEqual({ changes: { accepted: false, pin: "secret123456", photo: ["00000000-0000-4000-8000-000000000001"] }, problems: {} });
+  expect(profileChanges(fields, { ...draft, photo: "[]" }, initial, true).problems.photo).toBe("json");
+  expect(matchesUser({ id: "public-text", createdAt: "2026-01-01" } as AuthRecord, { id: "internal", email: "", createdAt: "2026-01-01" })).toBe(true);
+});
+
+it("omits untouched optional blank profile fields on creation and keeps exact scalar numbers", () => {
+  const fields: AuthCollectionField[] = [{ name: "nick", type: "text", required: false, unique: false, indexed: false }, { name: "n", type: "bigint", required: true, unique: false, indexed: false }];
+  const initial = profileDraft(fields, null);
+  const result = profileChanges(fields, { ...initial, n: "9007199254740993" }, initial, true);
+  expect(stringifyJson(result.changes)).toBe('{"n":9007199254740993}');
 });

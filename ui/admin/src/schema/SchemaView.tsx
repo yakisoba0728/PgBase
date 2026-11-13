@@ -141,14 +141,14 @@ export function SchemaView({ collection, type, catalog, scaffolds, basePath }: S
   const list = (
     <>
       <div className="toolbar">
-        <SaveBar dirty={dirty} clean={creating ? t("schema.draftNew") : undefined} onDiscard={editor.discard} onSave={() => editor.setPane({ review: true })} saveLabel={t("schema.reviewChanges")} saveDisabled={!dirty && !creating} />
+        <SaveBar dirty={dirty} clean={creating ? t("schema.draftNew") : undefined} busy={editor.apply.isPending} onDiscard={editor.discard} onSave={() => editor.setPane({ review: true })} saveLabel={t("schema.reviewChanges")} saveDisabled={!dirty && !creating} />
       </div>
-      <div className="page-content schema-content">
+      <fieldset disabled={editor.apply.isPending} className="page-content schema-content">
         <CollectionSection editor={editor} />
         {isView ? (
           <>
             <ViewSection editor={editor} catalog={catalog} />
-            {collection && <ViewFieldRows fields={collection.fields} />}
+            {collection && <ViewFieldRows fields={collection.fields} textId={collection.recordId?.kind === "text"} />}
           </>
         ) : (
           <>
@@ -157,7 +157,7 @@ export function SchemaView({ collection, type, catalog, scaffolds, basePath }: S
           </>
         )}
         {collection && <DangerZone collection={collection} editor={editor} />}
-      </div>
+      </fieldset>
       <UnsavedGuard {...editor.guard} />
     </>
   );

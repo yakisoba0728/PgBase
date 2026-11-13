@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useSearchState } from "../app/search";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { RiAddLine, RiErrorWarningLine, RiSearchLine, RiUser3Line } from "@remixicon/react";
@@ -48,6 +48,7 @@ export function UsersView() {
   const t = useT();
   const url = useUsersUrl();
   const [text, setText] = useState(url.query);
+  useEffect(() => setText(url.query), [url.query]);
   const users = useInfiniteQuery(usersQuery({ q: url.query.trim(), collection: url.collection }));
   const collections = useQuery(authCollectionsQuery);
   const names = new Map((collections.data ?? []).map((collection) => [collection.id, collection.name]));

@@ -13,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/query"
+	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
@@ -41,7 +43,13 @@ func (control *extensionAppControl) callSchemaDatabase(ctx context.Context, meth
 		if err := decodeExtensionInput(raw, &request); err != nil {
 			return nil, err
 		}
+		if err := normalizeExtensionDocumentRules(&request.Document); err != nil {
+			return nil, err
+		}
 		plan, err := service.PreviewSchemaImport(ctx, request.Document)
+		if err == nil {
+			err = service.ValidateSchemaImportPlan(plan, validateExtensionCollectionRules)
+		}
 		return marshalAppControl(plan, err)
 	case "app-control.schemaApply":
 		var request extensionSchemaApplyRequest
@@ -74,6 +82,9 @@ type extensionSchemaApplyRequest struct {
 }
 
 func (control *extensionAppControl) applySchema(ctx context.Context, service *schema.Service, request extensionSchemaApplyRequest, actor uuid.UUID, requestID string) (json.RawMessage, error) {
+	if err := normalizeExtensionDocumentRules(&request.Document); err != nil {
+		return nil, err
+	}
 	operationID, err := uuid.Parse(request.OperationID)
 	if request.OperationID == "" {
 		operationID = uuid.New()
@@ -88,18 +99,30 @@ func (control *extensionAppControl) applySchema(ctx context.Context, service *sc
 	return marshalAppControl(result, err)
 }
 
-func validateExtensionCollectionRules(collection schema.Collection, raw json.RawMessage) error {
-	rules, err := accessrule.Parse(raw)
-	if err != nil {
-		return err
-	}
-	for _, action := range []string{"list", "view", "create", "update", "delete"} {
-		rule, _ := rules.Action(action)
-		if _, _, err := accessrule.Compile(rule, collection, collection.TableName, identity.Subject{Kind: identity.Administrator, ID: uuid.New()}, 0, action == "create"); err != nil {
+func normalizeExtensionDocumentRules(document *schema.SchemaDocument) error {
+	for index := range document.Collections {
+		item := &document.Collections[index]
+		if len(item.Rules) == 0 {
+			continue
+		}
+		rules, err := query.ParseAccessRules(item.Rules)
+		if err != nil {
+			return err
+		}
+		item.Rules, err = json.Marshal(rules)
+		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func validateExtensionCollectionRules(catalog schema.Catalog, collection schema.Collection, raw json.RawMessage) error {
+	rules, err := accessrule.Parse(raw)
+	if err != nil {
+		return err
+	}
+	return recordaccess.ValidateRules(catalog, collection, rules)
 }
 
 func (control *extensionAppControl) mutateCollection(ctx context.Context, service *schema.Service, method string, raw json.RawMessage, actor uuid.UUID, requestID string) (json.RawMessage, error) {
@@ -111,6 +134,20 @@ func (control *extensionAppControl) mutateCollection(ctx context.Context, servic
 	}
 	if err := decodeExtensionInput(raw, &request); err != nil {
 		return nil, err
+	}
+	if method == "app-control.collectionDelete" {
+		change := schema.NewDeleteChange(request.Collection.Name)
+		plan, err := service.Preview(ctx, change)
+		if err != nil {
+			return nil, extensionError("schema_preview_failed", err)
+		}
+		operationID := uuid.New()
+		intent, err := schema.GuardedApply(change, plan, actor, operationID, "js-"+operationID.String())
+		if err != nil {
+			return nil, err
+		}
+		result, err := service.Apply(ctx, intent)
+		return marshalAppControl(schema.SchemaImportResult{OperationID: result.Receipt.OperationID, Status: string(result.Receipt.Status), Version: result.Receipt.CommittedVersion, Applied: 1}, err)
 	}
 	document, err := service.ExportSchema(ctx)
 	if err != nil {
@@ -124,17 +161,18 @@ func (control *extensionAppControl) mutateCollection(ctx context.Context, servic
 			break
 		}
 	}
-	if method == "app-control.collectionDelete" {
-		if found < 0 {
-			return nil, extensionError("collection_not_found", schema.ErrCollectionNotFound)
-		}
-		document.Collections = append(document.Collections[:found], document.Collections[found+1:]...)
-	} else if found >= 0 {
+	if found >= 0 {
 		document.Collections[found] = request.Collection
 	} else {
 		document.Collections = append(document.Collections, request.Collection)
 	}
+	if err := normalizeExtensionDocumentRules(&document); err != nil {
+		return nil, err
+	}
 	plan, err := service.PreviewSchemaImport(ctx, document)
+	if err == nil {
+		err = service.ValidateSchemaImportPlan(plan, validateExtensionCollectionRules)
+	}
 	if err != nil {
 		return nil, extensionError("schema_preview_failed", err)
 	}

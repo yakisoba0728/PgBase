@@ -37,6 +37,10 @@ final class PgBaseClient {
   late final RealtimeService realtime = RealtimeService(this);
   final Map<String, CancellationToken> _requestControllers = {};
   bool _autoCancellation = true;
+  Future<UserSession>? _pendingRefresh;
+  Future<void>? _pendingLogout;
+  int? _refreshGeneration;
+  int? _refreshOrigin;
 
   void close() => transport.close();
 
@@ -65,12 +69,12 @@ final class PgBaseClient {
   Files files(String collection, String recordId) =>
       Files(this, collection, recordId);
 
-  /// Constructs a PocketBase filter expression with safe placeholder values.
+  /// Constructs a pgBase filter expression with safe placeholder values.
   ///
   /// Placeholders use `{:name}`. Strings, dates, lists, and maps are quoted
   /// filter literals, while bool, num, and null remain literal values. A
-  /// placeholder absent from [params] is left unchanged, matching PocketBase's
-  /// SDK and allowing the server to reject an incomplete expression.
+  /// placeholder absent from [params] is left unchanged so server validation
+  /// can report the incomplete expression.
   String filter(String expression, [Map<String, dynamic> params = const {}]) {
     if (params.isEmpty) return expression;
 
@@ -175,12 +179,81 @@ final class PgBaseClient {
     ),
   );
 
-  Future<void> logout({CancellationToken? cancellation}) async {
-    try {
-      await request('POST', '/api/v1/auth/logout', cancellation: cancellation);
-    } finally {
-      await auth.clear();
+  Future<void> logout({CancellationToken? cancellation}) =>
+      _logout('/api/v1/auth/logout', cancellation);
+
+  Future<UserSession> _refresh(String path, CancellationToken? cancellation) {
+    final previous = _pendingRefresh;
+    final logout = _pendingLogout;
+    final operation = () async {
+      if (logout != null) {
+        try {
+          await logout;
+        } catch (_) {}
+      }
+      if (previous != null) {
+        try {
+          await previous;
+        } catch (_) {}
+      }
+      if (auth.token == null)
+        throw const PgBaseProtocolError('authentication_required');
+      final generation = auth.generation;
+      final session = _decodeRefreshSession(
+        await request('POST', path, cancellation: cancellation),
+      );
+      if (generation == auth.generation) {
+        if (_refreshGeneration != generation) _refreshOrigin = generation;
+        _refreshGeneration = generation + 1;
+        final saving = auth.save(session.token!, record: session.user);
+        await saving;
+      }
+      return session;
+    }();
+    _pendingRefresh = operation;
+    void clear() {
+      if (identical(_pendingRefresh, operation)) _pendingRefresh = null;
     }
+
+    operation.then<void>(
+      (_) => clear(),
+      onError: (Object _, StackTrace _) => clear(),
+    );
+    return operation;
+  }
+
+  Future<void> _logout(String path, CancellationToken? cancellation) {
+    final generation = auth.generation;
+    final refresh = _pendingRefresh;
+    final origin = _refreshGeneration == generation
+        ? _refreshOrigin
+        : generation;
+    final operation = () async {
+      if (refresh != null) {
+        try {
+          await refresh;
+        } catch (_) {}
+      }
+      if (generation != auth.generation &&
+          (_refreshGeneration != auth.generation || _refreshOrigin != origin))
+        return;
+      final current = auth.generation;
+      try {
+        await request('POST', path, cancellation: cancellation);
+      } finally {
+        if (current == auth.generation) await auth.clear();
+      }
+    }();
+    _pendingLogout = operation;
+    void clear() {
+      if (identical(_pendingLogout, operation)) _pendingLogout = null;
+    }
+
+    operation.then<void>(
+      (_) => clear(),
+      onError: (Object _, StackTrace _) => clear(),
+    );
+    return operation;
   }
 
   Future<void> changePassword(
@@ -213,6 +286,7 @@ final class PgBaseClient {
       request(
         'POST',
         '/api/v1/auth/request-verification',
+        body: JsonObject({}),
         cancellation: cancellation,
       );
   Future<void> confirmVerification(
@@ -625,6 +699,7 @@ final class PgBaseClient {
             MfaChallenge(token: token, expiresAt: expiresAt),
             details: error.details,
             etag: error.etag,
+            requestId: error.requestId,
           );
       }
       rethrow;
@@ -642,10 +717,11 @@ final class PgBaseClient {
     JsonObject body,
     CancellationToken? cancellation,
   ) async {
+    final generation = auth.generation;
     try {
       await request('POST', path, body: body, cancellation: cancellation);
     } finally {
-      await auth.clear();
+      if (generation == auth.generation) await auth.clear();
     }
   }
 

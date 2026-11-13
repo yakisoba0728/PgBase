@@ -136,7 +136,7 @@ type Parsed = { ok: true; value: unknown } | { ok: false; error: "invalid_number
 
 // JSON integer syntax: no plus sign, no leading zeros.
 const integerPattern = /^-?(0|[1-9]\d*)$/;
-const decimalPattern = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/;
+const decimalPattern = /^-?(0|[1-9]\d*)(\.\d+)?$/;
 
 function fromDraft(field: CollectionField, draft: Draft): Parsed {
   const kind = fieldKind(field);
@@ -191,7 +191,10 @@ const sameDraft = (a: Draft, b: Draft) => (Array.isArray(a) && Array.isArray(b) 
 const emptyDraft = (draft: Draft) => draft === "" || draft === false || (Array.isArray(draft) && draft.every((item) => item === ""));
 
 export function initialDrafts(fields: CollectionField[], record?: RecordData): Record<string, Draft> {
-  return Object.fromEntries(editableFields(fields).map((field) => [field.name, toDraft(field, record?.[field.name])]));
+  return Object.fromEntries(editableFields(fields).map((field) => {
+    const value = record ? record[field.name] : field.type === "boolean" ? field.default : undefined;
+    return [field.name, toDraft(field, value)];
+  }));
 }
 
 export function isDirty(fields: CollectionField[], drafts: Record<string, Draft>, initial: Record<string, Draft>): boolean {
@@ -209,7 +212,8 @@ export function buildInput(
   const errors: Record<string, string> = {};
   for (const field of editableFields(fields)) {
     const draft = drafts[field.name];
-    if (isNew ? emptyDraft(draft) : sameDraft(draft, initial[field.name])) continue;
+    const explicitFalse = field.type === "boolean" && (field.required || typeof field.default === "boolean") && draft === false;
+    if (isNew ? emptyDraft(draft) && !explicitFalse : sameDraft(draft, initial[field.name])) continue;
     if (field.type === "password" && draft === "") continue;
     const parsed = fromDraft(field, draft);
     if (parsed.ok) input[field.name] = parsed.value;

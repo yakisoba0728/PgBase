@@ -55,7 +55,7 @@ func (s *Service) BeginOAuth(ctx context.Context, provider, redirectURI, clientA
 		return OAuthAuthorization{}, err
 	}
 	bucket := s.subjectHash("oauth-begin", "network", clientAddress)
-	if err := s.consumeRateLimit(ctx, bucket, loginNetworkLimit, now); err != nil {
+	if err := s.consumeRateLimit(ctx, bucket, s.currentRatePolicy().NetworkMaxFailures, now); err != nil {
 		return OAuthAuthorization{}, err
 	}
 	return s.beginOAuth(ctx, DefaultCollectionID, provider, redirectURI, redirectURI, uuid.Nil, "")
@@ -69,7 +69,7 @@ func (s *Service) BeginOAuthWithProviderRedirect(ctx context.Context, provider, 
 	if err != nil {
 		return OAuthAuthorization{}, err
 	}
-	if err := s.consumeRateLimit(ctx, s.subjectHash("oauth-begin", "network", clientAddress), loginNetworkLimit, now); err != nil {
+	if err := s.consumeRateLimit(ctx, s.subjectHash("oauth-begin", "network", clientAddress), s.currentRatePolicy().NetworkMaxFailures, now); err != nil {
 		return OAuthAuthorization{}, err
 	}
 	return s.beginOAuth(ctx, DefaultCollectionID, provider, returnURI, providerRedirectURI, uuid.Nil, "")
@@ -83,7 +83,7 @@ func (s *Service) BeginOAuthInCollection(ctx context.Context, collectionID uuid.
 	if err != nil {
 		return OAuthAuthorization{}, err
 	}
-	if err := s.consumeRateLimit(ctx, s.subjectHash("oauth-begin", collectionID.String(), clientAddress), loginNetworkLimit, now); err != nil {
+	if err := s.consumeRateLimit(ctx, s.subjectHash("oauth-begin", collectionID.String(), clientAddress), s.currentRatePolicy().NetworkMaxFailures, now); err != nil {
 		return OAuthAuthorization{}, err
 	}
 	return s.beginOAuth(ctx, collectionID, provider, redirectURI, redirectURI, uuid.Nil, "")
@@ -97,7 +97,7 @@ func (s *Service) BeginOAuthInCollectionWithProviderRedirect(ctx context.Context
 	if err != nil {
 		return OAuthAuthorization{}, err
 	}
-	if err := s.consumeRateLimit(ctx, s.subjectHash("oauth-begin", collectionID.String(), clientAddress), loginNetworkLimit, now); err != nil {
+	if err := s.consumeRateLimit(ctx, s.subjectHash("oauth-begin", collectionID.String(), clientAddress), s.currentRatePolicy().NetworkMaxFailures, now); err != nil {
 		return OAuthAuthorization{}, err
 	}
 	return s.beginOAuth(ctx, collectionID, provider, returnURI, providerRedirectURI, uuid.Nil, "")
@@ -131,7 +131,7 @@ func (s *Service) unlinkOAuthIdentityByID(ctx context.Context, collectionID, use
 func (s *Service) unlinkOAuthIdentity(ctx context.Context, collectionID, userID uuid.UUID, provider string, identityID uuid.UUID) error {
 	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var actualCollection uuid.UUID
-		var passwordEnabled, otpEnabled bool
+		var passwordEnabled, realmPasswordEnabled, otpEnabled bool
 		if err := tx.QueryRow(ctx, `select auth_collection_id,password_enabled from pgbase_meta.users where id=$1 and active for update`, userID).Scan(&actualCollection, &passwordEnabled); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
@@ -140,14 +140,14 @@ func (s *Service) unlinkOAuthIdentity(ctx context.Context, collectionID, userID 
 		if collectionID != uuid.Nil && actualCollection != collectionID {
 			return ErrNotFound
 		}
-		if err := tx.QueryRow(ctx, `select otp_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, actualCollection).Scan(&otpEnabled); err != nil {
+		if err := tx.QueryRow(ctx, `select password_enabled,otp_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, actualCollection).Scan(&realmPasswordEnabled, &otpEnabled); err != nil {
 			return err
 		}
 		var count int
 		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2`, actualCollection, userID).Scan(&count); err != nil {
 			return err
 		}
-		if !passwordEnabled && !otpEnabled && count <= 1 {
+		if !(passwordEnabled && realmPasswordEnabled) && !otpEnabled && count <= 1 {
 			return ErrValidation
 		}
 		var tag pgconn.CommandTag

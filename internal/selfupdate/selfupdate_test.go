@@ -220,6 +220,8 @@ func TestHTTPSFetchDownloadApplyAndRollbackNativeFixture(t *testing.T) {
 	if err != nil || restored.Version != "v0.1.0" {
 		t.Fatalf("restored=%+v err=%v", restored, err)
 	}
+	fetched.ManifestRaw = append(append([]byte(nil), fetched.ManifestRaw...), '\n')
+	fetched.SignatureRaw = sign(private, fetched.ManifestRaw)
 	status, err = Apply(context.Background(), ApplyOptions{Target: target, StateDir: filepath.Join(install, ".pgbase-update"), Fetched: fetched, TrustKey: public, Current: current})
 	if err != nil || status.Phase != "committed" {
 		t.Fatalf("retry status=%+v err=%v", status, err)
@@ -487,6 +489,16 @@ func TestInterruptedDownloadAndRecoveryNeverReplaceOriginal(t *testing.T) {
 	status, recoverErr := Rollback(context.Background(), target, filepath.Join(install, ".pgbase-update"), nil)
 	if recoverErr != nil || status.Phase != "aborted" {
 		t.Fatalf("interrupted recovery status=%+v err=%v", status, recoverErr)
+	}
+
+	if status, err := ReadStatus(target, filepath.Join(install, ".pgbase-update")); err != nil || status.Phase != "aborted" {
+		t.Fatalf("aborted status unreadable: %+v %v", status, err)
+	}
+	if status, err := Recover(context.Background(), target, filepath.Join(install, ".pgbase-update"), nil); err != nil || status.Phase != "aborted" {
+		t.Fatalf("second recovery: %+v %v", status, err)
+	}
+	if _, err := Apply(context.Background(), ApplyOptions{Target: target, StateDir: filepath.Join(install, ".pgbase-update"), Fetched: fetched, TrustKey: public, Current: current}); !errors.Is(err, ErrDownloadInterrupted) {
+		t.Fatalf("retry did not reach download: %v", err)
 	}
 }
 

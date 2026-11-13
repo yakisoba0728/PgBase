@@ -275,6 +275,7 @@ final class PgBaseAdminClient {
     String id,
     String schedule,
     bool enabled, {
+    String? timezone,
     CancellationToken? cancellation,
   }) async => request(
     'PUT',
@@ -282,6 +283,7 @@ final class PgBaseAdminClient {
     body: JsonObject({
       'schedule': JsonString(schedule),
       'enabled': JsonBool(enabled),
+      if (timezone != null) 'timezone': JsonString(timezone),
     }),
     cancellation: cancellation,
   );

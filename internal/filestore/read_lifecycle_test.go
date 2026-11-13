@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 )
 
 type failingReadCloser struct{ err error }
@@ -45,4 +46,34 @@ func TestLifecycleReadCloserReportsOneFinalStreamOutcome(t *testing.T) {
 			t.Fatalf("close=%v outcome=%v", err, outcome)
 		}
 	})
+}
+
+func TestLifecycleReaderCancellationClosesBlockedReadAndReportsOnce(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	source, writer := io.Pipe()
+	defer writer.Close()
+	outcomes := make(chan error, 2)
+	reader := newLifecycleReadCloser(ctx, source, func(err error) { outcomes <- err })
+	done := make(chan error, 1)
+	go func() { _, err := reader.Read(make([]byte, 1)); done <- err }()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("cancellation retained blocked reader")
+	}
+	select {
+	case err := <-outcomes:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("outcome=%v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no lifecycle outcome")
+	}
+	_ = reader.Close()
+	select {
+	case err := <-outcomes:
+		t.Fatalf("duplicate outcome: %v", err)
+	default:
+	}
 }

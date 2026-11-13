@@ -1,4 +1,4 @@
-import { ApiError, clearCsrfToken, request, setCsrfToken } from "./http";
+import { advanceSession, sessionGeneration, ApiError, clearCsrfToken, request, setCsrfToken } from "./http";
 
 // POST /api/admin/login is a legacy alias served by the same handler as
 // /api/admin/auth/login, so it is intentionally not wrapped.
@@ -61,12 +61,14 @@ export interface IpAllowlist {
 }
 
 async function adopt(session: Promise<AdminSession>): Promise<AdminSession> {
+  const generation = sessionGeneration();
   const value = await session;
-  setCsrfToken(value.csrfToken);
+  if (generation === sessionGeneration()) setCsrfToken(value.csrfToken);
   return value;
 }
 
 export function setup(input: SetupInput): Promise<AdminSession> {
+  advanceSession();
   return adopt(request<AdminSession>("POST", "/api/admin/setup", { body: input }));
 }
 
@@ -90,23 +92,27 @@ export function restoreSetupBackup(setupToken: string, id: string): Promise<Setu
 }
 
 export function login(input: LoginInput): Promise<AdminSession> {
+  advanceSession();
   return adopt(request<AdminSession>("POST", "/api/admin/auth/login", { body: input }));
 }
 
 export async function logout(keepalive = false): Promise<void> {
+  advanceSession();
+  const generation = sessionGeneration();
   try {
     await request<void>("POST", "/api/admin/auth/logout", { keepalive });
   } finally {
-    clearCsrfToken();
+    if (generation === sessionGeneration()) clearCsrfToken();
   }
 }
 
 /** Restores the CSRF token for an existing cookie session; clears it when the session is gone. */
 export async function getSession(signal?: AbortSignal): Promise<AdminSession> {
+  const generation = sessionGeneration();
   try {
     return await adopt(request<AdminSession>("GET", "/api/admin/session", { signal }));
   } catch (error) {
-    if (error instanceof ApiError && error.status === 401) clearCsrfToken();
+    if (generation === sessionGeneration() && error instanceof ApiError && error.status === 401) clearCsrfToken();
     throw error;
   }
 }

@@ -7,9 +7,7 @@ import {
   previewCollectionRule,
   setCollectionRules,
   setCollectionUserAccess,
-  setPocketBaseRules,
   type Collection,
-  type CollectionRules,
 } from "../api/collections";
 import { ApiError } from "../api/http";
 import { listRecords } from "../api/records";
@@ -33,13 +31,6 @@ import {
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** The compat write of a split save landed but restoring the kept rows did not. */
-class PartialSave extends Error {
-  constructor(readonly keep: Partial<CollectionRules>) {
-    super("partial rules save");
-  }
-}
-
 export const rulesQueryKey = (name: string) => ["rules", name] as const;
 
 export function useRulesEditor(collection: Collection, basePath: string) {
@@ -56,8 +47,7 @@ export function useRulesEditor(collection: Collection, basePath: string) {
   const [errors, setErrors] = useState<Partial<Record<Action, string>>>({});
   const [results, setResults] = useState<Partial<Record<Action, string>>>({});
   const [testAs, setTestAs] = useState("");
-  /** Typed rules a half-finished split save still has to write back (the server reads them as admins only). */
-  const [keep, setKeep] = useState<Partial<CollectionRules> | null>(null);
+  const previewVersion = useRef(0);
   const focused = useRef<{ action: Action; element: HTMLTextAreaElement } | null>(null);
 
   const loaded = rules.data ? draftsFromRules(rules.data.rules) : undefined;
@@ -69,6 +59,7 @@ export function useRulesEditor(collection: Collection, basePath: string) {
 
   const update = (action: Action, patch: Partial<RuleDraft>) => {
     if (!drafts) return;
+    previewVersion.current++;
     setEdits((current) => ({ ...current, [action]: { ...drafts[action], ...patch } }));
     setErrors(({ [action]: _, ...rest }) => rest);
     setResults(({ [action]: _, ...rest }) => rest);
@@ -80,33 +71,15 @@ export function useRulesEditor(collection: Collection, basePath: string) {
     setErrors({});
   };
 
-  // The second half of a split save: the kept typed rows go back over whatever the server now holds.
-  const restore = async (rules: Partial<CollectionRules>) => {
-    const fresh = await getCollectionRules(name);
-    await setCollectionRules(name, { ...fresh.rules, ...rules });
-  };
-
   const save = useMutation({
     mutationFn: async () => {
       if (!drafts) return;
       const empty = emptyExpressions(drafts, visible);
       if (empty.length) throw Object.assign(new Error("empty"), { empty });
-      if (changedRules.length) {
-        const plan = planSave(drafts, visible);
-        if (plan.kind === "typed") await setCollectionRules(name, plan.rules);
-        else await setPocketBaseRules(name, plan.rules);
-        if (plan.kind === "split") {
-          // shortcut: owner/typed rows have no expression form, so they are written back in a
-          // second request; between the two the rows read as admins only (fail-closed).
-          // Upgrade when the server can parse an expression without saving.
-          try {
-            await restore(plan.keep);
-          } catch {
-            throw new PartialSave(plan.keep);
-          }
-        }
-      }
-      if (accessChanged) await setCollectionUserAccess(name, accessEnabled);
+      // Close the gate before changing rules; opening it waits until the rules are stored.
+      if (accessChanged && !accessEnabled) await setCollectionUserAccess(name, false);
+      if (changedRules.length) await setCollectionRules(name, planSave(drafts, visible));
+      if (accessChanged && accessEnabled) await setCollectionUserAccess(name, true);
     },
     onSuccess: async () => {
       discard();
@@ -122,12 +95,6 @@ export function useRulesEditor(collection: Collection, basePath: string) {
       }
       // Whatever landed, the screen shows the server's rules from here on.
       void queryClient.invalidateQueries({ queryKey: rulesQueryKey(name) });
-      if (error instanceof PartialSave) {
-        // The edited rows are saved; only the kept rows wait for Retry.
-        setEdits({});
-        setKeep(error.keep);
-        return;
-      }
       if (error instanceof ApiError && error.code === "invalid_rule") {
         const rejected = Object.entries(rejectedRules(error.details));
         if (rejected.length) {
@@ -142,34 +109,24 @@ export function useRulesEditor(collection: Collection, basePath: string) {
   });
 
 
-  const finish = useMutation({
-    mutationFn: () => restore(keep ?? {}),
-    onSuccess: async () => {
-      setKeep(null);
-      await queryClient.invalidateQueries({ queryKey: rulesQueryKey(name) });
-      toast(t("rules.saved"));
-    },
-    onError: (error) => {
-      void queryClient.invalidateQueries({ queryKey: rulesQueryKey(name) });
-      toast(errorText(t, error), "danger");
-    },
-  });
-
   const preview = useMutation({
     mutationFn: async (action: Action) => {
+      const version = previewVersion.current;
+      const text = await (async () => {
       const rule = drafts && typedRule(drafts[action]);
       if (!rule || !previewable(action)) return "";
       const userId = testAs.trim();
       if (userId && !uuidPattern.test(userId)) return t("rules.testAsInvalid");
       const page = await listRecords(name, { limit: 50 });
-      const recordIds = page.items.map((record) => String(record.id)).filter((id) => uuidPattern.test(id));
+      const recordIds = page.items.map((record) => String(record.id));
       if (!recordIds.length) return t("rules.testNoRecords");
       const decisions = await previewCollectionRule(name, { rule, action, recordIds, ...(userId ? { userId } : {}) });
       const allowed = decisions.filter((decision) => decision.allowed).length;
       return t(userId ? "rules.testResultUser" : "rules.testResultGuest", { allowed, total: decisions.length });
+      })().catch((error: unknown) => errorText(t, error));
+      return { text, version };
     },
-    onSuccess: (text, action) => setResults((current) => ({ ...current, [action]: text })),
-    onError: (error, action) => setResults((current) => ({ ...current, [action]: errorText(t, error) })),
+    onSuccess: ({ text, version }, action) => { if (version === previewVersion.current) setResults((current) => ({ ...current, [action]: text })); },
   });
 
   /** Inserts a reference token into the expression that last had focus. */
@@ -195,29 +152,22 @@ export function useRulesEditor(collection: Collection, basePath: string) {
     setAccess: setAccessEdit,
     dirty,
     errors,
-    /** Actions a half-finished save left as admins only, and the retry that restores them. */
-    partial: keep ? (Object.keys(keep) as Action[]) : [],
-    finish,
     results,
     testAs,
-    setTestAs,
+    setTestAs: (value: string) => { previewVersion.current++; setTestAs(value); setResults({}); },
     update,
     discard,
     save,
     preview,
     insert,
     focused,
-    /**
-     * Props for the unsaved-changes guard: a save in flight is let through. A half-finished save counts as unsaved,
-     * since its Retry lives only here; leaving drops it and the tab then shows the server's rules as they stand.
-     */
     guard: {
-      dirty: dirty || keep !== null,
-      release: () => save.isPending || finish.isPending,
+      dirty,
+      busy: save.isPending,
+      release: () => false,
       leaves: (_current: Location, next: Location) => next.pathname !== `${basePath}/rules`,
       onDiscard: () => {
         discard();
-        setKeep(null);
       },
     },
   };

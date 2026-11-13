@@ -22,7 +22,7 @@ func validateChangedFieldOptions(ctx context.Context, tx pgx.Tx, before, after C
 	}
 	for _, field := range after.Fields {
 		prior, exists := old[field.ID]
-		modeTightened := before.ValidationMode != ValidationModePocketBase && after.ValidationMode == ValidationModePocketBase && field.Required
+		modeTightened := after.ValidationMode == ValidationModePocketBase && field.Required && (before.ValidationMode != ValidationModePocketBase || !prior.Required)
 		if !exists || !modeTightened && reflect.DeepEqual(prior.Options, field.Options) && (field.Type != TypeFile || prior.Required == field.Required) {
 			continue
 		}
@@ -78,6 +78,8 @@ func validateChangedFieldOptions(ctx context.Context, tx pgx.Tx, before, after C
 			}
 			if modeTightened && pocketBaseBlankStored(field.Type, value) {
 				valid = false
+			} else if field.Type == TypeBoolean {
+				valid = true
 			} else if field.Type == TypeText {
 				valid = fieldvalue.ValidateText(value, fieldValueOptions(field.Options)) == ""
 			} else if field.Type == TypeEditor {
@@ -85,7 +87,7 @@ func validateChangedFieldOptions(ctx context.Context, tx pgx.Tx, before, after C
 			} else if field.Type == TypeJSONB {
 				if field.Options.MaxSize != nil && int64(len(value)) > *field.Options.MaxSize {
 					valid = false
-					continue
+					break
 				}
 				if len(field.Options.AllowedValues) == 0 {
 					valid = true

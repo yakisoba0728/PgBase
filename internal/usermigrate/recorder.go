@@ -213,6 +213,7 @@ func boundedSourceError(err error) string {
 	if len(message) > 1024 {
 		message = message[:1024]
 	}
+	message = strings.ToValidUTF8(message, "")
 	if message == "" {
 		return "source materialization failed"
 	}

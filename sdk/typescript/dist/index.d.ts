@@ -13,6 +13,10 @@ export declare class PgBaseClient {
     readonly auth: AuthStore;
     readonly realtime: RealtimeService;
     private readonly fetcher;
+    private pendingRefresh?;
+    private pendingLogout?;
+    private refreshGeneration?;
+    private refreshOrigin?;
     private readonly requestControllers;
     /** Cancel older reads with the same request URL, or requests with an explicit key. */
     autoCancellation: boolean;
@@ -26,6 +30,9 @@ export declare class PgBaseClient {
     login(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession>;
     session(options?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
     logout(signal?: AbortSignal): Promise<void>;
+    /** Internal session rotation/logout ordering shared by public and realm auth. */
+    _refresh(path: string, signal?: AbortSignal): Promise<UserSession>;
+    _logout(path: string, signal?: AbortSignal): Promise<void>;
     changePassword(currentPassword: string, newPassword: string, signal?: AbortSignal): Promise<void>;
     requestPasswordReset(email: string, signal?: AbortSignal): Promise<void>;
     requestOTP(email: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<{
@@ -40,13 +47,13 @@ export declare class PgBaseClient {
     confirmEmailChange(token: string, signal?: AbortSignal): Promise<void>;
     records<T extends RecordData = RecordData>(collection: string): Records<T>;
     /**
-     * Constructs a PocketBase filter expression without interpolating values.
+     * Constructs a pgBase filter expression without interpolating values.
      *
-     * Parameters use PocketBase's `{:name}` placeholders.  Strings, dates,
+     * Parameters use `{:name}` placeholders.  Strings, dates,
      * arrays, and objects are emitted as quoted filter literals; scalar boolean,
      * number, and null values retain their filter-literal form.  A placeholder
-     * without a matching parameter is deliberately left unchanged, matching the
-     * PocketBase SDK and making an incomplete expression visible to the server.
+     * without a matching parameter is left unchanged so server validation can
+     * report the incomplete expression.
      */
     filter(expression: string, params?: FilterParams): string;
     batch<T extends RecordData = RecordData>(operations: BatchOperation<T>[], options?: BatchOptions | AbortSignal, signal?: AbortSignal): Promise<{

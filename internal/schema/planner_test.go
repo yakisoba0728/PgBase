@@ -614,3 +614,17 @@ func TestPlanDeleteProducesSingleDropStatement(t *testing.T) {
 		t.Errorf("base version = %d, want 9", first.BaseVersion)
 	}
 }
+
+func TestClosureNewDefaultUsesStoredOptions(t *testing.T) {
+	current := updateTestCollection()
+	maximum := "10"
+	field := current.Fields[0]
+	field.Type = TypeInteger
+	field.Options = FieldOptions{Max: &maximum}
+	field.Default = nil
+	current.Fields = []Field{field}
+	_, err := planUpdateAt(1, current, UpdateCollectionInput{Name: current.Name, Fields: []FieldInput{{ID: &field.ID, Name: field.Name, Type: field.Type, Required: field.Required, Default: json.RawMessage(`20`)}}})
+	if err == nil {
+		t.Fatal("new default bypassed stored maximum")
+	}
+}

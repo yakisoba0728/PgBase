@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/yakisoba0728/PgBase/internal/validation"
+	"io"
 	"mime"
 	"mime/multipart"
 	"net"
@@ -30,7 +31,10 @@ type SMTPConfig struct {
 	Timeout       time.Duration
 }
 
-type SMTP struct{ config SMTPConfig }
+type SMTP struct {
+	config SMTPConfig
+	from   string
+}
 
 func NewSMTP(config SMTPConfig) (*SMTP, error) {
 	if config.Address == "" || config.From == "" || strings.ContainsAny(config.From, "\r\n") {
@@ -40,7 +44,8 @@ func NewSMTP(config SMTPConfig) (*SMTP, error) {
 		}
 		return nil, &validation.Error{Details: []validation.Detail{{Field: field, Code: "invalid"}}}
 	}
-	if _, err := mail.ParseAddress(config.From); err != nil {
+	from, err := mail.ParseAddress(config.From)
+	if err != nil {
 		return nil, &validation.Error{Details: []validation.Detail{{Field: "from", Code: "invalid"}}}
 	}
 	if config.Timeout <= 0 {
@@ -56,7 +61,7 @@ func NewSMTP(config SMTPConfig) (*SMTP, error) {
 	if config.ServerName == "" {
 		config.ServerName = host
 	}
-	return &SMTP{config: config}, nil
+	return &SMTP{config: config, from: from.Address}, nil
 }
 
 func localSMTPHost(host string) bool {
@@ -68,10 +73,23 @@ func localSMTPHost(host string) bool {
 	return address != nil && address.IsLoopback()
 }
 
-func (s *SMTP) Send(ctx context.Context, message Message) error {
+func (s *SMTP) Send(ctx context.Context, message Message) (err error) {
 	if s == nil || message.To == "" || strings.ContainsAny(message.To+message.Subject, "\r\n") || len(message.Text)+len(message.HTML) > 64<<10 || message.Text == "" {
 		return errors.New("invalid email message")
 	}
+	to, err := mail.ParseAddress(message.To)
+	if err != nil {
+		return errors.New("invalid email recipient")
+	}
+	body, err := encodeMessage(s.config.From, message)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil && ctx.Err() != nil {
+			err = ctx.Err()
+		}
+	}()
 	deadline := time.Now().Add(s.config.Timeout)
 	if value, ok := ctx.Deadline(); ok && value.Before(deadline) {
 		deadline = value
@@ -82,6 +100,9 @@ func (s *SMTP) Send(ctx context.Context, message Message) error {
 		return fmt.Errorf("connect SMTP server: %w", err)
 	}
 	defer func() { _ = connection.Close() }()
+	transport := connection
+	stopCancellation := context.AfterFunc(ctx, func() { _ = transport.Close() })
+	defer stopCancellation()
 	if err := connection.SetDeadline(deadline); err != nil {
 		return fmt.Errorf("set SMTP deadline: %w", err)
 	}
@@ -112,20 +133,15 @@ func (s *SMTP) Send(ctx context.Context, message Message) error {
 			return fmt.Errorf("authenticate SMTP client: %w", err)
 		}
 	}
-	if err := client.Mail(s.config.From); err != nil {
+	if err := client.Mail(s.from); err != nil {
 		return fmt.Errorf("set SMTP sender: %w", err)
 	}
-	if err := client.Rcpt(message.To); err != nil {
+	if err := client.Rcpt(to.Address); err != nil {
 		return fmt.Errorf("set SMTP recipient: %w", err)
 	}
 	w, err := client.Data()
 	if err != nil {
 		return fmt.Errorf("start SMTP message: %w", err)
-	}
-	body, err := encodeMessage(s.config.From, message)
-	if err != nil {
-		_ = w.Close()
-		return err
 	}
 	writer := bufio.NewWriter(w)
 	if _, err := writer.WriteString(body); err != nil {
@@ -205,9 +221,13 @@ func writeMailPart(writer *multipart.Writer, contentType, filename string, data 
 		_, err = part.Write(data)
 		return err
 	}
-	encoder := base64.NewEncoder(base64.StdEncoding, part)
-	if _, err = encoder.Write(data); err != nil {
-		return err
+	encodedData := base64.StdEncoding.EncodeToString(data)
+	for len(encodedData) > 0 {
+		size := min(76, len(encodedData))
+		if _, err := io.WriteString(part, encodedData[:size]+"\r\n"); err != nil {
+			return err
+		}
+		encodedData = encodedData[size:]
 	}
-	return encoder.Close()
+	return nil
 }

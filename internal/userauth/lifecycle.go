@@ -165,7 +165,7 @@ func (s *Service) ChangePassword(ctx context.Context, id uuid.UUID, currentPassw
 	if err != nil {
 		return err
 	}
-	buckets := []rateLimitBucket{{hash: s.subjectHash("password-change", "account", id.String()), limit: loginAccountLimit}}
+	buckets := []rateLimitBucket{{hash: s.subjectHash("password-change", "account", id.String()), limit: s.currentRatePolicy().AccountMaxFailures}}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return err
 	}
@@ -205,6 +205,14 @@ func (s *Service) ChangePassword(ctx context.Context, id uuid.UUID, currentPassw
 	// fencing concurrent login, deactivation, revocation, and password changes.
 	var operationErr error
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		currentPolicy, err := lockedAuthPolicyTx(ctx, tx, collectionID)
+		if err != nil {
+			return err
+		}
+		if !passwordMatchesPolicy(newPassword, currentPolicy) {
+			return ErrValidation
+		}
+
 		locked, lockedHash, err := userPasswordByIDDB(ctx, tx, id, true)
 		if err != nil {
 			if errors.Is(err, ErrInvalidCredentials) {

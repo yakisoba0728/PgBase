@@ -381,7 +381,7 @@ func createCompoundIndexStatement(collection, table string, index PlannedIndex, 
 			if key.Expression != "" {
 				statement, _ := parseRawIndex("CREATE INDEX expression_probe ON expression_table (" + key.Expression + ")")
 				rewriteIndexStatement(statement, physical)
-				value = pgparse.Deparse(statement.Columns[0].Expr)
+				value = "(" + pgparse.Deparse(statement.Columns[0].Expr) + ")"
 			}
 			if key.Collation != "" {
 				value += " COLLATE " + pgx.Identifier{key.Collation}.Sanitize()

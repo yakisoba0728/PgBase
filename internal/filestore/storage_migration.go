@@ -658,6 +658,7 @@ func (s *ObjectMigrationService) CleanupOne(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	worked := false
+	var deletionErr error
 	err := s.controller.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, storageTransitionLock); err != nil {
 			return err
@@ -724,8 +725,9 @@ func (s *ObjectMigrationService) CleanupOne(ctx context.Context) (bool, error) {
 		defer cancel()
 		err = source.Delete(deleteCtx, key)
 		if err != nil && !errors.Is(err, ErrNotFound) {
+			deletionErr = err
 			_, recordErr := tx.Exec(ctx, `update pgbase_meta.file_storage_source_cleanup set attempts=attempts+1,failure='source cleanup failed',not_before=CURRENT_TIMESTAMP+interval '15 minutes' where migration_id=$1 and object_key=$2`, migrationID, key)
-			return errors.Join(err, recordErr)
+			return recordErr
 		}
 		_, err = tx.Exec(ctx, `update pgbase_meta.file_storage_source_cleanup set completed_at=CURRENT_TIMESTAMP,failure='' where migration_id=$1 and object_key=$2`, migrationID, key)
 		worked = err == nil
@@ -734,11 +736,14 @@ func (s *ObjectMigrationService) CleanupOne(ctx context.Context) (bool, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
-	return worked, err
+	return worked, errors.Join(err, deletionErr)
 }
 
 func snapshotLocation(s storageSnapshot) string {
-	return fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%t", s.Driver, s.LocalDirectory, s.Bucket, s.Region, s.Endpoint, s.UsePathStyle)
+	if s.Driver == "local" {
+		return "local\x00" + s.LocalDirectory
+	}
+	return location(StorageSettings{Driver: s.Driver, Bucket: s.Bucket, Endpoint: s.Endpoint})
 }
 
 func insertMigrationObjects(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {

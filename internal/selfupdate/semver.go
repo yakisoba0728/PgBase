@@ -14,7 +14,7 @@ func parseVersion(raw string) (version, bool) {
 	if !strings.HasPrefix(raw, "v") || strings.Contains(raw, "+") {
 		return version{}, false
 	}
-	parts := strings.Split(strings.TrimPrefix(raw, "v"), "-")
+	parts := strings.SplitN(strings.TrimPrefix(raw, "v"), "-", 2)
 	if len(parts) > 2 {
 		return version{}, false
 	}

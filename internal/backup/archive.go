@@ -22,7 +22,21 @@ func Pack(ctx context.Context, directory string, destination io.Writer) (resultE
 	if err != nil {
 		return err
 	}
-	gz := gzip.NewWriter(destination)
+	info, err := os.Stat(filepath.Join(directory, "manifest.json"))
+	if err != nil {
+		return err
+	}
+	if len(manifest.Files) > maximumArchiveEntries-2 || info.Size() > 16<<20 {
+		return errors.New("backup archive exceeds limit")
+	}
+	remaining := maximumUnpackedBytes - info.Size()
+	for _, file := range append([]File{manifest.Database}, manifest.Files...) {
+		if file.Size > remaining {
+			return errors.New("backup archive exceeds limit")
+		}
+		remaining -= file.Size
+	}
+	gz := gzip.NewWriter(&boundedArchiveWriter{writer: destination, remaining: MaximumArchiveBytes})
 	tw := tar.NewWriter(gz)
 	defer func() { resultErr = errors.Join(resultErr, tw.Close(), gz.Close()) }()
 	names := []string{"manifest.json", "database.dump"}
@@ -124,4 +138,20 @@ func Unpack(ctx context.Context, source io.Reader, directory string) (resultErr 
 	}
 	complete = true
 	return nil
+}
+
+// Bound compressed output too: a verified directory may still exceed the
+// upload/restore archive budget after compression.
+type boundedArchiveWriter struct {
+	writer    io.Writer
+	remaining int64
+}
+
+func (w *boundedArchiveWriter) Write(data []byte) (int, error) {
+	if int64(len(data)) > w.remaining {
+		return 0, errors.New("backup archive exceeds limit")
+	}
+	n, err := w.writer.Write(data)
+	w.remaining -= int64(n)
+	return n, err
 }

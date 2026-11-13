@@ -23,8 +23,9 @@ function SqlView({ editor }: { editor: SchemaEditor }) {
   const t = useT();
   const sample = useMutation({ mutationFn: (query: string) => sampleView(query) });
   const query = editor.draft.viewQuery;
-  const columns = sample.data ? ["id", ...sample.data.fields.map((field) => field.Name).filter((name) => name !== "id")] : [];
-  const sampleError = sample.error && (viewSqlProblem(t, sample.error) ?? errorText(t, sample.error));
+  const fresh = sample.variables === query;
+  const columns = sample.data && fresh ? ["id", ...sample.data.fields.map((field) => field.Name).filter((name) => name !== "id")] : [];
+  const sampleError = fresh && sample.error && (viewSqlProblem(t, sample.error) ?? errorText(t, sample.error));
   const planCodes = editor.errors.collection.viewQuery ?? editor.errors.collection.view;
   const planError = viewSqlProblem(t, editor.planQuery.error) ?? (planCodes && describeErrors(t, planCodes));
   const run = () => query.trim() && sample.mutate(query);
@@ -39,7 +40,7 @@ function SqlView({ editor }: { editor: SchemaEditor }) {
       <div className="schema-sample-bar">
         <Button size="sm" variant="secondary" icon={RiPlayLine} loading={sample.isPending} disabled={!query.trim()} onClick={run}>{t("schema.sample")}</Button>
       </div>
-      {sample.data && (
+      {sample.data && fresh && (
         <div className="schema-sample">
           <p className="field-hint">{t("schema.sampleResult", { columns: sample.data.fields.length, rows: sample.data.items?.length ?? 0 })}</p>
           <div className="grid-scroll">

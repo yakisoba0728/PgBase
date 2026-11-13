@@ -66,3 +66,22 @@ func TestCopyVerifiedReusesIdenticalDestinationObject(t *testing.T) {
 		t.Fatalf("size=%d err=%v", size, err)
 	}
 }
+
+func TestStorageNamespaceIgnoresTransportOptions(t *testing.T) {
+	local := storageSnapshot{Driver: "local", LocalDirectory: "/files"}
+	changed := local
+	changed.Bucket, changed.Region, changed.Endpoint, changed.UsePathStyle = "unused", "unused", "https://unused", true
+	if snapshotLocation(local) != snapshotLocation(changed) {
+		t.Fatal("unused S3 options changed local namespace")
+	}
+	s3 := storageSnapshot{Driver: "s3", Bucket: "bucket", Endpoint: "https://storage"}
+	changed = s3
+	changed.Region, changed.LocalDirectory, changed.UsePathStyle, changed.Endpoint = "other-region", "/unused", true, "https://storage/"
+	if snapshotLocation(s3) != snapshotLocation(changed) {
+		t.Fatal("transport options changed S3 namespace")
+	}
+	changed.Bucket = "other-bucket"
+	if snapshotLocation(s3) == snapshotLocation(changed) {
+		t.Fatal("different S3 buckets share namespace")
+	}
+}

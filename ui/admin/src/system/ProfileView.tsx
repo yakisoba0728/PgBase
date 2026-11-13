@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useLeaveSession } from "../app/signout";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError } from "../api/http";
+import { sessionGeneration, ApiError } from "../api/http";
 import { updateIpAllowlist, updateProfile, type Administrator, type IpAllowlist } from "../api/session";
 import { errorText, sessionQuery } from "../app/queries";
 import { Button } from "../components/Button";
@@ -37,8 +37,9 @@ function EmailSection({ profile }: { profile: Administrator }) {
   const [email, setEmail] = useState(profile.email);
   const [current, setCurrent] = useState("");
   const save = useMutation({
-    mutationFn: () => updateProfile({ currentPassword: current, email: email.trim() }),
-    onSuccess: (value) => {
+    mutationFn: async () => { const generation = sessionGeneration(); return { value: await updateProfile({ currentPassword: current, email: email.trim() }), generation }; },
+    onSuccess: ({ value, generation }) => {
+      if (generation !== sessionGeneration()) return;
       setCurrent("");
       queryClient.setQueryData(profileQuery.queryKey, value);
       // The account menu reads the email from the session.
@@ -56,8 +57,8 @@ function EmailSection({ profile }: { profile: Administrator }) {
   return (
     <FormSection title={t("system.profile.email")} hint={t("system.profile.emailHint")}>
       <form className="sys-inline" onSubmit={onSubmit}>
-        <Field label={t("system.admins.email")} name="email" type="email" required autoComplete="username" value={email} error={error} onChange={(event) => setEmail(event.target.value)} />
-        <Field label={t("system.profile.currentPassword")} name="currentPassword" type="password" required autoComplete="current-password" value={current} error={currentError}
+        <Field label={t("system.admins.email")} name="email" type="email" required autoComplete="username" disabled={save.isPending} value={email} error={error} onChange={(event) => setEmail(event.target.value)} />
+        <Field label={t("system.profile.currentPassword")} name="currentPassword" type="password" required autoComplete="current-password" disabled={save.isPending} value={current} error={currentError}
           onChange={(event) => setCurrent(event.target.value)} />
         <Button type="submit" disabled={email.trim() === profile.email || !current} loading={save.isPending}>{t("records.save")}</Button>
       </form>
@@ -69,8 +70,9 @@ function PasswordSection() {
   const t = useT();
   const leave = useLeaveSession();
   const change = useMutation({
-    mutationFn: ({ value, current }: { value: string; current: string }) => updateProfile({ currentPassword: current, newPassword: value }),
-    onSuccess: () => {
+    mutationFn: async ({ value, current }: { value: string; current: string }) => { const generation = sessionGeneration(); await updateProfile({ currentPassword: current, newPassword: value }); return generation; },
+    onSuccess: (generation) => {
+      if (generation !== sessionGeneration()) return;
       // The server ends every session of the account, this one included.
       leave();
     },
@@ -119,8 +121,9 @@ function AllowlistForm({ allowlist, profile }: { allowlist: IpAllowlist; profile
   // A convenience mirror of the server's refusal; the server decides.
   const excludesSelf = entries.length > 0 && !allowlistCovers(entries, clientAddress) ? t("system.profile.excludesSelf", { address: clientAddress }) : undefined;
   const save = useMutation({
-    mutationFn: () => updateIpAllowlist(entries, current),
-    onSuccess: (value) => {
+    mutationFn: async () => { const generation = sessionGeneration(); return { value: await updateIpAllowlist(entries, current), generation }; },
+    onSuccess: ({ value, generation }) => {
+      if (generation !== sessionGeneration()) return;
       closeConfirm();
       queryClient.setQueryData(allowlistQuery.queryKey, value);
       toast(t("system.profile.allowlistSaved"));
@@ -145,13 +148,13 @@ function AllowlistForm({ allowlist, profile }: { allowlist: IpAllowlist; profile
     <form className="form sys-narrow" noValidate onSubmit={onSubmit}>
       <p className="warning-note" role="note">{t("system.profile.lockout")}</p>
       <p className="txt-hint">{t("system.profile.clientAddress")} <span className="mono">{clientAddress}</span></p>
-      <Field kind="textarea" label={t("system.profile.prefixes")} mono rows={4} spellCheck={false} placeholder={"203.0.113.0/24\n127.0.0.1/32"} value={text}
+      <Field kind="textarea" label={t("system.profile.prefixes")} mono rows={4} spellCheck={false} placeholder={"203.0.113.0/24\n127.0.0.1/32"} disabled={save.isPending} value={text}
         error={invalid ?? excludesSelf ?? serverError} hint={t("system.profile.prefixesHint")} onChange={(event) => setText(event.target.value)} />
       <div className="sys-row-end">
         <Button type="submit" disabled={!dirty || Boolean(invalid) || Boolean(excludesSelf)} loading={save.isPending}>{t("records.save")}</Button>
       </div>
       <ConfirmDialog open={confirming} title={t(entries.length === 0 ? "system.profile.allowlistClear" : "system.profile.allowlistConfirm")} confirmLabel={t("records.save")} danger={entries.length > 0} busy={save.isPending}
-        confirmDisabled={!current} onConfirm={() => save.mutate()} onCancel={closeConfirm}>
+        confirmDisabled={!current} onConfirm={() => save.mutate()} onCancel={() => { if (!save.isPending) closeConfirm(); }}>
         {entries.length > 0 && (
           <>
             <p>{t("system.profile.allowlistConfirmText")}</p>

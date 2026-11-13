@@ -46,7 +46,8 @@ function useItems(): Item[] {
   const collections = useQuery(collectionsQuery).data ?? [];
   const recent = useRecentCollections(collections.map((collection) => collection.name));
   const current = /^\/collections\/([^/]+)/.exec(pathname)?.[1];
-  const currentName = current && decodeURIComponent(current);
+  let currentName = current;
+  try { if (current) currentName = decodeURIComponent(current); } catch { /* A malformed URL has no collection match. */ currentName = undefined; }
   const currentCollection = collections.find((collection) => collection.name === currentName);
   const go = (path: string) => () => void navigate(path);
   return [

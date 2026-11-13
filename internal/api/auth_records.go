@@ -164,6 +164,10 @@ func (e authCollectionEndpoints) auxiliaryList(w http.ResponseWriter, r *http.Re
 
 func (e authCollectionEndpoints) auxiliaryDelete(w http.ResponseWriter, r *http.Request) {
 	current, err := e.current(r)
+	if current.principal.Impersonated && (r.PathValue("kind") == "mfas" || r.PathValue("kind") == "externalAuths") {
+		writeUserAuthError(w, r, userauth.ErrInvalidCredentials)
+		return
+	}
 	collection, resolveErr := e.resolve(r)
 	id, idErr := uuid.Parse(r.PathValue("id"))
 	if err != nil || resolveErr != nil || idErr != nil || current.principal.User.AuthCollectionID != collection.ID {
@@ -260,6 +264,10 @@ func (e authCollectionEndpoints) authorizedRecordUpdate(w http.ResponseWriter, r
 	}
 	if err != nil || decodeStrictJSON(r, &in) != nil {
 		writeUserAuthError(w, r, userauth.ErrValidation)
+		return
+	}
+	if principal.Impersonated && (in.Email != nil || in.Password != nil || in.Verified != nil || in.Active != nil) {
+		writeUserAuthError(w, r, userauth.ErrInvalidCredentials)
 		return
 	}
 	value, err := e.dependencies.AuthCollections.UpdateAuthorizedAuthRecord(r.Context(), collection.ID, principal.User.ID, target, userauth.UpdateAuthRecordInput{Email: in.Email, EmailVisibility: in.EmailVisibility, Password: in.Password, Verified: in.Verified, Active: in.Active, Fields: in.Fields})

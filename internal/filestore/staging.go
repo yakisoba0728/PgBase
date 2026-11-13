@@ -2,12 +2,7 @@ package filestore
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"errors"
-	"io"
-	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -23,11 +18,16 @@ var errStagedRollback = errors.New("staged upload rolled back")
 // transaction. Its fields are intentionally private so callers cannot swap an
 // object key, digest, or declared metadata between Stage and Commit.
 type StagedFile struct {
-	file           File
-	finish         func(error)
-	storageRelease func()
-	storageLease   storageLease
-	ownership      *stagedObjectOwnership
+	file         File
+	storageLease storageLease
+	ownership    *stagedObjectOwnership
+	completion   *stagedCompletion
+}
+
+type stagedCompletion struct {
+	once    sync.Once
+	finish  func(error)
+	release func()
 }
 
 type stagedObjectOwnership struct {
@@ -88,8 +88,7 @@ func (s *Service) Stage(ctx context.Context, principal identity.Subject, input U
 		return StagedFile{}, err
 	}
 	event.Data.(*FileEvent).File = staged.file
-	staged.finish = finish
-	staged.storageRelease = release
+	staged.completion = &stagedCompletion{finish: finish, release: release}
 	staged.storageLease, _ = ctx.Value(storageLeaseContextKey{}).(storageLease)
 	return staged, nil
 }
@@ -112,29 +111,8 @@ func (s *Service) stage(ctx context.Context, principal identity.Subject, input U
 			ownership.release()
 		}
 	}()
-	counted, hash := &countingReader{reader: input.Body, maximum: s.options.MaximumBytes}, sha256.New()
-	if err := s.objects.Put(ctx, file.ObjectKey, io.TeeReader(counted, hash)); err != nil {
-		if errors.Is(counted.err, ErrTooLarge) {
-			return StagedFile{}, ErrTooLarge
-		}
+	if err := s.writeVerifiedUpload(ctx, file, input.Body); err != nil {
 		return StagedFile{}, err
-	}
-	if counted.count != input.Size || !hmac.Equal(hash.Sum(nil), input.SHA256[:]) {
-		return StagedFile{}, ErrInvalid
-	}
-	reader, err := s.objects.Open(ctx, file.ObjectKey)
-	if err != nil {
-		return StagedFile{}, err
-	}
-	buffer := make([]byte, 512)
-	n, readErr := io.ReadFull(reader, buffer)
-	_ = reader.Close()
-	if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, io.EOF) {
-		return StagedFile{}, readErr
-	}
-	detected := strings.TrimSpace(strings.Split(http.DetectContentType(buffer[:n]), ";")[0])
-	if detected != input.ContentType {
-		return StagedFile{}, ErrInvalid
 	}
 	succeeded = true
 	return StagedFile{file: file, ownership: ownership}, nil
@@ -231,10 +209,22 @@ func (s *Service) Commit(ctx context.Context, tx pgx.Tx, principal identity.Subj
 			if err := lockObjectReference(ctx, tx, staged.file.ObjectKey); err != nil {
 				return nil, err
 			}
-			staged.ownership.release()
 			var object, status string
 			err := tx.QueryRow(ctx, `select object_key,status from pgbase_meta.record_files where id=$1`, staged.file.ID).Scan(&object, &status)
 			if errors.Is(err, pgx.ErrNoRows) {
+				// The reference lock blocks GC before we inspect and release the
+				// original staging lock, including if its session dies afterward.
+				if staged.ownership == nil {
+					return nil, ErrStorageConflict
+				}
+				var owned bool
+				if err := tx.QueryRow(ctx, `select exists(select 1 from pg_locks where locktype='advisory' and pid=$1 and database=(select oid from pg_database where datname=current_database()) and classid=((hashtextextended($2,0) >> 32) & 4294967295)::oid and objid=(hashtextextended($2,0) & 4294967295)::oid and objsubid=1 and mode='ExclusiveLock' and granted)`, int32(staged.ownership.conn.PgConn().PID()), stagedObjectLockName(staged.file.ObjectKey)).Scan(&owned); err != nil {
+					return nil, err
+				}
+				if !owned {
+					return nil, ErrStorageConflict
+				}
+				staged.ownership.release()
 				newCount++
 				continue
 			}
@@ -303,18 +293,19 @@ func (s *Service) Cleanup(ctx context.Context, staged []StagedFile) error {
 	return cleanupErr
 }
 
-// CompleteStaged finishes upload hooks after the owner knows whether the
-// transaction committed. Repeated calls are safe because lifecycle finishers
-// run once.
+// CompleteStaged transfers the owner's final outcome once across all copies of
+// a staged handle, then releases its object and storage admission leases.
 func (s *Service) CompleteStaged(staged []StagedFile, operationErr error) {
 	for _, item := range staged {
-		if item.finish != nil {
-			item.finish(operationErr)
+		if item.completion == nil {
+			item.ownership.release()
+			continue
 		}
-		item.ownership.release()
-		if item.storageRelease != nil {
-			item.storageRelease()
-		}
+		item.completion.once.Do(func() {
+			defer item.completion.release()
+			defer item.ownership.release()
+			item.completion.finish(operationErr)
+		})
 	}
 }
 

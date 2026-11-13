@@ -99,3 +99,9 @@ describe("SQL helpers", () => {
     expect(recallStatements("other")).toEqual({});
   });
 });
+
+it("locates PostgreSQL character positions after an emoji", () => {
+  const sql = "select '😀' x";
+  expect(errorLocation(sql, 12)).toEqual({ line: 1, column: 13, text: sql });
+  expect(sql[12]).toBe("x");
+});

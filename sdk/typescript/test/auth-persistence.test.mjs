@@ -44,3 +44,20 @@ test("state storage snapshots restored data and ignores corrupt browser state", 
     assert.equal(restored.record, null);
   }
 });
+
+test("storage failures still notify active auth consumers while propagating persistence errors", () => {
+  const failure = new Error("storage unavailable");
+  for (const storage of [
+    { get: () => "old", set() { throw failure; }, clear() { throw failure; } },
+    { read: () => ({ token: "old", record: null }), write() { throw failure; }, clear() { throw failure; } },
+  ]) {
+    const auth = new sdk.AuthStore(storage);
+    const generations = [];
+    auth._onChange((generation) => generations.push(generation));
+    assert.throws(() => auth.save("new"), (error) => error === failure);
+    assert.equal(auth.token, "new");
+    assert.throws(() => auth.clear(), (error) => error === failure);
+    assert.equal(auth.token, null);
+    assert.deepEqual(generations, [1, 2]);
+  }
+});

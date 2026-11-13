@@ -390,3 +390,19 @@ test("every navigation entry opens its screen", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "Page not found" })).toHaveCount(0);
   }
 });
+
+test("mobile drawer moves, contains and restores keyboard focus", async ({ page }) => {
+  await page.setViewportSize({ width: 600, height: 850 });
+  await page.goto("/admin/settings");
+  const trigger = page.getByRole("button", { name: "Open navigation" });
+  await trigger.click();
+  await expect(page.locator("main.main")).toHaveAttribute("inert", "");
+  await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest(".nav")))).toBe(true);
+  await page.keyboard.press("Shift+Tab");
+  await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest(".nav")))).toBe(true);
+  await page.keyboard.press("Tab");
+  await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest(".nav")))).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("main.main")).not.toHaveAttribute("inert", "");
+  await expect(trigger).toBeFocused();
+});

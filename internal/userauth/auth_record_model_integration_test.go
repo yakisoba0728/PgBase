@@ -170,13 +170,13 @@ func TestAuthRuleEvaluatesJSONArraysAndAuthRelationsBeforeEverySession(t *testin
 	if err := pool.QueryRow(ctx, `select password_hash from pgbase_meta.users where id=$1`, member.ID).Scan(&passwordHash); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.issueCheckedSession(ctx, User{ID: member.ID, AuthCollectionID: membersID, Email: member.Email}, passwordHash, time.Now()); err != nil {
+	if _, err := service.issueCheckedSession(ctx, User{ID: member.ID, AuthCollectionID: membersID, Email: member.Email}, passwordHash, time.Now(), "correct horse battery staple"); err != nil {
 		t.Fatalf("shared issue path rejected matching rule: %v", err)
 	}
 	if _, err := service.UpdateAuthRecord(ctx, membersID, member.ID, UpdateAuthRecordInput{Fields: map[string]any{"settings": map[string]any{"level": "silver"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.issueCheckedSession(ctx, User{ID: member.ID, AuthCollectionID: membersID, Email: member.Email}, passwordHash, time.Now()); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := service.issueCheckedSession(ctx, User{ID: member.ID, AuthCollectionID: membersID, Email: member.Email}, passwordHash, time.Now(), "correct horse battery staple"); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("shared session policy allowed nonmatching record: %v", err)
 	}
 }

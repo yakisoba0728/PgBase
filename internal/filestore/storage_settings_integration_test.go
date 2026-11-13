@@ -165,14 +165,11 @@ func TestStorageLeaseDoesNotExhaustRequestPoolAndLostLeaseCannotPublish(t *testi
 	if err := pool.QueryRow(ctx, `select pg_terminate_backend($1)`, int32(lease.backend)).Scan(&terminated); err != nil || !terminated {
 		t.Fatalf("terminate storage lease backend=%t err=%v", terminated, err)
 	}
-	if _, err := pool.Exec(ctx, `update pgbase_meta.file_storage_settings set revision=revision+1 where singleton`); err != nil {
-		t.Fatal(err)
-	}
 	err = pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		return controller.GuardStoragePublication(leasedCtx, tx)
 	})
 	if !errors.Is(err, ErrStorageConflict) {
-		t.Fatalf("publication through lost stale lease = %v", err)
+		t.Fatalf("publication through lost lease = %v", err)
 	}
 	release()
 	if active := len(controller.operations); active != 0 {

@@ -17,12 +17,13 @@ interface FieldInputProps {
   onChange: (value: Draft) => void;
   error?: string;
   readOnly: boolean;
+  onPendingChange?: (pending: boolean) => void;
   /** Expand data of the open record, for relation chip labels. */
   expand?: RecordData["expand"];
 }
 
 /** One record value, edited with the control its field type calls for. */
-export function FieldInput({ field, value, onChange, error, readOnly, expand }: FieldInputProps) {
+export function FieldInput({ field, value, onChange, error, readOnly, expand, onPendingChange }: FieldInputProps) {
   const t = useT();
   const id = useId();
   const kind = fieldKind(field);
@@ -89,7 +90,7 @@ export function FieldInput({ field, value, onChange, error, readOnly, expand }: 
       const related = expand?.[field.name];
       const known = Array.isArray(related) ? related : related ? [related] : [];
       const ids = Array.isArray(value) ? value : text ? [text] : [];
-      return <RelationPicker field={field} value={ids} known={known} onChange={(next) => onChange(kind === "relations" ? next : (next[0] ?? ""))} error={error} readOnly={readOnly} />;
+      return <RelationPicker onPendingChange={onPendingChange} field={field} value={ids} known={known} onChange={(next) => onChange(kind === "relations" ? next : (next[0] ?? ""))} error={error} readOnly={readOnly} />;
     }
     case "password":
       return <Field {...shared} type="password" value={text} onChange={onText} autoComplete="new-password" required={false} hint={field.help ?? t("records.passwordHint")} />;

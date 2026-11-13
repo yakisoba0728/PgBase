@@ -124,9 +124,10 @@ func (runner *Runner) Run(ctx context.Context, input RunInput) (Result, error) {
 	}()
 	cancelWatcherDone := make(chan struct{})
 	cancelWatcherExited := make(chan struct{})
+	rawConnection := connection.Conn().PgConn()
 	go func() {
 		defer close(cancelWatcherExited)
-		watchCancellation(runContext, connection, cancelWatcherDone, &cancellationObserved)
+		watchCancellation(runContext, rawConnection, cancelWatcherDone, &cancellationObserved)
 	}()
 	defer func() {
 		close(cancelWatcherDone)
@@ -234,12 +235,12 @@ func (borrowed *borrowedConnection) discard() {
 	cancel()
 }
 
-func watchCancellation(ctx context.Context, connection *pgxpool.Conn, done <-chan struct{}, observed *atomic.Bool) {
+func watchCancellation(ctx context.Context, connection *pgconn.PgConn, done <-chan struct{}, observed *atomic.Bool) {
 	select {
 	case <-ctx.Done():
 		observed.Store(true)
 		cancelContext, cancel := context.WithTimeout(context.Background(), time.Second)
-		_ = connection.Conn().PgConn().CancelRequest(cancelContext)
+		_ = connection.CancelRequest(cancelContext)
 		cancel()
 	case <-done:
 	}

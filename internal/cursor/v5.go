@@ -271,7 +271,7 @@ func validSystemType(term V5OrderTerm) bool {
 
 func validOrderType(fieldType string) bool {
 	switch fieldType {
-	case "boolean", "integer", "bigint", "numeric", "text", "timestamptz", "uuid":
+	case "boolean", "integer", "bigint", "numeric", "text", "editor", "timestamptz", "autodate", "uuid":
 		return true
 	default:
 		return false
@@ -333,13 +333,13 @@ func canonicalTypedValue(raw json.RawMessage, fieldType string) bool {
 			return false
 		}
 		canonical, err = json.Marshal(stored)
-	case "text":
+	case "text", "editor":
 		value, ok := jsonString(raw)
 		if !ok {
 			return false
 		}
 		canonical, err = json.Marshal(value)
-	case "timestamptz":
+	case "timestamptz", "autodate":
 		value, ok := jsonString(raw)
 		if !ok {
 			return false

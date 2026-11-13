@@ -62,3 +62,12 @@ it("formats sizes and maps storage errors", () => {
   expect(storageErrorKey(new ApiError(409, "storage_conflict", ""), "backups")).toBe("storage.error.conflict.backups");
   expect(storageErrorKey(new ApiError(503, "backup_storage_unavailable", ""), "backups")).toBe("storage.error.unavailable");
 });
+
+it("allows the server-supported HTTP backup endpoint while keeping file storage stricter", () => {
+  const draft = { ...draftFrom(files), endpoint: "http://minio:9000", retention: "7" };
+  expect(validateDraft(draft, true, true).endpoint).toBeUndefined();
+  expect(validateDraft(draft, true, false).endpoint).toBe("storage.invalid.endpoint");
+  const clear = { ...draft, endpoint: "", accessKey: "", clearSecret: true };
+  expect(validateDraft(clear, true, false)).toEqual({});
+  expect(fileUpdate(clear, 3)).toMatchObject({ clearSecret: true, accessKey: "", secretKey: "" });
+});

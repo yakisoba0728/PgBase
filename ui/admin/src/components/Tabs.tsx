@@ -11,6 +11,7 @@ export function Tabs<T extends string>({ label, tabs, value, onChange }: TabsPro
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
     if (!step) return;
+    event.preventDefault();
     const index = tabs.findIndex((tab) => tab.value === value);
     const next = (index + step + tabs.length) % tabs.length;
     onChange(tabs[next].value);

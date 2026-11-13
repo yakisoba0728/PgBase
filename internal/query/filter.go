@@ -1,6 +1,7 @@
 package query
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -22,15 +23,15 @@ const (
 type filterNode interface{ isFilterNode() }
 
 type filterComparison struct {
-	field          string
-	modifier       string
-	otherField     string
-	otherModifier  string
-	operator       string
-	value          filterLiteral
-	literalLeft    bool
-	pocketBaseLike bool
-	function       *filterFunction
+	field           string
+	modifier        string
+	otherField      string
+	otherModifier   string
+	operator        string
+	value           filterLiteral
+	literalLeft     bool
+	percentWildcard bool
+	function        *filterFunction
 }
 
 type filterFunction struct {
@@ -45,26 +46,6 @@ type filterOr struct{ children []filterNode }
 func (filterComparison) isFilterNode() {}
 func (filterAnd) isFilterNode()        {}
 func (filterOr) isFilterNode()         {}
-
-func markPocketBaseLike(node filterNode) filterNode {
-	switch value := node.(type) {
-	case filterComparison:
-		value.pocketBaseLike = true
-		return value
-	case filterAnd:
-		for i := range value.children {
-			value.children[i] = markPocketBaseLike(value.children[i])
-		}
-		return value
-	case filterOr:
-		for i := range value.children {
-			value.children[i] = markPocketBaseLike(value.children[i])
-		}
-		return value
-	default:
-		return node
-	}
-}
 
 type filterLiteralKind int
 
@@ -235,7 +216,7 @@ func (p *filterParser) parseOperand() (filterOperand, error) {
 		return filterOperand{}, validation("filter", "invalid_filter")
 	}
 	switch current := p.input[p.pos]; {
-	case current == '\'':
+	case current == '\'' || current == '"':
 		text, ok := p.consumeString()
 		if !ok {
 			return filterOperand{}, validation("filter", "invalid_filter")
@@ -325,19 +306,32 @@ func (p *filterParser) consumeOperator() (string, bool) {
 }
 
 func (p *filterParser) consumeString() (string, bool) {
-	// p.input[p.pos] is the opening quote.
+	start, quote := p.pos, p.input[p.pos]
 	p.pos++
 	var builder strings.Builder
 	for p.pos < len(p.input) {
 		current := p.input[p.pos]
-		if current == '\'' {
-			if p.pos+1 < len(p.input) && p.input[p.pos+1] == '\'' {
+		if current == quote {
+			if quote == '\'' && p.pos+1 < len(p.input) && p.input[p.pos+1] == '\'' {
 				builder.WriteByte('\'')
 				p.pos += 2
 				continue
 			}
 			p.pos++
+			if quote == '"' {
+				var value string
+				if json.Unmarshal([]byte(p.input[start:p.pos]), &value) != nil {
+					return "", false
+				}
+				return value, true
+			}
 			return builder.String(), true
+		}
+		if quote == '"' && current == '\\' {
+			p.pos++
+			if p.pos == len(p.input) {
+				return "", false
+			}
 		}
 		builder.WriteByte(current)
 		p.pos++

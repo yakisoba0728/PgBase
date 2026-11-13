@@ -12,6 +12,7 @@ export const rulesKo: Record<keyof typeof rulesEn, string> = {
   "rules.accessLabel": "사용자와 게스트 요청 허용",
   "rules.accessOn": "아래 규칙이 요청마다 판단합니다.",
   "rules.accessOff": "꺼짐: 규칙과 상관없이 관리자와 서비스 토큰만 접근합니다.",
+  "rules.inherited": "이 뷰는 원본 컬렉션의 접근 정책을 사용합니다:",
   "rules.viewHint": "뷰는 읽기 전용이라 목록과 조회만 적용됩니다.",
   "rules.modeFor": "{action} 권한",
   "rules.mode.admins": "관리자만",

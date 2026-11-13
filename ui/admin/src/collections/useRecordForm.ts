@@ -3,15 +3,14 @@ import type { Location } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Collection } from "../api/collections";
 import { ApiError } from "../api/http";
-import { createRecord, createRecordWithFiles, deleteRecord, getRecord, updateRecord, type RecordData, type RecordWithETag } from "../api/records";
+import { createRecord, createRecordWithFiles, deleteRecord, updateRecord, type RecordData, type RecordWithETag } from "../api/records";
 import { errorText, sessionQuery } from "../app/queries";
 import { toast } from "../components/Toast";
 import { en } from "../i18n/en";
 import { useT, type Translate } from "../i18n";
 import { buildInput, initialDrafts, isDirty, type Draft } from "./fields";
 import { addToLists, recordQuery, removeFromLists, replaceInLists } from "./queries";
-import { changedFields, clearDraft, readDraft, writeDraft, type DraftScope } from "./recordDraft";
-import { expandFor } from "./relation";
+import { changedFields, keepDraft, clearDraft, readDraft, writeDraft, type DraftScope } from "./recordDraft";
 
 const trackedParams = ["record", "new"];
 
@@ -93,7 +92,8 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
       setErrors(Object.fromEntries(Object.entries(error.fields).map(([name, code]) => [name, validationText(t, code)])));
       return;
     }
-    if (error instanceof ApiError && error.status > 0) idempotencyKey.current = null;
+    // Ambiguous replies, including a refused resend, do not prove the first create failed.
+    if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429 && !["idempotency_in_progress", "idempotency_conflict"].includes(error.code)) idempotencyKey.current = null;
     if (error instanceof ApiError && error.code === "precondition_failed") {
       persist();
       setConflict(true);
@@ -124,14 +124,6 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
       setProgress(null);
       if (isNew) addToLists(queryClient, collection.name, result.record);
       else replaceInLists(queryClient, collection.name, result.record);
-      // A save response has no expand data: fetch the row once more so relation labels follow the change.
-      const expand = expandFor(collection);
-      if (expand) {
-        void getRecord(collection.name, result.record.id, { expand }).then(
-          (fresh) => replaceInLists(queryClient, collection.name, fresh.record, true),
-          () => undefined,
-        );
-      }
       queryClient.setQueryData(recordQuery(collection.name, result.record.id).queryKey, result);
       toast(t("records.saved"));
       if (isNew) onCreated(result.record.id);
@@ -153,7 +145,10 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
 
   /** Loads the latest version; with `keepEdits` the changed fields are laid over it again. */
   const reload = (keepEdits: boolean) => {
-    if (keepEdits) persist();
+    if (keepEdits) {
+      const changed = Object.fromEntries(Object.entries(drafts).filter(([name, value]) => JSON.stringify(value) !== JSON.stringify(initial[name])));
+      keepDraft(scope, changed);
+    }
     else settle();
     setConflict(false);
     if (loaded) void queryClient.invalidateQueries({ queryKey: recordQuery(collection.name, loaded.record.id).queryKey });
@@ -199,6 +194,6 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
     save,
     remove,
     /** Props for the unsaved-changes guard: leaving the record asks; a reload keeps a local draft. */
-    guard: { dirty, release: () => settled.current, leaves: leavesRecord, onDiscard: settle, onUnload: () => persistRef.current() },
+    guard: { dirty, busy: save.isPending || remove.isPending, release: () => settled.current, leaves: leavesRecord, onDiscard: settle, onUnload: () => persistRef.current() },
   };
 }

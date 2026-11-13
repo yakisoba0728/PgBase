@@ -8,6 +8,7 @@ import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState, ErrorState, Loader, Notice } from "../components/Feedback";
+import { UnsavedGuard } from "../components/UnsavedGuard";
 import { CodeArea } from "../components/CodeArea";
 import { Checkbox } from "../components/Field";
 import { Tabs } from "../components/Tabs";
@@ -27,7 +28,7 @@ export function SqlConsole() {
   const t = useT();
   const history = useInfiniteQuery(sqlHistoryQuery);
   if (history.isPending) return <Loader />;
-  if (history.error instanceof ApiError && history.error.status === 404) {
+  if (!history.data && history.error instanceof ApiError && history.error.status === 404) {
     return (
       <div className="page-content">
         <div className="dt-disabled">
@@ -39,9 +40,9 @@ export function SqlConsole() {
       </div>
     );
   }
-  if (history.isError) return <ErrorState error={history.error} onRetry={history.refetch} />;
-  const pages = history.data.pages;
-  return <Workbench settings={pages[0]} executions={pages.flatMap((page) => page.executions)} more={history.hasNextPage ? () => history.fetchNextPage() : undefined} loadingMore={history.isFetchingNextPage} />;
+  if (history.isError && !history.data) return <ErrorState error={history.error} onRetry={history.refetch} />;
+  const pages = history.data!.pages;
+  return <>{history.isError && <ErrorState error={history.error} onRetry={history.refetch} />}<Workbench settings={pages[0]} executions={pages.flatMap((page) => page.executions)} more={history.hasNextPage ? () => history.fetchNextPage() : undefined} loadingMore={history.isFetchingNextPage} /></>;
 }
 
 interface SqlAttempt {
@@ -118,6 +119,7 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
 
   return (
     <div className="dt-sql">
+      <UnsavedGuard dirty={sql.trim() !== "" || lostWrite !== null} busy={submit.isPending} leaves={(current, next) => current.pathname !== next.pathname} />
       <section className="dt-sql-main" aria-label={t("nav.sql")}>
         <div className="dt-editor-wrap" data-write={writing ? "" : undefined}>
           <CodeArea

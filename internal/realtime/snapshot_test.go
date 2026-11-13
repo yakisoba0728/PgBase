@@ -5,10 +5,23 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
+
+func TestApplicationBroadcastGrantComesOnlyFromRuleAST(t *testing.T) {
+	empty := ""
+	for _, op := range []string{"deny", "owner", "eq", "authenticated"} {
+		if applicationBroadcastRulePublic(accessrule.Rule{Op: op, Expression: &empty}) {
+			t.Fatalf("source metadata granted public broadcast to %q", op)
+		}
+	}
+	if !applicationBroadcastRulePublic(accessrule.Rule{Op: "allow"}) {
+		t.Fatal("explicit allow did not grant public broadcast")
+	}
+}
 
 func TestValidateEventFieldsRejectsUnknownAndHiddenFieldsForPublicPrincipals(t *testing.T) {
 	collection := schema.Collection{Fields: []schema.Field{
@@ -42,5 +55,20 @@ func TestPublicSnapshotMapsPhysicalNamesAndDropsHiddenFields(t *testing.T) {
 	}
 	if _, ok := record["secret"]; ok {
 		t.Fatalf("hidden field leaked: %v", record)
+	}
+}
+
+func TestPublicSnapshotPreservesProjectedTextIdentityAndDropsSecrets(t *testing.T) {
+	collection := schema.Collection{ID: uuid.New(), Name: "notes", Fields: []schema.Field{{Name: "title", ColumnName: "fld_title"}, {Name: "secret", ColumnName: "fld_secret", Hidden: true}, {Name: "password", ColumnName: "fld_password", Type: schema.TypePassword}}}
+	id := "018f3b2e-4200-7000-8000-000000000001"
+	record, err := publicSnapshot(collection, []byte(`{"id":"`+id+`","fld_title":"shown","created_at":"2026-09-10T00:00:00Z","fld_secret":"hidden","fld_password":"hash"}`))
+	if err != nil || record["id"] != id || record["title"] != "shown" || record["created"] == nil {
+		t.Fatalf("record=%v err=%v", record, err)
+	}
+	if _, ok := record["secret"]; ok {
+		t.Fatal("hidden field leaked")
+	}
+	if _, ok := record["password"]; ok {
+		t.Fatal("password leaked")
 	}
 }

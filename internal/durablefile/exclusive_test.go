@@ -74,3 +74,28 @@ func TestWriteExclusiveDoesNotRemoveExistingFile(t *testing.T) {
 		t.Fatalf("existing file = %q", contents)
 	}
 }
+
+func TestWriteExclusiveClosesAndRemovesFileWhenWriterPanics(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "target")
+	var opened *os.File
+	func() {
+		defer func() {
+			if recover() != "write panic" {
+				t.Error("writer panic lost")
+			}
+		}()
+		_ = WriteExclusive(path, 0600, func(file *os.File) error {
+			opened = file
+			panic("write panic")
+		}, func(_ string, err error) error { return err })
+	}()
+	if opened == nil {
+		t.Fatal("writer did not run")
+	}
+	if _, err := opened.Write([]byte("late")); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("file remains open: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("partial target remains: %v", err)
+	}
+}

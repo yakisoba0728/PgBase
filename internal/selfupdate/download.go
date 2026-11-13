@@ -194,12 +194,7 @@ func (f Fetched) DownloadArtifact(ctx context.Context, destination string) (stri
 		if errors.Is(copyErr, ErrDownloadLimit) || written > f.Candidate.Artifact.Size {
 			return "", ErrDownloadLimit
 		}
-		if copyErr != nil && errors.Is(copyErr, context.Canceled) {
-			return "", ErrDownloadInterrupted
-		}
-		if copyErr != nil || closeErr != nil || written != f.Candidate.Artifact.Size || digest != f.Candidate.Artifact.SHA256 {
-			return "", ErrDownloadInterrupted
-		}
+		return "", ErrDownloadInterrupted
 	}
 	return digest, nil
 }
@@ -242,7 +237,7 @@ func openRemote(ctx context.Context, client *http.Client, value *url.URL, limit 
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return nil, classifyDownloadError(err)
+		return nil, ErrDownloadInterrupted
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices || response.ContentLength > limit {
 		_ = response.Body.Close()
@@ -252,13 +247,6 @@ func openRemote(ctx context.Context, client *http.Client, value *url.URL, limit 
 		return nil, ErrDownloadInterrupted
 	}
 	return response.Body, nil
-}
-
-func classifyDownloadError(err error) error {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return ErrDownloadInterrupted
-	}
-	return ErrDownloadInterrupted
 }
 
 func readRegularFile(path string, limit int64) ([]byte, error) {

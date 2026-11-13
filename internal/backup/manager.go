@@ -70,11 +70,11 @@ type Manager struct {
 	options             ManagerOptions
 	mu                  sync.Mutex
 	busy                bool
+	drained             chan struct{}
 	closed              bool
 	jobs                map[string]Job
 	cancel              context.CancelFunc
 	ctx                 context.Context
-	wg                  sync.WaitGroup
 	retentionOverride   atomic.Int64
 	retentionConfigured atomic.Bool
 }
@@ -105,7 +105,8 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Manager{options: options, jobs: map[string]Job{}, ctx: ctx, cancel: cancel}
+	m := &Manager{options: options, jobs: map[string]Job{}, ctx: ctx, cancel: cancel, drained: make(chan struct{})}
+	close(m.drained)
 	paths, err := filepath.Glob(filepath.Join(absolute, "*.job.json"))
 	if err != nil {
 		cancel()
@@ -205,14 +206,14 @@ func (m *Manager) reserve() error {
 		return ErrBusy
 	}
 	m.busy = true
-	m.wg.Add(1)
+	m.drained = make(chan struct{})
 	return nil
 }
 func (m *Manager) release() {
 	m.mu.Lock()
 	m.busy = false
+	close(m.drained)
 	m.mu.Unlock()
-	m.wg.Done()
 }
 func (m *Manager) Create(ctx context.Context) (Job, error) {
 	return m.start(ctx, "create", uuid.NewString(), false)
@@ -289,9 +290,6 @@ func (m *Manager) execute(job Job, event *LifecycleEvent, finish func(error)) {
 	defer cancel()
 	ctx = m.progressContext(ctx, job.ID)
 	err := m.executeOperation(ctx, job)
-	if err != nil && m.options.LogError != nil {
-		m.options.LogError(ctx, err)
-	}
 	job.UpdatedAt = time.Now().UTC()
 	job.Status = "completed"
 	job.Phase = "completed"
@@ -303,11 +301,15 @@ func (m *Manager) execute(job Job, event *LifecycleEvent, finish func(error)) {
 	m.mu.Lock()
 	if receiptErr := m.persistJob(job); receiptErr != nil {
 		job.Status = "failed"
+		job.Phase = "failed"
 		job.Error = "Unable to persist the final backup receipt."
 		err = errors.Join(err, receiptErr)
 	}
 	m.jobs[job.ID] = job
 	m.mu.Unlock()
+	if err != nil && m.options.LogError != nil {
+		m.options.LogError(ctx, err)
+	}
 	event.Job = job
 	if job.Managed && job.Status == "failed" && m.options.OnFailure != nil {
 		m.options.OnFailure(context.WithoutCancel(ctx), job)
@@ -498,9 +500,8 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	m.mu.Lock()
 	m.closed = true
 	m.cancel()
+	done := m.drained
 	m.mu.Unlock()
-	done := make(chan struct{})
-	go func() { m.wg.Wait(); close(done) }()
 	select {
 	case <-done:
 		return nil

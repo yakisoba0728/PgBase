@@ -31,7 +31,7 @@ type extensionBridge struct {
 	templates          *TemplateRegistry
 	database           *TrustedDatabase
 	objects            *ExtensionObjects
-	compatibility      *extensionCompatibility
+	hostPolicy         *extensionHostPolicy
 	appControl         *extensionAppControl
 	authMail           authMailService
 	authAPI            authAPIService
@@ -50,6 +50,7 @@ type authMailService interface {
 
 type authAPIService interface {
 	ResolveAuthCollection(context.Context, string) (userauth.AuthCollection, error)
+	ResolveAuthRecordID(context.Context, uuid.UUID, string) (uuid.UUID, error)
 	GetVisibleAuthRecord(context.Context, uuid.UUID, uuid.UUID) (userauth.AuthRecord, error)
 	GetAuthorizedAuthRecord(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (userauth.AuthRecord, error)
 	IssueAuthResponseSession(context.Context, uuid.UUID, uuid.UUID, string) (userauth.Session, error)
@@ -138,9 +139,20 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 	if host == nil || host.bridge == nil || !host.valid {
 		return nil, extensionError("extension_context_unavailable", errors.New("request admission context is unavailable"))
 	}
+	if (method == "app-control.databaseTransaction" || method == "app-control.databaseExec") && host.bridge.database == nil {
+		return nil, extensionError("database_unavailable", errors.New("trusted database access is disabled"))
+	}
 	// An object reader is consumed by later host calls in the same JS
 	// invocation. Its context must therefore be the invocation context, not
 	// the short-lived operation context that is released after open returns.
+	if method == "files.open" {
+		operationContext, cleanup, err := host.operationContext(ctx)
+		if err != nil {
+			return nil, extensionError("extension_context_expired", err)
+		}
+		defer cleanup()
+		return host.callFiles(extensionStorageContext{Context: ctx, values: operationContext}, method, input)
+	}
 	if method == "objects.open" || method == "filesystem.open" {
 		operationContext, cleanup, err := host.operationContext(ctx)
 		if err != nil {
@@ -180,7 +192,7 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 	if strings.HasPrefix(method, "filesystem.local") && method != "filesystem.local" && method != "filesystem.localWrite" && method != "filesystem.localCopy" && method != "filesystem.localReadRange" {
 		mapped := map[string]string{"filesystem.localStat": "os.stat", "filesystem.localRead": "os.readFile", "filesystem.localReadDir": "os.readDir", "filesystem.localWalk": "os.walk", "filesystem.localRemove": "os.remove", "filesystem.localRemoveAll": "os.removeAll"}[method]
 		if mapped != "" {
-			return host.bridge.compatibility.call(operationContext, mapped, input)
+			return host.bridge.hostPolicy.call(operationContext, mapped, input)
 		}
 	}
 	if method == "hooks-bypass.modelSaveNoValidate" {
@@ -194,10 +206,10 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		if err := decodeExtensionInput(input, &request); err != nil {
 			return nil, err
 		}
-		if request.Name == "" || len(request.Name) > 255 || host.bridge.compatibility == nil {
+		if request.Name == "" || len(request.Name) > 255 || host.bridge.hostPolicy == nil {
 			return nil, extensionError("invalid_local_serve", errors.New("invalid local serve request"))
 		}
-		path, err := host.bridge.compatibility.safePath(request.Path, false)
+		path, err := host.bridge.hostPolicy.safePath(request.Path, false)
 		if err != nil {
 			return nil, extensionError("invalid_local_serve", err)
 		}
@@ -249,11 +261,11 @@ func (host *extensionHost) Call(ctx context.Context, method string, input json.R
 		return host.callDatabase(operationContext, input)
 	case "objects.read", "objects.write", "objects.delete", "objects.list", "objects.copy", "objects.open", "objects.readChunk", "objects.close", "objects.beginWrite", "objects.writeChunk", "objects.commit", "objects.abort", "objects.fileFromMultipart", "objects.commitMultipart":
 		return host.callObjects(operationContext, method, input)
-	case "http.send", "os.args", "os.getenv", "os.exit", "os.tempDir", "os.stat", "os.readFile", "os.writeFile", "os.readDir", "os.glob", "os.walk", "os.walkDir", "os.truncate", "os.getwd", "os.mkdir", "os.mkdirAll", "os.rename", "os.remove", "os.removeAll", "os.cmd", "filesystem.local", "filesystem.localWrite", "filesystem.localCopy", "filesystem.localReadRange", "filesystem.fileFromPath", "filesystem.fileFromBytes", "filesystem.fileFromURL":
-		if host.bridge.compatibility == nil {
-			return nil, extensionError("compatibility_unavailable", errors.New("PocketBase compatibility adapter unavailable"))
+	case "host.filesystem.read", "host.filesystem.write", "http.send", "os.rootPath", "filesystem.localPath", "os.args", "os.getenv", "os.exit", "os.tempDir", "os.stat", "os.readFile", "os.writeFile", "os.readDir", "os.glob", "os.walk", "os.walkDir", "os.truncate", "os.getwd", "os.mkdir", "os.mkdirAll", "os.rename", "os.remove", "os.removeAll", "os.cmd", "filesystem.local", "filesystem.localWrite", "filesystem.localCopy", "filesystem.localReadRange", "filesystem.fileFromPath", "filesystem.fileFromBytes", "filesystem.fileFromURL":
+		if host.bridge.hostPolicy == nil {
+			return nil, extensionError("compatibility_unavailable", errors.New("JavaScript host policy unavailable"))
 		}
-		return host.bridge.compatibility.call(operationContext, method, input)
+		return host.bridge.hostPolicy.call(operationContext, method, input)
 	case "filesystem.read", "filesystem.write", "filesystem.delete", "filesystem.list", "filesystem.copy", "filesystem.open", "filesystem.readChunk", "filesystem.close", "filesystem.beginWrite", "filesystem.writeChunk", "filesystem.commit", "filesystem.abort", "filesystem.fileFromMultipart", "filesystem.commitMultipart", "filesystem.attributes", "filesystem.exists", "filesystem.deletePrefix", "filesystem.serve", "filesystem.createThumb":
 		return host.callObjects(operationContext, "objects."+strings.TrimPrefix(method, "filesystem."), input)
 	case "app-control.bootstrap", "app-control.resetBootstrapState", "app-control.isBootstrapped", "app-control.dataDir", "app-control.encryptionEnv", "app-control.isDev", "app-control.settings", "app-control.storeGet", "app-control.storeSet", "app-control.storeDelete", "app-control.reloadSettings", "app-control.createBackup", "app-control.restoreBackup", "app-control.restart", "app-control.runSystemMigrations", "app-control.runAppMigrations", "app-control.runAllMigrations", "app-control.transactionInfo", "app-control.cronList", "app-control.cronConfigure", "app-control.cronRun", "app-control.backupList", "app-control.backupRead", "app-control.backupDelete", "app-control.brokerClients", "app-control.brokerPublish", "app-control.brokerPublishApplication", "app-control.schemaExport", "app-control.schemaPreview", "app-control.schemaApply", "app-control.collectionSave", "app-control.collectionValidate", "app-control.collectionDelete", "app-control.collectionSync", "app-control.collectionTruncate", "app-control.databaseTables", "app-control.databaseColumns", "app-control.databaseIndexes", "app-control.databaseTransaction":
@@ -317,7 +329,7 @@ func (host *extensionHost) callAuthMail(ctx context.Context, raw json.RawMessage
 		return nil, extensionError("invalid_auth_mail_request", err)
 	}
 	realm, err := host.resolveAuthMailCollection(ctx, r.Collection)
-	if err != nil || host.bridge.compatibility == nil || !host.bridge.compatibility.authMailCollections[realm] {
+	if err != nil || host.bridge.hostPolicy == nil || !host.bridge.hostPolicy.authMailCollections[realm] {
 		return nil, extensionError("permission_denied", errors.New("auth mail collection is not operator-authorized"))
 	}
 	_, err = host.bridge.authMail.GetAuthRecord(ctx, realm, id)
@@ -430,7 +442,10 @@ func (host *extensionHost) runAppModelMutation(ctx context.Context, operation st
 	if host.bridge.appControl == nil || host.bridge.appControl.app == nil {
 		return nil, extensionError("app_control_unavailable", errors.New("application lifecycle unavailable"))
 	}
-	event := &ModelMutationEvent{Operation: operation, Model: model}
+	host.databaseMu.Lock()
+	outcome := host.recordOutcome
+	host.databaseMu.Unlock()
+	event := &ModelMutationEvent{Operation: operation, Model: model, outcome: outcome}
 	var output json.RawMessage
 	err := host.bridge.appControl.app.RunModelMutation(ctx, event, func(context.Context, *ModelMutationEvent) error {
 		var err error
@@ -515,6 +530,11 @@ type extensionBatchOperation struct {
 	IfMatch        string                     `json:"ifMatch,omitempty"`
 }
 
+type extensionRecordPage struct {
+	Items      []map[string]any `json:"items"`
+	NextCursor string           `json:"nextCursor,omitempty"`
+}
+
 type extensionRecordResult struct {
 	Data          map[string]any          `json:"data,omitempty"`
 	ETag          string                  `json:"etag,omitempty"`
@@ -550,7 +570,10 @@ func (host *extensionHost) callRecords(ctx context.Context, method string, raw j
 		page, err := host.bridge.records.List(ctx, recordops.ListRequest{Principal: host.principal, RequestID: host.requestID,
 			Collection: request.Collection, Cursor: event.Cursor, Limit: event.Limit, Filter: event.Filter, Sort: event.Sort, Expand: event.Expand})
 		finish(err)
-		return marshalExtensionResult(extensionRecordResult{Items: page.Items, NextCursor: page.NextCursor}, err)
+		if page.Items == nil {
+			page.Items = []map[string]any{}
+		}
+		return marshalExtensionResult(extensionRecordPage{Items: page.Items, NextCursor: page.NextCursor}, err)
 	case "records.get":
 		if request.ID == "" {
 			return nil, extensionError("invalid_record_request", errors.New("record id is required"))

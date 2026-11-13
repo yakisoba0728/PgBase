@@ -34,3 +34,73 @@ test("PB_ERROR after connection stops retries while numeric checkpoints and over
     assert.deepEqual(events.map((event) => event.action), ["create", "update"]);
   } finally { await client.realtime.unsubscribe(); }
 });
+
+test("a rejected added subscription does not poison subsequent topic synchronization", async () => {
+  const syncs = [];
+  const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, init) => {
+    if (init.method === "POST") {
+      const topics = JSON.parse(init.body).subscriptions;
+      syncs.push(topics);
+      return topics.includes("invalid/topic/extra")
+        ? Response.json({ error: { code: "invalid_realtime_topic" } }, { status: 400 })
+        : new Response(null, { status: 204 });
+    }
+    return new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(new TextEncoder().encode('event: PB_CONNECT\ndata: {"clientId":"session"}\n\n'));
+      init.signal.addEventListener("abort", () => controller.close(), { once: true });
+    } }));
+  } });
+  try {
+    await client.realtime.subscribe("notes/*", () => {});
+    await assert.rejects(client.realtime.subscribe("invalid/topic/extra", () => {}), { code: "invalid_realtime_topic" });
+    await client.realtime.subscribe("notes/one", () => {});
+    assert.deepEqual(syncs.at(-1), ["notes/*", "notes/one"]);
+  } finally { await client.realtime.unsubscribe(); }
+});
+
+test("shared realtime stops the old user stream when auth changes", async () => {
+  let connectionSignal;
+  const events = [];
+  const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, init) => {
+    if (init.method === "POST") return new Response(null, { status: 204 });
+    connectionSignal = init.signal;
+    return new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(new TextEncoder().encode('event: PB_CONNECT\ndata: {"clientId":"session"}\n\n'));
+      init.signal.addEventListener("abort", () => controller.close(), { once: true });
+    } }));
+  } });
+  client.auth.save("user-a");
+  await client.realtime.subscribe("notes/*", (event) => events.push(event));
+  client.auth.save("user-b");
+  assert.equal(connectionSignal.aborted, true);
+  assert.equal(client.realtime.status.state, "stopped");
+  assert.deepEqual(events, []);
+});
+
+
+test("auth changes in one realtime listener stop the remaining copied listeners", async () => {
+  let write;
+  let connectionSignal;
+  const first = [];
+  const second = [];
+  const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, init) => {
+    if (init.method === "POST") return new Response(null, { status: 204 });
+    connectionSignal = init.signal;
+    return new Response(new ReadableStream({ start(controller) {
+      write = (frame) => controller.enqueue(new TextEncoder().encode(frame));
+      write('event: PB_CONNECT\ndata: {"clientId":"session"}\n\n');
+      init.signal.addEventListener("abort", () => controller.close(), { once: true });
+    } }));
+  } });
+  try {
+    client.auth.save("user-a");
+    await client.realtime.subscribe("notes/*", (event) => { first.push(event); client.auth.save("user-b"); });
+    await client.realtime.subscribe("notes/*", (event) => second.push(event));
+    write('event: notes/*\ndata: {"action":"create","record":{"id":"a-private"}}\n\n');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(first.length, 1);
+    assert.equal(connectionSignal.aborted, true);
+    assert.equal(client.auth.token, "user-b");
+    assert.deepEqual(second, []);
+  } finally { await client.realtime.unsubscribe(); }
+});

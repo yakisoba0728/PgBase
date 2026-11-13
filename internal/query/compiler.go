@@ -114,6 +114,19 @@ func compileUpdate(collection schema.Collection, id uuid.UUID, input map[string]
 }
 
 func compileListPageOffset(filter filterNode, order orderSpec, after *pageBoundary, fetchLimit, offset int, ownerID *uuid.UUID, policy ...ruleBinding) (Statement, error) {
+	rows, err := compileListRows(filter, order, after, ownerID, policy...)
+	if err != nil {
+		return Statement{}, err
+	}
+	builder := &statementBuilder{args: rows.Args}
+	statement := "SELECT " + selectedColumns(order.root) + rows.SQL + order.orderBy() + " LIMIT " + builder.placeholder(fetchLimit)
+	if offset > 0 {
+		statement += " OFFSET " + builder.placeholder(offset)
+	}
+	return Statement{SQL: statement, Args: builder.args}, nil
+}
+
+func compileListRows(filter filterNode, order orderSpec, after *pageBoundary, ownerID *uuid.UUID, policy ...ruleBinding) (Statement, error) {
 	builder := &statementBuilder{}
 	filterSQL, err := compileFilter(order.root, filter, builder)
 	if err != nil {
@@ -144,14 +157,9 @@ func compileListPageOffset(filter filterNode, order orderSpec, after *pageBounda
 		conditions = append(conditions, "("+predicate+")")
 		builder.args = append(builder.args, args...)
 	}
-	limit := builder.placeholder(fetchLimit)
-	statement := "SELECT " + selectedColumns(order.root) + " FROM " + quotedTable(order.root)
+	statement := " FROM " + quotedTable(order.root)
 	if len(conditions) > 0 {
 		statement += " WHERE " + strings.Join(conditions, " AND ")
-	}
-	statement += order.orderBy() + " LIMIT " + limit
-	if offset > 0 {
-		statement += " OFFSET " + builder.placeholder(offset)
 	}
 	return Statement{SQL: statement, Args: builder.args}, nil
 }
@@ -171,24 +179,12 @@ type ruleBinding struct {
 	request    *accessrule.RequestContext
 }
 
-func compilePolicyPredicate(rule accessrule.Rule, visible, policy schema.Collection, alias string, principal identity.Subject, offset int, catalogs ...schema.Catalog) (string, []any, error) {
-	catalog := schema.Catalog{Collections: map[string]schema.Collection{policy.Name: policy}}
-	if len(catalogs) > 0 {
-		catalog = catalogs[0]
-	}
-	return compilePolicyPredicateWithRequest(rule, visible, policy, alias, principal, offset, catalog, nil)
-}
-
 func compilePolicyPredicateWithRequest(rule accessrule.Rule, visible, policy schema.Collection, alias string, principal identity.Subject, offset int, catalog schema.Catalog, request *accessrule.RequestContext) (string, []any, error) {
 	compile := func(target schema.Collection, targetAlias string) (string, []any, error) {
-		if rule.PocketBase == nil {
-			return accessrule.Compile(rule, target, targetAlias, principal, offset, false)
-		}
-		resolver, err := accessrule.NewCatalogResolver(catalog, target, targetAlias)
-		if err != nil {
-			return "", nil, err
-		}
-		return accessrule.CompilePocketBase(rule, accessrule.PBCompileContext{Resolver: resolver, Principal: principal, Request: request, ArgOffset: offset})
+		return accessrule.CompilePolicy(rule, accessrule.PolicyContext{
+			Catalog: catalog, Collection: target, Alias: targetAlias, Principal: principal,
+			Request: request, ArgOffset: offset,
+		})
 	}
 	if !visible.IsView() || visible.IsSQLView() {
 		return compile(policyCollection(visible), alias)
@@ -313,7 +309,13 @@ func compileComparison(collection schema.Collection, comparison filterComparison
 	return compileQualifiedComparison(field, comparison, column, builder)
 }
 
-func compileFilterFunction(collection schema.Collection, fn *filterFunction, builder *statementBuilder) (string, schema.Field, error) {
+func compileFilterFunction(collection schema.Collection, fn *filterFunction, builder *statementBuilder, aliases ...string) (string, schema.Field, error) {
+	column := func(name string) string {
+		if len(aliases) != 0 {
+			return qualified(aliases[0], name)
+		}
+		return quoted(name)
+	}
 	resolveNumeric := func(arg filterOperand) (string, error) {
 		if arg.field != "" {
 			field, ok := filterField(collection, arg.field)
@@ -326,7 +328,7 @@ func compileFilterFunction(collection schema.Collection, fn *filterFunction, bui
 			if field.Type != schema.TypeInteger && field.Type != schema.TypeBigInt && field.Type != schema.TypeNumeric {
 				return "", validation("filter", "type_mismatch")
 			}
-			return quoted(field.ColumnName), nil
+			return column(field.ColumnName), nil
 		}
 		if arg.literal.kind != filterLiteralNumber {
 			return "", validation("filter", "type_mismatch")
@@ -347,7 +349,7 @@ func compileFilterFunction(collection schema.Collection, fn *filterFunction, bui
 				parts := strings.Split(arg.field, ".")
 				field, ok := filterField(collection, parts[0])
 				if ok && field.Type == schema.TypeGeoPoint && len(parts) == 2 && (parts[1] == "lon" || parts[1] == "lat") {
-					values[i] = geoPointExpression(quoted(field.ColumnName), parts[1])
+					values[i] = geoPointExpression(column(field.ColumnName), parts[1])
 					continue
 				}
 			}
@@ -376,7 +378,7 @@ func compileFilterFunction(collection schema.Collection, fn *filterFunction, bui
 				if field.Type != schema.TypeTimestampTZ && field.Type != schema.TypeAutoDate {
 					return "", schema.Field{}, validation("filter", "type_mismatch")
 				}
-				value = quoted(field.ColumnName)
+				value = column(field.ColumnName)
 			} else if arg.literal.kind == filterLiteralString {
 				value = builder.placeholder(arg.literal.text) + "::timestamptz"
 			} else {

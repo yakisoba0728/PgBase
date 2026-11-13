@@ -56,13 +56,15 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
   const readOnly = collection.type === "view";
   const time = useTimeFormat();
   const form = useRecordForm({ collection, loaded, onCreated, onDeleted: onClose });
+  const [pendingRelations, setPendingRelations] = useState<Record<string, boolean>>({});
+  const relationPending = Object.values(pendingRelations).some(Boolean);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const formId = `record-form-${collection.id}`;
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     // Cmd/Ctrl+S submits even while Save is disabled: an untouched record is not re-sent.
-    if (!readOnly && !form.save.isPending && (form.dirty || form.isNew)) form.save.mutate();
+    if (!readOnly && !relationPending && !form.save.isPending && (form.dirty || form.isNew)) form.save.mutate();
   };
 
   const duplicate = () => {
@@ -103,6 +105,7 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
               label="id"
               aside="text"
               mono
+              disabled={form.save.isPending}
               value={form.newId}
               onChange={(event) => form.setNewId(event.target.value)}
               required={!collection.recordId.autogeneratePattern}
@@ -114,7 +117,7 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
           )}
           {collection.fields.map((field) => {
             if (field.type === "file")
-              return <FileField key={field.id} collection={collection.name} recordId={form.record?.id ?? null} field={field} readOnly={readOnly} staged={form.files[field.name] ?? []} onStage={(list) => form.setFiles(field.name, list)} />;
+              return <FileField key={field.id} collection={collection.name} recordId={form.record?.id ?? null} field={field} readOnly={readOnly || form.save.isPending || form.remove.isPending} staged={form.files[field.name] ?? []} onStage={(list) => form.setFiles(field.name, list)} />;
             if (field.type === "autodate") {
               const value = form.record?.[field.name];
               return <Field key={field.id} label={field.name} aside={field.type} value={typeof value === "string" ? shortDate(value) : ""} placeholder={t("records.autodateHint")} readOnly />;
@@ -124,9 +127,10 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
                 key={field.id}
                 field={field}
                 value={form.drafts[field.name]}
+                onPendingChange={(pending) => setPendingRelations((current) => current[field.name] === pending ? current : { ...current, [field.name]: pending })}
                 onChange={(value) => form.setDraft(field.name, value)}
                 error={form.errors[field.name]}
-                readOnly={readOnly}
+                readOnly={readOnly || form.save.isPending || form.remove.isPending}
                 expand={form.record?.expand}
               />
             );
@@ -139,7 +143,7 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
             <Button variant="transparent" className="txt-danger pane-footer-start" onClick={() => setConfirmDelete(true)}>{t("common.delete")}</Button>
           )}
           <SaveBar form={formId} dirty={form.dirty} busy={form.save.isPending} onDiscard={form.isNew ? onClose : form.reset}
-            saveLabel={form.isNew ? t("records.create") : t("records.save")} saveDisabled={!form.dirty && !form.isNew}>
+            saveLabel={form.isNew ? t("records.create") : t("records.save")} saveDisabled={relationPending || (!form.dirty && !form.isNew)}>
             {form.progress !== null && <progress className="pane-progress" max={1} value={form.progress} aria-label={t("file.uploadingAll")} />}
           </SaveBar>
         </footer>
@@ -154,7 +158,7 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
         onConfirm={() => form.remove.mutate(undefined, { onSettled: () => setConfirmDelete(false) })}
         onCancel={() => setConfirmDelete(false)}
       />
-      <UnsavedGuard {...form.guard} />
+      <UnsavedGuard {...form.guard} dirty={form.dirty || relationPending} busy={form.save.isPending || form.remove.isPending || relationPending} />
     </>
   );
 }

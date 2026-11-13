@@ -28,13 +28,13 @@ const filterSyntax: [string, MessageKey][] = [
   ["limit=20&cursor=…", "api.filter.cursor"],
 ];
 
-function EndpointPane({ endpoint, collection, audience, language, ruleText, onLanguage }: { endpoint: Endpoint; collection: Collection; audience: Audience; language: Language; ruleText: string; onLanguage: (language: Language) => void }) {
+function EndpointPane({ endpoint, collection, audience, language, ruleText, onLanguage, onClose }: { endpoint: Endpoint; collection: Collection; audience: Audience; language: Language; ruleText: string; onLanguage: (language: Language) => void; onClose: () => void }) {
   const t = useT();
   const origin = window.location.origin;
   const sample = codeSample(language, endpoint, collection, origin, audience);
   return (
     <>
-      <PaneHeader title={t(`api.endpoint.${endpoint.id.startsWith("files-") ? "files" : endpoint.id}` as MessageKey)} />
+      <PaneHeader onClose={onClose} title={t(`api.endpoint.${endpoint.id.startsWith("files-") ? "files" : endpoint.id}` as MessageKey)} />
       <div className="pane-body api-pane">
         <div className="api-route">
           <span className="api-method" data-method={endpoint.method}>{endpoint.method}</span>
@@ -85,8 +85,9 @@ function EndpointPane({ endpoint, collection, audience, language, ruleText, onLa
 export function ApiView({ collection }: { collection: Collection }) {
   const t = useT();
   const { params, update } = useSearchState();
-  const rules = useQuery({ queryKey: rulesQueryKey(collection.name), queryFn: ({ signal }) => getCollectionRules(collection.name, signal) });
-  const access = useQuery({ queryKey: [...rulesQueryKey(collection.name), "access"], queryFn: ({ signal }) => getCollectionUserAccess(collection.name, signal) });
+  const policySource = collection.type === "view" && !collection.view?.sql ? collection.view?.source ?? collection.name : collection.name;
+  const rules = useQuery({ queryKey: rulesQueryKey(policySource), queryFn: ({ signal }) => getCollectionRules(policySource, signal) });
+  const access = useQuery({ queryKey: [...rulesQueryKey(policySource), "access"], queryFn: ({ signal }) => getCollectionUserAccess(policySource, signal) });
   const audience: Audience = params.get("as") === "user" ? "user" : "guest";
   const language = (languages as readonly string[]).includes(params.get("lang") ?? "") ? (params.get("lang") as Language) : "curl";
   const realms = useQuery({ queryKey: ["auth-collections"], queryFn: ({ signal }) => listAuthCollections(signal), enabled: collection.type === "auth" });
@@ -130,7 +131,7 @@ export function ApiView({ collection }: { collection: Collection }) {
     </>
   );
   const pane = selected ? (
-    <EndpointPane endpoint={selected} collection={collection} audience={audience} language={language} ruleText={ruleText(selected)} onLanguage={(value) => set("lang", value === "curl" ? null : value)} />
+    <EndpointPane onClose={() => set("endpoint", "none")} endpoint={selected} collection={collection} audience={audience} language={language} ruleText={ruleText(selected)} onLanguage={(value) => set("lang", value === "curl" ? null : value)} />
   ) : null;
   return <SplitView list={list} pane={pane} paneLabel={t("api.detail")} onClose={() => set("endpoint", "none")} />;
 }

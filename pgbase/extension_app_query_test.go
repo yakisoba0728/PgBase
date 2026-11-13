@@ -12,6 +12,10 @@ func TestExtensionRecordQueryCompilesTypedDBXAndRejectsRawSQL(t *testing.T) {
 	if err != nil || !strings.Contains(filter, "id = 'a'") || !strings.Contains(filter, "title ~ 'needle'") {
 		t.Fatalf("filter=%s err=%v", filter, err)
 	}
+	filter, err = compileExtensionDBX(json.RawMessage(`{"op":"in","args":["id","a","b"]}`))
+	if err != nil || !strings.Contains(filter, "id = 'a'") || !strings.Contains(filter, "id = 'b'") {
+		t.Fatalf("variadic filter=%s err=%v", filter, err)
+	}
 	attack := json.RawMessage(`{"op":"exp","args":["true); delete from pgbase_meta.users; --",{}]}`)
 	if _, err := compileExtensionDBX(attack); err == nil {
 		t.Fatal("raw SQL expression reached ordinary record query")

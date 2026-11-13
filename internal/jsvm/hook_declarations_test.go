@@ -20,7 +20,7 @@ func TestSupportedHookGlobalsAreDeclared(t *testing.T) {
 			events = append(events, family+"."+phase)
 		}
 	}
-	declarations, err := os.ReadFile("../../sdk/javascript/pgbase.d.ts")
+	declarations, err := os.ReadFile("../../sdk/javascript/pgbase-legacy.d.ts")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -101,7 +101,7 @@ func TestPublicQueryRejectsHiddenOperands(t *testing.T) {
 		read func(ListRequest) error
 	}{
 		{"native_list", func(request ListRequest) error { _, err := records.List(ctx, request); return err }},
-		{"native_count", func(request ListRequest) error { _, err := Count(ctx, records, request); return err }},
+		{"native_count", func(request ListRequest) error { _, err := records.Count(ctx, request); return err }},
 		{"compatible_list", func(request ListRequest) error {
 			request.PocketBaseCompatibility = true
 			_, err := records.List(ctx, request)

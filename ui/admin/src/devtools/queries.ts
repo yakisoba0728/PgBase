@@ -1,6 +1,7 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { applySchemaImport, exportSchema, getSchemaImportOperation, getSchemaOperation, listSchemaOperations, type SchemaImportResult } from "../api/schema";
 import { getSqlExecution, listSqlExecutions } from "../api/sql";
+import { ApiError } from "../api/http";
 import { Undecided } from "../schema/apply";
 import { sqlActive, type PendingImport } from "./model";
 
@@ -63,7 +64,16 @@ export async function runImport(pending: PendingImport): Promise<SchemaImportRes
     if (attempt >= 15) throw new Undecided(identity.operationId);
     await sleep(1000);
     // "unknown" is a claim left before execution: only resending the same request resumes it.
-    result = result.status === "unknown" ? await apply() : await getSchemaImportOperation(identity.operationId);
+    if (result.status === "unknown") result = await apply();
+    else {
+      try {
+        result = await getSchemaImportOperation(identity.operationId);
+      } catch {
+        // A failed status read says nothing about the accepted apply.
+        throw new Undecided(identity.operationId);
+      }
+    }
   }
+  if (result.status === "failed") throw new ApiError(409, "schema_operation_failed", result.failureCode ?? "failed");
   return result;
 }

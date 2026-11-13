@@ -30,7 +30,7 @@ func (s *Service) Get(ctx context.Context, collection string) (Policy, error) {
 		return Policy{}, ErrNotFound
 	}
 	var policy Policy
-	err := s.pool.QueryRow(ctx, `SELECT c.name, COALESCE(a.enabled,false) FROM pgbase_meta.collections c LEFT JOIN pgbase_meta.collection_access a ON a.collection_id=c.id WHERE c.name=$1`, collection).Scan(&policy.Collection, &policy.Enabled)
+	err := s.pool.QueryRow(ctx, `SELECT c.name, COALESCE(a.enabled,false) FROM pgbase_meta.collections c LEFT JOIN pgbase_meta.collection_views v ON v.collection_id=c.id LEFT JOIN pgbase_meta.collection_access a ON a.collection_id=COALESCE(v.source_collection_id,c.id) WHERE c.name=$1`, collection).Scan(&policy.Collection, &policy.Enabled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Policy{}, ErrNotFound
 	}
@@ -46,8 +46,12 @@ func (s *Service) Set(ctx context.Context, collection string, enabled bool) (Pol
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM pgbase_meta.schema_state WHERE singleton FOR SHARE`); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `SELECT id FROM pgbase_meta.collections WHERE name=$1 FOR UPDATE`, collection); err != nil {
+		var inherited bool
+		if err := tx.QueryRow(ctx, `SELECT v.source_collection_id IS NOT NULL FROM pgbase_meta.collections c LEFT JOIN pgbase_meta.collection_views v ON v.collection_id=c.id WHERE c.name=$1 FOR UPDATE OF c`, collection).Scan(&inherited); err != nil {
 			return err
+		}
+		if inherited {
+			return ErrUnsupported
 		}
 		return tx.QueryRow(ctx, `INSERT INTO pgbase_meta.collection_access(collection_id, enabled)
 SELECT id, $2 FROM pgbase_meta.collections WHERE name=$1

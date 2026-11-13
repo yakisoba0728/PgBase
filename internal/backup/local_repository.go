@@ -20,7 +20,15 @@ func (r *LocalRepository) archive(id string) string   { return filepath.Join(r.d
 func (r *LocalRepository) metadata(id string) string  { return filepath.Join(r.directory, id+".json") }
 
 func (r *LocalRepository) Publish(ctx context.Context, entry Entry, source io.Reader) error {
+	if !validID(entry.ID) {
+		return ErrNotFound
+	}
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(r.metadata(entry.ID)); err == nil {
+		return os.ErrExist
+	} else if !os.IsNotExist(err) {
 		return err
 	}
 	temporary, err := os.CreateTemp(r.directory, ".archive-")
@@ -29,12 +37,13 @@ func (r *LocalRepository) Publish(ctx context.Context, entry Entry, source io.Re
 	}
 	name := temporary.Name()
 	defer func() { _ = os.Remove(name) }()
-	_, copyErr := io.Copy(temporary, source)
-	err = errors.Join(copyErr, temporary.Sync(), temporary.Close())
+	_, copyErr := io.Copy(temporary, contextReader{ctx: ctx, reader: source})
+	err = errors.Join(copyErr, ctx.Err(), temporary.Sync(), temporary.Close())
 	if err != nil {
 		return err
 	}
-	if err = os.Rename(name, r.archive(entry.ID)); err != nil {
+	// Linking publishes the complete archive without replacing an existing ID.
+	if err = os.Link(name, r.archive(entry.ID)); err != nil {
 		return err
 	}
 	if err = writeAtomic(r.metadata(entry.ID), entry); err != nil {
@@ -111,6 +120,9 @@ func (r *LocalRepository) Delete(ctx context.Context, id string) error {
 	return os.Remove(r.metadata(id))
 }
 func (r *LocalRepository) Discard(_ context.Context, id string) error {
+	if !validID(id) {
+		return ErrNotFound
+	}
 	_ = os.Remove(r.metadata(id))
 	_ = os.Remove(r.archive(id))
 	return nil

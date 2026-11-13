@@ -198,7 +198,7 @@ func (d Dependencies) customRoutes() ([]route, error) {
 func noStoreCustomHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(&noStoreResponseWriter{ResponseWriter: w}, r)
 		w.Header().Set("Cache-Control", "no-store")
 	})
 }
@@ -214,3 +214,22 @@ func registerRoute(mux *http.ServeMux, pattern string, handler http.Handler) (er
 	mux.Handle(pattern, handler)
 	return nil
 }
+
+// Enforce the authenticated cache policy at the point headers reach the wire.
+type noStoreResponseWriter struct{ http.ResponseWriter }
+
+func (w *noStoreResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w *noStoreResponseWriter) WriteHeader(status int) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.ResponseWriter.WriteHeader(status)
+}
+func (w *noStoreResponseWriter) Write(body []byte) (int, error) {
+	w.Header().Set("Cache-Control", "no-store")
+	return w.ResponseWriter.Write(body)
+}
+func (w *noStoreResponseWriter) FlushError() error {
+	w.Header().Set("Cache-Control", "no-store")
+	return http.NewResponseController(w.ResponseWriter).Flush()
+}
+
+func (w *noStoreResponseWriter) Flush() { _ = w.FlushError() }

@@ -138,7 +138,7 @@ func TestPublicFieldComparisonsBindBothCursorOperands(t *testing.T) {
 				assertValidationDetail(t, err, "filter", tc.code)
 			})
 			t.Run(tc.filter+"/count", func(t *testing.T) {
-				_, err := Count(ctx, records, request)
+				_, err := records.Count(ctx, request)
 				assertValidationDetail(t, err, "filter", tc.code)
 			})
 		}
@@ -162,7 +162,7 @@ func TestPublicFieldComparisonsBindBothCursorOperands(t *testing.T) {
 				if err != nil || len(page.Items) != tc.count {
 					t.Fatalf("supported field comparison list: got %d err=%v want %d", len(page.Items), err, tc.count)
 				}
-				total, err := Count(ctx, records, request)
+				total, err := records.Count(ctx, request)
 				if err != nil || total != int64(tc.count) {
 					t.Fatalf("supported field comparison count: got %d err=%v want %d", total, err, tc.count)
 				}
@@ -184,7 +184,7 @@ func TestPublicFieldComparisonsBindBothCursorOperands(t *testing.T) {
 				if err != nil || len(page.Items) != tc.count {
 					t.Fatalf("literal-left any-match list: got %d err=%v want %d", len(page.Items), err, tc.count)
 				}
-				total, err := Count(ctx, records, request)
+				total, err := records.Count(ctx, request)
 				if err != nil || total != int64(tc.count) {
 					t.Fatalf("literal-left any-match count: got %d err=%v want %d", total, err, tc.count)
 				}

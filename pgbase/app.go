@@ -589,6 +589,23 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 	if err := waitForDone(ctx, backgroundDone, "background components"); err != nil {
 		closeErr = errors.Join(closeErr, err)
 	}
+	closeErr = errors.Join(closeErr, a.closeServices(ctx))
+
+	a.closeMu.Lock()
+	a.closeErr = errors.Join(closeErr, a.backgroundErr)
+	finalErr := a.closeErr
+	a.closeMu.Unlock()
+	terminateFinish(finalErr)
+	a.lifecycleMu.Lock()
+	a.lifecycleState = appLifecycleClosed
+	a.lifecycleMu.Unlock()
+	close(done)
+}
+
+// closeServices is shared by failed construction and normal shutdown. The app
+// owns each resource as soon as it is acquired; dependencies close last.
+func (a *App) closeServices(ctx context.Context) error {
+	var closeErr error
 	if a.backupManager != nil {
 		closeErr = errors.Join(closeErr, a.backupManager.Shutdown(ctx))
 	}
@@ -614,16 +631,7 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 			closeErr = errors.Join(closeErr, fmt.Errorf("release PostgreSQL writer gate: %w", err))
 		}
 	}
-
-	a.closeMu.Lock()
-	a.closeErr = errors.Join(closeErr, a.backgroundErr)
-	finalErr := a.closeErr
-	a.closeMu.Unlock()
-	terminateFinish(finalErr)
-	a.lifecycleMu.Lock()
-	a.lifecycleState = appLifecycleClosed
-	a.lifecycleMu.Unlock()
-	close(done)
+	return closeErr
 }
 
 func forceCloseHTTP(ctx context.Context, server *http.Server) error {

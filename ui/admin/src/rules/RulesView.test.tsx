@@ -1,0 +1,23 @@
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { afterEach, expect, it, vi } from "vitest";
+import * as api from "../api/collections";
+import { RulesView } from "./RulesView";
+import { setLanguage } from "../i18n";
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+it("shows a declarative view's source policy read-only and links to its editable source", async () => {
+  setLanguage("en");
+  const rules = { list: { op: "allow" }, view: { op: "allow" }, create: { op: "deny" }, update: { op: "deny" }, delete: { op: "deny" } } as api.CollectionRules;
+  const get = vi.spyOn(api, "getCollectionRules").mockResolvedValue({ collection: "source", revision: 1, rules });
+  vi.spyOn(api, "getCollectionUserAccess").mockResolvedValue({ collection: "source", enabled: true });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const collection = { name: "view", type: "view", fields: [], view: { source: "source" } } as unknown as api.Collection;
+  const router = createMemoryRouter([{ path: "*", element: <RulesView collection={collection} basePath="/collections/view" /> }]);
+  render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+  await waitFor(() => expect(screen.getByRole("link", { name: "source" })).toHaveAttribute("href", "/collections/source/rules"));
+  expect(get).toHaveBeenCalledWith("source", expect.any(AbortSignal));
+  expect(screen.getByRole("checkbox")).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  cleanup(); client.clear();
+});

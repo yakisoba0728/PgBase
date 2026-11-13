@@ -16,8 +16,8 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
-// publishCatalog compiles and publishes one snapshot the way EnsureCurrent and
-// the listener do. No runtime caller replaces an already published catalog, so
+// publishCatalog compiles and publishes one snapshot after commit, like Catalog
+// and the listener. No runtime caller replaces an already published catalog, so
 // tests reach the cache through the same two steps production uses.
 func publishCatalog(cache *Cache, catalog Catalog) error {
 	compiled, err := cache.prepare(catalog, maximumCatalogWireBytes)
@@ -128,76 +128,47 @@ func TestCatalogCacheRejectsInvalidPublicationAndCompilesOneSnapshotPerVersion(t
 	}
 }
 
-func TestCatalogCacheSharesPreparedSnapshotAndDiscardsRollback(t *testing.T) {
+func TestCatalogCacheKeepsConcurrentCandidatesTransactionLocal(t *testing.T) {
 	cache := &Cache{}
 	catalog := cacheTestCatalog(7, "posts")
 	const workers = 32
-	results := make(chan *compiledCatalog, workers)
-	errors := make(chan error, workers)
 	var group sync.WaitGroup
 	for range workers {
 		group.Add(1)
 		go func() {
 			defer group.Done()
 			compiled, err := cache.prepare(cloneCatalog(catalog), maximumCatalogWireBytes)
-			results <- compiled
-			errors <- err
+			if err != nil || compiled == nil || compiled.catalog.Version != catalog.Version {
+				t.Errorf("prepare catalog = %v, %v", compiled, err)
+			}
 		}()
 	}
 	group.Wait()
-	close(results)
-	close(errors)
-	for err := range errors {
-		if err != nil {
-			t.Fatalf("prepare catalog: %v", err)
-		}
-	}
-	var prepared *compiledCatalog
-	for compiled := range results {
-		if prepared == nil {
-			prepared = compiled
-		}
-		if compiled != prepared {
-			t.Fatal("one catalog version produced multiple compiled snapshots")
-		}
-	}
-	if cache.current.Load() != nil {
-		t.Fatal("prepared catalog was published before commit")
-	}
-	if found := cache.find(catalog.Version); found != prepared {
-		t.Fatal("prepared snapshot was not reusable by a committed-version reader")
-	}
-
-	cache.discardPrepared(prepared)
-	replacement, err := cache.prepare(cacheTestCatalog(catalog.Version, "pages"), maximumCatalogWireBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if replacement == prepared {
-		t.Fatal("rolled-back prepared snapshot survived discard")
-	}
-	if _, ok := replacement.catalog.Collections["pages"]; !ok {
-		t.Fatalf("replacement prepared catalog = %+v", replacement.catalog)
+	if cache.current.Load() != nil || cache.find(catalog.Version) != nil {
+		t.Fatal("transaction-local candidate escaped before commit")
 	}
 }
 
-func TestCatalogCacheReplacesDifferentRolledBackCandidateBeforeDiscard(t *testing.T) {
+func TestCatalogCacheDoesNotReuseRolledBackVersion(t *testing.T) {
 	cache := &Cache{}
 	rolledBack, err := cache.prepare(cacheTestCatalog(8, "posts"), maximumCatalogWireBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	committing, err := cache.prepare(cacheTestCatalog(8, "pages"), maximumCatalogWireBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if committing == rolledBack {
-		t.Fatal("different metadata for one candidate version reused a rolled-back compiled snapshot")
+	if committing == rolledBack || cache.find(8) != nil {
+		t.Fatal("different transactions shared an unpublished candidate version")
 	}
-	cache.discardPrepared(rolledBack)
+	cache.publish(committing)
+	cache.publish(rolledBack)
 	if found := cache.find(8); found != committing {
-		t.Fatal("late rollback cleanup discarded the replacement candidate")
+		t.Fatal("a late candidate replaced the committed snapshot")
+	}
+	if _, err := cache.prepare(rolledBack.catalog, maximumCatalogWireBytes); !errors.Is(err, ErrConflict) {
+		t.Fatalf("same version with different content = %v, want conflict", err)
 	}
 }
 

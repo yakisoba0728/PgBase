@@ -6,7 +6,7 @@ import { toast } from "./Toast";
 
 /** Copies text to the clipboard with the one shared "Copied." / "Could not copy." feedback. */
 export function copyText(text: string): Promise<boolean> {
-  return navigator.clipboard.writeText(text).then(
+  return Promise.resolve().then(() => navigator.clipboard.writeText(text)).then(
     () => {
       toast(tNow("copy.done"));
       return true;

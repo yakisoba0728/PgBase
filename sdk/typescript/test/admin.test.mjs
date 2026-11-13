@@ -54,7 +54,8 @@ test('administrator schema workflows preserve exact text ID policies and preview
   const definition={name:collection.name,tableName:collection.tableName,recordId,fields:[]};
   const authPolicy={passwordEnabled:true,minimumPasswordBytes:12,maximumPasswordBytes:128,passwordPattern:'',identityFields:['email'],mfaEnabled:false,mfaDurationSeconds:300,mfaRule:'',otpEnabled:false,otpDurationSeconds:300,otpMaxAttempts:5};
   const authCollection={name:'members',registrationEnabled:true,recordId,fields:[],rules:{list:null,view:'@request.auth.id = id',create:'',auth:''},policy:authPolicy,tokenTTLs:{session:3600}};
-  const schema={format:'pgbase.schema/v1',collections:[{name:'articles',recordId,fields:[],userAccess:false,rules:{}},{name:'members',type:'auth',recordId,fields:[],userAccess:false,rules:{}}],authCollections:[authCollection]};
+  const policy={list:{op:'eq',binding:'catalog',field:'owner.id',auth:'id',expression:'owner.id = @request.auth.id'},view:{op:'owner',binding:'scalar',expression:'owner annotation'},create:{op:'deny'},update:{op:'owner'},delete:{op:'deny'}};
+  const schema={format:'pgbase.schema/v1',collections:[{name:'articles',recordId,fields:[],userAccess:false,rules:policy},{name:'members',type:'auth',recordId,fields:[],userAccess:false,rules:{}}],authCollections:[authCollection]};
   const client=new PgBaseAdminClient('http://localhost',{fetch:async(url,init)=>{
     const path=new URL(url).pathname;
     calls.push({path,init});
@@ -85,16 +86,20 @@ test('administrator schema workflows preserve exact text ID policies and preview
   assert.deepEqual(exported.authCollections[0],authCollection);
   const pendingImport=client.previewSchemaImport(exported);
   exported.collections[0].recordId.pattern='^[a-z]+$';
+  exported.collections[0].rules.list.binding='scalar';
   exported.collections[1].recordId.pattern='^[a-z]+$';
   exported.authCollections[0].recordId.pattern='^[a-z]+$';
   exported.authCollections[0].policy.identityFields=['changed'];
   const importPlan=await pendingImport;
   importPlan.document.collections[0].recordId.maxLength=255;
+  importPlan.document.collections[0].rules.list.binding='scalar';
   importPlan.document.authCollections[0].recordId.maxLength=255;
   await client.applySchemaImport(importPlan);
   const previewed=JSON.parse(calls.find(call=>call.path==='/api/admin/schema/import/preview').init.body);
   const imported=JSON.parse(calls.find(call=>call.path==='/api/admin/schema/import/apply').init.body);
   assert.deepEqual(previewed.collections[0].recordId,recordId);
+  assert.deepEqual(previewed.collections[0].rules,policy);
+  assert.deepEqual(imported.document.collections[0].rules,policy);
   assert.deepEqual(imported.document.collections[0].recordId,recordId);
   assert.deepEqual(previewed.collections[1],schema.collections[1]);
   assert.deepEqual(imported.document.collections[1],schema.collections[1]);
@@ -226,7 +231,7 @@ test('raw schema export preview and apply preserve integers beyond JavaScript pr
   const client=new PgBaseAdminClient('http://localhost',{fetch:async(url,init)=>{
     calls.push({url:String(url),init});
     if(String(url).endsWith('/schema/export')) return new Response(raw,{headers:{'Content-Type':'application/json'}});
-    if(String(url).endsWith('/import/preview')) return Response.json({baseVersion:4,checksum:'exact',policyChecksum:'policy',changes:[],document:JSON.parse(raw)});
+    if(String(url).endsWith('/import/preview')) return new Response(`{"baseVersion":4,"checksum":"exact","policyChecksum":"policy","changes":[],"document":${raw}}`);
     if(String(url).endsWith('/import/apply')) return Response.json({operationId:'done',status:'committed'});
     throw new Error('unexpected request');
   }});
@@ -241,4 +246,26 @@ test('raw schema export preview and apply preserve integers beyond JavaScript pr
   assert.doesNotMatch(apply.init.body,/"default":1[,}]/);
   assert.equal(apply.init.headers.get('PgBase-Operation-ID'),plan.operationId);
   assert.equal(apply.init.headers.get('Idempotency-Key'),plan.idempotencyKey);
+});
+
+test('raw schema export preserves structured errors and clears only the expired CSRF generation', async()=>{
+  for(const replace of [false,true]) {
+    const calls=[];
+    let finish;
+    let resumes=0;
+    const client=new PgBaseAdminClient('http://localhost',{fetch:async(url,init)=>{
+      calls.push({url:String(url),init});
+      if(String(url).endsWith('/session')) return Response.json({csrfToken:`csrf-${++resumes}`});
+      if(String(url).endsWith('/schema/export')) return new Promise(resolve=>{finish=resolve;});
+      return new Response(null,{status:204});
+    }});
+    await client.resume();
+    const exportRequest=client.exportSchemaJSON();
+    const rejected=assert.rejects(exportRequest,error=>error instanceof AdminAPIError&&error.code==='authentication_required'&&error.details.field[0]==='denied');
+    if(replace) await client.resume();
+    finish(Response.json({error:{code:'authentication_required',details:{field:['denied']}}},{status:401}));
+    await rejected;
+    await client.queueJob('job');
+    assert.equal(calls.at(-1).init.headers.get('X-PgBase-CSRF'),replace?'csrf-2':'');
+  }
 });

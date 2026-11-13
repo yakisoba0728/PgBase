@@ -84,12 +84,12 @@ func (host *extensionHost) callAppRecordQuery(ctx context.Context, method string
 				return nil, err
 			}
 			var item extensionRecordResult
-			if json.Unmarshal(raw, &item) != nil {
+			if decodeExtensionInput(raw, &item) != nil {
 				return nil, extensionError("invalid_record_result", nil)
 			}
 			items = append(items, item.Data)
 		}
-		return json.Marshal(extensionRecordResult{Items: items})
+		return json.Marshal(extensionRecordPage{Items: items})
 	case "app.record.count":
 		count, err := host.bridge.records.Count(ctx, recordops.ListRequest{Principal: host.principal, RequestID: host.requestID, Collection: request.Collection, Filter: request.Filter, Sort: request.Sort})
 		return marshalExtensionResult(count, err)
@@ -106,7 +106,7 @@ func (host *extensionHost) callAppRecordQuery(ctx context.Context, method string
 				return nil, err
 			}
 			var page extensionRecordResult
-			if json.Unmarshal(raw, &page) != nil {
+			if decodeExtensionInput(raw, &page) != nil {
 				return nil, extensionError("invalid_record_result", nil)
 			}
 			pageBytes := 0
@@ -136,7 +136,7 @@ func (host *extensionHost) callAppRecordQuery(ctx context.Context, method string
 			}
 			cursor = page.NextCursor
 		}
-		result, err := json.Marshal(extensionRecordResult{Items: items})
+		result, err := json.Marshal(extensionRecordPage{Items: items})
 		if err != nil {
 			return nil, extensionError("invalid_record_result", err)
 		}
@@ -155,7 +155,7 @@ func (host *extensionHost) callAppRecordQuery(ctx context.Context, method string
 			return nil, err
 		}
 		var page extensionRecordResult
-		if json.Unmarshal(raw, &page) != nil || len(page.Items) == 0 {
+		if decodeExtensionInput(raw, &page) != nil || len(page.Items) == 0 {
 			return nil, extensionError("record_not_found", nil)
 		}
 		return json.Marshal(page.Items[0])
@@ -173,7 +173,7 @@ func (host *extensionHost) callAppRecordQuery(ctx context.Context, method string
 			return json.Marshal(false)
 		}
 		var page extensionRecordResult
-		if json.Unmarshal(raw, &page) != nil {
+		if decodeExtensionInput(raw, &page) != nil {
 			return nil, extensionError("invalid_record_result", nil)
 		}
 		return json.Marshal(len(page.Items) == 1)
@@ -295,11 +295,13 @@ func compileExtensionDBX(raw json.RawMessage) (string, error) {
 		}
 		switch node.Op {
 		case "in", "notIn":
-			if len(node.Args) != 2 {
-				return "", errors.New("invalid in")
+			values := node.Args[1:]
+			if len(values) == 1 && len(values[0]) > 0 && values[0][0] == '[' {
+				if err := json.Unmarshal(values[0], &values); err != nil {
+					return "", errors.New("invalid in values")
+				}
 			}
-			var values []json.RawMessage
-			if json.Unmarshal(node.Args[1], &values) != nil || len(values) == 0 || len(values) > 1000 {
+			if len(values) == 0 || len(values) > 1000 {
 				return "", errors.New("invalid in values")
 			}
 			parts := make([]string, len(values))

@@ -35,7 +35,7 @@ func TestViewPolicyUsesSourceFieldOutsideProjection(t *testing.T) {
 	source := schema.Collection{ID: sourceID, Name: "source", TableName: "source", Fields: []schema.Field{{Name: "private", ColumnName: "private", Type: schema.TypeBoolean}}}
 	view := schema.Collection{ID: uuid.New(), Name: "public_view", TableName: "public_view", View: &schema.ViewSpec{SourceCollectionID: sourceID, Source: source.Name}}
 	rule := accessrule.Rule{Op: "eq", Field: "private", Value: []byte("true")}
-	predicate, args, err := compilePolicyPredicate(rule, view, source, view.TableName, Principal{Kind: identity.Anonymous}, 0)
+	predicate, args, err := compilePolicyPredicateWithRequest(rule, view, source, view.TableName, Principal{Kind: identity.Anonymous}, 0, schema.Catalog{Collections: map[string]schema.Collection{source.Name: source}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

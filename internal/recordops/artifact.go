@@ -13,6 +13,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/recordidentity"
 	"github.com/yakisoba0728/PgBase/internal/relation"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
@@ -73,8 +74,12 @@ func commitMutation(
 			continue
 		}
 		if (principal.Kind == PrincipalUser || principal.Kind == identity.Anonymous) && batch.operation != "delete" {
-			if len(batch.rows) == 1 && batch.rows[0].requestContext != nil {
-				allowed, err := recordaccess.AllowsRecordInCatalog(ctx, tx, catalog, policyCollection(batch.collection), principal, batch.operation, batch.rows[0].recordID, batch.operation == "create", batch.rows[0].requestContext)
+			if batch.rows[0].requestContext != nil {
+				ids := make([]uuid.UUID, len(batch.rows))
+				for i, row := range batch.rows {
+					ids[i] = row.recordID
+				}
+				allowed, err := recordaccess.AllowsRecordsInCatalogWithRequest(ctx, tx, catalog, policyCollection(batch.collection), principal, batch.operation, ids, batch.operation == "create", batch.rows[0].requestContext)
 				if err != nil {
 					return err
 				}
@@ -107,7 +112,7 @@ func commitMutation(
 		if err := writeRevisionBatch(ctx, tx, batch); err != nil {
 			return err
 		}
-		if err := writeOutboxBatch(ctx, tx, batch); err != nil {
+		if err := writeOutboxBatch(ctx, tx, catalog, batch); err != nil {
 			return err
 		}
 	}
@@ -239,7 +244,7 @@ func deleteRevisionBatch(ctx context.Context, tx pgx.Tx, batch artifactBatch) er
 	return expectRows(tag, len(recordIDs), errRevisionChanged)
 }
 
-func writeOutboxBatch(ctx context.Context, tx pgx.Tx, batch artifactBatch) error {
+func writeOutboxBatch(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, batch artifactBatch) error {
 	count := len(batch.rows)
 	eventIDs := make([]uuid.UUID, count)
 	recordIDs := make([]uuid.UUID, count)
@@ -247,9 +252,17 @@ func writeOutboxBatch(ctx context.Context, tx pgx.Tx, batch artifactBatch) error
 	envelopes := make([]string, count)
 	owners := make([]*uuid.UUID, count)
 	snapshots := make([]string, count)
+	publicRecords := make([]map[string]any, count)
+	for index, row := range batch.rows {
+		publicRecords[index] = cloneRecordData(row.changes)
+	}
+	if err := recordidentity.New(nil).Project(ctx, tx, catalog, batch.collection, publicRecords...); err != nil {
+		return err
+	}
 	for index, row := range batch.rows {
 		envelope, err := json.Marshal(outboxEnvelope{
-			Version: outboxEnvelopeVersion, EventID: row.eventID, CollectionID: batch.collection.ID,
+			PublicRecord: publicOutboxRecord(batch.collection, publicRecords[index]),
+			Version:      outboxEnvelopeVersion, EventID: row.eventID, CollectionID: batch.collection.ID,
 			CollectionName: batch.collection.Name, RecordID: row.recordID, Operation: batch.operation,
 			RecordVersion: row.newVersion, Changes: mutationChanges(row.changes, row.changedFields),
 			Tombstone: row.tombstone,
@@ -437,4 +450,16 @@ func outboxSnapshot(collection schema.Collection, data map[string]any) ([]byte, 
 		snapshot[field.ColumnName] = data[field.Name]
 	}
 	return json.Marshal(snapshot)
+}
+
+func publicOutboxRecord(collection schema.Collection, data map[string]any) map[string]any {
+	record := map[string]any{"id": data["id"], "created_at": data["created_at"], "updated_at": data["updated_at"]}
+	for _, field := range collection.Fields {
+		if field.Type != schema.TypeFile {
+			if value, ok := data[field.Name]; ok {
+				record[field.ColumnName] = value
+			}
+		}
+	}
+	return record
 }

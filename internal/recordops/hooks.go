@@ -33,14 +33,18 @@ type MutationErrorHook interface {
 
 type mutationHookKey struct{}
 type transactionOutcomeKey struct{}
+type managedTransactionKey struct{}
 type mutationHookRun struct {
 	hooks      []MutationHook
 	events     []Mutation
 	deferAfter int
 	completed  bool
+	failure    error
 }
 
 var ErrTransactionRolledBack = errors.New("record transaction rolled back")
+var ErrTransactionOutcomeRequired = errors.New("borrowed mutation requires a transaction outcome for hooks")
+var ErrNestedCompoundMutation = errors.New("compound mutation cannot be nested inside mutation hooks")
 
 // TransactionOutcome completes hooks for operations run in a caller-owned
 // transaction. Finish must be called once with nil after commit or an error
@@ -60,8 +64,9 @@ func WithTransactionOutcome(ctx context.Context, tx pgx.Tx, outcome *Transaction
 	return context.WithValue(ctx, transactionOutcomeKey{}, outcome)
 }
 
-func (o *TransactionOutcome) register(callback func(context.Context, error)) bool {
-	if o == nil {
+// Register observes the final transaction outcome; it rejects nil callbacks and completed outcomes.
+func (o *TransactionOutcome) Register(callback func(context.Context, error)) bool {
+	if o == nil || callback == nil {
 		return false
 	}
 	o.mu.Lock()
@@ -71,6 +76,15 @@ func (o *TransactionOutcome) register(callback func(context.Context, error)) boo
 	}
 	o.callbacks = append(o.callbacks, callback)
 	return true
+}
+
+func (o *TransactionOutcome) pending() bool {
+	if o == nil {
+		return false
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return !o.finished
 }
 
 func (o *TransactionOutcome) Finish(ctx context.Context, outcomeErr error) {
@@ -103,7 +117,7 @@ func (s *Service) hookContext(ctx context.Context) (context.Context, *mutationHo
 	}
 	run := &mutationHookRun{hooks: s.hooks}
 	if outcome, _ := ctx.Value(transactionOutcomeKey{}).(*TransactionOutcome); outcome != nil {
-		if outcome.register(func(finalCtx context.Context, outcomeErr error) { run.afterCommitted(finalCtx, &outcomeErr) }) {
+		if outcome.Register(func(finalCtx context.Context, outcomeErr error) { run.afterCommitted(finalCtx, &outcomeErr) }) {
 			run.deferAfter++
 		}
 	}
@@ -137,6 +151,9 @@ func callBeforeHook(ctx context.Context, hook MutationHook, event Mutation) (err
 }
 
 func (run *mutationHookRun) after(ctx context.Context, operationErr *error) {
+	if run != nil && *operationErr != nil {
+		run.failure = *operationErr
+	}
 	if run != nil && run.deferAfter > 0 {
 		return
 	}
@@ -148,15 +165,19 @@ func (run *mutationHookRun) afterCommitted(ctx context.Context, operationErr *er
 		return
 	}
 	run.completed = true
+	outcomeErr := *operationErr
+	if outcomeErr == nil {
+		outcomeErr = run.failure
+	}
 	// Observers have a short independent deadline: a client cancelling after
 	// commit must not suppress observation. Durable delivery belongs in outbox.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	for _, event := range run.events {
 		for _, hook := range run.hooks {
-			if *operationErr != nil {
+			if outcomeErr != nil {
 				if errorHook, ok := hook.(MutationErrorHook); ok {
-					callAfterErrorHook(ctx, errorHook, event, *operationErr)
+					callAfterErrorHook(ctx, errorHook, event, outcomeErr)
 				}
 			} else {
 				callAfterHook(ctx, hook, event)
@@ -173,4 +194,14 @@ func callAfterErrorHook(ctx context.Context, hook MutationErrorHook, event Mutat
 func callAfterHook(ctx context.Context, hook MutationHook, event Mutation) {
 	defer func() { _ = recover() }()
 	hook.AfterMutation(ctx, event)
+}
+
+func requireTransactionOutcome(ctx context.Context) error {
+	run, _ := ctx.Value(mutationHookKey{}).(*mutationHookRun)
+	outcome, _ := ctx.Value(transactionOutcomeKey{}).(*TransactionOutcome)
+	managed, _ := ctx.Value(managedTransactionKey{}).(bool)
+	if run != nil && !outcome.pending() && !managed {
+		return ErrTransactionOutcomeRequired
+	}
+	return nil
 }

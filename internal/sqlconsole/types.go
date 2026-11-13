@@ -392,7 +392,7 @@ func validateCell(cell Cell) error {
 			return errors.New("integer cell is invalid")
 		}
 	case CellDecimal:
-		if !decimalPattern.MatchString(cell.Text) {
+		if !decimalPattern.MatchString(cell.Text) && cell.Text != "NaN" && cell.Text != "Infinity" && cell.Text != "-Infinity" {
 			return errors.New("decimal cell is invalid")
 		}
 	case CellJSON:

@@ -5,7 +5,6 @@ package usermigrate
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -124,7 +123,7 @@ func TestAutoRecorderRecordsSchemaImport(t *testing.T) {
 	service := schema.NewService(pool, &schema.Cache{}, nil)
 	service.SetMigrationRecorder(recorder)
 	document := schema.SchemaDocument{Format: schema.SchemaDocumentFormat, Collections: []schema.SchemaDocumentCollection{{
-		Name: "import_recorded", Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText}}, Rules: json.RawMessage(`{}`),
+		Name: "import_recorded", Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText}}, Rules: validSnapshotRulesForTest,
 	}}}
 	plan, err := service.PreviewSchemaImport(ctx, document)
 	if err != nil {

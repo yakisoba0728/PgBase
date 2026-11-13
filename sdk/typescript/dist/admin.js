@@ -28,8 +28,8 @@ export class ApprovedSchemaPlan {
         return { body: this.#body, headers: { "PgBase-Operation-ID": this.#operationID, "Idempotency-Key": this.#idempotencyKey } };
     }
 }
-/** A preview plus the exact JSON document that produced it. The apply body is
- * built from this private snapshot so large JSON integers survive preview. */
+/** A preview plus its exact approved JSON document. The apply body keeps this
+ * private snapshot so hooks and large JSON integers survive preview. */
 export class ApprovedSchemaImportPlan {
     baseVersion;
     checksum;
@@ -97,11 +97,18 @@ export class PgBaseAdminClient {
     exportSchema(signal) { return this.request("/api/admin/schema/export", {}, signal); }
     exportSchemaJSON(signal) { return this.requestText("/api/admin/schema/export", {}, signal); }
     async previewSchemaImport(document, signal) {
-        const raw = JSON.stringify(document);
-        return new ApprovedSchemaImportPlan(await this.request("/api/admin/schema/import/preview", { method: "POST", body: raw }, signal), raw);
+        return this.previewSchemaImportJSON(JSON.stringify(document), signal);
     }
     async previewSchemaImportJSON(documentJSON, signal) {
-        return new ApprovedSchemaImportPlan(await this.request("/api/admin/schema/import/preview", { method: "POST", body: documentJSON }, signal), documentJSON);
+        const raw = await this.requestText("/api/admin/schema/import/preview", { method: "POST", body: documentJSON }, signal);
+        let preview;
+        try {
+            preview = JSON.parse(raw);
+        }
+        catch {
+            throw new AdminAPIError(0, "invalid_json_response");
+        }
+        return new ApprovedSchemaImportPlan(preview, approvedDocumentJSON(raw));
     }
     applySchemaImport(plan, signal) {
         const request = plan instanceof ApprovedSchemaImportPlan ? plan.request() : { headers: { "PgBase-Operation-ID": plan.operationId ?? "", "Idempotency-Key": plan.idempotencyKey ?? "" }, body: JSON.stringify({ document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum }) };
@@ -119,7 +126,7 @@ export class PgBaseAdminClient {
         return this.request(`/api/admin/logs?${query}`, {}, signal);
     }
     jobs(signal) { return this.request("/api/admin/jobs", {}, signal); }
-    configureJob(id, schedule, enabled, signal) { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ schedule, enabled }) }, signal); }
+    configureJob(id, schedule, enabled, signal, timezone) { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ schedule, enabled, ...(timezone === undefined ? {} : { timezone }) }) }, signal); }
     queueJob(id, signal) { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}/run`, { method: "POST" }, signal); }
     fileStorageSettings(signal) { return this.request("/api/admin/storage/files", {}, signal); }
     updateFileStorage(input, signal) { return this.request("/api/admin/storage/files", { method: "PUT", body: JSON.stringify(input) }, signal); }
@@ -205,6 +212,7 @@ export class PgBaseAdminClient {
         return await responseJSON(response, () => { throw new AdminAPIError(response.status, "invalid_response_body"); });
     }
     async requestText(path, init, signal) {
+        const generation = this.#generation;
         const headers = new Headers(init.headers);
         headers.set("Accept", "application/json");
         if (init.body !== undefined)
@@ -212,10 +220,15 @@ export class PgBaseAdminClient {
         if (init.method && init.method !== "GET")
             headers.set("X-PgBase-CSRF", this.#csrf);
         const response = await this.#fetch(new URL(path, this.baseURL), { ...init, headers, credentials: "include", signal });
-        const text = await response.text();
-        if (!response.ok)
-            throw new AdminAPIError(response.status, "request_failed");
-        return text;
+        if (!response.ok) {
+            if (response.status === 401 && generation === this.#generation) {
+                this.#csrf = "";
+                this.#generation++;
+            }
+            const data = await responseJSON(response, () => undefined);
+            throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details);
+        }
+        return response.text();
     }
     async requestBlob(path, init, signal) {
         const generation = this.#generation;
@@ -234,4 +247,44 @@ export class PgBaseAdminClient {
         }
         return response.blob();
     }
+}
+/** Keep the server-approved document bytes intact, including large JSON integers. */
+function approvedDocumentJSON(raw) {
+    let depth = 0;
+    let start;
+    for (let i = 0; i < raw.length; i++) {
+        const char = raw[i];
+        if (char === '"') {
+            const from = i;
+            while (++i < raw.length) {
+                if (raw[i] === "\\")
+                    i++;
+                else if (raw[i] === '"')
+                    break;
+            }
+            if (depth === 1 && start === undefined && JSON.parse(raw.slice(from, i + 1)) === "document") {
+                let next = i + 1;
+                while (/\s/.test(raw[next] ?? ""))
+                    next++;
+                if (raw[next] === ":") {
+                    next++;
+                    while (/\s/.test(raw[next] ?? ""))
+                        next++;
+                    start = next;
+                    i = next - 1;
+                }
+            }
+            continue;
+        }
+        if (char === "{" || char === "[")
+            depth++;
+        else if (char === "}" || char === "]") {
+            depth--;
+            if (start !== undefined && depth === 0)
+                return raw.slice(start, i).trim();
+        }
+        else if (char === "," && depth === 1 && start !== undefined)
+            return raw.slice(start, i).trim();
+    }
+    throw new AdminAPIError(0, "invalid_schema_import_preview");
 }

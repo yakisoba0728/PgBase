@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiCloseLine } from "@remixicon/react";
+import { RiCloseLine, RiRefreshLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { findOperation, useOperations } from "../app/operations";
+import { errorText } from "../app/queries";
 import { IconButton } from "../components/Button";
 import { JobProgress } from "../components/JobProgress";
 import { toast } from "../components/Toast";
@@ -65,8 +66,8 @@ export function BackupJobStrip({ id }: { id: string }) {
         meta={data && `${data.backupId} · ${time(data.updatedAt)}`}
         done={phase?.vars?.done}
         total={phase?.vars?.total}
-        error={data?.error}
-        action={data && status !== "running" && params.has("job") && <IconButton label={t("storage.job.dismiss")} icon={RiCloseLine} onClick={() => update({ job: null })} />}
+        error={data?.error ?? (job.error ? errorText(t, job.error) : undefined)}
+        action={job.error ? <IconButton label={t("common.retry")} icon={RiRefreshLine} onClick={() => void job.refetch()} /> : data && status !== "running" && params.has("job") && <IconButton label={t("storage.job.dismiss")} icon={RiCloseLine} onClick={() => update({ job: null })} />}
       />
     </div>
   );

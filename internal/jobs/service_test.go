@@ -55,11 +55,41 @@ func TestCalendarScheduleNextIsDeterministicAcrossDST(t *testing.T) {
 	}
 }
 
+func TestScheduleRegistrationSharesTheFirstRunDecision(t *testing.T) {
+	now := time.Date(2026, 3, 8, 6, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		schedule, timezone string
+		want               time.Time
+	}{
+		{"@every 1s", "UTC", now},
+		{"30 2 * * *", "America/New_York", time.Date(2026, 3, 9, 6, 30, 0, 0, time.UTC)},
+	} {
+		got, err := nextScheduledAt(test.schedule, test.timezone, now)
+		if err != nil || !got.Equal(test.want) {
+			t.Fatalf("first run %q/%q = %s, %v", test.schedule, test.timezone, got, err)
+		}
+	}
+	if _, err := nextScheduledAt("0 0 * * *", "Mars/Base", now); !errors.Is(err, ErrInvalidSchedule) {
+		t.Fatalf("invalid timezone = %v", err)
+	}
+}
+
 func TestCalendarScheduleRejectsTimezoneAndExtendedCron(t *testing.T) {
 	for _, test := range []struct{ expression, timezone string }{{"0 0 * * *", "Mars/Base"}, {"0 0 0 * * *", "UTC"}} {
 		if _, err := ParseScheduleInLocation(test.expression, test.timezone); !errors.Is(err, ErrInvalidSchedule) {
 			t.Fatalf("%q %q: %v", test.expression, test.timezone, err)
 		}
+	}
+}
+
+func TestCalendarScheduleRejectsDatesThatNeverOccur(t *testing.T) {
+	for _, expression := range []string{"0 0 31 2 *", "0 0 31 4 *"} {
+		if _, err := ParseScheduleInLocation(expression, "UTC"); !errors.Is(err, ErrInvalidSchedule) {
+			t.Errorf("ParseScheduleInLocation(%q) = %v, want invalid schedule", expression, err)
+		}
+	}
+	if _, err := ParseScheduleInLocation("0 0 29 2 *", "UTC"); err != nil {
+		t.Fatalf("leap day should remain valid: %v", err)
 	}
 }
 
@@ -82,5 +112,15 @@ func TestRegistryRejectsDuplicateNames(t *testing.T) {
 	}
 	if err := registry.Register("cleanup", handler); !errors.Is(err, ErrDuplicateHandler) {
 		t.Fatalf("duplicate registration error = %v", err)
+	}
+}
+
+func TestEveryScheduleValidatesItsTimezone(t *testing.T) {
+	for _, expression := range []string{"@every 1s", "0 0 * * *"} {
+		for _, zone := range []string{"Mars/Base", ""} {
+			if _, err := ParseScheduleInLocation(expression, zone); !errors.Is(err, ErrInvalidSchedule) {
+				t.Fatalf("%q/%q=%v", expression, zone, err)
+			}
+		}
 	}
 }

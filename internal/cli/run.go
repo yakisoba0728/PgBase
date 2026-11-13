@@ -186,6 +186,7 @@ func runServe(ctx context.Context, args []string, env environment, streams IO) (
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return configurationError{err: errors.New("invalid serve usage"), message: "usage: pgbase serve [--public-dir DIR] [--public-spa-fallback] [--js-dir DIR] [--encryption-env NAME] [--https-address ADDR --https-cert FILE --https-key FILE | --https-address ADDR --acme-hosts HOSTS --acme-cache-dir DIR --acme-http-address ADDR]"}
 	}
+	env = javaScriptEnvironment(env, *javaScriptDirectory)
 	var options pgbase.Options
 	var err error
 	encryptionEnvSet := false
@@ -213,13 +214,22 @@ func runServe(ctx context.Context, args []string, env environment, streams IO) (
 			if options.TLS == nil {
 				options.TLS = &pgbase.TLSOptions{}
 			}
-			options.TLS.Address = *httpsAddress
-			options.TLS.CertificateFile = *httpsCert
-			options.TLS.KeyFile = *httpsKey
-			options.TLS.ACMECacheDirectory = *acmeCache
-			options.TLS.HTTPChallengeAddress = *acmeHTTP
-			if *acmeHosts != "" {
-				options.TLS.ACMEHosts = strings.Split(*acmeHosts, ",")
+			switch item.Name {
+			case "https-address":
+				options.TLS.Address = *httpsAddress
+			case "https-cert":
+				options.TLS.CertificateFile = *httpsCert
+			case "https-key":
+				options.TLS.KeyFile = *httpsKey
+			case "acme-cache-dir":
+				options.TLS.ACMECacheDirectory = *acmeCache
+			case "acme-http-address":
+				options.TLS.HTTPChallengeAddress = *acmeHTTP
+			case "acme-hosts":
+				options.TLS.ACMEHosts = nil
+				if *acmeHosts != "" {
+					options.TLS.ACMEHosts = strings.Split(*acmeHosts, ",")
+				}
 			}
 		}
 	})

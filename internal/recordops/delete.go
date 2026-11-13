@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -123,7 +124,7 @@ func (s *Service) deleteGraphInTransaction(
 	if err := plan.ExecuteStorage(ctx); err != nil {
 		return MutationResult{}, normalizeRelationError(err)
 	}
-	updateBatches, err := touchDeleteSurvivors(ctx, tx, catalog, groups, identities, &readBudget)
+	updateBatches, err := touchDeleteSurvivors(ctx, tx, catalog, groups, identities, &readBudget, request.RuleContext)
 	if err != nil {
 		return MutationResult{}, err
 	}
@@ -144,9 +145,6 @@ func (s *Service) deleteGraphInTransaction(
 		if err := expectRows(tag, len(group.deletes), schema.ErrConflict); err != nil {
 			return MutationResult{}, err
 		}
-		if err := s.identities.ForgetMany(ctx, tx, group.collection, group.deletes); err != nil {
-			return MutationResult{}, normalizeIdentityMutationError(err)
-		}
 		for _, recordID := range group.deletes {
 			removedMembership = append(removedMembership, membership.Record{
 				CollectionID: group.collection.ID, RecordID: recordID,
@@ -166,6 +164,11 @@ func (s *Service) deleteGraphInTransaction(
 	}
 	if err := commitMutation(ctx, tx, catalog, request.Principal, request.RequestID, inputHash[:], deleteBatches...); err != nil {
 		return MutationResult{}, err
+	}
+	for _, group := range groups {
+		if err := s.identities.ForgetMany(ctx, tx, group.collection, group.deletes); err != nil {
+			return MutationResult{}, normalizeIdentityMutationError(err)
+		}
 	}
 	return MutationResult{EventID: identityCache.rootEventID, Compatibility: compatibility}, nil
 }
@@ -391,6 +394,7 @@ func touchDeleteSurvivors(
 	groups []deleteGroup,
 	identities map[relation.RecordRef]deleteArtifactIdentity,
 	budget *deleteReadBudget,
+	request *accessrule.RequestContext,
 ) ([]artifactBatch, error) {
 	batches := make([]artifactBatch, 0, len(groups))
 	for _, group := range groups {
@@ -404,8 +408,16 @@ func touchDeleteSurvivors(
 		// updated_at uses statement_timestamp() like every other record write so a
 		// derived update never stamps a time older than a PATCH that committed
 		// while this delete waited on the collection locks.
+		assignments := []string{"updated_at = statement_timestamp()"}
+		generated := []string{}
+		for _, field := range group.collection.Fields {
+			if field.Type == schema.TypeAutoDate && field.Options.OnUpdate {
+				assignments = append(assignments, pgx.Identifier{field.ColumnName}.Sanitize()+" = statement_timestamp()")
+				generated = append(generated, field.Name)
+			}
+		}
 		tag, err := tx.Exec(ctx, "UPDATE "+quotedRecordCollection(group.collection)+
-			" SET updated_at = statement_timestamp() WHERE id = ANY($1::uuid[])", ids)
+			" SET "+strings.Join(assignments, ", ")+" WHERE id = ANY($1::uuid[])", ids)
 		if err != nil {
 			return nil, err
 		}
@@ -438,9 +450,10 @@ func touchDeleteSurvivors(
 				previousETag: snapshot.previousETag,
 				newETag: recordartifact.RevisionETag(
 					group.collection.ID, update.Source.RecordID, group.digest, identity.validator),
-				changedFields: append([]string(nil), update.ChangedFields...),
-				changes:       after[update.Source.RecordID],
-				validator:     identity.validator,
+				changedFields:  append(append([]string(nil), update.ChangedFields...), generated...),
+				requestContext: request,
+				changes:        after[update.Source.RecordID],
+				validator:      identity.validator,
 			})
 		}
 		batches = append(batches, batch)

@@ -51,8 +51,8 @@ func (s *Service) ReserveAuth(ctx context.Context, db DB, collectionID, internal
 }
 
 func reserveAuth(ctx context.Context, db DB, collectionID, internal uuid.UUID, external string) error {
-	_, err := db.Exec(ctx, `insert into pgbase_meta.record_identities(collection_id,collection_kind,scope_id,internal_id,external_id) values($1,'auth','00000000-0000-0000-0000-000000000000',$2,$3)`, collectionID, internal, external)
-	if uniqueViolation(err) {
+	tag, err := db.Exec(ctx, `insert into pgbase_meta.record_identities(collection_id,collection_kind,scope_id,internal_id,external_id) values($1,'auth','00000000-0000-0000-0000-000000000000',$2,$3) ON CONFLICT DO NOTHING`, collectionID, internal, external)
+	if err == nil && tag.RowsAffected() == 0 {
 		return ErrConflict
 	}
 	return err

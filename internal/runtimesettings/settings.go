@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/jobs"
 	"github.com/yakisoba0728/PgBase/internal/validation"
 )
 
@@ -105,6 +106,9 @@ func validate(v Settings) error {
 	if err := validateStored(v); err != nil {
 		return err
 	}
+	if _, err := jobs.ParseScheduleInLocation(v.Backups.Schedule, v.Backups.Timezone); err != nil {
+		return invalidSetting("backups")
+	}
 	for _, rule := range v.RateLimits.Rules {
 		if !validAPIRateLabel(rule.Label) {
 			return invalidSetting("rateLimits.rules")
@@ -170,16 +174,27 @@ type Controller struct {
 const encryptionDomain = "pgbase-runtime-settings-v1"
 
 func New(ctx context.Context, pool *database.Pool, encryptionKey []byte) (*Controller, error) {
+	return NewWithTrustedProxies(ctx, pool, encryptionKey, nil)
+}
+
+// Startup proxies seed only a missing document; saved empty lists remain authoritative.
+func NewWithTrustedProxies(ctx context.Context, pool *database.Pool, encryptionKey []byte, proxies []netip.Prefix) (*Controller, error) {
 	if pool == nil || len(encryptionKey) < 32 {
 		return nil, ErrInvalid
 	}
 	c := &Controller{pool: pool, key: deriveKey(encryptionKey)}
 	v := Default()
+	for _, prefix := range proxies {
+		if !prefix.IsValid() {
+			return nil, invalidSetting("proxy")
+		}
+		v.Proxy.TrustedProxyCIDRs = append(v.Proxy.TrustedProxyCIDRs, prefix.String())
+	}
 	raw, err := json.Marshal(v)
 	if err != nil {
 		return nil, err
 	}
-	ciphertext, err := c.encrypt(raw)
+	ciphertext, err := encryptDocument(c.key, raw)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +227,7 @@ func (c *Controller) Reload(ctx context.Context) error {
 		}
 		// Not ciphertext: shadowing it left the re-read below unused, so the
 		// first start after the encryption migration failed to decrypt.
-		encrypted, err := c.encrypt(legacy)
+		encrypted, err := encryptDocument(c.key, legacy)
 		if err != nil {
 			return err
 		}
@@ -226,7 +241,7 @@ func (c *Controller) Reload(ctx context.Context) error {
 			return err
 		}
 	}
-	raw, err := c.decrypt(ciphertext)
+	raw, err := decryptDocument(c.key, ciphertext)
 	if err != nil {
 		return fmt.Errorf("decrypt runtime settings: %w", err)
 	}
@@ -270,7 +285,7 @@ func (c *Controller) Update(ctx context.Context, candidate Settings) (Settings, 
 	if err != nil {
 		return Settings{}, err
 	}
-	ciphertext, err := c.encrypt(raw)
+	ciphertext, err := encryptDocument(c.key, raw)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -301,20 +316,17 @@ func (c *Controller) RotateKey(ctx context.Context, encryptionKey []byte) error 
 	c.notifyMu.Lock()
 	defer c.notifyMu.Unlock()
 	nextKey := deriveKey(encryptionKey)
-	oldKey := c.key
 	var reencrypted []byte
 	err := c.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var ciphertext []byte
 		if err := tx.QueryRow(ctx, `select document_ciphertext from pgbase_meta.runtime_settings where singleton for update`).Scan(&ciphertext); err != nil {
 			return err
 		}
-		raw, err := c.decrypt(ciphertext)
+		raw, err := decryptDocument(c.key, ciphertext)
 		if err != nil {
 			return fmt.Errorf("decrypt runtime settings for rotation: %w", err)
 		}
-		c.key = nextKey
-		reencrypted, err = c.encrypt(raw)
-		c.key = oldKey
+		reencrypted, err = encryptDocument(nextKey, raw)
 		if err != nil {
 			return err
 		}
@@ -334,8 +346,8 @@ func deriveKey(secret []byte) [32]byte {
 	return sha256.Sum256(append(append([]byte(nil), secret...), []byte("\x00"+encryptionDomain)...))
 }
 
-func (c *Controller) encrypt(plaintext []byte) ([]byte, error) {
-	block, err := aes.NewCipher(c.key[:])
+func encryptDocument(key [32]byte, plaintext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, err
 	}
@@ -350,8 +362,8 @@ func (c *Controller) encrypt(plaintext []byte) ([]byte, error) {
 	return aead.Seal(nonce, nonce, plaintext, []byte(encryptionDomain)), nil
 }
 
-func (c *Controller) decrypt(ciphertext []byte) ([]byte, error) {
-	block, err := aes.NewCipher(c.key[:])
+func decryptDocument(key [32]byte, ciphertext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, err
 	}

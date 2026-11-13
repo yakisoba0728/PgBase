@@ -225,3 +225,27 @@ func (h *modelCompatibilityHost) Call(_ context.Context, method string, _ json.R
 		return nil, errors.New("unexpected method")
 	}
 }
+
+func TestPocketBaseTransactionRejectsAsyncBeforeCommit(t *testing.T) {
+	for _, callback := range []string{`async tx=>{tx.save(new Record("items",{}));throw Error("abort")}`, `tx=>tx.runInTransaction(async()=>{})`, `()=>({then(){}})`} {
+		t.Run(callback, func(t *testing.T) {
+			directory := t.TempDir()
+			writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/tx","access":"admin","handler":{"module":"route.js","export":"run"},"capabilities":["app-control","records"]}]}`)
+			writeFile(t, directory, "route.js", `exports.run=()=>{try{$app.runInTransaction(`+callback+`)}catch(_){return {failed:true}}return {failed:false}}`)
+			bundle, err := jsvm.LoadBundle(directory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer runtime.Close(context.Background())
+			host := &transactionCompatibilityHost{}
+			out, err := runtime.Invoke(t.Context(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Capabilities: []string{"app-control", "records"}, Host: host})
+			if err != nil || string(out) != `{"failed":true}` || strings.Contains(strings.Join(host.calls, ","), "databaseCommit") || !strings.Contains(strings.Join(host.calls, ","), "databaseRollback") {
+				t.Fatalf("out=%s err=%v calls=%v", out, err, host.calls)
+			}
+		})
+	}
+}

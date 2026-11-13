@@ -70,7 +70,7 @@ export function validateDraft(draft: StorageDraft, secretConfigured: boolean, wi
       url = undefined;
     }
     const bare = url && !url.username && !url.password && !url.search && !url.hash && (url.pathname === "/" || url.pathname === "");
-    if (!url || !bare || (url.protocol !== "https:" && !(url.protocol === "http:" && loopback.has(url.hostname)))) errors.endpoint = "storage.invalid.endpoint";
+    if (!url || !bare || (url.protocol !== "https:" && !(url.protocol === "http:" && (withRetention || loopback.has(url.hostname))))) errors.endpoint = "storage.invalid.endpoint";
   }
   const hasSecret = !draft.clearSecret && (draft.secretKey !== "" || secretConfigured);
   if (draft.accessKey.trim() && !hasSecret) errors.secretKey = "storage.invalid.secretMissing";

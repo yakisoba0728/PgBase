@@ -117,3 +117,23 @@ func TestRequestLogMalformedEntryDoesNotLoseItsBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRequestLogShutdownPersistsItsFinalWriteFailure(t *testing.T) {
+	ctx := context.Background()
+	databaseURL := testutil.NewDatabase(t)
+	testutil.ApplySystemMigrationPrefix(t, databaseURL, system.Migrations())
+	pool, err := database.Open(ctx, databaseURL, 5*time.Second, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	log := NewRequestLog(pool, RequestLogOptions{QueueCapacity: 8, BatchSize: 8, FlushInterval: time.Hour})
+	log.RecordContext("GET", "/invalid", 200, time.Millisecond, "invalid address", "", "")
+	first := log.Shutdown(ctx)
+	if first == nil || log.Dropped() != 1 {
+		t.Fatalf("shutdown failure/dropped = %v/%d", first, log.Dropped())
+	}
+	if again := log.Shutdown(ctx); again != first {
+		t.Fatalf("repeat shutdown lost final failure: %v, want %v", again, first)
+	}
+}

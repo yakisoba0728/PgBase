@@ -137,7 +137,7 @@ func optionalRealtimeAdmission(d Dependencies, next http.Handler) http.Handler {
 			return
 		}
 		if d.UserAuth != nil {
-			if p, err := d.UserAuth.Authenticate(r.Context(), parts[1]); err == nil {
+			if p, err := d.UserAuth.Authenticate(r.Context(), parts[1]); err == nil && (identity.Subject{Kind: identity.User, ID: p.User.ID}).Valid() {
 				ctx := context.WithValue(r.Context(), userPrincipalKey{}, authenticatedUser{principal: p, token: parts[1]})
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
@@ -461,4 +461,34 @@ func parseRealtimeSubscription(raw string) (realtimeSubscription, error) {
 		sub.fields = values.Get("fields")
 	}
 	return sub, nil
+}
+
+// Refresh request auth attributes for policies on a long-lived connection.
+func (h *realtimeHub) currentRealtimeRequest(r *http.Request, client *realtimeClient) (*http.Request, bool) {
+	client.mu.RLock()
+	principal, token := client.principal, client.token
+	client.mu.RUnlock()
+	if principal.Kind != identity.User {
+		return r, h.revalidate(r.Context(), client)
+	}
+	if h.dependencies.UserAuth == nil {
+		return r, false
+	}
+	p, err := h.dependencies.UserAuth.Authenticate(r.Context(), token)
+	if err != nil || p.User.ID != principal.ID {
+		return r, false
+	}
+	ctx := context.WithValue(r.Context(), userPrincipalKey{}, authenticatedUser{principal: p, token: token})
+	return r.WithContext(ctx), true
+}
+
+// Discard a batch if attributes used to authorize it changed while it was read.
+func (h *realtimeHub) revalidateRealtimeRequest(r *http.Request, client *realtimeClient) bool {
+	latest, valid := h.currentRealtimeRequest(r, client)
+	if !valid {
+		return false
+	}
+	before, hadUser := r.Context().Value(userPrincipalKey{}).(authenticatedUser)
+	after, hasUser := latest.Context().Value(userPrincipalKey{}).(authenticatedUser)
+	return hadUser == hasUser && (!hadUser || before.principal.User == after.principal.User)
 }

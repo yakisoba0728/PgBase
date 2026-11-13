@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -32,25 +31,25 @@ func (p rootPlan) countStatement(memberships ...*int64) (Statement, error) {
 	if len(memberships) > 0 && memberships[0] != nil {
 		boundary = &pageBoundary{membership: memberships[0], membershipOnly: true}
 	}
-	statement, err := p.pageStatement(boundary, 1)
+	policy := ruleBinding{rule: p.rule, principal: p.principal, collection: p.policyCollection, catalog: p.relation.catalog, request: p.ruleContext}
+	alias := p.order().root.TableName
+	var statement Statement
+	var err error
+	if p.order().relationAnchor {
+		statement, _, err = p.relation.rowsStatementWithPolicy(boundary, p.ownerID, policy)
+		alias = relationRootAlias
+	} else {
+		statement, err = compileListRows(p.filter, p.order(), boundary, p.ownerID, policy)
+	}
 	if err != nil {
 		return Statement{}, err
 	}
-	from := strings.Index(statement.SQL, " FROM ")
-	order := strings.LastIndex(statement.SQL, " ORDER BY ")
-	if from < 0 || order < from || len(statement.Args) == 0 {
-		return Statement{}, errors.New("compile record count")
-	}
-	alias := p.order().root.TableName
-	if p.order().relationAnchor {
-		alias = relationRootAlias
-	}
-	identity, rows := qualified(alias, systemFieldID), statement.SQL[from:order]
+	identity := qualified(alias, systemFieldID)
+	rows := statement.SQL
 	statement.SQL = "SELECT COUNT(DISTINCT " + identity + ")" + rows
 	if p.countLimit > 0 {
 		statement.SQL = "SELECT COUNT(*) FROM (SELECT DISTINCT " + identity + rows + " LIMIT " + strconv.Itoa(p.countLimit) + ") bounded_count"
 	}
-	statement.Args = statement.Args[:len(statement.Args)-1]
 	return statement, nil
 }
 
@@ -72,9 +71,9 @@ func (p rootPlan) pageStatement(after *pageBoundary, fetchLimit int, offsets ...
 	return compileListPageOffset(p.filter, p.order(), after, fetchLimit, offset, p.ownerID, ruleBinding{rule: p.rule, principal: p.principal, collection: p.policyCollection, catalog: p.relation.catalog, request: p.ruleContext})
 }
 
-func (s orderSpec) reloadAnchor(ctx context.Context, tx pgx.Tx, id uuid.UUID, membership *int64) ([]json.RawMessage, error) {
+func (s orderSpec) reloadAnchor(ctx context.Context, tx pgx.Tx, id uuid.UUID, membership *int64, binding ruleBinding) ([]json.RawMessage, error) {
 	if s.relationAnchor {
-		statement, err := s.anchorStatement(id, membership)
+		statement, err := s.anchorStatement(id, membership, binding)
 		if err != nil {
 			return nil, err
 		}

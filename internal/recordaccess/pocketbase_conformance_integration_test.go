@@ -81,7 +81,7 @@ func TestPocketBaseRuleConformanceAgainstPostgres(t *testing.T) {
 	}
 	setRule := func(t *testing.T, collection schema.Collection, source string) {
 		t.Helper()
-		rule, parseErr := query.ParsePocketBaseAccessRule(source)
+		rule, parseErr := query.ParseAccessRule(source)
 		if parseErr != nil {
 			t.Fatalf("parse %q: %v", source, parseErr)
 		}

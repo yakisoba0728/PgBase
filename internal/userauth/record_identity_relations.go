@@ -22,7 +22,7 @@ func loadRelationIdentityTarget(ctx context.Context, db recordidentity.DB, name 
 	var raw []byte
 	err := db.QueryRow(ctx, `with targets as (
 		select id,'auth'::text kind,record_id from pgbase_meta.auth_collections where name=$1
-		union all select id,'base'::text,record_id from pgbase_meta.collections where name=$1
+		union all select id,'base'::text,record_id from pgbase_meta.collections where name=$1 and collection_type<>'auth'
 	) select id,kind,record_id from targets where (select count(*) from targets)=1`, name).Scan(&target.id, &target.kind, &raw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return target, ErrValidation

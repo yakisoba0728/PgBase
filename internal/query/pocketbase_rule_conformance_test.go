@@ -58,9 +58,9 @@ func TestPocketBaseRuleRejectsInvalidFunctionsAndModifiers(t *testing.T) {
 		`title:lower:each = 'x'`,
 		`@request.body.title:changed:lower = true`,
 	} {
-		rule, err := ParsePocketBaseAccessRule(source)
+		rule, err := ParseAccessRule(source)
 		if err == nil {
-			_, _, err = accessrule.CompilePocketBase(rule, accessrule.PBCompileContext{Resolver: resolver, Principal: identity.Subject{}})
+			_, _, err = accessrule.CompileExpression(rule, accessrule.ExpressionContext{Resolver: resolver, Principal: identity.Subject{}})
 		}
 		if err == nil {
 			t.Errorf("accepted invalid PocketBase rule %q", source)

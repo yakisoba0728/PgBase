@@ -8,6 +8,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
 	"github.com/yakisoba0728/PgBase/internal/api"
 	"github.com/yakisoba0728/PgBase/internal/apiratelimit"
+	"github.com/yakisoba0728/PgBase/internal/backup"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/membership"
 	"github.com/yakisoba0728/PgBase/internal/migrate"
@@ -49,56 +50,46 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, err
 	}
+	app := &App{options: normalized}
+	constructed := false
+	defer func() {
+		if !constructed {
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), normalized.ShutdownTimeout)
+			defer cancel()
+			_ = app.closeServices(cleanup)
+		}
+	}()
 	var javascript *javaScriptRuntime
 	if normalized.JavaScript != nil {
 		javascript, err = prepareJavaScript(*normalized.JavaScript)
 		if err != nil {
 			return nil, fmt.Errorf("initialize JavaScript: %w", err)
 		}
+		app.javaScriptRuntime = javascript
 		if err := installJavaScriptRoutes(&normalized, javascript); err != nil {
-			_ = javascript.Close(context.Background())
 			return nil, err
 		}
 		if len(javascript.bundle.Manifest().Hooks) > 0 && normalized.Hooks == nil {
 			normalized.Hooks = &HookRegistry{}
 		}
 		if err := javascript.installHooks(normalized.Hooks); err != nil {
-			_ = javascript.Close(context.Background())
 			return nil, err
 		}
 		if err := installJavaScriptJobs(&normalized, javascript); err != nil {
-			_ = javascript.Close(context.Background())
 			return nil, err
 		}
 	}
-	keepJavaScript := false
-	defer func() {
-		if !keepJavaScript && javascript != nil {
-			shutdown, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
-			defer cancel()
-			_ = javascript.Close(shutdown)
-		}
-	}()
-	gate, err := database.TryBackupGate(ctx, normalized.DatabaseURL, false)
+	gate, err := database.TryBackupGate(ctx, normalized.DatabaseURL, false, normalized.AllowInsecureDatabase)
 	if err != nil {
 		return nil, fmt.Errorf("acquire PostgreSQL writer gate: %w", err)
 	}
-	keepGate := false
-	defer func() {
-		if !keepGate {
-			_ = gate.Close(context.Background())
-		}
-	}()
+	app.backupGate = gate
 	pool, err := database.Open(ctx, normalized.DatabaseURL, normalized.StatementTimeout, normalized.AllowInsecureDatabase)
 	if err != nil {
 		return nil, fmt.Errorf("open PostgreSQL pool: %w", err)
 	}
-	keepPool := false
-	defer func() {
-		if !keepPool {
-			pool.Close()
-		}
-	}()
+
+	app.pool = pool
 
 	var metrics *observability.Metrics
 	var metricsExposition http.Handler
@@ -198,14 +189,7 @@ func newWithCatalogPreflight(
 			return nil, err
 		}
 	}
-	keepSQLConsole := false
-	defer func() {
-		if !keepSQLConsole && sqlConsoleService != nil {
-			shutdown, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
-			defer cancel()
-			_ = sqlConsoleService.Close(shutdown)
-		}
-	}()
+	app.sqlConsole = sqlConsoleService
 	uiExtensions := make([]adminui.UIExtension, 0, len(normalized.UIExtensions))
 	for _, extension := range normalized.UIExtensions {
 		uiExtensions = append(uiExtensions, adminui.UIExtension{Name: extension.Name, FS: extension.FS})
@@ -216,17 +200,12 @@ func newWithCatalogPreflight(
 	}
 	var publicHandler *publicsite.Handler
 	var publicStatic http.Handler // stays a nil interface, not a typed nil, without PublicDir
-	keepPublicHandler := false
-	defer func() {
-		if !keepPublicHandler && publicHandler != nil {
-			_ = publicHandler.Close()
-		}
-	}()
 	if normalized.PublicDir != "" {
 		publicHandler, err = publicsite.New(normalized.PublicDir, normalized.PublicSPAFallback)
 		if err != nil {
 			return nil, fmt.Errorf("initialize public static site: %w", err)
 		}
+		app.publicSite = publicHandler
 		publicStatic = publicHandler
 	}
 	systemStatus := newSystemStatusSampler(pool, runner, schemaCache, schemaListener)
@@ -238,11 +217,12 @@ func newWithCatalogPreflight(
 	}
 	realtimeService := realtime.NewService(pool, normalized.Logger, schemaService)
 	requestLog := newRequestLog(pool, normalized)
+	app.requestLog = requestLog
 	runtimeSettingsKey := normalized.RuntimeSettingsEncryptionKey
 	if len(runtimeSettingsKey) == 0 {
 		runtimeSettingsKey = normalized.TokenSecret
 	}
-	runtimeSettings, err := runtimesettings.New(ctx, pool, runtimeSettingsKey)
+	runtimeSettings, err := runtimesettings.NewWithTrustedProxies(ctx, pool, runtimeSettingsKey, normalized.TrustedProxies)
 	if err != nil {
 		return nil, fmt.Errorf("initialize runtime settings: %w", err)
 	}
@@ -266,13 +246,6 @@ func newWithCatalogPreflight(
 	}
 	applyLogSettings(runtimeSettings.Get())
 	runtimeSettings.Subscribe(applyLogSettings)
-	defer func() {
-		if !keepPool {
-			ctx, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
-			defer cancel()
-			_ = requestLog.Shutdown(ctx)
-		}
-	}()
 	applicationRealtimeBroker := api.NewApplicationRealtimeBroker()
 	dependencies, extensionMailer, userService, err := withUserServices(api.Dependencies{
 		Realtime:                  realtimeService,
@@ -323,7 +296,7 @@ func newWithCatalogPreflight(
 	recordService.SetTransactionValidators([]recordops.TransactionValidator{requiredFileValidator{schemas: schemaService}})
 	extensions := &extensionBridge{records: recordService, files: fileService, mailer: extensionMailer, authMail: userService, authAPI: userService, logger: normalized.Logger, hooks: normalized.Hooks, templates: normalized.Templates}
 	if normalized.JavaScript != nil {
-		extensions.compatibility = newExtensionCompatibility(normalized.JavaScript.PocketBaseCompatibility)
+		extensions.hostPolicy = newExtensionHostPolicy(normalized.JavaScript.Host)
 		extensions.maximumOutputBytes = normalized.JavaScript.MaximumOutputBytes
 	}
 	if objectStore != nil {
@@ -339,13 +312,10 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if !keepPool && backupManager != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
-			defer cancel()
-			_ = backupManager.Shutdown(ctx)
-		}
-	}()
+	app.backupManager = backupManager
+	if controller, ok := dependencies.BackupStorageAdministration.(*backup.StorageController); ok {
+		normalized.Backups.controller = controller
+	}
 	if jobService != nil {
 		dependencies.Jobs = jobService
 	}
@@ -364,7 +334,7 @@ func newWithCatalogPreflight(
 		return nil, err
 	}
 	handler = requestHooks(normalized.Hooks, handler)
-	app := &App{
+	*app = App{
 		schemaCache:           schemaCache,
 		options:               normalized,
 		backupManager:         backupManager,
@@ -443,11 +413,7 @@ func newWithCatalogPreflight(
 			}
 		}
 	}
-	keepPool = true
-	keepGate = true
-	keepJavaScript = true
-	keepSQLConsole = true
-	keepPublicHandler = true
+	constructed = true
 	return app, nil
 }
 

@@ -111,6 +111,7 @@ function serialize(editor: Editor): string {
 const safeURL = (text: string, image: boolean) => {
   try {
     const url = new URL(text, location.href);
+    if (image && url.origin !== location.origin) return null;
     return ["http:", "https:", ...(image ? [] : ["mailto:", "tel:"])].includes(url.protocol) ? text : null;
   } catch {
     return null;

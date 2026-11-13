@@ -1,14 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:http/io_client.dart';
 import 'package:pgbase/pgbase.dart';
 
 Future<void> main() async {
   final base = Uri.parse(_required('PGBASE_N7_URL'));
   final setupToken = _required('PGBASE_N7_SETUP_TOKEN');
   final suffix = DateTime.now().microsecondsSinceEpoch.toString();
-  final admin = PgBaseAdminClient(base, httpClient: IOClient(HttpClient()));
+  final admin = PgBaseAdminClient(base);
   final user = PgBaseClient(base);
   try {
     const adminEmail = 'n7-admin@example.test';
@@ -72,6 +71,24 @@ Future<void> main() async {
     if ((updated.record['title']! as JsonString).value != 'updated')
       throw StateError('record update did not round trip');
     final recordId = (updated.record['id']! as JsonString).value;
+    final nativeFiltered = await records.list(
+      Query(filter: user.filter('title = {:title}', {'title': 'updated'})),
+    );
+    if (nativeFiltered.items.length != 1 ||
+        (nativeFiltered.items.single['id']! as JsonString).value != recordId) {
+      throw StateError('native JSON-quoted filter did not match the record');
+    }
+    final injected = await records.list(
+      Query(
+        filter: user.filter('title = {:title}', {
+          'title': 'updated" || title != "updated',
+        }),
+      ),
+    );
+    if (injected.items.isNotEmpty) {
+      throw StateError('native filter parsed bound string as syntax');
+    }
+
     final exact =
         ((await records.get(recordId))['metadata']! as JsonObject)['large'];
     if (exact is! JsonNumber || exact.source != '900719925474099312345.0001')
@@ -117,13 +134,6 @@ Future<void> main() async {
         )) {
       throw StateError('cursor iteration did not traverse the collection');
     }
-    final event = records
-        .events(maxReconnects: 0)
-        .first
-        .timeout(const Duration(seconds: 10));
-    // Give the subscription one event-loop turn to establish its stream before
-    // the batch commits the next record event.
-    await Future<void>.delayed(const Duration(milliseconds: 100));
     final batchResult = await user.batch([
       BatchOperation(
         JsonObject({
@@ -161,7 +171,16 @@ Future<void> main() async {
       if ((await records.list()).items.length != beforeFailedBatch)
         throw StateError('failed batch partially committed');
     }
-    final received = await event;
+    final batchItems = batchResult['results']! as JsonArray;
+    final batchRecord =
+        (batchItems.values.single as JsonObject)['record']! as JsonObject;
+    final batchId = (batchRecord['id']! as JsonString).value;
+    final received = await records
+        .events(maxReconnects: 0)
+        .firstWhere(
+          (event) => event.recordId == batchId && event.operation == 'create',
+        )
+        .timeout(const Duration(seconds: 10));
     if (received.collection != name || received.operation != 'create')
       throw StateError('SSE did not deliver the batch create');
     const payload = 'N7 file payload';

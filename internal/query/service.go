@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -42,23 +40,6 @@ type RecordPage struct {
 // large collection to the end.
 const maximumListTotal = 10000
 
-// PocketBasePage is the exact list envelope exposed by the explicit
-// PocketBase compatibility adapter.
-type PocketBasePage struct {
-	Page       int              `json:"page"`
-	PerPage    int              `json:"perPage"`
-	TotalItems int64            `json:"totalItems"`
-	TotalPages int64            `json:"totalPages"`
-	Items      []map[string]any `json:"items"`
-}
-
-type PocketBaseListRequest struct {
-	ListRequest
-	Page      int
-	PerPage   int
-	SkipTotal bool
-}
-
 type Record = recordartifact.Record
 
 type Service struct {
@@ -84,109 +65,34 @@ func (s *Service) List(ctx context.Context, request ListRequest) (RecordPage, er
 	return result.page, err
 }
 
-// ListPocketBase reads one offset page and its optional total in a single
-// repeatable-read snapshot. It is deliberately separate from List so native
-// callers keep the cursor wire contract.
-func ListPocketBase(ctx context.Context, s *Service, request PocketBaseListRequest) (page PocketBasePage, err error) {
-	if err := s.ready(); err != nil {
-		return page, err
-	}
-	if !request.Principal.Valid() {
-		return page, validation("principal", "invalid")
-	}
-	filterNode, err := parsePocketBaseFilterRequest(request.Filter)
-	if err != nil {
-		return page, err
-	}
-	filterNode = markPocketBaseLike(filterNode)
-	sortKeys, err := parseSort(request.Sort)
-	if err != nil {
-		return page, err
-	}
-	request.Page, request.PerPage = normalizePocketBasePage(request.Page, request.PerPage)
-	if request.Page-1 > int(^uint(0)>>1)/request.PerPage {
-		return page, validation("page", "invalid_page")
-	}
-	request.ListRequest.Limit = request.PerPage
-	request.ListRequest.Offset = (request.Page - 1) * request.PerPage
-	request.ListRequest.Cursor = ""
-	request.ListRequest.PocketBaseCompatibility = true
-	page = PocketBasePage{Page: request.Page, PerPage: request.PerPage, TotalItems: -1, TotalPages: -1, Items: []map[string]any{}}
-	err = s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
-		if !request.SkipTotal {
-			total, countErr := s.countListInTx(ctx, tx, catalog, collection, request.ListRequest, filterNode, 0)
-			if countErr != nil {
-				return countErr
-			}
-			page.TotalItems = total
-			page.TotalPages = (total + int64(request.PerPage) - 1) / int64(request.PerPage)
-			if s.countPageHook != nil {
-				s.countPageHook()
-			}
-		}
-		result, _, readErr := s.readListInTx(ctx, tx, catalog, collection, request.ListRequest, filterNode, sortKeys)
-		page.Items = result.page.Items
-		return readErr
-	}, request.Collection)
-	return page, err
-}
-
-func normalizePocketBasePage(page, perPage int) (int, int) {
-	if page <= 0 {
-		page = 1
-	}
-	if perPage <= 0 {
-		perPage = 30
-	} else if perPage > 1000 {
-		perPage = 1000
-	}
-	return page, perPage
-}
-
 // Count evaluates the same filter and access plan as List inside one
-// repeatable-read transaction. It requests only record identities and never
-// exposes a page boundary as the result.
-func Count(ctx context.Context, s *Service, request ListRequest) (total int64, err error) {
+// repeatable-read transaction. PostgreSQL aggregates the result without
+// materializing records, hydrating relations, or issuing page cursors.
+func (s *Service) Count(ctx context.Context, request ListRequest) (total int64, err error) {
 	if err := s.ready(); err != nil {
 		return 0, err
 	}
 	if !request.Principal.Valid() {
 		return 0, validation("principal", "invalid")
 	}
-	filterNode, err := parseFilterRequest(request.Filter)
+	filterNode, err := parseListFilter(request)
 	if err != nil {
 		return 0, err
-	}
-	if request.PocketBaseCompatibility {
-		filterNode, err = parsePocketBaseFilterRequest(request.Filter)
-		if err != nil {
-			return 0, err
-		}
-		filterNode = markPocketBaseLike(filterNode)
 	}
 	sortKeys, err := parseSort(request.Sort)
 	if err != nil {
 		return 0, err
 	}
-	request.Limit, request.Fields, request.Expand = 200, "id", ""
 	err = s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
-		request.Cursor = ""
-		pageNumber := 0
-		for {
-			result, _, readErr := s.readListInTx(ctx, tx, catalog, collection, request, filterNode, sortKeys)
-			if readErr != nil {
-				return readErr
-			}
-			total += int64(len(result.page.Items))
-			pageNumber++
-			if pageNumber == 1 && s.countPageHook != nil {
-				s.countPageHook()
-			}
-			if result.page.NextCursor == "" {
-				return nil
-			}
-			request.Cursor = result.page.NextCursor
+		plan, err := s.planRead(ctx, tx, catalog, collection, request, filterNode, sortKeys)
+		if err != nil {
+			return err
 		}
+		if s.countPageHook != nil {
+			s.countPageHook()
+		}
+		total, err = s.countPlanInTx(ctx, tx, collection, plan, 0)
+		return err
 	}, request.Collection)
 	return total, err
 }
@@ -194,6 +100,19 @@ func Count(ctx context.Context, s *Service, request ListRequest) (total int64, e
 func (s *Service) inTxCatalog(ctx context.Context, operation func(pgx.Tx, schema.Catalog, schema.Collection) error, collectionName string) error {
 	if err := s.ready(); err != nil {
 		return err
+	}
+	if tx, ok, err := s.pool.BorrowedTransaction(ctx); err != nil {
+		return err
+	} else if ok {
+		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
+		if err != nil {
+			return err
+		}
+		collection, ok := catalog.Collections[collectionName]
+		if !ok {
+			return ErrCollectionNotFound
+		}
+		return operation(tx, catalog, collection)
 	}
 	return database.Retry(ctx, func() error {
 		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
@@ -254,52 +173,6 @@ func parseFilterRequest(filterText string) (filterNode, error) {
 		return nil, nil
 	}
 	return parseFilter(filterText)
-}
-
-func parsePocketBaseFilterRequest(filterText string) (filterNode, error) {
-	normalized, err := normalizePocketBaseFilterQuotes(filterText)
-	if err != nil {
-		return nil, validation("filter", "invalid_filter")
-	}
-	return parseFilterRequest(normalized)
-}
-
-// PocketBase SDK filter bindings emit JSON quoted string literals. Convert
-// complete quoted tokens while keeping embedded operators inside the literal.
-func normalizePocketBaseFilterQuotes(input string) (string, error) {
-	var output strings.Builder
-	for position := 0; position < len(input); {
-		if input[position] != '"' {
-			output.WriteByte(input[position])
-			position++
-			continue
-		}
-		start, escaped := position, false
-		position++
-		for position < len(input) {
-			current := input[position]
-			position++
-			if current == '"' && !escaped {
-				break
-			}
-			if current == '\\' && !escaped {
-				escaped = true
-			} else {
-				escaped = false
-			}
-		}
-		if position > len(input) || input[position-1] != '"' {
-			return "", errors.New("unterminated PocketBase filter string")
-		}
-		value, err := strconv.Unquote(input[start:position])
-		if err != nil {
-			return "", err
-		}
-		output.WriteByte('\'')
-		output.WriteString(strings.ReplaceAll(value, "'", "''"))
-		output.WriteByte('\'')
-	}
-	return output.String(), nil
 }
 
 func recordQueryError(err error) error {

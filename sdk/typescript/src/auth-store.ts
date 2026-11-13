@@ -35,17 +35,18 @@ export class AuthStore {
     this.#token = token;
     this.#record = record;
     this.#generation += 1;
-    if (this.storage && "write" in this.storage) this.storage.write(authState({ token, record })!);
-    else this.storage?.set(token);
-    this.notify();
+    try {
+      if (this.storage && "write" in this.storage) this.storage.write(authState({ token, record })!);
+      else this.storage?.set(token);
+    } finally { this.notify(); }
   }
 
   clear(): void {
     this.#token = null;
     this.#record = null;
     this.#generation += 1;
-    this.storage?.clear();
-    this.notify();
+    try { this.storage?.clear(); }
+    finally { this.notify(); }
   }
 
   /** Encodes token and cached auth record for a server-rendered response cookie. */

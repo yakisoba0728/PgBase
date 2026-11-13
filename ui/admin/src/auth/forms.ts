@@ -1,3 +1,4 @@
+import { parseJson, stringifyJson } from "../api/http";
 import type {
   AuthCollection,
   AuthCollectionField,
@@ -67,13 +68,7 @@ export function policyProblems(draft: PolicyDraft): Problems {
   if (!inRange(draft.minimumPasswordBytes, 12, 128)) problems.minimumPasswordBytes = "range";
   if (!inRange(draft.maximumPasswordBytes, Math.max(12, int(draft.minimumPasswordBytes) || 12), 4096)) problems.maximumPasswordBytes = "range";
   if (draft.passwordPattern.length > 512) problems.passwordPattern = "range";
-  else if (draft.passwordPattern) {
-    try {
-      new RegExp(draft.passwordPattern);
-    } catch {
-      problems.passwordPattern = "pattern";
-    }
-  }
+
   const identities = splitList(draft.identityFields);
   if (identities.length === 0) problems.identityFields = "required";
   else if (identities.length > 8 || new Set(identities).size !== identities.length || identities.some((name) => name !== "email" && !fieldName.test(name))) problems.identityFields = "name";
@@ -260,7 +255,7 @@ export const bareEmail = (value: string) => /^[^\s@<>()",;:]+@[^\s@<>()",;:]+$/.
  * matches by id, or by email plus creation time for text-id collections.
  */
 export function matchesUser(record: AuthRecord, user: Pick<ManagedUser, "id" | "email" | "createdAt">): boolean {
-  return record.id === user.id || (record.email === user.email && Date.parse(record.createdAt) === Date.parse(user.createdAt));
+  return record.id === user.id || ((record.email ?? "") === user.email && Date.parse(record.createdAt) === Date.parse(user.createdAt));
 }
 
 /** Profile fields an administrator edits: the collection's own, typed fields. */
@@ -269,44 +264,49 @@ export const profileFields = (collection: AuthCollection): AuthCollectionField[]
 
 export type ProfileDraft = Record<string, string | boolean>;
 
-const jsonTyped = (type: string) => type === "jsonb" || type === "geoPoint" || type === "relation";
+const jsonTyped = (type: string) => type === "file" || type === "jsonb" || type === "geoPoint" || type === "relation";
 
 export function profileDraft(fields: AuthCollectionField[], values: Record<string, unknown> | null): ProfileDraft {
   const draft: ProfileDraft = {};
   for (const field of fields) {
-    const value = values?.[field.name];
+    const value = values === null ? field.default : values[field.name];
     if (field.type === "boolean") draft[field.name] = value === true;
-    else if (value === undefined || value === null) draft[field.name] = "";
-    else draft[field.name] = jsonTyped(field.type) ? JSON.stringify(value, null, 2) : String(value);
+    else if (value === undefined || value === null) draft[field.name] = field.type === "file" ? "[]" : "";
+    else draft[field.name] = jsonTyped(field.type) ? stringifyJson(value, 2) : String(value);
   }
   return draft;
 }
 
 /** Changed fields only (the server merges profile updates), plus per-field problems. */
-export function profileChanges(fields: AuthCollectionField[], draft: ProfileDraft, initial: ProfileDraft): { changes: Record<string, unknown>; problems: Problems } {
+export function profileChanges(fields: AuthCollectionField[], draft: ProfileDraft, initial: ProfileDraft, creating = false): { changes: Record<string, unknown>; problems: Problems } {
   const changes: Record<string, unknown> = {};
   const problems: Problems = {};
   for (const field of fields) {
-    const value = draft[field.name];
+    const value = field.type === "boolean" ? (typeof draft[field.name] === "boolean" ? draft[field.name] : initial[field.name] === true) : String(draft[field.name] ?? initial[field.name] ?? "");
     if (typeof value === "boolean") {
-      if (value !== initial[field.name]) changes[field.name] = value;
+      if (creating || value !== initial[field.name]) changes[field.name] = value;
       continue;
     }
     const text = value.trim();
+    if (creating && field.type === "password" && !field.required && text === "") continue;
     if (text === "" && field.required) problems[field.name] = "required";
-    if (value === initial[field.name]) continue;
+    if (value === initial[field.name] && !(creating && field.required)) continue;
     if (text === "") changes[field.name] = null;
     else if (jsonTyped(field.type)) {
       try {
-        changes[field.name] = JSON.parse(text);
+        const parsed = parseJson(text);
+        if (field.type === "file") {
+          const min = Number(field.options?.minSelect ?? 0), max = Number(field.options?.maxSelect ?? 1);
+          if (!Array.isArray(parsed) || parsed.length < min || parsed.length > max || parsed.some((value) => typeof value !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))) { problems[field.name] = "json"; continue; }
+        }
+        changes[field.name] = parsed;
       } catch {
         problems[field.name] = "json";
       }
     } else if (field.type === "integer" || field.type === "bigint" || field.type === "numeric") {
-      // shortcut: numbers go through JS Number; bigint values past 2^53 need a lossless input.
-      const number = Number(text);
-      if (!Number.isFinite(number) || ((field.type === "integer" || field.type === "bigint") && !Number.isInteger(number))) problems[field.name] = "range";
-      else changes[field.name] = number;
+      const integer = field.type === "integer" || field.type === "bigint";
+      if (!(integer ? /^-?(0|[1-9]\d*)$/ : /^-?(0|[1-9]\d*)(\.\d+)?$/).test(text)) problems[field.name] = "range";
+      else changes[field.name] = parseJson(text);
     } else changes[field.name] = value;
   }
   return { changes, problems };

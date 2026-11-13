@@ -366,7 +366,7 @@ func VerifyContext(ctx context.Context, directory string) (Manifest, error) {
 	}
 	manifestPath := filepath.Join(directory, "manifest.json")
 	manifestInfo, err := os.Lstat(manifestPath)
-	if err != nil || !manifestInfo.Mode().IsRegular() || manifestInfo.Mode()&os.ModeSymlink != 0 {
+	if err != nil || !manifestInfo.Mode().IsRegular() || manifestInfo.Mode()&os.ModeSymlink != 0 || manifestInfo.Size() > 16<<20 {
 		return manifest, errors.New("missing or unsafe backup manifest")
 	}
 	encoded, err := os.ReadFile(manifestPath)

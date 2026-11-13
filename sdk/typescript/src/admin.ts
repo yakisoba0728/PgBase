@@ -5,7 +5,7 @@ export type FieldOptions = {
   maxSize?: number; convertURLs?: boolean; onCreate?: boolean; onUpdate?: boolean;
   minLength?: number; maxLength?: number; pattern?: string; autogeneratePattern?: string; format?: "email" | "url";
   allowedDomains?: string[]; deniedDomains?: string[]; allowedValues?: string[]; min?: string; max?: string;
-  minSelect?: number; maxSelect?: number; maxFileSize?: number; mimeTypes?: string[]; thumbs?: string[];
+  minSelect?: number; maxSelect?: number; maxFileSize?: number; mimeTypes?: string[]; thumbs?: string[]; protected?: boolean;
 };
 export type RelationInput = { targetCollection: string; cardinality: "single" | "multiple"; minSelect: number; maxSelect: number; onDelete: "restrict" | "cascade" | "set_null" };
 export type FieldInput = { id?: string; name: string; type: FieldType; required?: boolean; unique?: boolean; indexed?: boolean; hidden?: boolean; presentable?: boolean; help?: string; default?: unknown; relation?: RelationInput; options?: FieldOptions };
@@ -63,7 +63,7 @@ export type AppleClientSecretInput = { clientId: string; teamId: string; keyId: 
 export type AdministratorAccount = { id: string; email: string; active: boolean; createdAt: string; updatedAt: string };
 export type AdministratorAccountPage = { items: AdministratorAccount[]; nextAfter?: string };
 export type BackupEntry = { id: string; createdAt: string; size: number; postgresqlMajor: number; sha256?: string; storageFormat?: string };
-export type BackupJob = { id: string; operation: "create" | "restore"; backupId: string; status: "running" | "completed" | "failed"; phase: "create" | "restore" | "completed" | "failed" | "interrupted"; error?: string; createdAt: string; updatedAt: string };
+export type BackupJob = { id: string; operation: "create" | "restore"; backupId: string; status: "running" | "completed" | "failed"; phase: string; error?: string; createdAt: string; updatedAt: string };
 
 export class AdminAPIError extends Error {
   constructor(readonly status: number, readonly code: string, readonly details: Record<string, string[]> = {}) { super(code); this.name = "AdminAPIError"; }
@@ -87,8 +87,8 @@ export class ApprovedSchemaPlan {
   }
 }
 
-/** A preview plus the exact JSON document that produced it. The apply body is
- * built from this private snapshot so large JSON integers survive preview. */
+/** A preview plus its exact approved JSON document. The apply body keeps this
+ * private snapshot so hooks and large JSON integers survive preview. */
 export class ApprovedSchemaImportPlan implements SchemaImportPlan {
   readonly baseVersion: number;
   readonly checksum: string;
@@ -151,10 +151,14 @@ export class PgBaseAdminClient {
   exportSchema(signal?: AbortSignal): Promise<SchemaDocument> { return this.request("/api/admin/schema/export", {}, signal); }
   exportSchemaJSON(signal?: AbortSignal): Promise<string> { return this.requestText("/api/admin/schema/export", {}, signal); }
   async previewSchemaImport(document: SchemaDocument, signal?: AbortSignal): Promise<ApprovedSchemaImportPlan> {
-    const raw = JSON.stringify(document); return new ApprovedSchemaImportPlan(await this.request<SchemaImportPlan>("/api/admin/schema/import/preview", { method: "POST", body: raw }, signal), raw);
+    return this.previewSchemaImportJSON(JSON.stringify(document), signal);
   }
   async previewSchemaImportJSON(documentJSON: string, signal?: AbortSignal): Promise<ApprovedSchemaImportPlan> {
-    return new ApprovedSchemaImportPlan(await this.request<SchemaImportPlan>("/api/admin/schema/import/preview", { method: "POST", body: documentJSON }, signal), documentJSON);
+    const raw = await this.requestText("/api/admin/schema/import/preview", { method: "POST", body: documentJSON }, signal);
+    let preview: SchemaImportPlan;
+    try { preview = JSON.parse(raw) as SchemaImportPlan; }
+    catch { throw new AdminAPIError(0, "invalid_json_response"); }
+    return new ApprovedSchemaImportPlan(preview, approvedDocumentJSON(raw));
   }
   applySchemaImport(plan: SchemaImportPlan, signal?: AbortSignal): Promise<SchemaImportResult> {
     const request = plan instanceof ApprovedSchemaImportPlan ? plan.request() : { headers: { "PgBase-Operation-ID": plan.operationId ?? "", "Idempotency-Key": plan.idempotencyKey ?? "" }, body: JSON.stringify({ document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum }) };
@@ -170,7 +174,7 @@ export class PgBaseAdminClient {
     return this.request(`/api/admin/logs?${query}`, {}, signal);
   }
   jobs(signal?: AbortSignal): Promise<{ items: ScheduledJob[]; workerEnabled: boolean }> { return this.request("/api/admin/jobs", {}, signal); }
-  configureJob(id: string, schedule: string, enabled: boolean, signal?: AbortSignal): Promise<void> { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ schedule, enabled }) }, signal); }
+  configureJob(id: string, schedule: string, enabled: boolean, signal?: AbortSignal, timezone?: string): Promise<void> { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ schedule, enabled, ...(timezone === undefined ? {} : { timezone }) }) }, signal); }
   queueJob(id: string, signal?: AbortSignal): Promise<void> { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}/run`, { method: "POST" }, signal); }
   fileStorageSettings(signal?: AbortSignal): Promise<FileStorageSettings> { return this.request("/api/admin/storage/files", {}, signal); }
   updateFileStorage(input: FileStorageUpdate, signal?: AbortSignal): Promise<FileStorageSettings> { return this.request("/api/admin/storage/files", { method: "PUT", body: JSON.stringify(input) }, signal); }
@@ -248,13 +252,17 @@ export class PgBaseAdminClient {
     return await responseJSON(response, () => { throw new AdminAPIError(response.status, "invalid_response_body"); }) as T;
   }
   private async requestText(path: string, init: RequestInit, signal?: AbortSignal): Promise<string> {
+    const generation = this.#generation;
     const headers = new Headers(init.headers); headers.set("Accept", "application/json");
     if (init.body !== undefined) headers.set("Content-Type", "application/json");
     if (init.method && init.method !== "GET") headers.set("X-PgBase-CSRF", this.#csrf);
     const response = await this.#fetch(new URL(path, this.baseURL), { ...init, headers, credentials:"include", signal });
-    const text = await response.text();
-    if (!response.ok) throw new AdminAPIError(response.status, "request_failed");
-    return text;
+    if (!response.ok) {
+      if (response.status === 401 && generation === this.#generation) { this.#csrf = ""; this.#generation++; }
+      const data = await responseJSON(response, () => undefined) as { error?: { code?: string; details?: Record<string, string[]> } } | undefined;
+      throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details);
+    }
+    return response.text();
   }
   private async requestBlob(path: string, init: RequestInit, signal?: AbortSignal): Promise<Blob> {
     const generation = this.#generation;
@@ -268,4 +276,37 @@ export class PgBaseAdminClient {
     }
     return response.blob();
   }
+}
+
+/** Keep the server-approved document bytes intact, including large JSON integers. */
+function approvedDocumentJSON(raw: string): string {
+  let depth = 0;
+  let start: number | undefined;
+  for (let i = 0; i < raw.length; i++) {
+    const char = raw[i];
+    if (char === '"') {
+      const from = i;
+      while (++i < raw.length) {
+        if (raw[i] === "\\") i++;
+        else if (raw[i] === '"') break;
+      }
+      if (depth === 1 && start === undefined && JSON.parse(raw.slice(from, i + 1)) === "document") {
+        let next = i + 1;
+        while (/\s/.test(raw[next] ?? "")) next++;
+        if (raw[next] === ":") {
+          next++;
+          while (/\s/.test(raw[next] ?? "")) next++;
+          start = next;
+          i = next - 1;
+        }
+      }
+      continue;
+    }
+    if (char === "{" || char === "[") depth++;
+    else if (char === "}" || char === "]") {
+      depth--;
+      if (start !== undefined && depth === 0) return raw.slice(start, i).trim();
+    } else if (char === "," && depth === 1 && start !== undefined) return raw.slice(start, i).trim();
+  }
+  throw new AdminAPIError(0, "invalid_schema_import_preview");
 }

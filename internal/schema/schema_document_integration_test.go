@@ -35,7 +35,7 @@ func TestSchemaDocumentImportUpdatesDeclarativeView(t *testing.T) {
 	if len(plan.Changes) != 1 || plan.Changes[0].Operation != updateCollectionOperation || plan.Changes[0].Definition.RecordID != policy {
 		t.Fatalf("preview changes=%#v", plan.Changes)
 	}
-	if _, err := service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: uuid.New(), IdempotencyKey: "schema-declarative-view-update-0001", ValidateRules: func(Collection, json.RawMessage) error { return nil }}); err != nil {
+	if _, err := service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: uuid.New(), IdempotencyKey: "schema-declarative-view-update-0001", ValidateRules: func(Catalog, Collection, json.RawMessage) error { return nil }}); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := service.Catalog(ctx)
@@ -74,7 +74,7 @@ func TestSchemaDocumentImportUpdatesDeclarativeViewPresentationWithDependentView
 	if len(plan.Changes) != 1 || len(plan.Changes[0].Statements) != 0 {
 		t.Fatalf("presentation preview=%#v", plan.Changes)
 	}
-	if _, err := service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: uuid.New(), IdempotencyKey: "schema-view-presentation-dependent-0001", ValidateRules: func(Collection, json.RawMessage) error { return nil }}); err != nil {
+	if _, err := service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: uuid.New(), IdempotencyKey: "schema-view-presentation-dependent-0001", ValidateRules: func(Catalog, Collection, json.RawMessage) error { return nil }}); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := service.Catalog(ctx)
@@ -139,7 +139,7 @@ func TestSchemaDocumentDeclarativeViewUpdateRollsBackAfterLateValidationFailure(
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: uuid.New(), IdempotencyKey: "schema-declarative-view-rollback-0001", ValidateRules: func(Collection, json.RawMessage) error { return errors.New("reject") }})
+	_, err = service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: uuid.New(), IdempotencyKey: "schema-declarative-view-rollback-0001", ValidateRules: func(Catalog, Collection, json.RawMessage) error { return errors.New("reject") }})
 	if err == nil {
 		t.Fatal("late validation failure was accepted")
 	}
@@ -178,7 +178,7 @@ func TestSchemaDocumentPreviewApplyExportWithNewSQLView(t *testing.T) {
 	if previewTable != nil {
 		t.Fatalf("preview left table %q", *previewTable)
 	}
-	result, err := service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: uuid.New(), IdempotencyKey: "schema-import-integration-0001", ValidateRules: func(Collection, json.RawMessage) error { return nil }})
+	result, err := service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: uuid.New(), IdempotencyKey: "schema-import-integration-0001", ValidateRules: func(Catalog, Collection, json.RawMessage) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestSchemaDocumentPreviewApplyExportWithNewSQLView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := target.ApplySchemaImport(ctx, SchemaImportIntent{Document: exported, BaseVersion: targetPlan.BaseVersion, Checksum: targetPlan.Checksum, Actor: targetActor, OperationID: uuid.New(), IdempotencyKey: "schema-import-integration-0002", ValidateRules: func(Collection, json.RawMessage) error { return nil }}); err != nil {
+	if _, err := target.ApplySchemaImport(ctx, SchemaImportIntent{Document: exported, BaseVersion: targetPlan.BaseVersion, Checksum: targetPlan.Checksum, Actor: targetActor, OperationID: uuid.New(), IdempotencyKey: "schema-import-integration-0002", ValidateRules: func(Catalog, Collection, json.RawMessage) error { return nil }}); err != nil {
 		t.Fatal(err)
 	}
 	targetCatalog, err := target.Catalog(ctx)
@@ -255,7 +255,7 @@ func TestSchemaDocumentImportAppliesCollectionMetadataOnlyChange(t *testing.T) {
 	if len(plan.Changes) != 1 || plan.Changes[0].Operation != updateCollectionOperation {
 		t.Fatalf("metadata-only preview changes=%#v", plan.Changes)
 	}
-	if _, err := service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: uuid.New(), IdempotencyKey: "schema-metadata-import-0001", ValidateRules: func(Collection, json.RawMessage) error { return nil }}); err != nil {
+	if _, err := service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: uuid.New(), IdempotencyKey: "schema-metadata-import-0001", ValidateRules: func(Catalog, Collection, json.RawMessage) error { return nil }}); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := service.Catalog(ctx)

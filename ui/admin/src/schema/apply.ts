@@ -41,7 +41,8 @@ async function settle(operationId: string, initial: string, read: () => Promise<
   for (let attempt = 0; status === "running" || status === "unknown"; attempt++) {
     if (attempt >= 15) throw new Undecided(operationId);
     await sleep(1000);
-    const receipt = await read();
+    let receipt: { status: string; failureCode?: string };
+    try { receipt = await read(); } catch { throw new Undecided(operationId); }
     status = receipt.status;
     if (status === "failed") throw new ApiError(409, "schema_operation_failed", receipt.failureCode ?? "failed");
   }

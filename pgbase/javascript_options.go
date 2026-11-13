@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -43,13 +44,13 @@ type JavaScriptOptions struct {
 	// OnInit installs trusted application bindings in every fresh VM. It runs
 	// during validation and each invocation and must not retain the VM.
 	OnInit func(*goja.Runtime) error
-	// PocketBaseCompatibility configures the bounded host adapters used by the
-	// PocketBase-compatible globals. Effects still require the matching
-	// manifest capability (http, os, or filesystem).
+	// Host configures native host effects independently of the JavaScript runtime format.
+	Host JavaScriptHostOptions
+	// Deprecated: use Host. This input alias cannot be combined with Host.
 	PocketBaseCompatibility PocketBaseCompatibilityOptions
 }
 
-type PocketBaseCompatibilityOptions struct {
+type JavaScriptHostOptions struct {
 	AuthMailCollections []uuid.UUID
 	FilesystemRoot      string
 	HTTPAllowedOrigins  []string
@@ -71,6 +72,10 @@ type PocketBaseCompatibilityOptions struct {
 	Development           bool
 	AllowHookBypass       bool
 }
+
+// PocketBaseCompatibilityOptions is the historical input name for host policy.
+// Deprecated: use JavaScriptHostOptions and JavaScriptOptions.Host.
+type PocketBaseCompatibilityOptions = JavaScriptHostOptions
 
 type JavaScriptHandler struct {
 	Module string
@@ -110,6 +115,7 @@ type JavaScriptMigration struct {
 }
 
 type JavaScriptManifest struct {
+	Format     string
 	Digest     string
 	Bootstrap  string
 	Routes     []JavaScriptRoute
@@ -132,17 +138,25 @@ func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
 		capabilities[name] = enabled
 	}
 	options.Capabilities = capabilities
-	if capabilities["hooks-bypass"] && !options.PocketBaseCompatibility.AllowHookBypass {
-		return JavaScriptOptions{}, errors.New("JavaScript hooks-bypass capability requires PocketBaseCompatibility.AllowHookBypass")
+	if !reflect.ValueOf(options.PocketBaseCompatibility).IsZero() {
+		if !reflect.ValueOf(options.Host).IsZero() {
+			return JavaScriptOptions{}, errors.New("JavaScript.Host cannot be combined with PocketBaseCompatibility")
+		}
+		options.Host = options.PocketBaseCompatibility
+		options.PocketBaseCompatibility = JavaScriptHostOptions{}
+	}
+	if capabilities["hooks-bypass"] && !options.Host.AllowHookBypass {
+		return JavaScriptOptions{}, errors.New("JavaScript hooks-bypass capability requires Host.AllowHookBypass")
 	}
 	if capabilities["hooks-bypass"] && !capabilities["app-control"] {
 		return JavaScriptOptions{}, errors.New("JavaScript.Capabilities: hooks-bypass requires app-control")
 	}
-	compatibility, err := options.PocketBaseCompatibility.normalized()
+	host, err := options.Host.normalized()
 	if err != nil {
-		return JavaScriptOptions{}, fmt.Errorf("JavaScript.PocketBaseCompatibility: %w", err)
+		return JavaScriptOptions{}, fmt.Errorf("JavaScript.Host: %w", err)
 	}
-	options.PocketBaseCompatibility = compatibility
+	options.Host = host
+
 	subjects := make(map[string]uuid.UUID, len(options.JobServiceSubjects))
 	for name, id := range options.JobServiceSubjects {
 		if name == "" || id == uuid.Nil {
@@ -178,7 +192,7 @@ func (options JavaScriptOptions) normalized() (JavaScriptOptions, error) {
 	return options, nil
 }
 
-func (options PocketBaseCompatibilityOptions) normalized() (PocketBaseCompatibilityOptions, error) {
+func (options JavaScriptHostOptions) normalized() (JavaScriptHostOptions, error) {
 	if options.DataDirectory != "" {
 		root, err := filepath.Abs(options.DataDirectory)
 		if err != nil {
@@ -361,7 +375,7 @@ func knownJavaScriptHook(kind string) bool {
 
 func publicJavaScriptManifest(bundle *jsvm.Bundle) JavaScriptManifest {
 	manifest := bundle.Manifest()
-	result := JavaScriptManifest{Digest: bundle.Digest(), Bootstrap: manifest.Bootstrap}
+	result := JavaScriptManifest{Format: manifest.Format, Digest: bundle.Digest(), Bootstrap: manifest.Bootstrap}
 	for _, route := range manifest.Routes {
 		result.Routes = append(result.Routes, JavaScriptRoute{Method: route.Method, Pattern: route.Pattern, Access: route.Access,
 			Handler: publicHandler(route.Handler), Capabilities: append([]string(nil), route.Capabilities...), StreamResponse: route.StreamResponse})

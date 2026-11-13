@@ -71,6 +71,10 @@ func (s *Service) UpdateAdministratorCredentials(ctx context.Context, id uuid.UU
 	}
 	var result Administrator
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, administratorLifecycleLock); err != nil {
+			return err
+		}
+
 		store := NewStore(tx)
 		// The password verified above must still be the stored one.
 		locked, storedHash, err := store.AdministratorByEmailForUpdate(ctx, current.Email)

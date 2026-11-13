@@ -87,7 +87,7 @@ func validateDocumentAuthCollections(values []SchemaDocumentAuthCollection) erro
 		}
 		fieldNames := map[string]bool{}
 		for _, field := range v.Fields {
-			if validateInputName("field", field.Name) != nil || fieldNames[field.Name] || validateFieldOptions(field.Type, field.Options) != nil {
+			if validateInputName("field", field.Name) != nil || fieldNames[field.Name] || !IsAuthFieldType(field.Type) || validateFieldOptions(field.Type, field.Options) != nil {
 				return validation("authCollections."+v.Name+".fields", "invalid")
 			}
 			fieldNames[field.Name] = true
@@ -522,4 +522,13 @@ func realmField(catalog Catalog, owner Collection, field Field) FieldInput {
 		value.Relation = &RelationInput{TargetCollection: target, Cardinality: field.Relation.Cardinality, MinSelect: intPointer(field.Relation.MinSelect), MaxSelect: intPointer(field.Relation.MaxSelect), OnDelete: field.Relation.OnDelete}
 	}
 	return value
+}
+
+// IsAuthFieldType reports the custom field types supported by auth record validation.
+func IsAuthFieldType(kind FieldType) bool {
+	switch kind {
+	case TypeBoolean, TypeInteger, TypeBigInt, TypeNumeric, TypeText, TypeEditor, TypePassword, TypeTimestampTZ, TypeAutoDate, TypeUUID, TypeJSONB, TypeGeoPoint, TypeRelation, TypeFile:
+		return true
+	}
+	return false
 }

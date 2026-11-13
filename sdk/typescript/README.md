@@ -162,3 +162,13 @@ Schema document imports have a distinct receipt route. Poll an apply result with
 See [file storage and migration](../../docs/storage-settings.md) and [independent backup S3 storage](../../docs/backup-s3.md) for destination changes and failure recovery.
 
 Managed backup archives use `backups`, `createBackup`, `uploadBackup`, `downloadBackup`, `deleteBackup`, `restoreBackup`, and `backupJob`. Upload accepts an owned `Blob` and sends it as `application/gzip`; download returns a fresh `Blob`. Create and restore return job receipts for polling. A running job recovered after a server restart is returned as failed with phase `interrupted`. The server does not define idempotency keys for these operations, so an interrupted mutation must be reconciled through the archive list or known job receipt before retrying.
+
+
+Native `records.events()` emits change metadata (record ID, operation, version),
+not record data. Its legacy `fields` option is deprecated; nonempty projections
+reject locally before HTTP. Use shared `realtime.subscribe()` topics for filtered
+or projected record payloads.
+
+Logout waits for an already pending refresh, then revokes its replacement token.
+A newer explicit sign-in remains active. Do not retry an uncertain refresh with
+its old single-use token.

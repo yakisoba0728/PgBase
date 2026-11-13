@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
@@ -65,6 +66,11 @@ func relationListPlanUsesRelation(plan relationListPlan) bool {
 	if plan.order.private() {
 		return true
 	}
+	for _, term := range plan.order.terms {
+		if term.identityCollectionID != uuid.Nil {
+			return true
+		}
+	}
 	var visit func(*plannedRelationFilter) bool
 	visit = func(node *plannedRelationFilter) bool {
 		if node == nil {
@@ -93,7 +99,7 @@ type relationRecordScanner struct {
 func newRelationRecordScanner(row RowScanner, order orderSpec) (*relationRecordScanner, error) {
 	scanner := &relationRecordScanner{row: row, order: order}
 	for _, term := range order.terms {
-		if term.relationPath == nil {
+		if term.relationPath == nil && term.identityCollectionID == uuid.Nil {
 			continue
 		}
 		destination, err := scanDestination(term.cursorField)
@@ -114,7 +120,7 @@ func (s *relationRecordScanner) cursorValues(record map[string]any) ([]json.RawM
 	valuesByName := cloneRecord(record)
 	hidden := 0
 	for _, term := range s.order.terms {
-		if term.relationPath == nil {
+		if term.relationPath == nil && term.identityCollectionID == uuid.Nil {
 			continue
 		}
 		value, err := encodeScannedValue(s.hiddenFields[hidden], s.hidden[hidden])

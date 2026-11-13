@@ -27,3 +27,8 @@ func (s *Service) guardStoragePublication(ctx context.Context, tx pgx.Tx) error 
 	}
 	return nil
 }
+
+// BeginStorageOperation holds one storage destination across compound file work.
+func (s *Service) BeginStorageOperation(ctx context.Context) (context.Context, func(), error) {
+	return s.beginStorageOperation(ctx)
+}

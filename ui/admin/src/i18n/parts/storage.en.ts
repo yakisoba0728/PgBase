@@ -62,6 +62,7 @@ export const storageEn = {
   "storage.form.prefix": "Key prefix",
   "storage.form.region": "Region",
   "storage.form.endpoint": "Endpoint",
+  "storage.form.backupEndpointHint": "Empty for AWS. Custom backup services support https or http.",
   "storage.form.endpointHint": "Empty for AWS. Other services need https; http only on loopback.",
   "storage.form.accessKey": "Access key",
   "storage.form.secretKey": "Secret key",

@@ -3,6 +3,7 @@
 package recordidentity
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -99,6 +100,45 @@ func TestRolledBackReservationCanBeReused(t *testing.T) {
 	}
 	if got, err := service.Resolve(ctx, pool, collection, "RollbackKey0001"); err != nil || got != want {
 		t.Fatalf("resolve reused ID = %s, %v", got, err)
+	}
+}
+
+func TestGeneratedIdentityRetriesCollisionInTransaction(t *testing.T) {
+	for _, auth := range []bool{false, true} {
+		name := "base"
+		if auth {
+			name = "auth"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx, pool, collection := identityFixture(t, "identity_generated_collision")
+			collection.RecordID.AutogeneratePattern = "[ab]"
+			if auth {
+				if _, err := pool.Exec(ctx, `insert into pgbase_meta.auth_collections(id,name,record_id,created_at,updated_at) values($1,'identity_generated_collision_auth',$2::jsonb,now(),now())`, collection.ID, `{"kind":"text","minLength":1,"maxLength":32,"pattern":"^[A-Za-z0-9]+$"}`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			reserve := func(service *Service, db DB, id uuid.UUID, requested *string) (string, error) {
+				if auth {
+					return service.ReserveAuth(ctx, db, collection.ID, id, collection.RecordID, requested)
+				}
+				return service.Reserve(ctx, db, collection, id, requested)
+			}
+			if _, err := reserve(New(nil), pool, uuid.New(), stringPointer("a")); err != nil {
+				t.Fatal(err)
+			}
+			tx, err := pool.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx.Rollback(context.Background()) }()
+			// The first random byte selects the occupied ID; the second selects b.
+			if got, err := reserve(New(bytes.NewReader([]byte{0, 1})), tx, uuid.New(), nil); err != nil || got != "b" {
+				t.Fatalf("reserve after generated collision = %q, %v; want b", got, err)
+			}
+			if err := tx.Commit(ctx); err != nil {
+				t.Fatalf("commit after generated collision: %v", err)
+			}
+		})
 	}
 }
 

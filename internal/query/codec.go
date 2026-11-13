@@ -79,14 +79,16 @@ func FieldInputEqualsStored(field schema.Field, raw json.RawMessage, stored any)
 	return reflect.DeepEqual(normalizeSemanticJSON(lv), normalizeSemanticJSON(rv))
 }
 
+type semanticJSONNumber string
+
 func normalizeSemanticJSON(value any) any {
 	switch current := value.(type) {
 	case json.Number:
 		rational := new(big.Rat)
 		if _, ok := rational.SetString(string(current)); ok {
-			return "#number:" + rational.RatString()
+			return semanticJSONNumber(rational.RatString())
 		}
-		return string(current)
+		return semanticJSONNumber(current)
 	case map[string]any:
 		result := make(map[string]any, len(current))
 		for key, child := range current {

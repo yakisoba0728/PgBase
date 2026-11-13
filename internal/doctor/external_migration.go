@@ -25,6 +25,7 @@ func ValidateRequiredPhysicalSchema(ctx context.Context, db database.DBTX, manif
 		matched:  make(map[schema.PhysicalObjectRef]struct{}),
 	}
 	required := manifest.Required()
+	comparison.compareNamespaces(required.Namespaces)
 	comparison.compareTables(required.Tables)
 	comparison.compareColumns(required.Columns)
 	comparison.compareIndexes(required.Indexes)

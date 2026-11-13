@@ -9,6 +9,59 @@ Future<void> tick() => Future<void>.delayed(Duration.zero);
 
 void main() {
   test(
+    'auth changes stop shared delivery before queued old-account frames',
+    () async {
+      final transport = LiveRealtime();
+      final client = PgBaseClient(
+        Uri.parse('http://pgbase.test'),
+        httpClient: transport,
+        auth: AuthStore(initialToken: 'account-A'),
+      );
+      final received = <RealtimeEvent>[];
+      await client.realtime.subscribe('notes/*', received.add);
+      final old = transport.connections.single;
+      final changing = client.auth.save('account-B');
+      old.write(
+        'id: 1\nevent: notes/*\ndata: {"action":"create","record":{"id":"A-private"}}\n\n',
+      );
+      await changing;
+      await tick();
+      expect(received, isEmpty);
+      expect(old.body.isClosed, isTrue);
+      expect(client.realtime.status.state, RealtimeState.stopped);
+      expect(transport.connections.length, 1);
+      await client.realtime.subscribe('notes/*', received.add);
+      expect(
+        transport.connections.last.request.headers['authorization'],
+        'Bearer account-B',
+      );
+      transport.connections.last.write(
+        'id: 2\nevent: notes/*\ndata: {"action":"create","record":{"id":"B-private"}}\n\n',
+      );
+      await tick();
+      expect(received.single.record['id']?.toDart(), 'B-private');
+      await client.realtime.unsubscribe();
+    },
+  );
+
+  test(
+    'auth changes before shared readiness reject the pending subscription',
+    () async {
+      final transport = LiveRealtime();
+      final client = PgBaseClient(
+        Uri.parse('http://pgbase.test'),
+        httpClient: transport,
+      );
+      final pending = client.realtime.subscribe('notes/*', (_) {});
+      final rejected = expectLater(pending, throwsA(isA<PgBaseCancellation>()));
+      await client.auth.save('new-account');
+      await rejected;
+      expect(transport.connections, isEmpty);
+      expect(client.realtime.status.state, RealtimeState.stopped);
+    },
+  );
+
+  test(
     'reentrant transitions never deliver an older state after stopped',
     () async {
       final transport = LiveRealtime();

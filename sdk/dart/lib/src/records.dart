@@ -226,6 +226,7 @@ final class Records {
 
   Stream<RecordEvent> events({
     String? lastEventId,
+    @Deprecated('Metadata only; use realtime.subscribe for projected records')
     String? fields,
     CancellationToken? cancellation,
     int maxReconnects = 5,

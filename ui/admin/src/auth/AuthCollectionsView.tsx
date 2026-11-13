@@ -101,11 +101,11 @@ function TabBody({ collection, tab }: { collection: AuthCollection; tab: Tab }) 
   if (pending.isPending) return <Loader />;
   if (pending.isError) return <ErrorState error={pending.error} busy={pending.isFetching} onRetry={() => void pending.refetch()} />;
   // Forms are keyed by the loaded data so a save or reload starts them from the stored state.
-  if (tab === "tokens") return <TokensTab key={tokens.dataUpdatedAt} collection={collection} policies={tokens.data ?? []} />;
+  if (tab === "tokens") return <TokensTab collection={collection} policies={tokens.data ?? []} />;
   const data = administration.data!;
   if (tab === "providers") return <ProvidersTab collection={collection} administration={data} />;
   if (tab === "mail") return <MailTab collection={collection} administration={data} />;
-  return <PolicyTab key={`${administration.dataUpdatedAt}:${collection.registrationEnabled}`} collection={collection} administration={data} />;
+  return <PolicyTab collection={collection} administration={data} />;
 }
 
 /** A collection the schema owns is deleted through the schema, which removes its registration in the same

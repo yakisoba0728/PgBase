@@ -383,3 +383,61 @@ func TestRunAcceptsTextDefaultAtTheByteBound(t *testing.T) {
 		t.Fatalf("report = %#v, want a healthy catalog", report)
 	}
 }
+
+func TestDoctorAcceptsRenamedMultipleRelationField(t *testing.T) {
+	fixture := newRelationDoctorFixture(t)
+	execDoctorSQL(t, fixture.pool, `update pgbase_meta.fields set name='renamed_tags' where id='`+fixture.multiFieldID.String()+`'`)
+	if report := runDoctor(t, fixture.pool); !report.OK {
+		t.Fatalf("renamed relation: %#v", report)
+	}
+}
+
+func TestPhysicalSnapshotPreservesExpressionIndexKeySlots(t *testing.T) {
+	pool := newDoctorPool(t)
+	execDoctorSQL(t, pool, `create table app.expression_fixture(title text, score integer); create index expression_fixture_idx on app.expression_fixture(lower(title), score desc)`)
+	snapshot, err := readPhysicalSnapshot(t.Context(), pool, []string{"app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, ok := snapshot.indexes[indexRef("app", "expression_fixture", "expression_fixture_idx")]
+	if !ok || len(spec.Keys) != 2 || spec.Keys[0].Column != "" || spec.Keys[1].Column != "score" || !spec.Keys[1].Descending || strings.Contains(spec.ExpressionSQL, "truncated_index_keys") {
+		t.Fatalf("index=%#v", spec)
+	}
+}
+
+func TestDoctorAndMigrationRejectMissingManagedNamespace(t *testing.T) {
+	for _, namespace := range []string{"app", "pgbase_relation"} {
+		t.Run(namespace, func(t *testing.T) {
+			pool := newDoctorPool(t)
+			manifest, err := schema.ExpectedPhysicalSchemaForCatalog(schema.Catalog{Collections: map[string]schema.Collection{}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			execDoctorSQL(t, pool, `drop schema `+namespace+` cascade`)
+			report := runDoctor(t, pool)
+			assertFindingCode(t, report, "managed_namespace_missing")
+			if err := ValidateRequiredPhysicalSchema(t.Context(), pool, manifest); err == nil {
+				t.Fatal("migration accepted missing namespace")
+			}
+		})
+	}
+}
+
+func TestPhysicalSnapshotPartialIndexMatchesPlannerSQL(t *testing.T) {
+	pool := newDoctorPool(t)
+	execDoctorSQL(t, pool, `create table app.partial_fixture(score integer); create index partial_fixture_idx on app.partial_fixture(score) where score>0`)
+	snapshot, err := readPhysicalSnapshot(t.Context(), pool, []string{"app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := snapshot.indexes[indexRef("app", "partial_fixture", "partial_fixture_idx")]
+	want := got
+	want.PredicateSQL = "score>0"
+	if !indexSpecEqual(want, got) {
+		t.Fatalf("planner predicate %q differs from %q", want.PredicateSQL, got.PredicateSQL)
+	}
+	want.PredicateSQL = "score>1"
+	if indexSpecEqual(want, got) {
+		t.Fatal("changed predicate accepted")
+	}
+}

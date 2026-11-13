@@ -16,7 +16,10 @@ func (s *Service) resolveRecordID(ctx context.Context, collectionName string, in
 	var db recordidentity.DB = s.pool
 	var catalog schema.Catalog
 	var err error
-	if tx, ok := ctx.Value(batchTransactionKey{}).(pgx.Tx); ok {
+	if tx, borrowed, txErr := s.pool.BorrowedTransaction(ctx); borrowed {
+		if txErr != nil {
+			return uuid.Nil, txErr
+		}
 		db = tx
 		catalog, err = s.schemas.EnsureCurrent(ctx, tx)
 	} else {

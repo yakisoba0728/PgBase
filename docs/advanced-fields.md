@@ -62,12 +62,13 @@ Argon2id is irreversible, so changing password length or pattern options cannot 
 
 All four logical types and their options round-trip through catalog responses and `pgbase.schema/v1` export/import. Editor and geoPoint fixed defaults may appear in exported documents and import only when they match their exact zero value. Unsupported options are rejected rather than discarded.
 
-PocketBase mutation-key modifiers for numeric, select, relation and file fields
-remain outside the PgBase contract. Exact bigint/numeric transport, ordered
-relation writes with duplicate rejection, target authorization and attachment
-lifecycle retain their existing explicit write interfaces. PgBase also does
-not accept a text `:autogenerate` write key; absent-on-create is the sole
-generation trigger.
+Numeric fields accept `field+` and `field-` mutation keys. Select and relation
+fields accept `field+` (append), `+field` (prepend), and `field-` (remove).
+Bigint/numeric operands retain their exact decimal-string transport; relation
+writes retain duplicate rejection and target authorization. File modifiers use
+the multipart batch attachment lifecycle rather than direct JSON file values.
+PgBase does not accept a text `:autogenerate` write key; absent-on-create is the
+sole generation trigger.
 
 `hidden` has the same meaning as on other fields: public users cannot read, filter, sort, or expand through the field, while administrators retain schema and record access. Password redaction applies to administrators as well and is stronger than hidden-field projection.
 

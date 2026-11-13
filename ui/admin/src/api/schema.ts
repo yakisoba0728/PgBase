@@ -106,7 +106,8 @@ export function previewSchemaImport(document: SchemaDocument, signal?: AbortSign
 
 export interface SchemaImportResult {
   operationId: string;
-  status: "running" | "committed" | "unknown";
+  status: "running" | "committed" | "unknown" | "failed";
+  failureCode?: string;
   version?: number;
   /** Number of collection changes applied. */
   applied?: number;

@@ -11,10 +11,10 @@ export const authCollectionsQuery = queryOptions({
 });
 
 export const administrationQuery = (id: string) =>
-  queryOptions({ queryKey: ["auth", "administration", id], queryFn: ({ signal }) => getAuthAdministration(id, signal) });
+  queryOptions({ queryKey: ["auth", "administration", id], refetchOnReconnect: false, queryFn: ({ signal }) => getAuthAdministration(id, signal) });
 
 export const tokenPoliciesQuery = (id: string) =>
-  queryOptions({ queryKey: ["auth", "tokens", id], queryFn: ({ signal }) => listTokenPolicies(id, signal) });
+  queryOptions({ queryKey: ["auth", "tokens", id], refetchOnReconnect: false, queryFn: ({ signal }) => listTokenPolicies(id, signal) });
 
 export const providerCatalogQuery = queryOptions({
   queryKey: ["auth", "provider-catalog"],

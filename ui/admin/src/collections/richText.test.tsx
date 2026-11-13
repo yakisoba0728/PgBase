@@ -34,3 +34,16 @@ describe("RichText", () => {
     expect(screen.queryByText("This HTML has markup the visual editor cannot keep")).toBeNull();
   });
 });
+
+it("rejects external image URLs that the administrator CSP cannot display", async () => {
+  const { fireEvent } = await import("@testing-library/react");
+  render(<RichText id="image-test" label="image body" readOnly={false} invalid={false} value="<p>test</p>" onChange={vi.fn()} />);
+  const image = await screen.findByRole("button", { name: "Image from URL" });
+  fireEvent.click(image);
+  const url = screen.getByRole("textbox", { name: "Image URL" });
+  fireEvent.change(url, { target: { value: "https://external.example/image.png" } });
+  expect(url).toHaveAttribute("aria-invalid", "true");
+  expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
+  fireEvent.change(url, { target: { value: "/image.png" } });
+  expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled();
+});

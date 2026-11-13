@@ -47,7 +47,7 @@ func (s *Service) RefreshSessionForCollection(ctx context.Context, collectionID 
 		if err := tx.QueryRow(ctx, `select id from pgbase_meta.auth_collections where id=$1 for share`, collectionID).Scan(&lockedRealm); err != nil {
 			return ErrInvalidCredentials
 		}
-		oldHash, err := s.sessionHash(ctx, rawToken)
+		oldHash, err := s.sessionHash(ctx, tx, rawToken)
 		if err != nil {
 			return ErrInvalidCredentials
 		}

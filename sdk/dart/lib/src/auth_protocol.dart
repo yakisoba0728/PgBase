@@ -48,18 +48,11 @@ final class AuthRealm {
     String? fields,
     CancellationToken? cancellation,
   }) async {
-    final generation = client.auth.generation;
-    final session = _decodeRefreshSession(
-      await client.request(
-        'POST',
-        '$_path/refresh',
-        query: {if (fields != null) 'fields': fields},
-        cancellation: cancellation,
-      ),
-    );
-    if (generation == client.auth.generation)
-      await client.auth.save(session.token!, record: session.user);
-    return session;
+    if (fields != null && fields.isNotEmpty)
+      throw const PgBaseProtocolError(
+        'unsupported_refresh_projection: refresh requires a complete session',
+      );
+    return client._refresh('$_path/refresh', cancellation);
   }
 
   Future<UserSession> session({
@@ -73,13 +66,8 @@ final class AuthRealm {
       cancellation: cancellation,
     ),
   );
-  Future<void> logout({CancellationToken? cancellation}) async {
-    try {
-      await client.request('POST', '$_path/logout', cancellation: cancellation);
-    } finally {
-      await client.auth.clear();
-    }
-  }
+  Future<void> logout({CancellationToken? cancellation}) =>
+      client._logout('$_path/logout', cancellation);
 
   Future<void> requestPasswordReset(
     String email, {
@@ -229,6 +217,20 @@ UserSession _decodeSession(JsonValue value) {
     return field.value;
   }
 
+  for (final key in ['token', 'impersonatingAdministratorId']) {
+    if (value[key] != null && value[key] is! JsonString)
+      throw const PgBaseProtocolError('invalid_session_response');
+  }
+  for (final key in ['authCollection', 'authCollectionId']) {
+    if (user[key] != null && user[key] is! JsonString)
+      throw const PgBaseProtocolError('invalid_session_response');
+  }
+  for (final key in ['verified', 'emailVisibility']) {
+    if (user[key] != null && user[key] is! JsonBool)
+      throw const PgBaseProtocolError('invalid_session_response');
+  }
+  if (value['impersonated'] != null && value['impersonated'] is! JsonBool)
+    throw const PgBaseProtocolError('invalid_session_response');
   final verified = user['verified'];
   final impersonated = value['impersonated'];
   return UserSession(

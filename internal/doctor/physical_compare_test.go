@@ -94,3 +94,21 @@ func TestPhysicalDefaultsEquivalentAcceptsEveryRenderingOfOneValue(t *testing.T)
 		})
 	}
 }
+
+func TestIndexSQLComparisonPreservesExpressionMeaning(t *testing.T) {
+	for _, test := range []struct {
+		left, right string
+		equal       bool
+	}{
+		{`score>0`, `(score > 0)`, true},
+		{`score>0 AND title='A B'`, `((score > 0) AND (title = 'A B'))`, true},
+		{`(a+b)*c`, `a+(b*c)`, false},
+		{`title='A B'`, `title='ab'`, false},
+	} {
+		left := schema.IndexSpec{PredicateSQL: test.left}
+		right := schema.IndexSpec{PredicateSQL: test.right}
+		if indexSpecEqual(left, right) != test.equal {
+			t.Errorf("comparison %q / %q", test.left, test.right)
+		}
+	}
+}

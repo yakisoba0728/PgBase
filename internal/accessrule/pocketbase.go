@@ -43,7 +43,7 @@ func FromPocketBaseRulesParsed(r PocketBaseRules, parse func(string) (Rule, erro
 		}
 		if *value == "@request.auth.id != ''" {
 			copy := *value
-			return Rule{Op: "authenticated", PocketBase: &copy}, nil
+			return Rule{Op: "authenticated", Binding: BindingCatalog, Expression: &copy}, nil
 		}
 		if parse != nil {
 			return parse(*value)
@@ -64,8 +64,8 @@ func FromPocketBaseRulesParsed(r PocketBaseRules, parse func(string) (Rule, erro
 
 func (r Rules) PocketBase() PocketBaseRules {
 	convert := func(rule Rule) *string {
-		if rule.PocketBase != nil {
-			value := *rule.PocketBase
+		if rule.Expression != nil {
+			value := *rule.Expression
 			return &value
 		}
 		value := ""

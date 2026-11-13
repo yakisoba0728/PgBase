@@ -144,7 +144,7 @@ func waitBackupJob(t *testing.T, manager *Manager, id string) {
 		}
 		if job.Status == "completed" {
 			// Receipt publication precedes the worker releasing its reservation.
-			manager.wg.Wait()
+			waitManagerIdle(t, manager)
 			return
 		}
 		if job.Status == "failed" {

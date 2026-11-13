@@ -75,6 +75,8 @@ final class RealtimeService {
   String? _clientId;
   String? _lastEventId;
   Future<void>? _running;
+  Future<void>? _subscribing;
+  Future<void> _syncing = Future<void>.value();
   Completer<void>? _ready;
   final _observers = <FutureOr<void> Function(RealtimeStatus)>{};
   RealtimeStatus _status = const RealtimeStatus(state: RealtimeState.stopped);
@@ -113,15 +115,52 @@ final class RealtimeService {
     String topic,
     Function listener,
   ) async {
+    final generation = _client.auth.generation;
+    Future<Future<void> Function()> start() {
+      if (generation != _client.auth.generation)
+        throw const PgBaseCancellation();
+      return _subscribe(topic, listener);
+    }
+
+    final result = _subscribing == null
+        ? start()
+        : _subscribing!.then((_) => start());
+    final tail = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _subscribing = tail;
+    tail.then((_) {
+      if (identical(_subscribing, tail)) _subscribing = null;
+    });
+    return result;
+  }
+
+  Future<Future<void> Function()> _subscribe(
+    String topic,
+    Function listener,
+  ) async {
     if (!_validTopic(topic))
       throw const PgBaseProtocolError('invalid_realtime_topic');
     if (_stop?.isCancelled ?? false) await _running;
-    (_listeners[topic] ??= {}).add(listener);
+    final listeners = _listeners[topic] ??= {};
+    final added = listeners.add(listener);
     _ensureRunning();
-    if (_clientId != null)
-      await _sync();
-    else
-      await _ready!.future;
+    try {
+      if (_clientId != null)
+        await _sync();
+      else
+        await _ready!.future;
+    } catch (_) {
+      if (added) {
+        listeners.remove(listener);
+        if (listeners.isEmpty && identical(_listeners[topic], listeners))
+          _listeners.remove(topic);
+        if (_listeners.isEmpty && !(_stop?.isCancelled ?? true))
+          await unsubscribe();
+      }
+      rethrow;
+    }
     return () => unsubscribe(topic, listener);
   }
 
@@ -166,27 +205,47 @@ final class RealtimeService {
     if (_running != null) return;
     _ready = Completer<void>();
     final stop = _stop = CancellationToken();
-    _running = Future<void>.microtask(() => _run(stop)).whenComplete(() {
-      _running = null;
-      _ready = null;
+    final generation = _client.auth.generation;
+    final authChanges = _client.auth.changes.listen((next) {
+      if (next != generation && identical(_stop, stop))
+        _finish(const PgBaseCancellation(), RealtimeStopReason.unsubscribed);
     });
+    _running = Future<void>.microtask(() => _run(stop, generation))
+        .whenComplete(() async {
+          await authChanges.cancel();
+          _running = null;
+          _ready = null;
+        });
   }
 
-  Future<void> _sync() async {
-    await _client.request(
-      'POST',
-      '/api/realtime',
-      body: JsonObject({
-        'clientId': JsonString(_clientId!),
-        'subscriptions': JsonArray(
-          _listeners.keys.map(JsonString.new).toList(),
-        ),
-      }),
-      cancellation: _stop,
-    );
+  Future<void> _sync() {
+    final stop = _stop;
+    final result = _syncing.then((_) async {
+      if (!identical(stop, _stop) ||
+          (stop?.isCancelled ?? true) ||
+          _clientId == null)
+        return;
+      await _client.request(
+        'POST',
+        '/api/realtime',
+        body: JsonObject({
+          'clientId': JsonString(_clientId!),
+          'subscriptions': JsonArray(
+            _listeners.keys.map(JsonString.new).toList(),
+          ),
+        }),
+        cancellation: stop,
+      );
+    });
+    _syncing = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return result;
   }
 
-  Future<void> _run(CancellationToken stop) async {
+  Future<void> _run(CancellationToken stop, int generation) async {
+    if (generation != _client.auth.generation) {
+      _finish(const PgBaseCancellation(), RealtimeStopReason.unsubscribed);
+      return;
+    }
     if (_listeners.isEmpty) {
       _failReady(const PgBaseCancellation());
       return;
@@ -217,6 +276,14 @@ final class RealtimeService {
           );
         }
         await for (final message in _messages(response.stream)) {
+          if (generation != _client.auth.generation) {
+            _finish(
+              const PgBaseCancellation(),
+              RealtimeStopReason.unsubscribed,
+            );
+            return;
+          }
+          if (stop.isCancelled) return;
           final data = decodeExactJson(utf8.encode(message.data));
           if (message.event == 'PB_ERROR') {
             final rawCode = data is JsonObject ? data['code'] : null;
@@ -244,6 +311,14 @@ final class RealtimeService {
               throw const PgBaseProtocolError('invalid_realtime_connect');
             _clientId = id.value;
             await _sync();
+            if (generation != _client.auth.generation) {
+              _finish(
+                const PgBaseCancellation(),
+                RealtimeStopReason.unsubscribed,
+              );
+              return;
+            }
+            if (stop.isCancelled) return;
             if (!(_ready?.isCompleted ?? true)) _ready!.complete();
             _emit(RealtimeState.connected, attempt: reconnects);
             continue;
@@ -268,6 +343,13 @@ final class RealtimeService {
           final listeners = _listeners[topic];
           if (listeners != null)
             for (final listener in List<Function>.of(listeners)) {
+              if (generation != _client.auth.generation) {
+                _finish(
+                  const PgBaseCancellation(),
+                  RealtimeStopReason.unsubscribed,
+                );
+                return;
+              }
               _deliver(listener, event, topic);
             }
           if (listeners != null) reconnects = 0;
@@ -428,8 +510,13 @@ Stream<RecordEvent> recordEvents(
   int maxReconnects = 5,
   Duration reconnectDelay = const Duration(milliseconds: 250),
 }) async* {
+  if (fields != null && fields.isNotEmpty)
+    throw const PgBaseProtocolError(
+      'unsupported_event_projection: metadata events have no records; use realtime.subscribe',
+    );
   if (maxReconnects < 0 || reconnectDelay.isNegative)
     throw const PgBaseProtocolError('invalid_reconnect_options');
+  if (cancellation?.isCancelled ?? false) return;
   var cursor = lastEventId == null ? null : _cursor(lastEventId);
   var reconnects = 0;
   final generation = client.auth.generation;
@@ -461,7 +548,6 @@ Stream<RecordEvent> recordEvents(
         final response = await client.transport.eventStream(
           path,
           headers: headers,
-          query: {if (fields != null) 'fields': fields},
           cancellation: stop,
         );
         if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -491,6 +577,8 @@ Stream<RecordEvent> recordEvents(
           reconnects = 0;
           yield event;
         }
+        if (!stop.isCancelled)
+          throw const PgBaseProtocolError('realtime_stream_ended');
       } on PgBaseCancellation {
         return;
       } on PgBaseError catch (error) {

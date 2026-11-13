@@ -502,6 +502,60 @@ type blockingExecutor struct {
 	maxMarker map[string]int
 }
 
+type validatingExecutor struct {
+	*blockingExecutor
+	entered chan struct{}
+}
+
+func (executor *validatingExecutor) Validate(ctx context.Context, _ Request) error {
+	close(executor.entered)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestServiceCloseCancelsAdmittedValidationBeforeClosingResources(t *testing.T) {
+	pool := newPoolFixture(t)
+	ledger, err := NewLedger(pool.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := &validatingExecutor{blockingExecutor: newBlockingExecutor(), entered: make(chan struct{})}
+	service, err := NewService(context.Background(), executor, ledger, []byte("close-cancels-validation-secret-long-enough"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close(context.Background())
+	actor := testActor(pool.actorID, "validation-close")
+	request := Request{ExecutionID: uuid.New(), Mode: ModeRead, Statements: []Statement{{SQL: "select 1"}}}
+	type outcome struct {
+		execution Execution
+		err       error
+	}
+	result := make(chan outcome, 1)
+	go func() {
+		execution, err := service.Submit(context.Background(), actor, request)
+		result <- outcome{execution, err}
+	}()
+	select {
+	case <-executor.entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("validation did not begin")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := service.Close(ctx); err != nil {
+		t.Fatalf("Close did not cancel admitted validation: %v", err)
+	}
+	submitted := <-result
+	if submitted.err != nil || submitted.execution.Status != StatusCanceled {
+		t.Fatalf("validation outcome = %#v, %v", submitted.execution, submitted.err)
+	}
+	durable, err := ledger.Get(ctx, actor.AdministratorID, request.ExecutionID)
+	if err != nil || durable.Status != StatusCanceled {
+		t.Fatalf("durable canceled validation = %#v, %v", durable, err)
+	}
+}
+
 func newBlockingExecutor() *blockingExecutor {
 	return &blockingExecutor{release: make(chan struct{}), byMarker: make(map[string]int), maxMarker: make(map[string]int)}
 }

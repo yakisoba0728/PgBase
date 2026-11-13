@@ -47,6 +47,11 @@ func (host *extensionHost) callAppTransaction(ctx context.Context, method string
 		if request.Token != host.databaseToken.String() || strings.TrimSpace(request.SQL) == "" {
 			return nil, errors.New("invalid database transaction request")
 		}
+		for index, argument := range request.Args {
+			if number, ok := argument.(json.Number); ok {
+				request.Args[index] = number.String()
+			}
+		}
 		if request.Query {
 			rows, err := host.databaseTx.Query(ctx, request.SQL, request.Args...)
 			if err != nil {

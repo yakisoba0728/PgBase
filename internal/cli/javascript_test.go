@@ -71,3 +71,43 @@ func TestJavaScriptMigrationPreflightsBundleBeforeDatabase(t *testing.T) {
 		t.Fatalf("migration preflight code=%d stderr=%q", code, stderr.String())
 	}
 }
+
+func TestJavaScriptNativeCheckAndMigrationApplyDirectoryBeforeEnvironmentValidation(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "pgbase.scripts.json"), []byte(`{"format":"pgbase.scripts/v2","routes":[{"method":"GET","pattern":"/native","access":"public","handler":{"module":"app.js","export":"hello"}}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "app.js"), []byte(`if(typeof $app!=="undefined")throw new Error("legacy globals in native bundle"); const pgbase=require("pgbase"); exports.hello=()=>({status:200,json:{ok:true}});`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := func(name string) (string, bool) {
+		if name == "PGBASE_JS_CAPABILITIES" {
+			return "records", true
+		}
+		return "", false
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Execute(context.Background(), []string{"js", "check", "--dir", directory}, env, testIO(nil, &stdout, &stderr)); code != 0 {
+		t.Fatalf("native check exit=%d stderr=%s", code, stderr.String())
+	}
+	options, err := preflightUserMigrationJavaScript(context.Background(), env, directory)
+	if err != nil || options == nil || options.Directory != directory || !options.Capabilities["records"] {
+		t.Fatalf("native migration preflight=%#v, %v", options, err)
+	}
+}
+
+func TestJavaScriptTypesSelectNativeAndLegacyDeclarations(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		var stdout, stderr bytes.Buffer
+		args := []string{"js", "types"}
+		if legacy {
+			args = append(args, "--legacy")
+		}
+		if code := Execute(context.Background(), args, nil, testIO(nil, &stdout, &stderr)); code != 0 {
+			t.Fatalf("types legacy=%t exit=%d stderr=%s", legacy, code, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), `declare module "pgbase"`) || strings.Contains(stdout.String(), "const $app: App") != legacy {
+			t.Fatalf("types legacy=%t selected incorrect runtime declarations", legacy)
+		}
+	}
+}

@@ -132,7 +132,7 @@ func (s orderSpec) orderBy() string {
 
 func (s orderSpec) appendHiddenCursorSelects(selects []string) []string {
 	for _, term := range s.terms {
-		if term.relationPath != nil {
+		if term.relationPath != nil || term.identityCollectionID != uuid.Nil {
 			selects = append(selects, term.cursorExpression())
 		}
 	}

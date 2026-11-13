@@ -18,6 +18,7 @@ export const recordsKo: Record<keyof typeof recordsEn, string> = {
   "file.lastRequired": "필수 필드라 파일을 하나는 남겨야 합니다",
   "file.progress": "{name} 올리는 중",
   "file.uploadingAll": "파일 올리는 중",
+  "file.replace": "파일 교체",
   "file.choose": "파일 선택",
   "file.maxSize": "파일당 최대 {max}",
   "file.sentOnCreate": "레코드를 만들 때 함께 올립니다.",

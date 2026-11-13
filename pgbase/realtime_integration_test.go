@@ -46,6 +46,11 @@ func TestPocketBaseRealtimeAvailableToGuestAdministratorAndService(t *testing.T)
 			if err := json.Unmarshal([]byte(connected.data), &data); err != nil {
 				t.Fatal(err)
 			}
+			if test.name == "guest" {
+				denied := publicUsersRequest(t, fixture, http.MethodPost, "/api/realtime", map[string]any{"clientId": data.ClientID, "subscriptions": []string{"audience_events"}}, "", nil, nil)
+				assertPublicUsersStatus(t, denied, http.StatusForbidden)
+				assertPublicUsersStatus(t, publicUsersRequest(t, fixture, http.MethodPut, "/api/admin/collections/audience_events/user-access", map[string]any{"enabled": true}, "", admin, map[string]string{"X-PgBase-CSRF": csrf}), http.StatusOK)
+			}
 			replaceMultiplexSubscriptions(t, fixture, data.ClientID, test.bearer, test.cookie, test.csrf, []string{"audience_events"})
 			created := publicUsersRequest(t, fixture, http.MethodPost, "/api/v1/collections/audience_events/records", map[string]any{"title": test.name}, "", admin, map[string]string{"X-PgBase-CSRF": csrf})
 			assertPublicUsersStatus(t, created, 201)

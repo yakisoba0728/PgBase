@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -21,7 +20,6 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/recordidentity"
 	"github.com/yakisoba0728/PgBase/internal/schema"
-	"github.com/yakisoba0728/PgBase/internal/serviceauth"
 )
 
 var ErrCursorExpired = errors.New("realtime cursor expired")
@@ -84,71 +82,62 @@ func (s *Service) Read(ctx context.Context, userID uuid.UUID, collection string,
 }
 
 func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, int64, error) {
+	if s == nil || s.schemas == nil || !request.Principal.Valid() {
+		return nil, 0, recordaccess.ErrDenied
+	}
 	events := make([]Event, 0, batchSize)
 	var cursor int64
 	err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT 1 FROM pgbase_meta.schema_state WHERE singleton FOR SHARE`); err != nil {
+		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
+		if err != nil {
 			return err
 		}
-		var collectionID uuid.UUID
-		if err := tx.QueryRow(ctx, `SELECT id FROM pgbase_meta.collections WHERE name=$1`, request.Collection).Scan(&collectionID); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return recordaccess.ErrDenied
-			}
-			return err
+		collection, ok := catalog.Collections[request.Collection]
+		if !ok {
+			return recordaccess.ErrDenied
 		}
-		if request.Principal.Kind == identity.User {
-			if err := recordaccess.AuthorizeUser(ctx, tx, collectionID, request.Principal.ID); err != nil {
-				return err
-			}
-		} else if request.Principal.Kind == identity.Service {
-			if err := serviceauth.Authorize(ctx, tx, request.Principal, collectionID, "read"); err != nil {
-				return recordaccess.ErrDenied
-			}
+		if err := recordaccess.AuthorizeSubject(ctx, tx, collection.ID, request.Principal, "list"); err != nil {
+			return err
 		}
 		var floor, head int64
 		if err := tx.QueryRow(ctx, `SELECT floor_sequence,GREATEST(floor_sequence,COALESCE((SELECT max(sequence) FROM pgbase_meta.realtime_events),0)) FROM pgbase_meta.realtime_retention WHERE singleton`).Scan(&floor, &head); err != nil {
 			return err
 		}
 		cursor = head
-		if _, _, _, err := s.eventQuery(ctx, tx, request, collectionID, head); err != nil {
+		if request.After != nil {
+			cursor = *request.After
+		}
+		statement, args, err := s.eventQuery(ctx, tx, request, catalog, collection, cursor)
+		if err != nil {
 			return err
 		}
 		if request.After == nil {
 			return nil
 		}
-		if *request.After < floor {
+		if cursor < floor {
 			return ErrCursorExpired
 		}
-		if *request.After > head || *request.After < 0 {
+		if cursor > head || cursor < 0 {
 			return ErrCursorInvalid
-		}
-		cursor = *request.After
-		statement, args, collection, err := s.eventQuery(ctx, tx, request, collectionID, cursor)
-		if err != nil {
-			return err
-		}
-		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
-		if err != nil {
-			return err
 		}
 		rows, err := tx.Query(ctx, statement, args...)
 		if err != nil {
 			return err
 		}
 		type pendingEvent struct {
-			event    Event
-			snapshot []byte
+			event        Event
+			snapshot     []byte
+			publicRecord []byte
 		}
 		pending := make([]pendingEvent, 0, batchSize)
 		for rows.Next() {
 			var event Event
-			var snapshot []byte
-			if err := rows.Scan(&event.Sequence, &event.EventID, &event.Collection, &event.RecordID, &event.Operation, &event.Version, &snapshot); err != nil {
+			var snapshot, publicRecord []byte
+			if err := rows.Scan(&event.Sequence, &event.EventID, &event.Collection, &event.RecordID, &event.Operation, &event.Version, &snapshot, &publicRecord); err != nil {
 				rows.Close()
 				return err
 			}
-			pending = append(pending, pendingEvent{event: event, snapshot: snapshot})
+			pending = append(pending, pendingEvent{event: event, snapshot: snapshot, publicRecord: publicRecord})
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
@@ -158,14 +147,23 @@ func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, in
 		for _, item := range pending {
 			event, snapshot := item.event, item.snapshot
 			event.Action = event.Operation
-			event.Record, err = publicSnapshot(collection, snapshot)
-			if err != nil {
-				return err
+			if len(item.publicRecord) > 0 && string(item.publicRecord) != "null" {
+				event.Record, err = publicSnapshot(collection, item.publicRecord)
+				if err == nil {
+					event.PublicID, _ = event.Record["id"].(string)
+				}
+				if err == nil && event.PublicID == "" {
+					err = errors.New("realtime public record identity missing")
+				}
+			} else {
+				event.Record, err = publicSnapshot(collection, snapshot)
+				if err == nil {
+					err = s.ids.Project(ctx, tx, catalog, collection, event.Record)
+				}
+				if err == nil {
+					event.PublicID, err = s.ids.Public(ctx, tx, collection, event.RecordID)
+				}
 			}
-			if err := s.ids.Project(ctx, tx, catalog, collection, event.Record); err != nil {
-				return err
-			}
-			event.PublicID, err = s.ids.Public(ctx, tx, collection, event.RecordID)
 			if err != nil {
 				return err
 			}
@@ -177,22 +175,32 @@ func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, in
 		}
 		return nil
 	})
-	return events, cursor, err
+	if err != nil {
+		return nil, 0, err
+	}
+	return events, cursor, nil
 }
 
 // AllowsApplicationBroadcast permits payloads without a record envelope only
 // when the current collection list and view rules are explicitly public.
 func (s *Service) AllowsApplicationBroadcast(ctx context.Context, request ReadRequest) (bool, error) {
+	if s == nil || s.schemas == nil || !request.Principal.Valid() {
+		return false, recordaccess.ErrDenied
+	}
 	allowed := false
 	err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT 1 FROM pgbase_meta.schema_state WHERE singleton FOR SHARE`); err != nil {
+		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
+		if err != nil {
 			return err
 		}
-		var collectionID uuid.UUID
-		if err := tx.QueryRow(ctx, `SELECT id FROM pgbase_meta.collections WHERE name=$1`, request.Collection).Scan(&collectionID); err != nil {
+		collection, ok := catalog.Collections[request.Collection]
+		if !ok {
+			return recordaccess.ErrDenied
+		}
+		if err := recordaccess.AuthorizeSubject(ctx, tx, collection.ID, request.Principal, "list"); err != nil {
 			return err
 		}
-		rules, revision, err := recordaccess.LoadRules(ctx, tx, collectionID)
+		rules, revision, err := recordaccess.LoadRules(ctx, tx, collection.ID)
 		if err != nil {
 			return err
 		}
@@ -203,36 +211,28 @@ func (s *Service) AllowsApplicationBroadcast(ctx context.Context, request ReadRe
 }
 
 func applicationBroadcastRulePublic(rule accessrule.Rule) bool {
-	if rule.Op == "allow" {
-		return true
-	}
-	return rule.PocketBase != nil && strings.TrimSpace(*rule.PocketBase) == ""
+	return rule.Op == "allow"
 }
 
-func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest, collectionID uuid.UUID, cursor int64) (string, []any, schema.Collection, error) {
-	rules, revision, err := recordaccess.LoadRules(ctx, tx, collectionID)
+func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest, catalog schema.Catalog, collection schema.Collection, cursor int64) (string, []any, error) {
+	rules, revision, err := recordaccess.LoadRules(ctx, tx, collection.ID)
 	if err != nil {
-		return "", nil, schema.Collection{}, err
-	}
-	if s.schemas == nil {
-		return "", nil, schema.Collection{}, recordaccess.ErrDenied
-	}
-	catalog, err := s.schemas.EnsureCurrent(ctx, tx)
-	if err != nil {
-		return "", nil, schema.Collection{}, err
-	}
-	collection, ok := catalog.Collections[request.Collection]
-	if !ok {
-		return "", nil, schema.Collection{}, recordaccess.ErrDenied
+		return "", nil, err
 	}
 	if request.PublicID != "" {
 		request.RecordID, err = s.ids.Resolve(ctx, tx, collection, request.PublicID)
+		if errors.Is(err, recordidentity.ErrNotFound) {
+			err = tx.QueryRow(ctx, `SELECT record_id FROM pgbase_meta.record_outbox WHERE collection_id=$1 AND envelope->'publicRecord'->>'id'=$2 ORDER BY created_at DESC LIMIT 1`, collection.ID, request.PublicID).Scan(&request.RecordID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				err = recordidentity.ErrNotFound
+			}
+		}
 		if err != nil {
-			return "", nil, schema.Collection{}, err
+			return "", nil, err
 		}
 	}
 	if err := validateEventFields(collection, request.Principal, request.Fields); err != nil {
-		return "", nil, schema.Collection{}, err
+		return "", nil, err
 	}
 	predicate, args := "false", []any{}
 	if request.Principal.Kind == identity.Administrator {
@@ -241,42 +241,44 @@ func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest
 		predicate, args = "event.owner_user_id=$3", []any{request.Principal.ID}
 	} else if revision != 0 {
 		rule := accessrule.Rule{Op: "all", Args: []accessrule.Rule{rules.List, rules.View}}
-		if rules.List.PocketBase != nil || rules.View.PocketBase != nil {
-			resolver, resolveErr := accessrule.NewCatalogResolver(catalog, collection, "acl_record")
-			if resolveErr != nil {
-				return "", nil, schema.Collection{}, resolveErr
-			}
-			predicate, args, err = accessrule.CompilePocketBase(rule, accessrule.PBCompileContext{Resolver: resolver, Principal: request.Principal, Request: request.RuleContext, ArgOffset: 2})
-		} else {
-			predicate, args, err = accessrule.CompileEvent(rule, collection, "acl_record", request.Principal, 2, "event")
-		}
+		predicate, args, err = accessrule.CompilePolicy(rule, accessrule.PolicyContext{
+			Catalog: catalog, Collection: collection, Alias: "acl_record", Principal: request.Principal,
+			Request: request.RuleContext, ArgOffset: 2, EventAlias: "event",
+		})
 		if err != nil {
-			return "", nil, schema.Collection{}, err
+			return "", nil, err
 		}
 	}
 	if request.Filter != "" {
+		if err := query.ValidateFilterFields(catalog, collection, request.Principal, request.Filter); err != nil {
+			return "", nil, err
+		}
 		filterSQL, filterArgs, compileErr := query.CompileRecordPredicate(collection, request.Filter, "acl_record", 2+len(args))
 		if compileErr != nil {
 			if relationFilterUnsupported(compileErr) {
-				return "", nil, schema.Collection{}, ErrRelationFilterRequiresCurrentRecord
+				return "", nil, ErrRelationFilterRequiresCurrentRecord
 			}
-			return "", nil, schema.Collection{}, compileErr
+			return "", nil, compileErr
 		}
 		predicate = "(" + predicate + ") AND (" + filterSQL + ")"
 		args = append(args, filterArgs...)
 	}
 	table := pgx.Identifier{"app", collection.TableName}.Sanitize()
-	statement := `SELECT event.sequence,event.event_id,event.collection_name,event.record_id,event.operation,event.record_version,outbox.record_snapshot
+	statement := `SELECT event.sequence,event.event_id,event.collection_name,event.record_id,event.operation,event.record_version,outbox.record_snapshot,outbox.envelope->'publicRecord'
  FROM pgbase_meta.realtime_events event JOIN pgbase_meta.record_outbox outbox ON outbox.event_id=event.event_id
  CROSS JOIN LATERAL jsonb_populate_record(NULL::` + table + `,COALESCE((SELECT to_jsonb(current_record) FROM ` + table + ` current_record WHERE current_record.id=event.record_id),outbox.record_snapshot)) acl_record
  WHERE event.collection_id=$1 AND event.sequence>$2`
-	base := []any{collectionID, cursor}
-	if request.RecordID != uuid.Nil {
+	base := []any{collection.ID, cursor}
+	if request.PublicID != "" {
+		offset := len(base) + len(args) + 1
+		statement += ` AND (outbox.envelope->'publicRecord'->>'id'=$` + fmt.Sprint(offset) + ` OR (NOT (outbox.envelope ? 'publicRecord') AND event.record_id=$` + fmt.Sprint(offset+1) + `))`
+		args = append(args, request.PublicID, request.RecordID)
+	} else if request.RecordID != uuid.Nil {
 		statement += ` AND event.record_id=$` + fmt.Sprint(len(base)+len(args)+1)
 		args = append(args, request.RecordID)
 	}
 	statement += ` AND (` + predicate + `) ORDER BY event.sequence LIMIT 100`
-	return statement, append(base, args...), collection, nil
+	return statement, append(base, args...), nil
 }
 
 func validateEventFields(collection schema.Collection, principal identity.Subject, requested string) error {
@@ -345,7 +347,7 @@ func publicSnapshot(collection schema.Collection, raw []byte) (map[string]any, e
 		}
 	}
 	for _, field := range collection.Fields {
-		if !field.Hidden {
+		if !field.Hidden && field.Type != schema.TypePassword {
 			if value, ok := physical[field.ColumnName]; ok {
 				result[field.Name] = value
 			}

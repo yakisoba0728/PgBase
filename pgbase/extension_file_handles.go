@@ -108,6 +108,11 @@ func (host *extensionHost) readFileChunk(request extensionFileRequest) (json.Raw
 	}
 	remaining := int64(maximumExtensionFileBytes) - host.fileBytesRead
 	if remaining <= 0 {
+		var probe [1]byte
+		count, err := handle.reader.Read(probe[:])
+		if count == 0 && errors.Is(err, io.EOF) {
+			return json.Marshal(extensionFileResult{Handle: handleID.String(), EOF: true})
+		}
 		return nil, extensionError("file_too_large", errors.New("file invocation byte limit reached"))
 	}
 	if int64(maximum) > remaining {

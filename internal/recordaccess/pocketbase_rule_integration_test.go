@@ -42,7 +42,7 @@ func TestPocketBaseScalarRulesRoundTripAndEnforceRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := "title != null && title != '' && score >= 2 && author = @request.auth.id"
-	rule, err := query.ParsePocketBaseAccessRule(source)
+	rule, err := query.ParseAccessRule(source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestPocketBaseScalarRulesRoundTripAndEnforceRows(t *testing.T) {
 			t.Fatalf("roundtrip=%v", got)
 		}
 		authenticatedSource := "@request.auth.id != ''"
-		authenticatedRules, marshalErr := json.Marshal(accessrule.Rules{View: accessrule.Rule{Op: "authenticated", PocketBase: &authenticatedSource}})
+		authenticatedRules, marshalErr := json.Marshal(accessrule.Rules{View: accessrule.Rule{Op: "authenticated", Expression: &authenticatedSource}})
 		if marshalErr != nil {
 			return marshalErr
 		}
@@ -127,7 +127,7 @@ func TestPocketBaseCatalogRulesEnforceRelationsBackrelationsCollectionsAndJSON(t
 	}
 	catalog := schema.Catalog{Collections: map[string]schema.Collection{"pb_authors": authors, "pb_docs": docs, "pb_flags": flags}, Incoming: map[uuid.UUID][]schema.RelationRef{authorID: {{SourceCollectionID: docsID, SourceFieldID: relationID}}}}
 	setRule := func(c schema.Collection, source string) {
-		rule, e := query.ParsePocketBaseAccessRule(source)
+		rule, e := query.ParseAccessRule(source)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -197,7 +197,7 @@ func TestRuleServiceSetAcceptsPocketBaseRelationRule(t *testing.T) {
 	}
 	apply(schema.CreateCollectionInput{Name: "pb_rule_authors", Fields: []schema.FieldInput{{Name: "name", Type: schema.TypeText}}})
 	apply(schema.CreateCollectionInput{Name: "pb_rule_docs", Fields: []schema.FieldInput{{Name: "author", Type: schema.TypeRelation, Relation: &schema.RelationInput{TargetCollection: "pb_rule_authors", Cardinality: schema.RelationSingle, OnDelete: schema.RelationRestrict}}}})
-	rule, err := query.ParsePocketBaseAccessRule("author.name = 'Alice'")
+	rule, err := query.ParseAccessRule("author.name = 'Alice'")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -20,7 +20,7 @@ func TestCursorV5FunctionFingerprintUsesStableTypedOperands(t *testing.T) {
 		t.Helper()
 		node := mustParseFilter(t, expression)
 		if compatible {
-			node = markPocketBaseLike(node)
+			node = usePercentWildcards(node)
 		}
 		plan, _, err := planRelationFilter(schema.Catalog{}, collection, node)
 		if err != nil {

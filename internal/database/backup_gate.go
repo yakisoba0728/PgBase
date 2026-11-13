@@ -19,8 +19,8 @@ const backupGateKey int64 = 0x504742415345424b // "PGBASEBK"
 
 var ErrBackupGateBusy = errors.New("another PgBase writer or backup operation is active")
 
-func TryBackupGate(ctx context.Context, databaseURL string, exclusive bool) (*BackupGate, error) {
-	poolConfig, err := parsePoolConfig(databaseURL, true)
+func TryBackupGate(ctx context.Context, databaseURL string, exclusive, allowInsecure bool) (*BackupGate, error) {
+	poolConfig, err := parsePoolConfig(databaseURL, allowInsecure)
 	if err != nil {
 		return nil, err
 	}

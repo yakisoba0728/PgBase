@@ -305,11 +305,20 @@ func validateDatabaseURL(value string, allowInsecure bool) error {
 	if parsed.Scheme != "postgres" && parsed.Scheme != "postgresql" {
 		return fmt.Errorf("must use postgres or postgresql scheme")
 	}
+	parameters, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return fmt.Errorf("must use valid PostgreSQL URL parameters")
+	}
+	for key, values := range parameters {
+		if key == "ssl" || strings.HasPrefix(key, "ssl") && len(values) != 1 {
+			return fmt.Errorf("PostgreSQL TLS parameters must be unambiguous; use one sslmode parameter")
+		}
+	}
 	hosts, ok := databaseURLHosts(parsed)
 	if !ok {
 		return fmt.Errorf("must include a host")
 	}
-	if !allowInsecure && parsed.Query().Get("sslmode") != "verify-full" {
+	if !allowInsecure && parameters.Get("sslmode") != "verify-full" {
 		for _, host := range hosts {
 			if !strings.HasPrefix(host, "/") && !loopbackHostname(host) {
 				return fmt.Errorf("remote PostgreSQL must use sslmode=verify-full")

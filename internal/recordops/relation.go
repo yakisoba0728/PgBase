@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"slices"
@@ -33,7 +34,7 @@ func policyCollection(collection schema.Collection) schema.Collection {
 	return collection
 }
 
-func authorizeRelationTargets(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, principal Principal, write *relation.Write) error {
+func authorizeRelationTargets(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, principal Principal, write *relation.Write, request *accessrule.RequestContext) error {
 	if principal.Kind == PrincipalAdministrator {
 		return nil
 	}
@@ -79,7 +80,7 @@ func authorizeRelationTargets(ctx context.Context, tx pgx.Tx, catalog schema.Cat
 		if principal.Kind == identity.Service {
 			continue
 		}
-		allowed, err := recordaccess.AllowsRecordsInCatalog(ctx, tx, catalog, policyCollection(target), principal, "view", ids, false)
+		allowed, err := recordaccess.AllowsRecordsInCatalogWithRequest(ctx, tx, catalog, policyCollection(target), principal, "view", ids, false, request)
 		if err != nil {
 			return err
 		}
@@ -90,7 +91,7 @@ func authorizeRelationTargets(ctx context.Context, tx pgx.Tx, catalog schema.Cat
 	return nil
 }
 
-func authorizeStoredRelationTargets(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, principal Principal, record map[string]any) error {
+func authorizeStoredRelationTargets(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, principal Principal, record map[string]any, request *accessrule.RequestContext) error {
 	payload := map[string]json.RawMessage{}
 	for _, field := range collection.Fields {
 		if field.Type != schema.TypeRelation {
@@ -106,7 +107,7 @@ func authorizeStoredRelationTargets(ctx context.Context, tx pgx.Tx, catalog sche
 	if err != nil {
 		return err
 	}
-	return authorizeRelationTargets(ctx, tx, catalog, collection, principal, write)
+	return authorizeRelationTargets(ctx, tx, catalog, collection, principal, write, request)
 }
 
 func bindRecordRelations(catalog schema.Catalog, collection schema.Collection) (*relation.Bindings, error) {

@@ -1,6 +1,7 @@
 package query
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -100,5 +101,25 @@ func TestScalarAnyMatchOperatorsNormalizeForSingleValueOperands(t *testing.T) {
 				t.Fatalf("Evaluate() = %v, want %v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestMatchLikeWildcardBacktracking(t *testing.T) {
+	for _, test := range []struct {
+		value, pattern string
+		want           bool
+	}{
+		{"", "", true}, {"", "%", true}, {"", "_", false},
+		{"a", "", false}, {"abc", "a%c", true}, {"abc", "a%d", false},
+		{"한글", "_글", true}, {"한글", "한_", true}, {"한글", "___", false},
+		{"abc", "%_%", true}, {"abc", "a__", true}, {"ab", "a__", false},
+		{"a%c", `a\%c`, true}, {"abc", `a\%c`, false}, {"a_c", `a\_c`, true},
+		{`a\c`, `a\\c`, true}, {`a\`, `a\`, true}, {"ab_", `%b\_`, true},
+		{strings.Repeat("a", 24), strings.Repeat("%a", 12) + "%b", false},
+		{strings.Repeat("a", 128), strings.Repeat("%a", 64) + "%b", false},
+	} {
+		if got := matchLike([]rune(test.value), []rune(test.pattern)); got != test.want {
+			t.Errorf("matchLike(%q, %q) = %v, want %v", test.value, test.pattern, got, test.want)
+		}
 	}
 }

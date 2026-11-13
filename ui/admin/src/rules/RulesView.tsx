@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { RiErrorWarningLine, RiPlayLine } from "@remixicon/react";
 import { Facts } from "../components/Facts";
@@ -7,7 +8,7 @@ import { stringifyJson } from "../api/http";
 import type { Collection } from "../api/collections";
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
-import { EmptyState, Loader, Notice } from "../components/Feedback";
+import { EmptyState, Loader } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { SaveBar } from "../components/SaveBar";
 import { SplitView } from "../components/SplitView";
@@ -50,7 +51,7 @@ function RuleRow({ editor, action }: { editor: RulesEditor; action: Action }) {
               aria-checked={draft.mode === mode}
               disabled={mode === "custom"}
               className="rule-mode"
-              onClick={() => editor.update(action, { mode, expression: mode === "expression" ? draft.expression || draft.loaded.pocketbase || "" : draft.expression })}
+              onClick={() => editor.update(action, { mode, expression: mode === "expression" ? draft.expression || draft.loaded.expression || "" : draft.expression })}
             >
               {t(`rules.mode.${mode}`)}
             </button>
@@ -136,24 +137,19 @@ function Reference({ editor }: { editor: RulesEditor }) {
 /** The Rules tab: one row per action, saved together with the public-access gate. */
 export function RulesView({ collection, basePath }: { collection: Collection; basePath: string }) {
   const t = useT();
-  const editor = useRulesEditor(collection, basePath);
-  // Shown even when the rules no longer load: the server may still hold the half-saved state.
-  const partial = editor.partial.length > 0 && (
-    <Notice tone="danger" title={t("rules.partialTitle")} actions={<Button size="sm" variant="secondary" loading={editor.finish.isPending} onClick={() => editor.finish.mutate()}>{t("common.retry")}</Button>}>
-      {t("rules.partialText", { actions: editor.partial.join(", ") })}
-    </Notice>
-  );
+  const source = collection.type === "view" && !collection.view?.sql ? collection.view?.source : undefined;
+  const editor = useRulesEditor(source ? { ...collection, name: source, type: "base" } : collection, basePath);
   if (editor.loading) return <Loader />;
-  if (editor.loadError || !editor.drafts) return <div className="page-content">{partial}<EmptyState icon={RiErrorWarningLine}>{errorText(t, editor.loadError)}</EmptyState><UnsavedGuard {...editor.guard} /></div>;
+  if (editor.loadError || !editor.drafts) return <div className="page-content"><EmptyState icon={RiErrorWarningLine}>{errorText(t, editor.loadError)}</EmptyState><UnsavedGuard {...editor.guard} /></div>;
   const isView = collection.type === "view";
   const list = (
     <>
       <div className="toolbar">
-        <SaveBar dirty={editor.dirty} busy={editor.save.isPending} onDiscard={editor.discard} onSave={() => editor.save.mutate()} />
+        {source ? <p>{t("rules.inherited")} <Link to={`/collections/${encodeURIComponent(source)}/rules`}>{source}</Link></p> : <SaveBar dirty={editor.dirty} busy={editor.save.isPending} onDiscard={editor.discard} onSave={() => editor.save.mutate()} />}
       </div>
-      <div className="page-content rules-layout">
+      <fieldset className="page-content rules-layout" disabled={Boolean(source) || editor.save.isPending}>
         <div className="rules-main">
-          {partial}
+
           <section className="rules-section">
             <h2>{t("rules.accessTitle")}</h2>
             <Checkbox label={t("rules.accessLabel")} checked={editor.accessEnabled} onChange={(event) => editor.setAccess(event.target.checked)} />
@@ -169,7 +165,7 @@ export function RulesView({ collection, basePath }: { collection: Collection; ba
           {collection.type === "auth" && <AuthRules name={collection.name} />}
         </div>
         <Reference editor={editor} />
-      </div>
+      </fieldset>
       <UnsavedGuard {...editor.guard} />
     </>
   );

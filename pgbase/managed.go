@@ -70,6 +70,7 @@ func RunManaged(ctx context.Context, options Options) error {
 	}
 	h.controller, h.controllerPool = controller, controllerPool
 	alerter := newBackupFailureAlerter(controllerPool, normalized)
+	h.backupAlerter = alerter
 	manager, err := backup.NewManager(backup.ManagerOptions{Directory: normalized.Backups.Directory, Repository: controller, Retention: normalized.Backups.Retention, Lifecycle: backupLifecycle(normalized.Hooks), LogError: func(ctx context.Context, err error) {
 		normalized.Logger.ErrorContext(ctx, "backup operation failed", "error", err)
 	}, OnFailure: func(ctx context.Context, job backup.Job) { alerter.Notify(ctx, job) }, Create: h.createBackup, Restore: h.restoreBackup})
@@ -128,6 +129,7 @@ type managedHost struct {
 	drained         chan struct{}
 	controller      *backup.StorageController
 	controllerPool  *database.Pool
+	backupAlerter   *backupFailureAlerter
 	challengeServer *http.Server
 }
 
@@ -323,6 +325,7 @@ func (h *managedHost) restoreBackup(ctx context.Context, directory string) (resu
 	}
 	previousControllerPool := h.controllerPool
 	h.controller.RebindPool(nextControllerPool)
+	h.backupAlerter.RebindPool(nextControllerPool)
 	h.controllerPool = nextControllerPool
 	targetPoolAdopted = true
 	h.mu.Lock()
@@ -354,21 +357,34 @@ func (h *managedHost) targetPath() string {
 	return filepath.Join(h.options.Backups.Directory, "active-target.json")
 }
 func (h *managedHost) loadTarget() error {
-	raw, err := os.ReadFile(h.targetPath())
+	options, err := ResolveActiveRestoreTarget(h.options)
+	if err == nil {
+		h.options = options
+	}
+	return err
+}
+
+// ResolveActiveRestoreTarget applies the private activation receipt shared by managed serving and database commands.
+func ResolveActiveRestoreTarget(options Options) (Options, error) {
+	if options.Backups.Directory == "" {
+		return options, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(options.Backups.Directory, "active-target.json"))
 	if os.IsNotExist(err) {
-		return nil
+		return options, nil
 	}
 	if err != nil {
-		return err
+		return options, err
 	}
 	var target RestoreTarget
 	if json.Unmarshal(raw, &target) != nil || target.DatabaseURL == "" || target.FilesDirectory == "" {
-		return errors.New("invalid private restore activation receipt")
+		return options, errors.New("invalid private restore activation receipt")
 	}
-	h.options.DatabaseURL = target.DatabaseURL
-	h.options.Files = restoredFileOptions(h.options.Files, target.FilesDirectory)
-	return nil
+	options.DatabaseURL = target.DatabaseURL
+	options.Files = restoredFileOptions(options.Files, target.FilesDirectory)
+	return options, nil
 }
+
 func (h *managedHost) persistTarget(target RestoreTarget) error {
 	raw, err := json.Marshal(target)
 	if err != nil {
