@@ -15,13 +15,15 @@ const policy: AuthPolicy = {
   otpEnabled: false,
   otpDurationSeconds: 300,
   otpMaxAttempts: 5,
+  etag: "\"p1\"",
 };
 
 describe("policy", () => {
   it("round-trips the stored policy and sends every field", () => {
     const draft = policyDraft(policy, true);
     expect(policyProblems(draft)).toEqual({});
-    expect(policyInput(draft)).toEqual(policy);
+    const { etag: _etag, ...input } = policy;
+    expect(policyInput(draft)).toEqual(input);
   });
 
   it("mirrors the server bounds", () => {
