@@ -61,7 +61,8 @@ func CreateOnline(ctx context.Context, destination, databaseURL string, objects 
 	if err = tx.QueryRow(ctx, `SELECT pg_export_snapshot(),current_setting('server_version_num')::int`).Scan(&snapshot, &version); err != nil {
 		return err
 	}
-	major, err := toolMajor(ctx, "pg_dump")
+	dumpTool := postgresTool("pg_dump", version/10000)
+	major, err := toolMajor(ctx, dumpTool)
 	if err != nil {
 		return err
 	}
@@ -90,7 +91,7 @@ func CreateOnline(ctx context.Context, destination, databaseURL string, objects 
 		return err
 	}
 	dump := filepath.Join(temporary, "database.dump")
-	if err = run(ctx, "pg_dump", []string{"--format=custom", "--no-owner", "--no-acl", "--schema=pgbase_meta", "--schema=app", "--schema=pgbase_relation", "--extension=*", "--snapshot", snapshot, "--file", dump}, command.env); err != nil {
+	if err = run(ctx, dumpTool, []string{"--format=custom", "--no-owner", "--no-acl", "--schema=pgbase_meta", "--schema=app", "--schema=pgbase_relation", "--extension=*", "--snapshot", snapshot, "--file", dump}, command.env); err != nil {
 		return err
 	}
 	manifest := Manifest{Format: FormatVersion, CreatedAt: time.Now().UTC(), PostgreSQLMajor: major, Files: []File{}}

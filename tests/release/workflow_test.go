@@ -247,6 +247,8 @@ func TestReleasePhaseCandidatePassesCompositeOracleBeforePackagingTestedBinary(t
 		`artifact_directory="$RELEASE_PHASE_ARTIFACT_DIRECTORY"`,
 		digestCheck,
 		packageBinary,
+		`install -m 0644 deployments/postgres-client-runtime.sh "$packaging_context/deployments/postgres-client-runtime.sh"`,
+		`install -m 0644 deployments/build-postgres-client-libraries.sh "$packaging_context/deployments/build-postgres-client-libraries.sh"`,
 		imageBuildCommand,
 	}
 	for _, contract := range contracts {

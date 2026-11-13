@@ -38,7 +38,42 @@ RUN schema_version="$(find migrations/system -maxdepth 1 -type f -name '[0-9][0-
     && expected="{\"version\":\"${VERSION}\",\"commit\":\"${SOURCE_COMMIT}\",\"builtAt\":\"${BUILT_AT}\",\"goos\":\"${TARGETOS}\",\"goarch\":\"${TARGETARCH}\",\"schemaMin\":\"$schema_version\",\"schemaMax\":\"$schema_version\"}" \
     && test "$(/out/pgbase version --json)" = "$expected"
 
+FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS postgres-libraries
+COPY deployments/build-postgres-client-libraries.sh /build-postgres-client-libraries.sh
+RUN sh /build-postgres-client-libraries.sh
+
+FROM postgres:16.16-bookworm@sha256:a49f7438ba03589f9b1ca062f2da82e899b48ea1dc50d2449fa09a70be83ebca AS postgres16
+COPY --from=postgres-libraries /patched/lib/ /opt/pgbase/postgresql/lib/
+COPY --from=postgres-libraries /patched/usr/ /runtime/usr/
+COPY --from=postgres-libraries /patched/var/ /runtime/var/
+ENV LD_LIBRARY_PATH="/opt/pgbase/postgresql/lib"
+COPY deployments/postgres-client-runtime.sh /postgres-client-runtime.sh
+RUN sh /postgres-client-runtime.sh 16
+
+FROM postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536 AS postgres17
+COPY --from=postgres-libraries /patched/lib/ /opt/pgbase/postgresql/lib/
+COPY --from=postgres-libraries /patched/usr/ /runtime/usr/
+COPY --from=postgres-libraries /patched/var/ /runtime/var/
+ENV LD_LIBRARY_PATH="/opt/pgbase/postgresql/lib"
+COPY deployments/postgres-client-runtime.sh /postgres-client-runtime.sh
+RUN sh /postgres-client-runtime.sh 17
+
+FROM postgres:18.7-bookworm@sha256:ece55f7868da684e400f82f1030a050718adbdd65c23aa500c486f6e2950dc0f AS postgres18
+COPY --from=postgres-libraries /patched/lib/ /opt/pgbase/postgresql/lib/
+COPY --from=postgres-libraries /patched/usr/ /runtime/usr/
+COPY --from=postgres-libraries /patched/var/ /runtime/var/
+ENV LD_LIBRARY_PATH="/opt/pgbase/postgresql/lib"
+COPY deployments/postgres-client-runtime.sh /postgres-client-runtime.sh
+RUN sh /postgres-client-runtime.sh 18
+
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+
+# Copy the newest compatible Debian/libpq dependency closure last.
+COPY --from=postgres16 /runtime/ /
+COPY --from=postgres17 /runtime/ /
+COPY --from=postgres18 /runtime/ /
+ENV LD_LIBRARY_PATH="/opt/pgbase/postgresql/lib"
+ENV PATH="/opt/pgbase/postgresql/18/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 ARG VERSION=dev
 LABEL org.opencontainers.image.source="https://github.com/yakisoba0728/PgBase" \

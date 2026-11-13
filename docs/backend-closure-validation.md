@@ -2,6 +2,8 @@
 
 This report supersedes the validation status and open gates in [the historical follow-up report](backend-follow-up-validation.md). Its original failures remain preserved there. This is a bounded closure and validation record, not a universal security assurance.
 
+> Follow-up: [runtime verification](runtime-verification.md) extends the platform/OAuth checks and resolves the stock-image managed-backup limitation recorded below for rc.4. This historical candidate record remains unchanged.
+
 ## Scope and results
 
 The closure ledger contains **195 provenance records**, including aliases, observations, contract decisions and documented limits. It is not a count of 195 distinct bugs, vulnerabilities or fixes. Owners added focused regressions for reproduced defects and retained the distinction between source review, executed tests and unresolved causes.

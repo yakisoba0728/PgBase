@@ -72,6 +72,16 @@ jobs:
           set -o pipefail
           go test -tags=restore ./tests/restore -v -count=1 -timeout 40m 2>&1 | tee restore-drill.log
 
+      - name: Verify stock image managed backups
+        if: inputs.candidate_image == ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --file deployments/Dockerfile --tag pgbase-managed-backup:test .
+          PGBASE_RUNTIME_BACKUP_IMAGE=pgbase-managed-backup:test \
+            go test -tags=restore ./tests/restore -run '^TestStockImage' \
+              -v -count=1 -timeout 15m 2>&1 | tee managed-backup-drill.log
+
       # Historical source compatibility is distinct from the candidate-image
       # restore gate. It builds a pinned old commit, upgrades a populated
       # fixture, then restores the pre-upgrade recovery set for rollback.
@@ -91,6 +101,7 @@ jobs:
           name: restore-drill-${{ inputs.expected_version || github.run_id }}
           path: |
             restore-drill.log
+            managed-backup-drill.log
             historical-upgrade-drill.log
           if-no-files-found: warn
           retention-days: 30

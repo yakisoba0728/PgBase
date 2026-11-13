@@ -12,7 +12,7 @@ One pgBase project owns one PostgreSQL database. That database contains the `pgb
 
 Multiple pgBase instances for the same project may share the database. They must use the same `PGBASE_TOKEN_SECRET`, `PGBASE_PUBLIC_URL`, trusted proxy policy, and administrator-facing origin policy. Schema changes are serialized in PostgreSQL and other instances synchronize through PostgreSQL `LISTEN`; readiness is false while an instance cannot synchronize.
 
-The official distroless runtime has no PostgreSQL client tools. Managed backup create/restore is supported only in a runtime that supplies matching `pg_dump`/`pg_restore` and their libraries; keep `PGBASE_BACKUPS_DIRECTORY` unset in the official image. See [backup runtime requirements](backup-s3.md).
+The official nonroot distroless runtime includes version-matched PostgreSQL 16/17/18 backup clients and their shared libraries. Managed backup create/restore works with a read-only runtime root when the private backup volume, file store and `/tmp` are writable by UID/GID 65532. Provision durable backup capacity for archives and restore staging; the development Compose `/tmp` limit is not a backup repository. See [backup runtime requirements](backup-s3.md).
 
 ## Required production sequence
 

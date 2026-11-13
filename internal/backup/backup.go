@@ -191,6 +191,16 @@ func commandEnvironment(databaseURL string) (postgresCommand, error) {
 	return postgresCommand{env: env, cleanup: cleanup}, nil
 }
 
+// The stock image bundles exact-major clients outside native PostgreSQL paths.
+// Native installations without that layout continue using their existing PATH.
+func postgresTool(name string, major int) string {
+	path := filepath.Join("/opt/pgbase/postgresql", strconv.Itoa(major), "bin", name)
+	if info, err := os.Stat(path); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
+		return path
+	}
+	return name
+}
+
 func toolMajor(ctx context.Context, name string) (int, error) {
 	output, err := exec.CommandContext(ctx, name, "--version").Output()
 	if err != nil {
@@ -264,7 +274,8 @@ func Create(ctx context.Context, destination, databaseURL, files string) (result
 	if !idle {
 		return errors.New("database has active sessions")
 	}
-	dumpMajor, err := toolMajor(ctx, "pg_dump")
+	dumpTool := postgresTool("pg_dump", serverMajor)
+	dumpMajor, err := toolMajor(ctx, dumpTool)
 	if err != nil {
 		return err
 	}
@@ -289,7 +300,7 @@ func Create(ctx context.Context, destination, databaseURL, files string) (result
 		return err
 	}
 	dump := filepath.Join(temporary, "database.dump")
-	if err = run(ctx, "pg_dump", []string{"--format=custom", "--no-owner", "--no-acl", "--schema=pgbase_meta", "--schema=app", "--schema=pgbase_relation", "--extension=*", "--file", dump}, command.env); err != nil {
+	if err = run(ctx, dumpTool, []string{"--format=custom", "--no-owner", "--no-acl", "--schema=pgbase_meta", "--schema=app", "--schema=pgbase_relation", "--extension=*", "--file", dump}, command.env); err != nil {
 		return err
 	}
 	databaseFile, err := checksum(ctx, dump, "database.dump")
@@ -447,7 +458,8 @@ func Restore(ctx context.Context, directory, databaseURL, files string) (resultE
 	if !idle {
 		return errors.New("database has active sessions")
 	}
-	restoreMajor, err := toolMajor(ctx, "pg_restore")
+	restoreTool := postgresTool("pg_restore", serverMajor)
+	restoreMajor, err := toolMajor(ctx, restoreTool)
 	if err != nil {
 		return err
 	}
@@ -504,7 +516,7 @@ func Restore(ctx context.Context, directory, databaseURL, files string) (resultE
 		staging = ""
 		installedFiles = true
 	}
-	if err = run(ctx, "pg_restore", []string{"--dbname", "", "--single-transaction", "--no-owner", "--no-acl", "--exit-on-error", filepath.Join(directory, "database.dump")}, command.env); err != nil {
+	if err = run(ctx, restoreTool, []string{"--dbname", "", "--single-transaction", "--no-owner", "--no-acl", "--exit-on-error", filepath.Join(directory, "database.dump")}, command.env); err != nil {
 		return err
 	}
 	databaseCommitted = true

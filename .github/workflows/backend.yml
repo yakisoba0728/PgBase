@@ -187,7 +187,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Test native Windows self-update and CLI integration
-        run: go test -count=1 ./internal/selfupdate ./internal/cli
+        run: go test -count=1 ./internal/selfupdate ./internal/cli ./internal/durablefile ./internal/filestore ./internal/backup
 
   integration:
     name: PostgreSQL integration / ${{ matrix.postgres.version }}${{ matrix.postgres.shard && format(' / {0}', matrix.postgres.shard) || '' }}
