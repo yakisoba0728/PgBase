@@ -17,16 +17,18 @@ export function listAdministrators(
   return request("GET", "/api/admin/administrators", { query: params, signal });
 }
 
-export function createAdministrator(input: { email: string; password: string }): Promise<Administrator> {
+// Creating, enabling/disabling and resetting another administrator need the acting administrator's
+// current password (403 `current_password_invalid`); revoking sessions does not.
+export function createAdministrator(input: { currentPassword: string; email: string; password: string }): Promise<Administrator> {
   return request("POST", "/api/admin/administrators", { body: input });
 }
 
-export function setAdministratorActive(id: string, active: boolean): Promise<Administrator> {
-  return request("PATCH", `/api/admin/administrators/${encodeURIComponent(id)}`, { body: { active } });
+export function setAdministratorActive(id: string, active: boolean, currentPassword: string): Promise<Administrator> {
+  return request("PATCH", `/api/admin/administrators/${encodeURIComponent(id)}`, { body: { currentPassword, active } });
 }
 
-export function resetAdministratorPassword(id: string, newPassword: string): Promise<void> {
-  return request("POST", `/api/admin/administrators/${encodeURIComponent(id)}/password-reset`, { body: { newPassword } });
+export function resetAdministratorPassword(id: string, newPassword: string, currentPassword: string): Promise<void> {
+  return request("POST", `/api/admin/administrators/${encodeURIComponent(id)}/password-reset`, { body: { currentPassword, newPassword } });
 }
 
 export function revokeAdministratorSessions(id: string): Promise<void> {

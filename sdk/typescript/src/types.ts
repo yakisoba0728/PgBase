@@ -5,7 +5,8 @@ export type RecordData = Record<string, unknown>;
 /** Values accepted by [PgBaseClient.filter] placeholder substitution. */
 export type FilterParams = Record<string, unknown>;
 
-export type RecordPage<T extends RecordData> = { items: T[]; nextCursor?: string };
+/** `totalItems` is present only when the list asked for `total`; it stops at 10,000 with `totalCapped`. */
+export type RecordPage<T extends RecordData> = { items: T[]; nextCursor?: string; totalItems?: number; totalCapped?: boolean };
 /** Options for the PocketBase offset-pagination compatibility endpoint. */
 export type PocketBaseListOptions = Pick<Query, "filter" | "sort" | "expand" | "fields" | "requestKey"> & { skipTotal?: boolean };
 /** PocketBase's page-number list envelope. A skipped count is represented by -1. */
@@ -25,6 +26,8 @@ export type Query = {
   fields?: string;
   cursor?: string;
   limit?: number;
+  /** Adds a bounded count of all matching records (`totalItems`); ask on the first page only. */
+  total?: true;
   /** A custom cancellation group; null keeps this request independent. Never sent to the server. */
   requestKey?: string | null;
 };

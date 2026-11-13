@@ -2,8 +2,8 @@ import type { RuntimeSettings } from "../api/system";
 import type { MessageKey } from "../i18n";
 import { isAddrOrPrefix, isMaskedPrefix, lines } from "./net";
 
-// Mirrors internal/runtimesettings validateStored + validAPIRateLabel; the server
-// answers only `invalid_settings`, so this is what points at the offending field.
+// Mirrors internal/runtimesettings validateStored + validAPIRateLabel. The server's
+// `invalid_settings` names only a section path (e.g. "backups"), so this marks the field.
 
 /** 148 MiB + 4 KiB, runtimesettings.MaximumBatchBodyBytes. */
 const maxBatchBody = 148 * 1024 * 1024 + 4 * 1024;
@@ -122,7 +122,7 @@ export function toDraft(settings: RuntimeSettings): SettingsDraft {
   const values: SettingsDraft["values"] = {};
   for (const spec of specs) {
     const value = read(settings, spec.path);
-    // List fields arrive as null when unset.
+    // Older servers sent unset list fields as null.
     values[spec.path] = spec.kind === "bool" ? Boolean(value) : spec.kind === "lines" ? ((value as string[] | null) ?? []).join("\n") : String(value ?? "");
   }
   const rules = (settings.rateLimits.rules ?? []).map((rule) => ({

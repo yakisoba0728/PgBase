@@ -18,7 +18,7 @@ curl --fail-with-body --request PUT \
 
 `GET` on the same URL reads the setting. `PUT {"enabled":false}` blocks subsequent user operations. Both routes require an administrator session; mutation uses the existing Origin and CSRF requirements.
 
-The setting defaults to disabled. It is a stored opt-in, not a guarantee that the collection is usable by public users: any outgoing or incoming relation blocks public access even if `enabled` is true. Adding a relation to a previously usable collection blocks subsequent public operations. Administrator record operations retain their existing behavior.
+The setting defaults to disabled. It is a stored opt-in; the collection's typed action rules still decide each public operation. Relations do not block public access. Instead, every relation path is checked against the target collection's own view rule for the same caller: a hidden target's ID is returned as `null` (or omitted from a multiple relation), filters and sorts through a relation path treat it as absent, expansion skips it, reverse `<collection>_via_<field>` paths apply the source's rule, and a create or update that points a relation at a target the caller cannot view fails as not found. Administrator record operations retain their existing behavior.
 
 ## Register, log in, and use records
 

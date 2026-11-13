@@ -46,6 +46,9 @@ func TestGuardedRestoreRetainsAdmissionUntilBackgroundCompletion(t *testing.T) {
 	if releases.Load() != 0 {
 		t.Fatal("admission released before restore finished")
 	}
+	if running, err := m.RunningJobs(t.Context()); err != nil || len(running) != 1 || running[0].ID != job.ID {
+		t.Fatalf("running=%+v err=%v", running, err)
+	}
 	close(proceed)
 	select {
 	case <-released:
@@ -55,6 +58,9 @@ func TestGuardedRestoreRetainsAdmissionUntilBackgroundCompletion(t *testing.T) {
 	result, err := m.Job(t.Context(), job.ID)
 	if err != nil || result.Status != "failed" || releases.Load() != 1 {
 		t.Fatalf("result=%+v releases=%d err=%v", result, releases.Load(), err)
+	}
+	if running, err := m.RunningJobs(t.Context()); err != nil || len(running) != 0 {
+		t.Fatalf("finished operation still running: %+v err=%v", running, err)
 	}
 	if _, err := m.RestoreWithGuard(t.Context(), "invalid", release); err == nil {
 		t.Fatal("invalid backup accepted")

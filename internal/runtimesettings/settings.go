@@ -17,10 +17,16 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/validation"
 )
 
 var ErrConflict = errors.New("runtime settings changed")
 var ErrInvalid = errors.New("invalid runtime settings")
+
+// invalidSetting stays ErrInvalid while naming the rejected settings path.
+func invalidSetting(path string) error {
+	return errors.Join(ErrInvalid, &validation.Error{Details: []validation.Detail{{Field: path, Code: "invalid"}}})
+}
 
 type Batch struct {
 	Enabled      bool  `json:"enabled"`
@@ -101,7 +107,7 @@ func validate(v Settings) error {
 	}
 	for _, rule := range v.RateLimits.Rules {
 		if !validAPIRateLabel(rule.Label) {
-			return ErrInvalid
+			return invalidSetting("rateLimits.rules")
 		}
 	}
 	return nil
@@ -111,41 +117,41 @@ func validate(v Settings) error {
 // must repair them, but upgrading must leave settings readable to operators.
 func validateStored(v Settings) error {
 	if v.Batch.MaxRequests < 1 || v.Batch.MaxRequests > 100 || v.Batch.MaxBodyBytes < 1024 || v.Batch.MaxBodyBytes > MaximumBatchBodyBytes || v.Batch.TimeoutMS < 100 || v.Batch.TimeoutMS > 300000 {
-		return ErrInvalid
+		return invalidSetting("batch")
 	}
 	if v.Logs.RetentionDays < 1 || v.Logs.RetentionDays > 3650 || (v.Logs.Level != "debug" && v.Logs.Level != "info" && v.Logs.Level != "warn" && v.Logs.Level != "error") {
-		return ErrInvalid
+		return invalidSetting("logs")
 	}
 	if v.Backups.Keep < 0 || v.Backups.Keep > 10000 || strings.TrimSpace(v.Backups.Timezone) == "" || strings.TrimSpace(v.Backups.Schedule) == "" {
-		return ErrInvalid
+		return invalidSetting("backups")
 	}
 	if v.Application.Theme != "system" && v.Application.Theme != "light" && v.Application.Theme != "dark" {
-		return ErrInvalid
+		return invalidSetting("application.theme")
 	}
 	if v.RateLimits.Admin.AccountMaxFailures < 1 || v.RateLimits.Admin.AccountMaxFailures > 10000 || v.RateLimits.Admin.NetworkMaxFailures < 1 || v.RateLimits.Admin.NetworkMaxFailures > 10000 || v.RateLimits.Admin.WindowSeconds < 1 || v.RateLimits.Admin.WindowSeconds > 86400 || v.RateLimits.Admin.BlockSeconds < 1 || v.RateLimits.Admin.BlockSeconds > 604800 || v.RateLimits.User.AccountMaxFailures < 1 || v.RateLimits.User.AccountMaxFailures > 10000 || v.RateLimits.User.NetworkMaxFailures < 1 || v.RateLimits.User.NetworkMaxFailures > 10000 || v.RateLimits.User.RegistrationNetworkMaxFailures < 1 || v.RateLimits.User.RegistrationNetworkMaxFailures > 10000 || v.RateLimits.User.WindowSeconds < 1 || v.RateLimits.User.WindowSeconds > 86400 || v.RateLimits.User.BlockSeconds < 1 || v.RateLimits.User.BlockSeconds > 604800 {
-		return ErrInvalid
+		return invalidSetting("rateLimits")
 	}
 	if len(v.RateLimits.Rules) > 100 || len(v.RateLimits.ExcludedIPs) > 100 {
-		return ErrInvalid
+		return invalidSetting("rateLimits")
 	}
 	seen := make(map[string]bool, len(v.RateLimits.Rules))
 	for _, rule := range v.RateLimits.Rules {
 		if len(rule.Label) == 0 || len(rule.Label) > 256 || (rule.Audience != "" && rule.Audience != "@guest" && rule.Audience != "@auth") || rule.Duration < 1 || rule.Duration > 86400 || rule.MaxRequests < 1 || rule.MaxRequests > 100000 || seen[rule.Label+"\x00"+rule.Audience] {
-			return ErrInvalid
+			return invalidSetting("rateLimits.rules")
 		}
 		seen[rule.Label+"\x00"+rule.Audience] = true
 	}
 	for _, raw := range v.RateLimits.ExcludedIPs {
 		if _, err := netip.ParsePrefix(raw); err != nil {
 			if _, err := netip.ParseAddr(raw); err != nil {
-				return ErrInvalid
+				return invalidSetting("rateLimits.excludedIPs")
 			}
 		}
 	}
 	for _, raw := range v.Proxy.TrustedProxyCIDRs {
 		p, err := netip.ParsePrefix(raw)
 		if err != nil || p != p.Masked() || p.Bits() == 0 {
-			return ErrInvalid
+			return invalidSetting("proxy.trustedProxyCIDRs")
 		}
 	}
 	return nil
@@ -204,11 +210,13 @@ func (c *Controller) Reload(ctx context.Context) error {
 		if len(legacy) == 0 {
 			return ErrInvalid
 		}
-		ciphertext, err := c.encrypt(legacy)
+		// Not ciphertext: shadowing it left the re-read below unused, so the
+		// first start after the encryption migration failed to decrypt.
+		encrypted, err := c.encrypt(legacy)
 		if err != nil {
 			return err
 		}
-		_, err = c.pool.Exec(ctx, `update pgbase_meta.runtime_settings set document_ciphertext=$1,document=null where singleton and document_ciphertext is null and document=$2::jsonb and revision=$3`, ciphertext, string(legacy), revision)
+		_, err = c.pool.Exec(ctx, `update pgbase_meta.runtime_settings set document_ciphertext=$1,document=null where singleton and document_ciphertext is null and document=$2::jsonb and revision=$3`, encrypted, string(legacy), revision)
 		if err != nil {
 			return err
 		}
@@ -357,10 +365,11 @@ func (c *Controller) decrypt(ciphertext []byte) ([]byte, error) {
 	return aead.Open(nil, ciphertext[:aead.NonceSize()], ciphertext[aead.NonceSize():], []byte(encryptionDomain))
 }
 
+// clone also turns absent lists into [] so a GET document can be PATCHed back.
 func clone(v Settings) Settings {
-	v.Proxy.TrustedProxyCIDRs = append([]string(nil), v.Proxy.TrustedProxyCIDRs...)
-	v.RateLimits.Rules = append([]APIRateRule(nil), v.RateLimits.Rules...)
-	v.RateLimits.ExcludedIPs = append([]string(nil), v.RateLimits.ExcludedIPs...)
+	v.Proxy.TrustedProxyCIDRs = append([]string{}, v.Proxy.TrustedProxyCIDRs...)
+	v.RateLimits.Rules = append([]APIRateRule{}, v.RateLimits.Rules...)
+	v.RateLimits.ExcludedIPs = append([]string{}, v.RateLimits.ExcludedIPs...)
 	return v
 }
 

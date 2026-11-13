@@ -185,7 +185,7 @@ export class PgBaseClient {
     async *iterate(collection, query = {}, signal) {
         let cursor = query.cursor;
         do {
-            const page = await this.records(collection).list({ ...query, cursor }, signal);
+            const page = await this.records(collection).list({ ...query, cursor, total: undefined }, signal);
             yield* page.items;
             cursor = page.nextCursor;
         } while (cursor);

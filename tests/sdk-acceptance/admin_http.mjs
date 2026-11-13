@@ -24,11 +24,11 @@ const client = new PgBaseAdminClient(baseURL, { fetch: browserFetch });
 await client.login(email, password);
 
 const accountEmail = `sdk-${crypto.randomUUID()}@example.test`;
-const account = await client.createAdministrator(accountEmail, `${password}A1!`);
+const account = await client.createAdministrator(accountEmail, `${password}A1!`, password);
 assert.equal(account.email, accountEmail);
 assert.equal((await client.administratorAccounts({ limit: 100 })).items.some(item => item.id === account.id), true);
-assert.equal((await client.setAdministratorActive(account.id, false)).active, false);
-await client.setAdministratorPassword(account.id, `${password}B2!`);
+assert.equal((await client.setAdministratorActive(account.id, false, password)).active, false);
+await client.setAdministratorPassword(account.id, `${password}B2!`, password);
 await client.revokeAdministratorSessions(account.id);
 
 const exported = await client.exportSchema();

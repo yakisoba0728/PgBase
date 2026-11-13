@@ -60,7 +60,7 @@ func TestAdministratorUserManagementAndPasswordChangeHTTPContract(t *testing.T) 
 	for index, item := range page.Items {
 		for field := range item {
 			switch field {
-			case "id", "email", "active", "verified", "createdAt", "updatedAt":
+			case "id", "authCollectionId", "email", "active", "verified", "createdAt", "updatedAt":
 			default:
 				t.Fatalf("administrator user item %d exposed unexpected field %q", index, field)
 			}

@@ -120,7 +120,23 @@ import (
 // total is 28,540; package membership and classification are unchanged.
 // The administrator rebuild's rename regression corrects physical bindings in
 // internal/relation at +7/-2, net +5; exact group 28,545, no spare allowance.
-const dataGroupRuntimeLimit = 28545
+// The 2026-11-13 backend-fixes branch closes the data-side issues the rebuilt
+// administrator UI found. Against main 64dad0d (28,545) the group is +411/-44, net +367:
+//
+//	internal/database        +0 /  -0 =   +0
+//	internal/query          +63 / -15 =  +48  opt-in bounded list total; rule
+//	                                          parse position through @request
+//	internal/recordaccess    +5 /  -3 =   +2  invalid_rule action details
+//	internal/recordops       +2 /  -1 =   +1  bounded total pass-through
+//	internal/relation        +0 /  -0 =   +0
+//	internal/schema        +341 / -25 = +316  auth realm consistency: type=auth
+//	                                          create refused, paired realm
+//	                                          delete/rename, dangling realm
+//	                                          relations, designer field sync;
+//	                                          view sample uuid, invalid_view_sql
+//
+// No migration and no package move; exact group 28,912, no spare allowance.
+const dataGroupRuntimeLimit = 28912
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -503,15 +519,52 @@ type structuralLimit struct {
 // (the palette rules moved from layout.css into palette.css).
 // No classifier exclusions or spare allowance are added. Re-measure with
 // scripts/support/rebaseline-ui-budgets.sh after committing UI changes.
+// The 2026-11-13 backend-fixes branch fixes the backend issues the rebuilt UI
+// found and wires the UI to them. Against main 64dad0d (Go 94,993,
+// UI 25,732) runtime is +2,244/-850, net +1,394: Go +1,607/-338 = +1,269
+// (94,993 -> 96,262) and UI +637/-512 = +125 (25,732 -> 25,857), so
+// handwritten runtime moves 120,725 -> 122,119. Go by package:
+//
+//	internal/schema       +316  auth realm consistency, designer field sync
+//	internal/userauth     +266  users search/total/single read/cursor, realm
+//	                            field sync, ETag/If-Match on policy/provider/
+//	                            template/SMTP
+//	internal/api          +239  step-up bodies, IP allowlist caller address,
+//	                            log search/statistics/delete, dead letters,
+//	                            running backup jobs, field-level error details
+//	internal/adminauth    +136  current-password step-up, email change that
+//	                            invalidates pending reset links/OTPs
+//	internal/realtime      +64  dead-letter list
+//	pgbase                 +63  managed-backup job registration and retention
+//	internal/query         +48  bounded list total, rule error position
+//	internal/observability +40  log search, windowed statistics, delete
+//	internal/config        +33  SQL console environment (default off)
+//	internal/accessrule    +28  rule error details
+//	internal/backup        +22  running jobs, list race fix
+//	runtimesettings +9, jobs +2, recordaccess +2, recordops +1
+//
+// Production exported declarations move 1,595 -> 1,602: accessrule.ActionError,
+// backup.(*Manager).RunningJobs, realtime.DeadEvent, DeadPage and
+// (*Service).DeadEvents, userauth.UserQuery and
+// (*Service).SyncAuthCollectionFields (the schema apply transaction's realm
+// seam). adminauth's UpdateAdministratorEmail became
+// UpdateAdministratorCredentials (net zero). Interfaces (104), constructors (64)
+// and page hooks (0) are unchanged; no file exceeds 800 lines.
+// UI exports move 780 -> 791 (+20/-9): API calls and types for running backup
+// jobs, log delete, dead letters, users search/single read and If-Match
+// preconditions, the shared stale/rejected-field/current-password helpers, and
+// the collection-delete refusal text; the client-side user scan and the
+// read-before-write stale check they replace are deleted. No classifier
+// exclusions or spare allowance are added.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 120725, "from-scratch administrator UI rewrite exact measurement"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 25732, "from-scratch administrator UI rewrite; no spare allowance"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 122119, "backend-fixes branch exact measurement"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 25857, "rewrite plus backend-fixes consumers; no spare allowance"},
 	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 104, "optional range transport/store and runtime capability boundaries"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1595, "reviewed managed byte-range service and store boundaries"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1602, "reviewed backend-fixes service boundaries"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 64, "measured final 20-defect correctness constructors"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
 	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 0, "pages are route wrappers; screen state lives in feature views"},
-	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 780, "feature modules, query hooks and bilingual dictionaries of the rewrite"},
+	{"UI runtime exports", func(m repositoryMetrics) int { return m.UI.Exports }, 791, "feature modules, query hooks, bilingual dictionaries and backend-fixes API calls"},
 }
 
 type repositoryMetrics struct {

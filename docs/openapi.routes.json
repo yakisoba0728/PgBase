@@ -712,6 +712,20 @@
         "x-pgbase-maximum-request-bytes": 16384
       }
     },
+    "/api/admin/backup-jobs": {
+      "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      }
+    },
     "/api/admin/backup-jobs/{id}": {
       "get": {
         "parameters": [
@@ -1412,7 +1426,8 @@
             "adminCookie": []
           }
         ],
-        "x-pgbase-csrf-required": true
+        "x-pgbase-csrf-required": true,
+        "x-pgbase-maximum-request-bytes": 16384
       }
     },
     "/api/admin/profile/ip-allowlist": {
@@ -1440,6 +1455,20 @@
           }
         ],
         "x-pgbase-csrf-required": true
+      }
+    },
+    "/api/admin/realtime/dead": {
+      "get": {
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
       }
     },
     "/api/admin/realtime/status": {
@@ -2125,6 +2154,28 @@
       }
     },
     "/api/admin/users/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
+          }
+        },
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ]
+      },
       "patch": {
         "parameters": [
           {

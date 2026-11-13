@@ -28,6 +28,10 @@ export interface RecordPage {
   items: RecordData[];
   /** Present when more records follow; pass back as `cursor`. */
   nextCursor?: string;
+  /** Answers `total`: matching records, counted up to 10,000. */
+  totalItems?: number;
+  /** More than `totalItems` records match. */
+  totalCapped?: boolean;
 }
 
 export interface ListRecordsOptions {
@@ -42,6 +46,8 @@ export interface ListRecordsOptions {
   cursor?: string;
   /** 1..200, default 50. */
   limit?: number;
+  /** Adds a bounded count of all matching records (ask on the first page only). */
+  total?: true;
   signal?: AbortSignal;
 }
 

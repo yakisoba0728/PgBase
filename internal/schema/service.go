@@ -58,6 +58,9 @@ type AuthExecutablePolicyValidator interface {
 	ValidatePasswordPattern(string) bool
 	ValidateMFARule(string) bool
 	ValidateAuthRule(string, []FieldInput) bool
+	// SyncAuthCollectionFields applies a designer field change to the realm
+	// paired with an auth collection, inside the schema apply transaction.
+	SyncAuthCollectionFields(ctx context.Context, tx pgx.Tx, name string, removed []string, upserts []FieldInput) error
 }
 
 func (s *Service) SetAuthExecutablePolicyValidator(validator AuthExecutablePolicyValidator) {
@@ -92,6 +95,9 @@ func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err er
 	operationStarted := time.Now()
 	relationOperation := changeHasRelationInput(change)
 	defer s.finishOperation(ctx, observability.OperationRelationSchema, operationStarted, &err, &relationOperation)
+	if err = rejectSingleAuthCreate(change); err != nil {
+		return Plan{}, err
+	}
 	var catalog Catalog
 	var companions bool
 	if isSQLViewChange(change) {
@@ -139,13 +145,37 @@ func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err er
 		if err := validateRequiredRelationAdds(ctx, s.pool, current, plan.Definition, false); err != nil {
 			return Plan{}, err
 		}
+		if current.Type == CollectionTypeAuth && plan.Definition.Name != current.Name {
+			if _, err := pairedRealmForRename(ctx, s.pool, current.Name, plan.Definition.Name, ""); err != nil {
+				return Plan{}, err
+			}
+		}
 	case changeDelete:
 		current := catalog.Collections[change.deleteName]
 		relationOperation = collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
+		if _, err := pairedAuthRealm(ctx, s.pool, current, ""); err != nil {
+			return Plan{}, err
+		}
+		if err := refuseRealmRelationsTo(ctx, s.pool, current.Name); err != nil {
+			return Plan{}, err
+		}
 	}
 	projected, err := projectCatalog(catalog, change, plan)
 	if err != nil {
 		return Plan{}, err
+	}
+	if change.kind == changeUpdate && s.authPolicyValidator != nil {
+		// Preview of the apply-time refusal in syncAuthRealmFields, so it lands on the field.
+		current, _ := collectionForUpdate(catalog, change.update)
+		if next := projected.Collections[plan.Definition.Name]; next.Type == CollectionTypeAuth {
+			held, err := authRealmFieldNames(ctx, s.pool, current.Name, "")
+			if err == nil && held != nil {
+				_, _, _, err = authRealmFieldChange(projected, current, next, held)
+			}
+			if err != nil {
+				return Plan{}, err
+			}
+		}
 	}
 	if _, err := s.compileCatalog(projected); err != nil {
 		return Plan{}, err

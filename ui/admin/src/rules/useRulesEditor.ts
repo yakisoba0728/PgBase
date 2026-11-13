@@ -19,10 +19,10 @@ import { useT } from "../i18n";
 import {
   draftsFromRules,
   emptyExpressions,
-  expressionChanged,
   insertAt,
   planSave,
   previewable,
+  rejectedRules,
   sameDraft,
   typedRule,
   visibleActions,
@@ -128,12 +128,12 @@ export function useRulesEditor(collection: Collection, basePath: string) {
         setKeep(error.keep);
         return;
       }
-      if (error instanceof ApiError && error.code === "invalid_rule" && drafts) {
-        // The server names no rule, so every expression edited since the last save is suspect.
-        const suspects = visible.filter((action) => expressionChanged(drafts[action]));
-        if (suspects.length) {
-          const message = t(suspects.length === 1 ? "rules.rejected" : "rules.rejectedAny");
-          setErrors(Object.fromEntries(suspects.map((action) => [action, message])));
+      if (error instanceof ApiError && error.code === "invalid_rule") {
+        const rejected = Object.entries(rejectedRules(error.details));
+        if (rejected.length) {
+          const message = ({ reason, position }: { reason: string; position?: string }) =>
+            reason !== "invalid_syntax" ? t("rules.rejected") : position ? t("rules.rejectedAt", { position }) : t("rules.rejectedSyntax");
+          setErrors(Object.fromEntries(rejected.map(([action, problem]) => [action, message(problem)])));
           return;
         }
       }

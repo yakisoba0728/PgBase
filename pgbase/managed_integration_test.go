@@ -34,6 +34,18 @@ func TestManagedBackupHTTPRestoresAndActivatesFreshTarget(t *testing.T) {
 	go func() { done <- RunManaged(ctx, options) }()
 	waitManagedLive(t, origin+"/health/live", done)
 	cookie, csrf := setupManagedAdmin(t, origin, options.SetupToken)
+	// The managed host owns the backup manager; the scheduled backup job must
+	// still be registered so the saved backup schedule is not merely descriptive.
+	scheduled := managedJSON[struct {
+		Items []struct {
+			Name       string `json:"name"`
+			Registered bool   `json:"registered"`
+		} `json:"items"`
+		WorkerEnabled bool `json:"workerEnabled"`
+	}](t, http.MethodGet, origin+"/api/admin/jobs", nil, cookie, "", http.StatusOK)
+	if !scheduled.WorkerEnabled || len(scheduled.Items) != 1 || scheduled.Items[0].Name != managedBackupJobName || !scheduled.Items[0].Registered {
+		t.Fatalf("managed jobs = %#v", scheduled)
+	}
 	conn, err := pgx.Connect(context.Background(), databaseURL)
 	if err != nil {
 		t.Fatal(err)
@@ -49,6 +61,11 @@ func TestManagedBackupHTTPRestoresAndActivatesFreshTarget(t *testing.T) {
 	created = waitManagedJob(t, origin, created.ID, cookie)
 	if created.Status != "completed" {
 		t.Fatalf("create job = %#v", created)
+	}
+	if running := managedJSON[struct {
+		Items []backup.Job `json:"items"`
+	}](t, http.MethodGet, origin+"/api/admin/backup-jobs", nil, cookie, "", http.StatusOK); running.Items == nil || len(running.Items) != 0 {
+		t.Fatalf("running backup jobs after completion = %#v", running)
 	}
 	archive := managedBytes(t, http.MethodGet, origin+"/api/admin/backups/"+created.BackupID, nil, "", cookie, "", http.StatusOK)
 	if len(archive) == 0 {
@@ -72,6 +89,8 @@ func TestManagedBackupHTTPRestoresAndActivatesFreshTarget(t *testing.T) {
 	if restored.Status != "completed" {
 		t.Fatalf("restore job = %#v logs=%s", restored, logs.String())
 	}
+	// Listing right after activation reads through the rebound repository.
+	managedBytes(t, http.MethodGet, origin+"/api/admin/backups", nil, "", cookie, "", http.StatusOK)
 	raw, err := os.ReadFile(filepath.Join(directory, "active-target.json"))
 	if err != nil {
 		t.Fatal(err)

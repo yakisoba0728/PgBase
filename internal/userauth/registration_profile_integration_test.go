@@ -76,7 +76,7 @@ func TestPublicSignupProfileValidationAndPolicyRollback(t *testing.T) {
 					if _, err := register(signupRawFields(t, tc.input)); !errors.Is(err, want) {
 						t.Fatalf("signup=%v want %v", err, want)
 					}
-					records, err := service.ListAuthRecords(ctx, id, 10)
+					records, _, err := service.ListAuthRecords(ctx, id, uuid.Nil, 10)
 					if err != nil || len(records) != 0 {
 						t.Fatalf("rejected signup persisted record: %#v %v", records, err)
 					}
@@ -203,7 +203,7 @@ func TestSignupProfileEnforcesRelationAndIdentityPolicies(t *testing.T) {
 	if _, err := service.RegisterInCollectionWithFields(ctx, id, "duplicate@example.test", "correct horse battery staple", "duplicate-handle", input); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate identity accepted: %v", err)
 	}
-	records, err := service.ListAuthRecords(ctx, id, 10)
+	records, _, err := service.ListAuthRecords(ctx, id, uuid.Nil, 10)
 	if err != nil || len(records) != 1 || records[0].ID != member.User.ID {
 		t.Fatalf("failed profile insert persisted: %#v %v", records, err)
 	}

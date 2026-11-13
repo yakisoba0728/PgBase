@@ -21,6 +21,26 @@ the next schedule. Use it as the idempotency key for one effect per occurrence.
 committed in PostgreSQL, record the highest `FenceGeneration` for the job and
 reject older attempts in the same transaction.
 
+## What `pgbase serve` registers
+
+The standard binary has no compiled application jobs. Its job worker exists
+when `PGBASE_BACKUPS_DIRECTORY` or `PGBASE_JOBS_ENABLED=true` is set:
+
+- With a backups directory it always registers `pgbase.managed-backup`. Its
+  schedule, timezone and enabled flag follow the `backups` runtime settings,
+  so the job is listed but disabled until scheduled backups are turned on.
+  The row is created disabled. On an installation upgraded from a release
+  that never registered it, the first registration clears stored
+  `backups.enabled`/`backups.keep` values that had no effect (see
+  [S3 backups](backup-s3.md)). Each run reloads the stored settings first, and
+  the durable claim (`FOR UPDATE SKIP LOCKED` plus a lease) gives one occurrence
+  to one instance when several share the database.
+- With `PGBASE_JOBS_ENABLED=true`, JavaScript jobs from `PGBASE_JS_DIR` are
+  registered as well.
+
+Without either, `GET /api/admin/jobs` returns `{"items":[],"workerEnabled":false}`
+and the update and run routes are not mounted. That empty list is intended.
+
 The default handler deadline is 30 seconds and the lease is one minute. The
 fixed relationship keeps cooperative handlers from being reclaimed while they
 are still running. It does not make non-cooperative handlers exactly-once.

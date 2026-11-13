@@ -82,6 +82,10 @@ func (r *LocalRepository) List(ctx context.Context) ([]Entry, error) {
 	for _, path := range paths {
 		var entry Entry
 		raw, readErr := os.ReadFile(path)
+		if os.IsNotExist(readErr) {
+			// Pruned or deleted after Glob; the S3 listing skips the same race.
+			continue
+		}
 		if readErr != nil {
 			return nil, readErr
 		}

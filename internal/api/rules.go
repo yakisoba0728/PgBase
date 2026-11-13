@@ -9,6 +9,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 type RecordRules interface {
@@ -99,6 +100,13 @@ func writeRuleError(w http.ResponseWriter, r *http.Request, err error) {
 	response := APIError{Status: 503, Code: "rules_unavailable", Message: "Record rules are unavailable"}
 	if errors.Is(err, accessrule.ErrInvalid) {
 		response = APIError{Status: 400, Code: "invalid_rule", Message: "Invalid typed access rule"}
+		var validation *schema.ValidationError
+		if errors.As(err, &validation) {
+			response.Details = map[string][]string{}
+			for _, detail := range validation.Details {
+				response.Details[detail.Field] = append(response.Details[detail.Field], detail.Code)
+			}
+		}
 	}
 	if errors.Is(err, recordaccess.ErrNotFound) {
 		response = APIError{Status: 404, Code: "not_found", Message: "Collection not found"}

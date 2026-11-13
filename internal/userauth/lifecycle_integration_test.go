@@ -125,19 +125,50 @@ func TestListUsersUsesUUIDKeysetAndContainsNoCredentials(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	first, err := service.ListUsers(ctx, uuid.Nil, 2)
-	if err != nil || len(first.Items) != 2 || first.NextAfter == uuid.Nil {
+	first, err := service.ListUsers(ctx, UserQuery{Limit: 2, Total: true})
+	if err != nil || len(first.Items) != 2 || first.NextAfter == uuid.Nil || first.Total != 3 || first.TotalCapped {
 		t.Fatalf("first page = %#v, %v", first, err)
 	}
 	if first.Items[0].ID.String() >= first.Items[1].ID.String() {
 		t.Fatalf("first page not UUID ascending: %s, %s", first.Items[0].ID, first.Items[1].ID)
 	}
-	second, err := service.ListUsers(ctx, first.NextAfter, 2)
+	second, err := service.ListUsers(ctx, UserQuery{After: first.NextAfter, Limit: 2})
 	if err != nil || len(second.Items) != 1 || second.NextAfter != uuid.Nil || second.Items[0].ID.String() <= first.NextAfter.String() {
 		t.Fatalf("second page = %#v, %v", second, err)
 	}
-	if _, err := service.ListUsers(ctx, uuid.Nil, 0); !errors.Is(err, ErrValidation) {
+	if _, err := service.ListUsers(ctx, UserQuery{}); !errors.Is(err, ErrValidation) {
 		t.Fatalf("ListUsers invalid limit = %v", err)
+	}
+	realm := uuid.New()
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: realm, Name: "list_" + realm.String()[:8], RegistrationEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	other, err := service.RegisterInCollection(ctx, realm, "list-b@example.com", "correct horse battery staple", "list-register-realm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byEmail, err := service.ListUsers(ctx, UserQuery{Limit: 10, Search: " LIST-B@example.com ", Total: true})
+	if err != nil || len(byEmail.Items) != 2 || byEmail.Total != 2 {
+		t.Fatalf("email search across realms = %#v, %v", byEmail, err)
+	}
+	inRealm, err := service.ListUsers(ctx, UserQuery{Limit: 10, AuthCollectionID: realm, Search: "list-b@example.com"})
+	if err != nil || len(inRealm.Items) != 1 || inRealm.Items[0].ID != other.User.ID || inRealm.Items[0].AuthCollectionID != realm {
+		t.Fatalf("email search in realm = %#v, %v", inRealm, err)
+	}
+	byID, err := service.ListUsers(ctx, UserQuery{Limit: 1, Search: other.User.ID.String()})
+	if err != nil || len(byID.Items) != 1 || byID.Items[0].Email != "list-b@example.com" {
+		t.Fatalf("id search = %#v, %v", byID, err)
+	}
+	if none, err := service.ListUsers(ctx, UserQuery{Limit: 10, Search: "list"}); err != nil || len(none.Items) != 0 {
+		t.Fatalf("partial email is not a match = %#v, %v", none, err)
+	}
+	records, next, err := service.ListAuthRecords(ctx, DefaultCollectionID, uuid.Nil, 2)
+	if err != nil || len(records) != 2 || next != records[1].ID {
+		t.Fatalf("first record page = %d %s %v", len(records), next, err)
+	}
+	records, next, err = service.ListAuthRecords(ctx, DefaultCollectionID, next, 2)
+	if err != nil || len(records) != 1 || next != uuid.Nil {
+		t.Fatalf("last record page = %d %s %v", len(records), next, err)
 	}
 }
 

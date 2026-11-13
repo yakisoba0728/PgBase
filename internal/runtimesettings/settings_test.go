@@ -1,10 +1,28 @@
 package runtimesettings
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
+
+	"github.com/yakisoba0728/PgBase/internal/validation"
 )
+
+func TestValidationNamesTheRejectedSection(t *testing.T) {
+	settings := Default()
+	settings.Backups.Keep = -1
+	var invalid *validation.Error
+	if err := validate(settings); !errors.Is(err, ErrInvalid) || !errors.As(err, &invalid) || invalid.Details[0].Field != "backups" {
+		t.Fatalf("backups error = %v", err)
+	}
+	settings = Default()
+	settings.Proxy.TrustedProxyCIDRs = []string{"10.0.0.1/8"}
+	if err := validate(settings); !errors.As(err, &invalid) || invalid.Details[0].Field != "proxy.trustedProxyCIDRs" {
+		t.Fatalf("proxy error = %v", err)
+	}
+}
 
 func TestDefaultRatePoliciesAreValidatedAndBounded(t *testing.T) {
 	settings := Default()
@@ -76,5 +94,15 @@ func TestGetRateLimitSnapshotsAreSafeForConcurrentCallerMutation(t *testing.T) {
 	workers.Wait()
 	if got := controller.Get(); got.RateLimits.Rules[0].Label != "/api/" || got.RateLimits.ExcludedIPs[0] != "127.0.0.1" {
 		t.Fatalf("concurrent snapshot mutations changed live settings: %#v", got.RateLimits)
+	}
+}
+
+func TestEmptyListsAreReturnedAsArrays(t *testing.T) {
+	raw, err := json.Marshal(clone(Default()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := string(raw); !strings.Contains(text, `"trustedProxyCIDRs":[]`) || !strings.Contains(text, `"rules":[]`) || !strings.Contains(text, `"excludedIPs":[]`) {
+		t.Fatalf("settings document = %s", text)
 	}
 }

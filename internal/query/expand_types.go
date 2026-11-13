@@ -35,6 +35,8 @@ type ListRequest struct {
 	// Offset is used only by the explicit PocketBase page adapter. Native
 	// cursor callers leave it zero and retain keyset pagination.
 	Offset int
+	// Total adds a bounded count of all matching records to the page.
+	Total bool
 }
 
 // ExpandedRecord keeps expansion outside Root so record validators, ETags,

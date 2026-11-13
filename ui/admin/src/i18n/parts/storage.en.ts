@@ -70,7 +70,7 @@ export const storageEn = {
   "storage.form.clearSecret": "Remove the stored secret",
   "storage.form.pathStyle": "Path-style addressing",
   "storage.form.retention": "Backups to keep",
-  "storage.form.retentionHint": "0 keeps every archive. The Settings page value overrides this one.",
+  "storage.form.retentionHint": "0 keeps every archive. A Keep value above 0 in Settings overrides this one.",
   "storage.form.saved": "Storage settings saved.",
   "storage.form.test": "Test connection",
   "storage.form.testOk": "Connection works.",
@@ -131,7 +131,7 @@ export const storageEn = {
   "error.backup_busy": "Another backup or restore is running. Wait for it to finish.",
   "storage.backups.schedule": "Automatic backups",
   "storage.backups.scheduleOn": "{schedule} ({timezone}), keep {keep}",
-  "storage.backups.keepAll": "all",
+  "storage.backups.keepStorage": "as set in Backup storage",
   "storage.backups.scheduleOff": "Off",
   "storage.backups.scheduleEdit": "Change in Settings",
 };

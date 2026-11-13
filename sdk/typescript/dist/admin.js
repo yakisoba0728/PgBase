@@ -136,14 +136,16 @@ export class PgBaseAdminClient {
         const suffix = query.size === 0 ? "" : `?${query}`;
         return this.request(`/api/admin/administrators${suffix}`, {}, signal);
     }
-    createAdministrator(email, password, signal) {
-        return this.request("/api/admin/administrators", { method: "POST", body: JSON.stringify({ email, password }) }, signal);
+    /** Requires the acting administrator's current password (403 `current_password_invalid` otherwise), like the other administrator-security changes. */
+    createAdministrator(email, password, currentPassword, signal) {
+        return this.request("/api/admin/administrators", { method: "POST", body: JSON.stringify({ currentPassword, email, password }) }, signal);
     }
-    setAdministratorActive(id, active, signal) {
-        return this.request(`/api/admin/administrators/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ active }) }, signal);
+    setAdministratorActive(id, active, currentPassword, signal) {
+        return this.request(`/api/admin/administrators/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ currentPassword, active }) }, signal);
     }
-    async setAdministratorPassword(id, newPassword, signal) {
-        await this.request(`/api/admin/administrators/${encodeURIComponent(id)}/password-reset`, { method: "POST", body: JSON.stringify({ newPassword }) }, signal);
+    /** Replaces another administrator's password; the server refuses your own ID (409), which needs PATCH /api/admin/profile with the current password. */
+    async setAdministratorPassword(id, newPassword, currentPassword, signal) {
+        await this.request(`/api/admin/administrators/${encodeURIComponent(id)}/password-reset`, { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }, signal);
     }
     async revokeAdministratorSessions(id, signal) {
         await this.request(`/api/admin/administrators/${encodeURIComponent(id)}/revoke-sessions`, { method: "POST", body: "{}" }, signal);

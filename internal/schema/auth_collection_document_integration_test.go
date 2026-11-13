@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
@@ -22,6 +23,9 @@ func (v authExecutableValidator) ValidatePasswordPattern(string) bool { return !
 func (v authExecutableValidator) ValidateMFARule(string) bool         { return !v.rejectMFA }
 func (v authExecutableValidator) ValidateAuthRule(string, []FieldInput) bool {
 	return !v.rejectRule
+}
+func (authExecutableValidator) SyncAuthCollectionFields(context.Context, pgx.Tx, string, []string, []FieldInput) error {
+	return nil
 }
 
 func TestSchemaDocumentAuthCollectionNullableRulesAndPolicyRoundTrip(t *testing.T) {

@@ -31,9 +31,21 @@ final class Records {
     final items = result['items']! as JsonArray;
     if (items.values.any((item) => item is! JsonObject))
       throw const PgBaseProtocolError('invalid_record_page');
+    final totalItems = result['totalItems'];
+    final totalCapped = result['totalCapped'];
+    if ((totalItems != null && totalItems is! JsonNumber) ||
+        (totalCapped != null && totalCapped is! JsonBool))
+      throw const PgBaseProtocolError('invalid_record_page');
+    final count = totalItems == null
+        ? null
+        : int.tryParse((totalItems as JsonNumber).source);
+    if (totalItems != null && count == null)
+      throw const PgBaseProtocolError('invalid_record_page');
     return RecordPage(
       items: items.values.cast<JsonObject>(),
       nextCursor: (result['nextCursor'] as JsonString?)?.value,
+      totalItems: count,
+      totalCapped: (totalCapped as JsonBool?)?.value ?? false,
     );
   }
 

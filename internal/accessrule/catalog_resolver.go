@@ -177,6 +177,13 @@ func (r *catalogResolver) ResolveCollection(name, path string) (PBOperand, error
 }
 
 func (r *catalogResolver) resolveField(current schema.Collection, name string) (schema.Field, bool, schema.Collection, bool) {
+	// System columns live outside Fields; the typed compiler and filters accept them too.
+	switch name {
+	case "id":
+		return schema.Field{Name: name, ColumnName: name, Type: schema.TypeUUID}, false, current, true
+	case "created_at", "updated_at":
+		return schema.Field{Name: name, ColumnName: name, Type: schema.TypeTimestampTZ}, false, current, true
+	}
 	for _, f := range current.Fields {
 		if f.Name == name {
 			target := current

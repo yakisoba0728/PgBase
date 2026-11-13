@@ -16,8 +16,8 @@ type ViewSample struct {
 }
 
 func (s *Service) SampleView(ctx context.Context, query string) (result ViewSample, err error) {
-	query = strings.TrimSpace(query)
-	if len(query) == 0 || len(query) > MaximumViewSampleQueryBytes {
+	query = strings.TrimRight(query, " \t\r\n") // keep leading text so error positions match the editor
+	if strings.TrimSpace(query) == "" || len(query) > MaximumViewSampleQueryBytes {
 		return result, validation("query", "invalid")
 	}
 	err = s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
@@ -36,7 +36,7 @@ func (s *Service) SampleView(ctx context.Context, query string) (result ViewSamp
 		}
 		rows, e := tx.Query(ctx, "select * from ("+strings.TrimSuffix(query, ";")+") as pgbase_sample limit 10", pgx.QueryExecModeExec)
 		if e != nil {
-			return ErrConflict
+			return viewQueryError(e)
 		}
 		defer rows.Close()
 		descriptions := rows.FieldDescriptions()
@@ -47,12 +47,15 @@ func (s *Service) SampleView(ctx context.Context, query string) (result ViewSamp
 			}
 			item := make(map[string]any, len(values))
 			for i, value := range values {
+				if id, ok := value.([16]byte); ok { // pgx scans uuid as raw bytes
+					value = uuid.UUID(id).String()
+				}
 				item[string(descriptions[i].Name)] = value
 			}
 			result.Items = append(result.Items, item)
 		}
 		if e := rows.Err(); e != nil {
-			return e
+			return viewQueryError(e)
 		}
 		result.Fields, result.Dependencies = inspection.Fields, inspection.Dependencies
 		return nil

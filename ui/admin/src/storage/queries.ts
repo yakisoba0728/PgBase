@@ -1,5 +1,5 @@
 import { queryOptions } from "@tanstack/react-query";
-import { getBackupJob, listBackups } from "../api/backups";
+import { getBackupJob, listBackups, listRunningBackupJobs } from "../api/backups";
 import { ApiError } from "../api/http";
 import { getBackupStorageSettings, getFileStorageSettings, getLatestStorageMigration, getStorageMigration, type BackupStorageSettings, type FileStorageSettings, type StorageMigrationState, type StorageMigrationStatus } from "../api/storage";
 import { operations, startWindow, type TrackedOperation } from "../app/operations";
@@ -25,6 +25,12 @@ export const storageSettingsQuery = (kind: "files" | "backups") =>
     queryKey: ["storage", kind],
     queryFn: ({ signal }) => (kind === "files" ? getFileStorageSettings(signal) : getBackupStorageSettings(signal)),
   });
+
+/** Operations running on the server, so another tab or browser can re-attach to one. */
+export const runningBackupJobsQuery = queryOptions({
+  queryKey: ["backups", "running"],
+  queryFn: ({ signal }) => listRunningBackupJobs(signal),
+});
 
 const isNotFound = (error: unknown) => error instanceof ApiError && error.status === 404;
 

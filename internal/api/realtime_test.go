@@ -104,7 +104,7 @@ func (s *realtimeAuthStub) Authenticate(context.Context, string) (userauth.Princ
 	return s.principal, err
 }
 func (*realtimeAuthStub) Logout(context.Context, string) error { return nil }
-func (*realtimeAuthStub) ListUsers(context.Context, uuid.UUID, int) (userauth.UserPage, error) {
+func (*realtimeAuthStub) ListUsers(context.Context, userauth.UserQuery) (userauth.UserPage, error) {
 	return userauth.UserPage{}, nil
 }
 func (*realtimeAuthStub) SetUserActive(context.Context, uuid.UUID, bool) (userauth.ManagedUser, error) {

@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const maximumSQLViewBytes = 64 << 10
@@ -34,7 +36,7 @@ func cloneSQLViewInspection(source *SQLViewInspection) *SQLViewInspection {
 // objects or an aborted state in the caller transaction.
 func InspectSQLView(ctx context.Context, tx pgx.Tx, catalog Catalog, sql string) (result SQLViewInspection, resultErr error) {
 	if tx == nil || len(sql) == 0 || len(sql) > maximumSQLViewBytes || strings.IndexByte(sql, 0) >= 0 {
-		return result, ErrConflict
+		return result, viewSQLError("invalid")
 	}
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
 	viewName := "pgbase_inspect_" + suffix
@@ -49,9 +51,18 @@ func InspectSQLView(ctx context.Context, tx pgx.Tx, catalog Catalog, sql string)
 			resultErr = errors.Join(rollbackErr, releaseErr)
 		}
 	}()
-	statement := "CREATE TEMP VIEW " + pgx.Identifier{viewName}.Sanitize() + " AS " + sql
-	if _, err := tx.Exec(ctx, statement, pgx.QueryExecModeExec); err != nil {
-		return result, ErrConflict
+	prefix := "CREATE TEMP VIEW " + pgx.Identifier{viewName}.Sanitize() + " AS "
+	if _, err := tx.Exec(ctx, prefix+sql, pgx.QueryExecModeExec); err != nil {
+		// Analysis reads no rows, so its message describes only the statement.
+		var postgres *pgconn.PgError
+		if !errors.As(err, &postgres) {
+			return result, err
+		}
+		details := []ValidationDetail{{Field: "view.sql.message", Code: postgres.Message}, {Field: "view.sql.sqlState", Code: postgres.Code}}
+		if position := int(postgres.Position) - len(prefix); position > 0 {
+			details = append(details, ValidationDetail{Field: "view.sql.position", Code: strconv.Itoa(position)})
+		}
+		return result, viewSQLError("invalid_sql", details...)
 	}
 	var oid uint32
 	if err := tx.QueryRow(ctx, `select c.oid from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.oid=pg_my_temp_schema() and c.relname=$1 and c.relkind='v'`, viewName).Scan(&oid); err != nil {
@@ -67,8 +78,10 @@ func InspectSQLView(ctx context.Context, tx pgx.Tx, catalog Catalog, sql string)
 	}
 	var invalidID bool
 	check := "select exists(select 1 from " + pgx.Identifier{viewName}.Sanitize() + ` where id is null) or exists(select 1 from ` + pgx.Identifier{viewName}.Sanitize() + ` group by id having count(*)>1)`
-	if err := tx.QueryRow(ctx, check).Scan(&invalidID); err != nil || invalidID {
-		return result, fmt.Errorf("%w: invalid id err=%v invalid=%v", ErrConflict, err, invalidID)
+	if err := tx.QueryRow(ctx, check).Scan(&invalidID); err != nil {
+		return result, viewQueryError(err)
+	} else if invalidID {
+		return result, viewSQLError("invalid_id")
 	}
 	return SQLViewInspection{Fields: fields, Dependencies: dependencies, HasCreatedAt: hasCreatedAt, HasUpdatedAt: hasUpdatedAt}, nil
 }
@@ -85,19 +98,19 @@ func inspectSQLViewDependencies(ctx context.Context, tx pgx.Tx, viewOID uint32, 
 	deps := map[uuid.UUID]bool{}
 	for rows.Next() {
 		var namespace, name, column string
-		if rows.Scan(&namespace, &name, &column) != nil {
+		if err := rows.Scan(&namespace, &name, &column); err != nil {
 			rows.Close()
-			return nil, ErrConflict
+			return nil, err
 		}
 		collection, ok := allowed[name]
 		if namespace != "app" || !ok {
 			rows.Close()
-			return nil, ErrConflict
+			return nil, viewSQLError("relation_not_collection", ValidationDetail{Field: "view.sql.relation", Code: namespace + "." + name})
 		}
 		for _, field := range collection.Fields {
 			if column != "" && field.ColumnName == column && field.Type == TypePassword {
 				rows.Close()
-				return nil, ErrConflict
+				return nil, viewSQLError("password_field", ValidationDetail{Field: "view.sql.column", Code: column})
 			}
 		}
 		deps[collection.ID] = true
@@ -123,7 +136,7 @@ func inspectSQLViewDependencies(ctx context.Context, tx pgx.Tx, viewOID uint32, 
 		return nil, err
 	}
 	if forbidden {
-		return nil, ErrConflict
+		return nil, viewSQLError("forbidden_function")
 	}
 	result := make([]uuid.UUID, 0, len(deps))
 	for id := range deps {
@@ -146,19 +159,20 @@ func inspectSQLViewFields(ctx context.Context, tx pgx.Tx, oid uint32) ([]Planned
 	hasCreatedAt, hasUpdatedAt := false, false
 	for rows.Next() {
 		var name, typ string
-		if rows.Scan(&name, &typ) != nil {
-			return nil, false, false, ErrConflict
+		if err := rows.Scan(&name, &typ); err != nil {
+			return nil, false, false, err
 		}
+		column := ValidationDetail{Field: "view.sql.column", Code: name}
 		if name == "id" {
 			if typ != "uuid" || sawID {
-				return nil, false, false, ErrConflict
+				return nil, false, false, viewSQLError("invalid_id", column)
 			}
 			sawID = true
 			continue
 		}
 		if name == "created_at" || name == "updated_at" {
 			if typ != "timestamptz" {
-				return nil, false, false, ErrConflict
+				return nil, false, false, viewSQLError("invalid_timestamp", column)
 			}
 			hasCreatedAt = hasCreatedAt || name == "created_at"
 			hasUpdatedAt = hasUpdatedAt || name == "updated_at"
@@ -166,7 +180,7 @@ func inspectSQLViewFields(ctx context.Context, tx pgx.Tx, oid uint32) ([]Planned
 		}
 		kind, ok := types[typ]
 		if !ok || validateName("", name) != nil {
-			return nil, false, false, ErrConflict
+			return nil, false, false, viewSQLError("unsupported_column", column)
 		}
 		fields = append(fields, PlannedField{Name: name, ColumnName: name, Type: kind, Ordinal: position})
 		position++
@@ -174,8 +188,27 @@ func inspectSQLViewFields(ctx context.Context, tx pgx.Tx, oid uint32) ([]Planned
 	if err := rows.Err(); err != nil {
 		return nil, false, false, err
 	}
-	if !sawID || len(fields) > 128 {
-		return nil, false, false, ErrConflict
+	if !sawID {
+		return nil, false, false, viewSQLError("id_required")
+	}
+	if len(fields) > 128 {
+		return nil, false, false, viewSQLError("too_many_fields")
 	}
 	return fields, hasCreatedAt, hasUpdatedAt, nil
+}
+
+// viewSQLError stays a schema conflict for existing callers while telling the
+// administrator which view.sql check failed.
+func viewSQLError(reason string, details ...ValidationDetail) error {
+	return errors.Join(ErrConflict, &ValidationError{Details: append([]ValidationDetail{{Field: "view.sql", Code: reason}}, details...)})
+}
+
+// viewQueryError reports only the SQLSTATE of a failure while rows are read:
+// its message could quote stored values.
+func viewQueryError(err error) error {
+	var postgres *pgconn.PgError
+	if !errors.As(err, &postgres) {
+		return err
+	}
+	return viewSQLError("query_failed", ValidationDetail{Field: "view.sql.sqlState", Code: postgres.Code})
 }

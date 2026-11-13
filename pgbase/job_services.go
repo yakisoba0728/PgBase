@@ -54,7 +54,7 @@ func registerRuntimeJob(ctx context.Context, service *jobs.Service, configured S
 	if timezone == "" {
 		timezone = "UTC"
 	}
-	return service.Register(ctx, configured.Name, configured.Schedule, timezone, func(ctx context.Context, run jobs.Job) error {
+	return service.Register(ctx, configured.Name, configured.Schedule, timezone, true, func(ctx context.Context, run jobs.Job) error {
 		return configured.Handler(ctx, JobRun{JobID: run.ID, Name: run.Name, FenceGeneration: run.FenceGeneration, ScheduledAt: run.ScheduledAt})
 	})
 }

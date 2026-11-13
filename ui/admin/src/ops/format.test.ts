@@ -1,4 +1,4 @@
-import { describeSchedule, isUuid, localToRfc3339, statusTone } from "./format";
+import { describeSchedule, localToRfc3339, statusTone } from "./format";
 import { logFilterFrom } from "./queries";
 
 describe("ops format", () => {
@@ -26,14 +26,11 @@ describe("ops format", () => {
     expect(localToRfc3339("2026-11-12T10:30:00")).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
   });
 
-  it("validates event ids", () => {
-    expect(isUuid(" 9e0a974f-b40a-4585-83b9-744ca949fc31 ")).toBe(true);
-    expect(isUuid("9e0a974f")).toBe(false);
-  });
-
   it("reads only valid filters from the URL", () => {
     const filter = logFilterFrom(new URLSearchParams("status=9&method=POST&route=/api/x&from=bad"));
-    expect(filter).toEqual({ statusClass: undefined, method: "POST", route: "/api/x", from: undefined, to: undefined });
+    expect(filter).toEqual({ statusClass: undefined, method: "POST", route: "/api/x", q: undefined, from: undefined, to: undefined });
+    expect(logFilterFrom(new URLSearchParams("q=%20192.0.2.4%20")).q).toBe("192.0.2.4");
+    expect(logFilterFrom(new URLSearchParams("q=%20%20")).q).toBeUndefined();
     expect(logFilterFrom(new URLSearchParams("status=4")).statusClass).toBe(4);
   });
 });

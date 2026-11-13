@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useSearchState } from "../app/search";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiAddLine, RiKey2Line } from "@remixicon/react";
-import { deleteOAuthProvider, getAuthAdministration, putOAuthProvider, type AuthAdministration, type AuthCollection, type OAuthProviderConfig } from "../api/authCollections";
+import { deleteOAuthProvider, putOAuthProvider, type AuthAdministration, type AuthCollection, type OAuthProviderConfig } from "../api/authCollections";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState } from "../components/Feedback";
@@ -15,7 +15,7 @@ import { AppleSecretButton } from "../system/AppleSecret";
 import { providerDraft, providerInput, providerProblems, type ProviderDraft } from "./forms";
 import { appleCallbackPath, providerPresets, type ProviderPreset } from "./presets";
 import { administrationQuery, providerCatalogQuery } from "./queries";
-import { assertUnchanged, problemText, reportFailure, StaleError, StaleNotice, useDraft } from "./useDraft";
+import { isStale, problemText, reportFailure, StaleNotice, useDraft } from "./useDraft";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
 
@@ -125,11 +125,8 @@ function ProviderForm({ collection, administration, existing, preset, initial, o
   const redirects = draft.redirectUris.split("\n").map((line) => line.trim()).filter(Boolean);
 
   const save = useMutation({
-    mutationFn: async (force: boolean) => {
-      const stored = async () => (await getAuthAdministration(collection.id)).providers?.find((provider) => provider.name === draft.name) ?? null;
-      await assertUnchanged(force, stored, existing ?? null);
-      return putOAuthProvider(collection.id, draft.name, providerInput(draft));
-    },
+    // A new provider must not exist yet; an edit sends the loaded etag. Forcing drops the precondition.
+    mutationFn: (force: boolean) => putOAuthProvider(collection.id, draft.name, providerInput(draft), force ? undefined : (existing?.etag ?? null)),
     onSuccess: (saved) => {
       const others = (administration.providers ?? []).filter((provider) => provider.name !== saved.name);
       queryClient.setQueryData(key, { ...administration, providers: [...others, saved].sort((a, b) => a.name.localeCompare(b.name)) });
@@ -173,7 +170,7 @@ function ProviderForm({ collection, administration, existing, preset, initial, o
     <>
       <PaneHeader title={existing ? existing.name : preset?.label || t("auth.providers.new")} mono={Boolean(existing)} onClose={onClose} />
       <div className="pane-body">
-        {save.error instanceof StaleError && <StaleNotice busy={save.isPending} onReload={() => void queryClient.invalidateQueries({ queryKey: key })} onOverwrite={() => save.mutate(true)} />}
+        {isStale(save.error) && <StaleNotice busy={save.isPending} onReload={() => void queryClient.invalidateQueries({ queryKey: key })} onOverwrite={() => save.mutate(true)} />}
         {preset?.selfHosted && !existing && <p className="warning-note" role="note">{t("auth.providers.selfHosted")}</p>}
         {draft.name === "apple" && (
           // Outside the form: the generator is a form of its own.

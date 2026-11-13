@@ -169,6 +169,11 @@ func authorizeIP(ctx context.Context, store *Store, administratorID uuid.UUID, a
 	if err != nil {
 		return err
 	}
+	return addressAllowed(prefixes, address)
+}
+
+// addressAllowed returns ErrIPRestricted unless the list is empty or admits address.
+func addressAllowed(prefixes []string, address string) error {
 	if len(prefixes) == 0 {
 		return nil
 	}

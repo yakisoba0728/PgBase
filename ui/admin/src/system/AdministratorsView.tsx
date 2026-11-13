@@ -4,7 +4,7 @@ import { openRow } from "../components/DataGrid";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiAddLine, RiLockPasswordLine, RiLogoutCircleRLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
-import type { Administrator } from "../api/session";
+import { updateProfile, type Administrator } from "../api/session";
 import { createAdministrator, resetAdministratorPassword, revokeAdministratorSessions, setAdministratorActive } from "../api/system";
 import { errorText, sessionQuery } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
@@ -108,15 +108,17 @@ function NewAdministrator({ onClose, onCreated }: { onClose: () => void; onCreat
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    create.mutate({ email: String(form.get("email") ?? "").trim(), password: String(form.get("password") ?? "") });
+    create.mutate({ currentPassword: String(form.get("currentPassword") ?? ""), email: String(form.get("email") ?? "").trim(), password: String(form.get("password") ?? "") });
   };
+  const currentError = currentPasswordError(t, create.error);
   return (
     <form className="pane-form" onSubmit={onSubmit}>
       <PaneHeader title={t("system.admins.new")} onClose={onClose} />
       <div className="pane-body form">
-        {create.isError && <Notice tone="danger">{adminError(t, create.error, "create", false)}</Notice>}
+        {create.isError && !currentError && <Notice tone="danger">{adminError(t, create.error, "create", false)}</Notice>}
         <Field label={t("system.admins.email")} name="email" type="email" required autoComplete="off" />
         <Field label={t("system.admins.password")} name="password" type="password" required minLength={12} maxLength={1024} autoComplete="new-password" hint={t("system.admins.passwordHint")} />
+        <CurrentPasswordField error={currentError} />
         <p className="txt-hint">{t("system.admins.newHint")}</p>
       </div>
       <footer className="pane-footer">
@@ -127,7 +129,7 @@ function NewAdministrator({ onClose, onCreated }: { onClose: () => void; onCreat
   );
 }
 
-type Pending = "disable" | "revoke" | "password" | null;
+type Pending = "active" | "revoke" | "password" | null;
 
 function AdministratorPane({ admin, self, onClose }: { admin: Administrator; self: boolean; onClose: () => void }) {
   const t = useT();
@@ -141,18 +143,23 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
     leave();
   };
 
+  // Enabling and disabling both need your current password, so both go through a dialog.
+  const [current, setCurrent] = useState("");
+  const closeActive = () => {
+    setPending(null);
+    setCurrent("");
+  };
   const active = useMutation({
-    mutationFn: (value: boolean) => setAdministratorActive(admin.id, value),
-    // Enabling is trivially reversible, so it runs without a confirmation and offers Undo.
-    onSuccess: (value) =>
-      value.active
-        ? toast(t("system.admins.enabledToast"), "info", { label: t("common.undo"), run: () => void setAdministratorActive(admin.id, false).then(refresh, (error) => toast(errorText(t, error), "danger")) })
-        : toast(t("system.admins.disabledToast")),
-    onSettled: () => {
-      setPending(null);
-      void refresh();
+    mutationFn: (value: boolean) => setAdministratorActive(admin.id, value, current),
+    onSuccess: (value) => {
+      closeActive();
+      toast(value.active ? t("system.admins.enabledToast") : t("system.admins.disabledToast"));
     },
+    // A wrong current password stays on the dialog's field; other refusals show on the pane.
+    onError: (error) => currentPasswordError(t, error) === undefined && closeActive(),
+    onSettled: () => void refresh(),
   });
+  const activeCurrentError = currentPasswordError(t, active.error);
   const revoke = useMutation({
     mutationFn: () => revokeAdministratorSessions(admin.id),
     onSuccess: () => (self ? signedOut() : toast(t("system.admins.revoked"))),
@@ -160,7 +167,9 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
     onSettled: () => setPending(null),
   });
   const password = useMutation({
-    mutationFn: (value: string) => resetAdministratorPassword(admin.id, value),
+    // The server refuses to reset your own password here; that change needs the current one.
+    mutationFn: ({ value, current }: { value: string; current: string }) =>
+      self ? updateProfile({ currentPassword: current, newPassword: value }).then(() => undefined) : resetAdministratorPassword(admin.id, value, current),
     onSuccess: () => {
       setPending(null);
       if (self) signedOut();
@@ -176,7 +185,7 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
     <div className="pane-form">
       <PaneHeader title={admin.email} onClose={onClose} />
       <div className="pane-body">
-        {active.isError && <Notice tone="danger">{adminError(t, active.error, "disable", self)}</Notice>}
+        {active.isError && !activeCurrentError && <Notice tone="danger">{adminError(t, active.error, "disable", self)}</Notice>}
         <Facts
           items={[
             { label: t("system.admins.status"), value: <><span className="dot" data-tone={admin.active ? "success" : undefined}>{admin.active ? t("system.admins.active") : t("system.admins.disabled")}</span>{" "}{self && <span className="chip">{t("system.admins.you")}</span>}</> },
@@ -187,7 +196,10 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
         />
         <div className="sys-actions">
           <Action title={admin.active ? t("system.admins.disable") : t("system.admins.enable")} text={admin.active ? t("system.admins.disableHint") : t("system.admins.enableHint")}>
-            <Button variant={admin.active ? "danger" : "secondary"} size="sm" loading={active.isPending} onClick={() => (admin.active ? setPending("disable") : active.mutate(true))}>
+            <Button variant={admin.active ? "danger" : "secondary"} size="sm" loading={active.isPending} onClick={() => {
+              active.reset();
+              setPending("active");
+            }}>
               {admin.active ? t("system.admins.disable") : t("system.admins.enable")}
             </Button>
           </Action>
@@ -199,12 +211,16 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
           </Action>
         </div>
       </div>
-      <ConfirmDialog open={pending === "disable"} title={t("system.admins.disableTitle", { email: admin.email })} message={t("system.admins.disableText")} confirmLabel={t("system.admins.disable")} danger busy={active.isPending}
-        onConfirm={() => active.mutate(false)} onCancel={() => setPending(null)} />
+      <ConfirmDialog open={pending === "active"} title={t(admin.active ? "system.admins.disableTitle" : "system.admins.enableTitle", { email: admin.email })}
+        message={admin.active ? t("system.admins.disableText") : t("system.admins.enableHint")} confirmLabel={admin.active ? t("system.admins.disable") : t("system.admins.enable")}
+        danger={admin.active} busy={active.isPending} confirmDisabled={!current} onConfirm={() => active.mutate(!admin.active)} onCancel={closeActive}>
+        <CurrentPasswordField value={current} error={activeCurrentError} onChange={setCurrent} />
+      </ConfirmDialog>
       <ConfirmDialog open={pending === "revoke"} title={t("system.admins.revokeTitle", { email: admin.email })} message={self ? t("system.admins.revokeSelf") : t("system.admins.revokeHint")} confirmLabel={t("system.admins.revoke")} danger busy={revoke.isPending}
         onConfirm={() => revoke.mutate()} onCancel={() => setPending(null)} />
       <TaskDialog open={pending === "password"} title={t("system.admins.passwordTitle", { email: admin.email })} onClose={closePassword}>
-        <PasswordForm self={self} busy={password.isPending} error={password.isError ? adminError(t, password.error, "password", self) : undefined} onSubmit={(value) => password.mutate(value)} onCancel={closePassword} />
+        <PasswordForm self={self} busy={password.isPending} error={password.isError ? adminError(t, password.error, "password", self) : undefined} currentError={currentPasswordError(t, password.error)}
+          onSubmit={(value, current) => password.mutate({ value, current })} onCancel={closePassword} />
       </TaskDialog>
     </div>
   );
@@ -222,8 +238,22 @@ function Action({ title, text, children }: { title: string; text: string; childr
   );
 }
 
-/** New password with confirmation; the server sets it directly and ends the account's sessions. */
-export function PasswordForm({ self, busy, error, onSubmit, onCancel }: { self: boolean; busy: boolean; error?: string; onSubmit: (password: string) => void; onCancel?: () => void }) {
+/** The current-password refusal belongs on that field; anything else is a form-level message. */
+export function currentPasswordError(t: Translate, error: unknown): string | undefined {
+  return error instanceof ApiError && error.code === "current_password_invalid" ? t("system.profile.currentPasswordInvalid") : undefined;
+}
+
+/** Your own password, which every administrator-security change re-checks; uncontrolled inside a form, controlled in a dialog. */
+export function CurrentPasswordField({ value, error, onChange }: { value?: string; error?: string; onChange?: (value: string) => void }) {
+  const t = useT();
+  return (
+    <Field label={t("system.profile.currentPassword")} name="currentPassword" type="password" required autoComplete="current-password" hint={t("system.admins.currentPasswordHint")} value={value} error={error}
+      onChange={onChange && ((event) => onChange(event.target.value))} />
+  );
+}
+
+/** New password with confirmation; the server ends the account's sessions. It also needs your current password. */
+export function PasswordForm({ self, busy, error, currentError, onSubmit, onCancel }: { self: boolean; busy: boolean; error?: string; currentError?: string; onSubmit: (password: string, current: string) => void; onCancel?: () => void }) {
   const t = useT();
   const [mismatch, setMismatch] = useState(false);
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -232,12 +262,13 @@ export function PasswordForm({ self, busy, error, onSubmit, onCancel }: { self: 
     const value = String(form.get("newPassword") ?? "");
     const ok = value === String(form.get("confirmPassword") ?? "");
     setMismatch(!ok);
-    if (ok) onSubmit(value);
+    if (ok) onSubmit(value, String(form.get("currentPassword") ?? ""));
   };
   return (
     <form className="form" onSubmit={submit}>
       <p className="txt-hint">{self ? t("system.admins.setPasswordSelf") : t("system.admins.setPasswordHint")}</p>
-      {error && <p className="field-error" role="alert">{error}</p>}
+      {error && !currentError && <p className="field-error" role="alert">{error}</p>}
+      <CurrentPasswordField error={currentError} />
       <Field label={t("system.admins.newPassword")} name="newPassword" type="password" required minLength={12} maxLength={1024} autoComplete="new-password" hint={t("system.admins.passwordHint")} />
       <Field label={t("system.admins.confirmPassword")} name="confirmPassword" type="password" required autoComplete="new-password" error={mismatch ? t("error.password_mismatch") : undefined} />
       <div className="confirm-actions">

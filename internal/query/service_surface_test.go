@@ -142,7 +142,11 @@ func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
 	// Literal-left any-match normalization and the shared scalar predicate
 	// boundary add exactly 29 lines after the abc94ef checkpoint. SQL cursor
 	// descriptors retain their modifiers; no package boundary or slack changes.
-	if runtimeLines > 7904 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 7904", runtimeLines)
+	// The 2026-11-13 data-area fixes add the opt-in bounded list total (+25:
+	// request flag, page fields, a LIMIT-bounded count statement) and the
+	// PocketBase rule parse position mapped back through the @request rewrite
+	// (+23). Measured exactly; no spare allowance.
+	if runtimeLines > 7952 {
+		t.Fatalf("internal/query runtime lines = %d, hard limit 7952", runtimeLines)
 	}
 }

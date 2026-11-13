@@ -95,8 +95,15 @@ func TestRecordRoutesExposeFiveCRUDContracts(t *testing.T) {
 	request = authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records", "", true)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK || records.listRequest.Limit != 50 {
-		t.Fatalf("default list status=%d limit=%d", response.Code, records.listRequest.Limit)
+	if response.Code != http.StatusOK || records.listRequest.Limit != 50 || records.listRequest.Total {
+		t.Fatalf("default list status=%d limit=%d total=%v", response.Code, records.listRequest.Limit, records.listRequest.Total)
+	}
+	for query, want := range map[string]int{"?total=true": http.StatusOK, "?total=1": http.StatusBadRequest, "?total=true&total=true": http.StatusBadRequest} {
+		response = httptest.NewRecorder()
+		handler.ServeHTTP(response, authenticatedRecordRequest(http.MethodGet, "/api/v1/collections/posts/records"+query, "", true))
+		if response.Code != want || want == http.StatusOK && !records.listRequest.Total {
+			t.Fatalf("%s status=%d total=%v", query, response.Code, records.listRequest.Total)
+		}
 	}
 }
 

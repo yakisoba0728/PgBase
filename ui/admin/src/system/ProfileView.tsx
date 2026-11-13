@@ -2,8 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useLeaveSession } from "../app/signout";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../api/http";
-import { updateIpAllowlist, updateProfile, type Administrator } from "../api/session";
-import { resetAdministratorPassword } from "../api/system";
+import { updateIpAllowlist, updateProfile, type Administrator, type IpAllowlist } from "../api/session";
 import { errorText, sessionQuery } from "../app/queries";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
@@ -13,8 +12,8 @@ import { Field } from "../components/Field";
 import { FormSection } from "../components/FormSection";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { PasswordForm } from "./AdministratorsView";
-import { allowlistCovers, isAddrOrPrefix, isMaskedPrefix, lines } from "./net";
+import { CurrentPasswordField, currentPasswordError, PasswordForm } from "./AdministratorsView";
+import { allowlistCovers, isMaskedPrefix, lines } from "./net";
 import { allowlistQuery, profileQuery } from "./queries";
 import "../styles/system.css";
 
@@ -26,7 +25,7 @@ export function ProfileView() {
   return (
     <div className="sys-scroll">
       <EmailSection key={profile.data.email} profile={profile.data} />
-      <PasswordSection id={profile.data.id} />
+      <PasswordSection />
       <AllowlistSection profile={profile.data} />
     </div>
   );
@@ -36,9 +35,11 @@ function EmailSection({ profile }: { profile: Administrator }) {
   const t = useT();
   const queryClient = useQueryClient();
   const [email, setEmail] = useState(profile.email);
+  const [current, setCurrent] = useState("");
   const save = useMutation({
-    mutationFn: () => updateProfile(email.trim()),
+    mutationFn: () => updateProfile({ currentPassword: current, email: email.trim() }),
     onSuccess: (value) => {
+      setCurrent("");
       queryClient.setQueryData(profileQuery.queryKey, value);
       // The account menu reads the email from the session.
       void queryClient.invalidateQueries({ queryKey: sessionQuery.queryKey });
@@ -46,7 +47,8 @@ function EmailSection({ profile }: { profile: Administrator }) {
     },
   });
   const code = save.error instanceof ApiError ? save.error.code : "";
-  const error = !save.isError ? undefined : code === "profile_conflict" ? t("system.profile.emailTaken") : code === "invalid_profile" ? t("system.profile.emailInvalid") : errorText(t, save.error);
+  const currentError = currentPasswordError(t, save.error);
+  const error = !save.isError || currentError ? undefined : code === "profile_conflict" ? t("system.profile.emailTaken") : code === "invalid_profile" ? t("system.profile.emailInvalid") : errorText(t, save.error);
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     save.mutate();
@@ -54,28 +56,30 @@ function EmailSection({ profile }: { profile: Administrator }) {
   return (
     <FormSection title={t("system.profile.email")} hint={t("system.profile.emailHint")}>
       <form className="sys-inline" onSubmit={onSubmit}>
-        <Field label={t("system.admins.email")} name="email" type="email" required autoComplete="email" value={email} error={error} onChange={(event) => setEmail(event.target.value)} />
-        <Button type="submit" disabled={email.trim() === profile.email} loading={save.isPending}>{t("records.save")}</Button>
+        <Field label={t("system.admins.email")} name="email" type="email" required autoComplete="username" value={email} error={error} onChange={(event) => setEmail(event.target.value)} />
+        <Field label={t("system.profile.currentPassword")} name="currentPassword" type="password" required autoComplete="current-password" value={current} error={currentError}
+          onChange={(event) => setCurrent(event.target.value)} />
+        <Button type="submit" disabled={email.trim() === profile.email || !current} loading={save.isPending}>{t("records.save")}</Button>
       </form>
     </FormSection>
   );
 }
 
-function PasswordSection({ id }: { id: string }) {
+function PasswordSection() {
   const t = useT();
   const leave = useLeaveSession();
   const change = useMutation({
-    mutationFn: (value: string) => resetAdministratorPassword(id, value),
+    mutationFn: ({ value, current }: { value: string; current: string }) => updateProfile({ currentPassword: current, newPassword: value }),
     onSuccess: () => {
       // The server ends every session of the account, this one included.
       leave();
     },
   });
-  const error = !change.isError ? undefined : change.error instanceof ApiError && change.error.code === "invalid_administrator" ? t("system.admins.invalidPassword") : errorText(t, change.error);
+  const error = !change.isError ? undefined : change.error instanceof ApiError && change.error.code === "invalid_profile" ? t("system.admins.invalidPassword") : errorText(t, change.error);
   return (
     <FormSection title={t("system.profile.password")}>
       <div className="sys-narrow">
-        <PasswordForm self busy={change.isPending} error={error} onSubmit={(value) => change.mutate(value)} />
+        <PasswordForm self busy={change.isPending} error={error} currentError={currentPasswordError(t, change.error)} onSubmit={(value, current) => change.mutate({ value, current })} />
       </div>
     </FormSection>
   );
@@ -91,64 +95,72 @@ function AllowlistSection({ profile }: { profile: Administrator }) {
       ) : query.isError ? (
         <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />
       ) : (
-        <AllowlistForm key={query.data.prefixes.join(",")} prefixes={query.data.prefixes} profile={profile} />
+        <AllowlistForm key={query.data.prefixes.join(",")} allowlist={query.data} profile={profile} />
       )}
     </FormSection>
   );
 }
 
-function AllowlistForm({ prefixes, profile }: { prefixes: string[]; profile: Administrator }) {
+function AllowlistForm({ allowlist, profile }: { allowlist: IpAllowlist; profile: Administrator }) {
+  const { prefixes, clientAddress } = allowlist;
   const t = useT();
   const queryClient = useQueryClient();
   const [text, setText] = useState(prefixes.join("\n"));
   const [confirming, setConfirming] = useState(false);
-  // No endpoint reports the address the server sees, so the administrator states it; it is only compared here.
-  const [own, setOwn] = useState("");
+  const [current, setCurrent] = useState("");
+  const closeConfirm = () => {
+    setConfirming(false);
+    setCurrent("");
+  };
   const entries = lines(text);
   const bad = entries.find((entry) => !isMaskedPrefix(entry));
   const invalid = bad !== undefined ? t("system.invalid.cidr", { value: bad }) : entries.length > 64 ? t("system.invalid.tooMany", { max: 64 }) : undefined;
   const dirty = entries.join("\n") !== prefixes.join("\n");
-  const covered = allowlistCovers(entries, own.trim());
-  const ownError = !own.trim() || covered ? undefined : isAddrOrPrefix(own.trim()) ? t("system.profile.excludesSelf", { address: own.trim() }) : t("system.invalid.ip", { value: own.trim() });
-  const close = () => {
-    setConfirming(false);
-    setOwn("");
-  };
+  // A convenience mirror of the server's refusal; the server decides.
+  const excludesSelf = entries.length > 0 && !allowlistCovers(entries, clientAddress) ? t("system.profile.excludesSelf", { address: clientAddress }) : undefined;
   const save = useMutation({
-    mutationFn: () => updateIpAllowlist(entries),
+    mutationFn: () => updateIpAllowlist(entries, current),
     onSuccess: (value) => {
-      close();
+      closeConfirm();
       queryClient.setQueryData(allowlistQuery.queryKey, value);
       toast(t("system.profile.allowlistSaved"));
-      // A list that excludes this browser ends the session; the session check redirects to sign-in.
-      void queryClient.invalidateQueries({ queryKey: sessionQuery.queryKey });
     },
-    onError: close,
+    // A wrong current password stays on the dialog's field.
+    onError: (error) => currentPasswordError(t, error) === undefined && closeConfirm(),
   });
-  const serverError = !save.isError ? undefined : save.error instanceof ApiError && save.error.code === "invalid_profile" ? t("system.profile.allowlistInvalid") : errorText(t, save.error);
+  const code = save.error instanceof ApiError ? save.error.code : "";
+  const currentError = currentPasswordError(t, save.error);
+  const serverError = !save.isError || currentError ? undefined
+    : code === "invalid_profile" ? t("system.profile.allowlistInvalid")
+    : code === "ip_allowlist_excludes_caller" ? t("system.profile.excludesSelf", { address: clientAddress })
+    : errorText(t, save.error);
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (invalid) return;
-    // Clearing the list cannot lock anyone out; anything else is confirmed against the stated address.
-    if (entries.length === 0) save.mutate();
-    else setConfirming(true);
+    if (invalid || excludesSelf) return;
+    // Every change is confirmed with the current password; clearing cannot lock anyone out.
+    save.reset();
+    setConfirming(true);
   };
   return (
     <form className="form sys-narrow" noValidate onSubmit={onSubmit}>
       <p className="warning-note" role="note">{t("system.profile.lockout")}</p>
+      <p className="txt-hint">{t("system.profile.clientAddress")} <span className="mono">{clientAddress}</span></p>
       <Field kind="textarea" label={t("system.profile.prefixes")} mono rows={4} spellCheck={false} placeholder={"203.0.113.0/24\n127.0.0.1/32"} value={text}
-        error={invalid ?? serverError} hint={t("system.profile.prefixesHint")} onChange={(event) => setText(event.target.value)} />
+        error={invalid ?? excludesSelf ?? serverError} hint={t("system.profile.prefixesHint")} onChange={(event) => setText(event.target.value)} />
       <div className="sys-row-end">
-        <Button type="submit" disabled={!dirty || Boolean(invalid)} loading={save.isPending}>{t("records.save")}</Button>
+        <Button type="submit" disabled={!dirty || Boolean(invalid) || Boolean(excludesSelf)} loading={save.isPending}>{t("records.save")}</Button>
       </div>
-      <ConfirmDialog open={confirming} title={t("system.profile.allowlistConfirm")} confirmLabel={t("records.save")} danger busy={save.isPending} confirmDisabled={!covered}
-        onConfirm={() => save.mutate()} onCancel={close}>
-        <p>{t("system.profile.allowlistConfirmText")}</p>
-        <pre className="sys-code">{entries.join("\n")}</pre>
-        <Field label={t("system.profile.ownAddress")} mono autoComplete="off" spellCheck={false} placeholder="203.0.113.9" value={own} error={ownError} hint={t("system.profile.ownAddressHint")}
-          onChange={(event) => setOwn(event.target.value)} />
-        <p className="txt-hint">{t("system.profile.recovery")}</p>
-        <pre className="sys-code">{`pgbase admin ip deny --email ${profile.email} --cidr <CIDR>`}</pre>
+      <ConfirmDialog open={confirming} title={t(entries.length === 0 ? "system.profile.allowlistClear" : "system.profile.allowlistConfirm")} confirmLabel={t("records.save")} danger={entries.length > 0} busy={save.isPending}
+        confirmDisabled={!current} onConfirm={() => save.mutate()} onCancel={closeConfirm}>
+        {entries.length > 0 && (
+          <>
+            <p>{t("system.profile.allowlistConfirmText")}</p>
+            <pre className="sys-code">{entries.join("\n")}</pre>
+            <p className="txt-hint">{t("system.profile.recovery")}</p>
+            <pre className="sys-code">{`pgbase admin ip deny --email ${profile.email} --cidr <CIDR>`}</pre>
+          </>
+        )}
+        <CurrentPasswordField value={current} error={currentError} onChange={setCurrent} />
       </ConfirmDialog>
     </form>
   );

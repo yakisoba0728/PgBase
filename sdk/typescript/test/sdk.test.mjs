@@ -273,6 +273,9 @@ try {
   assert.match(listRequest.path, /expand=author/);
   assert.match(listRequest.path, /fields=id%2Ctitle/);
   assert.match(listRequest.path, /cursor=current/);
+  assert.doesNotMatch(listRequest.path, /total=/);
+  await client.records("notes").list({ total: true });
+  assert.match(requests.at(-1).path, /\?total=true$/);
 
   const pocketBasePage = await client.records("notes").getList(2, 25, { filter: client.filter('title = {:title}', { title: "paged" }), sort: "@random", skipTotal: true });
   assert.deepEqual(pocketBasePage, { page: 2, perPage: 25, totalItems: -1, totalPages: -1, items: [{ id: "note-pb", title: "paged" }] });
@@ -286,8 +289,9 @@ try {
   assert.match(getRequest.path, /records\/note-1\?expand=author&fields=id%2Ctitle$/);
 
   const iterated = [];
-  for await (const record of client.iterate("notes")) iterated.push(record.id);
+  for await (const record of client.iterate("notes", { total: true })) iterated.push(record.id);
   assert.deepEqual(iterated, ["note-1", "note-2"]);
+  assert.doesNotMatch(requests.at(-1).path, /total=/);
 
   const batch = await client.batch([
     { operation: "create", collection: "notes", input: { title: "batched" }, idempotencyKey: "batch-create-0001" },

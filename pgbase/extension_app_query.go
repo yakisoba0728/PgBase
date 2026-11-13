@@ -55,7 +55,7 @@ func (host *extensionHost) callAppQueries(ctx context.Context, method string, ra
 		entry, err := host.bridge.requestLog.Detail(ctx, id)
 		return marshalExtensionResult(entry, err)
 	case "app.log.stats":
-		stats, err := host.bridge.requestLog.Statistics(ctx)
+		stats, err := host.bridge.requestLog.Statistics(ctx, nil, nil)
 		return marshalExtensionResult(stats, err)
 	case "app.log.deleteOld":
 		if request.To == nil {

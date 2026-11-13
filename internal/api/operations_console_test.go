@@ -48,6 +48,10 @@ func (b *consoleBackups) Job(context.Context, string) (backup.Job, error) {
 	b.calls = append(b.calls, "job")
 	return backup.Job{ID: "job", Status: "completed"}, nil
 }
+func (b *consoleBackups) RunningJobs(context.Context) ([]backup.Job, error) {
+	b.calls = append(b.calls, "running")
+	return []backup.Job{{ID: "active", Status: "running"}}, nil
+}
 
 func (j *consoleJobs) ListJobs(context.Context) ([]jobs.Status, error) { return []jobs.Status{}, nil }
 func (j *consoleJobs) ConfigureJob(context.Context, uuid.UUID, string, bool) error {
@@ -96,6 +100,9 @@ func TestBackupRoutesAdmissionStreamingAndReceipts(t *testing.T) {
 	}
 	if got := request("GET", "/api/admin/backup-jobs/job", "", "", false); got.Code != 200 || !strings.Contains(got.Body.String(), "completed") {
 		t.Fatalf("job = %d %s", got.Code, got.Body.String())
+	}
+	if got := request("GET", "/api/admin/backup-jobs", "", "", false); got.Code != 200 || !strings.Contains(got.Body.String(), `"items":[{"id":"active"`) {
+		t.Fatalf("running jobs = %d %s", got.Code, got.Body.String())
 	}
 }
 
@@ -193,6 +200,19 @@ func TestOperationsConsoleDurableLogAndCalendarEndpoints(t *testing.T) {
 		{"GET", "/api/admin/logs/1", "", false, 200},
 		{"GET", "/api/admin/logs/statistics", "", false, 200},
 		{"GET", "/api/admin/logs?from=not-a-time", "", false, 400},
+		{"GET", "/api/admin/logs?q=SAFE", "", false, 200},
+		{"GET", "/api/admin/logs?q=" + strings.Repeat("x", 257), "", false, 400},
+		{"GET", "/api/admin/logs/statistics?from=2026-01-01T00:00:00Z&to=2099-01-01T00:00:00Z", "", false, 200},
+		{"GET", "/api/admin/logs/statistics?to=yesterday", "", false, 400},
+		{"DELETE", "/api/admin/logs?to=yesterday", "", true, 400},
+		{"DELETE", "/api/admin/logs?to=", "", true, 400},
+		{"DELETE", "/api/admin/logs?from=2026-11-01T00:00:00Z", "", true, 400},
+		{"DELETE", "/api/admin/logs?from=2026-11-01T00:00:00Z&to=2026-11-02T00:00:00Z", "", true, 400},
+		{"DELETE", "/api/admin/logs?to=2026-11-02T00:00:00Z&to=2026-11-03T00:00:00Z", "", true, 400},
+		{"DELETE", "/api/admin/logs?before=2026-11-02T00:00:00Z", "", true, 400},
+		{"DELETE", "/api/admin/logs?to=%ZZ", "", true, 400},
+		{"DELETE", "/api/admin/logs?to=2026-11-02T00:00:00Z;x", "", true, 400},
+		{"DELETE", "/api/admin/logs?", "", true, 204},
 		{"PUT", "/api/admin/jobs/12345678-1234-4567-8901-123456789abc", `{"schedule":"0 9 * * 1","timezone":"Asia/Seoul","enabled":true}`, true, 204},
 		{"DELETE", "/api/admin/logs", "", false, 403},
 		{"DELETE", "/api/admin/logs", "", true, 204},

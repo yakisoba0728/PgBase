@@ -56,6 +56,8 @@ export interface LoginInput {
 
 export interface IpAllowlist {
   prefixes: string[];
+  /** The address the server checks the list against, after trusted-proxy resolution. */
+  clientAddress: string;
 }
 
 async function adopt(session: Promise<AdminSession>): Promise<AdminSession> {
@@ -121,14 +123,16 @@ export function getProfile(signal?: AbortSignal): Promise<Administrator> {
   return request("GET", "/api/admin/profile", { signal });
 }
 
-export function updateProfile(email: string): Promise<Administrator> {
-  return request("PATCH", "/api/admin/profile", { body: { email } });
+/** Changes your own sign-in email and/or password; the server re-checks the current password. A new password ends every session. */
+export function updateProfile(input: { currentPassword: string; email?: string; newPassword?: string }): Promise<Administrator> {
+  return request("PATCH", "/api/admin/profile", { body: input });
 }
 
 export function getIpAllowlist(signal?: AbortSignal): Promise<IpAllowlist> {
   return request("GET", "/api/admin/profile/ip-allowlist", { signal });
 }
 
-export function updateIpAllowlist(prefixes: string[]): Promise<IpAllowlist> {
-  return request("PATCH", "/api/admin/profile/ip-allowlist", { body: { prefixes } });
+/** Replaces your allowlist; like every administrator-security change it needs your current password (403 `current_password_invalid`). */
+export function updateIpAllowlist(prefixes: string[], currentPassword: string): Promise<IpAllowlist> {
+  return request("PATCH", "/api/admin/profile/ip-allowlist", { body: { currentPassword, prefixes } });
 }

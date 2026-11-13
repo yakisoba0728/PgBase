@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -145,11 +146,14 @@ type CreateAuthCollectionInput struct {
 	Rules               AuthCollectionRules
 	RecordID            *schema.RecordIDPolicy
 }
+
+// UpdateAuthCollectionInput keeps the stored fields when both Fields and
+// ProfileSchema are nil, and the stored rules when Rules is nil.
 type UpdateAuthCollectionInput struct {
 	RegistrationEnabled bool
 	ProfileSchema       map[string]string
 	Fields              []schema.FieldInput
-	Rules               AuthCollectionRules
+	Rules               *AuthCollectionRules
 	RecordID            *schema.RecordIDPolicy
 }
 
@@ -193,30 +197,100 @@ func (s *Service) CreateAuthCollection(ctx context.Context, input CreateAuthColl
 }
 
 func (s *Service) UpdateAuthCollection(ctx context.Context, id uuid.UUID, input UpdateAuthCollectionInput) (AuthCollection, error) {
-	fields, legacy, ok := normalizeAuthFields(input.Fields, input.ProfileSchema)
-	if id == uuid.Nil || !ok || !ValidateAuthRecordRules(input.Rules, fields) {
+	if id == uuid.Nil {
 		return AuthCollection{}, ErrValidation
+	}
+	var value AuthCollection
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) (err error) {
+		value, err = updateAuthCollectionTx(ctx, tx, id, input)
+		return err
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AuthCollection{}, ErrNotFound
+	}
+	if err != nil {
+		return AuthCollection{}, err
+	}
+	return value, nil
+}
+
+// SyncAuthCollectionFields applies a schema-designer field change of the auth
+// catalog collection `name` to its realm inside the schema apply transaction:
+// `removed` fields are dropped and `upserts` replace or append by name. Fields
+// only the realm declares are kept. A missing realm is left alone.
+func (s *Service) SyncAuthCollectionFields(ctx context.Context, tx pgx.Tx, name string, removed []string, upserts []schema.FieldInput) error {
+	var current AuthCollection
+	if err := scanAuthCollection(tx.QueryRow(ctx, `select `+authCollectionColumns+` from pgbase_meta.auth_collections where name=$1 for update`, name), &current); errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	pending := make(map[string]schema.FieldInput, len(upserts))
+	for _, field := range upserts {
+		pending[field.Name] = field
+	}
+	fields := make([]schema.FieldInput, 0, len(current.Fields)+len(upserts))
+	for _, field := range current.Fields {
+		if slices.Contains(removed, field.Name) {
+			continue
+		}
+		if replacement, ok := pending[field.Name]; ok {
+			field = replacement
+			delete(pending, field.Name)
+		}
+		fields = append(fields, field)
+	}
+	for _, field := range upserts {
+		if _, ok := pending[field.Name]; ok {
+			fields = append(fields, field)
+		}
+	}
+	// Dropping a designer field drops its values, as the catalog drops the column.
+	if len(removed) > 0 {
+		if _, err := tx.Exec(ctx, `update pgbase_meta.user_auth_profiles p set attributes=p.attributes-$2::text[] from pgbase_meta.users u where p.user_id=u.id and u.auth_collection_id=$1 and p.attributes ?| $2::text[]`, current.ID, removed); err != nil {
+			return err
+		}
+	}
+	_, err := updateAuthCollectionTx(ctx, tx, current.ID, UpdateAuthCollectionInput{RegistrationEnabled: current.RegistrationEnabled, Fields: fields})
+	if errors.Is(err, ErrValidation) {
+		return &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "fields", Code: "invalid_auth_fields"}}}
+	}
+	if errors.Is(err, ErrConflict) {
+		return &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "fields", Code: "auth_profiles_incompatible"}}}
+	}
+	return err
+}
+
+// updateAuthCollectionTx locks the realm row first, so omitted fields and
+// rules are taken from the stored row in the same transaction: a partial
+// update (e.g. the registration toggle) cannot undo a concurrent field change.
+func updateAuthCollectionTx(ctx context.Context, tx pgx.Tx, id uuid.UUID, input UpdateAuthCollectionInput) (AuthCollection, error) {
+	var value AuthCollection
+	var stored AuthCollection
+	if err := scanAuthCollection(tx.QueryRow(ctx, `select `+authCollectionColumns+` from pgbase_meta.auth_collections where id=$1 for update`, id), &stored); errors.Is(err, pgx.ErrNoRows) {
+		return value, ErrNotFound
+	} else if err != nil {
+		return value, err
+	}
+	if input.Fields == nil && input.ProfileSchema == nil {
+		input.Fields = stored.Fields
+	}
+	if input.Rules == nil {
+		input.Rules = &stored.Rules
+	}
+	fields, legacy, ok := normalizeAuthFields(input.Fields, input.ProfileSchema)
+	if !ok || !ValidateAuthRecordRules(*input.Rules, fields) {
+		return value, ErrValidation
 	}
 	profileRaw, _ := json.Marshal(legacy)
 	fieldsRaw, _ := json.Marshal(fields)
-	var value AuthCollection
-	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := func() error {
 		if err := validateAuthRelationDefinitions(ctx, tx, "", fields); err != nil {
 			return err
 		}
-		var currentRecordIDRaw []byte
-		if err := tx.QueryRow(ctx, `select id,record_id from pgbase_meta.auth_collections where id=$1 for update`, id).Scan(&value.ID, &currentRecordIDRaw); errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
-		} else if err != nil {
-			return err
-		}
-		var currentRecordID schema.RecordIDPolicy
-		if json.Unmarshal(currentRecordIDRaw, &currentRecordID) != nil {
-			return errors.New("invalid stored auth record ID policy")
-		}
 		if input.RecordID != nil {
 			requested, err := schema.NormalizeRecordIDPolicy(input.RecordID)
-			if err != nil || requested != currentRecordID {
+			if err != nil || requested != stored.RecordID {
 				return ErrConflict
 			}
 		}
@@ -247,14 +321,8 @@ func (s *Service) UpdateAuthCollection(ctx context.Context, id uuid.UUID, input 
 		rv := input.Rules.databaseValues()
 		row := tx.QueryRow(ctx, `update pgbase_meta.auth_collections set registration_enabled=$2,profile_schema=$3,fields_json=$4,list_rule=$5,view_rule=$6,create_rule=$7,update_rule=$8,delete_rule=$9,auth_rule=$10,manage_rule=$11,updated_at=CURRENT_TIMESTAMP where id=$1 returning `+authCollectionColumns, id, input.RegistrationEnabled, profileRaw, fieldsRaw, rv[0], rv[1], rv[2], rv[3], rv[4], rv[5], rv[6])
 		return scanAuthCollection(row, &value)
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return AuthCollection{}, ErrNotFound
-	}
-	if err != nil {
-		return AuthCollection{}, err
-	}
-	return value, nil
+	}()
+	return value, err
 }
 
 func (s *Service) DeleteAuthCollection(ctx context.Context, id uuid.UUID) error {
@@ -264,9 +332,22 @@ func (s *Service) DeleteAuthCollection(ctx context.Context, id uuid.UUID) error 
 	if id == DefaultCollectionID {
 		return ErrConflict
 	}
-	tag, err := s.pool.Exec(ctx, `delete from pgbase_meta.auth_collections where id=$1`, id)
+	// A realm paired with an auth catalog collection is deleted together with
+	// it through the schema; deleting only the realm would orphan the catalog.
+	// Other realms' relation fields that target it would dangle, so they keep it.
+	tag, err := s.pool.Exec(ctx, `delete from pgbase_meta.auth_collections a where id=$1 and not exists(select 1 from pgbase_meta.collections c where c.name=a.name and c.collection_type='auth') and not exists(select 1 from pgbase_meta.auth_collections o, jsonb_array_elements(o.fields_json) f where o.id<>a.id and f->'relation'->>'targetCollection'=a.name)`, id)
 	if isAuthCollectionDeleteConflict(err) {
-		return ErrConflict
+		return fieldError(ErrConflict, "id", "has_users")
+	}
+	if err == nil && tag.RowsAffected() == 0 {
+		var paired bool
+		if err = s.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.collections c where c.name=a.name and c.collection_type='auth') from pgbase_meta.auth_collections a where id=$1`, id).Scan(&paired); errors.Is(err, pgx.ErrNoRows) {
+			err = nil
+		} else if err == nil && paired {
+			return fieldError(ErrConflict, "id", "managed_by_schema")
+		} else if err == nil {
+			return fieldError(ErrConflict, "id", "collection_referenced")
+		}
 	}
 	if database.Classify(err) == database.KindConflict {
 		return ErrConflict

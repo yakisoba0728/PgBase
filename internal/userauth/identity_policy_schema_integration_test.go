@@ -53,16 +53,17 @@ func TestAuthCollectionUpdatePreservesPublishedIdentityFieldContract(t *testing.
 	if _, err := service.SetAuthPolicy(ctx, realm, policy); err != nil {
 		t.Fatal(err)
 	}
+	// An empty (not nil) list removes every field; nil keeps the stored ones.
 	for _, fields := range [][]schema.FieldInput{
-		nil,
+		{},
 		{{Name: "handle", Type: schema.TypeEditor}},
 		{{Name: "handle", Type: schema.TypeText, Hidden: true}},
 	} {
-		if _, err := service.UpdateAuthCollection(ctx, realm, UpdateAuthCollectionInput{Fields: fields, Rules: rules}); !errors.Is(err, ErrValidation) {
+		if _, err := service.UpdateAuthCollection(ctx, realm, UpdateAuthCollectionInput{Fields: fields, Rules: &rules}); !errors.Is(err, ErrValidation) {
 			t.Fatalf("invalid identity schema transition accepted for %#v: %v", fields, err)
 		}
 	}
-	if _, err := service.UpdateAuthCollection(ctx, realm, UpdateAuthCollectionInput{Fields: []schema.FieldInput{visibleText}, Rules: rules}); err != nil {
+	if _, err := service.UpdateAuthCollection(ctx, realm, UpdateAuthCollectionInput{Fields: []schema.FieldInput{visibleText}, Rules: &rules}); err != nil {
 		t.Fatalf("valid identity schema update rejected: %v", err)
 	}
 }

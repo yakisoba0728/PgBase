@@ -27,6 +27,9 @@ func (s *Service) Apply(ctx context.Context, intent ApplyIntent) (result ApplyRe
 	if err = s.ready(); err != nil {
 		return ApplyResult{}, err
 	}
+	if err = rejectSingleAuthCreate(intent.change); err != nil {
+		return ApplyResult{}, err
+	}
 	if intent.mode == operationModeLegacy {
 		if err := s.preflightLegacyApply(ctx, intent); err != nil {
 			return ApplyResult{}, err
@@ -355,8 +358,16 @@ func (s *Service) executeClaimedOperation(
 		if err = validateChangedRecordSizes(ctx, tx, current, result.Collection); err == nil {
 			err = store.UpdateCollection(ctx, result.Collection, plan.Definition, appliedAt)
 		}
+		if err == nil {
+			err = s.syncAuthRealmFields(ctx, tx, catalog, current, result.Collection)
+		}
 	case changeDelete:
-		err = store.DeleteCollection(ctx, current.ID)
+		if err = refuseRealmRelationsTo(ctx, tx, current.Name); err == nil {
+			err = deletePairedAuthRealm(ctx, tx, current)
+		}
+		if err == nil {
+			err = store.DeleteCollection(ctx, current.ID)
+		}
 	}
 	if err != nil {
 		return ApplyResult{}, nil, operationRow{}, classifyApplyError(err)

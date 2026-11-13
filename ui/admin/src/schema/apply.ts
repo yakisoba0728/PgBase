@@ -7,8 +7,9 @@ import {
   type CollectionChange,
   type CollectionPlan,
 } from "../api/collections";
-import { deleteAuthCollection, listAuthCollections } from "../api/authCollections";
 import { ApiError } from "../api/http";
+import { errorText } from "../app/queries";
+import type { Translate } from "../i18n";
 import { applySchemaImport, getSchemaImportOperation, getSchemaOperation, type SchemaImportPreview } from "../api/schema";
 
 // Apply with the plan's identifiers, then settle the outcome: a 202 or a replay
@@ -65,19 +66,26 @@ export async function applyImport(preview: SchemaImportPreview, identity: ApplyI
   await settle(result.operationId, result.status, () => getSchemaImportOperation(result.operationId));
 }
 
-/** Plans and applies a delete in one step (the confirm dialog is the review). An auth
- * collection's registration is separate metadata the catalog delete leaves behind, so it is
- * removed afterwards; a failure there is returned rather than thrown (the data is already gone). */
-export async function deleteCollection(collection: Collection): Promise<unknown> {
+/** A delete refused because the auth collection still has users: the schema delete reports
+ * `name: auth_collection_has_users`, the registration delete `id: has_users`. */
+export const hasUsers = (failure: unknown) =>
+  failure instanceof ApiError && JSON.stringify(failure.details ?? {}).includes("has_users");
+
+/** Why a delete was refused. Auth-collection relation fields that still target the collection are named
+ * (`authCollections.<realm>.fields.<field>: collection_referenced`); the registration delete reports `id`. */
+export function deleteRefusal(t: Translate, failure: unknown): string {
+  if (hasUsers(failure)) return t("auth.collections.hasUsers");
+  const details = failure instanceof ApiError ? Object.entries(failure.details ?? {}) : [];
+  const fields = details.flatMap(([path]) => /^authCollections\.(.+)\.fields\.(.+)$/.exec(path)?.slice(1).join(".") ?? []);
+  if (fields.length > 0) return t("error.collection_referenced_by", { fields: fields.join(", ") });
+  if (JSON.stringify(details).includes("collection_referenced")) return t("error.collection_referenced");
+  return errorText(t, failure);
+}
+
+/** Plans and applies a delete in one step (the confirm dialog is the review). The server removes an auth
+ * collection's sign-in registration in the same transaction, and refuses while it still has users. */
+export async function deleteCollection(collection: Collection): Promise<void> {
   const change: CollectionChange = { operation: "delete", name: collection.name };
   const plan = await planCollectionChange(change);
   await applyCollection(change, plan, newIdentity());
-  if (collection.type !== "auth") return undefined;
-  try {
-    const registration = (await listAuthCollections()).find((candidate) => candidate.name === collection.name);
-    if (registration) await deleteAuthCollection(registration.id);
-    return undefined;
-  } catch (error) {
-    return error;
-  }
 }

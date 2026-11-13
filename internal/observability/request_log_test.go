@@ -97,11 +97,21 @@ func TestRequestLogRecentSearchFiltersBeforePagination(t *testing.T) {
 	if len(page.Items) != 3 {
 		t.Fatalf("filtered recent page = %#v", page)
 	}
-	stats, err := log.Statistics(context.Background())
+	stats, err := log.Statistics(context.Background(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if stats.Total != 123 || stats.StatusClasses["4xx"] != 3 {
 		t.Fatalf("recent statistics = %#v", stats)
+	}
+	log.RecordContext("GET", "/other", 200, time.Millisecond, "192.0.2.9", "user", "019551d0-e9c0-7000-8000-0000000000bb")
+	for query, want := range map[string]int{"WANTED": 3, "192.0.2.9": 1, "0000000000bb": 1, "absent": 0} {
+		if page, err := log.Search(context.Background(), RequestFilter{Query: query}); err != nil || len(page.Items) != want {
+			t.Fatalf("query %q = %d items, want %d (%v)", query, len(page.Items), want, err)
+		}
+	}
+	future := time.Now().Add(time.Hour)
+	if stats, err := log.Statistics(context.Background(), &future, nil); err != nil || stats.Total != 0 {
+		t.Fatalf("future statistics = %#v %v", stats, err)
 	}
 }

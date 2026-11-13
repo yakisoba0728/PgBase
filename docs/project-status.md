@@ -1,5 +1,7 @@
 # PgBase 구현 이력과 현재 상태
 
+2026-11-13 후속 기준: main은 `64dad0d`(schema 65)이다. 브랜치 `backend-fixes`가 §11의 "UI 재작성 중 발견한 백엔드 문제"를 서버에서 고치고 관리자 UI·SDK를 그에 맞췄다. migration은 추가하지 않았다(schema 65 그대로). 관리자 보안 요청 body의 `currentPassword` 필수화처럼 client가 알아야 할 계약 변경이 있다. 이 기록 작성 시점에 main 병합과 운영 서버 배포는 하지 않았다(대기). 항목별 처리는 §11, 계약 변경과 검증은 §12를 따른다. 아래 문단은 그 전 기록이다.
+
 2026-11-13 병합·배포 후 기준: 새 관리자 UI를 [PR #108](https://github.com/yakisoba0728/PgBase/pull/108)로 main `2912e39`에 병합하고 `https://pgbase.yaki.kr`에 배포했다(schema 65 그대로). 결과는 [배포 기록](deployment-2026-11-13.md)을 따른다. 아래 문단은 병합 전에 쓴 기록이다.
 
 2026-11-13 현재 기준: main은 그대로 `7fbf1db`(schema 65)이다. 관리자 UI를 브랜치 `frontend-rebuild`에서 처음부터 다시 작성했다(React/TypeScript/Vite 유지, 새 디자인 시스템·레이아웃, Go handler에서 도출한 typed API client, 모든 관리자 route, 한국어·영어). 서버 API 계약과 schema 65는 바뀌지 않았다. 이 문서 작성 시점에 main 병합과 운영 서버 배포는 하지 않았으며(대기), 병합·배포는 후속 기록에 남긴다. 검증·미검증 범위와 UI 재작성 중 발견한 백엔드 문제(수정하지 않음)는 §11을 따른다. 아래 2026-11-12 기록은 당시 상태다.
@@ -257,29 +259,82 @@ N6–N9 구현·독립 검토·전체 G5 로컬 인수는 `b7674f7`에서 완료
 - release gate 실행. CI의 E2E workflow(PostgreSQL 16 Compose)에서 새 suite를 돌리는 것도 이 작업에서는 실행하지 않았다.
 - 구조 예산(`internal/repositorypolicy`)과 commit된 `ui/admin/dist` 비교는 마지막 단계에서 다시 맞출 예정이라 이 기록 시점에는 red다.
 
-### UI 재작성 중 발견한 백엔드 문제(수정하지 않음)
+### UI 재작성 중 발견한 백엔드 문제와 처리
 
-UI를 다시 만들며 서버 응답과 코드에서 관찰한 사항이다. 이 작업에서는 서버를 고치지 않았고, 각 항목은 별도 확인과 결정이 필요하다.
+UI를 다시 만들며 서버 응답과 코드에서 관찰한 사항이다. `frontend-rebuild`에서는 서버를 고치지 않았다. 2026-11-13 브랜치 `backend-fixes`(§12)에서 항목별로 고치거나 의도된 동작으로 문서화했고, migration이 필요한 부분은 열어 두었다. 각 항목 뒤의 굵은 글씨가 처리 결과다.
 
-1. IP allowlist 저장이 호출자 자신의 주소를 검사하지 않아 스스로를 차단할 수 있고, 호출자 주소를 돌려주는 endpoint가 없다(UI는 저장 전에 호출자 주소를 직접 입력하게 한다).
-2. 관리자가 자기 비밀번호를 바꿀 때 현재 비밀번호를 요구하지 않는다.
-3. auth collection을 삭제하거나 이름을 바꿔도 auth 등록이 남거나 그대로 유지된다.
-4. `collections/plan`으로 만든 auth collection에는 system field와 realm이 없다.
-5. schema designer에서 바꾼 field가 auth 등록에 반영되지 않는다.
-6. view sample이 uuid를 byte 배열로 돌려준다.
-7. schema를 한정하지 않은 view SQL이 세부 내용 없이 409를 돌려준다.
-8. `invalid_rule` 오류가 어느 rule인지 알려주지 않는다.
-9. rule에서 `id`·`created_at`·`updated_at`을 참조할 수 없다.
-10. relation field가 `docs/user-access.md`의 설명과 달리 공개 접근을 막지 않는다.
-11. `pgbase serve`는 backup job을 등록하지 않는다.
-12. request log에 clientIP와 auth 값이 없다.
-13. log level·검색·기간별 통계·조건부 삭제 API가 없고 dead-letter event 목록도 없다.
-14. users 목록에 `authCollectionId`, 검색, 개수, 단건 조회가 없다.
-15. token policy의 `keyConfigured`가 항상 false다.
-16. 여러 endpoint의 서버 오류에 field 단위 세부 정보가 없다.
-17. settings PATCH가 숫자 null을 0으로 다룬다(코드에서 추론, 실행 확인 아님).
-18. auth policy·provider·template에 revision이 없다.
-19. backup이 끝나는 순간 `GET /backups`가 500을 돌려줄 수 있다.
-20. 실행 중인 backup을 나열하는 endpoint가 없다.
-21. 목록 응답에 total과 file metadata가 없다(thumbnail은 행·field마다 요청 하나가 든다).
-22. 표준 binary에는 SQL console을 켜는 스위치가 없다.
+1. IP allowlist 저장이 호출자 자신의 주소를 검사하지 않아 스스로를 차단할 수 있고, 호출자 주소를 돌려주는 endpoint가 없다. **수정.** `GET`/`PATCH /api/admin/profile/ip-allowlist`가 `clientAddress`(login·session 검사와 같은 trusted-proxy 해석)를 돌려주고, 그 주소를 포함하지 않는 비어 있지 않은 목록은 409 `ip_allowlist_excludes_caller`로 거부한다. 목록 변경(비우기 포함)에는 `currentPassword`가 필요하다. UI는 서버가 본 주소를 보여 주고 저장 전에 같은 검사를 한다. 우회 경로는 CLI `pgbase admin ip`다.
+2. 관리자가 자기 비밀번호를 바꿀 때 현재 비밀번호를 요구하지 않는다. **수정.** `PATCH /api/admin/profile`은 `{currentPassword,email?,newPassword?}`를 받는다. 틀리면 403 `current_password_invalid`이고 login limiter에 실패로 집계된다(반복 시 429). 비밀번호 변경은 그 계정의 모든 session을 끝낸다. email 변경은 이전 주소로 보낸 password-reset link와 OTP를 무효화한다. 다른 관리자 계정 route의 자기 자신 password-reset은 409로 막았다. 같은 step-up 검사를 관리자 생성·활성/비활성·다른 관리자 비밀번호 재설정에도 적용했다(session 강제 종료는 비밀번호 없이 가능).
+3. auth collection을 삭제하거나 이름을 바꿔도 auth 등록이 남거나 그대로 유지된다. **수정.** plan/apply로 auth collection을 지우면 짝인 realm을 같은 transaction에서 지운다(사용자가 있으면 `auth_collection_has_users`, 기본 realm은 `default_auth_collection_protected`로 거부). 이름을 바꾸면 realm과 그 이름을 가리키는 realm relation field도 바뀐다. 다른 realm이 쓰는 이름으로의 변경은 `auth_collection_name_taken`으로 plan 단계부터 거부한다. 다른 realm의 relation이 가리키는 collection의 삭제는 `collection_referenced`로 거부한다. schema가 관리하는 realm을 `DELETE /api/admin/auth-collections/{id}`로 지우면 409 `conflict`(details `managed_by_schema`)다.
+4. `collections/plan`으로 만든 auth collection에는 system field와 realm이 없다. **수정(거부).** plan/apply는 `type: auth` 생성을 422 `auth_requires_schema_import`로 거부한다. auth collection은 `GET /api/admin/collections/scaffolds`의 scaffold를 schema import로 적용해 catalog collection과 realm을 함께 만든다. UI의 auth collection 생성도 이 경로를 쓴다.
+5. schema designer에서 바꾼 field가 auth 등록에 반영되지 않는다. **수정.** designer가 추가·변경·이름 변경·삭제한 field만(field id 기준) 같은 transaction에서 realm에 반영한다. 이름 변경은 사용자 값을 옮기고 삭제는 값을 지운다. realm 검증을 그대로 거치며(`invalid_auth_fields`, `auth_profiles_incompatible`), realm에만 있는 field 이름과 겹치면 `realm_field_exists`로 거부한다. realm PATCH는 생략한 fields·rules를 row lock 아래에서 보존한다.
+6. view sample이 uuid를 byte 배열로 돌려준다. **수정.** uuid column은 표준 문자열로 돌려준다.
+7. schema를 한정하지 않은 view SQL이 세부 내용 없이 409를 돌려준다. **수정.** 거부된 view SQL은 422 `invalid_view_sql`이며 `details["view.sql"]`에 실패한 검사를, 분석 실패에는 PostgreSQL message·SQLSTATE·위치를 담는다(행 실행 실패는 SQLSTATE만).
+8. `invalid_rule` 오류가 어느 rule인지 알려주지 않는다. **수정.** `details["rules.<action>"]`에 `invalid_syntax`/`invalid_rule`, syntax 오류에는 `rules.<action>.position`(1부터 센 문자 위치, `@request` 치환을 거슬러 계산)을 담는다.
+9. rule에서 `id`·`created_at`·`updated_at`을 참조할 수 없다. **수정.** root, relation hop 뒤, `@collection` 아래에서 세 system field를 해석한다.
+10. relation field가 `docs/user-access.md`의 설명과 달리 공개 접근을 막지 않는다. **의도된 동작(문서화).** 서버는 모든 relation 경로를 대상 collection의 view rule로 검사한다. 문서의 옛 설명을 고쳤고, 익명·사용자 호출자에 대한 relation 경로 권한을 integration test로 고정했다.
+11. `pgbase serve`는 backup job을 등록하지 않는다. **수정.** backups directory가 있으면 `pgbase.managed-backup`을 등록한다. upgrade 동작은 §12의 백업 retention 항목을 따른다.
+12. request log에 clientIP와 auth 값이 없다. **일부 수정.** durable entry의 client IP가 `/32` netmask 없이 기록되고, 해석할 수 없는 peer 주소가 batch 전체 insert를 실패시키지 않으며, IPv6 zone은 버린다. 두 값은 `logs.includeIP`/`logs.includeAuth` 설정이 켜졌을 때만 기록됨을 문서화했다. **열림:** service-token 요청의 principal 기록은 `auth_kind` column이 `admin`·`user`만 받아 migration이 필요하다.
+13. log level·검색·기간별 통계·조건부 삭제 API가 없고 dead-letter event 목록도 없다. **수정.** `GET /api/admin/logs?q=`(route·client IP·auth kind/id 부분 문자열), `GET /api/admin/logs/statistics?from&to`, `DELETE /api/admin/logs?to=`, `GET /api/admin/realtime/dead`. request log에는 별도 level이 없고 `statusClass`가 심각도 filter임을 문서화했다. **열림:** log 검색과 dead-letter 목록은 전용 index 없이 table을 훑는다. index에는 migration이 필요하다.
+14. users 목록에 `authCollectionId`, 검색, 개수, 단건 조회가 없다. **수정.** 행에 `authCollectionId`, `authCollectionId`·`q`(정확한 id 또는 email, index 사용) filter, `total=true`(10,000에서 멈추고 `totalCapped`), `GET /api/admin/users/{id}`. **열림:** 부분 문자열 검색은 맞는 index가 없어 제공하지 않는다(migration 필요).
+15. token policy의 `keyConfigured`가 항상 false다. **의도된 동작(문서화).** 저장된 policy에는 항상 key가 있어 목록의 행은 `true`이고, 저장된 policy가 없는 purpose는 목록에 나오지 않는다.
+16. 여러 endpoint의 서버 오류에 field 단위 세부 정보가 없다. **일부 수정.** auth policy·provider·token policy·auth record 생성·realm 삭제, settings(거부된 경로), rule, view SQL 오류가 `error.details`에 field를 담는다. **열림:** storage·backup·import endpoint, SMTP 주소 검사(mail client 내부에서 일어남)는 아직 field 정보가 없다.
+17. settings PATCH가 숫자 null을 0으로 다룬다. **수정.** null은 400 `invalid_settings`(거부된 경로를 details에)로 거부한다. 예외로 list key 세 개(`proxy.trustedProxyCIDRs`, `rateLimits.rules`, `rateLimits.excludedIPs`)는 null을 빈 목록으로 받고, GET은 빈 목록을 `[]`로 돌려준다.
+18. auth policy·provider·template에 revision이 없다. **수정.** policy·provider·template·SMTP 응답에 `etag`가 있고, PUT은 `If-Match`(또는 아직 없는 값에는 `If-None-Match: *`)를 받아 바뀐 경우 412 `precondition_failed`로 거부한다. header가 없으면 이전처럼 무조건 쓴다.
+19. backup이 끝나는 순간 `GET /backups`가 500을 돌려줄 수 있다. **수정.** local 목록이 읽는 도중 retention으로 지워진 receipt를 건너뛴다(S3 목록과 같은 동작).
+20. 실행 중인 backup을 나열하는 endpoint가 없다. **수정.** `GET /api/admin/backup-jobs`가 이 process에서 실행 중인 create/restore(최대 하나)를 돌려준다.
+21. 목록 응답에 total과 file metadata가 없다. **일부 수정.** native record 목록에 opt-in `total=true`(`totalItems`, 10,000에서 멈추고 `totalCapped`)를 더했다. 기본 응답은 그대로다. **열림:** file metadata 일괄 조회는 없다(thumbnail은 여전히 행·field마다 요청 하나).
+22. 표준 binary에는 SQL console을 켜는 스위치가 없다. **수정.** `PGBASE_SQL_CONSOLE_COMPILER_URL`·`PGBASE_SQL_CONSOLE_READ_URL`·`PGBASE_SQL_CONSOLE_WRITER_URL` 세 개를 모두 설정하면 읽기 전용으로 켜진다. 기본은 꺼짐이고 일부만 설정하면 시작 오류다.
+
+`backend-fixes` 작업 중 확인했지만 고치지 않은 것(열림):
+
+- `pg_catalog`의 view를 거치는 view SQL은 view 의존성 검사를 우회한다.
+- migration snapshot replay는 이번에 더한 realm 일관성 검사(위 3–5)를 거치지 않는다.
+- SMTP 설정 오류의 field 단위 세부 정보(위 16).
+
+## 12. 2026-11-13 백엔드 수정(`backend-fixes`)
+
+기록일: 2026-11-13. 브랜치 `backend-fixes`(main `64dad0d`에서 분기)의 작업이다. §11 목록의 처리 결과는 위에 항목별로 적었다. migration은 추가하지 않았고(`git diff --stat main..HEAD -- migrations`가 비어 있음) schema는 65 그대로다. 이 기록 작성 시점에 main 병합·릴리스·운영 서버 배포는 하지 않았고 대기 중이다.
+
+### client가 알아야 할 계약 변경
+
+| 영역 | 변경 |
+| --- | --- |
+| 관리자 profile | `PATCH /api/admin/profile` body가 `{currentPassword,email?,newPassword?}`다. 이전의 email만 보내는 body는 거부된다. `PATCH /api/admin/profile/ip-allowlist`는 `{currentPassword,prefixes}`이고 두 allowlist 응답에 `clientAddress`가 있다 |
+| 관리자 계정 | `POST /api/admin/administrators` `{currentPassword,email,password}`, `PATCH /api/admin/administrators/{id}` `{currentPassword,active}`, `POST .../{id}/password-reset` `{currentPassword,newPassword}`. 자기 ID의 password-reset은 409 `administrator_conflict`. TypeScript·Dart SDK의 해당 method에 `currentPassword` 인자가 더해졌다(호출 코드 수정 필요) |
+| 새 오류 code | 403 `current_password_invalid`, 409 `ip_allowlist_excludes_caller`, 422 `auth_requires_schema_import`·`invalid_view_sql`, 412 `precondition_failed`, details code `auth_collection_has_users`·`default_auth_collection_protected`·`auth_collection_name_taken`·`collection_referenced`·`managed_by_schema`·`has_users`·`realm_field_exists`·`invalid_auth_fields`·`auth_profiles_incompatible`, rule의 `invalid_syntax` |
+| 조건부 쓰기 | auth policy·OAuth provider·mail template·SMTP의 읽기 응답에 `etag`. PUT이 `If-Match`/`If-None-Match: *`를 받고 어긋나면 412. header가 없으면 이전과 같다 |
+| settings | null 값은 400 `invalid_settings`(details에 경로). list key 세 개는 null을 빈 목록으로 받고, GET은 빈 목록을 `[]`로 돌려준다(이전에는 null일 수 있었다) |
+| request log | `DELETE /api/admin/logs`는 query가 없으면 전부 삭제(204, id 재시작), `?to=`만 있으면 그보다 오래된 entry를 지우고 `{deleted}`. 그 밖의 query나 잘못된 `to`는 400 `invalid_request`(전체 삭제로 해석하지 않음). 목록에 `q`, 통계에 `from`/`to` |
+| total | native record 목록 `total=true` → `totalItems`·`totalCapped`, 관리자 users 목록 `total=true` → `total`·`totalCapped`. 둘 다 10,000에서 멈춘다. 요청하지 않으면 응답은 그대로다 |
+| 새 endpoint | `GET /api/admin/users/{id}`, `GET /api/admin/backup-jobs`, `GET /api/admin/realtime/dead`, users 목록의 `authCollectionId`·`q`, auth collection records의 `after`/`nextAfter` |
+| SQL console | 새 환경 변수 `PGBASE_SQL_CONSOLE_COMPILER_URL`·`PGBASE_SQL_CONSOLE_READ_URL`·`PGBASE_SQL_CONSOLE_WRITER_URL`. 기본은 꺼짐([배포 문서](deployment.md)) |
+| auth collection | plan/apply의 `type: auth` 생성 거부, 삭제·이름 변경이 realm과 함께 처리됨, designer field 변경이 realm에 반영됨, realm PATCH가 생략한 fields·rules를 보존 |
+| 백업 retention | 하나의 값만 적용된다: Settings의 `backups.keep`이 0보다 크면 그 값, 아니면 Backup storage의 보관 개수(`PGBASE_BACKUPS_RETENTION`은 storage 설정 행을 처음 만들 때만 씀). `backups.keep = 0`은 "설정 안 함"이다 |
+| upgrade 동작 | `pgbase serve`가 처음으로 `pgbase.managed-backup`을 등록할 때, 이전 binary에서 효과가 없던 저장값 `backups.enabled`/`backups.keep`을 지우고 경고를 남기며 job 행은 꺼진 상태로 만든다. 따라서 upgrade만으로 retention이 바뀌거나 예약 백업이 시작되지 않는다. managed-backup job 행이 이미 있던 설치(자체 backup manager를 쓰는 embedding)는 저장값을 유지하며, 거기서는 `backups.keep = 0`이 이제 "모두 보관"이 아니라 Backup storage retention을 따른다. 저장값을 지울 수 없으면 job을 등록하지 않고 오류를 남긴다 |
+
+### 검증한 것과 방법
+
+로컬 Go는 1.27.1이므로 모든 Go 명령은 `GOTOOLCHAIN=go1.26.11`로 CI와 같은 toolchain을 썼다.
+
+| 항목 | 결과 |
+| --- | --- |
+| Go 정적 검사 | `gofmt -l .` 빈 출력, `go build ./...`, `go vet ./...`, `go vet`(`integration`, `integration multiprocess`, `integration releaseartifacts`, `cosignintegration` tag 각각, `GOOS=windows`의 `./internal/cli/...`·`./internal/selfupdate/...`), `scripts/lint-go.sh` 통과 |
+| Go unit | `scripts/test-go-unit.sh -count=1` 통과(구조 예산 test 포함) |
+| PostgreSQL integration | PostgreSQL 17 container와 저장소의 MinIO fixture(`scripts/test-s3-fixture.sh`, 별도 project 이름)로 `scripts/test-go-integration.sh -count=1` 통과(skip allowlist 검사 포함). host에 `pg_dump`/`pg_restore`가 없어 container 안에서 실행하는 wrapper를 PATH에 두었다 |
+| SDK | TypeScript SDK `npm ci`·`npm test` 통과, `examples/user-notes` test 통과. `TestSDKPublicRecordHTTPConformance`와 main push에서만 도는 `TestAdministrationSDKsAgainstRealHTTPServer`는 TypeScript 부분을 통과하고 Dart 부분에서 `dart` 실행 파일이 없어 실패했다(환경). 관리자 SDK acceptance consumer(`tests/sdk-acceptance/admin_http.mjs`, `sdk/dart/tool/admin_http_acceptance.dart`)는 step-up 인자가 빠져 있어 고쳤다(PR CI에서는 돌지 않아 드러나지 않던 부분) |
+| Observability | dashboard JSON, promtool rule 검사, dashboard PromQL 검사, `go test ./tests/observability` 통과 |
+| Security | `govulncheck ./...` 호출되는 취약점 0, `ui/admin`의 `npm audit --audit-level=high` 0건 |
+| route 계약 | `TestOpenAPIRouteContract` 통과(`docs/openapi.routes.json`이 route table과 일치) |
+| 관리자 UI | `npm run typecheck`, `npm test`(33파일 181 tests), `npm run build` 통과 |
+| 내장 UI | `rm -rf dist && npm ci --ignore-scripts && npm run build` 결과를 commit했고 그 뒤 `npm run verify:dist` 통과. `deployments/Dockerfile`의 `admin-ui` stage로 만든 dist가 commit된 dist와 byte 단위로 같다 |
+| 브라우저 suite | 이 브랜치 binary(`go1.26.11` build)와 PostgreSQL 17 DB 두 개(onboarding·authenticated)로 `npm run test:e2e` 18개 시나리오를 2회 연속 통과(opt-in backup 포함). allowlist 시나리오는 서버가 본 주소를 응답에서 읽으므로 Compose(E2E workflow)의 Docker gateway 주소에서도 같은 검사다. 기존 15개는 수정 없이 통과했고, 관리자 생성의 현재 비밀번호 요구, profile 비밀번호 변경의 현재 비밀번호 요구, 호출자 주소를 뺀 IP allowlist 거부(UI와 서버 409) 3개를 더했다. 비밀번호 변경·allowlist 시나리오는 test 안에서 만든 일회용 관리자로 실행한다 |
+| 구조 예산 | handwritten runtime 120,725 → 122,119(Go 94,993 → 96,262, UI 25,732 → 25,857), exported declaration 1,595 → 1,602, UI export 780 → 791, data group 28,545 → 28,912, `internal/query` 7,904 → 7,952. 근거는 `internal/repositorypolicy/loc_budget_test.go`의 2026-11-13 주석 |
+| docs 검사 | `python3 docs/check-status-index.py`, `python3 docs/check-review-links.py` 통과 |
+
+### 검증하지 않은 것
+
+- Dart SDK는 이 환경에 Dart가 없어 compile·test하지 않았다. TypeScript SDK와 대조해 읽기만 했다. PR의 필수 check "PostgreSQL integration / 17.9"의 SDK conformance가 Dart 변경의 첫 compile이 된다.
+- 운영 서버(`https://pgbase.yaki.kr`)에서의 upgrade 동작. 배포는 대기 중이다.
+- Chromium 외 브라우저, release gate, CI의 E2E workflow(PostgreSQL 16 Compose).
+- main push·수동 실행에서만 도는 단계: unit·integration의 `-race` 실행, multi-process durability, Windows self-update, macOS terminal, release phase artifacts, private attestation(cosign) 검증, 관리자 SDK acceptance의 Dart 부분.

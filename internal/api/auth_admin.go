@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/mailer"
@@ -181,11 +182,12 @@ func (e authAdministrationEndpoints) policy(w http.ResponseWriter, r *http.Reque
 		OTPDurationSeconds   *int      `json:"otpDurationSeconds"`
 		OTPMaxAttempts       *int      `json:"otpMaxAttempts"`
 	}
-	if err != nil || decodeStrictJSON(r, &in) != nil || in.PasswordEnabled == nil || in.MinimumPasswordBytes == nil || in.MFAEnabled == nil {
+	tag, tagOK := ifMatchTag(r)
+	if err != nil || !tagOK || decodeStrictJSON(r, &in) != nil || in.PasswordEnabled == nil || in.MinimumPasswordBytes == nil || in.MFAEnabled == nil {
 		writeAuthAdministrationError(w, r, userauth.ErrValidation)
 		return
 	}
-	policy := userauth.AuthPolicy{PasswordEnabled: *in.PasswordEnabled, MinimumPasswordBytes: *in.MinimumPasswordBytes, MFAEnabled: *in.MFAEnabled}
+	policy := userauth.AuthPolicy{PasswordEnabled: *in.PasswordEnabled, MinimumPasswordBytes: *in.MinimumPasswordBytes, MFAEnabled: *in.MFAEnabled, ETag: tag}
 	current, getErr := e.service.GetAuthAdministration(r.Context(), id)
 	if getErr != nil {
 		writeAuthAdministrationError(w, r, getErr)
@@ -222,6 +224,7 @@ func (e authAdministrationEndpoints) policy(w http.ResponseWriter, r *http.Reque
 		writeAuthAdministrationError(w, r, err)
 		return
 	}
+	w.Header().Set("ETag", v.ETag)
 	writeJSON(w, http.StatusOK, v)
 }
 func (e authAdministrationEndpoints) provider(w http.ResponseWriter, r *http.Request) {
@@ -255,15 +258,17 @@ func (e authAdministrationEndpoints) provider(w http.ResponseWriter, r *http.Req
 		AvatarField           string   `json:"avatarField"`
 		AllowInsecureLoopback bool     `json:"allowInsecureLoopback"`
 	}
-	if err != nil || decodeStrictJSON(r, &in) != nil {
+	tag, tagOK := ifMatchTag(r)
+	if err != nil || !tagOK || decodeStrictJSON(r, &in) != nil {
 		writeAuthAdministrationError(w, r, userauth.ErrValidation)
 		return
 	}
-	v, err := e.service.PutOAuthProvider(r.Context(), id, userauth.OAuthProviderConfig{Name: name, Enabled: in.Enabled, AuthorizationURL: in.AuthorizationURL, TokenURL: in.TokenURL, UserInfoURL: in.UserInfoURL, Issuer: in.Issuer, JWKSURL: in.JWKSURL, ClientID: in.ClientID, ClientSecret: in.ClientSecret, Scopes: in.Scopes, RedirectURIs: in.RedirectURIs, SubjectField: in.SubjectField, EmailField: in.EmailField, EmailVerifiedField: in.EmailVerifiedField, AvatarField: in.AvatarField, AllowInsecureLoopback: in.AllowInsecureLoopback})
+	v, err := e.service.PutOAuthProvider(r.Context(), id, userauth.OAuthProviderConfig{ETag: tag, Name: name, Enabled: in.Enabled, AuthorizationURL: in.AuthorizationURL, TokenURL: in.TokenURL, UserInfoURL: in.UserInfoURL, Issuer: in.Issuer, JWKSURL: in.JWKSURL, ClientID: in.ClientID, ClientSecret: in.ClientSecret, Scopes: in.Scopes, RedirectURIs: in.RedirectURIs, SubjectField: in.SubjectField, EmailField: in.EmailField, EmailVerifiedField: in.EmailVerifiedField, AvatarField: in.AvatarField, AllowInsecureLoopback: in.AllowInsecureLoopback})
 	if err != nil {
 		writeAuthAdministrationError(w, r, err)
 		return
 	}
+	w.Header().Set("ETag", v.ETag)
 	writeJSON(w, http.StatusOK, v)
 }
 func (e authAdministrationEndpoints) template(w http.ResponseWriter, r *http.Request) {
@@ -273,15 +278,17 @@ func (e authAdministrationEndpoints) template(w http.ResponseWriter, r *http.Req
 		Body     string `json:"body"`
 		HTMLBody string `json:"htmlBody"`
 	}
-	if err != nil || decodeStrictJSON(r, &in) != nil {
+	tag, tagOK := ifMatchTag(r)
+	if err != nil || !tagOK || decodeStrictJSON(r, &in) != nil {
 		writeAuthAdministrationError(w, r, userauth.ErrValidation)
 		return
 	}
-	v, err := e.service.PutMailTemplate(r.Context(), id, userauth.MailTemplate{Purpose: r.PathValue("purpose"), Subject: in.Subject, Body: in.Body, HTMLBody: in.HTMLBody})
+	v, err := e.service.PutMailTemplate(r.Context(), id, userauth.MailTemplate{Purpose: r.PathValue("purpose"), Subject: in.Subject, Body: in.Body, HTMLBody: in.HTMLBody, ETag: tag})
 	if err != nil {
 		writeAuthAdministrationError(w, r, err)
 		return
 	}
+	w.Header().Set("ETag", v.ETag)
 	writeJSON(w, http.StatusOK, v)
 }
 
@@ -315,15 +322,17 @@ func (e authAdministrationEndpoints) smtp(w http.ResponseWriter, r *http.Request
 		ImplicitTLS           bool   `json:"implicitTls"`
 		AllowInsecureLoopback bool   `json:"allowInsecureLoopback"`
 	}
-	if err != nil || decodeStrictJSON(r, &in) != nil {
+	tag, tagOK := ifMatchTag(r)
+	if err != nil || !tagOK || decodeStrictJSON(r, &in) != nil {
 		writeAuthAdministrationError(w, r, userauth.ErrValidation)
 		return
 	}
-	v, err := e.service.PutSMTPConfig(r.Context(), id, userauth.SMTPAdminConfig{Address: in.Address, From: in.From, Username: in.Username, Password: in.Password, ServerName: in.ServerName, ImplicitTLS: in.ImplicitTLS, AllowInsecureLoopback: in.AllowInsecureLoopback})
+	v, err := e.service.PutSMTPConfig(r.Context(), id, userauth.SMTPAdminConfig{ETag: tag, Address: in.Address, From: in.From, Username: in.Username, Password: in.Password, ServerName: in.ServerName, ImplicitTLS: in.ImplicitTLS, AllowInsecureLoopback: in.AllowInsecureLoopback})
 	if err != nil {
 		writeAuthAdministrationError(w, r, err)
 		return
 	}
+	w.Header().Set("ETag", v.ETag)
 	writeJSON(w, http.StatusOK, v)
 }
 func (e authAdministrationEndpoints) smtpTest(w http.ResponseWriter, r *http.Request) {
@@ -381,6 +390,26 @@ func (e authAdministrationEndpoints) userAction(w http.ResponseWriter, r *http.R
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// ifMatchTag returns the one entity tag or "*" of an If-Match header,
+// userauth.CreateOnly for If-None-Match: *, or "" when neither is sent; a list
+// of tags, or both headers, are not accepted on these routes.
+func ifMatchTag(r *http.Request) (string, bool) {
+	set, ok := parseIfMatch(r.Header)
+	if none := r.Header.Values("If-None-Match"); len(none) != 0 {
+		return userauth.CreateOnly, len(none) == 1 && strings.TrimSpace(none[0]) == "*" && !set.Present
+	}
+	switch {
+	case !ok || len(set.Values) > 1:
+		return "", false
+	case set.Any:
+		return "*", true
+	case len(set.Values) == 1:
+		return set.Values[0], true
+	}
+	return "", true
+}
+
 func writeAuthAdministrationError(w http.ResponseWriter, r *http.Request, err error) {
 	w.Header().Set("Cache-Control", "no-store")
 	response := APIError{Status: http.StatusServiceUnavailable, Code: "auth_administration_unavailable", Message: "Authentication administration is unavailable"}
@@ -390,6 +419,9 @@ func writeAuthAdministrationError(w http.ResponseWriter, r *http.Request, err er
 		response = APIError{Status: http.StatusNotFound, Code: "not_found", Message: "Authentication resource not found"}
 	} else if errors.Is(err, userauth.ErrConflict) {
 		response = APIError{Status: http.StatusConflict, Code: "conflict", Message: "Authentication change conflicts with current state"}
+	} else if errors.Is(err, userauth.ErrPreconditionFailed) {
+		response = APIError{Status: http.StatusPreconditionFailed, Code: "precondition_failed", Message: "Authentication setting has changed; reload and retry"}
 	}
+	response.Details = validationDetails(err)
 	writeAPIError(w, r, response)
 }

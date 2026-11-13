@@ -2,7 +2,10 @@ package query
 
 import (
 	"encoding/json"
+	"errors"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
 )
@@ -15,13 +18,21 @@ const pocketBaseRequestPrefix = "__pgbase_request_"
 // projects its dependency-free result into the persisted access-rule AST.
 // Catalog field types remain enforced by accessrule.Compile before storage.
 func ParsePocketBaseAccessRule(expression string) (accessrule.Rule, error) {
-	normalized, ok := normalizePocketBaseRuleReferences(expression)
+	normalized, shifts, ok := normalizePocketBaseRuleReferences(expression)
 	if !ok {
 		return accessrule.Rule{}, accessrule.ErrInvalid
 	}
-	node, err := parseFilterRequest(normalized)
+	node, stopped, err := parseFilterAt(normalized)
 	if err != nil || node == nil {
-		return accessrule.Rule{}, accessrule.ErrInvalid
+		growth := 0
+		for _, shift := range shifts {
+			if shift[0] <= stopped {
+				growth = shift[1]
+			}
+		}
+		stopped = min(max(stopped-growth, 0), len(expression))
+		position := strconv.Itoa(utf8.RuneCountInString(expression[:stopped]) + 1)
+		return accessrule.Rule{}, errors.Join(accessrule.ErrInvalid, &ValidationError{Details: []ValidationDetail{{Field: "position", Code: position}}})
 	}
 	rule, err := accessRuleNode(node)
 	if err != nil {
@@ -32,9 +43,15 @@ func ParsePocketBaseAccessRule(expression string) (accessrule.Rule, error) {
 	return rule, nil
 }
 
-func normalizePocketBaseRuleReferences(input string) (string, bool) {
+// The shifts record [output offset, cumulative growth] after each rewrite so a
+// parser offset in the output can be mapped back to the input.
+func normalizePocketBaseRuleReferences(input string) (string, [][2]int, bool) {
 	var out strings.Builder
+	var shifts [][2]int
 	for i := 0; i < len(input); {
+		if growth := out.Len() - i; growth != 0 && (len(shifts) == 0 || shifts[len(shifts)-1][1] != growth) {
+			shifts = append(shifts, [2]int{out.Len(), growth})
+		}
 		if input[i] == '\'' {
 			start := i
 			i++
@@ -50,7 +67,7 @@ func normalizePocketBaseRuleReferences(input string) (string, bool) {
 				i++
 			}
 			if i > len(input) || input[i-1] != '\'' {
-				return "", false
+				return "", nil, false
 			}
 			out.WriteString(input[start:i])
 			continue
@@ -63,7 +80,7 @@ func normalizePocketBaseRuleReferences(input string) (string, bool) {
 				i++
 			}
 			if i == start {
-				return "", false
+				return "", nil, false
 			}
 			out.WriteString(pocketBaseAuthPrefix + input[start:i])
 		case strings.HasPrefix(input[i:], "@request.body."):
@@ -86,7 +103,7 @@ func normalizePocketBaseRuleReferences(input string) (string, bool) {
 			i++
 		}
 	}
-	return out.String(), true
+	return out.String(), shifts, true
 }
 
 func accessRuleNode(node filterNode) (accessrule.Rule, error) {

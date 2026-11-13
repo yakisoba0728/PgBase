@@ -125,12 +125,38 @@ The production binary reads configuration from environment variables:
 | `PGBASE_SCHEMA_APPLY_TIMEOUT` | Go duration; default `10m`. Bounds the administrator schema-apply HTTP route without widening ordinary request deadlines. |
 | `PGBASE_SHUTDOWN_TIMEOUT` | Go duration; default `15s`. |
 | `PGBASE_STOP_GRACE_PERIOD` | Compose stop grace Go duration; default `20s`. When set, it must be at least `PGBASE_SHUTDOWN_TIMEOUT + 5s`; pgBase refuses startup when the margin is smaller. |
+| `PGBASE_SQL_CONSOLE_COMPILER_URL`, `PGBASE_SQL_CONSOLE_READ_URL`, `PGBASE_SQL_CONSOLE_WRITER_URL` | Unset by default, which leaves the administrator SQL console off (its routes return 404). Set all three to enable the read-only console; setting only some is a startup error. See [Administrator SQL console](#administrator-sql-console). |
 
 Never put secret values in command arguments, source control, images, support bundles, or logs. Supply them through a secret manager or protected environment injection. The JSON logger redacts known credentials, but redaction is not a substitute for avoiding secret-bearing log messages.
 
 ### Bundled development Compose resource ceilings
 
 The bundled development profile applies ordinary Compose service-level `cpus`, `mem_limit`, and `pids_limit` bounds rather than the optional Swarm `deploy` section. It defaults both pgBase and PostgreSQL to 2 CPUs, 1 GiB of memory, and 256 PIDs. Override them with `PGBASE_APP_CPUS`, `PGBASE_APP_MEMORY_LIMIT`, `PGBASE_APP_PIDS_LIMIT`, `PGBASE_POSTGRES_CPUS`, `PGBASE_POSTGRES_MEMORY_LIMIT`, and `PGBASE_POSTGRES_PIDS_LIMIT` after measuring the local workload. These defaults are containment ceilings for the development stack, not production sizing guidance; set and validate production limits in the target orchestrator.
+
+## Administrator SQL console
+
+The SQL console is off unless the three `PGBASE_SQL_CONSOLE_*_URL` variables are all set. Each URL must log in as its own dedicated PostgreSQL role, distinct from `PGBASE_DATABASE_URL` and from each other, and obeys the same TLS rule as `PGBASE_DATABASE_URL`. The standard binary enables the console read-only: write targets (extension-owned tables the console may change) remain an embedding option (`pgbase.Options.SQLConsole.WriteTargets`). The console runs one administrator-submitted `SELECT` at a time through the read role, with the server's default and maximum timeouts.
+
+At startup pgBase checks each role and refuses to start when a role is a superuser, inherits or is a member of another role, owns any object, can create in any schema, can execute a non-catalog function, or can read or write anything beyond the grants below. Provision the roles as the database owner, with your own passwords and database name:
+
+```sql
+create role pgbase_sql_compiler login password '...' noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+create role pgbase_sql_reader   login password '...' noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+create role pgbase_sql_writer   login password '...' noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+revoke all on database pgbase from public;
+revoke all on schema app from public;
+grant connect, temp on database pgbase to pgbase_sql_compiler;
+grant connect on database pgbase to pgbase_sql_reader, pgbase_sql_writer;
+grant usage on schema app to pgbase_sql_compiler, pgbase_sql_reader, pgbase_sql_writer;
+grant usage on schema pgbase_meta to pgbase_sql_writer;
+-- Once per collection table: its id, created_at, updated_at and non-password field columns.
+grant select (id, created_at, updated_at, title) on app.posts to pgbase_sql_compiler, pgbase_sql_reader, pgbase_sql_writer;
+grant insert (execution_id, administrator_id, idempotency_hash, request_hash, row_count, affected_rows, result_bytes, committed_at)
+  on pgbase_meta.sql_console_write_receipts to pgbase_sql_writer;
+alter role pgbase_sql_reader in database pgbase set default_transaction_read_only = on;
+```
+
+Grant `SELECT` on the readable columns of every collection, and on a new collection or field after a schema change, before the console is next restarted; a missing grant fails the startup check. Never grant a password column. Statements see PostgreSQL data directly, so collection access rules do not apply to them: the console is an administrator tool, and its history records who ran what.
 
 ## Record mutation safety
 
@@ -222,8 +248,12 @@ and confirm that the rendered `stop_grace_period` is at least `PGBASE_SHUTDOWN_T
 - `pgbase admin reset-password --email EMAIL --password-stdin` replaces an administrator password, revokes all sessions for that administrator, and clears that account's login lockout. Use it as the host-authorized recovery path after repeated failed logins.
 - `pgbase admin upsert --email EMAIL --password-stdin` creates an absent administrator or reactivates an existing administrator with a new password and revoked sessions. Reactivation retains that administrator's OTP and IP policy. `admin update` is an alias for this password-changing operation; it has no other update fields. `admin delete --email EMAIL` refuses to delete the final active administrator.
 - `pgbase admin otp enable --email EMAIL --secret-stdin` stores a base32 TOTP secret encrypted under `PGBASE_TOKEN_SECRET` and invalidates that administrator's sessions. A protected administrator must submit `otpCode` with the normal admin login request; the embedded UI prompts after an `otp_required` response. `admin otp disable --email EMAIL` removes the factor and invalidates sessions.
-- `pgbase admin ip allow|deny --email EMAIL --cidr CIDR` manages canonical CIDR entries; `admin ip list --email EMAIL` prints them. Once entries exist, login and every administrator session request must originate within one allowed prefix. Proxy forwarding is honored only for `PGBASE_TRUSTED_PROXIES`.
+- `pgbase admin ip allow|deny --email EMAIL --cidr CIDR` manages canonical CIDR entries; `admin ip list --email EMAIL` prints them. Once entries exist, login and every administrator session request must originate within one allowed prefix. Proxy forwarding is honored only for `PGBASE_TRUSTED_PROXIES`. The administrator profile API shows the address it sees and refuses a list that would exclude the caller; the CLI is the override.
 - Rotate a PostgreSQL password in a coordinated database/application change so old connections can drain and new instances receive the new `PGBASE_DATABASE_URL` without exposing it.
+
+## Managed backup upgrade note
+
+`pgbase serve` with `PGBASE_BACKUPS_DIRECTORY` registers the scheduled `pgbase.managed-backup` job. The first start that registers it clears stored `backups.enabled`/`backups.keep` values, which earlier releases ignored under `pgbase serve`, and logs a warning. Scheduled backups stay off and archives keep being pruned by the Backup storage retention until an administrator changes the settings. Before deploying, check `SELECT enabled FROM pgbase_meta.scheduled_jobs WHERE name='pgbase.managed-backup'`: a row there (created by an embedding application or by `pgbase js watch` / user-migration commands run with `PGBASE_BACKUPS_DIRECTORY`) skips that clearing, so review the stored backups settings first. Retention precedence is a positive Settings **Keep**, otherwise the Backup storage value (seeded once from `PGBASE_BACKUPS_RETENTION`); see [S3 backups](backup-s3.md).
 
 ## Zero-downtime limits
 

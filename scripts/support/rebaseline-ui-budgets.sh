@@ -13,8 +13,8 @@ value() { jq -r ".metrics.$1" <<<"$metrics"; }
 
 # "handwritten runtime lines" also counts Go; Go growth needs its own accounting.
 go_runtime="$(value runtime.go.loc)"
-if [[ "$go_runtime" != 94993 ]]; then
-	echo "Go runtime is $go_runtime, not the 94993 recorded in loc_budget_test.go; account for it there by hand" >&2
+if [[ "$go_runtime" != 96262 ]]; then
+	echo "Go runtime is $go_runtime, not the 96262 recorded in loc_budget_test.go; account for it there by hand" >&2
 	exit 1
 fi
 

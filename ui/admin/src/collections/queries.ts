@@ -1,6 +1,7 @@
 import { infiniteQueryOptions, queryOptions, useQuery, type InfiniteData, type QueryClient } from "@tanstack/react-query";
 import { listCollections, type Collection } from "../api/collections";
 import { fileURL, getRecord, listRecordFiles, listRecords, mintFileToken, publicFileURL, type RecordData, type RecordPage, type StoredFile } from "../api/records";
+import type { Translate } from "../i18n";
 
 export const collectionsQuery = queryOptions({
   queryKey: ["collections"],
@@ -20,13 +21,19 @@ export const recordsQuery = (collection: string, filter: string, sort: string, e
   infiniteQueryOptions({
     queryKey: ["records", collection, "list", { filter, sort, expand }],
     queryFn: ({ pageParam, signal }) =>
-      listRecords(collection, { filter: filter || undefined, sort: sort || undefined, expand: expand || undefined, cursor: pageParam, limit: pageSize, signal }),
+      listRecords(collection, { filter: filter || undefined, sort: sort || undefined, expand: expand || undefined, cursor: pageParam, limit: pageSize, total: pageParam ? undefined : true, signal }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor,
     // Refetching an infinite list replays every loaded page; past a few pages that is left to Refresh.
     refetchOnMount: (query) => (query.state.data?.pages.length ?? 0) <= 3,
     refetchOnReconnect: (query) => (query.state.data?.pages.length ?? 0) <= 3,
   });
+
+/** "200 of 1,234 loaded" while pages remain (the first page carries the bounded total), else the loaded count. */
+export function countText(t: Translate, loaded: number, more: boolean, first?: RecordPage): string {
+  if (!more || first?.totalItems === undefined) return t("records.count", { count: loaded });
+  return t(first.totalCapped ? "records.loadedOfAtLeast" : "records.loadedOf", { count: loaded, total: first.totalItems.toLocaleString() });
+}
 
 /** Edits the loaded list pages in place, so a save or delete never refetches every loaded page. */
 function patchLists(queryClient: QueryClient, collection: string, update: (items: RecordData[]) => RecordData[]) {

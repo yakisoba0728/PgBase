@@ -1,51 +1,31 @@
-import { useState, type FormEvent } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Searchbar } from "../components/Field";
-import { RiHashtag, RiReplyLine } from "@remixicon/react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { RiCheckboxCircleLine, RiReplyLine } from "@remixicon/react";
 import { retryRealtimeEvent } from "../api/realtime";
 import { errorText } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
-import { ErrorState, Loader } from "../components/Feedback";
+import { EmptyState, ErrorState, Loader, LoadMore } from "../components/Feedback";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { isUuid } from "./format";
 import { formatDuration } from "../app/format";
-import { realtimeQuery } from "./queries";
+import { deadEventsQuery, realtimeKey, realtimeQuery } from "./queries";
 import { useTimeFormat } from "../app/format";
 import "../styles/ops.css";
 
 export function RealtimeActions() {
-  return <RefreshButton queryKey={realtimeQuery.queryKey} />;
+  return <RefreshButton queryKey={realtimeKey} />;
 }
 
-/** Outbox delivery counts (polled) and a retry for one dead event. */
+/** Outbox delivery counts (polled) and the dead events, each with a retry. */
 export function RealtimeView() {
   const t = useT();
   const time = useTimeFormat();
-  const queryClient = useQueryClient();
   const status = useQuery(realtimeQuery);
-  const [eventId, setEventId] = useState("");
-  const retry = useMutation({
-    mutationFn: (id: string) => retryRealtimeEvent(id),
-    // 204 also covers ids that are not dead, so this only says the request went through.
-    onSuccess: () => {
-      toast(t("ops.realtime.retried"));
-      setEventId("");
-    },
-    onError: (error) => toast(errorText(t, error), "danger"),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: realtimeQuery.queryKey }),
-  });
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (isUuid(eventId)) retry.mutate(eventId.trim());
-  };
 
   if (status.isPending) return <Loader />;
   if (status.isError) return <ErrorState error={status.error} onRetry={status.refetch} />;
   const data = status.data;
   const dead = String(data.dead) !== "0";
   const lag = data.oldestPending ? Date.now() - new Date(data.oldestPending).getTime() : null;
-  const invalid = eventId.trim() !== "" && !isUuid(eventId);
 
   return (
     <div className="page-content ops-realtime">
@@ -72,15 +52,67 @@ export function RealtimeView() {
           <dd className="mono">{String(data.cursorFloor)}</dd>
         </div>
       </dl>
-      <section className="ops-section" aria-labelledby="ops-retry-title">
-        <h2 id="ops-retry-title" className="subtitle">{t("ops.realtime.retryTitle")}</h2>
-        <p className="txt-hint">{t("ops.realtime.retryText")}</p>
-        <form className="ops-inline" onSubmit={onSubmit}>
-          <Searchbar label={t("ops.realtime.eventId")} icon={RiHashtag} type="text" mono invalid={invalid} name="eventId" value={eventId} onChange={(event) => setEventId(event.target.value)} placeholder="00000000-0000-0000-0000-000000000000" />
-          <Button type="submit" variant="secondary" icon={RiReplyLine} disabled={!isUuid(eventId)} loading={retry.isPending}>{t("common.retry")}</Button>
-        </form>
-        {invalid && <p className="field-error">{t("ops.realtime.badId")}</p>}
-      </section>
+      <DeadEvents />
     </div>
+  );
+}
+
+function DeadEvents() {
+  const t = useT();
+  const time = useTimeFormat();
+  const queryClient = useQueryClient();
+  const dead = useInfiniteQuery(deadEventsQuery);
+  const retry = useMutation({
+    mutationFn: (id: string) => retryRealtimeEvent(id),
+    onSuccess: () => toast(t("ops.realtime.retried")),
+    onError: (error) => toast(errorText(t, error), "danger"),
+    // A retried event leaves the dead list; the cursor stays valid, so a refetch is enough.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: realtimeKey }),
+  });
+  const items = dead.data?.pages.flatMap((page) => page.items) ?? [];
+
+  return (
+    <section className="ops-section" aria-labelledby="ops-dead-title">
+      <h2 id="ops-dead-title" className="subtitle">{t("ops.realtime.deadTitle")}</h2>
+      <p className="txt-hint">{t("ops.realtime.deadText")}</p>
+      {dead.isPending ? (
+        <Loader />
+      ) : dead.isError ? (
+        <ErrorState error={dead.error} onRetry={dead.refetch} />
+      ) : items.length === 0 ? (
+        <EmptyState icon={RiCheckboxCircleLine}>{t("ops.realtime.noDead")}</EmptyState>
+      ) : (
+        <>
+          <table className="grid ops-grid" aria-label={t("ops.realtime.deadTitle")}>
+            <thead>
+              <tr>
+                <th>{t("ops.realtime.deadAt")}</th>
+                <th>{t("ops.realtime.record")}</th>
+                <th className="num">{t("ops.realtime.attempts")}</th>
+                <th>{t("ops.realtime.eventId")}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.eventId}>
+                  <td className="mono cell-time">{time(item.deadAt)}</td>
+                  <td className="ops-request">
+                    <span className="ops-method">{item.operation}</span>
+                    <span className="mono">{item.collectionName}/{item.recordId}</span>
+                  </td>
+                  <td className="num mono">{item.attempts}</td>
+                  <td className="mono">{item.eventId}</td>
+                  <td>
+                    <Button size="sm" variant="secondary" icon={RiReplyLine} loading={retry.isPending && retry.variables === item.eventId} disabled={retry.isPending} onClick={() => retry.mutate(item.eventId)}>{t("common.retry")}</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <LoadMore query={dead} />
+        </>
+      )}
+    </section>
   );
 }

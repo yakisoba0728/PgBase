@@ -274,7 +274,8 @@ func accessLogMiddleware(logger *slog.Logger, settings *runtimesettings.Controll
 		}
 		metadata := &requestLogContext{includeAuth: configured.IncludeAuth}
 		if configured.IncludeIP {
-			if address, ok := clientIP(r, trustedProxies()); ok {
+			// "unknown" is not an inet value and would fail the whole durable batch.
+			if address, ok := clientIP(r, trustedProxies()); ok && address != "unknown" {
 				metadata.clientIP = address
 			}
 		}

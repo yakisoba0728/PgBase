@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 func TestAuthAdministrationPolicyTakesEffectAndRevokesSessions(t *testing.T) {
@@ -167,8 +168,13 @@ func TestDurationOnlyTokenPolicyUpdatePreservesLiveSessionUntilExplicitRotation(
 		}
 	}
 	created, err := s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 120})
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !created.KeyConfigured {
+		t.Fatalf("created token policy = %+v, %v", created, err)
+	}
+	// Every stored policy row carries a key (key_ciphertext is NOT NULL); purposes
+	// without a row are absent from the list, not listed with keyConfigured=false.
+	if listed, err := s.ListTokenPolicies(ctx, DefaultCollectionID); err != nil || len(listed) != 1 || listed[0].Purpose != "session" || !listed[0].KeyConfigured {
+		t.Fatalf("listed token policies = %+v, %v", listed, err)
 	}
 	session, err := s.Register(ctx, "duration-policy@example.test", "Correct horse battery", "duration-policy")
 	if err != nil {
@@ -267,4 +273,92 @@ func TestAuthAdministrationNeverReturnsAndPreservesSecrets(t *testing.T) {
 	if len(settings.Providers) != 1 || !settings.Providers[0].SecretConfigured || settings.Providers[0].ClientSecret != "" {
 		t.Fatalf("redacted provider = %#v", settings.Providers)
 	}
+}
+
+func TestAuthAdministrationWritesHonourIfMatch(t *testing.T) {
+	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	realmID := uuid.New()
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: realmID, Name: "etag_" + realmID.String()[:8]}); err != nil {
+		t.Fatal(err)
+	}
+	read, err := service.GetAuthAdministration(ctx, realmID)
+	if err != nil || read.Policy.ETag == "" {
+		t.Fatalf("read policy = %+v, %v", read.Policy, err)
+	}
+	first := read.Policy
+	first.MinimumPasswordBytes = 16
+	saved, err := service.SetAuthPolicy(ctx, realmID, first)
+	if err != nil || saved.ETag == "" || saved.ETag == read.Policy.ETag {
+		t.Fatalf("first write = %+v, %v", saved, err)
+	}
+	second := read.Policy
+	second.MinimumPasswordBytes = 20
+	if _, err := service.SetAuthPolicy(ctx, realmID, second); !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("second write on a stale read = %v", err)
+	}
+	if again, err := service.GetAuthAdministration(ctx, realmID); err != nil || again.Policy.ETag != saved.ETag || again.Policy.MinimumPasswordBytes != 16 {
+		t.Fatalf("after refused write = %+v, %v", again.Policy, err)
+	}
+	if _, err := service.SetAuthPolicy(ctx, realmID, AuthPolicy{MinimumPasswordBytes: 8}); !errors.Is(err, ErrValidation) {
+		t.Fatalf("invalid policy = %v", err)
+	}
+
+	template := MailTemplate{Purpose: "verify", Subject: "Verify", Body: "Open {{action_url}}", ETag: `"missing"`}
+	if _, err := service.PutMailTemplate(ctx, realmID, template); !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("If-Match on an absent template = %v", err)
+	}
+	// Two administrators creating the same absent template: the second create-only write is refused.
+	template.ETag = CreateOnly
+	created, err := service.PutMailTemplate(ctx, realmID, template)
+	if err != nil || created.ETag == "" {
+		t.Fatalf("create template = %+v, %v", created, err)
+	}
+	if _, err := service.PutMailTemplate(ctx, realmID, template); !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("second create-only template write = %v", err)
+	}
+	template.ETag = created.ETag
+	if _, err := service.PutMailTemplate(ctx, realmID, template); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.PutMailTemplate(ctx, realmID, template); !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("stale template write = %v", err)
+	}
+
+	provider := OAuthProviderConfig{Name: "oidc", Enabled: true, AuthorizationURL: "https://id.example/authorize", TokenURL: "https://id.example/token", UserInfoURL: "https://id.example/userinfo", ClientID: "client", ClientSecret: "secret"}
+	stored, err := service.PutOAuthProvider(ctx, realmID, provider)
+	if err != nil || stored.ETag == "" {
+		t.Fatalf("create provider = %+v, %v", stored, err)
+	}
+	provider.ClientSecret, provider.ETag = "", stored.ETag
+	if _, err := service.PutOAuthProvider(ctx, realmID, provider); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.PutOAuthProvider(ctx, realmID, provider); !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("stale provider write = %v", err)
+	}
+	smtp := SMTPAdminConfig{Address: "smtp.example.test:587", From: "auth@example.test", Username: "mailer", Password: "smtp-secret"}
+	storedSMTP, err := service.PutSMTPConfig(ctx, realmID, smtp)
+	if err != nil || storedSMTP.ETag == "" || !storedSMTP.PasswordConfigured {
+		t.Fatalf("create smtp = %+v, %v", storedSMTP, err)
+	}
+	smtp.Password, smtp.ETag = "", storedSMTP.ETag
+	if kept, err := service.PutSMTPConfig(ctx, realmID, smtp); err != nil || !kept.PasswordConfigured {
+		t.Fatalf("smtp edit without password = %+v, %v", kept, err)
+	}
+	if _, err := service.PutSMTPConfig(ctx, realmID, smtp); !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("stale smtp write = %v", err)
+	}
+	provider.ETag, provider.TokenURL = "", "not a url"
+	if _, err := service.PutOAuthProvider(ctx, realmID, provider); !errors.Is(err, ErrValidation) || validationField(err) != "tokenUrl" {
+		t.Fatalf("invalid provider = %v", err)
+	}
+}
+
+func validationField(err error) string {
+	var invalid *schema.ValidationError
+	if !errors.As(err, &invalid) || len(invalid.Details) != 1 {
+		return ""
+	}
+	return invalid.Details[0].Field
 }

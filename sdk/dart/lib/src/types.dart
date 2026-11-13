@@ -25,10 +25,20 @@ final class PgBaseUuid {
 }
 
 final class RecordPage<T> {
-  const RecordPage({required this.items, this.nextCursor});
+  const RecordPage({
+    required this.items,
+    this.nextCursor,
+    this.totalItems,
+    this.totalCapped = false,
+  });
 
   final List<T> items;
   final String? nextCursor;
+
+  /// Present only when the list asked for [Query.total]; it stops at 10,000
+  /// with [totalCapped].
+  final int? totalItems;
+  final bool totalCapped;
 }
 
 final class RecordResult<T> {
@@ -126,6 +136,7 @@ final class Query {
     this.fields,
     this.cursor,
     this.limit,
+    this.total = false,
     this.requestKey,
     this.autoCancel = true,
   });
@@ -139,6 +150,10 @@ final class Query {
   final String? cursor;
   final int? limit;
 
+  /// Adds a bounded count of all matching records (`totalItems`); ask on the
+  /// first page only.
+  final bool total;
+
   /// Cancellation metadata is never sent as a query parameter.
   final String? requestKey;
   final bool autoCancel;
@@ -150,6 +165,7 @@ final class Query {
     if (fields != null) 'fields': fields!,
     if (cursor != null) 'cursor': cursor!,
     if (limit != null) 'limit': '$limit',
+    if (total) 'total': 'true',
   };
 }
 

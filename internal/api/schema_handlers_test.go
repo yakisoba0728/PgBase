@@ -755,6 +755,21 @@ func TestSchemaRoutesRequireAuthenticationAndMapSafeErrors(t *testing.T) {
 		assertErrorCode(t, response.Body.Bytes(), "schema_conflict")
 	})
 
+	t.Run("invalid view SQL keeps its details", func(t *testing.T) {
+		err := errors.Join(schema.ErrConflict, &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "view.sql", Code: "invalid_sql"}, {Field: "view.sql.position", Code: "15"}}})
+		response := httptest.NewRecorder()
+		writeSchemaError(response, httptest.NewRequest(http.MethodPost, "/api/admin/collections/view/sample", nil), err)
+		var body struct {
+			Error struct {
+				Code    string              `json:"code"`
+				Details map[string][]string `json:"details"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(response.Body.Bytes(), &body) != nil || response.Code != http.StatusUnprocessableEntity || body.Error.Code != "invalid_view_sql" || body.Error.Details["view.sql.position"][0] != "15" {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+	})
+
 	t.Run("retryable database errors are service unavailable", func(t *testing.T) {
 		auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator}
 		schemas := &fakeSchemaService{catalogErr: &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}}

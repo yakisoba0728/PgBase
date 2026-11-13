@@ -3,7 +3,6 @@ import { useSearchState } from "../app/search";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RiEyeLine, RiMailSendLine } from "@remixicon/react";
 import {
-  getAuthAdministration,
   previewMailTemplate,
   putMailTemplate,
   putSMTPConfig,
@@ -22,7 +21,7 @@ import { bareEmail, mailPurposes, placeholderFor, templateProblems, validEndpoin
 import { FormSection as Section } from "../components/FormSection";
 import { sanitizeMailHtml } from "./mailPreview";
 import { administrationQuery } from "./queries";
-import { assertUnchanged, problemText, reportFailure, StaleError, StaleNotice, useDraft } from "./useDraft";
+import { isStale, problemText, reportFailure, StaleNotice, useDraft } from "./useDraft";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
 
@@ -73,10 +72,9 @@ function TemplateForm({ collection, administration, purpose, initial, configured
   };
 
   const save = useMutation({
-    mutationFn: async (force: boolean) => {
-      const stored = async () => (await getAuthAdministration(collection.id)).templates?.find((candidate) => candidate.purpose === purpose) ?? null;
-      await assertUnchanged(force, stored, administration.templates?.find((candidate) => candidate.purpose === purpose) ?? null);
-      return putMailTemplate(collection.id, purpose, { subject: draft.subject, body: draft.body, htmlBody: draft.htmlBody });
+    mutationFn: (force: boolean) => {
+      const stored = administration.templates?.find((candidate) => candidate.purpose === purpose);
+      return putMailTemplate(collection.id, purpose, { subject: draft.subject, body: draft.body, htmlBody: draft.htmlBody }, force ? undefined : (stored?.etag ?? null));
     },
     onSuccess: (saved) => {
       const others = (administration.templates ?? []).filter((candidate) => candidate.purpose !== purpose);
@@ -110,7 +108,7 @@ function TemplateForm({ collection, administration, purpose, initial, configured
       <div className="page-content">
         <div className="auth-form auth-form-wide">
           {views}
-          {save.error instanceof StaleError && <StaleNotice busy={save.isPending} onReload={reload} onOverwrite={() => save.mutate(true)} />}
+          {isStale(save.error) && <StaleNotice busy={save.isPending} onReload={reload} onOverwrite={() => save.mutate(true)} />}
           <form id="auth-template" className="auth-form" onSubmit={onSubmit} noValidate>
             <p className="txt-hint">{configured ? t("auth.mail.custom") : t("auth.mail.builtIn")} {t("auth.mail.placeholders", { placeholder })}</p>
             <Field label={t("auth.mail.subject")} value={draft.subject} error={error("subject")} onChange={(event) => patch({ subject: event.target.value })} />
@@ -167,10 +165,7 @@ function SmtpForm({ collection, administration, views }: { collection: AuthColle
 
   const save = useMutation({
     // The whole form is sent; an empty password keeps the stored one.
-    mutationFn: async (force: boolean) => {
-      await assertUnchanged(force, async () => (await getAuthAdministration(collection.id)).smtp ?? null, administration.smtp ?? null);
-      return putSMTPConfig(collection.id, { ...draft, password: draft.password || undefined });
-    },
+    mutationFn: (force: boolean) => putSMTPConfig(collection.id, { ...draft, password: draft.password || undefined }, force ? undefined : (administration.smtp?.etag ?? null)),
     onSuccess: (saved) => {
       queryClient.setQueryData(administrationQuery(collection.id).queryKey, { ...administration, smtp: saved });
       toast(t("auth.savedToast"));
@@ -206,7 +201,7 @@ function SmtpForm({ collection, administration, views }: { collection: AuthColle
       <div className="page-content">
         <div className="auth-form auth-form-wide">
           {views}
-          {save.error instanceof StaleError && <StaleNotice busy={save.isPending} onReload={reload} onOverwrite={() => save.mutate(true)} />}
+          {isStale(save.error) && <StaleNotice busy={save.isPending} onReload={reload} onOverwrite={() => save.mutate(true)} />}
           <form id="auth-smtp" className="auth-form" onSubmit={onSubmit} noValidate autoComplete="off">
             <p className="txt-hint">{smtp ? t("auth.mail.smtpOwn") : t("auth.mail.smtpServer")}</p>
             <div className="auth-grid">
