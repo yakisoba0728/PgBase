@@ -65,7 +65,7 @@ export const systemKo: Record<keyof typeof systemEn, string> = {
   "system.hint.proxy.trustedProxyCIDRs": "한 줄에 마스킹된 CIDR 하나. 예: 10.0.0.0/8. 0.0.0.0/0은 안 됩니다.",
   "system.hint.rateLimits.excludedIPs": "한 줄에 주소나 CIDR 하나. 이 주소는 한도를 적용받지 않습니다.",
   "system.hint.logs.includeIP": "아래 신뢰할 프록시 설정을 따릅니다.",
-  "system.hint.logs.includeAuth": "관리자, 사용자 또는 토큰 ID를 남깁니다.",
+  "system.hint.logs.includeAuth": "관리자 또는 사용자 ID를 남깁니다. 서비스 토큰과 익명 요청에는 남지 않습니다.",
 
   "system.option.system": "시스템 설정 따름",
   "system.option.light": "라이트",
