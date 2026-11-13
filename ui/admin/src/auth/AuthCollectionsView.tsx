@@ -12,7 +12,7 @@ import { EmptyState, Loader } from "../components/Feedback";
 import { Page } from "../components/Page";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { deleteCollection, hasUsers } from "../schema/apply";
+import { deleteCollection, deleteRefusal } from "../schema/apply";
 import { MailTab } from "./MailTab";
 import { PolicyTab } from "./PolicyTab";
 import { ProvidersTab } from "./ProvidersTab";
@@ -128,7 +128,7 @@ function DeleteCollection({ collection }: { collection: AuthCollection }) {
       await queryClient.invalidateQueries({ queryKey: ["auth"] });
       navigate(root, { replace: true });
     },
-    onError: (failure) => toast(hasUsers(failure) ? t("auth.collections.hasUsers") : errorText(t, failure), "danger"),
+    onError: (failure) => toast(deleteRefusal(t, failure), "danger"),
   });
   const close = () => setOpen(false);
   return (

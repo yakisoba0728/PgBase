@@ -362,7 +362,10 @@ func (s *Service) executeClaimedOperation(
 			err = s.syncAuthRealmFields(ctx, tx, catalog, current, result.Collection)
 		}
 	case changeDelete:
-		if err = deletePairedAuthRealm(ctx, tx, current); err == nil {
+		if err = refuseRealmRelationsTo(ctx, tx, current.Name); err == nil {
+			err = deletePairedAuthRealm(ctx, tx, current)
+		}
+		if err == nil {
 			err = store.DeleteCollection(ctx, current.ID)
 		}
 	}

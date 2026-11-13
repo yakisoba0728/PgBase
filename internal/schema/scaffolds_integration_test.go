@@ -128,10 +128,125 @@ func TestSingleChangeKeepsAuthCollectionAndRealmTogether(t *testing.T) {
 	if _, err = pool.Exec(ctx, `delete from pgbase_meta.users where auth_collection_id=$1`, realm); err != nil {
 		t.Fatal(err)
 	}
+	// Another realm's relation field still targets it (BA2): refused by name, at plan and apply.
+	if err = apply(NewDeleteChange("pair_renamed")); detail(err) != "authCollections.users.fields.friend:collection_referenced" {
+		t.Fatalf("delete while a realm relation targets it = %v", err)
+	}
+	setFriend := func(fields string) {
+		if _, err := pool.Exec(ctx, `update pgbase_meta.auth_collections set fields_json=$1::jsonb where name='users'`, fields); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setFriend(`[]`)
+	deletePlan, err := service.Preview(ctx, NewDeleteChange("pair_renamed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	setFriend(`[{"name":"friend","type":"relation","relation":{"targetCollection":"pair_renamed","cardinality":"single","onDelete":"restrict"}}]`)
+	if _, err = service.Apply(ctx, LegacyApply(NewDeleteChange("pair_renamed"), deletePlan, admin)); detail(err) != "authCollections.users.fields.friend:collection_referenced" {
+		t.Fatalf("apply delete while a realm relation targets it = %v", err)
+	}
+	setFriend(`[]`)
 	if err = apply(NewDeleteChange("pair_renamed")); err != nil {
 		t.Fatal(err)
 	}
 	if realmNames()["pair_renamed"] {
 		t.Fatal("deleting the auth collection left its realm behind")
 	}
+
+	// An auth collection without a realm (created before pairing) may not adopt an unrelated realm by rename (BA5).
+	importAuth("pair_orphan")
+	if _, err = pool.Exec(ctx, `delete from pgbase_meta.auth_collections where name='pair_orphan'`); err != nil {
+		t.Fatal(err)
+	}
+	if catalog, err = service.Catalog(ctx); err != nil {
+		t.Fatal(err)
+	}
+	orphan := catalog.Collections["pair_orphan"].ID
+	if err = apply(NewUpdateChange(UpdateCollectionInput{Name: "pair_taken", CollectionID: &orphan})); detail(err) != "name:auth_collection_name_taken" {
+		t.Fatalf("realm-less rename onto an unrelated realm = %v", err)
+	}
+	if err = apply(NewUpdateChange(UpdateCollectionInput{Name: "pair_free", CollectionID: &orphan})); err != nil || realmNames()["pair_free"] {
+		t.Fatalf("realm-less rename onto a free name = %v", err)
+	}
+}
+
+func TestDesignerFieldRenameNeverOverwritesRealmOnlyField(t *testing.T) {
+	pool, service, admin := newSchemaServiceTest(t)
+	service.SetAuthExecutablePolicyValidator(authExecutableValidator{})
+	ctx := context.Background()
+	value := service.Scaffolds().Auth
+	value.Collection.Name, value.AuthCollection.Name = "nick_auth", "nick_auth"
+	value.Collection.Fields = append(value.Collection.Fields, FieldInput{Name: "nickname", Type: TypeText})
+	value.AuthCollection.Fields = []FieldInput{{Name: "nickname", Type: TypeText}}
+	document := SchemaDocument{Format: SchemaDocumentFormat, Collections: []SchemaDocumentCollection{value.Collection}, AuthCollections: []SchemaDocumentAuthCollection{value.AuthCollection}}
+	imported, err := service.PreviewSchemaImport(ctx, document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: imported.BaseVersion, Checksum: imported.Checksum, Actor: admin, OperationID: uuid.New(), IdempotencyKey: "nick-auth-import-0001"}); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := service.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs := []FieldInput{}
+	for _, field := range catalog.Collections["nick_auth"].Fields {
+		id, system := field.ID, field.System
+		input := FieldInput{ID: &id, Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Hidden: field.Hidden, System: &system}
+		if field.Name == "nickname" {
+			input.Name = "nick"
+		}
+		inputs = append(inputs, input)
+	}
+	rename := NewUpdateChange(UpdateCollectionInput{Name: "nick_auth", Fields: inputs})
+	plan, err := service.Preview(ctx, rename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A realm-only field with users' values appears after the plan (BA3).
+	user := uuid.New()
+	if _, err = pool.Exec(ctx, `update pgbase_meta.auth_collections set fields_json=fields_json||'[{"name":"nick","type":"text"}]' where name='nick_auth'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,active,created_at,updated_at) select $1,id,'nick@example.test','fixture',true,now(),now() from pgbase_meta.auth_collections where name='nick_auth'`, user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `insert into pgbase_meta.user_auth_profiles(user_id,attributes,updated_at) values($1,'{"nickname":"moved","nick":"kept"}',now())`, user); err != nil {
+		t.Fatal(err)
+	}
+	want := "fields.nick:realm_field_exists"
+	if _, err = service.Apply(ctx, LegacyApply(rename, plan, admin)); !hasDetail(err, want) {
+		t.Fatalf("apply rename onto a realm-only field = %v", err)
+	}
+	if _, err = service.Preview(ctx, rename); !hasDetail(err, want) {
+		t.Fatalf("plan rename onto a realm-only field = %v", err)
+	}
+	var attributes string
+	if err = pool.QueryRow(ctx, `select attributes::text from pgbase_meta.user_auth_profiles where user_id=$1`, user).Scan(&attributes); err != nil || attributes != `{"nick": "kept", "nickname": "moved"}` {
+		t.Fatalf("profile after refused rename = %s, %v", attributes, err)
+	}
+}
+
+func TestSchemaImportRefusesRealmRelationWithoutTarget(t *testing.T) {
+	_, service, admin := newSchemaServiceTest(t)
+	service.SetAuthExecutablePolicyValidator(authExecutableValidator{})
+	ctx := context.Background()
+	value := service.Scaffolds().Auth
+	value.Collection.Name, value.AuthCollection.Name = "dangle_auth", "dangle_auth"
+	value.AuthCollection.Fields = []FieldInput{{Name: "ghost", Type: TypeRelation, Relation: &RelationInput{TargetCollection: "no_such_collection", Cardinality: RelationSingle}}}
+	document := SchemaDocument{Format: SchemaDocumentFormat, Collections: []SchemaDocumentCollection{value.Collection}, AuthCollections: []SchemaDocumentAuthCollection{value.AuthCollection}}
+	plan, err := service.PreviewSchemaImport(ctx, document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: admin, OperationID: uuid.New(), IdempotencyKey: "dangle-import-0001"}); !hasDetail(err, "authCollections.dangle_auth.fields.ghost:invalid") {
+		t.Fatalf("import of a realm relation without a target = %v", err)
+	}
+}
+
+func hasDetail(err error, want string) bool {
+	var invalid *ValidationError
+	return errors.As(err, &invalid) && len(invalid.Details) == 1 && invalid.Details[0].Field+":"+invalid.Details[0].Code == want
 }

@@ -11,6 +11,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/validation"
 )
 
 type realmOAuthProvider struct{ identity OAuthIdentity }
@@ -56,6 +58,30 @@ func TestAuthCollectionsIsolateIdentitySessionsAndProfiles(t *testing.T) {
 	}
 	if err := service.DeleteAuthCollection(ctx, first); !errors.Is(err, ErrConflict) {
 		t.Fatalf("delete populated realm = %v", err)
+	}
+}
+
+func TestRealmDeleteRefusedWhileAnotherRealmRelationTargetsIt(t *testing.T) {
+	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	ctx := context.Background()
+	target, source := uuid.New(), uuid.New()
+	targetName := "target_" + target.String()[:8]
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: target, Name: targetName}); err != nil {
+		t.Fatal(err)
+	}
+	friend := schema.FieldInput{Name: "friend", Type: schema.TypeRelation, Relation: &schema.RelationInput{TargetCollection: targetName, Cardinality: schema.RelationSingle}}
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: source, Name: "source_" + source.String()[:8], Fields: []schema.FieldInput{friend}}); err != nil {
+		t.Fatal(err)
+	}
+	var invalid *validation.Error
+	if err := service.DeleteAuthCollection(ctx, target); !errors.Is(err, ErrConflict) || !errors.As(err, &invalid) || invalid.Details[0].Code != "collection_referenced" {
+		t.Fatalf("referenced realm refusal = %v", err)
+	}
+	if err := service.DeleteAuthCollection(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.DeleteAuthCollection(ctx, target); err != nil {
+		t.Fatalf("delete after the reference is gone = %v", err)
 	}
 }
 

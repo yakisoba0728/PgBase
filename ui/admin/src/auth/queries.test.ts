@@ -4,7 +4,8 @@ import type { AuthCollection, AuthRecord } from "../api/authCollections";
 import { ApiError } from "../api/http";
 import type { ManagedUser } from "../api/users";
 import { userQuery, userRecordQuery, usersQuery } from "./queries";
-import { hasUsers } from "../schema/apply";
+import { deleteRefusal, hasUsers } from "../schema/apply";
+import { translate } from "../i18n";
 import { isStale, rejectedFields } from "./useDraft";
 
 const listUsers = vi.hoisted(() => vi.fn());
@@ -61,5 +62,12 @@ describe("save failures", () => {
     expect(hasUsers(new ApiError(422, "validation_failed", "bad", { name: ["auth_collection_has_users"] }))).toBe(true);
     expect(hasUsers(new ApiError(409, "conflict", "conflict", { id: ["has_users"] }))).toBe(true);
     expect(hasUsers(new ApiError(409, "conflict", "conflict", { id: ["managed_by_schema"] }))).toBe(false);
+  });
+
+  it("names the auth-collection fields that still refer to a collection being deleted", () => {
+    const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars);
+    expect(deleteRefusal(t, new ApiError(409, "collection_referenced", "referenced", { "authCollections.users.fields.friend": ["collection_referenced"] }))).toBe("Auth collection fields still refer to this one: users.friend.");
+    expect(deleteRefusal(t, new ApiError(409, "conflict", "conflict", { id: ["collection_referenced"] }))).toBe("Other collections refer to this one.");
+    expect(deleteRefusal(t, new ApiError(409, "conflict", "conflict", { id: ["has_users"] }))).toBe(t("auth.collections.hasUsers"));
   });
 });

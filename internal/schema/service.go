@@ -151,10 +151,26 @@ func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err er
 		if _, err := pairedAuthRealm(ctx, s.pool, current, ""); err != nil {
 			return Plan{}, err
 		}
+		if err := refuseRealmRelationsTo(ctx, s.pool, current.Name); err != nil {
+			return Plan{}, err
+		}
 	}
 	projected, err := projectCatalog(catalog, change, plan)
 	if err != nil {
 		return Plan{}, err
+	}
+	if change.kind == changeUpdate && s.authPolicyValidator != nil {
+		// Preview of the apply-time refusal in syncAuthRealmFields, so it lands on the field.
+		current, _ := collectionForUpdate(catalog, change.update)
+		if next := projected.Collections[plan.Definition.Name]; next.Type == CollectionTypeAuth {
+			held, err := authRealmFieldNames(ctx, s.pool, current.Name, "")
+			if err == nil && held != nil {
+				_, _, _, err = authRealmFieldChange(projected, current, next, held)
+			}
+			if err != nil {
+				return Plan{}, err
+			}
+		}
 	}
 	if _, err := s.compileCatalog(projected); err != nil {
 		return Plan{}, err

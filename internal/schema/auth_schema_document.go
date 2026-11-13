@@ -257,7 +257,13 @@ func (s *Service) applyDocumentAuthCollections(ctx context.Context, tx pgx.Tx, c
 			}
 		}
 	}
-	return nil
+	// The imported realm fields, against the imported catalog (deleteMissing included):
+	// a relation may not target a name that is neither a collection nor a realm.
+	names := make([]string, 0, len(values))
+	for _, v := range values {
+		names = append(names, v.Name)
+	}
+	return refuseRealmRelations(ctx, tx, `a.name=any($1) and f->'relation'->>'targetCollection' not in (select name from pgbase_meta.collections union all select name from pgbase_meta.auth_collections)`, names, "invalid")
 }
 
 func (s *Service) newImportedAuthTokenKey(purpose string) (string, []byte, error) {
@@ -350,7 +356,16 @@ func renameAuthRealmReferences(ctx context.Context, db database.DBTX, oldName, n
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		if err == nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Pairing is by name: an auth collection without a realm must not adopt an unrelated one.
+			var taken bool
+			if err := db.QueryRow(ctx, `select exists(select 1 from pgbase_meta.auth_collections where name=$1)`, newName).Scan(&taken); err != nil {
+				return err
+			}
+			if taken {
+				return validation("name", "auth_collection_name_taken")
+			}
+		} else {
 			if id.String() == defaultAuthRealmID {
 				return validation("name", "default_auth_collection_protected")
 			}
@@ -369,6 +384,35 @@ func renameAuthRealmReferences(ctx context.Context, db database.DBTX, oldName, n
 	return err
 }
 
+// refuseRealmRelations refuses with code when realm relation fields match
+// where ($1 = arg), naming each one as authCollections.<realm>.fields.<field>.
+// Realm-only fields are invisible to the catalog's own relation checks.
+func refuseRealmRelations(ctx context.Context, db database.DBTX, where string, arg any, code string) error {
+	rows, err := db.Query(ctx, `select a.name,f->>'name' from pgbase_meta.auth_collections a, jsonb_array_elements(a.fields_json) f where `+where+` order by 1,2`, arg)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	refusal := &ValidationError{}
+	for rows.Next() {
+		var realm, field string
+		if err := rows.Scan(&realm, &field); err != nil {
+			return err
+		}
+		refusal.Details = append(refusal.Details, ValidationDetail{Field: "authCollections." + realm + ".fields." + field, Code: code})
+	}
+	if err := rows.Err(); err != nil || len(refusal.Details) == 0 {
+		return err
+	}
+	return refusal
+}
+
+// refuseRealmRelationsTo keeps a collection that other realms' relation
+// fields still target, as planDelete does for catalog relations.
+func refuseRealmRelationsTo(ctx context.Context, db database.DBTX, name string) error {
+	return refuseRealmRelations(ctx, db, `a.name<>$1 and f->'relation'->>'targetCollection'=$1`, name, "collection_referenced")
+}
+
 // syncAuthRealmFields mirrors a designer field change of an auth collection
 // into its realm, whose fields drive user profiles. Only fields this change
 // added, altered, renamed or dropped (matched by field id) are applied, so
@@ -378,13 +422,58 @@ func (s *Service) syncAuthRealmFields(ctx context.Context, tx pgx.Tx, catalog Ca
 	if next.Type != CollectionTypeAuth || s.authPolicyValidator == nil {
 		return nil
 	}
+	// The realm row is locked before any profile row, the order profile writers use.
+	held, err := authRealmFieldNames(ctx, tx, next.Name, " for update")
+	if err != nil || held == nil {
+		return err
+	}
+	renames, removed, upserts, err := authRealmFieldChange(catalog, previous, next, held)
+	if err != nil {
+		return err
+	}
+	for _, rename := range renames {
+		// A renamed field keeps its profile values, as the catalog column keeps its data.
+		if _, err := tx.Exec(ctx, `update pgbase_meta.user_auth_profiles p set attributes=(p.attributes-$2::text)||jsonb_build_object($3::text,p.attributes->$2::text) from pgbase_meta.users u join pgbase_meta.auth_collections a on a.id=u.auth_collection_id where p.user_id=u.id and a.name=$1 and p.attributes ? $2::text`, next.Name, rename[0], rename[1]); err != nil {
+			return err
+		}
+	}
+	if len(removed) == 0 && len(upserts) == 0 {
+		return nil
+	}
+	return s.authPolicyValidator.SyncAuthCollectionFields(ctx, tx, next.Name, removed, upserts)
+}
+
+// authRealmFieldNames returns the field names of realm name, or nil when no
+// such realm exists.
+func authRealmFieldNames(ctx context.Context, db database.DBTX, name, lock string) (map[string]bool, error) {
+	var raw []byte
+	err := db.QueryRow(ctx, `select fields_json from pgbase_meta.auth_collections where name=$1`+lock, name).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	var fields []FieldInput
+	if err == nil && json.Unmarshal(raw, &fields) != nil {
+		err = ErrCatalogInvalid
+	}
+	held := make(map[string]bool, len(fields))
+	for _, field := range fields {
+		held[field.Name] = true
+	}
+	return held, err
+}
+
+// authRealmFieldChange diffs a designer change by field id into realm terms:
+// old->new renames, removed names and upserted fields. A renamed or added
+// field may not land on a name the realm already holds (held), which would
+// overwrite users' stored values for it.
+func authRealmFieldChange(catalog Catalog, previous, next Collection, held map[string]bool) (renames [][2]string, removed []string, upserts []FieldInput, err error) {
 	before := map[uuid.UUID]FieldInput{}
 	for _, field := range previous.Fields {
 		if !field.System {
 			before[field.ID] = realmField(catalog, previous, field)
 		}
 	}
-	removed, upserts := []string{}, []FieldInput{}
+	removed, upserts = []string{}, []FieldInput{}
 	for _, field := range next.Fields {
 		if field.System {
 			continue
@@ -392,11 +481,11 @@ func (s *Service) syncAuthRealmFields(ctx context.Context, tx pgx.Tx, catalog Ca
 		value := realmField(catalog, next, field)
 		old, existed := before[field.ID]
 		delete(before, field.ID)
+		if (!existed || old.Name != value.Name) && held[value.Name] {
+			return nil, nil, nil, validation("fields."+value.Name, "realm_field_exists")
+		}
 		if existed && old.Name != value.Name {
-			// A renamed field keeps its profile values, as the catalog column keeps its data.
-			if _, err := tx.Exec(ctx, `update pgbase_meta.user_auth_profiles p set attributes=(p.attributes-$2::text)||jsonb_build_object($3::text,p.attributes->$2::text) from pgbase_meta.users u join pgbase_meta.auth_collections a on a.id=u.auth_collection_id where p.user_id=u.id and a.name=$1 and p.attributes ? $2::text`, next.Name, old.Name, value.Name); err != nil {
-				return err
-			}
+			renames = append(renames, [2]string{old.Name, value.Name})
 			removed = append(removed, old.Name)
 		}
 		if !existed || !reflect.DeepEqual(old, value) {
@@ -406,10 +495,7 @@ func (s *Service) syncAuthRealmFields(ctx context.Context, tx pgx.Tx, catalog Ca
 	for _, field := range before {
 		removed = append(removed, field.Name)
 	}
-	if len(removed) == 0 && len(upserts) == 0 {
-		return nil
-	}
-	return s.authPolicyValidator.SyncAuthCollectionFields(ctx, tx, next.Name, removed, upserts)
+	return renames, removed, upserts, nil
 }
 
 func realmField(catalog Catalog, owner Collection, field Field) FieldInput {
