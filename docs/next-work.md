@@ -6,7 +6,7 @@
 
 | ID | 작업 | 완료 증거 |
 | --- | --- | --- |
-| O13 | **처리(브랜치 `backend-fixes`, 병합 대기).** 22건 중 수정 17건(13·14는 index가 필요한 부분이 남음), 의도된 동작 문서화 2건(10 relation 공개 접근, 15 `keyConfigured`), 일부 수정 3건(12 service-token principal, 16 일부 endpoint의 field 단위 오류, 21 file metadata 일괄 조회가 남음) | 병합 후 필수 CI 통과 |
+| O13 | **처리(2026-11-13 [PR #122](https://github.com/yakisoba0728/PgBase/pull/122) `3bec8b3` 병합·운영 배포).** 22건 중 수정 17건(13·14는 index가 필요한 부분이 남음), 의도된 동작 문서화 2건(10 relation 공개 접근, 15 `keyConfigured`), 일부 수정 3건(12 service-token principal, 16 일부 endpoint의 field 단위 오류, 21 file metadata 일괄 조회가 남음) | 병합 후 필수 CI 통과 |
 | O14 | `backend-fixes`의 main 병합과 운영 서버 배포. 관리자 보안 요청 body의 `currentPassword` 필수화와 SDK method 인자 변경은 기존 client를 깨뜨린다. 운영 서버의 upgrade는 저장된 `backups.enabled`/`backups.keep`을 지우고 예약 백업을 꺼진 상태로 둔다([현재 상태](project-status.md) §12) | 필수 CI 통과, 병합, 배포 후 health·관리자 로그인·Settings의 백업 값 확인 |
 | O15 | migration이 필요한 남은 백엔드 항목: service-token 요청의 request log principal, request log 검색·dead-letter 목록 index, users 부분 문자열 검색 index | 각각 migration과 test |
 | O16 | migration 없이 가능한 남은 항목: file metadata 일괄 조회, storage·backup·import·SMTP 오류의 field 단위 세부 정보, `pg_catalog` view를 거치는 view 의존성 검사 우회, migration snapshot replay의 realm 일관성 검사 | 항목별 재현 test와 수정 |

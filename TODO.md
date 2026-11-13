@@ -22,7 +22,7 @@ main은 그대로 `7fbf1db`(schema 65)다. 관리자 UI를 브랜치 `frontend-r
 - [ ] 미검증: S3 migration(일부만), production binary의 SQL console, Chromium 외 브라우저, release gate, CI E2E workflow에서의 새 suite(이 작업에서는 실행하지 않음).
 - [ ] 구조 예산 test와 commit된 `ui/admin/dist` 재생성: 마지막 단계에서 맞춘다(현재 red).
 - [x] main 병합과 운영 서버 배포: [PR #108](https://github.com/yakisoba0728/PgBase/pull/108) `2912e39` 병합, 2026-11-13 `https://pgbase.yaki.kr` 배포. [배포 기록](docs/deployment-2026-11-13.md).
-- [x] UI 재작성 중 발견한 백엔드 문제 22건: 브랜치 `backend-fixes`에서 처리(위 2026-11-13 후속 항목, 병합 대기).
+- [x] UI 재작성 중 발견한 백엔드 문제 22건: 브랜치 `backend-fixes`에서 처리(위 2026-11-13 후속 항목). [PR #122](https://github.com/yakisoba0728/PgBase/pull/122) `3bec8b3` 병합, 같은 날 운영 서버 배포([배포 기록](docs/deployment-2026-11-13.md)).
 
 ## 2026-11-12 — 관리자 UI 재구축, 한국어 지원, Dokploy 서버 배포
 
