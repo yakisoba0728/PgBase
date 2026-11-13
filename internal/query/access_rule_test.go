@@ -1,6 +1,8 @@
 package query
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -98,4 +100,28 @@ func (pbResolverStubForQuery) Resolve(string) (accessrule.PBOperand, error) {
 
 func (pbResolverStubForQuery) ResolveCollection(string, string) (accessrule.PBOperand, error) {
 	return accessrule.PBOperand{}, accessrule.ErrInvalid
+}
+
+func TestPocketBaseAccessRuleReportsWhereParsingStopped(t *testing.T) {
+	for _, test := range []struct {
+		source   string
+		position string
+	}{
+		{"title = ", "9"},
+		{"title = 'x' &&", "15"},
+		{"@request.auth.id != '' && title = = 'x'", "35"},
+		{"@request.auth.id != '' && 'é' = = 1", "33"},
+	} {
+		_, err := ParsePocketBaseAccessRule(test.source)
+		var validation *ValidationError
+		if !errors.Is(err, accessrule.ErrInvalid) || !errors.As(err, &validation) || len(validation.Details) != 1 || validation.Details[0].Code != test.position {
+			t.Fatalf("ParsePocketBaseAccessRule(%q) = %v %#v, want position %s", test.source, err, validation, test.position)
+		}
+	}
+	broken := "title = "
+	_, err := accessrule.FromPocketBaseRulesParsed(accessrule.PocketBaseRules{View: &broken}, ParsePocketBaseAccessRule)
+	var validation *ValidationError
+	if !errors.Is(err, accessrule.ErrInvalid) || !errors.As(err, &validation) || fmt.Sprint(validation.Details) != "[{rules.view invalid_syntax} {rules.view.position 9}]" {
+		t.Fatalf("err=%v details=%#v", err, validation)
+	}
 }

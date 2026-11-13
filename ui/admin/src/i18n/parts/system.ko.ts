@@ -12,6 +12,7 @@ export const systemKo: Record<keyof typeof systemEn, string> = {
   "system.settings.conflict": "연 뒤에 다른 곳에서 설정이 바뀌었습니다.",
   "system.settings.loadLatest": "최신 설정 불러오기(편집 내용 버림)",
   "system.settings.invalid": "서버가 설정을 거부했습니다. 표시된 항목을 확인하세요.",
+  "system.settings.invalidAt": "서버가 {path} 설정을 거부했습니다. 표시된 항목을 확인하세요.",
 
   "system.section.application": "애플리케이션",
   "system.section.logs": "요청 로그",

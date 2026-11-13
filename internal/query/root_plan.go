@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -23,6 +24,7 @@ type rootPlan struct {
 	policyCollection schema.Collection
 	outputRuleScope  string
 	ruleContext      *accessrule.RequestContext
+	countLimit       int
 }
 
 func (p rootPlan) countStatement(memberships ...*int64) (Statement, error) {
@@ -43,7 +45,11 @@ func (p rootPlan) countStatement(memberships ...*int64) (Statement, error) {
 	if p.order().relationAnchor {
 		alias = relationRootAlias
 	}
-	statement.SQL = "SELECT COUNT(DISTINCT " + qualified(alias, systemFieldID) + ")" + statement.SQL[from:order]
+	identity, rows := qualified(alias, systemFieldID), statement.SQL[from:order]
+	statement.SQL = "SELECT COUNT(DISTINCT " + identity + ")" + rows
+	if p.countLimit > 0 {
+		statement.SQL = "SELECT COUNT(*) FROM (SELECT DISTINCT " + identity + rows + " LIMIT " + strconv.Itoa(p.countLimit) + ") bounded_count"
+	}
 	statement.Args = statement.Args[:len(statement.Args)-1]
 	return statement, nil
 }

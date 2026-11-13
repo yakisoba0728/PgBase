@@ -27,7 +27,7 @@ import { useT, type Translate } from "../i18n";
 import { collectAll, downloadJson, exportable, settleLimited } from "./bulk";
 import { ColumnSettings } from "./ColumnSettings";
 import { useColumnPrefs } from "./columns";
-import { collectionsQuery, recordsQuery, removeFromLists } from "./queries";
+import { collectionsQuery, countText, recordsQuery, removeFromLists } from "./queries";
 import { RecordEditor } from "./RecordEditor";
 import { RecordsTable } from "./RecordsTable";
 import { expandFor } from "./relation";
@@ -136,7 +136,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
   // Only rows still on screen count, so a filter change cannot widen a delete.
   const chosen = items.filter((record) => selected.has(record.id));
   const count = chosen.length;
-  const loaded = records.hasNextPage ? t("records.loadedMore", { count: items.length }) : t("records.count", { count: items.length });
+  const loaded = countText(t, items.length, records.hasNextPage, records.data?.pages[0]);
   const problem = records.isError ? queryProblem(t, records.error) : null;
 
   const exportAll = async () => {

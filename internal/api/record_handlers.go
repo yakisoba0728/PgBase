@@ -81,7 +81,7 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 		writeInvalidRecordRequest(w, r)
 		return
 	}
-	if duplicateSingleton(values, "limit", "cursor", "filter", "sort", "expand", "fields", "compat", "page", "perPage", "skipTotal") {
+	if duplicateSingleton(values, "limit", "cursor", "filter", "sort", "expand", "fields", "compat", "page", "perPage", "skipTotal", "total") || values.Has("total") && values.Get("total") != "true" {
 		writeInvalidRecordRequest(w, r)
 		return
 	}
@@ -131,7 +131,7 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 		Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"),
 		Cursor: event.Cursor, Limit: event.Limit, Filter: event.Filter, Sort: event.Sort, Expand: event.Expand, Fields: event.Fields,
 		PocketBaseCompatibility: values.Get("compat") == "pocketbase",
-		RuleContext:             ruleRequestContext(r),
+		RuleContext:             ruleRequestContext(r), Total: values.Has("total"),
 	}
 	if pbRequested {
 		service, supported := e.service.(pocketBaseListService)

@@ -25,7 +25,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPag
 		Principal: request.Principal, Collection: request.Collection, Cursor: request.Cursor,
 		Limit: request.Limit, Filter: request.Filter, Sort: request.Sort, Expand: request.Expand, Fields: request.Fields,
 		PocketBaseCompatibility: request.PocketBaseCompatibility,
-		RuleContext:             request.RuleContext,
+		RuleContext:             request.RuleContext, Total: request.Total,
 	})
 	if errors.Is(err, membership.ErrUnavailable) {
 		return RecordPage{}, unavailableMembership(err)

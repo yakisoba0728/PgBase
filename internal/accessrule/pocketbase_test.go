@@ -2,6 +2,7 @@ package accessrule
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -28,7 +29,7 @@ func TestPocketBaseRulesPreserveNullAndEmpty(t *testing.T) {
 func TestPocketBaseRulesRejectUnsupportedText(t *testing.T) {
 	unsupported := "title = 'x'"
 	_, err := FromPocketBaseRules(PocketBaseRules{List: &unsupported})
-	if err != ErrInvalid {
+	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("error=%v", err)
 	}
 }

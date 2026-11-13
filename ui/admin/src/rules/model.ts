@@ -21,6 +21,15 @@ export type RuleDrafts = Record<Action, RuleDraft>;
 
 const signedInExpression = "@request.auth.id != ''";
 
+/** The server's `invalid_rule` details: rules.<action> holds the reason and rules.<action>.position
+ * the 1-based character where a syntax error was found. */
+export function rejectedRules(details: unknown): Partial<Record<Action, { reason: string; position?: string }>> {
+  const map = (details ?? {}) as Record<string, string[] | undefined>;
+  return Object.fromEntries(
+    actions.filter((action) => map[`rules.${action}`]?.length).map((action) => [action, { reason: map[`rules.${action}`]![0], position: map[`rules.${action}.position`]?.[0] }]),
+  );
+}
+
 /** Rows shown for a collection type: views only read. */
 export const visibleActions = (type: CollectionType): readonly Action[] => (type === "view" ? ["list", "view"] : actions);
 

@@ -67,7 +67,7 @@ function SettingsForm({ settings }: { settings: RuntimeSettings }) {
     setDraft((current) => ({ ...current, rules: current.rules.map((rule, i) => (i === index ? { ...rule, ...change } : rule)) }));
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    // Unparsable numbers would go out as null, which the server reads as 0 (accepted for "keep").
+    // Unparsable numbers would go out as null, which the server rejects.
     if (Object.values(validate(draft)).some((error) => error.key === "system.invalid.int")) {
       setShowErrors(true);
       return;
@@ -76,6 +76,7 @@ function SettingsForm({ settings }: { settings: RuntimeSettings }) {
   };
   const conflict = save.error instanceof ApiError && save.error.code === "settings_conflict";
   const invalid = save.error instanceof ApiError && save.error.code === "invalid_settings";
+  const rejectedPath = invalid ? Object.keys((save.error as ApiError).details ?? {})[0] : undefined;
   const fieldError = (path: string) => message(t, errors[path]);
 
   return (
@@ -89,7 +90,7 @@ function SettingsForm({ settings }: { settings: RuntimeSettings }) {
       <div className="sys-scroll">
         {save.isError && (
           <Notice tone="danger" className="sys-notice" actions={conflict && <Button size="sm" variant="secondary" loading={latest.isPending} onClick={() => latest.mutate()}>{t("system.settings.loadLatest")}</Button>}>
-            {conflict ? t("system.settings.conflict") : invalid ? t("system.settings.invalid") : errorText(t, save.error)}
+            {conflict ? t("system.settings.conflict") : invalid ? (rejectedPath ? t("system.settings.invalidAt", { path: rejectedPath }) : t("system.settings.invalid")) : errorText(t, save.error)}
           </Notice>
         )}
         {sections.map((section) => (

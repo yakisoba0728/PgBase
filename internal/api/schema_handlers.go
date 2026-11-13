@@ -768,6 +768,9 @@ func writeSchemaError(w http.ResponseWriter, r *http.Request, err error) {
 				message = "Collection is referenced"
 				break
 			}
+			if detail.Field == "view.sql" {
+				code, message = "invalid_view_sql", "SQL view is invalid"
+			}
 		}
 		details := make(map[string][]string, len(validation.Details))
 		for _, detail := range validation.Details {

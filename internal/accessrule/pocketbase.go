@@ -1,5 +1,26 @@
 package accessrule
 
+import (
+	"errors"
+
+	"github.com/yakisoba0728/PgBase/internal/schema"
+)
+
+// ActionError reports which action's rule is invalid as rules.<action>, plus
+// rules.<action>.position when cause carries a 1-based parse position.
+func ActionError(action, reason string, cause error) error {
+	details := []schema.ValidationDetail{{Field: "rules." + action, Code: reason}}
+	var parsed *schema.ValidationError
+	if errors.As(cause, &parsed) {
+		for _, detail := range parsed.Details {
+			if detail.Field == "position" {
+				details = append(details, schema.ValidationDetail{Field: "rules." + action + ".position", Code: detail.Code})
+			}
+		}
+	}
+	return errors.Join(ErrInvalid, &schema.ValidationError{Details: details})
+}
+
 type PocketBaseRules struct {
 	List   *string `json:"listRule"`
 	View   *string `json:"viewRule"`
@@ -34,7 +55,7 @@ func FromPocketBaseRulesParsed(r PocketBaseRules, parse func(string) (Rule, erro
 	for i := range values {
 		rule, err := convert(values[i])
 		if err != nil {
-			return Rules{}, err
+			return Rules{}, ActionError([]string{"list", "view", "create", "update", "delete"}[i], "invalid_syntax", err)
 		}
 		rules[i] = rule
 	}

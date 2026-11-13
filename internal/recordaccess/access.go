@@ -61,9 +61,8 @@ RETURNING (SELECT name FROM pgbase_meta.collections WHERE id=collection_id), ena
 }
 
 // AuthorizeUser locks the policy row for the surrounding operation and checks
-// active status in the same transaction snapshot. Callers must separately
-// reject catalogs that have relations, which this package deliberately does not
-// understand.
+// active status in the same transaction snapshot. Relation targets are
+// authorized by the query layer with each target's own rules.
 func AuthorizeUser(ctx context.Context, tx pgx.Tx, collectionID, userID uuid.UUID) error {
 	var enabled, active bool
 	err := tx.QueryRow(ctx, `SELECT a.enabled,u.active FROM pgbase_meta.collection_access a JOIN pgbase_meta.users u ON u.id=$2 WHERE a.collection_id=$1 FOR SHARE OF a,u`, collectionID, userID).Scan(&enabled, &active)

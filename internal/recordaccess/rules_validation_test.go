@@ -2,10 +2,13 @@ package recordaccess_test
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
+	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
@@ -40,9 +43,39 @@ func TestValidateRulesUsesTheOrdinarySetContract(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			candidate := accessrule.OwnerRules()
 			candidate.List = test.rule
-			if err := recordaccess.ValidateRules(catalog, collection, candidate); err == nil {
-				t.Fatal("invalid rules accepted")
+			err := recordaccess.ValidateRules(catalog, collection, candidate)
+			var validation *schema.ValidationError
+			if !errors.Is(err, accessrule.ErrInvalid) || !errors.As(err, &validation) || fmt.Sprint(validation.Details) != "[{rules.list invalid_rule}]" {
+				t.Fatalf("invalid rules error = %v", err)
 			}
 		})
+	}
+}
+
+func TestPocketBaseRulesAcceptSystemFields(t *testing.T) {
+	authors := schema.Collection{ID: uuid.New(), Name: "authors", TableName: "authors", Fields: []schema.Field{{Name: "name", ColumnName: "name", Type: schema.TypeText}}}
+	notes := schema.Collection{ID: uuid.New(), Name: "notes", TableName: "notes", Fields: []schema.Field{
+		{Name: "title", ColumnName: "title", Type: schema.TypeText},
+		{ID: uuid.New(), Name: "author", ColumnName: "author", Type: schema.TypeRelation, Relation: &schema.RelationSpec{TargetCollectionID: authors.ID, Cardinality: schema.RelationSingle}},
+	}}
+	catalog := schema.Catalog{Collections: map[string]schema.Collection{authors.Name: authors, notes.Name: notes}}
+	for _, expression := range []string{
+		"id != '00000000-0000-0000-0000-000000000000'",
+		"id = @request.auth.id",
+		"created_at > '2020-01-01T00:00:00Z'",
+		"updated_at >= created_at",
+		"author.created_at > '2020-01-01T00:00:00Z'",
+		"author.id = @request.auth.id",
+		"@collection.authors.updated_at > '2020-01-01T00:00:00Z'",
+	} {
+		rule, err := query.ParsePocketBaseAccessRule(expression)
+		if err != nil {
+			t.Fatalf("parse %q: %v", expression, err)
+		}
+		rules := accessrule.OwnerRules()
+		rules.List, rules.Update = rule, rule
+		if err := recordaccess.ValidateRules(catalog, notes, rules); err != nil {
+			t.Fatalf("%q rejected: %v", expression, err)
+		}
 	}
 }

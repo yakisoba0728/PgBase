@@ -107,8 +107,7 @@ function AuthRules({ name }: { name: string }) {
 
 function Reference({ editor }: { editor: RulesEditor }) {
   const t = useT();
-  // Rules resolve catalog fields only: id and the timestamps are not addressable.
-  const fields = editor.collection.fields.filter((field) => field.type !== "file" && !field.hidden).map((field) => field.name);
+  const fields = ["id", ...editor.collection.fields.filter((field) => field.type !== "file" && !field.hidden).map((field) => field.name), "created_at", "updated_at"];
   const group = (title: string, items: string[]) => (
     <div className="rules-ref-group">
       <h3>{title}</h3>

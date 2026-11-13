@@ -32,7 +32,15 @@ const (
 type RecordPage struct {
 	Items      []map[string]any `json:"items"`
 	NextCursor string           `json:"nextCursor,omitempty"`
+	// TotalItems answers ListRequest.Total: the matching records, counted up to
+	// maximumListTotal; TotalCapped reports that more exist.
+	TotalItems  *int64 `json:"totalItems,omitempty"`
+	TotalCapped bool   `json:"totalCapped,omitempty"`
 }
+
+// maximumListTotal bounds the opt-in native count so a page view never scans a
+// large collection to the end.
+const maximumListTotal = 10000
 
 // PocketBasePage is the exact list envelope exposed by the explicit
 // PocketBase compatibility adapter.
@@ -106,7 +114,7 @@ func ListPocketBase(ctx context.Context, s *Service, request PocketBaseListReque
 	page = PocketBasePage{Page: request.Page, PerPage: request.PerPage, TotalItems: -1, TotalPages: -1, Items: []map[string]any{}}
 	err = s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		if !request.SkipTotal {
-			total, countErr := s.countListInTx(ctx, tx, catalog, collection, request.ListRequest, filterNode)
+			total, countErr := s.countListInTx(ctx, tx, catalog, collection, request.ListRequest, filterNode, 0)
 			if countErr != nil {
 				return countErr
 			}

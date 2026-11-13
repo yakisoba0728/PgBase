@@ -58,6 +58,7 @@ type ListRequest struct {
 	Fields                  string
 	PocketBaseCompatibility bool
 	RuleContext             *accessrule.RequestContext
+	Total                   bool
 }
 
 type GetRequest struct {
