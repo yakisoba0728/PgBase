@@ -12,6 +12,8 @@
 - storage·backup·SMTP 검증은 오류 field를 `error.details`에 담는다. SMTP는 발신 주소 형식도 검사한다. malformed schema import는 `document`를 표시한다.
 - React와 React DOM, Tiptap 패키지를 Dependabot group으로 묶고 Node 24 지원 중 @types/node major 자동 갱신은 제외한다. Backend CI에서 Dart SDK analyze·unit test를 추가한다.
 
+확장 Security image scan에서 x/net 0.61.0의 CVE-2026-78661(HIGH)을 발견해 0.62.0으로 올렸다. 일반 govulncheck의 호출 경로 검사와 이미지의 포함 모듈 검사는 범위가 달라, 두 결과를 함께 확인한다. [공식 Go advisory](https://pkg.go.dev/vuln/GO-2026-6860).
+
 ## 검증 상태
 
 집중 검증: SQL catalog·whole-row·기존 view 우회 거부와 정상 쿼리, snapshot field rename/Down 값 보존·validator 누락·사용자가 있는 realm 삭제 거부, service-token 로그 principal, 관리자 bulk file metadata·사용자 접근 거부, literal substring 검색, field별 오류, UI file cache seed를 포함한다.
