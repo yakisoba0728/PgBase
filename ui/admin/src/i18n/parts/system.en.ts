@@ -60,7 +60,7 @@ export const systemEn = {
   "system.hint.batch.maxBodyBytes": "1,024 – 155,193,344 (148 MiB + 4 KiB).",
   "system.hint.backups.schedule": "Cron expression or @every 24h.",
   "system.hint.backups.timezone": "IANA name, e.g. UTC or Asia/Seoul.",
-  "system.hint.backups.keep": "0 – 10,000.",
+  "system.hint.backups.keep": "0 – 10,000. 0 uses the Backup storage retention.",
   "system.hint.proxy.trustedProxyCIDRs": "One masked CIDR per line, e.g. 10.0.0.0/8. Never 0.0.0.0/0.",
   "system.hint.rateLimits.excludedIPs": "One address or CIDR per line; these skip the quotas.",
   "system.hint.logs.includeIP": "Uses the trusted-proxy policy below.",

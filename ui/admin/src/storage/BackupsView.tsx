@@ -134,7 +134,7 @@ function BackupSchedule() {
   const settings = useQuery({ ...settingsQuery, refetchOnMount: true, staleTime: 60_000 });
   const backups = settings.data?.backups;
   if (!backups) return null;
-  const keep = backups.keep === 0 ? t("storage.backups.keepAll") : backups.keep;
+  const keep = backups.keep === 0 ? t("storage.backups.keepStorage") : backups.keep;
   return (
     <p className="storage-schedule">
       <span className="txt-hint">{t("storage.backups.schedule")}</span>

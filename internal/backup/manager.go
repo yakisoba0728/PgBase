@@ -426,14 +426,15 @@ func (m *Manager) prune(ctx context.Context, currentID string) error {
 	return nil
 }
 
-// SetRetention changes the pruning window used by future backups. Zero keeps
-// every archive; positive values prune after each successful publish.
+// SetRetention changes the pruning window used by future backups. A positive
+// value prunes after each successful publish; zero means "not set here" and
+// falls back to the repository retention (the Backup storage page).
 func (m *Manager) SetRetention(value int) {
 	if value < 0 {
 		return
 	}
 	m.retentionOverride.Store(int64(value))
-	m.retentionConfigured.Store(true)
+	m.retentionConfigured.Store(value > 0)
 }
 func (m *Manager) Upload(ctx context.Context, source io.Reader) (Entry, error) {
 	if err := m.reserve(); err != nil {

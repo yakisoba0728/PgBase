@@ -38,7 +38,7 @@ func (s *Service) EnsureScheduledInTimezone(ctx context.Context, name, schedule,
 	if _, err := ParseScheduleInLocation(schedule, timezone); err != nil {
 		return err
 	}
-	return s.ensureScheduledInTimezone(ctx, name, schedule, timezone)
+	return s.ensureScheduledInTimezone(ctx, name, schedule, timezone, true)
 }
 
 func (s *Service) ListJobs(ctx context.Context) ([]Status, error) {
@@ -89,14 +89,16 @@ func (s *Service) ConfigureJobInTimezone(ctx context.Context, id uuid.UUID, sche
 	return nil
 }
 
-func (s *Service) Register(ctx context.Context, name, schedule, timezone string, handler Handler) error {
+// Register installs a handler and creates its durable row when missing. A row
+// created disabled cannot run before the caller configures it.
+func (s *Service) Register(ctx context.Context, name, schedule, timezone string, enabled bool, handler Handler) error {
 	if _, err := ParseScheduleInLocation(schedule, timezone); err != nil {
 		return err
 	}
 	if err := s.registry.Register(name, handler); err != nil {
 		return err
 	}
-	if err := s.ensureScheduledInTimezone(ctx, name, schedule, timezone); err != nil {
+	if err := s.ensureScheduledInTimezone(ctx, name, schedule, timezone, enabled); err != nil {
 		s.registry.Unregister(name)
 		return err
 	}
@@ -115,7 +117,7 @@ func (s *Service) Unregister(ctx context.Context, name string) error {
 	return nil
 }
 
-func (s *Service) ensureScheduledInTimezone(ctx context.Context, name, schedule, timezone string) error {
+func (s *Service) ensureScheduledInTimezone(ctx context.Context, name, schedule, timezone string, enabled bool) error {
 	parsed, err := ParseScheduleInLocation(schedule, timezone)
 	if err != nil {
 		return err
@@ -124,7 +126,7 @@ func (s *Service) ensureScheduledInTimezone(ctx context.Context, name, schedule,
 	if parsed.interval == 0 {
 		next = parsed.Next(next)
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO pgbase_meta.scheduled_jobs(id,name,schedule,timezone,next_run_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT (name) DO NOTHING`, uuid.New(), name, schedule, timezone, next)
+	_, err = s.pool.Exec(ctx, `INSERT INTO pgbase_meta.scheduled_jobs(id,name,schedule,timezone,next_run_at,enabled) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (name) DO NOTHING`, uuid.New(), name, schedule, timezone, next, enabled)
 	return err
 }
 

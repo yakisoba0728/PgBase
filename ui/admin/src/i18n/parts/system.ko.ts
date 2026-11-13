@@ -62,7 +62,7 @@ export const systemKo: Record<keyof typeof systemEn, string> = {
   "system.hint.batch.maxBodyBytes": "1,024 – 155,193,344 (148 MiB + 4 KiB).",
   "system.hint.backups.schedule": "cron 식 또는 @every 24h.",
   "system.hint.backups.timezone": "IANA 이름. 예: UTC, Asia/Seoul.",
-  "system.hint.backups.keep": "0 – 10,000.",
+  "system.hint.backups.keep": "0 – 10,000. 0이면 백업 저장소의 보관 개수를 따릅니다.",
   "system.hint.proxy.trustedProxyCIDRs": "한 줄에 마스킹된 CIDR 하나. 예: 10.0.0.0/8. 0.0.0.0/0은 안 됩니다.",
   "system.hint.rateLimits.excludedIPs": "한 줄에 주소나 CIDR 하나. 이 주소는 한도를 적용받지 않습니다.",
   "system.hint.logs.includeIP": "아래 신뢰할 프록시 설정을 따릅니다.",

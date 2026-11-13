@@ -251,6 +251,10 @@ and confirm that the rendered `stop_grace_period` is at least `PGBASE_SHUTDOWN_T
 - `pgbase admin ip allow|deny --email EMAIL --cidr CIDR` manages canonical CIDR entries; `admin ip list --email EMAIL` prints them. Once entries exist, login and every administrator session request must originate within one allowed prefix. Proxy forwarding is honored only for `PGBASE_TRUSTED_PROXIES`. The administrator profile API shows the address it sees and refuses a list that would exclude the caller; the CLI is the override.
 - Rotate a PostgreSQL password in a coordinated database/application change so old connections can drain and new instances receive the new `PGBASE_DATABASE_URL` without exposing it.
 
+## Managed backup upgrade note
+
+`pgbase serve` with `PGBASE_BACKUPS_DIRECTORY` registers the scheduled `pgbase.managed-backup` job. The first start that registers it clears stored `backups.enabled`/`backups.keep` values, which earlier releases ignored under `pgbase serve`, and logs a warning. Scheduled backups stay off and archives keep being pruned by the Backup storage retention until an administrator changes the settings. Retention precedence is a positive Settings **Keep**, otherwise the Backup storage value (seeded once from `PGBASE_BACKUPS_RETENTION`); see [S3 backups](backup-s3.md).
+
 ## Zero-downtime limits
 
 Multi-instance serving is supported against one shared database, but zero-downtime upgrades are not guaranteed. The Production Kernel has no online-DDL mechanism, down-migration command, read-replica routing, or compatibility promise between arbitrary v0.x binaries and schemas. Collection and relation DDL can acquire PostgreSQL locks. A system migration may require a maintenance window; follow release-specific guidance and prefer a tested stop-migrate-start sequence whenever compatibility is uncertain.

@@ -2,7 +2,14 @@
 
 PgBase can retain backup archives in an S3-compatible bucket while keeping job receipts, restore activation state, and temporary work in the private local backup directory.
 
-The administrator Settings page exposes **Backups to keep**. This count covers all archives in the selected repository, including manual, uploaded, and scheduled backups; it does not reserve manual archives. A value of `0` keeps every archive. In a managed application, this runtime setting overrides the repository fallback on the Backup storage page, even when scheduled backups are disabled. Changing the count does not immediately delete archives: pruning runs after a successful backup creation or upload. Keep long-lived recovery copies outside the managed repository when they must be exempt from its retention.
+Retention counts all archives in the selected repository, including manual, uploaded, and scheduled backups; it does not reserve manual archives. One value applies, in this order:
+
+1. **Keep** in the Settings page backups section (`backups.keep`), when it is greater than `0`.
+2. Otherwise **Backups to keep** on the Backup storage page. `PGBASE_BACKUPS_RETENTION` only seeds that value when the storage settings row is first created; later changes to the variable have no effect. `0` there keeps every archive.
+
+`backups.keep = 0` therefore means "not set here", never "keep everything". Changing either value does not immediately delete archives: pruning runs after a successful backup creation or upload, and a scheduled run first reloads the stored settings so it never uses an older count than the one shown. Keep long-lived recovery copies outside the managed repository when they must be exempt from its retention.
+
+Upgrading from a release in which `pgbase serve` did not register the scheduled backup job: on the first start that registers `pgbase.managed-backup`, pgBase clears a previously stored `backups.enabled` and `backups.keep` (they had no effect under `pgbase serve`) and logs a warning. Scheduled backups therefore stay off and pruning keeps following the Backup storage retention until an administrator sets them again. An embedding application whose own backup manager already registered the job keeps its stored values; there, `backups.keep = 0` now falls back to the Backup storage retention instead of keeping every archive.
 
 ```sh
 PGBASE_BACKUPS_DIRECTORY=/var/lib/pgbase/backups

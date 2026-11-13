@@ -4,6 +4,8 @@ A valid pgBase backup contains the project database's `pgbase_meta`, `app`, and 
 
 Environment configuration and secrets are outside PostgreSQL. Store the deployment configuration, `PGBASE_TOKEN_SECRET`, setup policy, TLS configuration, and database credentials separately in a protected secret/configuration system. Never put them in the database dump or backup logs.
 
+Archives created through the administrator console are pruned by the retention described in [S3 backups](backup-s3.md): a positive **Keep** in Settings, otherwise the Backup storage retention (seeded once from `PGBASE_BACKUPS_RETENTION`).
+
 Administrator backup archive uploads and downloads are bounded to 2 GiB and a 30-minute transfer window. PgBase overrides the normal HTTP connection read and write deadlines only for those two streaming routes. Configure any reverse proxy or load balancer in front of PgBase with compatible request-body, response, and idle timeouts; an upstream timeout can still end the transfer earlier.
 
 ## Logical backup with pg_dump
