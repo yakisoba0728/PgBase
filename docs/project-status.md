@@ -1,5 +1,7 @@
 # PgBase 구현 이력과 현재 상태
 
+2026-11-13 두 번째 병합·배포 후 기준: `backend-fixes`를 [PR #122](https://github.com/yakisoba0728/PgBase/pull/122)로 main `3bec8b3`에 병합하고 `https://pgbase.yaki.kr`에 배포했다(schema 65 그대로). 결과는 [배포 기록](deployment-2026-11-13.md)의 두 번째 절을 따른다. 아래 문단은 병합 전에 쓴 기록이다.
+
 2026-11-13 후속 기준: main은 `64dad0d`(schema 65)이다. 브랜치 `backend-fixes`가 §11의 "UI 재작성 중 발견한 백엔드 문제"를 서버에서 고치고 관리자 UI·SDK를 그에 맞췄다. migration은 추가하지 않았다(schema 65 그대로). 관리자 보안 요청 body의 `currentPassword` 필수화처럼 client가 알아야 할 계약 변경이 있다. 이 기록 작성 시점에 main 병합과 운영 서버 배포는 하지 않았다(대기). 항목별 처리는 §11, 계약 변경과 검증은 §12를 따른다. 아래 문단은 그 전 기록이다.
 
 2026-11-13 병합·배포 후 기준: 새 관리자 UI를 [PR #108](https://github.com/yakisoba0728/PgBase/pull/108)로 main `2912e39`에 병합하고 `https://pgbase.yaki.kr`에 배포했다(schema 65 그대로). 결과는 [배포 기록](deployment-2026-11-13.md)을 따른다. 아래 문단은 병합 전에 쓴 기록이다.
@@ -20,7 +22,7 @@
 
 ## Status applicability
 
-This document has a current status section and historical sections. Baseline SHA: `0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b`; verification SHA: `2912e399b6b1f45cfad8ae8431c1ab5d94c9557e`. Historical entries are scoped to their own dated evidence. Run `python3 docs/check-status-index.py` from the repository root to check the applicability index.
+This document has a current status section and historical sections. Baseline SHA: `0ea07ff91dabf49d0f0e5f4c55aff53ed7ea291b`; verification SHA: `3bec8b3a35e5ae94bbf7ee0d11b1dc2b9c3c0487`. Historical entries are scoped to their own dated evidence. Run `python3 docs/check-status-index.py` from the repository root to check the applicability index.
 
 기록일: 2026-09-11. 이 문서는 지금까지의 작업을 통합한 현재 상태 문서다. 세부 작업 기록은 [TODO](../TODO.md), 다음 실행 순서와 완료 기준은 [후속 작업](next-work.md), PocketBase와의 차이는 [현재 기능 비교](pocketbase-feature-comparison-current-2026-09-10.md)를 따른다. 과거 감사·마일스톤 문서는 당시 증거를 보존하는 기록이다.
 
