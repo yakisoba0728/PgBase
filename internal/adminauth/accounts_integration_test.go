@@ -65,12 +65,14 @@ func TestAdministratorAccountsConcurrentMutualDeactivationRetainsOneActiveActor(
 	for _, call := range []struct {
 		service       *Service
 		actor, target uuid.UUID
+		subject       string
 	}{
-		{fixture.service, fixture.first.ID, fixture.second.ID},
-		{other, fixture.second.ID, fixture.first.ID},
+		// Distinct addresses: concurrent step-ups from one address fail closed on the shared limiter lock.
+		{fixture.service, fixture.first.ID, fixture.second.ID, "192.0.2.1"},
+		{other, fixture.second.ID, fixture.first.ID, "192.0.2.2"},
 	} {
 		go func() {
-			_, err := call.service.SetAdministratorActive(ctx, call.actor, "192.0.2.1", accountTestPassword, call.target, false)
+			_, err := call.service.SetAdministratorActive(ctx, call.actor, call.subject, accountTestPassword, call.target, false)
 			results <- result{call.actor, call.target, err}
 		}()
 	}
