@@ -1,6 +1,7 @@
 package userauth
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -109,11 +110,21 @@ func (p *HTTPOAuthProvider) Exchange(ctx context.Context, code, verifier, redire
 		form.Del("client_id")
 		form.Del("client_secret")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.config.TokenURL, strings.NewReader(form.Encode()))
+	var body io.Reader = strings.NewReader(form.Encode())
+	contentType := "application/x-www-form-urlencoded"
+	if p.config.ProviderName == "notion" {
+		payload := make(map[string]string, len(form))
+		for name := range form {
+			payload[name] = form.Get(name)
+		}
+		raw, _ := json.Marshal(payload)
+		body, contentType = bytes.NewReader(raw), "application/json"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.config.TokenURL, body)
 	if err != nil {
 		return OAuthIdentity{}, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Content-Type", contentType)
 	if basicTokenAuth {
 		req.SetBasicAuth(p.config.ClientID, p.config.ClientSecret)
 	}
@@ -144,6 +155,8 @@ func (p *HTTPOAuthProvider) Exchange(ctx context.Context, code, verifier, redire
 	}
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 	switch p.config.ProviderName {
+	case "notion":
+		req.Header.Set("Notion-Version", "2026-03-11")
 	case "twitch":
 		req.Header.Set("Client-Id", p.config.ClientID)
 	case "trakt":
@@ -197,6 +210,7 @@ func (p *HTTPOAuthProvider) identityFromFields(fields map[string]json.RawMessage
 }
 
 func (p *HTTPOAuthProvider) doJSON(req *http.Request, destination any) error {
+	req.Header.Set("Accept", "application/json")
 	response, err := p.client.Do(req)
 	if err != nil {
 		return err

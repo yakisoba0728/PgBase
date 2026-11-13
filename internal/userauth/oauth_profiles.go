@@ -62,6 +62,10 @@ func normalizeProviderProfile(name string, raw map[string]json.RawMessage, acces
 		return OAuthIdentity{}, true, err
 	}
 	identity := OAuthIdentity{Subject: scalarString(pathValue(profile, rule.subject)), AvatarURL: scalarString(pathValue(profile, rule.avatar))}
+	// The built-in Microsoft catalog uses OIDC UserInfo; custom presets may use Graph.
+	if name == "microsoft" && identity.Subject == "" {
+		identity.Subject = scalarString(pathValue(profile, "sub"))
+	}
 	if identity.Subject == "" {
 		return OAuthIdentity{}, true, errors.New("OAuth subject is invalid")
 	}
