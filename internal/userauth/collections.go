@@ -146,6 +146,7 @@ type CreateAuthCollectionInput struct {
 	Rules               AuthCollectionRules
 	RecordID            *schema.RecordIDPolicy
 }
+
 // UpdateAuthCollectionInput keeps the stored fields when both Fields and
 // ProfileSchema are nil, and the stored rules when Rules is nil.
 type UpdateAuthCollectionInput struct {

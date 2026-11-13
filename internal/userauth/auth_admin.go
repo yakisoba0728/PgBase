@@ -64,6 +64,7 @@ const (
 	policyETag   = `'"'||md5(p::text)||'"'`
 	providerETag = `'"'||md5((to_jsonb(p)-'client_secret_ciphertext')::text)||'"'`
 	templateETag = `'"'||md5(t::text)||'"'`
+	smtpETag     = `'"'||md5((to_jsonb(c)-'password_ciphertext')::text)||'"'`
 )
 
 // preconditionHolds reports whether the If-Match value expected (empty when
@@ -127,6 +128,7 @@ type SMTPAdminConfig struct {
 	ImplicitTLS           bool   `json:"implicitTls"`
 	AllowInsecureLoopback bool   `json:"allowInsecureLoopback"`
 	PasswordConfigured    bool   `json:"passwordConfigured"`
+	ETag                  string `json:"etag,omitempty"`
 }
 
 type AuthAdministration struct {
@@ -184,7 +186,7 @@ func (s *Service) GetAuthAdministration(ctx context.Context, collectionID uuid.U
 		out.Templates = append(out.Templates, t)
 	}
 	var smtp SMTPAdminConfig
-	err = s.pool.QueryRow(ctx, `select address,sender,username,password_ciphertext is not null,server_name,implicit_tls,allow_insecure_loopback from pgbase_meta.auth_smtp_configs where auth_collection_id=$1`, collectionID).Scan(&smtp.Address, &smtp.From, &smtp.Username, &smtp.PasswordConfigured, &smtp.ServerName, &smtp.ImplicitTLS, &smtp.AllowInsecureLoopback)
+	err = s.pool.QueryRow(ctx, `select address,sender,username,password_ciphertext is not null,server_name,implicit_tls,allow_insecure_loopback,`+smtpETag+` from pgbase_meta.auth_smtp_configs c where auth_collection_id=$1`, collectionID).Scan(&smtp.Address, &smtp.From, &smtp.Username, &smtp.PasswordConfigured, &smtp.ServerName, &smtp.ImplicitTLS, &smtp.AllowInsecureLoopback, &smtp.ETag)
 	if err == nil {
 		out.SMTP = &smtp
 	} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -461,12 +463,17 @@ func (s *Service) PutSMTPConfig(ctx context.Context, collectionID uuid.UUID, c S
 			return c, err
 		}
 	}
-	if encrypted == nil {
-		err = s.pool.QueryRow(ctx, `insert into pgbase_meta.auth_smtp_configs(auth_collection_id,address,sender,username,server_name,implicit_tls,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7) on conflict(auth_collection_id) do update set address=excluded.address,sender=excluded.sender,username=excluded.username,server_name=excluded.server_name,implicit_tls=excluded.implicit_tls,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP returning password_ciphertext is not null`, collectionID, c.Address, c.From, c.Username, c.ServerName, c.ImplicitTLS, c.AllowInsecureLoopback).Scan(&c.PasswordConfigured)
-	} else {
-		_, err = s.pool.Exec(ctx, `insert into pgbase_meta.auth_smtp_configs(auth_collection_id,address,sender,username,password_ciphertext,server_name,implicit_tls,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8) on conflict(auth_collection_id) do update set address=excluded.address,sender=excluded.sender,username=excluded.username,password_ciphertext=excluded.password_ciphertext,server_name=excluded.server_name,implicit_tls=excluded.implicit_tls,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP`, collectionID, c.Address, c.From, c.Username, encrypted, c.ServerName, c.ImplicitTLS, c.AllowInsecureLoopback)
-		c.PasswordConfigured = true
-	}
+	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var current string
+		if err := tx.QueryRow(ctx, `select `+smtpETag+` from pgbase_meta.auth_smtp_configs c where auth_collection_id=$1 for update`, collectionID).Scan(&current); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if !preconditionHolds(c.ETag, current) {
+			return ErrPreconditionFailed
+		}
+		// coalesce keeps the stored password when none is sent.
+		return tx.QueryRow(ctx, `insert into pgbase_meta.auth_smtp_configs as c(auth_collection_id,address,sender,username,password_ciphertext,server_name,implicit_tls,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8) on conflict(auth_collection_id) do update set address=excluded.address,sender=excluded.sender,username=excluded.username,password_ciphertext=coalesce(excluded.password_ciphertext,c.password_ciphertext),server_name=excluded.server_name,implicit_tls=excluded.implicit_tls,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP returning password_ciphertext is not null,`+smtpETag, collectionID, c.Address, c.From, c.Username, encrypted, c.ServerName, c.ImplicitTLS, c.AllowInsecureLoopback).Scan(&c.PasswordConfigured, &c.ETag)
+	})
 	c.Password = ""
 	return c, err
 }

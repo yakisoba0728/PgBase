@@ -333,6 +333,18 @@ func TestAuthAdministrationWritesHonourIfMatch(t *testing.T) {
 	if _, err := service.PutOAuthProvider(ctx, realmID, provider); !errors.Is(err, ErrPreconditionFailed) {
 		t.Fatalf("stale provider write = %v", err)
 	}
+	smtp := SMTPAdminConfig{Address: "smtp.example.test:587", From: "auth@example.test", Username: "mailer", Password: "smtp-secret"}
+	storedSMTP, err := service.PutSMTPConfig(ctx, realmID, smtp)
+	if err != nil || storedSMTP.ETag == "" || !storedSMTP.PasswordConfigured {
+		t.Fatalf("create smtp = %+v, %v", storedSMTP, err)
+	}
+	smtp.Password, smtp.ETag = "", storedSMTP.ETag
+	if kept, err := service.PutSMTPConfig(ctx, realmID, smtp); err != nil || !kept.PasswordConfigured {
+		t.Fatalf("smtp edit without password = %+v, %v", kept, err)
+	}
+	if _, err := service.PutSMTPConfig(ctx, realmID, smtp); !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("stale smtp write = %v", err)
+	}
 	provider.ETag, provider.TokenURL = "", "not a url"
 	if _, err := service.PutOAuthProvider(ctx, realmID, provider); !errors.Is(err, ErrValidation) || validationField(err) != "tokenUrl" {
 		t.Fatalf("invalid provider = %v", err)

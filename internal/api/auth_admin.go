@@ -321,15 +321,17 @@ func (e authAdministrationEndpoints) smtp(w http.ResponseWriter, r *http.Request
 		ImplicitTLS           bool   `json:"implicitTls"`
 		AllowInsecureLoopback bool   `json:"allowInsecureLoopback"`
 	}
-	if err != nil || decodeStrictJSON(r, &in) != nil {
+	tag, tagOK := ifMatchTag(r)
+	if err != nil || !tagOK || decodeStrictJSON(r, &in) != nil {
 		writeAuthAdministrationError(w, r, userauth.ErrValidation)
 		return
 	}
-	v, err := e.service.PutSMTPConfig(r.Context(), id, userauth.SMTPAdminConfig{Address: in.Address, From: in.From, Username: in.Username, Password: in.Password, ServerName: in.ServerName, ImplicitTLS: in.ImplicitTLS, AllowInsecureLoopback: in.AllowInsecureLoopback})
+	v, err := e.service.PutSMTPConfig(r.Context(), id, userauth.SMTPAdminConfig{ETag: tag, Address: in.Address, From: in.From, Username: in.Username, Password: in.Password, ServerName: in.ServerName, ImplicitTLS: in.ImplicitTLS, AllowInsecureLoopback: in.AllowInsecureLoopback})
 	if err != nil {
 		writeAuthAdministrationError(w, r, err)
 		return
 	}
+	w.Header().Set("ETag", v.ETag)
 	writeJSON(w, http.StatusOK, v)
 }
 func (e authAdministrationEndpoints) smtpTest(w http.ResponseWriter, r *http.Request) {
@@ -387,6 +389,7 @@ func (e authAdministrationEndpoints) userAction(w http.ResponseWriter, r *http.R
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
 // ifMatchTag returns the one entity tag or "*" of an If-Match header, or ""
 // when it is absent; a list of tags is not accepted on these routes.
 func ifMatchTag(r *http.Request) (string, bool) {

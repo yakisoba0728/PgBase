@@ -63,10 +63,10 @@ type managedUserResponse struct {
 	Verified         bool      `json:"verified"`
 	ID               string    `json:"id"`
 	AuthCollectionID string    `json:"authCollectionId"`
-	Email     string    `json:"email"`
-	Active    bool      `json:"active"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Email            string    `json:"email"`
+	Active           bool      `json:"active"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 func managedUser(user userauth.ManagedUser) managedUserResponse {
