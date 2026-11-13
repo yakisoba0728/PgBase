@@ -68,6 +68,14 @@ type StorageController struct {
 	operations            chan struct{}
 }
 
+// Dedicated storage sessions must release their locks before admission returns.
+func closeStorageSession(conn *pgx.Conn) {
+	cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, _ = conn.Exec(cleanup, `select pg_advisory_unlock_all()`)
+	_ = conn.Close(cleanup)
+}
+
 // BeginStorageOperation prevents a destination transition until a compound
 // operation has either attached or queued every object it created.
 func (c *StorageController) BeginStorageOperation(ctx context.Context) (context.Context, func(), error) {
@@ -85,19 +93,19 @@ func (c *StorageController) BeginStorageOperation(ctx context.Context) (context.
 		return ctx, nil, err
 	}
 	if _, err = conn.Exec(ctx, `select pg_advisory_lock_shared($1)`, storageTransitionLock); err != nil {
-		_ = conn.Close(context.Background())
+		closeStorageSession(conn)
 		<-c.operations
 		return ctx, nil, err
 	}
 	settings, encrypted, err := loadStorageSettings(ctx, conn)
 	if err != nil {
-		_ = conn.Close(context.Background())
+		closeStorageSession(conn)
 		<-c.operations
 		return ctx, nil, err
 	}
 	store, err := c.storeForSettings(ctx, settings, encrypted)
 	if err != nil {
-		_ = conn.Close(context.Background())
+		closeStorageSession(conn)
 		<-c.operations
 		return ctx, nil, err
 	}
@@ -105,9 +113,7 @@ func (c *StorageController) BeginStorageOperation(ctx context.Context) (context.
 	var once sync.Once
 	release := func() {
 		once.Do(func() {
-			cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			_ = conn.Close(cleanup)
+			closeStorageSession(conn)
 			<-c.operations
 		})
 	}

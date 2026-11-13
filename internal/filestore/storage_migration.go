@@ -381,11 +381,7 @@ func (s *ObjectMigrationService) copyOne(ctx context.Context, id uuid.UUID) (boo
 	if err != nil {
 		return false, err
 	}
-	defer func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		_ = coordination.Close(cleanup)
-	}()
+	defer closeStorageSession(coordination)
 	if _, err = coordination.Exec(ctx, `select pg_advisory_lock(hashtextextended($1,0))`, migrationObjectLockName(id, key)); err != nil {
 		return false, err
 	}

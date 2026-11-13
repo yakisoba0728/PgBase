@@ -16,6 +16,12 @@ The user confirmed no external OAuth test application or account is available. A
 
 These are process-crash and restart tests. They do not physically interrupt power to storage hardware, disable a disk's cache, or establish guarantees for every filesystem or device. An interrupted unpublished local upload can leave an inaccessible temporary file; startup does not remove other writers' temporary files.
 
+## CI cleanup regressions
+
+The first PR PG17 run exposed a staging cleanup race. The full manual PG17 run also found a retained shared storage admission lock after a 65-file rollback. Both assertions remained unchanged. Closing a pgx connection sends Terminate without waiting for PostgreSQL to remove its session locks.
+
+A transport fixture suppresses Terminate and keeps the server session alive, deterministically reproducing both premature-release failures. Dedicated filestore coordination sessions now wait for `pg_advisory_unlock_all()` before closing, including storage admission, owned staging and migration sessions. Borrowed staging sessions unlock only their object lock, preserving their enclosing lease. The two protocol regressions and existing staging controls pass 20 race-enabled repetitions (20.259s); the 65-file commit/rollback cases pass 10 race-enabled repetitions (34.808s). Original failing CI and local logs remain preserved.
+
 ## Managed backup image
 
 The default image includes matching PostgreSQL 16.16, 17.12 and 18.7 client tools. The shipped Compose database is pinned to 16.16. These minor releases include [upstream security fixes](https://www.postgresql.org/support/security/); older 16/17/18 server fixtures remain in the compatibility matrix. Native installations keep their existing PATH behavior; bundled tool selection is restricted to `/opt/pgbase/postgresql/<major>/bin`. The exact-major validation remains in place.
@@ -24,17 +30,17 @@ The runtime keeps a nonroot user, read-only root support and no shell/server/pac
 
 The first packaging attempt passed functional checks but failed the HIGH/CRITICAL image gate. That candidate was rejected. The rebuilt runtime removes the unused Kerberos/LDAP/GnuTLS dependency graph and updates the affected client and TLS/compression libraries. No vulnerability exceptions or blanket `ignore-unfixed` setting were added. Actual TLS testing also found and corrected a distroless NSS identity-lookup configuration issue.
 
-Final ARM64 candidate **rc.6**, schema **67**, digest:
+Final ARM64 candidate **rc.8**, schema **67**, digest:
 
 ```text
-8d310222d729d8a31b7fbf8b867249523dfcfeb4493011ac13db7fad78783bac
+206527269896dbd44555f481b756b90deae125c74dcb2ad9dce88343fc99b26f
 ```
 
 | Check | Result |
 | --- | --- |
 | Go unit/race, lint, vet | PASS; lint 0 issues. |
-| Same-digest E2E, twice shuffled | PASS, 71.358s; includes actual application/database SIGKILL recovery. |
-| Same-digest restore and managed-runtime suite | PASS, 33.053s; PostgreSQL 16/17/18 online backup, isolated restore, restored file bytes and post-snapshot record rollback. |
+| Same-digest E2E, twice shuffled | PASS, 66.344s; includes actual application/database SIGKILL recovery. |
+| Same-digest restore and managed-runtime suite | PASS, 32.425s; PostgreSQL 16/17/18 online backup, isolated restore, restored file bytes and post-snapshot record rollback. |
 | Bundled TLS clients | Trusted `verify-full` dump and restore succeed; wrong CA and hostname fail. |
 | Image vulnerability gate | 0 HIGH/CRITICAL, no suppressions; SPDX output generated. |
 | Release-phase packaging | The isolated raw-binary packaging context includes both library scripts; its built image passes the managed backup and TLS tests too. |

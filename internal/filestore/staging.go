@@ -42,12 +42,12 @@ func (o *stagedObjectOwnership) release() {
 		return
 	}
 	o.once.Do(func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
 		if o.ownConn {
-			_ = o.conn.Close(cleanup)
+			closeStorageSession(o.conn)
 			return
 		}
+		cleanup, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
 		_, _ = o.conn.Exec(cleanup, `select pg_advisory_unlock(hashtextextended($1,0))`, stagedObjectLockName(o.key))
 	})
 }
