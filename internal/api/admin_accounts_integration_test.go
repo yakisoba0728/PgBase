@@ -55,7 +55,7 @@ func TestAdministratorAccountHTTPManagement(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), `select (select count(*) from pgbase_meta.admins),(select count(*) from pgbase_meta.admin_ip_allowlist)`).Scan(&administrators, &prefixes); err != nil || administrators != 1 || prefixes != 0 {
 		t.Fatalf("refused step-up changed state: administrators=%d prefixes=%d err=%v", administrators, prefixes, err)
 	}
-	created :=request(http.MethodPost, path, `{`+current+`"email":"second@example.test","password":"second administration password"}`, true, true)
+	created := request(http.MethodPost, path, `{`+current+`"email":"second@example.test","password":"second administration password"}`, true, true)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create administrator status=%d body=%s", created.Code, created.Body.String())
 	}
@@ -125,11 +125,11 @@ func TestAdministratorAccountHTTPManagement(t *testing.T) {
 	}{
 		{http.MethodGet, path, "", false, false, 401},
 		{http.MethodPost, path, `{"email":"third@example.test","password":"third administration password"}`, true, false, 403},
-		{http.MethodPost, path, `{`+current+`"email":"second@example.test","password":"duplicate administration password"}`, true, true, 409},
-		{http.MethodPatch, path + "/" + second.ID.String(), `{`+current+`"active":true,"email":"override@example.test"}`, true, true, 400},
+		{http.MethodPost, path, `{` + current + `"email":"second@example.test","password":"duplicate administration password"}`, true, true, 409},
+		{http.MethodPatch, path + "/" + second.ID.String(), `{` + current + `"active":true,"email":"override@example.test"}`, true, true, 400},
 		{http.MethodGet, path + "?limit=101", "", true, false, 400},
 		{http.MethodGet, path + "?after=invalid", "", true, false, 400},
-		{http.MethodPatch, path + "/00000000-0000-4000-8000-000000000001", `{`+current+`"active":true}`, true, true, 404},
+		{http.MethodPatch, path + "/00000000-0000-4000-8000-000000000001", `{` + current + `"active":true}`, true, true, 404},
 	} {
 		if got := request(tc.method, tc.path, tc.body, tc.auth, tc.csrf); got.Code != tc.status {
 			t.Errorf("%s %s = %d want %d: %s", tc.method, tc.path, got.Code, tc.status, got.Body.String())
