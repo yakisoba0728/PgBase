@@ -351,24 +351,11 @@ func deletePairedAuthRealm(ctx context.Context, tx pgx.Tx, current Collection) e
 // target the old name follow it.
 func renameAuthRealmReferences(ctx context.Context, db database.DBTX, oldName, newName string, auth bool) error {
 	if auth {
-		var id uuid.UUID
-		err := db.QueryRow(ctx, `select id from pgbase_meta.auth_collections where name=$1 for update`, oldName).Scan(&id)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		id, err := pairedRealmForRename(ctx, db, oldName, newName, " for update")
+		if err != nil {
 			return err
 		}
-		if errors.Is(err, pgx.ErrNoRows) {
-			// Pairing is by name: an auth collection without a realm must not adopt an unrelated one.
-			var taken bool
-			if err := db.QueryRow(ctx, `select exists(select 1 from pgbase_meta.auth_collections where name=$1)`, newName).Scan(&taken); err != nil {
-				return err
-			}
-			if taken {
-				return validation("name", "auth_collection_name_taken")
-			}
-		} else {
-			if id.String() == defaultAuthRealmID {
-				return validation("name", "default_auth_collection_protected")
-			}
+		if id != uuid.Nil {
 			// Catalog names are a subset of realm names, so newName is a valid realm name.
 			_, err = db.Exec(ctx, `update pgbase_meta.auth_collections set name=$2,updated_at=clock_timestamp() where id=$1`, id, newName)
 			var pgErr *pgconn.PgError
@@ -382,6 +369,29 @@ func renameAuthRealmReferences(ctx context.Context, db database.DBTX, oldName, n
 	}
 	_, err := db.Exec(ctx, `update pgbase_meta.auth_collections set fields_json=(select jsonb_agg(case when f->'relation'->>'targetCollection'=$1 then jsonb_set(f,'{relation,targetCollection}',to_jsonb($2::text)) else f end order by n) from jsonb_array_elements(fields_json) with ordinality e(f,n)),updated_at=clock_timestamp() where fields_json @> jsonb_build_array(jsonb_build_object('relation',jsonb_build_object('targetCollection',$1::text)))`, oldName, newName)
 	return err
+}
+
+// pairedRealmForRename returns the realm that follows auth collection oldName
+// to newName, or uuid.Nil when it has none. Pairing is by name, so newName may
+// not be another realm's: with a realm that is a clash, without one the
+// collection would adopt an unrelated realm.
+func pairedRealmForRename(ctx context.Context, db database.DBTX, oldName, newName, lock string) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := db.QueryRow(ctx, `select id from pgbase_meta.auth_collections where name=$1`+lock, oldName).Scan(&id)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, err
+	}
+	if id.String() == defaultAuthRealmID {
+		return uuid.Nil, validation("name", "default_auth_collection_protected")
+	}
+	var taken bool
+	if err := db.QueryRow(ctx, `select exists(select 1 from pgbase_meta.auth_collections where name=$1)`, newName).Scan(&taken); err != nil {
+		return uuid.Nil, err
+	}
+	if taken {
+		return uuid.Nil, validation("name", "auth_collection_name_taken")
+	}
+	return id, nil
 }
 
 // refuseRealmRelations refuses with code when realm relation fields match

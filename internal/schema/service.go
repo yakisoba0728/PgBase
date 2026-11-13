@@ -145,6 +145,11 @@ func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err er
 		if err := validateRequiredRelationAdds(ctx, s.pool, current, plan.Definition, false); err != nil {
 			return Plan{}, err
 		}
+		if current.Type == CollectionTypeAuth && plan.Definition.Name != current.Name {
+			if _, err := pairedRealmForRename(ctx, s.pool, current.Name, plan.Definition.Name, ""); err != nil {
+				return Plan{}, err
+			}
+		}
 	case changeDelete:
 		current := catalog.Collections[change.deleteName]
 		relationOperation = collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
