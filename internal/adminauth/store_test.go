@@ -77,11 +77,16 @@ func TestAdministratorSelfProfileAndIPAllowlistRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 9, 10, 1, 2, 3, 0, time.UTC)
 	admin := Administrator{ID: uuid.New(), Email: "old@example.com", Active: true, CreatedAt: now, UpdatedAt: now}
-	if _, err := NewStore(pool).CreateAdministrator(ctx, admin, "encoded-password-hash"); err != nil {
+	const password = "allowlist account password"
+	hash, err := NewArgon2idPasswords().Hash(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewStore(pool).CreateAdministrator(ctx, admin, hash); err != nil {
 		t.Fatal(err)
 	}
 	service := NewService(pool, NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), "", time.Hour, &fakeClock{now: now.Add(time.Minute)})
-	prefixes, err := service.ReplaceAdministratorIPPrefixes(ctx, admin.ID, "192.0.2.7", []string{"2001:db8::/64", "192.0.2.0/24", "192.0.2.0/24"})
+	prefixes, err := service.ReplaceAdministratorIPPrefixes(ctx, admin.ID, "192.0.2.7", "192.0.2.7", password, []string{"2001:db8::/64", "192.0.2.0/24", "192.0.2.0/24"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +97,7 @@ func TestAdministratorSelfProfileAndIPAllowlistRoundTrip(t *testing.T) {
 	if err != nil || fmt.Sprint(stored) != fmt.Sprint(prefixes) {
 		t.Fatalf("stored prefixes = %v, err=%v", stored, err)
 	}
-	if _, err := service.ReplaceAdministratorIPPrefixes(ctx, admin.ID, "192.0.2.7", []string{"0.0.0.0/0"}); !errors.Is(err, ErrValidation) {
+	if _, err := service.ReplaceAdministratorIPPrefixes(ctx, admin.ID, "192.0.2.7", "192.0.2.7", password, []string{"0.0.0.0/0"}); !errors.Is(err, ErrValidation) {
 		t.Fatalf("broad prefix error = %v", err)
 	}
 	for _, tc := range []struct {
@@ -107,7 +112,7 @@ func TestAdministratorSelfProfileAndIPAllowlistRoundTrip(t *testing.T) {
 		{"unknown", []string{"198.51.100.0/24"}, false},
 		{"unknown", []string{}, true},
 	} {
-		_, err := service.ReplaceAdministratorIPPrefixes(ctx, admin.ID, tc.address, tc.prefixes)
+		_, err := service.ReplaceAdministratorIPPrefixes(ctx, admin.ID, tc.address, tc.address, password, tc.prefixes)
 		if tc.allowed != (err == nil) || (!tc.allowed && !errors.Is(err, ErrIPRestricted)) {
 			t.Fatalf("replace %v from %s error = %v", tc.prefixes, tc.address, err)
 		}
@@ -139,7 +144,7 @@ func TestAdministratorCredentialChangeRequiresCurrentPassword(t *testing.T) {
 		t.Fatalf("weak password error = %v", err)
 	}
 	for _, current := range []string{"", "incorrect horse battery staple"} {
-		if _, err := service.UpdateAdministratorCredentials(ctx, id, "192.0.2.10", current, "", "replacement battery staple"); !errors.Is(err, ErrInvalidCredentials) {
+		if _, err := service.UpdateAdministratorCredentials(ctx, id, "192.0.2.10", current, "", "replacement battery staple"); !errors.Is(err, ErrCurrentPasswordInvalid) {
 			t.Fatalf("current %q error = %v", current, err)
 		}
 	}

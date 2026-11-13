@@ -334,14 +334,19 @@ func (s *Service) DeleteAuthCollection(ctx context.Context, id uuid.UUID) error 
 	}
 	// A realm paired with an auth catalog collection is deleted together with
 	// it through the schema; deleting only the realm would orphan the catalog.
-	tag, err := s.pool.Exec(ctx, `delete from pgbase_meta.auth_collections a where id=$1 and not exists(select 1 from pgbase_meta.collections c where c.name=a.name and c.collection_type='auth')`, id)
+	// Other realms' relation fields that target it would dangle, so they keep it.
+	tag, err := s.pool.Exec(ctx, `delete from pgbase_meta.auth_collections a where id=$1 and not exists(select 1 from pgbase_meta.collections c where c.name=a.name and c.collection_type='auth') and not exists(select 1 from pgbase_meta.auth_collections o, jsonb_array_elements(o.fields_json) f where o.id<>a.id and f->'relation'->>'targetCollection'=a.name)`, id)
 	if isAuthCollectionDeleteConflict(err) {
 		return fieldError(ErrConflict, "id", "has_users")
 	}
 	if err == nil && tag.RowsAffected() == 0 {
-		var exists bool
-		if err = s.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.auth_collections where id=$1)`, id).Scan(&exists); err == nil && exists {
+		var paired bool
+		if err = s.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.collections c where c.name=a.name and c.collection_type='auth') from pgbase_meta.auth_collections a where id=$1`, id).Scan(&paired); errors.Is(err, pgx.ErrNoRows) {
+			err = nil
+		} else if err == nil && paired {
 			return fieldError(ErrConflict, "id", "managed_by_schema")
+		} else if err == nil {
+			return fieldError(ErrConflict, "id", "collection_referenced")
 		}
 	}
 	if database.Classify(err) == database.KindConflict {

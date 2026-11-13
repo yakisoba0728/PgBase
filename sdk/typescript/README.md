@@ -149,7 +149,7 @@ console.log(result, await admin.operation(planned.operationID));
 
 Existing field IDs preserve data when a field is renamed. Omitted options preserve the current constraints; `{}` clears them. `FieldOptions` covers text length/pattern/autogeneration, email/URL allow and deny domains, choices, numeric decimal bounds and JSONB multi-select counts. Required follows SQL NULL semantics for ordinary scalars; editor/password also reject empty strings, geoPoint rejects the zero point, and files require an attached value. See [advanced field contracts](../../docs/advanced-fields.md). The client also exposes `logs`, `jobs`, `configureJob` and `queueJob`.
 
-Administrator account management uses `administratorAccounts`, `createAdministrator`, `setAdministratorActive`, `setAdministratorPassword`, and `revokeAdministratorSessions`. Destructive calls are explicit named methods and use the same in-memory CSRF credential as the other administrator mutations.
+Administrator account management uses `administratorAccounts`, `createAdministrator`, `setAdministratorActive`, `setAdministratorPassword`, and `revokeAdministratorSessions`. Destructive calls are explicit named methods and use the same in-memory CSRF credential as the other administrator mutations. `createAdministrator`, `setAdministratorActive` and `setAdministratorPassword` take the acting administrator's current password as their last argument before the signal; the server answers 403 `current_password_invalid` without it.
 
 Schema document imports have a distinct receipt route. Poll an apply result with `schemaImportOperation(result.operationId)`; `operation(id)` polls collection plan/apply receipts instead.
 

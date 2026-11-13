@@ -22,7 +22,7 @@ func (s *Service) ListAdministratorAccounts(ctx context.Context, actor, after uu
 	}
 	items := make([]Administrator, 0, limit+1)
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if err := activeAccountActor(ctx, tx, actor); err != nil {
+		if err := activeAccountActor(ctx, tx, actor, ""); err != nil {
 			return err
 		}
 		rows, err := tx.Query(ctx, `select id,email,active,created_at,updated_at from pgbase_meta.admins where id>$1 order by id limit $2`, after, limit+1)
@@ -48,12 +48,17 @@ func (s *Service) ListAdministratorAccounts(ctx context.Context, actor, after uu
 }
 
 // CreateAdministratorAccount is the authenticated management counterpart to
-// the local recovery CLI. It never issues a session for the new account.
-func (s *Service) CreateAdministratorAccount(ctx context.Context, actor uuid.UUID, email, password string) (Administrator, error) {
+// the local recovery CLI. It requires the actor's current password
+// (confirmCurrentPassword) and never issues a session for the new account.
+func (s *Service) CreateAdministratorAccount(ctx context.Context, actor uuid.UUID, subject, currentPassword, email, password string) (Administrator, error) {
 	if err := s.ready(); err != nil {
 		return Administrator{}, err
 	}
 	normalized, err := NormalizeEmail(email)
+	if err != nil {
+		return Administrator{}, err
+	}
+	_, verified, err := s.confirmCurrentPassword(ctx, actor, subject, currentPassword)
 	if err != nil {
 		return Administrator{}, err
 	}
@@ -62,7 +67,7 @@ func (s *Service) CreateAdministratorAccount(ctx context.Context, actor uuid.UUI
 		return Administrator{}, err
 	}
 	var result Administrator
-	err = s.accountTransaction(ctx, actor, func(tx pgx.Tx) error {
+	err = s.accountTransaction(ctx, actor, verified, func(tx pgx.Tx) error {
 		id, err := uuid.NewV7()
 		if err != nil {
 			return err
@@ -77,11 +82,19 @@ func (s *Service) CreateAdministratorAccount(ctx context.Context, actor uuid.UUI
 	return result, err
 }
 
-// SetAdministratorActive serializes with CLI lifecycle operations. A request
-// cannot deactivate its own actor or remove the last active administrator.
-func (s *Service) SetAdministratorActive(ctx context.Context, actor, target uuid.UUID, active bool) (Administrator, error) {
+// SetAdministratorActive serializes with CLI lifecycle operations and requires
+// the actor's current password. A request cannot deactivate its own actor or
+// remove the last active administrator.
+func (s *Service) SetAdministratorActive(ctx context.Context, actor uuid.UUID, subject, currentPassword string, target uuid.UUID, active bool) (Administrator, error) {
+	if err := s.ready(); err != nil {
+		return Administrator{}, err
+	}
+	_, verified, err := s.confirmCurrentPassword(ctx, actor, subject, currentPassword)
+	if err != nil {
+		return Administrator{}, err
+	}
 	var result Administrator
-	err := s.accountTransaction(ctx, actor, func(tx pgx.Tx) error {
+	err = s.accountTransaction(ctx, actor, verified, func(tx pgx.Tx) error {
 		current, err := lockAdministratorAccount(ctx, tx, target)
 		if err != nil {
 			return err
@@ -114,19 +127,24 @@ func (s *Service) SetAdministratorActive(ctx context.Context, actor, target uuid
 
 // SetAdministratorPassword preserves active state, TOTP and network policy.
 // Existing sessions and pending email credentials are invalidated atomically.
-func (s *Service) SetAdministratorPassword(ctx context.Context, actor, target uuid.UUID, password string) error {
+// It requires the actor's current password.
+func (s *Service) SetAdministratorPassword(ctx context.Context, actor uuid.UUID, subject, currentPassword string, target uuid.UUID, password string) error {
 	if err := s.ready(); err != nil {
 		return err
 	}
 	if actor == target {
-		// Changing one's own password requires the current one (UpdateAdministratorCredentials).
+		// Changing one's own password goes through UpdateAdministratorCredentials.
 		return ErrConflict
+	}
+	_, verified, err := s.confirmCurrentPassword(ctx, actor, subject, currentPassword)
+	if err != nil {
+		return err
 	}
 	hash, err := s.hashPassword(ctx, password)
 	if err != nil {
 		return err
 	}
-	return s.accountTransaction(ctx, actor, func(tx pgx.Tx) error {
+	return s.accountTransaction(ctx, actor, verified, func(tx pgx.Tx) error {
 		if _, err := lockAdministratorAccount(ctx, tx, target); err != nil {
 			return err
 		}
@@ -137,8 +155,9 @@ func (s *Service) SetAdministratorPassword(ctx context.Context, actor, target uu
 	})
 }
 
+// RevokeAdministratorSessions needs no step-up: the target can sign in again.
 func (s *Service) RevokeAdministratorSessions(ctx context.Context, actor, target uuid.UUID) error {
-	return s.accountTransaction(ctx, actor, func(tx pgx.Tx) error {
+	return s.accountTransaction(ctx, actor, "", func(tx pgx.Tx) error {
 		if _, err := lockAdministratorAccount(ctx, tx, target); err != nil {
 			return err
 		}
@@ -146,7 +165,7 @@ func (s *Service) RevokeAdministratorSessions(ctx context.Context, actor, target
 	})
 }
 
-func (s *Service) accountTransaction(ctx context.Context, actor uuid.UUID, apply func(pgx.Tx) error) error {
+func (s *Service) accountTransaction(ctx context.Context, actor uuid.UUID, verified string, apply func(pgx.Tx) error) error {
 	if err := s.ready(); err != nil {
 		return err
 	}
@@ -154,18 +173,23 @@ func (s *Service) accountTransaction(ctx context.Context, actor uuid.UUID, apply
 		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, administratorLifecycleLock); err != nil {
 			return err
 		}
-		if err := activeAccountActor(ctx, tx, actor); err != nil {
+		if err := activeAccountActor(ctx, tx, actor, verified); err != nil {
 			return err
 		}
 		return apply(tx)
 	})
 }
 
-func activeAccountActor(ctx context.Context, tx pgx.Tx, actor uuid.UUID) error {
-	var id uuid.UUID
-	err := tx.QueryRow(ctx, `select id from pgbase_meta.admins where id=$1 and active for share`, actor).Scan(&id)
+// activeAccountActor share-locks the active actor. A non-empty verified hash
+// (from confirmCurrentPassword) must still be the stored one.
+func activeAccountActor(ctx context.Context, tx pgx.Tx, actor uuid.UUID, verified string) error {
+	var hash string
+	err := tx.QueryRow(ctx, `select password_hash from pgbase_meta.admins where id=$1 and active for share`, actor).Scan(&hash)
 	if errors.Is(err, pgx.ErrNoRows) || actor == uuid.Nil {
 		return ErrInvalidCredentials
+	}
+	if err == nil && verified != "" && !constantTimeStringEqual(hash, verified) {
+		return ErrCurrentPasswordInvalid
 	}
 	return err
 }
@@ -183,6 +207,10 @@ func invalidateAccountCredentials(ctx context.Context, tx pgx.Tx, target uuid.UU
 	if err := NewStore(tx).DeleteAdministratorSessions(ctx, target); err != nil {
 		return err
 	}
+	return invalidatePendingEmailCredentials(ctx, tx, target)
+}
+
+func invalidatePendingEmailCredentials(ctx context.Context, tx pgx.Tx, target uuid.UUID) error {
 	if _, err := tx.Exec(ctx, `delete from pgbase_meta.admin_password_resets where admin_id=$1`, target); err != nil {
 		return err
 	}

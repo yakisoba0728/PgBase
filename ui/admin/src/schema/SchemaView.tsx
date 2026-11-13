@@ -12,7 +12,7 @@ import { SaveBar } from "../components/SaveBar";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { deleteCollection, hasUsers } from "./apply";
+import { deleteCollection, deleteRefusal } from "./apply";
 import { FieldPane } from "./FieldPane";
 import { IndexPane } from "./IndexPane";
 import { PlanReview } from "./PlanReview";
@@ -88,7 +88,7 @@ function DangerZone({ collection, editor }: { collection: Collection; editor: Sc
         await queryClient.invalidateQueries({ queryKey: ["records", collection.name] });
       }
     },
-    onError: (error) => toast(hasUsers(error) ? t("auth.collections.hasUsers") : errorText(t, error), "danger"),
+    onError: (error) => toast(deleteRefusal(t, error), "danger"),
   });
   return (
     <Section title={t("schema.danger")}>

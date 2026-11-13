@@ -12,7 +12,7 @@ import { Field } from "../components/Field";
 import { FormSection } from "../components/FormSection";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { currentPasswordError, PasswordForm } from "./AdministratorsView";
+import { CurrentPasswordField, currentPasswordError, PasswordForm } from "./AdministratorsView";
 import { allowlistCovers, isMaskedPrefix, lines } from "./net";
 import { allowlistQuery, profileQuery } from "./queries";
 import "../styles/system.css";
@@ -107,6 +107,11 @@ function AllowlistForm({ allowlist, profile }: { allowlist: IpAllowlist; profile
   const queryClient = useQueryClient();
   const [text, setText] = useState(prefixes.join("\n"));
   const [confirming, setConfirming] = useState(false);
+  const [current, setCurrent] = useState("");
+  const closeConfirm = () => {
+    setConfirming(false);
+    setCurrent("");
+  };
   const entries = lines(text);
   const bad = entries.find((entry) => !isMaskedPrefix(entry));
   const invalid = bad !== undefined ? t("system.invalid.cidr", { value: bad }) : entries.length > 64 ? t("system.invalid.tooMany", { max: 64 }) : undefined;
@@ -114,25 +119,27 @@ function AllowlistForm({ allowlist, profile }: { allowlist: IpAllowlist; profile
   // A convenience mirror of the server's refusal; the server decides.
   const excludesSelf = entries.length > 0 && !allowlistCovers(entries, clientAddress) ? t("system.profile.excludesSelf", { address: clientAddress }) : undefined;
   const save = useMutation({
-    mutationFn: () => updateIpAllowlist(entries),
+    mutationFn: () => updateIpAllowlist(entries, current),
     onSuccess: (value) => {
-      setConfirming(false);
+      closeConfirm();
       queryClient.setQueryData(allowlistQuery.queryKey, value);
       toast(t("system.profile.allowlistSaved"));
     },
-    onError: () => setConfirming(false),
+    // A wrong current password stays on the dialog's field.
+    onError: (error) => currentPasswordError(t, error) === undefined && closeConfirm(),
   });
   const code = save.error instanceof ApiError ? save.error.code : "";
-  const serverError = !save.isError ? undefined
+  const currentError = currentPasswordError(t, save.error);
+  const serverError = !save.isError || currentError ? undefined
     : code === "invalid_profile" ? t("system.profile.allowlistInvalid")
     : code === "ip_allowlist_excludes_caller" ? t("system.profile.excludesSelf", { address: clientAddress })
     : errorText(t, save.error);
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (invalid || excludesSelf) return;
-    // Clearing the list cannot lock anyone out; anything else is confirmed first.
-    if (entries.length === 0) save.mutate();
-    else setConfirming(true);
+    // Every change is confirmed with the current password; clearing cannot lock anyone out.
+    save.reset();
+    setConfirming(true);
   };
   return (
     <form className="form sys-narrow" noValidate onSubmit={onSubmit}>
@@ -143,12 +150,17 @@ function AllowlistForm({ allowlist, profile }: { allowlist: IpAllowlist; profile
       <div className="sys-row-end">
         <Button type="submit" disabled={!dirty || Boolean(invalid) || Boolean(excludesSelf)} loading={save.isPending}>{t("records.save")}</Button>
       </div>
-      <ConfirmDialog open={confirming} title={t("system.profile.allowlistConfirm")} confirmLabel={t("records.save")} danger busy={save.isPending}
-        onConfirm={() => save.mutate()} onCancel={() => setConfirming(false)}>
-        <p>{t("system.profile.allowlistConfirmText")}</p>
-        <pre className="sys-code">{entries.join("\n")}</pre>
-        <p className="txt-hint">{t("system.profile.recovery")}</p>
-        <pre className="sys-code">{`pgbase admin ip deny --email ${profile.email} --cidr <CIDR>`}</pre>
+      <ConfirmDialog open={confirming} title={t(entries.length === 0 ? "system.profile.allowlistClear" : "system.profile.allowlistConfirm")} confirmLabel={t("records.save")} danger={entries.length > 0} busy={save.isPending}
+        confirmDisabled={!current} onConfirm={() => save.mutate()} onCancel={closeConfirm}>
+        {entries.length > 0 && (
+          <>
+            <p>{t("system.profile.allowlistConfirmText")}</p>
+            <pre className="sys-code">{entries.join("\n")}</pre>
+            <p className="txt-hint">{t("system.profile.recovery")}</p>
+            <pre className="sys-code">{`pgbase admin ip deny --email ${profile.email} --cidr <CIDR>`}</pre>
+          </>
+        )}
+        <CurrentPasswordField value={current} error={currentError} onChange={setCurrent} />
       </ConfirmDialog>
     </form>
   );

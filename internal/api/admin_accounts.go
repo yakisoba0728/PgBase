@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/netip"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -13,9 +14,9 @@ import (
 
 type administratorAccounts interface {
 	ListAdministratorAccounts(context.Context, uuid.UUID, uuid.UUID, int) ([]adminauth.Administrator, uuid.UUID, error)
-	CreateAdministratorAccount(context.Context, uuid.UUID, string, string) (adminauth.Administrator, error)
-	SetAdministratorActive(context.Context, uuid.UUID, uuid.UUID, bool) (adminauth.Administrator, error)
-	SetAdministratorPassword(context.Context, uuid.UUID, uuid.UUID, string) error
+	CreateAdministratorAccount(context.Context, uuid.UUID, string, string, string, string) (adminauth.Administrator, error)
+	SetAdministratorActive(context.Context, uuid.UUID, string, string, uuid.UUID, bool) (adminauth.Administrator, error)
+	SetAdministratorPassword(context.Context, uuid.UUID, string, string, uuid.UUID, string) error
 	RevokeAdministratorSessions(context.Context, uuid.UUID, uuid.UUID) error
 }
 
@@ -24,7 +25,7 @@ func adminAccountRoutes(dependencies Dependencies) []route {
 	if !ok {
 		return nil
 	}
-	h := adminAccountEndpoints{service}
+	h := adminAccountEndpoints{service: service, trustedProxies: dependencies.trustedProxies}
 	return []route{
 		{method: http.MethodGet, pattern: "/api/admin/administrators", access: accessAdminSameOriginRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(h.list)},
 		{method: http.MethodPost, pattern: "/api/admin/administrators", access: accessAdminSession, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(h.create)},
@@ -34,7 +35,20 @@ func adminAccountRoutes(dependencies Dependencies) []route {
 	}
 }
 
-type adminAccountEndpoints struct{ service administratorAccounts }
+type adminAccountEndpoints struct {
+	service        administratorAccounts
+	trustedProxies func() []netip.Prefix
+}
+
+// stepUp returns the rate-limit subject for the actor's current-password
+// confirmation, or false after answering an unresolvable client address.
+func (h adminAccountEndpoints) stepUp(w http.ResponseWriter, r *http.Request) (string, bool) {
+	subject, ok := clientAddress(r, currentTrustedProxies(h.trustedProxies))
+	if !ok {
+		writeAdminAccountError(w, r, adminauth.ErrValidation)
+	}
+	return subject, ok
+}
 
 func (h adminAccountEndpoints) list(w http.ResponseWriter, r *http.Request) {
 	principal, _ := AdminPrincipalFromContext(r.Context())
@@ -77,15 +91,20 @@ func (h adminAccountEndpoints) list(w http.ResponseWriter, r *http.Request) {
 
 func (h adminAccountEndpoints) create(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		CurrentPassword string `json:"currentPassword"`
+		Email           string `json:"email"`
+		Password        string `json:"password"`
 	}
 	if decodeStrictJSON(r, &input) != nil {
 		writeAdminAccountError(w, r, adminauth.ErrValidation)
 		return
 	}
+	subject, ok := h.stepUp(w, r)
+	if !ok {
+		return
+	}
 	principal, _ := AdminPrincipalFromContext(r.Context())
-	value, err := h.service.CreateAdministratorAccount(r.Context(), principal.Administrator.ID, input.Email, input.Password)
+	value, err := h.service.CreateAdministratorAccount(r.Context(), principal.Administrator.ID, subject, input.CurrentPassword, input.Email, input.Password)
 	if err != nil {
 		writeAdminAccountError(w, r, err)
 		return
@@ -95,7 +114,8 @@ func (h adminAccountEndpoints) create(w http.ResponseWriter, r *http.Request) {
 
 func (h adminAccountEndpoints) update(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Active *bool `json:"active"`
+		CurrentPassword string `json:"currentPassword"`
+		Active          *bool  `json:"active"`
 	}
 	if decodeStrictJSON(r, &input) != nil || input.Active == nil {
 		writeAdminAccountError(w, r, adminauth.ErrValidation)
@@ -106,8 +126,12 @@ func (h adminAccountEndpoints) update(w http.ResponseWriter, r *http.Request) {
 		writeAdminAccountError(w, r, adminauth.ErrValidation)
 		return
 	}
+	subject, ok := h.stepUp(w, r)
+	if !ok {
+		return
+	}
 	principal, _ := AdminPrincipalFromContext(r.Context())
-	value, err := h.service.SetAdministratorActive(r.Context(), principal.Administrator.ID, id, *input.Active)
+	value, err := h.service.SetAdministratorActive(r.Context(), principal.Administrator.ID, subject, input.CurrentPassword, id, *input.Active)
 	if err != nil {
 		writeAdminAccountError(w, r, err)
 		return
@@ -117,14 +141,19 @@ func (h adminAccountEndpoints) update(w http.ResponseWriter, r *http.Request) {
 
 func (h adminAccountEndpoints) password(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		NewPassword string `json:"newPassword"`
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
 	}
 	if decodeStrictJSON(r, &input) != nil {
 		writeAdminAccountError(w, r, adminauth.ErrValidation)
 		return
 	}
+	subject, ok := h.stepUp(w, r)
+	if !ok {
+		return
+	}
 	h.mutate(w, r, func(actor, target uuid.UUID) error {
-		return h.service.SetAdministratorPassword(r.Context(), actor, target, input.NewPassword)
+		return h.service.SetAdministratorPassword(r.Context(), actor, subject, input.CurrentPassword, target, input.NewPassword)
 	})
 }
 
@@ -160,6 +189,8 @@ func safeAdministratorAccount(value adminauth.Administrator) administratorRespon
 func writeAdminAccountError(w http.ResponseWriter, r *http.Request, err error) {
 	value := APIError{Status: 500, Code: "internal_error", Message: "Internal server error"}
 	switch {
+	case errors.Is(err, adminauth.ErrCurrentPasswordInvalid):
+		value = currentPasswordInvalid
 	case errors.Is(err, adminauth.ErrValidation):
 		value = APIError{Status: 400, Code: "invalid_administrator", Message: "Invalid administrator account request"}
 	case errors.Is(err, adminauth.ErrAdministratorNotFound):
@@ -169,7 +200,8 @@ func writeAdminAccountError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, adminauth.ErrInvalidCredentials):
 		value = APIError{Status: 401, Code: "authentication_required", Message: "Administrator authentication is required"}
 	case errors.Is(err, adminauth.ErrRateLimited):
-		value = APIError{Status: 429, Code: "rate_limited", Message: "Administrator credential work is busy"}
+		w.Header().Set("Retry-After", authenticationRetryAfter)
+		value = APIError{Status: 429, Code: "rate_limited", Message: "Too many authentication attempts or administrator credential work is busy"}
 	case database.Classify(err) == database.KindUnavailable:
 		value = APIError{Status: 503, Code: "administrator_unavailable", Message: "Administrator accounts are unavailable"}
 	}

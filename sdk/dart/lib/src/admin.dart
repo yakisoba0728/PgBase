@@ -415,14 +415,18 @@ final class PgBaseAdminClient {
     },
     cancellation: cancellation,
   );
+  /// Requires the acting administrator's current password, like the other
+  /// administrator-security changes (403 `current_password_invalid`).
   Future<JsonObject> createAdministrator(
     String email,
-    String password, {
+    String password,
+    String currentPassword, {
     CancellationToken? cancellation,
   }) => _object(
     'POST',
     '/api/admin/administrators',
     body: JsonObject({
+      'currentPassword': JsonString(currentPassword),
       'email': JsonString(email),
       'password': JsonString(password),
     }),
@@ -430,24 +434,32 @@ final class PgBaseAdminClient {
   );
   Future<JsonObject> setAdministratorActive(
     String id,
-    bool active, {
+    bool active,
+    String currentPassword, {
     CancellationToken? cancellation,
   }) => _object(
     'PATCH',
     '/api/admin/administrators/${Uri.encodeComponent(id)}',
-    body: JsonObject({'active': JsonBool(active)}),
+    body: JsonObject({
+      'currentPassword': JsonString(currentPassword),
+      'active': JsonBool(active),
+    }),
     cancellation: cancellation,
   );
   /// Replaces another administrator's password; the server refuses your own
   /// ID (409), which needs PATCH /api/admin/profile with the current password.
   Future<void> setAdministratorPassword(
     String id,
-    String newPassword, {
+    String newPassword,
+    String currentPassword, {
     CancellationToken? cancellation,
   }) async => request(
     'POST',
     '/api/admin/administrators/${Uri.encodeComponent(id)}/password-reset',
-    body: JsonObject({'newPassword': JsonString(newPassword)}),
+    body: JsonObject({
+      'currentPassword': JsonString(currentPassword),
+      'newPassword': JsonString(newPassword),
+    }),
     cancellation: cancellation,
   );
   Future<void> revokeAdministratorSessions(

@@ -453,9 +453,11 @@ export declare class PgBaseAdminClient {
         limit?: number;
         after?: string;
     }, signal?: AbortSignal): Promise<AdministratorAccountPage>;
-    createAdministrator(email: string, password: string, signal?: AbortSignal): Promise<AdministratorAccount>;
-    setAdministratorActive(id: string, active: boolean, signal?: AbortSignal): Promise<AdministratorAccount>;
-    setAdministratorPassword(id: string, newPassword: string, signal?: AbortSignal): Promise<void>;
+    /** Requires the acting administrator's current password (403 `current_password_invalid` otherwise), like the other administrator-security changes. */
+    createAdministrator(email: string, password: string, currentPassword: string, signal?: AbortSignal): Promise<AdministratorAccount>;
+    setAdministratorActive(id: string, active: boolean, currentPassword: string, signal?: AbortSignal): Promise<AdministratorAccount>;
+    /** Replaces another administrator's password; the server refuses your own ID (409), which needs PATCH /api/admin/profile with the current password. */
+    setAdministratorPassword(id: string, newPassword: string, currentPassword: string, signal?: AbortSignal): Promise<void>;
     revokeAdministratorSessions(id: string, signal?: AbortSignal): Promise<void>;
     backups(signal?: AbortSignal): Promise<{
         items: BackupEntry[];
