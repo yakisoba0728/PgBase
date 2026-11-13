@@ -1,13 +1,14 @@
 # 다음 작업과 완료 기준
 
-2026-11-13 최신 작업은 [운영 준비 보완](production-readiness-2026-11-13.md)을 따른다. 과거 N/M/P/O 단계는 [구현 이력](project-status.md)과 [TODO 이력](../TODO.md)에 보존한다.
+2026-11-13 보완은 PR [#125](https://github.com/yakisoba0728/PgBase/pull/125)·[#133](https://github.com/yakisoba0728/PgBase/pull/133)으로 병합하고, 전체 CI·릴리스 gate 통과 후 [v0.3.1](https://github.com/yakisoba0728/PgBase/releases/tag/v0.3.1)과 운영 서버에 반영했다(schema 66). [구현·검증 근거](production-readiness-2026-11-13.md), [배포 기록](deployment-2026-11-13.md)을 따른다. 이번 최종 점검의 필수 코드 수정·문서·병합·배포 항목은 완료했다.
 
-| 우선순위 | 항목 | 현재 상태 / 완료 기준 |
+| 구분 | 항목 | 현재 상태 / 다음 조건 |
 | --- | --- | --- |
-| 1 | 운영 백업·복원 | 소유자 요청으로 이번 작업에서 제외. 운영 백업을 만들지 않는다. 서버 밖 DB·파일·키 사본과 복원 검증은 여전히 없음 |
-| 2 | SQL view·auth snapshot 일관성 | 후속 코드와 재현/정상 회귀 test 추가. 전체 검사와 CI 후 병합 |
-| 3 | 서비스 토큰 로그·검색·파일 metadata·오류 field | schema 66 및 UI 구현. migration/복원·HTTP·UI test와 CI 후 배포 |
-| 4 | 검증·문서 | Dart analyze/unit·실제 HTTP, PostgreSQL matrix·race·browser·release gate와 운영 배포 근거를 최신 문서에 기록 |
-| 5 | 공개 패키지 | npm/pub.dev package 이름·scope·공개 여부·token은 별도 소유자 결정. GitHub 이미지 릴리스와 구분 |
+| 소유자 요청으로 제외 | 운영 백업·복원 | 운영 백업 생성·외부 저장소·예약 설정을 하지 않음. 서버 밖 DB·파일·키 사본과 실제 복원 인수는 미완료. 소유자가 재개를 요청할 때 진행 |
+| 완료 | SQL view·auth snapshot 일관성 | catalog·whole-row·기존 view 검사, realm 최종 diff 보존과 삭제 정책 회귀 통과 |
+| 완료 | 서비스 토큰 로그·검색·파일 metadata·오류 field | schema 66·UI 구현, migration/복원·HTTP·UI·CI 통과, 운영 반영 |
+| 완료 | 검증·문서·릴리스 | PostgreSQL matrix·race·Dart·E2E·restore·security·서명 gate 통과, v0.3.1 게시, 운영 schema 66/66·health 정상 |
+| 다음 유지보수 | 선택적 의존성 갱신 | #126–#132는 보류 사유와 함께 닫음. 이번 릴리스의 필수 보안 패치는 포함. 새 버전은 다음 주기에 재검증 |
+| 별도 소유자 결정 | npm/pub.dev 공개 패키지 | 이름·scope·공개 여부·token 미정. SDK source/conformance는 검증했으며 registry 배포는 하지 않음 |
 
-현재 관리자는 이미 존재하며 관리자 UI·backend-fixes·의존성 PR #124는 병합·배포됐다. 이들을 미구현/병합 대기로 다시 세지 않는다. 2026-11-13 main CI에서 Dart live HTTP acceptance, multi-process durability와 Windows self-update는 통과했다. 최신 공개 이미지 릴리스는 후속 release 결과를 기록하기 전까지 v0.2.3이다.
+과거 N/M/P/O 단계와 날짜별 미완료 표시는 [구현 이력](project-status.md)과 [TODO 이력](../TODO.md)에 당시 상태로 보존한다. 현재 열린 작업의 합계로 해석하지 않는다. schema 66 적용 뒤 이전 binary만 다시 배포하는 롤백은 지원하지 않는다.

@@ -4,7 +4,7 @@ pgBase is a PostgreSQL-backed application backend with an embedded administrator
 
 PgBase is an independent project inspired by PocketBase. Its PostgreSQL data model, authentication, APIs, and operational contracts guide development. See the [2026-09-22 implementation and next steps](docs/workstreams/independent-product-2026-09-22/README.md); the PocketBase comparison is reference material, not a requirement for identical behavior.
 
-The current source includes schema 66: SQL view reference validation (including persisted views), authentication-safe migration replay, service-token request-log identities, indexed log/email search, and administrator record-page file metadata. Administrator security writes require `currentPassword`. See [current status](docs/project-status.md), [readiness changes and verification](docs/production-readiness-2026-11-13.md), and [remaining work](docs/next-work.md). Historical implementation and deployment records are retained in those documents.
+The latest release is [v0.3.1](https://github.com/yakisoba0728/PgBase/releases/tag/v0.3.1); its source is deployed to production with schema 66. The current source includes schema 66: SQL view reference validation (including persisted views), authentication-safe migration replay, service-token request-log identities, indexed log/email search, and administrator record-page file metadata. Administrator security writes require `currentPassword`. See [current status](docs/project-status.md), [readiness changes and verification](docs/production-readiness-2026-11-13.md), and [remaining work](docs/next-work.md). Historical implementation and deployment records are retained in those documents.
 
 ## Quick start
 
