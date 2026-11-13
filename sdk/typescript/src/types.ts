@@ -11,7 +11,7 @@ export type RecordPage<T extends RecordData> = { items: T[]; nextCursor?: string
 export type PocketBaseListOptions = Pick<Query, "filter" | "sort" | "expand" | "fields" | "requestKey"> & { skipTotal?: boolean };
 /** PocketBase's page-number list envelope. A skipped count is represented by -1. */
 export type PocketBasePage<T extends RecordData> = { page: number; perPage: number; totalItems: number; totalPages: number; items: T[] };
-/** Record input may include PocketBase mutation keys such as `score+`, `+tags`, and `tags-`. */
+/** Record input may include mutation modifier keys such as `score+`, `+tags`, and `tags-`. */
 export type RecordModifiers = { [key: `${string}+`]: unknown; [key: `+${string}`]: unknown; [key: `${string}-`]: unknown };
 /** An explicit ID is accepted when the collection uses text record identities. */
 export type RecordMutation<T extends RecordData> = Omit<T, "id"> & { id?: string } & RecordModifiers;
@@ -56,7 +56,7 @@ export type EventOptions = {
   maxReconnects?: number;
   reconnectDelayMs?: number;
 };
-/** Reconnect policy for the shared PocketBase-compatible realtime session. */
+/** Reconnect policy for the shared realtime session. */
 export type RealtimeSubscriptionOptions = Pick<EventOptions, "maxReconnects" | "reconnectDelayMs">;
 /** Shared-session lifecycle snapshot; listener failures leave the current state intact. */
 export type RealtimeStatus = Readonly<{
@@ -68,7 +68,7 @@ export type RealtimeStatus = Readonly<{
   source?: "transport" | "listener";
   topic?: string;
 }>;
-/** A collection record event, retained for existing PocketBase subscriptions. */
+/** A collection record event. */
 export type RealtimeEvent<T extends RecordData = RecordData> = { action: "create" | "update" | "delete"; record: T; topic: string };
 /** An application topic event. Its payload is arbitrary valid JSON. */
 export type RealtimeCustomEvent = { topic: string; data: unknown };

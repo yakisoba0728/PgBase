@@ -10,7 +10,7 @@ import (
 
 // NewCatalogResolver resolves only identifiers present in one transaction-
 // pinned catalog snapshot. It never consults metadata dynamically.
-func NewCatalogResolver(catalog schema.Catalog, collection schema.Collection, alias string) (PBResolver, error) {
+func NewCatalogResolver(catalog schema.Catalog, collection schema.Collection, alias string) (Resolver, error) {
 	if alias == "" {
 		return nil, ErrInvalid
 	}
@@ -23,10 +23,10 @@ type catalogResolver struct {
 	rootAlias string
 }
 
-func (r *catalogResolver) Resolve(path string) (PBOperand, error) {
+func (r *catalogResolver) Resolve(path string) (Operand, error) {
 	segments := strings.Split(path, ".")
 	if len(segments) == 0 || len(segments) > 5 {
-		return PBOperand{}, ErrInvalid
+		return Operand{}, ErrInvalid
 	}
 	current, alias := r.root, r.rootAlias
 	var from, predicate string
@@ -34,24 +34,24 @@ func (r *catalogResolver) Resolve(path string) (PBOperand, error) {
 	if strings.Contains(segments[len(segments)-1], ":") {
 		segments[len(segments)-1], modifier, _ = strings.Cut(segments[len(segments)-1], ":")
 		if modifier != "lower" && modifier != "length" && modifier != "each" {
-			return PBOperand{}, ErrInvalid
+			return Operand{}, ErrInvalid
 		}
 	}
 	for index, segment := range segments {
 		field, reverse, target, ok := r.resolveField(current, segment)
 		if !ok {
-			return PBOperand{}, ErrInvalid
+			return Operand{}, ErrInvalid
 		}
 		last := index == len(segments)-1
 		if field.Type != schema.TypeRelation {
 			column := alias + "." + pgx.Identifier{field.ColumnName}.Sanitize()
 			if field.Hidden {
-				return PBOperand{}, ErrInvalid
+				return Operand{}, ErrInvalid
 			}
 			if field.Type == schema.TypeJSONB && !last {
 				for _, part := range segments[index+1:] {
 					if !validPBPath(part) {
-						return PBOperand{}, ErrInvalid
+						return Operand{}, ErrInvalid
 					}
 				}
 				path := strings.Join(segments[index+1:], ",")
@@ -60,19 +60,19 @@ func (r *catalogResolver) Resolve(path string) (PBOperand, error) {
 					return r.modifiedOperand(column, schema.Field{Type: schema.TypeJSONB}, from, predicate, modifier), nil
 				}
 				column = "(" + column + "#>>'{" + path + "}')"
-				return r.applyModifier(r.multi(column, PBText, from, predicate), modifier), nil
+				return r.applyModifier(r.multi(column, OperandText, from, predicate), modifier), nil
 			}
 			if field.Type == schema.TypeGeoPoint && index+1 == len(segments)-1 && (segments[index+1] == "lat" || segments[index+1] == "lon") {
 				column = "NULLIF(" + column + "->>'" + segments[index+1] + "','')::numeric"
-				return r.applyModifier(r.multi(column, PBNumber, from, predicate), modifier), nil
+				return r.applyModifier(r.multi(column, OperandNumber, from, predicate), modifier), nil
 			}
 			if !last {
-				return PBOperand{}, ErrInvalid
+				return Operand{}, ErrInvalid
 			}
 			return r.modifiedOperand(column, field, from, predicate, modifier), nil
 		}
 		if field.Relation == nil {
-			return PBOperand{}, ErrInvalid
+			return Operand{}, ErrInvalid
 		}
 		nextAlias := pgx.Identifier{"pb_rel_" + string(rune('a'+index))}.Sanitize()
 		table := pgx.Identifier{"app", target.TableName}.Sanitize()
@@ -103,76 +103,80 @@ func (r *catalogResolver) Resolve(path string) (PBOperand, error) {
 		}
 		current, alias = target, nextAlias
 		if last {
-			value := r.multi(alias+`."id"`, PBUUID, from, predicate)
+			value := r.multi(alias+`."id"`, OperandUUID, from, predicate)
 			if modifier == "each" {
 				return value, nil
 			}
 			return r.applyModifier(value, modifier), nil
 		}
 	}
-	return PBOperand{}, ErrInvalid
+	return Operand{}, ErrInvalid
 }
 
-func (r *catalogResolver) modifiedOperand(sql string, field schema.Field, from, predicate, modifier string) PBOperand {
+func (r *catalogResolver) modifiedOperand(sql string, field schema.Field, from, predicate, modifier string) Operand {
 	if modifier == "each" && field.Type == schema.TypeJSONB {
 		alias := pgx.Identifier{"pb_each"}.Sanitize()
 		join := "jsonb_array_elements_text(CASE WHEN jsonb_typeof(" + sql + ")='array' THEN " + sql + " ELSE jsonb_build_array(" + sql + ") END) " + alias + "(value)"
 		if from != "" {
 			join = from + " CROSS JOIN LATERAL " + join
 		}
-		return r.multi(alias+".value", PBText, join, predicate)
+		return r.multi(alias+".value", OperandText, join, predicate)
 	}
 	return r.applyModifier(r.operand(sql, field, from, predicate), modifier)
 }
 
-func (r *catalogResolver) applyModifier(value PBOperand, modifier string) PBOperand {
-	if modifier == "" || modifier == "each" && value.Cardinality == PBMany {
+func (r *catalogResolver) applyModifier(value Operand, modifier string) Operand {
+	if modifier == "" || modifier == "each" && value.Cardinality == Many {
 		return value
 	}
-	apply := func(sql string) (string, PBKind, bool) {
+	apply := func(sql string) (string, OperandKind, bool) {
 		switch modifier {
 		case "lower":
-			if value.Kind != PBText {
+			if value.Kind != OperandText {
 				return "", 0, false
 			}
-			return "lower(" + sql + ")", PBText, true
+			return "lower(" + sql + ")", OperandText, true
 		case "length":
-			if value.Kind == PBText {
-				return "char_length(" + sql + ")", PBNumber, true
+			if value.Kind == OperandText {
+				return "char_length(" + sql + ")", OperandNumber, true
 			}
 		}
 		return "", 0, false
 	}
-	if value.Cardinality == PBScalar {
+	if value.Cardinality == Scalar {
 		sql, kind, ok := apply(value.SQL)
 		if !ok {
-			return PBOperand{}
+			return Operand{}
 		}
-		return PBOperand{SQL: sql, Kind: kind, Cardinality: PBScalar}
+		return Operand{SQL: sql, Kind: kind, Cardinality: Scalar}
 	}
 	if value.Multi == nil {
-		return PBOperand{}
+		return Operand{}
 	}
 	sql, kind, ok := apply(value.Multi.ValueSQL)
 	if !ok {
-		return PBOperand{}
+		return Operand{}
 	}
-	return PBOperand{Kind: kind, Cardinality: PBMany, Multi: &PBMulti{From: value.Multi.From, Predicate: value.Multi.Predicate, ValueSQL: sql}}
+	return Operand{Kind: kind, Cardinality: Many, Multi: &MultiOperand{From: value.Multi.From, Predicate: value.Multi.Predicate, ValueSQL: sql}}
 }
 
-func (r *catalogResolver) ResolveCollection(name, path string) (PBOperand, error) {
+func (r *catalogResolver) ResolveCollection(name, path string) (Operand, error) {
 	collection, ok := r.catalog.Collections[name]
 	if !ok {
-		return PBOperand{}, ErrInvalid
+		return Operand{}, ErrInvalid
 	}
 	nested := &catalogResolver{catalog: r.catalog, root: collection, rootAlias: pgx.Identifier{"pb_collection"}.Sanitize()}
 	value, err := nested.Resolve(path)
 	if err != nil {
-		return PBOperand{}, err
+		return Operand{}, err
 	}
-	if value.Cardinality == PBScalar {
+	if value.Cardinality == Scalar {
 		return nested.multi(value.SQL, value.Kind, pgx.Identifier{"app", collection.TableName}.Sanitize()+" "+nested.rootAlias, ""), nil
 	}
+	if value.Multi == nil {
+		return Operand{}, ErrInvalid
+	}
+	value.Multi.From = pgx.Identifier{"app", collection.TableName}.Sanitize() + " " + nested.rootAlias + " CROSS JOIN " + value.Multi.From
 	return value, nil
 }
 
@@ -214,32 +218,32 @@ func (r *catalogResolver) byID(id uuid.UUID) (schema.Collection, bool) {
 	}
 	return schema.Collection{}, false
 }
-func (r *catalogResolver) operand(sql string, f schema.Field, from, predicate string) PBOperand {
+func (r *catalogResolver) operand(sql string, f schema.Field, from, predicate string) Operand {
 	return r.multi(sql, pbKind(f.Type), from, predicate)
 }
-func (r *catalogResolver) multi(sql string, k PBKind, from, predicate string) PBOperand {
+func (r *catalogResolver) multi(sql string, k OperandKind, from, predicate string) Operand {
 	if k == 0 {
-		return PBOperand{}
+		return Operand{}
 	}
 	if from == "" {
-		return PBOperand{SQL: sql, Kind: k, Cardinality: PBScalar}
+		return Operand{SQL: sql, Kind: k, Cardinality: Scalar}
 	}
-	return PBOperand{Kind: k, Cardinality: PBMany, Multi: &PBMulti{From: from, Predicate: predicate, ValueSQL: sql}}
+	return Operand{Kind: k, Cardinality: Many, Multi: &MultiOperand{From: from, Predicate: predicate, ValueSQL: sql}}
 }
-func pbKind(kind schema.FieldType) PBKind {
+func pbKind(kind schema.FieldType) OperandKind {
 	switch kind {
 	case schema.TypeText, schema.TypeEditor:
-		return PBText
+		return OperandText
 	case schema.TypeBoolean:
-		return PBBool
+		return OperandBool
 	case schema.TypeInteger, schema.TypeBigInt, schema.TypeNumeric, schema.TypeGeoPoint:
-		return PBNumber
+		return OperandNumber
 	case schema.TypeTimestampTZ, schema.TypeAutoDate:
-		return PBTime
+		return OperandTime
 	case schema.TypeUUID, schema.TypeRelation:
-		return PBUUID
+		return OperandUUID
 	case schema.TypeJSONB:
-		return PBJSON
+		return OperandJSON
 	}
 	return 0
 }

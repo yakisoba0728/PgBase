@@ -555,54 +555,56 @@ func validateCatalogIntegrity(catalog Catalog) error {
 	return nil
 }
 
-// EnsureCurrent pins the transaction's schema version and returns its compiled
-// catalog in O(1). The returned value is an immutable view of the cache;
-// transaction-owning callers must not mutate its maps, slices, or nested data.
+// EnsureCurrent pins the caller's schema snapshot. New candidates remain local
+// to that transaction; only transaction owners may publish after commit.
+// The returned catalog is immutable, including its maps and nested slices.
 func (s *Service) EnsureCurrent(ctx context.Context, tx database.DBTX) (Catalog, error) {
+	compiled, err := s.catalogInTx(ctx, tx)
+	if err != nil {
+		return Catalog{}, err
+	}
+	return compiled.catalog, nil
+}
+
+func (s *Service) catalogInTx(ctx context.Context, tx database.DBTX) (*compiledCatalog, error) {
 	if s == nil || s.cache == nil || tx == nil {
-		return Catalog{}, fmt.Errorf("schema catalog is unavailable")
+		return nil, fmt.Errorf("schema catalog is unavailable")
 	}
 	store := NewStore(tx)
 	version, err := store.PinnedSchemaVersion(ctx)
 	if err != nil {
-		return Catalog{}, err
+		return nil, err
 	}
-	current := s.cache.find(version)
-	if current != nil {
-		s.cache.publish(current)
-		return current.catalog, nil
+	if current := s.cache.find(version); current != nil {
+		return current, nil
 	}
 	catalog, err := store.ReadCatalog(ctx, version)
 	if err != nil {
-		return Catalog{}, err
+		return nil, err
 	}
-	compiled, err := s.cache.prepare(catalog, s.catalogLimit())
-	if err != nil {
-		return Catalog{}, err
-	}
-	s.cache.publish(compiled)
-	return compiled.catalog, nil
+	return s.cache.prepare(catalog, s.catalogLimit())
 }
 
-// Catalog reads the current catalog from one pinned snapshot. An apply that
-// commits its version bump while this reader waits aborts it with a
-// serialization failure, so the read retries with a fresh snapshot exactly like
-// the record reader's inTxCatalog instead of surfacing 40001 as unavailable.
+// Catalog owns its read transaction and publishes only its committed snapshot.
 func (s *Service) Catalog(ctx context.Context) (Catalog, error) {
 	if err := s.ready(); err != nil {
 		return Catalog{}, err
 	}
-	var catalog Catalog
+	var compiled *compiledCatalog
 	err := database.Retry(ctx, func() error {
 		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
 			var err error
-			catalog, err = s.EnsureCurrent(ctx, tx)
+			compiled, err = s.catalogInTx(ctx, tx)
 			return err
 		})
 	}, func(cause database.RetryCause, exhausted bool) {
 		s.record(ctx, observability.TransactionRetryEvent(cause, exhausted))
 	})
-	return catalog, err
+	if err != nil {
+		return Catalog{}, err
+	}
+	s.cache.publish(compiled)
+	return compiled.catalog, nil
 }
 
 func (s *Service) ready() error {

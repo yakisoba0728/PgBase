@@ -376,15 +376,29 @@ func (r *relationSQLRenderer) alias(prefix string) string {
 }
 
 func (p relationListPlan) pageStatementWithPolicy(after *pageBoundary, fetchLimit int, ownerID *uuid.UUID, root ruleBinding, offsets ...int) (Statement, error) {
+	rows, order, err := p.rowsStatementWithPolicy(after, ownerID, root)
+	if err != nil {
+		return Statement{}, err
+	}
+	selects := order.appendHiddenCursorSelects([]string{selectedRelationRootColumns(p.order.root, relationRootAlias)})
+	builder := &statementBuilder{args: rows.Args}
+	sql := "SELECT " + strings.Join(selects, ", ") + rows.SQL + order.orderBy() + " LIMIT " + builder.placeholder(fetchLimit)
+	if len(offsets) > 0 && offsets[0] > 0 {
+		sql += " OFFSET " + builder.placeholder(offsets[0])
+	}
+	return Statement{SQL: sql, Args: builder.args}, nil
+}
+
+func (p relationListPlan) rowsStatementWithPolicy(after *pageBoundary, ownerID *uuid.UUID, root ruleBinding) (Statement, orderSpec, error) {
 	builder := &statementBuilder{}
 	renderer := &relationSQLRenderer{builder: builder, root: p.order.root, catalog: p.catalog}
 	filterSQL, err := compilePlannedRelationFilter(p.filter, renderer, relationRootAlias)
 	if err != nil {
-		return Statement{}, err
+		return Statement{}, orderSpec{}, err
 	}
 	order, joins, err := p.order.renderRelation(renderer, relationRootAlias, "rq_sort")
 	if err != nil {
-		return Statement{}, err
+		return Statement{}, orderSpec{}, err
 	}
 	conditions := make([]string, 0, 2)
 	if filterSQL != "" {
@@ -395,7 +409,7 @@ func (p relationListPlan) pageStatementWithPolicy(after *pageBoundary, fetchLimi
 	} else if root.rule != nil {
 		predicate, args, err := compilePolicyPredicateWithRequest(*root.rule, p.order.root, root.collection, relationRootAlias, root.principal, len(builder.args), p.catalog, root.request)
 		if err != nil {
-			return Statement{}, err
+			return Statement{}, orderSpec{}, err
 		}
 		conditions = append(conditions, predicate)
 		builder.args = append(builder.args, args...)
@@ -406,24 +420,16 @@ func (p relationListPlan) pageStatementWithPolicy(after *pageBoundary, fetchLimi
 	if after != nil && !after.membershipOnly {
 		keyset, err := order.keyset(after, builder)
 		if err != nil {
-			return Statement{}, err
+			return Statement{}, orderSpec{}, err
 		}
 		conditions = append(conditions, keyset)
 	}
 
-	selects := []string{selectedRelationRootColumns(p.order.root, relationRootAlias)}
-	selects = order.appendHiddenCursorSelects(selects)
-	sql := "SELECT " + strings.Join(selects, ", ") + " FROM " + quotedTable(p.order.root) + " AS " + quoted(relationRootAlias)
-	sql += strings.Join(joins, "")
+	sql := " FROM " + quotedTable(p.order.root) + " AS " + quoted(relationRootAlias) + strings.Join(joins, "")
 	if len(conditions) != 0 {
 		sql += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	sql += order.orderBy()
-	sql += " LIMIT " + builder.placeholder(fetchLimit)
-	if len(offsets) > 0 && offsets[0] > 0 {
-		sql += " OFFSET " + builder.placeholder(offsets[0])
-	}
-	return Statement{SQL: sql, Args: builder.args}, nil
+	return Statement{SQL: sql, Args: builder.args}, order, nil
 }
 
 func (s orderSpec) renderRelation(
@@ -670,7 +676,7 @@ func compileQualifiedComparison(field schema.Field, comparison filterComparison,
 	}
 	if comparison.operator == "~" || comparison.operator == "!~" {
 		placeholder := builder.placeholder(value)
-		if comparison.pocketBaseLike && !comparison.literalLeft {
+		if comparison.percentWildcard && !comparison.literalLeft {
 			pattern := comparison.value.text
 			if !strings.Contains(pattern, "%") {
 				pattern = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(pattern)

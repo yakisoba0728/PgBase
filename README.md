@@ -21,6 +21,8 @@ The bundled Compose file is a development convenience and sets `PGBASE_AUTO_MIGR
 
 ## Documentation
 
+- [PostgreSQL 기반 백엔드 재설계와 적용 범위](docs/backend-redesign.md)
+- [백엔드 재작성 구현과 통합 검증](docs/backend-rewrite-validation.md)
 - [한국어 지원과 PocketBase 스타일 화면 개선](docs/admin-korean-ui.md)
 - [2026-11-13 새 관리자 UI 병합과 운영 배포](docs/deployment-2026-11-13.md)
 - [2026-11-12 서버 배포 기록](docs/deployment-2026-11-12.md)

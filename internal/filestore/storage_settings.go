@@ -261,6 +261,13 @@ func (c *StorageController) GuardStoragePublication(ctx context.Context, tx pgx.
 	if !acquired {
 		return ErrStorageConflict
 	}
+	var owned bool
+	if err := tx.QueryRow(ctx, `select exists(select 1 from pg_locks where locktype='advisory' and pid=$1 and database=(select oid from pg_database where datname=current_database()) and classid=($2::bigint >> 32)::oid and objid=($2::bigint & 4294967295)::oid and objsubid=1 and mode='ShareLock' and granted)`, int32(lease.backend), storageTransitionLock).Scan(&owned); err != nil {
+		return err
+	}
+	if !owned {
+		return ErrStorageConflict
+	}
 	var revision int64
 	if err := tx.QueryRow(ctx, `select revision from pgbase_meta.file_storage_settings where singleton`).Scan(&revision); err != nil {
 		return err

@@ -52,7 +52,9 @@ type RequestLog struct {
 	pool             *database.Pool
 	options          RequestLogOptions
 	queue            chan RequestEntry
-	flush, stop      chan chan error
+	flush            chan chan error
+	stop             chan struct{}
+	shutdownErr      error
 	done             chan struct{}
 	dropped          atomic.Uint64
 	closed           atomic.Bool
@@ -98,7 +100,7 @@ type RequestStatistics struct {
 
 func NewRequestLog(pool *database.Pool, options RequestLogOptions) *RequestLog {
 	options = options.normalized()
-	l := &RequestLog{pool: pool, options: options, queue: make(chan RequestEntry, options.QueueCapacity), flush: make(chan chan error), stop: make(chan chan error, 1), done: make(chan struct{})}
+	l := &RequestLog{pool: pool, options: options, queue: make(chan RequestEntry, options.QueueCapacity), flush: make(chan chan error), stop: make(chan struct{}), done: make(chan struct{})}
 	l.retentionSeconds.Store(int64(options.Retention.Seconds()))
 	go l.writeLoop()
 	return l
@@ -147,32 +149,7 @@ func (l *RequestLog) Dropped() uint64 {
 }
 
 func (l *RequestLog) Page(before uint64, statusClass int) RequestPage {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	p := RequestPage{Items: make([]RequestEntry, 0, 50)}
-	if l.sequence == 0 {
-		return p
-	}
-	oldest := uint64(1)
-	if l.sequence > recentRequestCapacity {
-		oldest = l.sequence - recentRequestCapacity + 1
-	}
-	p.OldestID = oldest
-	for id := l.sequence; id >= oldest; id-- {
-		if before != 0 && id >= before {
-			continue
-		}
-		e := l.entries[(id-1)%recentRequestCapacity]
-		if statusClass != 0 && e.Status/100 != statusClass {
-			continue
-		}
-		if len(p.Items) == 50 {
-			p.NextBefore = p.Items[49].ID
-			break
-		}
-		p.Items = append(p.Items, e)
-	}
-	return p
+	return l.searchRecent(RequestFilter{Before: before, StatusClass: statusClass, Limit: 50})
 }
 
 func (l *RequestLog) Search(ctx context.Context, f RequestFilter) (RequestPage, error) {
@@ -204,7 +181,10 @@ func (l *RequestLog) Search(ctx context.Context, f RequestFilter) (RequestPage, 
 	if err := rows.Err(); err != nil {
 		return p, err
 	}
-	_ = l.pool.QueryRow(ctx, `SELECT COALESCE(min(id),0) FROM pgbase_meta.request_logs`).Scan(&p.OldestID)
+	rows.Close()
+	if err := l.pool.QueryRow(ctx, `SELECT COALESCE(min(id),0) FROM pgbase_meta.request_logs`).Scan(&p.OldestID); err != nil {
+		return RequestPage{}, err
+	}
 	return p, nil
 }
 
@@ -400,46 +380,49 @@ func (l *RequestLog) Flush(ctx context.Context) error {
 	if l == nil || l.flush == nil {
 		return nil
 	}
-	l.lifecycle.RLock()
 	if l.closed.Load() {
-		l.lifecycle.RUnlock()
 		return ErrRequestLogClosed
 	}
 	ack := make(chan error, 1)
 	select {
 	case l.flush <- ack:
-		l.lifecycle.RUnlock()
+	case <-l.done:
+		return ErrRequestLogClosed
 	case <-ctx.Done():
-		l.lifecycle.RUnlock()
 		return ctx.Err()
 	}
 	select {
 	case err := <-ack:
 		return err
+	case <-l.done:
+		select {
+		case err := <-ack:
+			return err
+		default:
+			return ErrRequestLogClosed
+		}
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 }
+
 func (l *RequestLog) Shutdown(ctx context.Context) error {
 	if l == nil || l.stop == nil {
 		return nil
 	}
 	l.lifecycle.Lock()
-	if !l.closed.CompareAndSwap(false, true) {
-		l.lifecycle.Unlock()
-		select {
-		case <-l.done:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	if !l.closed.Swap(true) {
+		close(l.stop)
 	}
 	l.lifecycle.Unlock()
-	ack := make(chan error, 1)
-	l.stop <- ack
 	select {
-	case err := <-ack:
-		return err
+	case <-l.done:
+		return l.shutdownErr
+	default:
+	}
+	select {
+	case <-l.done:
+		return l.shutdownErr
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -483,8 +466,8 @@ func (l *RequestLog) writeLoop() {
 			}
 		case ack := <-l.flush:
 			ack <- flush()
-		case ack := <-l.stop:
-			ack <- flush()
+		case <-l.stop:
+			l.shutdownErr = flush()
 			return
 		case <-timer.C:
 			_ = flush()

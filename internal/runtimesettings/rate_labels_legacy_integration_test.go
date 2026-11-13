@@ -43,7 +43,7 @@ func TestLegacyRateLabelsReloadButMustBeRepairedBeforeUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ciphertext, err := controller.encrypt(raw)
+	ciphertext, err := encryptDocument(controller.key, raw)
 	if err != nil {
 		t.Fatal(err)
 	}

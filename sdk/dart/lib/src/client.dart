@@ -65,12 +65,12 @@ final class PgBaseClient {
   Files files(String collection, String recordId) =>
       Files(this, collection, recordId);
 
-  /// Constructs a PocketBase filter expression with safe placeholder values.
+  /// Constructs a pgBase filter expression with safe placeholder values.
   ///
   /// Placeholders use `{:name}`. Strings, dates, lists, and maps are quoted
   /// filter literals, while bool, num, and null remain literal values. A
-  /// placeholder absent from [params] is left unchanged, matching PocketBase's
-  /// SDK and allowing the server to reject an incomplete expression.
+  /// placeholder absent from [params] is left unchanged so server validation
+  /// can report the incomplete expression.
   String filter(String expression, [Map<String, dynamic> params = const {}]) {
     if (params.isEmpty) return expression;
 

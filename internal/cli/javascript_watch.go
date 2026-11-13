@@ -31,7 +31,7 @@ func runJavaScriptWatch(ctx context.Context, args []string, env environment, str
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || !*watch || *poll < 50*time.Millisecond || *poll > 5*time.Second {
 		return configurationError{err: errors.New("invalid JavaScript watch usage"), message: javaScriptUsage}
 	}
-	options, err := config.LoadEnv(env)
+	options, err := config.LoadEnv(javaScriptEnvironment(env, *directory))
 	if err != nil {
 		return configurationError{err: err}
 	}
@@ -40,9 +40,6 @@ func runJavaScriptWatch(ctx context.Context, args []string, env environment, str
 	}
 	if options.JavaScript == nil {
 		options.JavaScript = &pgbase.JavaScriptOptions{}
-	}
-	if *directory != "" {
-		options.JavaScript.Directory = *directory
 	}
 	if options.JavaScript.Directory == "" {
 		return configurationError{err: errors.New("JavaScript directory is required"), message: javaScriptUsage}

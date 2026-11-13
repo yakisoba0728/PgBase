@@ -1,10 +1,14 @@
 package pgbase
 
-// JavaScriptTypeDeclarations returns the declarations for the synchronous
-// native CommonJS module exposed as require("pgbase").
-func JavaScriptTypeDeclarations() string { return javaScriptTypeDeclarations }
+// JavaScriptTypeDeclarations describes the native pgbase.scripts/v2 module.
+func JavaScriptTypeDeclarations() string { return nativeJavaScriptModule + javaScriptModuleEnd }
 
-const javaScriptTypeDeclarations = `declare module "pgbase" {
+// LegacyJavaScriptTypeDeclarations includes globals installed only by the v1 adapter.
+func LegacyJavaScriptTypeDeclarations() string {
+	return nativeJavaScriptModule + legacyJavaScriptGlobals + javaScriptModuleEnd
+}
+
+const nativeJavaScriptModule = `declare module "pgbase" {
   export interface ExactNumber { readonly __pgbaseExact: never; toString(): string }
   export type JSONScalar = null | boolean | string | number | ExactNumber
   export type JSONValue = JSONScalar | JSONValue[] | { [name: string]: JSONValue }
@@ -70,6 +74,45 @@ const javaScriptTypeDeclarations = `declare module "pgbase" {
   export interface MigrationStatement { sql: string; args?: JSONValue[] }
   export interface DatabaseStatement extends MigrationStatement { query?: boolean }
   const pgbase: {
+    /** Available while the manifest bootstrap module registers predeclared handlers. */
+    registration: {
+      route(method: string, path: string, handler: (input: RouteRequest) => RouteResponse, ...middleware: Array<(next: Function) => Function>): void
+      middleware(...middleware: Array<(next: Function) => Function>): void
+      job(name: string, schedule: string, handler: (input: JobRun) => JSONValue | void): void
+      hooks: Record<string, (handler: (input: HookInvocation) => HookResult | void, ...tags: string[]) => void>
+    }
+    schema: {
+      export(input?: {}): JSONValue
+      preview(input: { document: JSONValue }): { baseVersion: ExactNumber; checksum: string }
+      apply(input: { document: JSONValue; baseVersion: ExactNumber | number; checksum: string; operationId?: string; idempotencyKey?: string }): JSONValue
+    }
+    os: {
+      args(input?: {}): string[]
+      getenv(input: { name: string }): string
+      command(input: { name: string; args?: string[]; input?: string; env?: string[]; dir?: string; mode?: "output" | "combined" }): { output: string; stdout: string; stderr: string; success: boolean; error: string }
+      exit(input: { code: number }): { requested: true }
+    }
+    filesystem: {
+      read(input: { path: string }): { dataBase64: string; size: ExactNumber }
+      write(input: { path: string; dataBase64: string; mode?: number }): { written: true }
+      stat(input: { path: string }): JSONValue
+      list(input: { path: string }): Array<{ name: string; isDir: boolean; type: number }>
+      mkdir(input: { path: string; mode?: number }): { ok: true }
+      rename(input: { oldPath: string; newPath: string }): { ok: true }
+      remove(input: { path: string }): { ok: true }
+    }
+    jobs: { list(input?: {}): JSONValue; configure(input: JSONValue): JSONValue; run(input: { id: string }): JSONValue }
+    realtime: { clients(input?: {}): JSONValue; publish(input: JSONValue): JSONValue }
+    backups: { list(input?: {}): JSONValue; create(input?: {}): JSONValue; restore(input: { id: string }): JSONValue; read(input: { id: string }): JSONValue; delete(input: { id: string }): JSONValue }
+    http: { send(input: { url: string; method?: string; headers?: Record<string,string>; body?: string }): JSONValue }
+    app: {
+      settings(input?: {}): JSONValue
+      reloadSettings(input?: {}): JSONValue
+      restart(input?: {}): JSONValue
+      transactionInfo(input?: {}): JSONValue
+      /** Administrator-only, synchronous, actor-bound transaction. Nested calls share its outcome. */
+      transaction<T>(callback: (services: typeof pgbase) => T): T
+    }
     exact(value: string | number): ExactNumber
     records: {
       list(input: { collection: string; cursor?: string; limit?: number; filter?: string; sort?: string; expand?: string }): RecordPage
@@ -113,7 +156,9 @@ const javaScriptTypeDeclarations = `declare module "pgbase" {
       error(input: { message: string; fields?: Record<string, string> }): { logged: true }
     }
   }
-  global {
+`
+
+const legacyJavaScriptGlobals = `  global {
     function routerAdd(method:string,path:string,handler:(event:RequestEvent)=>JSONValue,...middlewares:Array<(next:Function)=>Function>):void
     function routerUse(...middlewares:Array<(next:Function)=>Function>):void
     function cronAdd(name:string,schedule:string,handler:(run:JobRun)=>void):void
@@ -188,6 +233,8 @@ const javaScriptTypeDeclarations = `declare module "pgbase" {
     const $mails: { sendRecordPasswordReset(app:App,record:PBRecord):JSONValue; sendRecordVerification(app:App,record:PBRecord):JSONValue; sendRecordChangeEmail(app:App,record:PBRecord,newEmail:string):JSONValue; sendRecordOTP(app:App,record:PBRecord,otpId:string,otpPassword:string):JSONValue; sendRecordAuthAlert(app:App,record:PBRecord,alertInfo:string):JSONValue }
     const $apis: { static(root:string|{root:string},indexFallback?:boolean):(event:RequestEvent)=>RouteResponse; requireGuestOnly(next:(event:RequestEvent)=>JSONValue):(event:RequestEvent)=>JSONValue; requireAuth(...collections:string[]):(next:(event:RequestEvent)=>JSONValue)=>(event:RequestEvent)=>JSONValue; requireSuperuserAuth(next:(event:RequestEvent)=>JSONValue):(event:RequestEvent)=>JSONValue; requireSuperuserOrOwnerAuth(ownerIdPathParam?:string):(next:(event:RequestEvent)=>JSONValue)=>(event:RequestEvent)=>JSONValue; skipSuccessActivityLog<T extends Function>(next:T):T; gzip(next:(event:RequestEvent)=>RouteResponse):(event:RequestEvent)=>RouteResponse; bodyLimit(limit:number,next?:(event:RequestEvent)=>JSONValue):((event:RequestEvent)=>JSONValue)|((next:(event:RequestEvent)=>JSONValue)=>(event:RequestEvent)=>JSONValue); recordAuthResponse(event:RequestEvent,record:PBRecord,method:string,meta?:JSONValue):JSONValue; enrichRecord(event:RequestEvent,record:PBRecord,...expands:string[]):PBRecord; enrichRecords(event:RequestEvent,records:PBRecord[],...expands:string[]):PBRecord[] }
   }
-  export = pgbase
+`
+
+const javaScriptModuleEnd = `  export = pgbase
 }
 `

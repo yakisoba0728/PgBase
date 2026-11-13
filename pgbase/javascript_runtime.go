@@ -30,6 +30,10 @@ type javaScriptRuntime struct {
 }
 
 func prepareJavaScript(options JavaScriptOptions) (*javaScriptRuntime, error) {
+	options, err := options.normalized()
+	if err != nil {
+		return nil, err
+	}
 	bundle, err := jsvm.LoadBundle(options.Directory)
 	if err != nil {
 		return nil, err
@@ -285,7 +289,7 @@ func (runtime *javaScriptRuntime) serveRoute(descriptor jsvm.Route, w http.Respo
 			http.Error(w, "extension response is not permitted", http.StatusForbidden)
 			return
 		}
-		serveJavaScriptStatic(w, r, runtime.options.PocketBaseCompatibility.FilesystemRoot, response.Transport.Static)
+		serveJavaScriptStatic(w, r, runtime.options.Host.FilesystemRoot, response.Transport.Static)
 		return
 	}
 	if !descriptor.StreamResponse && responseBodyLength(response) > javaScriptRouteResponseLimit(descriptor) {

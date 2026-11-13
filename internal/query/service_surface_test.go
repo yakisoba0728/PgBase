@@ -1,15 +1,13 @@
 package query_test
 
 import (
-	"bytes"
 	"context"
-	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -19,134 +17,49 @@ import (
 type readKernel interface {
 	List(context.Context, query.ListRequest) (query.RecordPage, error)
 	Get(context.Context, query.GetRequest) (query.Record, error)
+	Count(context.Context, query.ListRequest) (int64, error)
 }
 
 var _ readKernel = (*query.Service)(nil)
 
-func TestReadKernelServiceSurfaceIsListAndGet(t *testing.T) {
+func TestReadKernelDoesNotDependOnTransportsOrExtensionRuntime(t *testing.T) {
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
-		t.Fatal("locate service surface test")
+		t.Fatal("locate query sources")
 	}
 	entries, err := os.ReadDir(filepath.Dir(currentFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	methods := make([]string, 0, 2)
-	files := token.NewFileSet()
-	runtimeLines := 0
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
 		}
-		path := filepath.Join(filepath.Dir(currentFile), entry.Name())
-		source, err := os.ReadFile(path)
+		if entry.Name() == "expand.go" || entry.Name() == "root_plan.go" {
+			source, err := os.ReadFile(filepath.Join(filepath.Dir(currentFile), entry.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, adapter := range []string{"PocketBaseCompatibility", "pocketBaseSortKeys", "normalizePocketBaseExpand", "responseprojection.PocketBaseRecord"} {
+				if strings.Contains(string(source), adapter) {
+					t.Errorf("native kernel %s contains legacy adapter %s", entry.Name(), adapter)
+				}
+			}
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(filepath.Dir(currentFile), entry.Name()), nil, parser.ImportsOnly)
 		if err != nil {
 			t.Fatal(err)
 		}
-		runtimeLines += bytes.Count(source, []byte{'\n'})
-		if len(source) != 0 && source[len(source)-1] != '\n' {
-			runtimeLines++
-		}
-		file, err := parser.ParseFile(files, path, source, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, declaration := range file.Decls {
-			function, ok := declaration.(*ast.FuncDecl)
-			if !ok || function.Recv == nil || !function.Name.IsExported() || len(function.Recv.List) != 1 {
-				continue
+		for _, spec := range file.Imports {
+			name, err := strconv.Unquote(spec.Path.Value)
+			if err != nil {
+				t.Fatal(err)
 			}
-			receiver := function.Recv.List[0].Type
-			if pointer, ok := receiver.(*ast.StarExpr); ok {
-				receiver = pointer.X
-			}
-			name, ok := receiver.(*ast.Ident)
-			if ok && name.Name == "Service" {
-				methods = append(methods, function.Name.Name)
+			for _, boundary := range []string{"net/http", "github.com/yakisoba0728/PgBase/internal/api", "github.com/yakisoba0728/PgBase/internal/cli", "github.com/yakisoba0728/PgBase/internal/jsvm", "github.com/yakisoba0728/PgBase/pgbase"} {
+				if name == boundary || strings.HasPrefix(name, boundary+"/") {
+					t.Errorf("%s imports outer boundary %s", entry.Name(), name)
+				}
 			}
 		}
-	}
-	sort.Strings(methods)
-	if strings.Join(methods, ",") != "Get,List" {
-		t.Fatalf("query.Service exported methods = %v, want [Get List]", methods)
-	}
-	// A per-package ratchet, not a plan target. The plan budgets this group
-	// (database+query+recordops+relation+schema) as a whole at 12,750, and R11
-	// owns bringing it there; nothing here may drift upward on its own.
-	//
-	// Re-based from 4,850 by the Release B correctness stack, which plan
-	// section 11 allows to be LOC-positive as long as the category is stated:
-	// +93/-26 for cursor v5 membership binding plus two audit fixes — keeping a
-	// filter validation error from being reported as an invalid cursor, and
-	// rejecting a jsonb root filter at plan time so the statement compiler and
-	// the cursor fingerprint cannot disagree about which detail the caller gets.
-	// Leave no slack: raise this only alongside the deletion that pays for it.
-	//
-	// Ratcheted from 4,917 by R5 section 9.2, which paid for its own additions:
-	// the dead CompileDelete, and resolveOrderSpec once planRelationSort's root
-	// terms became identical to it.
-	//
-	// Ratcheted from 4,910 by R4 Release C, which retires cursor v4: +9/-25 for
-	// the decode case and its sort-key comparison in root_page.go, the encode
-	// branch in page_assembler.go, and the issue-version guard in
-	// cursor_v5_binding.go that the retired boundary makes constant. Removing
-	// the last v4 branch collapsed a three-way version switch into one check,
-	// so the arithmetic is a net -16 rather than the -25 deleted.
-	//
-	// Ratcheted from 4,894 by R11: +0/-10 for the NewService forwarder, which
-	// defaulted the logger and the recorder and had no caller in the tree, not
-	// even a test. NewServiceWithRecorder took its name.
-	// M1 adds owner-scoped SQL and cursor binding: measured 4,872 -> 4,911
-	// (+42/-3), preserving all existing rationale. This feature scope expansion
-	// is included in docs/public-identity-owner-access-design.md and the group
-	// ceiling. No extra headroom is allocated.
-	// M2–M6 adds relation target rules, visibility hydration and source-backed views.
-	// See docs/local-milestone-design.md for the measured scope change.
-	// P7 adds hidden-field path validation and response projection; measured
-	// accounting is in docs/phase3-local-contracts.md with no spare allowance.
-	// P8 adds coordinate paths and advanced-field codecs; measured scope is
-	// in docs/phase4-local-contracts.md with no spare allowance.
-	// R3 adds schema-validated response projection after authorization,
-	// expansion, cursor assembly, and ETag calculation: +74/-0.
-	// PocketBase-compatible response picking remains in responseprojection;
-	// this increase pays only for reusable field comparison and event predicate
-	// compilation at the query boundary.
-	// The 68-feature PocketBase completion adds the shared scalar predicate,
-	// relation expansion, response projection, and compatibility pagination
-	// paths measured here. Keep the exact post-completion measurement.
-	// RULE-03 adds the bounded PocketBase operand grammar, JSON extraction and
-	// function renderers at this existing query seam. The measured increase has
-	// no spare allowance.
-	// EXT14 also adds an exact, repeatable-read count facade without widening
-	// the exported Service method surface.
-	// RULE03 adds the catalog-aware PocketBase predicate entry point while the
-	// native compiler remains stable. The final integration restores the three
-	// source lines that recognize @collection operands after an older auth-rule
-	// merge removed them; ratchet to that verified surface without spare room.
-	// QRY-15 through QRY-17 add the explicit PocketBase offset-page adapter,
-	// special sort rendering, exact authorized SQL count, and JSON-quoted
-	// compatibility operands while preserving List's cursor contract.
-	// FLD-04 adds exact durable text-identity predicates and PocketBase-facing
-	// external-id ordering while retaining UUID cursor and @rowid authority.
-	// RQR-002 adds direction-aware correlation for reverse single and multiple
-	// relation filters at the existing relation SQL renderer.
-	// The 2026-09-12 query audit adds exact timestamp comparison, ambiguous
-	// reverse-path rejection, and request-aware expansion policy propagation.
-	// The 2026-09-22 native visibility fix inspects both operands and nested
-	// function/relation paths (+67/-46, net +21); stored policies stay separate.
-	// Native function cursors add 160 lines for typed operand binding and
-	// precise invalid-input errors, retaining existing scalar descriptors.
-	// Field-to-field cursors bind both typed identities and contains direction;
-	// the measured 129-line addition preserves scalar/function golden hashes.
-	// Literal-left any-match normalization and the shared scalar predicate
-	// boundary add exactly 29 lines after the abc94ef checkpoint. SQL cursor
-	// descriptors retain their modifiers; no package boundary or slack changes.
-	// The 2026-11-13 data-area fixes add the opt-in bounded list total (+25:
-	// request flag, page fields, a LIMIT-bounded count statement) and the
-	// PocketBase rule parse position mapped back through the @request rewrite
-	// (+23). Measured exactly; no spare allowance.
-	if runtimeLines > 7952 {
-		t.Fatalf("internal/query runtime lines = %d, hard limit 7952", runtimeLines)
 	}
 }

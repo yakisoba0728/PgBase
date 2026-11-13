@@ -43,11 +43,11 @@ func newExtensionAppControl(app *App, options *JavaScriptOptions) *extensionAppC
 		if options.MaximumAppStoreEntries > 0 {
 			control.storeEntryLimit = options.MaximumAppStoreEntries
 		}
-		control.dataDir = options.PocketBaseCompatibility.DataDirectory
-		control.encryptEnv = options.PocketBaseCompatibility.EncryptionEnvironment
-		control.dev = options.PocketBaseCompatibility.Development
-		control.restart = options.PocketBaseCompatibility.ProcessRestart
-		control.lifecycle = options.PocketBaseCompatibility.ProcessAppControl
+		control.dataDir = options.Host.DataDirectory
+		control.encryptEnv = options.Host.EncryptionEnvironment
+		control.dev = options.Host.Development
+		control.restart = options.Host.ProcessRestart
+		control.lifecycle = options.Host.ProcessAppControl
 	}
 	return control
 }

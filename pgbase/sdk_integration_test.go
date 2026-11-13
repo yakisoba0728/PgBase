@@ -78,12 +78,12 @@ modifierETag = modifierRead.headers.get("etag"); if (!modifierETag) throw new Er
 let rejected = false; try { await modifierRecords.update(modifierCreated.id, {"count+":20,"tags+":["not-a-uuid"]}, modifierETag); } catch { rejected = true; }
 if (!rejected) throw new Error("invalid modifier unexpectedly succeeded");
 const afterRejected = await modifierRecords.get(modifierCreated.id); if (afterRejected.count !== 50 || JSON.stringify(afterRejected.tags) !== JSON.stringify([thirdTag.id,firstTag.id])) throw new Error("invalid modifier did not roll back atomically");
-const bound = await records.list({filter: client.filter("title = {:title}", {title:"from sdk"}), compat:"pocketbase"});
+const bound = await records.list({filter: client.filter("title = {:title}", {title:"from sdk"})});
 if (bound.items.length !== 1 || bound.items[0].id !== created.id) throw new Error("safe filter did not bind the intended record");
 const attack = 'from sdk" || title != "from sdk';
 const escaped = client.filter("title = {:title}", {title: attack});
 if (escaped.includes(' || title != "from sdk"')) throw new Error("filter literal was interpolated as filter syntax");
-const noMatch = await records.list({filter: escaped, compat:"pocketbase"});
+const noMatch = await records.list({filter: escaped});
 if (noMatch.items.length !== 0) throw new Error("filter-looking input widened the record query");
 const numbered = await records.getList(1, 30, {filter: client.filter("title = {:title}", {title:"from sdk"}), sort:"@rowid"});
 if (numbered.page !== 1 || numbered.perPage !== 30 || numbered.totalItems !== 1 || numbered.totalPages !== 1 || numbered.items.length !== 1 || numbered.items[0].id !== created.id) throw new Error("PocketBase numbered page did not bind the intended record");

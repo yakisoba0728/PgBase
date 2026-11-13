@@ -20,7 +20,9 @@ pgbase serve
 
 `PGBASE_JS_JOB_SERVICE_SUBJECTS` maps each manifest job to an existing service-token subject. A script cannot select a user, administrator, or service identity. PgBase refuses startup if a requested capability is absent, a job has no service subject, or `files`/`mail` is requested without its backing service.
 
-Embedding applications set `Options.JavaScript` to `*JavaScriptOptions`. `ValidateJavaScript` checks and compiles the immutable source snapshot without opening the application database or invoking host effects. `App.JavaScriptMigrations` returns migrations for composition with Go user migrations. `App.ExtensionsForRequest` exposes the same admitted-request record, mail, and file facade to Go handlers; it rejects contexts that did not pass through PgBase route admission and expires with the original request.
+Directory flags (`js check --dir`, `js serve --watch --dir`, `serve --js-dir`, and `migration ... --js-dir`) override `PGBASE_JS_DIR` before configuration validation. Existing capability and service-subject settings still apply.
+
+Embedding applications set `Options.JavaScript` to `*JavaScriptOptions`. Native host effects are configured through `JavaScriptOptions.Host` (`JavaScriptHostOptions`). The historical `PocketBaseCompatibility` input alias is accepted only when `Host` is empty; supplying both is rejected. `ValidateJavaScript` checks and compiles the immutable source snapshot without opening the application database or invoking host effects. `App.JavaScriptMigrations` returns migrations for composition with Go user migrations. `App.ExtensionsForRequest` exposes the same admitted-request record, mail, and file facade to Go handlers; it rejects contexts that did not pass through PgBase route admission and expires with the original request.
 
 ## Manifest and modules
 
@@ -28,7 +30,7 @@ The source root contains `pgbase.scripts.json`:
 
 ```json
 {
-  "format": "pgbase.scripts/v1",
+  "format": "pgbase.scripts/v2",
   "routes": [{
     "method": "POST",
     "pattern": "/extensions/tasks",
@@ -61,15 +63,21 @@ The source root contains `pgbase.scripts.json`:
 }
 ```
 
+`pgbase.scripts/v2` selects the native `require("pgbase")` runtime without external-product globals. Existing `pgbase.scripts/v1` manifests explicitly select the legacy adapter, including `$app`, `Record`, and other legacy globals. Validation, invocation, and frozen watch snapshots preserve the same runtime selection.
+
 Handlers are synchronous CommonJS exports. A module may `require("pgbase")` or a relative `.js`/`.json` file from the immutable bundle. There is no npm/package lookup, filesystem fallback, remote import, ESM loader, `process`, Node core module, browser DOM, network client, timer, event loop, or Promise support. Relative imports, JSON modules, and CommonJS cycles are supported. Source maps do not fetch files or URLs.
 
 The loader rejects absolute/traversing paths, symlinks, special files, missing exports, unknown manifest fields, and route or migration ID conflicts. Each source file is at most 1 MiB; a bundle is at most 8 MiB and 128 source files. The deterministic digest covers the manifest and every loaded source byte. Runtime values and module globals are fresh for each root invocation.
+
+When upgrading a v1 bundle to v2, keep each already-applied migration and its dependencies unchanged and set that migration’s `"runtimeFormat": "pgbase.scripts/v1"`. This preserves its historical checksummed envelope and uses legacy bindings for validation, Up, and Down. Omitted `runtimeFormat` defaults to the bundle format; new v2 migrations use native bindings. Changing an applied migration’s runtime format changes its checksum and is rejected by the ledger.
+
+Frozen native migration sources record their runtime format in the checksummed source envelope. Historical sources without that field retain legacy-v1 execution; replay does not reinterpret old source using the current default format. Existing source bytes and checksums remain unchanged.
 
 Migrations have a stricter closure. Their checksum source contains the entry module plus every manifest-declared dependency. Every migration `require` must be a direct call with one static string; aliases, dynamic paths, function-passed `require`, property access, and undeclared Down-only dependencies are rejected before database access. This keeps historical source executable and checksum-complete.
 
 ## Native module
 
-Generate the exact TypeScript declaration with `pgbase js types`. The runtime exports these synchronous namespaces from `require("pgbase")`:
+Generate the native TypeScript declaration with `pgbase js types [FILE]` (`sdk/javascript/pgbase.d.ts`). Legacy-v1 bundles use `pgbase js types --legacy [FILE]` (`sdk/javascript/pgbase-legacy.d.ts`); this includes the native module and legacy globals. The runtime exports these synchronous namespaces from `require("pgbase")`:
 
 | Namespace | Operations | Contract |
 | --- | --- | --- |
@@ -88,7 +96,7 @@ Descriptors with the `filesystem` capability can use `$filesystem.configured()` 
 
 Use `system.listPage(prefix, cursor, limit)` to walk configured storage. The default limit is 100; accepted limits are integers from 1 to 1000. Each page is `{objects, nextCursor}`, with object metadata `{Key, Size, UpdatedAt}` matching the existing storage bridge. Pass `nextCursor` with the same prefix until it is empty. `system.list(prefix)` remains an array convenience for at most 100 objects: if more exist it throws `filesystem_list_requires_pagination`, so a caller cannot mistake a truncated list for a complete one. The existing top-level `$filesystem.list(prefix, cursor, limit)` retains its bridge result shape.
 
-All filesystem operations inherit the invocation's cancellation and deadline. Calling `setContext()` on either configured storage or a rooted `$filesystem.local(root)` system throws `filesystem_context_unsupported`; scripts cannot replace or extend that context. Local filesystem roots remain separately restricted by the operator's `PocketBaseCompatibility.FilesystemRoot` option.
+All filesystem operations inherit the invocation's cancellation and deadline. Calling `setContext()` on either configured storage or a rooted `$filesystem.local(root)` system throws `filesystem_context_unsupported`; scripts cannot replace or extend that context. The legacy-v1 `$filesystem.local(root)` adapter remains separately restricted by the operator's native `Host.FilesystemRoot` policy.
 
 ```js
 const storage = $filesystem.configured();

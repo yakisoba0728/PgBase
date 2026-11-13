@@ -3,8 +3,8 @@ import type { CollectionRules } from "../api/collections";
 import { draftFromRule, draftsFromRules, emptyExpressions, insertAt, planSave, rejectedRules, visibleActions, type RuleDrafts } from "./model";
 
 const owner = { op: "owner" } as const;
-const parsed = { op: "eq", field: "published", value: true, pocketbase: "published = true" } as const;
-const loaded: CollectionRules = { list: parsed, view: { op: "allow" }, create: { op: "authenticated", pocketbase: "@request.auth.id != ''" }, update: { op: "deny" }, delete: owner };
+const parsed = { op: "eq", field: "published", value: true, expression: "published = true" } as const;
+const loaded: CollectionRules = { list: parsed, view: { op: "allow" }, create: { op: "authenticated", expression: "@request.auth.id != ''" }, update: { op: "deny" }, delete: owner };
 
 const edit = (drafts: RuleDrafts, patch: Partial<RuleDrafts>): RuleDrafts => ({ ...drafts, ...patch });
 
@@ -19,28 +19,28 @@ describe("rule drafts", () => {
   it("saves typed when no expression text changed, keeping parsed expressions verbatim", () => {
     const drafts = draftsFromRules(loaded);
     const plan = planSave(edit(drafts, { update: { ...drafts.update, mode: "everyone" } }), visibleActions("base"));
-    expect(plan).toEqual({ kind: "typed", rules: { ...loaded, update: { op: "allow" } } });
+    expect(plan).toEqual({ ...loaded, update: { op: "allow" } });
   });
 
-  it("saves through compat when an expression changed and every row has an expression form", () => {
+  it("saves expressions through the native policy API", () => {
     const drafts = draftsFromRules({ ...loaded, delete: { op: "deny" } });
     const plan = planSave(edit(drafts, { list: { ...drafts.list, expression: "count > 1" } }), visibleActions("base"));
-    expect(plan).toEqual({ kind: "compat", rules: { listRule: "count > 1", viewRule: "", createRule: "@request.auth.id != ''", updateRule: null, deleteRule: null } });
+    expect(plan).toEqual({ ...loaded, list: { op: "expression", expression: "count > 1" }, delete: { op: "deny" } });
   });
 
-  it("splits when owner rows sit next to a changed expression", () => {
+  it("keeps owner rules alongside expressions in one policy", () => {
     const drafts = draftsFromRules(loaded);
     const plan = planSave(edit(drafts, { list: { ...drafts.list, expression: "count > 1" } }), visibleActions("base"));
-    expect(plan).toMatchObject({ kind: "split", rules: { listRule: "count > 1", deleteRule: null }, keep: { delete: owner } });
+    expect(plan).toEqual({ ...loaded, list: { op: "expression", expression: "count > 1" } });
   });
 
-  it("closes hidden write rows of a view instead of splitting", () => {
+  it("preserves hidden view actions", () => {
     const drafts = draftsFromRules({ list: owner, view: owner, create: owner, update: owner, delete: owner });
     const plan = planSave(edit(drafts, { list: { ...drafts.list, mode: "expression", expression: "count > 1" } }), visibleActions("view"));
-    expect(plan).toEqual({ kind: "split", rules: { listRule: "count > 1", viewRule: null, createRule: null, updateRule: null, deleteRule: null }, keep: { view: owner } });
+    expect(plan).toEqual({ list: { op: "expression", expression: "count > 1" }, view: owner, create: owner, update: owner, delete: owner });
   });
 
-  it("flags empty expressions, which compat would read as everyone", () => {
+  it("flags empty expressions", () => {
     const drafts = draftsFromRules(loaded);
     expect(emptyExpressions(edit(drafts, { view: { ...drafts.view, mode: "expression", expression: " " } }), visibleActions("base"))).toEqual(["view"]);
   });

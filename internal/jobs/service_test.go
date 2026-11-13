@@ -55,6 +55,25 @@ func TestCalendarScheduleNextIsDeterministicAcrossDST(t *testing.T) {
 	}
 }
 
+func TestScheduleRegistrationSharesTheFirstRunDecision(t *testing.T) {
+	now := time.Date(2026, 3, 8, 6, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		schedule, timezone string
+		want               time.Time
+	}{
+		{"@every 1s", "UTC", now},
+		{"30 2 * * *", "America/New_York", time.Date(2026, 3, 9, 6, 30, 0, 0, time.UTC)},
+	} {
+		got, err := nextScheduledAt(test.schedule, test.timezone, now)
+		if err != nil || !got.Equal(test.want) {
+			t.Fatalf("first run %q/%q = %s, %v", test.schedule, test.timezone, got, err)
+		}
+	}
+	if _, err := nextScheduledAt("0 0 * * *", "Mars/Base", now); !errors.Is(err, ErrInvalidSchedule) {
+		t.Fatalf("invalid timezone = %v", err)
+	}
+}
+
 func TestCalendarScheduleRejectsTimezoneAndExtendedCron(t *testing.T) {
 	for _, test := range []struct{ expression, timezone string }{{"0 0 * * *", "Mars/Base"}, {"0 0 0 * * *", "UTC"}} {
 		if _, err := ParseScheduleInLocation(test.expression, test.timezone); !errors.Is(err, ErrInvalidSchedule) {

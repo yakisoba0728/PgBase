@@ -35,9 +35,6 @@ func (s *Service) EnsureScheduledInTimezone(ctx context.Context, name, schedule,
 	if _, ok := s.registry.handler(name); !ok {
 		return ErrNotManageable
 	}
-	if _, err := ParseScheduleInLocation(schedule, timezone); err != nil {
-		return err
-	}
 	return s.ensureScheduledInTimezone(ctx, name, schedule, timezone, true)
 }
 
@@ -69,13 +66,9 @@ func (s *Service) ConfigureJob(ctx context.Context, id uuid.UUID, schedule strin
 }
 
 func (s *Service) ConfigureJobInTimezone(ctx context.Context, id uuid.UUID, schedule, timezone string, enabled bool) error {
-	parsed, err := ParseScheduleInLocation(schedule, timezone)
+	next, err := nextScheduledAt(schedule, timezone, time.Now())
 	if err != nil {
 		return err
-	}
-	next := time.Now()
-	if parsed.interval == 0 {
-		next = parsed.Next(next)
 	}
 	result, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET schedule=$2,timezone=$3,enabled=$4,
 	 next_run_at=CASE WHEN schedule<>$2 OR timezone<>$3 THEN $5 ELSE next_run_at END,updated_at=clock_timestamp()
@@ -118,13 +111,9 @@ func (s *Service) Unregister(ctx context.Context, name string) error {
 }
 
 func (s *Service) ensureScheduledInTimezone(ctx context.Context, name, schedule, timezone string, enabled bool) error {
-	parsed, err := ParseScheduleInLocation(schedule, timezone)
+	next, err := nextScheduledAt(schedule, timezone, time.Now())
 	if err != nil {
 		return err
-	}
-	next := time.Now()
-	if parsed.interval == 0 {
-		next = parsed.Next(next)
 	}
 	_, err = s.pool.Exec(ctx, `INSERT INTO pgbase_meta.scheduled_jobs(id,name,schedule,timezone,next_run_at,enabled) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (name) DO NOTHING`, uuid.New(), name, schedule, timezone, next, enabled)
 	return err

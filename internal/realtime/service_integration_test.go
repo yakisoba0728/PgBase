@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/migrate"
@@ -35,6 +36,67 @@ func TestHeadOnlyReadValidatesSubscriptionOptions(t *testing.T) {
 		var validation *query.ValidationError
 		if !errors.As(err, &validation) {
 			t.Fatalf("head-only ReadFor(%+v) = %v, want validation error", request, err)
+		}
+	}
+}
+
+func TestRealtimeAdmissionAndBroadcastUseTheLivePublicGate(t *testing.T) {
+	s, _, collection := realtimeFixture(t)
+	ctx := context.Background()
+	rules := `{"list":{"op":"allow"},"view":{"op":"allow"},"create":{"op":"deny"},"update":{"op":"deny"},"delete":{"op":"deny"}}`
+	if _, err := s.pool.Exec(ctx, `INSERT INTO pgbase_meta.collection_rules(collection_id,rules) VALUES($1,$2::jsonb)`, collection, rules); err != nil {
+		t.Fatal(err)
+	}
+	request := ReadRequest{Principal: identity.Subject{Kind: identity.Anonymous}, Collection: "notes"}
+	if _, _, err := s.ReadFor(ctx, request); err != nil {
+		t.Fatalf("public subscription: %v", err)
+	}
+	if allowed, err := s.AllowsApplicationBroadcast(ctx, request); err != nil || !allowed {
+		t.Fatalf("public broadcast = %t, %v", allowed, err)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.collection_access SET enabled=false WHERE collection_id=$1`, collection); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.ReadFor(ctx, request); !errors.Is(err, recordaccess.ErrDenied) {
+		t.Fatalf("revoked subscription = %v", err)
+	}
+	if allowed, err := s.AllowsApplicationBroadcast(ctx, request); allowed || !errors.Is(err, recordaccess.ErrDenied) {
+		t.Fatalf("revoked broadcast = %t, %v", allowed, err)
+	}
+	request.Principal = identity.Subject{Kind: identity.Administrator}
+	if _, _, err := s.ReadFor(ctx, request); !errors.Is(err, recordaccess.ErrDenied) {
+		t.Fatalf("malformed administrator subscription = %v", err)
+	}
+}
+
+func TestRealtimeMixedCatalogAndOwnerRulesPreserveEventOwnership(t *testing.T) {
+	s, user, collection := realtimeFixture(t)
+	ctx := context.Background()
+	eventID := seedEvent(t, s, user, collection)
+	var id uuid.UUID
+	if err := s.pool.QueryRow(ctx, `SELECT record_id FROM pgbase_meta.record_outbox WHERE event_id=$1`, eventID).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	rules := accessrule.OwnerRules()
+	value, _ := json.Marshal(id)
+	rules.List = accessrule.Rule{Op: "eq", Field: "id", Value: value, Binding: accessrule.BindingCatalog}
+	if err := s.Deliver(ctx); err != nil {
+		t.Fatal(err)
+	}
+	zero := int64(0)
+	for _, source := range []*string{nil, new("source is display metadata")} {
+		rules.List.Expression = source
+		raw, err := json.Marshal(rules)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.pool.Exec(ctx, `INSERT INTO pgbase_meta.collection_rules(collection_id,rules) VALUES($1,$2::jsonb)
+ ON CONFLICT(collection_id) DO UPDATE SET rules=excluded.rules`, collection, string(raw)); err != nil {
+			t.Fatal(err)
+		}
+		events, _, err := s.ReadFor(ctx, ReadRequest{Principal: identity.Subject{Kind: identity.User, ID: user}, Collection: "notes", After: &zero})
+		if err != nil || len(events) != 1 || events[0].EventID != eventID {
+			t.Fatalf("catalog predicate + event owner, source=%v: events=%v err=%v", source, events, err)
 		}
 	}
 }

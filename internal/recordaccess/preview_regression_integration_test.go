@@ -5,6 +5,7 @@ package recordaccess_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/migrate"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/recordidentity"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
@@ -60,7 +62,7 @@ func TestPreviewSupportsPocketBaseRelationsAndRequestValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	relationSource := "author.name = 'Alice'"
-	relationRule, err := query.ParsePocketBaseAccessRule(relationSource)
+	relationRule, err := query.ParseAccessRule(relationSource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,18 +71,57 @@ func TestPreviewSupportsPocketBaseRelationsAndRequestValues(t *testing.T) {
 		t.Fatalf("store supported relation rule: %v", err)
 	}
 	service := recordaccess.NewRuleService(pool, schemas)
-	decisions, err := service.Preview(ctx, "preview_docs", recordaccess.RulePreview{Rule: relationRule, Action: "view", UserID: userID, RecordIDs: []uuid.UUID{docID}})
+	decisions, err := service.Preview(ctx, "preview_docs", recordaccess.RulePreview{Rule: relationRule, Action: "view", UserID: userID, RecordIDs: []string{docID.String()}})
 	if err != nil || len(decisions) != 1 || !decisions[0].Allowed {
 		t.Fatalf("relation preview=%v err=%v", decisions, err)
 	}
-	requestRule, err := query.ParsePocketBaseAccessRule("@request.body.author:changed = true")
+	requestRule, err := query.ParseAccessRule("@request.body.author:changed = true")
 	if err != nil {
 		t.Fatal(err)
 	}
 	body, _ := json.Marshal(authorID.String())
 	request := &accessrule.RequestContext{Present: map[string]bool{"author": true}, Changed: map[string]bool{"author": true}, Body: map[string]json.RawMessage{"author": body}}
-	decisions, err = service.Preview(ctx, "preview_docs", recordaccess.RulePreview{Rule: requestRule, Action: "update", UserID: userID, RecordIDs: []uuid.UUID{docID}, Request: request})
+	decisions, err = service.Preview(ctx, "preview_docs", recordaccess.RulePreview{Rule: requestRule, Action: "update", UserID: userID, RecordIDs: []string{docID.String()}, Request: request})
 	if err != nil || len(decisions) != 1 || !decisions[0].Allowed {
 		t.Fatalf("request-value preview=%v err=%v", decisions, err)
 	}
+	t.Run("public text identities", func(t *testing.T) {
+		apply(schema.CreateCollectionInput{Name: "preview_text_docs", RecordID: &schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 64, Pattern: `^[A-Za-z0-9_-]+$`}, Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText}}})
+		catalog, err := schemas.Catalog(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		collection := catalog.Collections["preview_text_docs"]
+		identities := recordidentity.New(nil)
+		public := []string{"CaseSensitive", uuid.NewString()}
+		for i, external := range public {
+			id, title := uuid.New(), "open"
+			if i == 1 {
+				title = "closed"
+			}
+			if _, err := pool.Exec(ctx, `INSERT INTO app.preview_text_docs(id,title,created_at,updated_at) VALUES($1,$2,now(),now())`, id, title); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := identities.Reserve(ctx, pool, collection, id, &external); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := recordaccess.NewService(pool).Set(ctx, collection.Name, true); err != nil {
+			t.Fatal(err)
+		}
+		public = append(public, "casesensitive", "MissingRecord")
+		decisions, err := service.Preview(ctx, collection.Name, recordaccess.RulePreview{Rule: accessrule.Rule{Op: "eq", Field: "title", Value: json.RawMessage(`"open"`)}, Action: "view", UserID: userID, RecordIDs: public})
+		if err != nil || len(decisions) != len(public) {
+			t.Fatalf("text preview=%v err=%v", decisions, err)
+		}
+		for i, decision := range decisions {
+			if decision.RecordID != public[i] || decision.Allowed != (i == 0) {
+				t.Fatalf("decision %d = %+v", i, decision)
+			}
+		}
+		if _, err := identities.ResolveMany(ctx, pool, collection, public); !errors.Is(err, recordidentity.ErrNotFound) {
+			t.Fatalf("strict mutation resolution accepted missing IDs: %v", err)
+		}
+	})
+
 }

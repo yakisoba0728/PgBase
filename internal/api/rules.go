@@ -36,7 +36,7 @@ func ruleRoutes(dependencies Dependencies) []route {
 					writeRuleError(w, r, accessrule.ErrInvalid)
 					return
 				}
-				rules, parseErr := accessrule.FromPocketBaseRulesParsed(input.Rules, query.ParsePocketBaseAccessRule)
+				rules, parseErr := accessrule.FromPocketBaseRulesParsed(input.Rules, query.ParseAccessRule)
 				if parseErr != nil {
 					writeRuleError(w, r, parseErr)
 					return
@@ -57,7 +57,7 @@ func ruleRoutes(dependencies Dependencies) []route {
 				writeRuleError(w, r, accessrule.ErrInvalid)
 				return
 			}
-			rules, parseErr := accessrule.Parse(input.Rules)
+			rules, parseErr := query.ParseAccessRules(input.Rules)
 			if parseErr != nil {
 				writeRuleError(w, r, parseErr)
 				return
@@ -99,7 +99,7 @@ func ruleRoutes(dependencies Dependencies) []route {
 func writeRuleError(w http.ResponseWriter, r *http.Request, err error) {
 	response := APIError{Status: 503, Code: "rules_unavailable", Message: "Record rules are unavailable"}
 	if errors.Is(err, accessrule.ErrInvalid) {
-		response = APIError{Status: 400, Code: "invalid_rule", Message: "Invalid typed access rule"}
+		response = APIError{Status: 400, Code: "invalid_rule", Message: "Invalid access rule"}
 		var validation *schema.ValidationError
 		if errors.As(err, &validation) {
 			response.Details = map[string][]string{}

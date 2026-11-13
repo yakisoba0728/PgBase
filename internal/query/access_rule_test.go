@@ -14,8 +14,8 @@ import (
 
 func TestPocketBaseAccessRuleUsesFilterGrammarAndPreservesSource(t *testing.T) {
 	source := "(title:lower = 'hello' && score >= 2) || title:length = alias:length"
-	rule, err := ParsePocketBaseAccessRule(source)
-	if err != nil || rule.PocketBase == nil || *rule.PocketBase != source {
+	rule, err := ParseAccessRule(source)
+	if err != nil || rule.Expression == nil || *rule.Expression != source {
 		t.Fatalf("rule=%#v err=%v", rule, err)
 	}
 	collection := schema.Collection{ID: uuid.New(), Fields: []schema.Field{{Name: "title", ColumnName: "title", Type: schema.TypeText}, {Name: "alias", ColumnName: "alias", Type: schema.TypeText}, {Name: "score", ColumnName: "score", Type: schema.TypeInteger}}}
@@ -29,7 +29,7 @@ func TestPocketBaseAccessRuleAuthRequestAndNullableStringSemantics(t *testing.T)
 	collection := schema.Collection{ID: uuid.New(), Fields: []schema.Field{{Name: "owner", ColumnName: "owner", Type: schema.TypeUUID}, {Name: "title", ColumnName: "title", Type: schema.TypeText}}}
 	user := identity.Subject{Kind: identity.User, ID: uuid.New()}
 	for _, source := range []string{"owner = @request.auth.id", "title = null", "title = ''", "@request.body.title:isset = true && @request.body.title:changed = false"} {
-		rule, err := ParsePocketBaseAccessRule(source)
+		rule, err := ParseAccessRule(source)
 		if err != nil {
 			t.Fatalf("%q: %v", source, err)
 		}
@@ -52,7 +52,7 @@ func TestPocketBaseAccessRuleAuthRequestAndNullableStringSemantics(t *testing.T)
 }
 
 func TestPocketBaseRecordIDComparisonDoesNotBecomeNativeOwnerRule(t *testing.T) {
-	rule, err := ParsePocketBaseAccessRule("id = @request.auth.id")
+	rule, err := ParseAccessRule("id = @request.auth.id")
 	if err != nil || rule.Op != "eq" || rule.Field != "id" || rule.Auth != "id" {
 		t.Fatalf("rule=%#v err=%v", rule, err)
 	}
@@ -62,12 +62,12 @@ func TestPocketBaseRecordIDComparisonDoesNotBecomeNativeOwnerRule(t *testing.T) 
 }
 
 func TestPocketBaseAuthFieldLiteralUsesRequestContext(t *testing.T) {
-	rule, err := ParsePocketBaseAccessRule("@request.auth.email = 'manager@example.test'")
+	rule, err := ParseAccessRule("@request.auth.email = 'manager@example.test'")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resolver := pbResolverStubForQuery{}
-	sql, args, err := accessrule.CompilePocketBase(rule, accessrule.PBCompileContext{
+	sql, args, err := accessrule.CompileExpression(rule, accessrule.ExpressionContext{
 		Resolver: resolver,
 		Request:  &accessrule.RequestContext{Auth: map[string]any{"email": "manager@example.test"}},
 	})
@@ -78,7 +78,7 @@ func TestPocketBaseAuthFieldLiteralUsesRequestContext(t *testing.T) {
 
 func TestPocketBaseAccessRulePreservesFunctions(t *testing.T) {
 	for _, source := range []string{"geoDistance(place.lon, place.lat, 127, 37) < 10", "strftime('%Y-%m', created_at, 'start of month', '+1 day') = '2026-10'"} {
-		rule, err := ParsePocketBaseAccessRule(source)
+		rule, err := ParseAccessRule(source)
 		if err != nil || rule.Function == nil || rule.Function.Name == "" {
 			t.Fatalf("source=%s rule=%#v err=%v", source, rule, err)
 		}
@@ -86,7 +86,7 @@ func TestPocketBaseAccessRulePreservesFunctions(t *testing.T) {
 }
 
 func TestPocketBaseAccessRulePreservesExecutionTimeMacro(t *testing.T) {
-	rule, err := ParsePocketBaseAccessRule("created_at <= @todayEnd")
+	rule, err := ParseAccessRule("created_at <= @todayEnd")
 	if err != nil || rule.Macro != "@todayEnd" {
 		t.Fatalf("rule=%#v err=%v", rule, err)
 	}
@@ -94,12 +94,12 @@ func TestPocketBaseAccessRulePreservesExecutionTimeMacro(t *testing.T) {
 
 type pbResolverStubForQuery struct{}
 
-func (pbResolverStubForQuery) Resolve(string) (accessrule.PBOperand, error) {
-	return accessrule.PBOperand{}, accessrule.ErrInvalid
+func (pbResolverStubForQuery) Resolve(string) (accessrule.Operand, error) {
+	return accessrule.Operand{}, accessrule.ErrInvalid
 }
 
-func (pbResolverStubForQuery) ResolveCollection(string, string) (accessrule.PBOperand, error) {
-	return accessrule.PBOperand{}, accessrule.ErrInvalid
+func (pbResolverStubForQuery) ResolveCollection(string, string) (accessrule.Operand, error) {
+	return accessrule.Operand{}, accessrule.ErrInvalid
 }
 
 func TestPocketBaseAccessRuleReportsWhereParsingStopped(t *testing.T) {
@@ -112,14 +112,14 @@ func TestPocketBaseAccessRuleReportsWhereParsingStopped(t *testing.T) {
 		{"@request.auth.id != '' && title = = 'x'", "35"},
 		{"@request.auth.id != '' && 'é' = = 1", "33"},
 	} {
-		_, err := ParsePocketBaseAccessRule(test.source)
+		_, err := ParseAccessRule(test.source)
 		var validation *ValidationError
 		if !errors.Is(err, accessrule.ErrInvalid) || !errors.As(err, &validation) || len(validation.Details) != 1 || validation.Details[0].Code != test.position {
-			t.Fatalf("ParsePocketBaseAccessRule(%q) = %v %#v, want position %s", test.source, err, validation, test.position)
+			t.Fatalf("ParseAccessRule(%q) = %v %#v, want position %s", test.source, err, validation, test.position)
 		}
 	}
 	broken := "title = "
-	_, err := accessrule.FromPocketBaseRulesParsed(accessrule.PocketBaseRules{View: &broken}, ParsePocketBaseAccessRule)
+	_, err := accessrule.FromPocketBaseRulesParsed(accessrule.PocketBaseRules{View: &broken}, ParseAccessRule)
 	var validation *ValidationError
 	if !errors.Is(err, accessrule.ErrInvalid) || !errors.As(err, &validation) || fmt.Sprint(validation.Details) != "[{rules.view invalid_syntax} {rules.view.position 9}]" {
 		t.Fatalf("err=%v details=%#v", err, validation)

@@ -14,14 +14,14 @@ import (
 )
 
 type cursorV5FilterComparison struct {
-	Kind           string          `json:"kind"`
-	Path           []string        `json:"path"`
-	Type           string          `json:"type"`
-	Modifier       string          `json:"modifier,omitempty"`
-	Operator       string          `json:"operator"`
-	Value          json.RawMessage `json:"value"`
-	LiteralLeft    bool            `json:"literalLeft,omitempty"`
-	PocketBaseLike bool            `json:"pocketBaseLike,omitempty"`
+	Kind            string          `json:"kind"`
+	Path            []string        `json:"path"`
+	Type            string          `json:"type"`
+	Modifier        string          `json:"modifier,omitempty"`
+	Operator        string          `json:"operator"`
+	Value           json.RawMessage `json:"value"`
+	LiteralLeft     bool            `json:"literalLeft,omitempty"`
+	PercentWildcard bool            `json:"pocketBaseLike,omitempty"`
 }
 
 type cursorV5FilterGroup struct {
@@ -71,8 +71,8 @@ func encodeCursorV5Filter(filter *plannedRelationFilter) (json.RawMessage, error
 		return json.Marshal(cursorV5FilterComparison{
 			Kind: "comparison", Path: path, Type: string(field.Type),
 			Modifier: comparison.input.modifier, Operator: comparison.input.operator, Value: value,
-			LiteralLeft:    contains && comparison.input.literalLeft,
-			PocketBaseLike: contains && !comparison.input.literalLeft && comparison.input.pocketBaseLike,
+			LiteralLeft:     contains && comparison.input.literalLeft,
+			PercentWildcard: contains && !comparison.input.literalLeft && comparison.input.percentWildcard,
 		})
 	}
 	kind := "and"

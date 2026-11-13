@@ -5,10 +5,23 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
+
+func TestApplicationBroadcastGrantComesOnlyFromRuleAST(t *testing.T) {
+	empty := ""
+	for _, op := range []string{"deny", "owner", "eq", "authenticated"} {
+		if applicationBroadcastRulePublic(accessrule.Rule{Op: op, Expression: &empty}) {
+			t.Fatalf("source metadata granted public broadcast to %q", op)
+		}
+	}
+	if !applicationBroadcastRulePublic(accessrule.Rule{Op: "allow"}) {
+		t.Fatal("explicit allow did not grant public broadcast")
+	}
+}
 
 func TestValidateEventFieldsRejectsUnknownAndHiddenFieldsForPublicPrincipals(t *testing.T) {
 	collection := schema.Collection{Fields: []schema.Field{

@@ -40,7 +40,7 @@ export type PocketBasePage<T extends RecordData> = {
     totalPages: number;
     items: T[];
 };
-/** Record input may include PocketBase mutation keys such as `score+`, `+tags`, and `tags-`. */
+/** Record input may include mutation modifier keys such as `score+`, `+tags`, and `tags-`. */
 export type RecordModifiers = {
     [key: `${string}+`]: unknown;
     [key: `+${string}`]: unknown;
@@ -99,7 +99,7 @@ export type EventOptions = {
     maxReconnects?: number;
     reconnectDelayMs?: number;
 };
-/** Reconnect policy for the shared PocketBase-compatible realtime session. */
+/** Reconnect policy for the shared realtime session. */
 export type RealtimeSubscriptionOptions = Pick<EventOptions, "maxReconnects" | "reconnectDelayMs">;
 /** Shared-session lifecycle snapshot; listener failures leave the current state intact. */
 export type RealtimeStatus = Readonly<{
@@ -111,7 +111,7 @@ export type RealtimeStatus = Readonly<{
     source?: "transport" | "listener";
     topic?: string;
 }>;
-/** A collection record event, retained for existing PocketBase subscriptions. */
+/** A collection record event. */
 export type RealtimeEvent<T extends RecordData = RecordData> = {
     action: "create" | "update" | "delete";
     record: T;

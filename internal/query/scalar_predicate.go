@@ -33,7 +33,7 @@ type ScalarPredicate struct {
 	fields map[string]ScalarKind
 }
 
-// CompileScalarPredicate parses the ordinary bounded PgBase/PocketBase filter
+// CompileScalarPredicate parses the bounded pgBase filter
 // grammar and restricts it to the supplied scalar fields. Dotted paths, field
 // to field comparisons, unsupported modifiers, and incompatible literals are
 // rejected during compilation.
@@ -305,7 +305,7 @@ func compareScalarNumbers(left, right float64, operator string) bool {
 	return false
 }
 
-// scalarContains mirrors PocketBase's LIKE treatment: '%' is the only explicit
+// scalarContains applies SQL LIKE semantics: '%' is the only explicit
 // wildcard. A pattern with no unescaped '%' is escaped and wrapped in '%'.
 func scalarContains(value, pattern string) bool {
 	if !hasUnescapedPercent(pattern) {

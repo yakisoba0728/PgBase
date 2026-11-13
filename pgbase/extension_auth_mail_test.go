@@ -54,7 +54,7 @@ func (f *fakeAuthMail) AdminSendRecordAuthAlert(_ context.Context, _ uuid.UUID, 
 func TestAuthMailDispatcherChecksRealmAndDispatchesEveryKind(t *testing.T) {
 	realm, id := uuid.New(), uuid.New()
 	fake := &fakeAuthMail{realm: realm, id: id}
-	host := &extensionHost{bridge: &extensionBridge{authMail: fake, compatibility: &extensionCompatibility{authMailCollections: map[uuid.UUID]bool{realm: true}}}}
+	host := &extensionHost{bridge: &extensionBridge{authMail: fake, hostPolicy: &extensionHostPolicy{authMailCollections: map[uuid.UUID]bool{realm: true}}}}
 	requests := []map[string]any{
 		{"kind": "passwordReset", "collection": realm.String(), "recordId": id.String()},
 		{"kind": "verification", "collection": realm.String(), "recordId": id.String()},
@@ -94,7 +94,7 @@ func TestAuthMailDispatcherChecksRealmAndDispatchesEveryKind(t *testing.T) {
 func TestAuthMailDispatcherRejectsEmptyAndUnknownFields(t *testing.T) {
 	realm, id := uuid.New(), uuid.New()
 	fake := &fakeAuthMail{realm: realm, id: id}
-	host := &extensionHost{bridge: &extensionBridge{authMail: fake, compatibility: &extensionCompatibility{authMailCollections: map[uuid.UUID]bool{realm: true}}}}
+	host := &extensionHost{bridge: &extensionBridge{authMail: fake, hostPolicy: &extensionHostPolicy{authMailCollections: map[uuid.UUID]bool{realm: true}}}}
 	for _, raw := range []string{`{"kind":"changeEmail","collection":"` + realm.String() + `","recordId":"` + id.String() + `"}`, `{"kind":"otp","collection":"` + realm.String() + `","recordId":"` + id.String() + `","extra":true}`} {
 		if _, err := host.callAuthMail(context.Background(), []byte(raw)); err == nil {
 			t.Fatalf("accepted %s", raw)

@@ -186,6 +186,7 @@ func runServe(ctx context.Context, args []string, env environment, streams IO) (
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return configurationError{err: errors.New("invalid serve usage"), message: "usage: pgbase serve [--public-dir DIR] [--public-spa-fallback] [--js-dir DIR] [--encryption-env NAME] [--https-address ADDR --https-cert FILE --https-key FILE | --https-address ADDR --acme-hosts HOSTS --acme-cache-dir DIR --acme-http-address ADDR]"}
 	}
+	env = javaScriptEnvironment(env, *javaScriptDirectory)
 	var options pgbase.Options
 	var err error
 	encryptionEnvSet := false

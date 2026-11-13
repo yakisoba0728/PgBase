@@ -85,7 +85,7 @@ func newRetentionInstallation(t *testing.T, envRetention, pageRetention int, sto
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
-	return retentionInstallation{pool: pool, settings: settings, manager: manager, storage: storage, worker: jobs.NewService(pool, jobs.NewRegistry(), slog.New(slog.NewTextHandler(io.Discard, nil)), uuid.New())}
+	return retentionInstallation{pool: pool, settings: settings, manager: manager, storage: storage, worker: jobs.NewService(pool, jobs.NewRegistry(), slog.New(slog.NewTextHandler(io.Discard, nil)))}
 }
 
 func (i retentionInstallation) install(t *testing.T) {
@@ -196,7 +196,7 @@ func TestManagedBackupScheduledRunUsesTheLatestKeep(t *testing.T) {
 	if _, err = installation.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET enabled=true,next_run_at=now() WHERE name=$1`, managedBackupJobName); err != nil {
 		t.Fatal(err)
 	}
-	second := jobs.NewService(installation.pool, jobs.NewRegistry(), nil, uuid.New())
+	second := jobs.NewService(installation.pool, jobs.NewRegistry(), nil)
 	if err = second.Register(ctx, managedBackupJobName, "@every 24h", "UTC", false, func(context.Context, jobs.Job) error {
 		t.Error("a second instance ran the same occurrence")
 		return nil

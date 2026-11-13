@@ -145,7 +145,7 @@ func TestSchemaImportLateRuleFailureRollsBackDDLAndPolicies(t *testing.T) {
 		t.Fatal(err)
 	}
 	op := uuid.New()
-	_, err = service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: op, IdempotencyKey: "late-failure-00000001", ValidateRules: func(Collection, json.RawMessage) error { return errors.New("late rule failure") }})
+	_, err = service.ApplySchemaImport(ctx, SchemaImportIntent{Document: document, BaseVersion: plan.BaseVersion, Checksum: plan.Checksum, Actor: actor, OperationID: op, IdempotencyKey: "late-failure-00000001", ValidateRules: func(Catalog, Collection, json.RawMessage) error { return errors.New("late rule failure") }})
 	if err == nil {
 		t.Fatal("expected failure")
 	}

@@ -132,22 +132,23 @@ func TestDefaultPostgresMatrixCoversEverySupportedMajor(t *testing.T) {
 // sourceProject records everything the drill must still observe after the dump
 // has crossed an empty database.
 type sourceProject struct {
-	ada             record
-	bob             record
-	article         record
-	articleETag     string
-	systemMigration int
-	revisions       int
-	auditEvents     int
-	outboxEvents    int
-	idempotency     int
-	schemaReceipts  int
-	publicOwner     publicUser
-	publicForeign   publicUser
-	publicRecord    record
-	users           int
-	owners          int
-	fileID          string
+	ada              record
+	bob              record
+	article          record
+	articleETag      string
+	systemMigration  int
+	revisions        int
+	auditEvents      int
+	outboxEvents     int
+	idempotency      int
+	schemaReceipts   int
+	publicOwner      publicUser
+	publicForeign    publicUser
+	publicRecord     record
+	users            int
+	owners           int
+	fileID           string
+	extraCollections int
 }
 
 func seedSourceProject(t *testing.T, ctx context.Context, drill *candidate, postgres *postgresServer) sourceProject {
@@ -224,6 +225,12 @@ func seedSourceProject(t *testing.T, ctx context.Context, drill *candidate, post
 	// The release gate harness can be newer than an immutable rollout phase.
 	// Record what the candidate actually migrated rather than assuming its
 	// embedded history has the harness checkout's current length.
+	captureSourceProjectCounts(t, ctx, postgres, &project)
+	return project
+}
+
+func captureSourceProjectCounts(t *testing.T, ctx context.Context, postgres *postgresServer, project *sourceProject) {
+	t.Helper()
 	project.systemMigration = mustAtoi(t, postgres.query(t, ctx, sourceDatabase,
 		"select count(*) from pgbase_meta.system_migrations"))
 	project.revisions = mustAtoi(t, postgres.query(t, ctx, sourceDatabase, "select count(*) from pgbase_meta.record_revisions"))
@@ -244,7 +251,6 @@ func seedSourceProject(t *testing.T, ctx context.Context, drill *candidate, post
 			t.Fatalf("the source project produced no %s rows to restore", name)
 		}
 	}
-	return project
 }
 
 // insertReconciliationSentinel leaves a schema operation whose outcome the
@@ -333,7 +339,7 @@ func verifyRestoredDatabase(t *testing.T, ctx context.Context, postgres *postgre
 	}
 	assertCount(t, postgres, ctx, "system migrations", "select count(*) from pgbase_meta.system_migrations", expected.systemMigration)
 	assertCount(t, postgres, ctx, "administrators", "select count(*) from pgbase_meta.admins", 1)
-	expectedCollections := 3
+	expectedCollections := 3 + expected.extraCollections
 	if expected.fileID != "" {
 		expectedCollections++
 	}

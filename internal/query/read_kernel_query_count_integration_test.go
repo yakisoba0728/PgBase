@@ -45,6 +45,53 @@ func (t *readKernelQueryTracer) TraceQueryStart(
 
 func (*readKernelQueryTracer) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
 
+func TestCountUsesOneAggregateInsteadOfReadingPages(t *testing.T) {
+	databaseURL, pool, schemas, records := newR0QueryServiceTest(t)
+	ctx := context.Background()
+	seedQueryCountScalarFixture(t, ctx, pool, schemas, 401)
+	syncMembershipOrdinals(t, ctx, pool)
+	tracer := &readKernelQueryTracer{}
+	config, err := pgx.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Tracer = tracer
+	conn, err := pgx.ConnectConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tracer.start()
+	total, err := records.Count(database.WithTransaction(ctx, tx), ListRequest{
+		Principal: testReadPrincipal, Collection: "query_count_scalar", Filter: "name ~ 'root-'",
+	})
+	statements := tracer.stop()
+	if err != nil || total != 401 {
+		t.Fatalf("count = %d, %v", total, err)
+	}
+	rootQueries := 0
+	for _, statement := range statements {
+		if !strings.Contains(statement, `FROM "app"."query_count_scalar"`) {
+			continue
+		}
+		rootQueries++
+		if !strings.HasPrefix(statement, "SELECT COUNT(") {
+			t.Fatalf("count fetched record data: %s", statement)
+		}
+	}
+	if rootQueries != 1 {
+		t.Fatalf("count used %d root queries: %s", rootQueries, formatQueryTrace(statements))
+	}
+	if _, err := tx.Exec(ctx, "select 1"); err != nil {
+		t.Fatalf("count closed the caller's transaction: %v", err)
+	}
+}
+
 func (t *readKernelQueryTracer) start() {
 	t.mu.Lock()
 	defer t.mu.Unlock()

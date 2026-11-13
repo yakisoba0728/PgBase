@@ -68,10 +68,19 @@ func localSMTPHost(host string) bool {
 	return address != nil && address.IsLoopback()
 }
 
-func (s *SMTP) Send(ctx context.Context, message Message) error {
+func (s *SMTP) Send(ctx context.Context, message Message) (err error) {
 	if s == nil || message.To == "" || strings.ContainsAny(message.To+message.Subject, "\r\n") || len(message.Text)+len(message.HTML) > 64<<10 || message.Text == "" {
 		return errors.New("invalid email message")
 	}
+	body, err := encodeMessage(s.config.From, message)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil && ctx.Err() != nil {
+			err = ctx.Err()
+		}
+	}()
 	deadline := time.Now().Add(s.config.Timeout)
 	if value, ok := ctx.Deadline(); ok && value.Before(deadline) {
 		deadline = value
@@ -82,6 +91,9 @@ func (s *SMTP) Send(ctx context.Context, message Message) error {
 		return fmt.Errorf("connect SMTP server: %w", err)
 	}
 	defer func() { _ = connection.Close() }()
+	transport := connection
+	stopCancellation := context.AfterFunc(ctx, func() { _ = transport.Close() })
+	defer stopCancellation()
 	if err := connection.SetDeadline(deadline); err != nil {
 		return fmt.Errorf("set SMTP deadline: %w", err)
 	}
@@ -121,11 +133,6 @@ func (s *SMTP) Send(ctx context.Context, message Message) error {
 	w, err := client.Data()
 	if err != nil {
 		return fmt.Errorf("start SMTP message: %w", err)
-	}
-	body, err := encodeMessage(s.config.From, message)
-	if err != nil {
-		_ = w.Close()
-		return err
 	}
 	writer := bufio.NewWriter(w)
 	if _, err := writer.WriteString(body); err != nil {

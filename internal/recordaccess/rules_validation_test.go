@@ -25,7 +25,7 @@ func TestValidateRulesUsesTheOrdinarySetContract(t *testing.T) {
 	catalog.Collections[flags.Name] = flags
 	pocketBaseSource := `@collection.flags.name ?= "enabled"`
 	pocketBase := accessrule.OwnerRules()
-	pocketBase.List = accessrule.Rule{Op: "any_eq", Field: "@collection.flags.name", Value: json.RawMessage(`"enabled"`), PocketBase: &pocketBaseSource}
+	pocketBase.List = accessrule.Rule{Op: "any_eq", Field: "@collection.flags.name", Value: json.RawMessage(`"enabled"`), Binding: accessrule.BindingCatalog, Expression: &pocketBaseSource}
 	if err := recordaccess.ValidateRules(catalog, collection, pocketBase); err != nil {
 		t.Fatalf("cross-collection rule against final catalog rejected: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestPocketBaseRulesAcceptSystemFields(t *testing.T) {
 		"author.id = @request.auth.id",
 		"@collection.authors.updated_at > '2020-01-01T00:00:00Z'",
 	} {
-		rule, err := query.ParsePocketBaseAccessRule(expression)
+		rule, err := query.ParseAccessRule(expression)
 		if err != nil {
 			t.Fatalf("parse %q: %v", expression, err)
 		}

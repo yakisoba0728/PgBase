@@ -123,3 +123,34 @@ func TestExternalTransactionOutcomeDefersHooksUntilCommitOrRollback(t *testing.T
 		})
 	}
 }
+
+func TestFailedSavepointHooksCannotBecomeSuccessfulOnOuterCommit(t *testing.T) {
+	hook := &countingHook{}
+	service := &Service{hooks: []MutationHook{hook}}
+	outcome := NewTransactionOutcome()
+	ctx := context.WithValue(context.Background(), transactionOutcomeKey{}, outcome)
+	ctx, run := service.hookContext(ctx)
+	if err := beforeMutationHooks(ctx, Principal{ID: uuid.New()}, artifactBatch{
+		collection: schema.Collection{Name: "notes"}, operation: "create",
+		rows: []artifactRow{{eventID: uuid.New(), recordID: uuid.New(), newVersion: 1}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("savepoint rolled back")
+	run.after(ctx, &failure)
+	outcome.Finish(ctx, nil)
+	if hook.after != 0 || hook.afterError != 1 {
+		t.Fatalf("rolled-back savepoint reported success: %+v", hook)
+	}
+}
+
+func TestFinishedTransactionOutcomeCannotAdmitNewMutationHooks(t *testing.T) {
+	outcome := NewTransactionOutcome()
+	outcome.Finish(context.Background(), nil)
+	ctx := context.WithValue(context.Background(), transactionOutcomeKey{}, outcome)
+	service := &Service{hooks: []MutationHook{&countingHook{}}}
+	ctx, _ = service.hookContext(ctx)
+	if err := requireTransactionOutcome(ctx); !errors.Is(err, ErrTransactionOutcomeRequired) {
+		t.Fatalf("finished owner admitted new hooks: %v", err)
+	}
+}

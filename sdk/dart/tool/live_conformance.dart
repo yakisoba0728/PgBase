@@ -72,6 +72,24 @@ Future<void> main() async {
     if ((updated.record['title']! as JsonString).value != 'updated')
       throw StateError('record update did not round trip');
     final recordId = (updated.record['id']! as JsonString).value;
+    final nativeFiltered = await records.list(
+      Query(filter: user.filter('title = {:title}', {'title': 'updated'})),
+    );
+    if (nativeFiltered.items.length != 1 ||
+        (nativeFiltered.items.single['id']! as JsonString).value != recordId) {
+      throw StateError('native JSON-quoted filter did not match the record');
+    }
+    final injected = await records.list(
+      Query(
+        filter: user.filter('title = {:title}', {
+          'title': 'updated" || title != "updated',
+        }),
+      ),
+    );
+    if (injected.items.isNotEmpty) {
+      throw StateError('native filter parsed bound string as syntax');
+    }
+
     final exact =
         ((await records.get(recordId))['metadata']! as JsonObject)['large'];
     if (exact is! JsonNumber || exact.source != '900719925474099312345.0001')

@@ -89,21 +89,17 @@ type Service struct {
 	pool     *database.Pool
 	registry *Registry
 	logger   *slog.Logger
-	instance uuid.UUID
 	timeout  time.Duration
 }
 
-func NewService(pool *database.Pool, registry *Registry, logger *slog.Logger, instance uuid.UUID) *Service {
+func NewService(pool *database.Pool, registry *Registry, logger *slog.Logger) *Service {
 	if registry == nil {
 		registry = NewRegistry()
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	if instance == uuid.Nil {
-		instance = uuid.New()
-	}
-	return &Service{pool: pool, registry: registry, logger: logger, instance: instance, timeout: jobTimeout}
+	return &Service{pool: pool, registry: registry, logger: logger, timeout: jobTimeout}
 }
 
 // Schedule creates or enables a named durable job. Changing its schedule makes
@@ -116,13 +112,9 @@ func (s *Service) ScheduleInTimezone(ctx context.Context, name, schedule, timezo
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("schedule job: name is required")
 	}
-	parsed, err := ParseScheduleInLocation(schedule, timezone)
+	next, err := nextScheduledAt(schedule, timezone, time.Now())
 	if err != nil {
 		return err
-	}
-	next := time.Now()
-	if parsed.interval == 0 {
-		next = parsed.Next(next)
 	}
 	_, err = s.pool.Exec(ctx, `INSERT INTO pgbase_meta.scheduled_jobs(id,name,schedule,timezone,next_run_at)
 	 VALUES($1,$2,$3,$4,$5) ON CONFLICT (name) DO UPDATE SET
@@ -196,11 +188,11 @@ func (s *Service) claim(ctx context.Context) ([]claimedJob, error) {
  AND (lease_until IS NULL OR lease_until<clock_timestamp())
  ORDER BY next_run_at,id FOR UPDATE SKIP LOCKED LIMIT $1
 ) UPDATE pgbase_meta.scheduled_jobs j SET lease_token=$2,
- lease_until=clock_timestamp()+interval '1 minute', fence_generation=fence_generation+1,
+ lease_until=clock_timestamp()+make_interval(secs=>$4), fence_generation=fence_generation+1,
  last_scheduled_at=CASE WHEN j.attempts=0 OR j.last_scheduled_at IS NULL THEN j.next_run_at ELSE j.last_scheduled_at END,
  attempts=j.attempts+1,last_started_at=clock_timestamp(),updated_at=clock_timestamp()
  FROM due WHERE j.id=due.id
-	 RETURNING j.id,j.name,j.schedule,j.fence_generation,j.timezone,j.last_scheduled_at`, claimBatch, token, names)
+	 RETURNING j.id,j.name,j.schedule,j.fence_generation,j.timezone,j.last_scheduled_at`, claimBatch, token, names, leaseDuration.Seconds())
 		if err != nil {
 			return err
 		}
@@ -224,21 +216,18 @@ func (s *Service) complete(ctx context.Context, claim claimedJob, runErr error) 
 		runErr = errors.Join(runErr, err)
 	}
 	if runErr == nil {
+		var next *time.Time
 		if schedule.interval == 0 {
-			next := schedule.Next(claim.ScheduledAt)
-			now := time.Now()
-			if !next.After(now) {
-				next = schedule.Next(now)
+			at := schedule.Next(claim.ScheduledAt)
+			if now := time.Now(); !at.After(now) {
+				at = schedule.Next(now)
 			}
-			_, err = s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_token=NULL,lease_until=NULL,
-	 next_run_at=$3,last_scheduled_at=$4,attempts=0,last_error=NULL,last_finished_at=clock_timestamp(),updated_at=clock_timestamp()
-		 WHERE id=$1 AND lease_token=$2 AND fence_generation=$5`, claim.ID, claim.token, next, claim.ScheduledAt, claim.FenceGeneration)
-			return err
+			next = &at
 		}
 		_, err = s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_token=NULL,lease_until=NULL,
-	 next_run_at=clock_timestamp()+make_interval(secs=>$3),attempts=0,last_error=NULL,
-	 last_finished_at=clock_timestamp(),updated_at=clock_timestamp()
-	 WHERE id=$1 AND lease_token=$2 AND fence_generation=$4`, claim.ID, claim.token, schedule.interval.Seconds(), claim.FenceGeneration)
+	 next_run_at=COALESCE($3::timestamptz,clock_timestamp()+make_interval(secs=>$4)),
+	 last_scheduled_at=$5,attempts=0,last_error=NULL,last_finished_at=clock_timestamp(),updated_at=clock_timestamp()
+	 WHERE id=$1 AND lease_token=$2 AND fence_generation=$6`, claim.ID, claim.token, next, schedule.interval.Seconds(), claim.ScheduledAt, claim.FenceGeneration)
 		return err
 	}
 	// The SQL bounds retries at five minutes, keeps failure text bounded, and
@@ -309,4 +298,15 @@ type locationSchedule struct {
 
 func (s locationSchedule) Next(after time.Time) time.Time {
 	return s.schedule.Next(after.In(s.location))
+}
+
+func nextScheduledAt(schedule, timezone string, now time.Time) (time.Time, error) {
+	parsed, err := ParseScheduleInLocation(schedule, timezone)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if parsed.interval == 0 {
+		return parsed.Next(now), nil
+	}
+	return now, nil
 }

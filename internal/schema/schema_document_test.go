@@ -11,7 +11,7 @@ import (
 func TestSchemaImportRuleValidationUsesProjectedCatalogForNoOpCollections(t *testing.T) {
 	service := &Service{}
 	plan := SchemaImportPlan{Document: SchemaDocument{Collections: []SchemaDocumentCollection{{Name: "posts", Rules: json.RawMessage(`{"field":"title"}`)}}}, validationCatalog: Catalog{Collections: map[string]Collection{"posts": {Name: "posts", Fields: []Field{{Name: "title", Type: TypeText}}}}}}
-	err := service.ValidateSchemaImportPlan(plan, func(collection Collection, _ json.RawMessage) error {
+	err := service.ValidateSchemaImportPlan(plan, func(_ Catalog, collection Collection, _ json.RawMessage) error {
 		if len(collection.Fields) != 1 || collection.Fields[0].Name != "title" {
 			return errors.New("missing projected field")
 		}
@@ -19,6 +19,25 @@ func TestSchemaImportRuleValidationUsesProjectedCatalogForNoOpCollections(t *tes
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSchemaImportWithoutPolicyEngineAcceptsOnlyExactOwnerRules(t *testing.T) {
+	owner := `{"list":{"op":"owner"},"view":{"op":"owner"},"create":{"op":"owner"},"update":{"op":"owner"},"delete":{"op":"owner"}}`
+	if err := validateDefaultOwnerRules(Catalog{}, Collection{}, json.RawMessage(owner)); err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{
+		`{"list":{"op":"allow"},"view":{"op":"owner"},"create":{"op":"owner"},"update":{"op":"owner"},"delete":{"op":"owner"}}`,
+		`{"list":{"op":"owner","field":"hidden"},"view":{"op":"owner"},"create":{"op":"owner"},"update":{"op":"owner"},"delete":{"op":"owner"}}`,
+		`{"list":{"op":"owner"},"view":{"op":"owner"},"create":{"op":"owner"},"update":{"op":"owner"},"unexpected":{"op":"owner"}}`,
+		owner + ` {}`,
+		`null`,
+	} {
+		plan := SchemaImportPlan{Document: SchemaDocument{Collections: []SchemaDocumentCollection{{Name: "posts", Rules: json.RawMessage(raw)}}}, validationCatalog: Catalog{Collections: map[string]Collection{"posts": {Name: "posts"}}}}
+		if err := (&Service{}).ValidateSchemaImportPlan(plan, nil); err == nil {
+			t.Fatalf("accepted unvalidated policy: %s", raw)
+		}
 	}
 }
 

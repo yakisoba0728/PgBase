@@ -31,7 +31,7 @@ func TestJavaScriptTypeDeclarationsCoverInstalledAppInventory(t *testing.T) {
 	if err := json.Unmarshal(raw, &names); err != nil {
 		t.Fatal(err)
 	}
-	declarations := JavaScriptTypeDeclarations()
+	declarations := LegacyJavaScriptTypeDeclarations()
 	appDeclarations := strings.Join(regexp.MustCompile(`(?m)^    interface App \{.*$`).FindAllString(declarations, -1), "\n")
 	for _, name := range names {
 		member := regexp.MustCompile(`(?:^|[; ]+)` + regexp.QuoteMeta(name) + `(?:<[^>]+>)?\s*\(`)
@@ -42,11 +42,16 @@ func TestJavaScriptTypeDeclarationsCoverInstalledAppInventory(t *testing.T) {
 }
 
 func TestJavaScriptTypeDeclarationArtifactIsCurrent(t *testing.T) {
-	artifact, err := os.ReadFile("../sdk/javascript/pgbase.d.ts")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(artifact) != JavaScriptTypeDeclarations() {
-		t.Fatal("sdk/javascript/pgbase.d.ts is not synchronized with JavaScriptTypeDeclarations")
+	for name, declarations := range map[string]string{
+		"pgbase.d.ts":        JavaScriptTypeDeclarations(),
+		"pgbase-legacy.d.ts": LegacyJavaScriptTypeDeclarations(),
+	} {
+		artifact, err := os.ReadFile("../sdk/javascript/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(artifact) != declarations {
+			t.Fatalf("sdk/javascript/%s is not synchronized with type declarations", name)
+		}
 	}
 }

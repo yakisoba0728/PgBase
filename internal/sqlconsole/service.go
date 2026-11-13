@@ -185,10 +185,20 @@ func (service *Service) Submit(ctx context.Context, actor Actor, request Request
 	service.wait.Add(1)
 	service.mu.Unlock()
 
-	if err := service.executor.Validate(ctx, normalized); err != nil {
+	validationContext, cancelValidation := context.WithCancel(ctx)
+	stopValidation := context.AfterFunc(job.ctx, cancelValidation)
+	validationErr := service.executor.Validate(validationContext, normalized)
+	validationCanceled := validationContext.Err()
+	stopValidation()
+	cancelValidation()
+	if err := validationErr; err != nil {
 		reserved = false
 		service.releasePending(job)
-		execution := service.finishWithoutRun(job, StatusFailed, failureFromError(err, "rejected"), nil)
+		status, failure := StatusFailed, failureFromError(err, "rejected")
+		if validationCanceled != nil {
+			status, failure = service.runOutcome(job, validationCanceled)
+		}
+		execution := service.finishWithoutRun(job, status, failure, nil)
 		service.mu.Lock()
 		persistErr := job.persistErr
 		service.mu.Unlock()

@@ -108,12 +108,7 @@ func (r *Runner) CleanupHistory(ctx context.Context, dryRun bool) (HistoryCleanu
 		return HistoryCleanup{}, errors.New("user migration pool is nil")
 	}
 	result := HistoryCleanup{DryRun: dryRun}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return HistoryCleanup{}, fmt.Errorf("begin user migration cleanup: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := func() error {
+	err := r.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1),pg_advisory_xact_lock($2)`, userMigrationLock, schemaWriterLock); err != nil {
 			return fmt.Errorf("acquire user migration locks: %w", err)
 		}
@@ -146,14 +141,9 @@ func (r *Runner) CleanupHistory(ctx context.Context, dryRun bool) (HistoryCleanu
 			}
 		}
 		return nil
-	}(); err != nil {
+	})
+	if err != nil {
 		return HistoryCleanup{}, err
-	}
-	if dryRun {
-		return result, nil
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return HistoryCleanup{}, fmt.Errorf("commit user migration cleanup: %w", err)
 	}
 	return result, nil
 }

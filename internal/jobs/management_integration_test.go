@@ -6,8 +6,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	"github.com/google/uuid"
 )
 
 func TestAdministratorJobChangesPersistAndRespectLease(t *testing.T) {
@@ -18,7 +16,7 @@ func TestAdministratorJobChangesPersistAndRespectLease(t *testing.T) {
 	if err := registry.Register("managed", func(context.Context, Job) error { calls++; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(pool, registry, nil, uuid.New())
+	service := NewService(pool, registry, nil)
 	if err := service.EnsureScheduled(ctx, "managed", "@every 1h"); err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +69,7 @@ func TestAdministratorJobChangesPersistAndRespectLease(t *testing.T) {
 	if err := service.ConfigureJob(ctx, id, "* * * *", true); !errors.Is(err, ErrInvalidSchedule) {
 		t.Fatalf("invalid schedule: %v", err)
 	}
-	unknown := NewService(pool, NewRegistry(), nil, uuid.New())
+	unknown := NewService(pool, NewRegistry(), nil)
 	if err := unknown.RequestRun(ctx, id); !errors.Is(err, ErrNotManageable) {
 		t.Fatalf("unregistered run: %v", err)
 	}

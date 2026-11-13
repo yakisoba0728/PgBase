@@ -141,13 +141,13 @@ export class PgBaseClient {
   }
 
   /**
-   * Constructs a PocketBase filter expression without interpolating values.
+   * Constructs a pgBase filter expression without interpolating values.
    *
-   * Parameters use PocketBase's `{:name}` placeholders.  Strings, dates,
+   * Parameters use `{:name}` placeholders.  Strings, dates,
    * arrays, and objects are emitted as quoted filter literals; scalar boolean,
    * number, and null values retain their filter-literal form.  A placeholder
-   * without a matching parameter is deliberately left unchanged, matching the
-   * PocketBase SDK and making an incomplete expression visible to the server.
+   * without a matching parameter is left unchanged so server validation can
+   * report the incomplete expression.
    */
   filter(expression: string, params?: FilterParams): string {
     if (!params || Object.keys(params).length === 0) return expression;
@@ -708,8 +708,7 @@ function filterLiteral(value: unknown): string {
   switch (typeof value) {
     case "boolean":
     case "number":
-      // This intentionally preserves PocketBase's `NaN` and `Infinity`
-      // spelling. The server decides whether a particular field accepts it.
+      // Preserve non-finite numeric tokens for server validation.
       return String(value);
     case "string":
       return JSON.stringify(value);
@@ -719,7 +718,7 @@ function filterLiteral(value: unknown): string {
       if (value === null) return "null";
       if (value instanceof Date) return JSON.stringify(value.toISOString().replace("T", " "));
       const serialized = JSON.stringify(value);
-      // PocketBase deliberately encodes aggregate JSON as one quoted filter
+      // Aggregate JSON is encoded as one quoted filter
       // string rather than treating it as filter syntax.
       if (serialized?.startsWith("[") || serialized?.startsWith("{")) return JSON.stringify(serialized);
       // JSON.stringify(function () {}) and JSON.stringify(Symbol()) are

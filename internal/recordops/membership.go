@@ -48,6 +48,12 @@ func (p *membershipWriterProvider) writer(ctx context.Context) (membership.Write
 	runtime := p.runtime
 	injected := p.injected
 	if runtime == nil {
+		if _, borrowed := database.TransactionFromContext(ctx); borrowed {
+			// Registration takes control-plane locks and must precede the
+			// caller's schema-pinned transaction.
+			p.mu.Unlock()
+			return membership.Writer{}, membership.ErrUnavailable
+		}
 		var err error
 		runtime, err = membership.RegisterWriter(ctx, membership.New(p.pool), membership.WriterC)
 		if err != nil {

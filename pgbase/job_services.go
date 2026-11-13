@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/jobs"
 )
@@ -33,7 +32,7 @@ func newJobService(ctx context.Context, pool *database.Pool, options Options) (*
 			return nil, fmt.Errorf("register scheduled job %q: %w", job.Name, err)
 		}
 	}
-	service := jobs.NewService(pool, registry, options.Logger, uuid.New())
+	service := jobs.NewService(pool, registry, options.Logger)
 	for _, configured := range options.Jobs {
 		timezone := configured.Timezone
 		if timezone == "" {

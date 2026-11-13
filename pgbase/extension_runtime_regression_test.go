@@ -23,7 +23,7 @@ func TestExtensionCompatibilityCreatesNestedDirectoriesAndFilesFromHTTP(t *testi
 		_, _ = w.Write([]byte("downloaded"))
 	}))
 	defer server.Close()
-	adapter := newExtensionCompatibility(PocketBaseCompatibilityOptions{FilesystemRoot: root, HTTPAllowedOrigins: []string{server.URL}})
+	adapter := newExtensionHostPolicy(PocketBaseCompatibilityOptions{FilesystemRoot: root, HTTPAllowedOrigins: []string{server.URL}})
 	if _, err := adapter.call(context.Background(), "os.mkdirAll", json.RawMessage(`{"path":"one/two/three"}`)); err != nil {
 		t.Fatalf("nested mkdir: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestExtensionCompatibilityFileFromURLPreservesBinaryAndEmptyBodies(t *testi
 				_, _ = w.Write(test.body)
 			}))
 			defer server.Close()
-			adapter := newExtensionCompatibility(PocketBaseCompatibilityOptions{HTTPAllowedOrigins: []string{server.URL}})
+			adapter := newExtensionHostPolicy(PocketBaseCompatibilityOptions{HTTPAllowedOrigins: []string{server.URL}})
 			raw, err := adapter.call(context.Background(), "filesystem.fileFromURL", json.RawMessage(`{"url":`+strconvQuote(server.URL)+`}`))
 			if err != nil {
 				t.Fatal(err)
@@ -84,7 +84,7 @@ func TestExtensionCompatibilityHTTPSendKeepsDocumentedBodyRepresentation(t *test
 		_, _ = w.Write([]byte("pong"))
 	}))
 	defer server.Close()
-	adapter := newExtensionCompatibility(PocketBaseCompatibilityOptions{HTTPAllowedOrigins: []string{server.URL}})
+	adapter := newExtensionHostPolicy(PocketBaseCompatibilityOptions{HTTPAllowedOrigins: []string{server.URL}})
 	raw, err := adapter.call(context.Background(), "http.send", json.RawMessage(`{"url":`+strconvQuote(server.URL)+`}`))
 	if err != nil {
 		t.Fatal(err)

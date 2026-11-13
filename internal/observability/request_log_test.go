@@ -67,6 +67,54 @@ func TestRequestLogFlushAfterShutdownDoesNotBlock(t *testing.T) {
 	}
 }
 
+func TestRequestLogShutdownSharesFinalFailureAfterCallerCancellation(t *testing.T) {
+	log := &RequestLog{stop: make(chan struct{}), done: make(chan struct{})}
+	want := errors.New("flush failed")
+	release := make(chan struct{})
+	go func() {
+		<-log.stop
+		<-release
+		log.shutdownErr = want
+		close(log.done)
+	}()
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := log.Shutdown(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("first caller cancellation = %v", err)
+	}
+	var callers sync.WaitGroup
+	results := make(chan error, 8)
+	for range 8 {
+		callers.Go(func() { results <- log.Shutdown(context.Background()) })
+	}
+	close(release)
+	callers.Wait()
+	close(results)
+	for err := range results {
+		if !errors.Is(err, want) {
+			t.Fatalf("concurrent caller lost final failure: %v", err)
+		}
+	}
+	if err := log.Shutdown(canceled); !errors.Is(err, want) {
+		t.Fatalf("completed shutdown lost final failure: %v", err)
+	}
+}
+
+func TestRequestLogFlushKeepsItsAcknowledgementDuringShutdown(t *testing.T) {
+	want := errors.New("write failed")
+	for range 100 {
+		log := &RequestLog{flush: make(chan chan error), done: make(chan struct{})}
+		go func() {
+			ack := <-log.flush
+			ack <- want
+			close(log.done)
+		}()
+		if err := log.Flush(context.Background()); !errors.Is(err, want) {
+			t.Fatalf("shutdown replaced admitted flush result: %v", err)
+		}
+	}
+}
+
 func TestRequestLogQueueDropsAreBoundedAndObservable(t *testing.T) {
 	log := &RequestLog{queue: make(chan RequestEntry, 1)}
 	log.Record("GET", "/safe/{id}", 200, time.Millisecond)

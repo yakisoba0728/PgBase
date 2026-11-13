@@ -40,7 +40,7 @@ func TestPocketBaseOSShapesUseRootedRealHostEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host := &extensionHost{bridge: &extensionBridge{compatibility: newExtensionCompatibility(options)}, valid: true}
+	host := &extensionHost{bridge: &extensionBridge{hostPolicy: newExtensionHostPolicy(options)}, valid: true}
 	out, err := engine.Invoke(t.Context(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Capabilities: []string{"os"}, Host: host})
 	if err != nil {
 		t.Fatalf("%v unwrap=%v", err, errors.Unwrap(err))
@@ -55,7 +55,7 @@ func TestPocketBaseOSShapesUseRootedRealHostEffects(t *testing.T) {
 
 func TestPocketBaseOSRejectsUnlistedCommandAndCancelledInvocation(t *testing.T) {
 	options, _ := (PocketBaseCompatibilityOptions{FilesystemRoot: t.TempDir(), Commands: map[string]string{"echo": "/bin/echo"}}).normalized()
-	adapter := newExtensionCompatibility(options)
+	adapter := newExtensionHostPolicy(options)
 	if _, err := adapter.call(t.Context(), "os.cmd", []byte(`{"name":"sh","args":["-c","exit 0"]}`)); err == nil {
 		t.Fatal("unlisted command executed")
 	}

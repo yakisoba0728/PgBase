@@ -3,10 +3,101 @@ package backup
 import (
 	"context"
 	"errors"
+	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestFinalReceiptFailureIsIncludedInDiagnosticAndJobOutcome(t *testing.T) {
+	directory := t.TempDir()
+	operationErr := errors.New("operation failed")
+	diagnostics := make(chan error, 1)
+	manager, err := NewManager(ManagerOptions{
+		Directory: directory,
+		Create: func(context.Context, string) error {
+			if err := os.RemoveAll(directory); err != nil {
+				return err
+			}
+			if err := os.WriteFile(directory, nil, 0600); err != nil {
+				return err
+			}
+			return operationErr
+		},
+		Restore:  func(context.Context, string) error { return nil },
+		LogError: func(_ context.Context, err error) { diagnostics <- err },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()); _ = os.Remove(directory) })
+	job, err := manager.Create(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitManagerIdle(t, manager)
+	logged := <-diagnostics
+	var pathErr *os.PathError
+	if !errors.Is(logged, operationErr) || !errors.As(logged, &pathErr) {
+		t.Fatalf("incomplete diagnostic: %v", logged)
+	}
+	result, err := manager.Job(t.Context(), job.ID)
+	if err != nil || result.Status != "failed" || result.Phase != "failed" || result.Error != "Unable to persist the final backup receipt." {
+		t.Fatalf("receipt outcome = %+v, %v", result, err)
+	}
+}
+
+func TestShutdownCallersShareOperationDrainAfterCancellation(t *testing.T) {
+	entered, proceed := make(chan struct{}), make(chan struct{})
+	m, err := NewManager(ManagerOptions{
+		Directory: t.TempDir(),
+		Create: func(ctx context.Context, _ string) error {
+			close(entered)
+			<-proceed
+			return ctx.Err()
+		},
+		Restore: func(context.Context, string) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := sync.OnceFunc(func() { close(proceed) })
+	t.Cleanup(func() { release(); _ = m.Shutdown(context.Background()) })
+	job, err := m.Create(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("operation did not start")
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	var callers sync.WaitGroup
+	for range 16 {
+		callers.Add(1)
+		go func() {
+			defer callers.Done()
+			if err := m.Shutdown(ctx); !errors.Is(err, context.Canceled) {
+				t.Errorf("early shutdown = %v", err)
+			}
+		}()
+	}
+	callers.Wait()
+	if _, err := m.Create(t.Context()); err == nil {
+		t.Fatal("closed manager admitted another operation")
+	}
+	release()
+	if err := m.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	result, err := m.Job(t.Context(), job.ID)
+	if err != nil || result.Status != "failed" {
+		t.Fatalf("final receipt = %+v, %v", result, err)
+	}
+}
 
 func TestGuardedRestoreRetainsAdmissionUntilBackgroundCompletion(t *testing.T) {
 	entered, proceed, released := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -32,7 +123,7 @@ func TestGuardedRestoreRetainsAdmissionUntilBackgroundCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.wg.Wait()
+	waitManagerIdle(t, m)
 	release := func() { releases.Add(1); close(released) }
 	job, err := m.RestoreWithGuard(t.Context(), created.BackupID, release)
 	if err != nil {
@@ -115,7 +206,7 @@ func TestManagerLifecycleVetoAndFinalReceipt(t *testing.T) {
 	}
 	// After observes the final receipt before execute releases its reservation.
 	// Wait for that worker to exit before starting the next operation.
-	manager.wg.Wait()
+	waitManagerIdle(t, manager)
 	if len(hooks.events) != 2 || hooks.events[1].Job.ID != job.ID || hooks.events[1].Job.Status != "completed" {
 		t.Fatalf("events=%+v", hooks.events)
 	}
@@ -126,7 +217,7 @@ func TestManagerLifecycleVetoAndFinalReceipt(t *testing.T) {
 	if err := <-hooks.after; err != nil {
 		t.Fatal(err)
 	}
-	manager.wg.Wait()
+	waitManagerIdle(t, manager)
 	if len(hooks.events) != 3 || hooks.events[2].Operation != "restore" || hooks.events[2].Job.ID != restored.ID || hooks.events[2].Job.Status != "completed" {
 		t.Fatalf("restore events=%+v", hooks.events)
 	}
@@ -138,5 +229,17 @@ func TestManagerLifecycleVetoAndFinalReceipt(t *testing.T) {
 	}
 	if len(hooks.events) != 4 || hooks.events[3].Operation != "delete" {
 		t.Fatalf("delete events=%+v", hooks.events)
+	}
+}
+
+func waitManagerIdle(t testing.TB, manager *Manager) {
+	t.Helper()
+	manager.mu.Lock()
+	done := manager.drained
+	manager.mu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("backup operation did not finish")
 	}
 }

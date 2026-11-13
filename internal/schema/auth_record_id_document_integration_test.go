@@ -18,7 +18,7 @@ func TestSchemaDocumentImportedAuthTextRecordIDMatchesCatalogAndRoundTrips(t *te
 	auth.Name = "members"
 	document := SchemaDocument{
 		Format:          SchemaDocumentFormat,
-		Collections:     []SchemaDocumentCollection{{Name: auth.Name, Type: CollectionTypeAuth, RecordID: &policy, Rules: json.RawMessage(`{}`)}},
+		Collections:     []SchemaDocumentCollection{{Name: auth.Name, Type: CollectionTypeAuth, RecordID: &policy, Rules: ownerRuleDocument()}},
 		AuthCollections: []SchemaDocumentAuthCollection{auth},
 	}
 	applyAuthRecordIDDocument(t, service, actor, document)
@@ -93,7 +93,7 @@ func TestSchemaDocumentAuthRecordIDRejectsConflictsAndPreservesOmission(t *testi
 	assertAuthAuthorityRecordID(t, pool, auth.Name, policy)
 
 	conflict = cloneSchemaDocument(document)
-	conflict.Collections = []SchemaDocumentCollection{{Name: auth.Name, Type: CollectionTypeAuth, Rules: json.RawMessage(`{}`)}}
+	conflict.Collections = []SchemaDocumentCollection{{Name: auth.Name, Type: CollectionTypeAuth, Rules: ownerRuleDocument()}}
 	if _, err := service.PreviewSchemaImport(context.Background(), conflict); err == nil {
 		t.Fatal("preview accepted disagreeing auth and catalog ID policies")
 	}
@@ -104,7 +104,7 @@ func TestSchemaDocumentAuthRecordIDRejectsConflictsAndPreservesOmission(t *testi
 	assertAuthAuthorityRecordID(t, pool, auth.Name, policy)
 
 	// A base collection is independent of a same-named standalone auth collection.
-	document.Collections = []SchemaDocumentCollection{{Name: auth.Name, Type: CollectionTypeBase, Rules: json.RawMessage(`{}`)}}
+	document.Collections = []SchemaDocumentCollection{{Name: auth.Name, Type: CollectionTypeBase, Rules: ownerRuleDocument()}}
 	applyAuthRecordIDDocument(t, service, actor, document)
 	assertAuthAuthorityRecordID(t, pool, auth.Name, policy)
 }
@@ -117,7 +117,7 @@ func TestSchemaDocumentAuthRecordIDApplyRejectsAuthorityCreatedAfterPreview(t *t
 	auth.Name = "members"
 	document := SchemaDocument{
 		Format:          SchemaDocumentFormat,
-		Collections:     []SchemaDocumentCollection{{Name: auth.Name, Type: CollectionTypeAuth, RecordID: &policy, Rules: json.RawMessage(`{}`)}},
+		Collections:     []SchemaDocumentCollection{{Name: auth.Name, Type: CollectionTypeAuth, RecordID: &policy, Rules: ownerRuleDocument()}},
 		AuthCollections: []SchemaDocumentAuthCollection{auth},
 	}
 	plan, err := service.PreviewSchemaImport(ctx, document)

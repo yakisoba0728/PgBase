@@ -323,21 +323,7 @@ func (s *Service) upload(ctx context.Context, principal identity.Subject, input 
 		return File{}, err
 	}
 
-	hash := sha256.New()
-	counted := &countingReader{reader: input.Body, maximum: s.options.MaximumBytes}
-	if err := s.objects.Put(ctx, file.ObjectKey, io.TeeReader(counted, hash)); err != nil {
-		s.failUpload(context.WithoutCancel(ctx), file)
-		if errors.Is(counted.err, ErrTooLarge) {
-			return File{}, ErrTooLarge
-		}
-		return File{}, err
-	}
-	actualHash := hash.Sum(nil)
-	if counted.count != input.Size || !hmac.Equal(actualHash, input.SHA256[:]) {
-		s.failUpload(context.WithoutCancel(ctx), file)
-		return File{}, ErrInvalid
-	}
-	if err := s.validateStoredType(ctx, file); err != nil {
+	if err := s.writeVerifiedUpload(ctx, file, input.Body); err != nil {
 		s.failUpload(context.WithoutCancel(ctx), file)
 		return File{}, err
 	}

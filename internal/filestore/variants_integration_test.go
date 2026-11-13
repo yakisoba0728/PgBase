@@ -5,6 +5,7 @@ package filestore
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -12,10 +13,58 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/migrate"
 	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
+
+func TestDeletingFileQueuesAllVariantObjectsInTheSameTransaction(t *testing.T) {
+	ctx := t.Context()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Isolate deletion/queue atomicity from unrelated record authorization.
+	if _, err := pool.Exec(ctx, `alter table pgbase_meta.record_file_variants drop constraint record_file_variants_file_id_fkey`); err != nil {
+		t.Fatal(err)
+	}
+	file := File{ID: uuid.New(), ObjectKey: "objects/" + uuid.NewString(), ThumbnailKey: "thumbnails/" + uuid.NewString()}
+	for _, variant := range []string{"1x1", "2x2"} {
+		if _, err := pool.Exec(ctx, `insert into pgbase_meta.record_file_variants(file_id,variant,object_key,created_at) values($1,$2,$3,current_timestamp)`, file.ID, variant, "thumbnails/"+uuid.NewString()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rollback := errors.New("rollback")
+	err = pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := enqueueFileObjects(ctx, tx, file); err != nil {
+			return err
+		}
+		return rollback
+	})
+	if !errors.Is(err, rollback) {
+		t.Fatalf("rollback = %v", err)
+	}
+	assertState := func(wantVariants, wantQueued int) {
+		t.Helper()
+		var variants, queued int
+		if err := pool.QueryRow(ctx, `select (select count(*) from pgbase_meta.record_file_variants),(select count(*) from pgbase_meta.file_object_deletions)`).Scan(&variants, &queued); err != nil {
+			t.Fatal(err)
+		}
+		if variants != wantVariants || queued != wantQueued {
+			t.Fatalf("variants/queued = %d/%d, want %d/%d", variants, queued, wantVariants, wantQueued)
+		}
+	}
+	assertState(2, 0)
+	if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error { return enqueueFileObjects(ctx, tx, file) }); err != nil {
+		t.Fatal(err)
+	}
+	assertState(0, 4)
+}
 
 func TestVariantInsertFailureQueuesUploadedObjectOutsideAbortedTransaction(t *testing.T) {
 	ctx := context.Background()

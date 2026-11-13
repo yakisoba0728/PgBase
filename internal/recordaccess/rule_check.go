@@ -30,7 +30,7 @@ func AllowsRecordInCatalog(ctx context.Context, tx pgx.Tx, catalog schema.Catalo
 		return false, err
 	}
 	predicate, args, err := compileRecordRule(catalog, collection, rule, principal, ruleCompileOptions{
-		request: request, argOffset: 1, prospectiveOwner: prospectiveOwner, directRequest: true,
+		request: request, argOffset: 1, prospectiveOwner: prospectiveOwner,
 	})
 	if err != nil {
 		return false, err
@@ -63,7 +63,7 @@ func AllowsRecordsInCatalogWithRequest(ctx context.Context, tx pgx.Tx, catalog s
 		return false, err
 	}
 	predicate, args, err := compileRecordRule(catalog, collection, rule, principal, ruleCompileOptions{
-		request: request, argOffset: 1, prospectiveOwner: prospectiveOwner, directRequest: true,
+		request: request, argOffset: 1, prospectiveOwner: prospectiveOwner,
 	})
 	if err != nil {
 		return false, err

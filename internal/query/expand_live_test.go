@@ -125,7 +125,7 @@ func TestExpandedTargetRulesReceiveRequestContextAndFullCatalog(t *testing.T) {
 		}
 	}
 	allow := accessrule.Rule{Op: "allow"}
-	contextRule, err := ParsePocketBaseAccessRule("team.name = 'allowed' && @request.context.channel = 'allowed'")
+	contextRule, err := ParseAccessRule("team.name = 'allowed' && @request.context.channel = 'allowed'")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestExpandedTargetRulesReceiveRequestContextAndFullCatalog(t *testing.T) {
 		t.Fatalf("forward owner = %#v", forward.Expand["owner"])
 	}
 
-	reverseRule, err := ParsePocketBaseAccessRule("owner.name = 'Ada' && @request.context.channel = 'allowed'")
+	reverseRule, err := ParseAccessRule("owner.name = 'Ada' && @request.context.channel = 'allowed'")
 	if err != nil {
 		t.Fatal(err)
 	}

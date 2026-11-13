@@ -6,9 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
-	"fmt"
 	"io"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -111,6 +109,21 @@ func (s *Service) Resolve(ctx context.Context, db DB, collection schema.Collecti
 }
 
 func (s *Service) ResolveMany(ctx context.Context, db DB, collection schema.Collection, public []string) ([]uuid.UUID, error) {
+	ids, err := s.LookupMany(ctx, db, collection, public)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		if id == uuid.Nil {
+			return nil, ErrNotFound
+		}
+	}
+	return ids, nil
+}
+
+// LookupMany preserves input order and leaves a zero UUID for an absent text ID.
+// ResolveMany is the strict variant used by mutation inputs.
+func (s *Service) LookupMany(ctx context.Context, db DB, collection schema.Collection, public []string) ([]uuid.UUID, error) {
 	if len(public) == 0 {
 		return []uuid.UUID{}, nil
 	}
@@ -144,9 +157,6 @@ func (s *Service) ResolveMany(ctx context.Context, db DB, collection schema.Coll
 		var id pgtype.UUID
 		if err := rows.Scan(&id); err != nil {
 			return nil, err
-		}
-		if !id.Valid {
-			return nil, ErrNotFound
 		}
 		result = append(result, uuid.UUID(id.Bytes))
 	}
@@ -201,128 +211,6 @@ func (s *Service) ForgetMany(ctx context.Context, db DB, collection schema.Colle
 		return ErrNotFound
 	}
 	return nil
-}
-
-// Project replaces the root and relation IDs in hydrated records. Expanded
-// relation records are recursively projected using the target collection.
-func (s *Service) Project(ctx context.Context, db DB, catalog schema.Catalog, collection schema.Collection, records ...map[string]any) error {
-	for _, record := range records {
-		if err := s.projectRecord(ctx, db, catalog, collection, record); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Service) projectRecord(ctx context.Context, db DB, catalog schema.Catalog, collection schema.Collection, record map[string]any) error {
-	if record == nil {
-		return nil
-	}
-	if id, ok := stringUUID(record["id"]); ok {
-		public, err := s.Public(ctx, db, collection, id)
-		if err != nil {
-			return err
-		}
-		record["id"] = public
-	}
-	for _, field := range collection.Fields {
-		if field.Relation == nil {
-			continue
-		}
-		target, ok := collectionByID(catalog, field.Relation.TargetCollectionID)
-		if !ok {
-			return fmt.Errorf("project relation %s: missing target collection", field.Name)
-		}
-		if relationValue, present := record[field.Name]; present {
-			projected, err := s.projectRelationValue(ctx, db, target, relationValue)
-			if err != nil {
-				return err
-			}
-			record[field.Name] = projected
-		}
-		if expands, ok := record["expand"].(map[string]any); ok {
-			switch expanded := expands[field.Name].(type) {
-			case map[string]any:
-				if err := s.projectRecord(ctx, db, catalog, target, expanded); err != nil {
-					return err
-				}
-			case []map[string]any:
-				for _, child := range expanded {
-					if err := s.projectRecord(ctx, db, catalog, target, child); err != nil {
-						return err
-					}
-				}
-			case []any:
-				for _, raw := range expanded {
-					if child, ok := raw.(map[string]any); ok {
-						if err := s.projectRecord(ctx, db, catalog, target, child); err != nil {
-							return err
-						}
-					}
-				}
-			}
-		}
-	}
-	return nil
-}
-
-func (s *Service) projectRelationValue(ctx context.Context, db DB, target schema.Collection, value any) (any, error) {
-	switch ids := value.(type) {
-	case string:
-		id, ok := stringUUID(ids)
-		if !ok || ids == "" {
-			return value, nil
-		}
-		return s.Public(ctx, db, target, id)
-	case []string:
-		result := make([]string, len(ids))
-		for i, raw := range ids {
-			id, ok := stringUUID(raw)
-			if !ok {
-				return nil, ErrInvalid
-			}
-			public, err := s.Public(ctx, db, target, id)
-			if err != nil {
-				return nil, err
-			}
-			result[i] = public
-		}
-		return result, nil
-	case []any:
-		result := make([]any, len(ids))
-		for i, raw := range ids {
-			text, ok := raw.(string)
-			if !ok {
-				return nil, ErrInvalid
-			}
-			projected, err := s.projectRelationValue(ctx, db, target, text)
-			if err != nil {
-				return nil, err
-			}
-			result[i] = projected
-		}
-		return result, nil
-	default:
-		return value, nil
-	}
-}
-
-func collectionByID(catalog schema.Catalog, id uuid.UUID) (schema.Collection, bool) {
-	for _, collection := range catalog.Collections {
-		if collection.ID == id {
-			return collection, true
-		}
-	}
-	return schema.Collection{}, false
-}
-
-func stringUUID(value any) (uuid.UUID, bool) {
-	text, ok := value.(string)
-	if !ok || strings.TrimSpace(text) != text {
-		return uuid.Nil, false
-	}
-	id, err := uuid.Parse(text)
-	return id, err == nil && id != uuid.Nil
 }
 
 func uniqueViolation(err error) bool {

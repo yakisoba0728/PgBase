@@ -71,4 +71,23 @@ func main() { os.Exit(pgbasecli.Execute(context.Background(), os.Args[1:])) }
 	if !strings.Contains(string(output), "pending 20260909120000_external_command") {
 		t.Fatalf("external migration CLI output=%q", output)
 	}
+	javaScriptDirectory := filepath.Join(directory, "scripts")
+	if err := os.Mkdir(javaScriptDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, contents := range map[string]string{
+		"pgbase.scripts.json": `{"format":"pgbase.scripts/v2","routes":[{"method":"GET","pattern":"/native","access":"public","handler":{"module":"app.js","export":"hello"}}]}`,
+		"app.js":              `if(typeof $app!=="undefined")throw new Error("legacy globals in native wrapper"); exports.hello=()=>({status:200,json:{ok:true}});`,
+	} {
+		if err := os.WriteFile(filepath.Join(javaScriptDirectory, name), []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	nativeCommand := exec.Command("go", "run", "-mod=mod", ".", "js", "check", "--dir", javaScriptDirectory)
+	nativeCommand.Dir = directory
+	nativeCommand.Env = append(os.Environ(), "GOTOOLCHAIN=go1.26.11", "PGBASE_JS_DIR=", "PGBASE_JS_CAPABILITIES=records", "PGBASE_JS_JOB_SERVICE_SUBJECTS=")
+	output, err = nativeCommand.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "routes=1 hooks=0 jobs=0 migrations=0") {
+		t.Fatalf("external native CLI failed: %v\n%s", err, output)
+	}
 }

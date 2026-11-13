@@ -428,6 +428,7 @@ export function sampleView(query: string, signal?: AbortSignal): Promise<ViewSam
 // ---------------------------------------------------------------------------
 
 export type RuleOp =
+  | "expression"
   | "allow"
   | "deny"
   | "owner"
@@ -460,8 +461,7 @@ export interface RuleFunctionArg {
 
 /** Bounded rule AST (depth <= 8, <= 64 nodes). allow/deny/owner/(un)authenticated take
  * no operands; all/any take 1..16 `args`; comparisons take `field` plus exactly one of
- * `value`, `auth` or `otherField`. `pocketbase`, `function` and `macro` come from
- * PocketBase-expression conversion. */
+ * `value`, `auth` or `otherField`. `expression` retains parsed source; `function` and `macro` are typed expression operands. */
 export interface AccessRule {
   op: RuleOp;
   args?: AccessRule[];
@@ -469,7 +469,8 @@ export interface AccessRule {
   otherField?: string;
   value?: unknown;
   auth?: "id" | "verified" | "collectionId";
-  pocketbase?: string;
+  expression?: string;
+  binding?: "scalar" | "catalog";
   function?: { name: string; args: RuleFunctionArg[] };
   macro?: string;
 }
@@ -496,27 +497,7 @@ export function setCollectionRules(collection: string, rules: CollectionRules): 
   return request("PUT", `${base}/${seg(collection)}/rules`, { body: { rules } });
 }
 
-/** PocketBase filter strings: null = superusers only (deny), "" = everyone. */
-export interface PocketBaseRules {
-  listRule: string | null;
-  viewRule: string | null;
-  createRule: string | null;
-  updateRule: string | null;
-  deleteRule: string | null;
-}
 
-export interface PocketBaseRulePolicy {
-  collection: string;
-  pocketbaseRules: PocketBaseRules;
-  revision: number;
-}
-
-export function setPocketBaseRules(collection: string, pocketbaseRules: PocketBaseRules): Promise<PocketBaseRulePolicy> {
-  return request("PUT", `${base}/${seg(collection)}/rules`, {
-    query: { compat: "pocketbase" },
-    body: { pocketbaseRules },
-  });
-}
 
 /** Simulated request for a rule preview. Keys are PascalCase on the wire (untagged Go struct). */
 export interface RulePreviewRequest {
@@ -535,7 +516,7 @@ export interface RulePreviewInput {
   action: "list" | "view" | "update" | "delete";
   /** Internal user UUID to evaluate as; omitted = anonymous. */
   userId?: string;
-  /** 1..50 distinct internal record UUIDs. */
+  /** 1..50 distinct collection-facing record IDs. */
   recordIds: string[];
   request?: RulePreviewRequest;
 }

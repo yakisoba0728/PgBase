@@ -155,19 +155,7 @@ func enqueueFileObjects(ctx context.Context, tx pgx.Tx, file File) error {
 	if err := enqueueObjects(ctx, tx, file.ObjectKey, file.ThumbnailKey); err != nil {
 		return err
 	}
-	rows, err := tx.Query(ctx, `delete from pgbase_meta.record_file_variants where file_id=$1 returning object_key`, file.ID)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var key string
-		if err := rows.Scan(&key); err != nil {
-			return err
-		}
-		if err := enqueueObjects(ctx, tx, key); err != nil {
-			return err
-		}
-	}
-	return rows.Err()
+	// The variant deletion trigger queues its objects in this transaction.
+	_, err := tx.Exec(ctx, `delete from pgbase_meta.record_file_variants where file_id=$1`, file.ID)
+	return err
 }

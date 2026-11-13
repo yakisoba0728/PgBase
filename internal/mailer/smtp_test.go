@@ -27,6 +27,44 @@ func TestSMTPRequiresTLSUnlessExplicitlyAllowed(t *testing.T) {
 	}
 }
 
+func TestSMTPCancellationInterruptsTheProtocolAfterConnect(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		if connection, err := listener.Accept(); err == nil {
+			accepted <- connection
+		}
+	}()
+	sender, err := NewSMTP(SMTPConfig{Address: listener.Addr().String(), From: "sender@example.test", AllowInsecure: true, Timeout: 30 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { result <- sender.Send(ctx, Message{To: "user@example.test", Subject: "subject", Text: "body"}) }()
+	select {
+	case connection := <-accepted:
+		defer connection.Close()
+	case <-time.After(2 * time.Second):
+		t.Fatal("SMTP did not connect")
+	}
+	// The server sends no greeting, so only cancellation can finish the call.
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("SMTP cancellation = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("SMTP protocol ignored caller cancellation")
+	}
+}
+
 func TestSMTPRejectsInsecureRemoteServer(t *testing.T) {
 	if _, err := NewSMTP(SMTPConfig{Address: "smtp.example.com:25", From: "sender@example.test", AllowInsecure: true}); err == nil {
 		t.Fatal("NewSMTP accepted insecure remote server")

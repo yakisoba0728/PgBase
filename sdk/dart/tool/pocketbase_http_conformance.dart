@@ -33,7 +33,10 @@ Future<void> main() async {
         'title': const JsonString('dart modifier'),
         'count': JsonNumber('10'),
         'roles': JsonArray([const JsonString('b'), const JsonString('d')]),
-        'tags': JsonArray([JsonString(id(firstTag)), JsonString(id(secondTag))]),
+        'tags': JsonArray([
+          JsonString(id(firstTag)),
+          JsonString(id(secondTag)),
+        ]),
       }),
       'dart-modifier-record-0001',
     );
@@ -97,24 +100,37 @@ Future<void> main() async {
     if ((afterRejected['count']! as JsonNumber).source != '50') {
       throw StateError('Dart invalid modifier changed persisted value');
     }
-    final literal = client.filter(
-      'title = {:title}',
-      {'title': 'dart safe filter'},
-    );
+    final literal = client.filter('title = {:title}', {
+      'title': 'dart safe filter',
+    });
+    final native = await records.list(Query(filter: literal));
+    if (native.items.length != 1) {
+      throw StateError('Dart native list did not bind the JSON-quoted helper');
+    }
     final bound = await records.getList(
       1,
       30,
       PocketBaseListOptions(filter: literal, sort: '@rowid'),
     );
-    if (bound.totalItems != 1 || bound.totalPages != 1 || bound.items.length != 1) {
+    if (bound.totalItems != 1 ||
+        bound.totalPages != 1 ||
+        bound.items.length != 1) {
       throw StateError('Dart PocketBase numbered page did not bind one record');
     }
-    final attack = client.filter(
-      'title = {:title}',
-      {'title': 'dart safe filter" || title != "dart safe filter'},
+    final attack = client.filter('title = {:title}', {
+      'title': 'dart safe filter" || title != "dart safe filter',
+    });
+    final nativeNoMatch = await records.list(Query(filter: attack));
+    if (nativeNoMatch.items.isNotEmpty) {
+      throw StateError('Dart native filter-looking input widened query');
+    }
+    final noMatch = await records.getList(
+      1,
+      30,
+      PocketBaseListOptions(filter: attack),
     );
-    final noMatch = await records.getList(1, 30, PocketBaseListOptions(filter: attack));
-    if (noMatch.items.isNotEmpty) throw StateError('Dart filter-looking input widened query');
+    if (noMatch.items.isNotEmpty)
+      throw StateError('Dart filter-looking input widened query');
     final skipped = await records.getList(
       1,
       30,

@@ -238,19 +238,7 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 }
 
 func preflightUserMigrationJavaScript(ctx context.Context, env environment, directory string) (*pgbase.JavaScriptOptions, error) {
-	lookup := env
-	if directory != "" {
-		lookup = func(name string) (string, bool) {
-			if name == "PGBASE_JS_DIR" {
-				return directory, true
-			}
-			if env == nil {
-				return "", false
-			}
-			return env(name)
-		}
-	}
-	options, err := config.LoadJavaScriptEnv(lookup)
+	options, err := config.LoadJavaScriptEnv(javaScriptEnvironment(env, directory))
 	if err != nil || options == nil {
 		return options, err
 	}

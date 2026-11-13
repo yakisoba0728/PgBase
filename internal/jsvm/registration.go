@@ -36,14 +36,13 @@ func (r *Runtime) collectBootstrap() error {
 	}
 	ctx, cancel := context.WithTimeout(r.root, 2*time.Second)
 	defer cancel()
-	vm := goja.New()
 	state := &callState{ctx: ctx, capabilities: map[string]bool{}, hostCalls: &atomic.Int64{}, limits: r.limits}
-	r.states.Store(vm, state)
-	defer r.states.Delete(vm)
-	requireModule := r.registry.Enable(vm)
-	if err := r.installPocketBaseGlobals(vm, state); err != nil {
+	vm, requireModule, err := r.newVM(state)
+	if err != nil {
 		return err
 	}
+	defer r.states.Delete(vm)
+
 	done := make(chan struct{})
 	go func() {
 		select {
@@ -77,6 +76,22 @@ func (r *Runtime) collectBootstrap() error {
 
 func (r *Runtime) installRegistrationGlobals(vm *goja.Runtime, collecting bool) (*registrationSet, error) {
 	set := &registrationSet{handlers: map[string]goja.Callable{}, handlerValues: map[string]goja.Value{}}
+	target := vm.NewObject()
+	legacy := r.bundle.manifest.Format == LegacyManifestFormat
+	loaded, ok := r.states.Load(vm)
+	if !ok {
+		return nil, errors.New("JavaScript call state is unavailable")
+	}
+	loaded.(*callState).registration = target
+	bind := func(oldName, nativeName string, value any) error {
+		if err := target.Set(nativeName, value); err != nil {
+			return err
+		}
+		if legacy {
+			return vm.Set(oldName, value)
+		}
+		return nil
+	}
 	register := func(kind, name string, value goja.Value, middlewares []goja.Value) (string, error) {
 		if set.closed {
 			return "", errors.New("registration_closed")
@@ -119,7 +134,7 @@ func (r *Runtime) installRegistrationGlobals(vm *goja.Runtime, collecting bool) 
 		set.handlerValues[id] = handlerValue
 		return id, nil
 	}
-	if err := vm.Set("routerUse", func(values ...goja.Value) error {
+	if err := bind("routerUse", "middleware", func(values ...goja.Value) error {
 		if set.closed {
 			return errors.New("registration_closed")
 		}
@@ -128,7 +143,7 @@ func (r *Runtime) installRegistrationGlobals(vm *goja.Runtime, collecting bool) 
 	}); err != nil {
 		return nil, err
 	}
-	if err := vm.Set("routerAdd", func(method, path string, handler goja.Value, middlewares ...goja.Value) error {
+	if err := bind("routerAdd", "route", func(method, path string, handler goja.Value, middlewares ...goja.Value) error {
 		id, err := register("route", strings.ToUpper(method)+" "+path, handler, middlewares)
 		if err != nil {
 			return err
@@ -151,7 +166,7 @@ func (r *Runtime) installRegistrationGlobals(vm *goja.Runtime, collecting bool) 
 	}); err != nil {
 		return nil, err
 	}
-	if err := vm.Set("cronAdd", func(name, schedule string, handler goja.Value) error {
+	if err := bind("cronAdd", "job", func(name, schedule string, handler goja.Value) error {
 		id, err := register("job", name, handler, nil)
 		if err != nil {
 			return err
@@ -174,7 +189,7 @@ func (r *Runtime) installRegistrationGlobals(vm *goja.Runtime, collecting bool) 
 	}); err != nil {
 		return nil, err
 	}
-	if err := vm.Set("cronRemove", func(name string) error {
+	if err := bind("cronRemove", "removeJob", func(name string) error {
 		if set.closed {
 			return errors.New("registration_closed")
 		}
@@ -202,6 +217,7 @@ func (r *Runtime) installRegistrationGlobals(vm *goja.Runtime, collecting bool) 
 			hookSlots[hook.Event] = append(hookSlots[hook.Event], hookSlot{i, false})
 		}
 	}
+	nativeHooks := make(map[string]any, len(hookSlots))
 	for event, slots := range hookSlots {
 		event, slots := event, slots
 		used := 0
@@ -251,11 +267,17 @@ func (r *Runtime) installRegistrationGlobals(vm *goja.Runtime, collecting bool) 
 			}
 			return nil
 		}
-		for _, global := range hookGlobalNames(event) {
-			if err := vm.Set(global, registerHook); err != nil {
-				return nil, err
+		if legacy {
+			for _, global := range hookGlobalNames(event) {
+				if err := vm.Set(global, registerHook); err != nil {
+					return nil, err
+				}
 			}
 		}
+		nativeHooks[event] = registerHook
+	}
+	if err := target.Set("hooks", nativeHooks); err != nil {
+		return nil, err
 	}
 	return set, nil
 }

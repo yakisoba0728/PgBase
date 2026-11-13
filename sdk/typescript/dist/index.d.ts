@@ -40,13 +40,13 @@ export declare class PgBaseClient {
     confirmEmailChange(token: string, signal?: AbortSignal): Promise<void>;
     records<T extends RecordData = RecordData>(collection: string): Records<T>;
     /**
-     * Constructs a PocketBase filter expression without interpolating values.
+     * Constructs a pgBase filter expression without interpolating values.
      *
-     * Parameters use PocketBase's `{:name}` placeholders.  Strings, dates,
+     * Parameters use `{:name}` placeholders.  Strings, dates,
      * arrays, and objects are emitted as quoted filter literals; scalar boolean,
      * number, and null values retain their filter-literal form.  A placeholder
-     * without a matching parameter is deliberately left unchanged, matching the
-     * PocketBase SDK and making an incomplete expression visible to the server.
+     * without a matching parameter is left unchanged so server validation can
+     * report the incomplete expression.
      */
     filter(expression: string, params?: FilterParams): string;
     batch<T extends RecordData = RecordData>(operations: BatchOperation<T>[], options?: BatchOptions | AbortSignal, signal?: AbortSignal): Promise<{

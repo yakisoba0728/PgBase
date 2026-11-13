@@ -114,6 +114,19 @@ func compileUpdate(collection schema.Collection, id uuid.UUID, input map[string]
 }
 
 func compileListPageOffset(filter filterNode, order orderSpec, after *pageBoundary, fetchLimit, offset int, ownerID *uuid.UUID, policy ...ruleBinding) (Statement, error) {
+	rows, err := compileListRows(filter, order, after, ownerID, policy...)
+	if err != nil {
+		return Statement{}, err
+	}
+	builder := &statementBuilder{args: rows.Args}
+	statement := "SELECT " + selectedColumns(order.root) + rows.SQL + order.orderBy() + " LIMIT " + builder.placeholder(fetchLimit)
+	if offset > 0 {
+		statement += " OFFSET " + builder.placeholder(offset)
+	}
+	return Statement{SQL: statement, Args: builder.args}, nil
+}
+
+func compileListRows(filter filterNode, order orderSpec, after *pageBoundary, ownerID *uuid.UUID, policy ...ruleBinding) (Statement, error) {
 	builder := &statementBuilder{}
 	filterSQL, err := compileFilter(order.root, filter, builder)
 	if err != nil {
@@ -144,14 +157,9 @@ func compileListPageOffset(filter filterNode, order orderSpec, after *pageBounda
 		conditions = append(conditions, "("+predicate+")")
 		builder.args = append(builder.args, args...)
 	}
-	limit := builder.placeholder(fetchLimit)
-	statement := "SELECT " + selectedColumns(order.root) + " FROM " + quotedTable(order.root)
+	statement := " FROM " + quotedTable(order.root)
 	if len(conditions) > 0 {
 		statement += " WHERE " + strings.Join(conditions, " AND ")
-	}
-	statement += order.orderBy() + " LIMIT " + limit
-	if offset > 0 {
-		statement += " OFFSET " + builder.placeholder(offset)
 	}
 	return Statement{SQL: statement, Args: builder.args}, nil
 }
@@ -181,14 +189,10 @@ func compilePolicyPredicate(rule accessrule.Rule, visible, policy schema.Collect
 
 func compilePolicyPredicateWithRequest(rule accessrule.Rule, visible, policy schema.Collection, alias string, principal identity.Subject, offset int, catalog schema.Catalog, request *accessrule.RequestContext) (string, []any, error) {
 	compile := func(target schema.Collection, targetAlias string) (string, []any, error) {
-		if rule.PocketBase == nil {
-			return accessrule.Compile(rule, target, targetAlias, principal, offset, false)
-		}
-		resolver, err := accessrule.NewCatalogResolver(catalog, target, targetAlias)
-		if err != nil {
-			return "", nil, err
-		}
-		return accessrule.CompilePocketBase(rule, accessrule.PBCompileContext{Resolver: resolver, Principal: principal, Request: request, ArgOffset: offset})
+		return accessrule.CompilePolicy(rule, accessrule.PolicyContext{
+			Catalog: catalog, Collection: target, Alias: targetAlias, Principal: principal,
+			Request: request, ArgOffset: offset,
+		})
 	}
 	if !visible.IsView() || visible.IsSQLView() {
 		return compile(policyCollection(visible), alias)

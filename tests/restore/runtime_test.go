@@ -122,6 +122,11 @@ func resolveCandidateMode(image, version string) (release bool, err error) {
 
 func newCandidate(t *testing.T) *candidate {
 	t.Helper()
+	return newCandidateWithBinary(t, "")
+}
+
+func newCandidateWithBinary(t *testing.T, binary string) *candidate {
+	t.Helper()
 	image := os.Getenv("PGBASE_RESTORE_CANDIDATE_IMAGE")
 	version := os.Getenv("PGBASE_RESTORE_EXPECTED_VERSION")
 	release, err := resolveCandidateMode(image, version)
@@ -140,12 +145,17 @@ func newCandidate(t *testing.T) *candidate {
 		tokenSecret: base64.StdEncoding.EncodeToString(secret),
 		network:     "pgbase-restore-" + randomHex(t, 6),
 	}
+	if release && binary != "" {
+		t.Fatal("a release drill cannot override its candidate with a local binary")
+	}
 	if release {
 		// A release drill must run the published artifact or nothing; pulling
 		// here keeps the failure at setup instead of mid-procedure.
 		if output, err := dockerRun(context.Background(), 10*time.Minute, "pull", image); err != nil {
 			t.Fatalf("pull the digest-pinned restore candidate: %v\n%s", err, output)
 		}
+	} else if binary != "" {
+		drill.binary = binary
 	} else {
 		drill.binary = filepath.Join(t.TempDir(), "pgbase")
 		if runtime.GOOS == "windows" {

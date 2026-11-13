@@ -6,9 +6,9 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/yakisoba0728/PgBase/internal/accessrule"
-	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/lifecycle"
+	"github.com/yakisoba0728/PgBase/internal/query"
+	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -17,7 +17,7 @@ type schemaDocumentService interface {
 	PreviewSchemaImport(context.Context, schema.SchemaDocument) (schema.SchemaImportPlan, error)
 	ApplySchemaImport(context.Context, schema.SchemaImportIntent) (schema.SchemaImportResult, error)
 	SchemaImportStatus(context.Context, uuid.UUID, uuid.UUID) (schema.SchemaImportResult, error)
-	ValidateSchemaImportPlan(schema.SchemaImportPlan, func(schema.Collection, json.RawMessage) error) error
+	ValidateSchemaImportPlan(schema.SchemaImportPlan, func(schema.Catalog, schema.Collection, json.RawMessage) error) error
 }
 
 func schemaDocumentRoutes(dependencies Dependencies) []route {
@@ -84,6 +84,9 @@ func (e schemaDocumentEndpoints) preview(w http.ResponseWriter, r *http.Request)
 	}
 	var plan schema.SchemaImportPlan
 	err = finishLifecycle(finish, func() error {
+		if err := normalizeSchemaDocumentRules(&event.Document); err != nil {
+			return err
+		}
 		plan, err = e.service.PreviewSchemaImport(r.Context(), event.Document)
 		if err == nil {
 			err = e.service.ValidateSchemaImportPlan(plan, validateCollectionRules)
@@ -136,6 +139,9 @@ func (e schemaDocumentEndpoints) apply(w http.ResponseWriter, r *http.Request) {
 	}
 	var result schema.SchemaImportResult
 	err = finishLifecycle(finish, func() error {
+		if err := normalizeSchemaDocumentRules(&request.Document); err != nil {
+			return err
+		}
 		result, err = e.service.ApplySchemaImport(r.Context(), schema.SchemaImportIntent{Document: request.Document, BaseVersion: *request.BaseVersion, Checksum: request.Checksum, Actor: principal.Administrator.ID, OperationID: identity.operationID, IdempotencyKey: identity.key, ValidateRules: validateCollectionRules})
 		event.Result = cloneSchemaImportResult(result)
 		return err
@@ -147,14 +153,26 @@ func (e schemaDocumentEndpoints) apply(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func validateCollectionRules(collection schema.Collection, raw json.RawMessage) error {
-	rules, err := accessrule.Parse(raw)
+func validateCollectionRules(catalog schema.Catalog, collection schema.Collection, raw json.RawMessage) error {
+	rules, err := query.ParseAccessRules(raw)
 	if err != nil {
 		return err
 	}
-	for _, action := range []string{"list", "view", "create", "update", "delete"} {
-		rule, _ := rules.Action(action)
-		if _, _, err := accessrule.Compile(rule, collection, collection.TableName, identity.Subject{Kind: identity.Administrator, ID: uuid.New()}, 0, action == "create"); err != nil {
+	return recordaccess.ValidateRules(catalog, collection, rules)
+}
+
+func normalizeSchemaDocumentRules(document *schema.SchemaDocument) error {
+	for i := range document.Collections {
+		item := &document.Collections[i]
+		if len(item.Rules) == 0 {
+			continue
+		}
+		rules, err := query.ParseAccessRules(item.Rules)
+		if err != nil {
+			return &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "collections." + item.Name + ".rules", Code: "invalid"}}}
+		}
+		item.Rules, err = json.Marshal(rules)
+		if err != nil {
 			return err
 		}
 	}

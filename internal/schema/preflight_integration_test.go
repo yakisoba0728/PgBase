@@ -166,10 +166,8 @@ func TestCatalogPreflightDiscardsPreparedSnapshotWhenReadTransactionCannotCommit
 	if cache.current.Load() != nil {
 		t.Fatal("preflight published a snapshot from a transaction that did not commit")
 	}
-	cache.compileMu.Lock()
-	defer cache.compileMu.Unlock()
-	if len(cache.prepared) != 0 {
-		t.Fatalf("prepared snapshots after rollback = %d, want zero", len(cache.prepared))
+	if cache.find(service.cache.Load().Version) != nil {
+		t.Fatal("uncommitted preflight candidate escaped through cache lookup")
 	}
 }
 

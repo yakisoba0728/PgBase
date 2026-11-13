@@ -97,7 +97,7 @@ func TestPublicFunctionFiltersContinueBoundCursor(t *testing.T) {
 				assertValidationDetail(t, err, "filter", "type_mismatch")
 			})
 			t.Run(filter+"/count", func(t *testing.T) {
-				_, err := Count(ctx, records, request)
+				_, err := records.Count(ctx, request)
 				assertValidationDetail(t, err, "filter", "type_mismatch")
 			})
 		}

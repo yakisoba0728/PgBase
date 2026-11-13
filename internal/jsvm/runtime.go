@@ -158,15 +158,17 @@ type Runtime struct {
 }
 
 type callState struct {
-	ctx            context.Context
-	host           Host
-	capabilities   map[string]bool
-	hostCalls      *atomic.Int64
-	limits         Limits
-	requestHandle  *goja.Object
-	responseHandle *goja.Object
-	responseUsed   bool
-	apiErrorCheck  goja.Callable
+	ctx               context.Context
+	host              Host
+	capabilities      map[string]bool
+	hostCalls         *atomic.Int64
+	limits            Limits
+	requestHandle     *goja.Object
+	responseHandle    *goja.Object
+	responseUsed      bool
+	apiErrorCheck     goja.Callable
+	registration      *goja.Object
+	transactionActive bool
 }
 
 type executionChainKey struct{}
@@ -351,25 +353,46 @@ func (r *Runtime) release() {
 	r.active.Done()
 }
 
-func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMessage, state *callState, onSkipSuccessActivityLog func()) (json.RawMessage, error) {
-	moduleName, err := r.bundle.canonicalModule(ref.Module)
-	if err != nil {
-		return nil, &Error{Code: CodeExecutionFailed, cause: err}
-	}
+// newVM applies the same bindings and limits during validation, bootstrap and execution.
+func (r *Runtime) newVM(state *callState) (*goja.Runtime, *require.RequireModule, error) {
+	return r.newVMForFormat(state, r.bundle.manifest.Format)
+}
+
+func (r *Runtime) newVMForFormat(state *callState, format string) (*goja.Runtime, *require.RequireModule, error) {
 	vm := goja.New()
 	if r.initializer != nil {
 		if err := r.initializer(vm); err != nil {
-			return nil, &Error{Code: CodeExecutionFailed, cause: fmt.Errorf("initialize JavaScript VM: %w", err)}
+			return nil, nil, fmt.Errorf("initialize JavaScript VM: %w", err)
 		}
 	}
 	vm.SetMaxCallStackSize(r.limits.MaximumCallStack)
 	vm.SetParserOptions(parser.WithDisableSourceMaps)
 	r.states.Store(vm, state)
-	defer r.states.Delete(vm)
 	requireModule := r.registry.Enable(vm)
-	if err := r.installPocketBaseGlobals(vm, state); err != nil {
+	switch format {
+	case ManifestFormat:
+	case LegacyManifestFormat:
+		if err := r.installPocketBaseGlobals(vm, state); err != nil {
+			r.states.Delete(vm)
+			return nil, nil, fmt.Errorf("initialize legacy JavaScript bindings: %w", err)
+		}
+	default:
+		r.states.Delete(vm)
+		return nil, nil, errors.New("unsupported JavaScript runtime format")
+	}
+	return vm, requireModule, nil
+}
+
+func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMessage, state *callState, onSkipSuccessActivityLog func()) (json.RawMessage, error) {
+	moduleName, err := r.bundle.canonicalModule(ref.Module)
+	if err != nil {
 		return nil, &Error{Code: CodeExecutionFailed, cause: err}
 	}
+	vm, requireModule, err := r.newVM(state)
+	if err != nil {
+		return nil, &Error{Code: CodeExecutionFailed, cause: err}
+	}
+	defer r.states.Delete(vm)
 
 	finished := make(chan struct{})
 	watcherDone := make(chan struct{})
@@ -436,7 +459,7 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 	if err != nil {
 		return nil, &Error{Code: CodeInvalidResult, cause: err}
 	}
-	if object, ok := inputValue.(*goja.Object); ok {
+	if object, ok := inputValue.(*goja.Object); ok && r.bundle.manifest.Format == LegacyManifestFormat {
 		state.requestHandle = vm.NewObject()
 		state.responseHandle = vm.NewObject()
 		if err := object.Set("request", state.requestHandle); err != nil {
@@ -512,47 +535,63 @@ func (r *Runtime) validateHandlers(ctx context.Context) error {
 	for _, job := range manifest.Jobs {
 		refs = append(refs, job.Handler)
 	}
-	for _, migration := range manifest.Migrations {
-		refs = append(refs, HandlerRef{Module: migration.Module, Export: migration.Up})
-		if migration.Down != "" {
-			refs = append(refs, HandlerRef{Module: migration.Module, Export: migration.Down})
+	for _, ref := range refs {
+		if err := r.validateHandler(ctx, ref, manifest.Format); err != nil {
+			return err
 		}
 	}
-	for _, ref := range refs {
-		state := &callState{ctx: ctx, capabilities: map[string]bool{}, hostCalls: &atomic.Int64{}, limits: r.limits}
-		vm := goja.New()
-		if r.initializer != nil {
-			if err := r.initializer(vm); err != nil {
-				return fmt.Errorf("initialize JavaScript VM: %w", err)
+	for _, migration := range manifest.Migrations {
+		format := migration.RuntimeFormat
+		if format == "" {
+			format = manifest.Format
+		}
+		if err := r.validateHandler(ctx, HandlerRef{Module: migration.Module, Export: migration.Up}, format); err != nil {
+			return err
+		}
+		if migration.Down != "" {
+			if err := r.validateHandler(ctx, HandlerRef{Module: migration.Module, Export: migration.Down}, format); err != nil {
+				return err
 			}
 		}
-		vm.SetMaxCallStackSize(r.limits.MaximumCallStack)
-		vm.SetParserOptions(parser.WithDisableSourceMaps)
-		r.states.Store(vm, state)
-		requireModule := r.registry.Enable(vm)
-		if err := r.installPocketBaseGlobals(vm, state); err != nil {
-			return fmt.Errorf("initialize PocketBase compatibility globals: %w", err)
+	}
+	return nil
+}
+
+func (r *Runtime) validateHandler(ctx context.Context, ref HandlerRef, format string) error {
+	state := &callState{ctx: ctx, capabilities: map[string]bool{}, hostCalls: &atomic.Int64{}, limits: r.limits}
+	vm, requireModule, err := r.newVMForFormat(state, format)
+	if err != nil {
+		return err
+	}
+	defer r.states.Delete(vm)
+	finished := make(chan struct{})
+	watcherDone := make(chan struct{})
+	go func() {
+		defer close(watcherDone)
+		select {
+		case <-ctx.Done():
+			vm.Interrupt(ctx.Err())
+		case <-finished:
 		}
-		canonical, _ := r.bundle.canonicalModule(ref.Module)
-		if strings.HasPrefix(ref.Export, registeredExportPrefix) {
-			registered, err := r.replayRegistrations(vm, requireModule)
-			r.states.Delete(vm)
-			if err != nil {
-				return fmt.Errorf("compile registered JavaScript handler %s: %w", ref.Export, err)
-			}
-			if registered.handlers[ref.Export] == nil {
-				return fmt.Errorf("registered JavaScript handler %s is missing", ref.Export)
-			}
-			continue
-		}
-		exports, err := requireModule.Require(virtualRoot + "/" + canonical)
-		r.states.Delete(vm)
+	}()
+	defer func() { close(finished); <-watcherDone }()
+	canonical, _ := r.bundle.canonicalModule(ref.Module)
+	if strings.HasPrefix(ref.Export, registeredExportPrefix) {
+		registered, err := r.replayRegistrations(vm, requireModule)
 		if err != nil {
-			return fmt.Errorf("compile JavaScript handler %s:%s: %w", ref.Module, ref.Export, err)
+			return fmt.Errorf("compile registered JavaScript handler %s: %w", ref.Export, err)
 		}
-		if _, ok := goja.AssertFunction(exports.ToObject(vm).Get(ref.Export)); !ok {
-			return fmt.Errorf("JavaScript handler %s:%s is not a function", ref.Module, ref.Export)
+		if registered.handlers[ref.Export] == nil {
+			return fmt.Errorf("registered JavaScript handler %s is missing", ref.Export)
 		}
+		return nil
+	}
+	exports, err := requireModule.Require(virtualRoot + "/" + canonical)
+	if err != nil {
+		return fmt.Errorf("compile JavaScript handler %s:%s: %w", ref.Module, ref.Export, err)
+	}
+	if _, ok := goja.AssertFunction(exports.ToObject(vm).Get(ref.Export)); !ok {
+		return fmt.Errorf("JavaScript handler %s:%s is not a function", ref.Module, ref.Export)
 	}
 	return nil
 }
@@ -597,6 +636,11 @@ func (r *Runtime) loadNativeModule(vm *goja.Runtime, module *goja.Object) {
 	}
 	state := loaded.(*callState)
 	exports := vm.NewObject()
+	if state.registration != nil {
+		if err := exports.Set("registration", state.registration); err != nil {
+			panic(vm.NewGoError(err))
+		}
+	}
 	for namespace, methods := range map[string][]string{
 		"records":   {"list", "get", "create", "update", "delete", "batch"},
 		"mail":      {"send"},
@@ -617,6 +661,9 @@ func (r *Runtime) loadNativeModule(vm *goja.Runtime, module *goja.Object) {
 		if err := exports.Set(namespace, object); err != nil {
 			panic(vm.NewGoError(err))
 		}
+	}
+	if err := r.installNativeHostServices(vm, state, exports); err != nil {
+		panic(vm.NewGoError(err))
 	}
 	if err := exports.Set("exact", func(call goja.FunctionCall) goja.Value {
 		value := call.Argument(0).String()

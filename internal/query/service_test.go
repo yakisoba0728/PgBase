@@ -170,7 +170,7 @@ func TestCountUsesOneRepeatableReadSnapshotBeyondPageSize(t *testing.T) {
 			}
 		}
 	}
-	total, err := Count(ctx, records, ListRequest{Principal: testReadPrincipal, Collection: "count_rows", Filter: "title ~ 'match-'"})
+	total, err := records.Count(ctx, ListRequest{Principal: testReadPrincipal, Collection: "count_rows", Filter: "title ~ 'match-'"})
 	if err != nil || total != 250 {
 		t.Fatalf("snapshot count=%d err=%v", total, err)
 	}

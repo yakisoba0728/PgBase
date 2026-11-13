@@ -20,24 +20,61 @@ import (
 
 var ErrInvalid = errors.New("invalid record access rule")
 
+const (
+	BindingCatalog = "catalog"
+	BindingScalar  = "scalar"
+)
+
 type Rule struct {
+	Binding    string          `json:"binding,omitempty"`
 	Op         string          `json:"op"`
 	Args       []Rule          `json:"args,omitempty"`
 	Field      string          `json:"field,omitempty"`
 	OtherField string          `json:"otherField,omitempty"`
 	Value      json.RawMessage `json:"value,omitempty"`
 	Auth       string          `json:"auth,omitempty"`
-	PocketBase *string         `json:"pocketbase,omitempty"`
-	Function   *PBFunction     `json:"function,omitempty"`
+	Expression *string         `json:"expression,omitempty"`
+	Function   *Function       `json:"function,omitempty"`
 	Macro      string          `json:"macro,omitempty"`
 }
 
-type PBFunction struct {
-	Name string      `json:"name"`
-	Args []PBFuncArg `json:"args"`
+// UnmarshalJSON accepts the historical source key on persisted rules. New
+// responses and writes use expression; the AST remains the execution contract.
+func (r *Rule) UnmarshalJSON(raw []byte) error {
+	type plain Rule
+	var input struct {
+		plain
+		Legacy *string `json:"pocketbase"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		return err
+	}
+	if input.Legacy != nil {
+		if input.Expression != nil {
+			return ErrInvalid
+		}
+		input.Expression = input.Legacy
+	}
+	if input.Binding != "" && input.Binding != BindingCatalog && input.Binding != BindingScalar {
+		return ErrInvalid
+	}
+	// Old stored sources selected the catalog compiler. Preserve that meaning
+	// once on decode; execution never consults source metadata.
+	if input.Binding == "" && input.Legacy != nil {
+		input.Binding = BindingCatalog
+	}
+	*r = Rule(input.plain)
+	return nil
 }
 
-type PBFuncArg struct {
+type Function struct {
+	Name string        `json:"name"`
+	Args []FunctionArg `json:"args"`
+}
+
+type FunctionArg struct {
 	Field string          `json:"field,omitempty"`
 	Value json.RawMessage `json:"value,omitempty"`
 	Macro string          `json:"macro,omitempty"`
@@ -65,6 +102,33 @@ func Parse(raw []byte) (Rules, error) {
 	}
 	if decoder.Decode(new(any)) != io.EOF {
 		return Rules{}, ErrInvalid
+	}
+	return rules, nil
+}
+
+// ParseExpressions admits typed rules and expression inputs in one policy.
+// All five actions are parsed before the caller writes anything.
+func ParseExpressions(raw []byte, parse func(string) (Rule, error)) (Rules, error) {
+	rules, err := Parse(raw)
+	if err != nil {
+		return Rules{}, err
+	}
+	for _, action := range []struct {
+		name string
+		rule *Rule
+	}{{"list", &rules.List}, {"view", &rules.View}, {"create", &rules.Create}, {"update", &rules.Update}, {"delete", &rules.Delete}} {
+		input := action.rule
+		if input.Op != "expression" {
+			continue
+		}
+		if input.Expression == nil || strings.TrimSpace(*input.Expression) == "" || len(input.Args) != 0 || input.Field != "" || input.OtherField != "" || len(input.Value) != 0 || input.Auth != "" || input.Function != nil || input.Macro != "" {
+			return Rules{}, ActionError(action.name, "invalid_syntax", ErrInvalid)
+		}
+		parsed, err := parse(*input.Expression)
+		if err != nil {
+			return Rules{}, ActionError(action.name, "invalid_syntax", err)
+		}
+		*input = parsed
 	}
 	return rules, nil
 }
@@ -139,7 +203,7 @@ func (c *compiler) parameter(value any) string {
 
 func (c *compiler) rule(rule Rule, depth int) (string, error) {
 	c.nodes++
-	if depth > 8 || c.nodes > 64 {
+	if (rule.Binding != "" && rule.Binding != BindingCatalog && rule.Binding != BindingScalar) || depth > 8 || c.nodes > 64 {
 		return "", ErrInvalid
 	}
 	switch rule.Op {

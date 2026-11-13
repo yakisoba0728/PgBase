@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
@@ -28,85 +28,84 @@ type TruncateResult struct {
 // Truncate deletes every record through the ordinary delete graph in one
 // transaction. This preserves hooks, audit/outbox artifacts, relation actions,
 // membership state and the durable file-deletion queue. The transaction takes
-// one stable, ordered snapshot of all root IDs before deleting any of them;
-// consequently its memory and lock duration scale with collection cardinality.
-// Callers that require bounded bulk work must issue bounded ordinary deletes.
+// one stable, ordered snapshot before deleting any root. The existing delete
+// row budget also bounds this snapshot; larger collections must use bounded
+// ordinary deletes rather than silently changing atomicity through chunking.
 func (s *Service) Truncate(ctx context.Context, request TruncateRequest) (result TruncateResult, err error) {
-	if err := s.validateRequest(request.Principal, request.RequestID); err != nil {
+	if err := s.validateRequest(ctx, request.Principal, request.RequestID); err != nil {
 		return result, err
 	}
 	if request.Principal.Kind != PrincipalAdministrator {
 		return result, recordaccess.ErrDenied
+	}
+	if _, nested := ctx.Value(mutationHookKey{}).(*mutationHookRun); nested {
+		return result, ErrNestedCompoundMutation
+	}
+	if _, err := s.members.writer(ctx); err != nil {
+		return result, unavailableMembership(err)
 	}
 	ctx, hooks := s.hookContext(ctx)
 	if hooks != nil {
 		hooks.deferAfter++
 		defer func() { hooks.deferAfter--; hooks.after(ctx, &err) }()
 	}
-	result.Name = request.Collection
-	err = database.Retry(ctx, func() error {
-		if hooks != nil {
-			hooks.events = nil
+	err = s.compoundTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		result = TruncateResult{Name: request.Collection}
+		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
+		if err != nil {
+			return err
 		}
-		result.RecordsDeleted, result.FilesDeleted, result.RelationsDeleted = 0, 0, 0
-		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
-			catalog, err := s.schemas.EnsureCurrent(ctx, tx)
-			if err != nil {
-				return err
-			}
-			collection, ok := catalog.Collections[request.Collection]
-			if !ok {
-				return recordaccess.ErrUnsupported
-			}
-			if collection.System || collection.IsView() {
-				return recordaccess.ErrUnsupported
-			}
-			if err = lockCollectionMutation(ctx, tx, collection.ID); err != nil {
-				return err
-			}
-			ids, err := truncateRecordIDs(ctx, tx, collection)
-			if err != nil {
-				return err
-			}
-			result.RecordsDeleted = int64(len(ids))
-			if len(ids) == 0 {
-				result.Truncated = true
-				return nil
-			}
-			if err = tx.QueryRow(ctx, `select count(*) from pgbase_meta.record_files where collection_id=$1 and record_id=any($2::uuid[])`, collection.ID, ids).Scan(&result.FilesDeleted); err != nil {
-				return err
-			}
-			result.RelationsDeleted, err = countTruncateRelations(ctx, tx, catalog, collection, ids)
-			if err != nil {
-				return err
-			}
-			txctx := WithTransaction(ctx, tx)
-			for i, id := range ids {
-				var exists bool
-				if err = tx.QueryRow(ctx, "select exists(select 1 from "+quotedRecordCollection(collection)+" where id=$1)", id).Scan(&exists); err != nil {
-					return err
-				}
-				if !exists {
-					continue
-				}
-				childRequestID := fmt.Sprintf("%s-%d", request.RequestID, i)
-				if len(childRequestID) > 128 {
-					childRequestID = fmt.Sprintf("truncate-%s-%d", collection.ID.String(), i)
-				}
-				_, err = s.Delete(txctx, DeleteRequest{Principal: request.Principal, RequestID: childRequestID, Collection: collection.Name, ID: id, IfMatch: EntityTagSet{Present: true, Any: true}})
-				if err != nil {
-					return err
-				}
-			}
+		collection, ok := catalog.Collections[request.Collection]
+		if !ok {
+			return recordaccess.ErrUnsupported
+		}
+		if collection.System || collection.IsView() {
+			return recordaccess.ErrUnsupported
+		}
+		if err = lockCollectionMutation(ctx, tx, collection.ID); err != nil {
+			return err
+		}
+		ids, err := truncateRecordIDs(ctx, tx, collection)
+		if err != nil {
+			return err
+		}
+		result.RecordsDeleted = int64(len(ids))
+		if len(ids) == 0 {
 			result.Truncated = true
 			return nil
-		})
-	}, nil)
+		}
+		if err = tx.QueryRow(ctx, `select count(*) from pgbase_meta.record_files where collection_id=$1 and record_id=any($2::uuid[])`, collection.ID, ids).Scan(&result.FilesDeleted); err != nil {
+			return err
+		}
+		result.RelationsDeleted, err = countTruncateRelations(ctx, tx, catalog, collection, ids)
+		if err != nil {
+			return err
+		}
+		for i, id := range ids {
+			var exists bool
+			if err = tx.QueryRow(ctx, "select exists(select 1 from "+quotedRecordCollection(collection)+" where id=$1)", id).Scan(&exists); err != nil {
+				return err
+			}
+			if !exists {
+				continue
+			}
+			childRequestID := fmt.Sprintf("%s-%d", request.RequestID, i)
+			if len(childRequestID) > 128 {
+				childRequestID = fmt.Sprintf("truncate-%s-%d", collection.ID.String(), i)
+			}
+			_, err = s.Delete(ctx, DeleteRequest{Principal: request.Principal, RequestID: childRequestID, Collection: collection.Name, ID: id, IfMatch: EntityTagSet{Present: true, Any: true}})
+			if err != nil {
+				return err
+			}
+		}
+		result.Truncated = true
+		return nil
+	})
 	return result, membershipBoundaryError(err)
 }
 
 func truncateRecordIDs(ctx context.Context, tx pgx.Tx, collection schema.Collection) ([]uuid.UUID, error) {
-	rows, err := tx.Query(ctx, "select id from "+quotedRecordCollection(collection)+" order by id")
+	rows, err := tx.Query(ctx, "select id from "+quotedRecordCollection(collection)+" order by id limit $1", maximumDeleteHydrationRows+1)
 	if err != nil {
 		return nil, err
 	}
@@ -116,6 +115,9 @@ func truncateRecordIDs(ctx context.Context, tx pgx.Tx, collection schema.Collect
 		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
 			return nil, err
+		}
+		if int64(len(ids)) == maximumDeleteHydrationRows {
+			return nil, &query.ValidationError{Details: []query.ValidationDetail{{Field: "collection", Code: "truncate_budget_exceeded"}}}
 		}
 		ids = append(ids, id)
 	}

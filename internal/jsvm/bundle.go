@@ -25,11 +25,12 @@ import (
 )
 
 const (
-	ManifestFormat      = "pgbase.scripts/v1"
-	maximumManifestSize = 1 << 20
-	maximumModuleSize   = 1 << 20
-	maximumBundleSize   = 8 << 20
-	maximumSourceFiles  = 128
+	ManifestFormat       = "pgbase.scripts/v2"
+	LegacyManifestFormat = "pgbase.scripts/v1"
+	maximumManifestSize  = 1 << 20
+	maximumModuleSize    = 1 << 20
+	maximumBundleSize    = 8 << 20
+	maximumSourceFiles   = 128
 )
 
 type HandlerRef struct {
@@ -67,6 +68,7 @@ type Job struct {
 }
 
 type Migration struct {
+	RuntimeFormat      string          `json:"runtimeFormat,omitempty"`
 	ID                 string          `json:"id"`
 	Module             string          `json:"module"`
 	Up                 string          `json:"up"`
@@ -102,9 +104,10 @@ type migrationSourceFile struct {
 }
 
 type migrationSourceEnvelope struct {
-	Format    string                `json:"format"`
-	Migration Migration             `json:"migration"`
-	Sources   []migrationSourceFile `json:"sources"`
+	Format        string                `json:"format"`
+	Migration     Migration             `json:"migration"`
+	Sources       []migrationSourceFile `json:"sources"`
+	RuntimeFormat string                `json:"runtimeFormat,omitempty"`
 }
 
 // MigrationBundle freezes one migration and only its declared module graph.
@@ -142,11 +145,22 @@ func (b *Bundle) MigrationBundle(id string) (*Bundle, []byte, error) {
 		sources[name] = source
 		files = append(files, migrationSourceFile{Path: name, Length: len(source), SHA256: hex.EncodeToString(digest[:]), Source: source})
 	}
-	envelope, err := json.Marshal(migrationSourceEnvelope{Format: "pgbase.js-migration-source/v1", Migration: migration, Sources: files})
+	runtimeFormat := migration.RuntimeFormat
+	if runtimeFormat == "" {
+		runtimeFormat = b.manifest.Format
+	}
+	// Runtime selection is metadata, not part of historical v1 source bytes.
+	migration.RuntimeFormat = ""
+	envelopeSource := migrationSourceEnvelope{Format: "pgbase.js-migration-source/v1", Migration: migration, Sources: files}
+	if runtimeFormat == ManifestFormat {
+		envelopeSource.Format = "pgbase.js-migration-source/v2"
+		envelopeSource.RuntimeFormat = ManifestFormat
+	}
+	envelope, err := json.Marshal(envelopeSource)
 	if err != nil {
 		return nil, nil, err
 	}
-	manifest := Manifest{Format: ManifestFormat, Migrations: []Migration{migration}}
+	manifest := Manifest{Format: runtimeFormat, Migrations: []Migration{migration}}
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
 		return nil, nil, err
@@ -184,8 +198,8 @@ func LoadBundle(directory string) (*Bundle, error) {
 	if err := ensureJSONEnd(decoder); err != nil {
 		return nil, fmt.Errorf("decode JavaScript manifest: %w", err)
 	}
-	if manifest.Format != ManifestFormat {
-		return nil, fmt.Errorf("JavaScript manifest format must be %q", ManifestFormat)
+	if manifest.Format != ManifestFormat && manifest.Format != LegacyManifestFormat {
+		return nil, fmt.Errorf("JavaScript manifest format must be %q or %q", ManifestFormat, LegacyManifestFormat)
 	}
 
 	sources := make(map[string][]byte)
@@ -313,6 +327,9 @@ func (b *Bundle) validateReferences() error {
 		refs = append(refs, job.Handler)
 	}
 	for _, migration := range b.manifest.Migrations {
+		if migration.RuntimeFormat != "" && migration.RuntimeFormat != ManifestFormat && migration.RuntimeFormat != LegacyManifestFormat {
+			return fmt.Errorf("JavaScript migration %q runtimeFormat must be %q or %q", migration.ID, ManifestFormat, LegacyManifestFormat)
+		}
 		refs = append(refs, HandlerRef{Module: migration.Module, Export: migration.Up})
 		if migration.Down != "" {
 			refs = append(refs, HandlerRef{Module: migration.Module, Export: migration.Down})

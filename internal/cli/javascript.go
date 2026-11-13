@@ -13,7 +13,7 @@ import (
 	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
-const javaScriptUsage = "usage: pgbase js check [--dir DIR] | pgbase js types [FILE] | pgbase js serve --watch [--dir DIR] [--poll DURATION]"
+const javaScriptUsage = "usage: pgbase js check [--dir DIR] | pgbase js types [--legacy] [FILE] | pgbase js serve --watch [--dir DIR] [--poll DURATION]"
 
 func runJavaScript(ctx context.Context, args []string, env environment, streams IO) error {
 	if len(args) == 0 {
@@ -21,15 +21,21 @@ func runJavaScript(ctx context.Context, args []string, env environment, streams 
 	}
 	switch args[0] {
 	case "types":
-		if len(args) > 2 {
+		flags := flag.NewFlagSet("js types", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		legacy := flags.Bool("legacy", false, "")
+		if err := flags.Parse(args[1:]); err != nil || flags.NArg() > 1 {
 			return configurationError{err: errors.New("invalid JavaScript types usage"), message: javaScriptUsage}
 		}
 		contents := []byte(pgbase.JavaScriptTypeDeclarations())
-		if len(args) == 1 || args[1] == "-" {
+		if *legacy {
+			contents = []byte(pgbase.LegacyJavaScriptTypeDeclarations())
+		}
+		if flags.NArg() == 0 || flags.Arg(0) == "-" {
 			_, err := streams.stdout().Write(contents)
 			return err
 		}
-		filename := filepath.Clean(args[1])
+		filename := filepath.Clean(flags.Arg(0))
 		if err := os.WriteFile(filename, contents, 0o644); err != nil {
 			return fmt.Errorf("write JavaScript type declarations: %w", err)
 		}
@@ -42,15 +48,12 @@ func runJavaScript(ctx context.Context, args []string, env environment, streams 
 		if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
 			return configurationError{err: errors.New("invalid JavaScript check usage"), message: javaScriptUsage}
 		}
-		options, err := config.LoadJavaScriptEnv(env)
+		options, err := config.LoadJavaScriptEnv(javaScriptEnvironment(env, *directory))
 		if err != nil {
 			return configurationError{err: err}
 		}
 		if options == nil {
 			options = &pgbase.JavaScriptOptions{}
-		}
-		if *directory != "" {
-			options.Directory = *directory
 		}
 		if options.Directory == "" {
 			return configurationError{err: errors.New("JavaScript directory is required"), message: javaScriptUsage}
@@ -66,5 +69,21 @@ func runJavaScript(ctx context.Context, args []string, env environment, streams 
 		return runJavaScriptWatch(ctx, args[1:], env, streams)
 	default:
 		return configurationError{err: errors.New("invalid JavaScript usage"), message: javaScriptUsage}
+	}
+}
+
+// Directory flags must take precedence before JavaScript env validation.
+func javaScriptEnvironment(env environment, directory string) environment {
+	if directory == "" {
+		return env
+	}
+	return func(name string) (string, bool) {
+		if name == "PGBASE_JS_DIR" {
+			return directory, true
+		}
+		if env == nil {
+			return "", false
+		}
+		return env(name)
 	}
 }
