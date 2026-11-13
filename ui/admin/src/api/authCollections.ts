@@ -73,7 +73,7 @@ export interface CreateAuthCollectionInput {
   recordId?: RecordIDPolicy;
 }
 
-/** registrationEnabled is required, and at least one of profileSchema / fields. Omitted rules keep current rules. */
+/** registrationEnabled is required. Omitted fields/profileSchema and rules keep the stored ones (read under the row lock). */
 export interface UpdateAuthCollectionInput {
   registrationEnabled: boolean;
   profileSchema?: Record<string, string>;
@@ -122,6 +122,8 @@ export interface AuthPolicy {
   otpEnabled: boolean;
   otpDurationSeconds: number;
   otpMaxAttempts: number;
+  /** Response-only entity tag of the stored policy; send it back as `ifMatch`. */
+  etag: string;
 }
 
 /**
@@ -130,7 +132,7 @@ export interface AuthPolicy {
  */
 export type AuthPolicyInput =
   Pick<AuthPolicy, "passwordEnabled" | "minimumPasswordBytes" | "mfaEnabled"> &
-  Partial<Omit<AuthPolicy, "passwordEnabled" | "minimumPasswordBytes" | "mfaEnabled">>;
+  Partial<Omit<AuthPolicy, "passwordEnabled" | "minimumPasswordBytes" | "mfaEnabled" | "etag">>;
 
 /** Field names shared by the provider request and response. Provider name: [a-z0-9_-]{1,64}. */
 interface OAuthProviderFields {
@@ -155,6 +157,8 @@ export interface OAuthProviderConfig extends OAuthProviderFields {
   name: string;
   /** Response-only: whether a client secret is stored. The secret itself is never returned. */
   secretConfigured: boolean;
+  /** Response-only entity tag; send it back as `ifMatch`. */
+  etag: string;
 }
 
 /** All fields are decoded as given (omitted = zero value), except an empty clientSecret keeps the stored one. */
@@ -177,6 +181,8 @@ export interface MailTemplateInput {
 
 export interface MailTemplate extends Required<MailTemplateInput> {
   purpose: MailTemplatePurpose;
+  /** Response-only entity tag; send it back as `ifMatch`. */
+  etag: string;
 }
 
 export interface MailTemplatePreviewInput extends MailTemplateInput {
@@ -201,6 +207,8 @@ interface SMTPFields {
 export interface SMTPConfig extends SMTPFields {
   /** Response-only: whether a password is stored. The password itself is never returned. */
   passwordConfigured: boolean;
+  /** Response-only entity tag; send it back as `ifMatch`. */
+  etag: string;
 }
 
 export interface SMTPConfigInput extends Partial<SMTPFields> {
@@ -219,28 +227,35 @@ export function getAuthAdministration(id: string, signal?: AbortSignal): Promise
   return request("GET", `${base}/${seg(id)}/administration`, { signal });
 }
 
-export function setAuthPolicy(id: string, input: AuthPolicyInput): Promise<AuthPolicy> {
-  return request("PUT", `${base}/${seg(id)}/policy`, { body: input });
+/**
+ * `ifMatch` is the read `etag` (If-Match) or `null` for a value that was not stored yet (If-None-Match: *); the
+ * write then fails with 412 precondition_failed when another write landed first. `undefined` writes unconditionally.
+ */
+export const precondition = (ifMatch?: string | null): Record<string, string> | undefined =>
+  ifMatch === undefined ? undefined : ifMatch === null ? { "If-None-Match": "*" } : { "If-Match": ifMatch };
+
+export function setAuthPolicy(id: string, input: AuthPolicyInput, ifMatch?: string | null): Promise<AuthPolicy> {
+  return request("PUT", `${base}/${seg(id)}/policy`, { body: input, headers: precondition(ifMatch) });
 }
 
-export function putOAuthProvider(id: string, provider: string, input: OAuthProviderInput): Promise<OAuthProviderConfig> {
-  return request("PUT", `${base}/${seg(id)}/oauth-providers/${seg(provider)}`, { body: input });
+export function putOAuthProvider(id: string, provider: string, input: OAuthProviderInput, ifMatch?: string | null): Promise<OAuthProviderConfig> {
+  return request("PUT", `${base}/${seg(id)}/oauth-providers/${seg(provider)}`, { body: input, headers: precondition(ifMatch) });
 }
 
 export function deleteOAuthProvider(id: string, provider: string): Promise<void> {
   return request("DELETE", `${base}/${seg(id)}/oauth-providers/${seg(provider)}`);
 }
 
-export function putMailTemplate(id: string, purpose: MailTemplatePurpose, input: MailTemplateInput): Promise<MailTemplate> {
-  return request("PUT", `${base}/${seg(id)}/mail-templates/${purpose}`, { body: input });
+export function putMailTemplate(id: string, purpose: MailTemplatePurpose, input: MailTemplateInput, ifMatch?: string | null): Promise<MailTemplate> {
+  return request("PUT", `${base}/${seg(id)}/mail-templates/${purpose}`, { body: input, headers: precondition(ifMatch) });
 }
 
 export function previewMailTemplate(id: string, purpose: MailTemplatePurpose, input: MailTemplatePreviewInput): Promise<MailPreview> {
   return request("POST", `${base}/${seg(id)}/mail-templates/${purpose}/preview`, { body: input });
 }
 
-export function putSMTPConfig(id: string, input: SMTPConfigInput): Promise<SMTPConfig> {
-  return request("PUT", `${base}/${seg(id)}/smtp`, { body: input });
+export function putSMTPConfig(id: string, input: SMTPConfigInput, ifMatch?: string | null): Promise<SMTPConfig> {
+  return request("PUT", `${base}/${seg(id)}/smtp`, { body: input, headers: precondition(ifMatch) });
 }
 
 /** 204 on success. recipient must be a bare address. */
@@ -256,7 +271,7 @@ export interface TokenPolicy {
   purpose: TokenPolicyPurpose;
   ttlSeconds: number;
   keyVersion: string;
-  /** Response-only and only meaningful on PUT: the list endpoint always reports false. */
+  /** Response-only. Every stored policy has a key, so listed rows report true; a purpose without a row is simply absent. */
   keyConfigured: boolean;
 }
 
@@ -314,9 +329,10 @@ export interface UpdateAuthRecordInput {
   fields?: Record<string, unknown>;
 }
 
-export async function listAuthRecords(id: string, options: { limit?: number; signal?: AbortSignal } = {}): Promise<AuthRecord[]> {
-  const result = await request<{ items: AuthRecord[] | null }>("GET", `${base}/${seg(id)}/records`, { query: { limit: options.limit }, signal: options.signal });
-  return result.items ?? [];
+/** Pages by internal user id (the id in /api/admin/users): `after` is exclusive, `nextAfter` is present while more follow. */
+export async function listAuthRecords(id: string, options: { after?: string; limit?: number; signal?: AbortSignal } = {}): Promise<{ items: AuthRecord[]; nextAfter?: string }> {
+  const result = await request<{ items: AuthRecord[] | null; nextAfter?: string }>("GET", `${base}/${seg(id)}/records`, { query: { after: options.after, limit: options.limit }, signal: options.signal });
+  return { items: result.items ?? [], nextAfter: result.nextAfter };
 }
 
 export function getAuthRecord(id: string, record: string, signal?: AbortSignal): Promise<AuthRecord> {

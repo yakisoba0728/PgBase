@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
@@ -20,6 +22,70 @@ type fakeAuthAdministration struct {
 
 func (f *fakeAuthAdministration) GetAuthAdministration(context.Context, uuid.UUID) (userauth.AuthAdministration, error) {
 	return f.value, nil
+}
+
+func (f *fakeAuthAdministration) PutMailTemplate(_ context.Context, _ uuid.UUID, t userauth.MailTemplate) (userauth.MailTemplate, error) {
+	switch t.ETag {
+	case `"stale"`:
+		return t, userauth.ErrPreconditionFailed
+	case `"current"`, userauth.CreateOnly:
+		t.ETag = `"next"`
+		return t, nil
+	}
+	return t, userauth.ErrValidation
+}
+
+func (f *fakeAuthAdministration) PutTokenPolicy(context.Context, uuid.UUID, userauth.TokenPolicy) (userauth.TokenPolicy, error) {
+	return userauth.TokenPolicy{}, errors.Join(userauth.ErrValidation, &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "ttlSeconds", Code: "invalid"}}})
+}
+
+func TestAuthAdministrationConditionalWritesAndFieldDetails(t *testing.T) {
+	collectionID := uuid.MustParse("f3178843-0f03-4108-b110-ae7db8c8738c")
+	session := validSession()
+	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator, authenticateExpiry: time.Now().Add(time.Hour)}
+	handler := mustRouter(t, Dependencies{AdminAuth: auth, AuthAdministration: &fakeAuthAdministration{}, PublicURL: mustURL("https://pgbase.example")})
+	send := func(path, ifMatch, body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPut, "/api/admin/auth-collections/"+collectionID.String()+path, strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", "https://pgbase.example")
+		request.Header.Set("X-PgBase-CSRF", session.CSRFToken)
+		if header, value, found := strings.Cut(ifMatch, ":"); found {
+			request.Header.Set(header, value)
+		} else if ifMatch != "" {
+			request.Header.Set("If-Match", ifMatch)
+		}
+		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken})
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	template := `{"subject":"s","body":"b {{action_url}}"}`
+	if response := send("/mail-templates/verify", `"current"`, template); response.Code != http.StatusOK || response.Header().Get("ETag") != `"next"` {
+		t.Fatalf("matching write status=%d etag=%q body=%s", response.Code, response.Header().Get("ETag"), response.Body.String())
+	}
+	if response := send("/mail-templates/verify", `"stale"`, template); response.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale write status=%d body=%s", response.Code, response.Body.String())
+	} else {
+		assertErrorCode(t, response.Body.Bytes(), "precondition_failed")
+	}
+	if response := send("/mail-templates/verify", `"a", "b"`, template); response.Code != http.StatusBadRequest {
+		t.Fatalf("tag list status=%d", response.Code)
+	}
+	if response := send("/mail-templates/verify", "If-None-Match:*", template); response.Code != http.StatusOK {
+		t.Fatalf("create-only status=%d body=%s", response.Code, response.Body.String())
+	}
+	if response := send("/mail-templates/verify", `If-None-Match:"x"`, template); response.Code != http.StatusBadRequest {
+		t.Fatalf("If-None-Match tag status=%d", response.Code)
+	}
+	response := send("/token-policies/session", "", `{"ttlSeconds":1}`)
+	var body struct {
+		Error struct {
+			Details map[string][]string `json:"details"`
+		} `json:"error"`
+	}
+	if response.Code != http.StatusBadRequest || json.Unmarshal(response.Body.Bytes(), &body) != nil || len(body.Error.Details["ttlSeconds"]) != 1 {
+		t.Fatalf("field details status=%d body=%s", response.Code, response.Body.String())
+	}
 }
 
 func TestAuthAdministrationRoutesRequireAdminSession(t *testing.T) {

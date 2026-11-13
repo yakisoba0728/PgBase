@@ -2,6 +2,7 @@ import type {
   AuthCollection,
   AuthCollectionField,
   AuthPolicy,
+  AuthPolicyInput,
   AuthRecord,
   MailTemplatePurpose,
   OAuthProviderCatalogEntry,
@@ -91,7 +92,7 @@ export function policyProblems(draft: PolicyDraft): Problems {
 }
 
 /** The full PUT body: every field is sent so nothing silently keeps an older value. */
-export function policyInput(draft: PolicyDraft): AuthPolicy {
+export function policyInput(draft: PolicyDraft): AuthPolicyInput {
   return {
     passwordEnabled: draft.passwordEnabled,
     minimumPasswordBytes: int(draft.minimumPasswordBytes),

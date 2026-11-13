@@ -13,7 +13,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
-func (s *stubUserAuth) ListUsers(context.Context, uuid.UUID, int) (userauth.UserPage, error) {
+func (s *stubUserAuth) ListUsers(context.Context, userauth.UserQuery) (userauth.UserPage, error) {
 	s.calls++
 	return userauth.UserPage{}, s.err
 }
@@ -98,7 +98,7 @@ func TestImpersonationHandlerValidatesSecondsBeforeDurationConversion(t *testing
 }
 
 func TestUserPageInputRejectsAmbiguousAndUnboundedRequests(t *testing.T) {
-	for _, raw := range []string{"limit=0", "limit=101", "limit=x", "limit=1&limit=2", "after=", "after=wrong", "after=00000000-0000-0000-0000-000000000000", "sort=email", "after=%", "limit=", "limit=1;after=x"} {
+	for _, raw := range []string{"limit=0", "limit=101", "limit=x", "limit=1&limit=2", "after=", "after=wrong", "after=00000000-0000-0000-0000-000000000000", "sort=email", "after=%", "limit=", "limit=1;after=x", "total=1", "q=", "authCollectionId=x", "q=" + strings.Repeat("a", 321)} {
 		auth := &stubUserAuth{}
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("GET", "/api/admin/users", nil)
@@ -108,14 +108,14 @@ func TestUserPageInputRejectsAmbiguousAndUnboundedRequests(t *testing.T) {
 			t.Errorf("query %q: status=%d calls=%d", raw, w.Code, auth.calls)
 		}
 	}
-	after, limit, err := userPageParameters("")
-	if err != nil || after != uuid.Nil || limit != 50 {
-		t.Fatalf("defaults = %s %d %v", after, limit, err)
+	query, err := userPageParameters("")
+	if err != nil || query != (userauth.UserQuery{Limit: 50}) {
+		t.Fatalf("defaults = %+v %v", query, err)
 	}
-	id := uuid.New()
-	after, limit, err = userPageParameters("after=" + id.String() + "&limit=100")
-	if err != nil || after != id || limit != 100 {
-		t.Fatalf("bounded page = %s %d %v", after, limit, err)
+	id, realm := uuid.New(), uuid.New()
+	query, err = userPageParameters("after=" + id.String() + "&limit=100&authCollectionId=" + realm.String() + "&q=Ada%40Example.test&total=true")
+	if err != nil || query != (userauth.UserQuery{After: id, Limit: 100, AuthCollectionID: realm, Search: "Ada@Example.test", Total: true}) {
+		t.Fatalf("bounded page = %+v %v", query, err)
 	}
 }
 

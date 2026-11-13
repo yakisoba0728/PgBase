@@ -3,7 +3,6 @@ import { Link, Navigate, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiAddLine, RiErrorWarningLine, RiShieldUserLine } from "@remixicon/react";
 import { deleteAuthCollection, type AuthCollection } from "../api/authCollections";
-import { ApiError } from "../api/http";
 import { errorText } from "../app/queries";
 import { collectionsQuery } from "../collections/queries";
 import { Button } from "../components/Button";
@@ -13,7 +12,7 @@ import { EmptyState, Loader } from "../components/Feedback";
 import { Page } from "../components/Page";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { deleteCollection } from "../schema/apply";
+import { deleteCollection, hasUsers } from "../schema/apply";
 import { MailTab } from "./MailTab";
 import { PolicyTab } from "./PolicyTab";
 import { ProvidersTab } from "./ProvidersTab";
@@ -109,7 +108,8 @@ function TabBody({ collection, tab }: { collection: AuthCollection; tab: Tab }) 
   return <PolicyTab key={`${administration.dataUpdatedAt}:${collection.registrationEnabled}`} collection={collection} administration={data} />;
 }
 
-/** Deleting drops the catalog collection (when the schema designer made it) and the sign-in registration. */
+/** A collection the schema owns is deleted through the schema, which removes its registration in the same
+ * transaction; a registration without one is deleted directly. Either is refused while users remain. */
 function DeleteCollection({ collection }: { collection: AuthCollection }) {
   const t = useT();
   const navigate = useNavigate();
@@ -117,11 +117,9 @@ function DeleteCollection({ collection }: { collection: AuthCollection }) {
   const [open, setOpen] = useState(false);
   const remove = useMutation({
     mutationFn: async () => {
-      // Registration first: the server refuses it (409) while users exist, before any data is dropped.
-      await deleteAuthCollection(collection.id);
-      const catalog = await queryClient.fetchQuery(collectionsQuery);
+      const catalog = await queryClient.fetchQuery({ ...collectionsQuery, staleTime: 0 });
       const entry = Object.values(catalog.collections).find((candidate) => candidate.name === collection.name && candidate.type === "auth");
-      if (entry) await deleteCollection(entry);
+      await (entry ? deleteCollection(entry) : deleteAuthCollection(collection.id));
     },
     onSuccess: async () => {
       toast(t("auth.collections.deleted", { name: collection.name }));
@@ -130,7 +128,7 @@ function DeleteCollection({ collection }: { collection: AuthCollection }) {
       await queryClient.invalidateQueries({ queryKey: ["auth"] });
       navigate(root, { replace: true });
     },
-    onError: (failure) => toast(failure instanceof ApiError && failure.code === "conflict" ? t("auth.collections.hasUsers") : errorText(t, failure), "danger"),
+    onError: (failure) => toast(hasUsers(failure) ? t("auth.collections.hasUsers") : errorText(t, failure), "danger"),
   });
   const close = () => setOpen(false);
   return (

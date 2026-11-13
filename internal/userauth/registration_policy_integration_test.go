@@ -57,7 +57,7 @@ func TestPublicRegistrationEnforcesCollectionCreatePolicy(t *testing.T) {
 				if _, err := register(); !errors.Is(err, wantErr) {
 					t.Fatalf("collection must reject registration without satisfying %s: %v", policy, err)
 				}
-				records, err := service.ListAuthRecords(ctx, collectionID, 10)
+				records, _, err := service.ListAuthRecords(ctx, collectionID, uuid.Nil, 10)
 				if err != nil || len(records) != 0 {
 					t.Fatalf("denied registration persisted a user: %#v %v", records, err)
 				}
@@ -65,7 +65,7 @@ func TestPublicRegistrationEnforcesCollectionCreatePolicy(t *testing.T) {
 				for i := range fields {
 					fields[i].Required = false
 				}
-				if _, err := service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: fields, Rules: rules}); err != nil {
+				if _, err := service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: fields, Rules: &rules}); err != nil {
 					t.Fatal(err)
 				}
 				session, err := register()
@@ -129,7 +129,7 @@ func TestOAuthRegistrationUsesPolicyCommittedDuringProviderExchange(t *testing.T
 		t.Fatal("OAuth provider exchange never started")
 	}
 	rules.Create = "false"
-	_, err = service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Rules: rules})
+	_, err = service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Rules: &rules})
 	close(provider.release)
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestOAuthRegistrationUsesPolicyCommittedDuringProviderExchange(t *testing.T
 	if err := <-completed; !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("OAuth signup ignored committed create policy: %v", err)
 	}
-	records, err := service.ListAuthRecords(ctx, collectionID, 10)
+	records, _, err := service.ListAuthRecords(ctx, collectionID, uuid.Nil, 10)
 	if err != nil || len(records) != 0 {
 		t.Fatalf("policy race left a registered account: %#v %v", records, err)
 	}

@@ -49,7 +49,7 @@ func TestTypedAuthCollectionRoundTripCRUDRulesAndOrigins(t *testing.T) {
 		t.Fatalf("authRule refusal=%v", err)
 	}
 	rules.Auth = "true"
-	if _, err := service.UpdateAuthCollection(ctx, id, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: fields, Rules: rules}); err != nil {
+	if _, err := service.UpdateAuthCollection(ctx, id, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: fields, Rules: &rules}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.LoginInCollection(ctx, id, record.Email, "correct horse battery staple", "198.51.100.9"); err != nil {
@@ -73,7 +73,7 @@ func TestTypedAuthCollectionRoundTripCRUDRulesAndOrigins(t *testing.T) {
 		t.Fatalf("credential update retained session: %v", err)
 	}
 	rules.View = "false"
-	if _, err := service.UpdateAuthCollection(ctx, id, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: fields, Rules: rules}); err != nil {
+	if _, err := service.UpdateAuthCollection(ctx, id, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: fields, Rules: &rules}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.GetAuthorizedAuthRecord(ctx, id, record.ID, record.ID); !errors.Is(err, ErrInvalidCredentials) {
@@ -103,7 +103,7 @@ func TestAuthCollectionCreateRuleControlsPublicRegistration(t *testing.T) {
 		t.Fatalf("false create rule registration=%v", err)
 	}
 	rules.Create = "true"
-	if _, err := service.UpdateAuthCollection(ctx, id, UpdateAuthCollectionInput{RegistrationEnabled: true, Rules: rules}); err != nil {
+	if _, err := service.UpdateAuthCollection(ctx, id, UpdateAuthCollectionInput{RegistrationEnabled: true, Rules: &rules}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.RegisterInCollection(ctx, id, "allowed@example.test", "correct horse battery staple", "198.51.100.40"); err != nil {
@@ -248,7 +248,7 @@ func TestManagedAuthRecordMutationUsesDistinctActorAndRevokesTargetCredentials(t
 		t.Fatalf("cross-realm manager accepted: %v", err)
 	}
 	rules.Manage = "false"
-	if _, err := service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: []schema.FieldInput{hidden, managerFlag}, Rules: rules}); err != nil {
+	if _, err := service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: []schema.FieldInput{hidden, managerFlag}, Rules: &rules}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.UpdateAuthorizedAuthRecord(ctx, collectionID, manager.ID, target.ID, UpdateAuthRecordInput{Active: &active}); !errors.Is(err, ErrInvalidCredentials) {
@@ -317,7 +317,7 @@ func TestPrivateAuthEmailRequiresActiveSameRealmManager(t *testing.T) {
 			if test.null {
 				updatedRules.nulls = map[string]bool{"manage": true}
 			}
-			if _, err := service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: []schema.FieldInput{managerFlag}, Rules: updatedRules}); err != nil {
+			if _, err := service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: []schema.FieldInput{managerFlag}, Rules: &updatedRules}); err != nil {
 				t.Fatal(err)
 			}
 			assertPrivateAuthEmail(manager.ID, "")

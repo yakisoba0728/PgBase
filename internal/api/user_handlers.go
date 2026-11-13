@@ -19,7 +19,7 @@ type UserAuth interface {
 	Login(context.Context, string, string, string) (userauth.Session, error)
 	Authenticate(context.Context, string) (userauth.Principal, error)
 	Logout(context.Context, string) error
-	ListUsers(context.Context, uuid.UUID, int) (userauth.UserPage, error)
+	ListUsers(context.Context, userauth.UserQuery) (userauth.UserPage, error)
 	SetUserActive(context.Context, uuid.UUID, bool) (userauth.ManagedUser, error)
 	RevokeUserSessions(context.Context, uuid.UUID) (int64, error)
 	ChangePassword(context.Context, uuid.UUID, string, string) error

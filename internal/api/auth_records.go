@@ -35,22 +35,30 @@ func (e authCollectionEndpoints) resolveAuthRecordID(ctx context.Context, collec
 
 func (e authCollectionEndpoints) adminRecordList(w http.ResponseWriter, r *http.Request) {
 	collection, _, err := authRecordIDs(r)
-	limit := 50
-	if value := r.URL.Query().Get("limit"); value != "" {
+	limit, after := 50, uuid.Nil
+	if value := r.URL.Query().Get("limit"); value != "" && err == nil {
 		limit, err = strconv.Atoi(value)
+	}
+	if value := r.URL.Query().Get("after"); value != "" && err == nil {
+		after, err = uuid.Parse(value)
 	}
 	if err != nil {
 		writeAuthCollectionError(w, r, userauth.ErrValidation)
 		return
 	}
-	items, err := e.dependencies.AuthCollections.ListAuthRecords(r.Context(), collection, limit)
+	items, next, err := e.dependencies.AuthCollections.ListAuthRecords(r.Context(), collection, after, limit)
 	if err != nil {
 		writeAuthCollectionError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, struct {
-		Items []userauth.AuthRecord `json:"items"`
-	}{items})
+	response := struct {
+		Items     []userauth.AuthRecord `json:"items"`
+		NextAfter string                `json:"nextAfter,omitempty"`
+	}{Items: items}
+	if next != uuid.Nil {
+		response.NextAfter = next.String()
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 func (e authCollectionEndpoints) adminRecordGet(w http.ResponseWriter, r *http.Request) {
 	collection, public, err := authRecordIDs(r)

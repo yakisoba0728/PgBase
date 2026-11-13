@@ -26,16 +26,11 @@ export function useDraft<T extends object>(initial: T) {
 /** Message for a client-side problem code. */
 export const problemText = (t: Translate, problems: Problems, key: string) => (problems[key] ? t(`authv.${problems[key]}`) : undefined);
 
-/** Thrown before a save when the stored value moved since the form loaded it; nothing was written. */
-export class StaleError extends Error {}
-
 /**
- * Policy, providers, templates and SMTP have no revision, so a save re-reads the stored value
- * first and refuses (unless forced) when another administrator changed it in the meantime.
+ * Policy, providers, templates and SMTP saves send the loaded `etag` as If-Match; the server refuses
+ * the write (412) when another administrator changed the value in the meantime, and nothing is written.
  */
-export async function assertUnchanged<T>(force: boolean, read: () => Promise<T>, base: T): Promise<void> {
-  if (!force && JSON.stringify(await read()) !== JSON.stringify(base ?? null)) throw new StaleError();
-}
+export const isStale = (error: unknown) => error instanceof ApiError && error.status === 412;
 
 /** Explains a refused stale save: load the stored value (dropping the draft) or overwrite it. */
 export function StaleNotice({ busy, onReload, onOverwrite }: { busy?: boolean; onReload: () => void; onOverwrite: () => void }) {
@@ -48,8 +43,15 @@ export function StaleNotice({ busy, onReload, onOverwrite }: { busy?: boolean; o
   );
 }
 
-/** Server rejections carry no field details; say so once, next to the form. */
+/** The fields a server rejection names (error.details), or none. */
+export function rejectedFields(error: unknown): string[] {
+  return error instanceof ApiError && error.details && typeof error.details === "object" ? Object.keys(error.details) : [];
+}
+
+/** A stale save shows its notice instead; a rejection names the fields the server reported. */
 export function reportFailure(t: Translate, error: unknown) {
-  if (error instanceof StaleError) return;
-  toast(error instanceof ApiError && error.code === "invalid_request" ? t("auth.rejected") : errorText(t, error), "danger");
+  if (isStale(error)) return;
+  const fields = rejectedFields(error);
+  if (fields.length) toast(t("auth.rejectedFields", { fields: fields.join(", ") }), "danger");
+  else toast(error instanceof ApiError && error.code === "invalid_request" ? t("auth.rejected") : errorText(t, error), "danger");
 }

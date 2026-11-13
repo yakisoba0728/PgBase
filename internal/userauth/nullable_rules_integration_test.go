@@ -37,7 +37,7 @@ func TestNullableAuthRuleRoundTripsAndDeniesEverySessionPath(t *testing.T) {
 		t.Fatalf("denied registration left users/sessions=%d/%d err=%v", users, sessions, err)
 	}
 	rules.nulls = map[string]bool{"manage": true, "list": true}
-	updated, err := service.UpdateAuthCollection(ctx, id, UpdateAuthCollectionInput{RegistrationEnabled: true, Rules: rules})
+	updated, err := service.UpdateAuthCollection(ctx, id, UpdateAuthCollectionInput{RegistrationEnabled: true, Rules: &rules})
 	if err != nil || updated.Rules.IsNull("auth") || updated.Rules.Auth != "" {
 		t.Fatalf("empty auth update=%#v err=%v", updated.Rules, err)
 	}

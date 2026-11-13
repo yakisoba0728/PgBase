@@ -1,13 +1,13 @@
 import type { FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { getAuthAdministration, listAuthCollections, setAuthPolicy, updateAuthCollection, type AuthAdministration, type AuthCollection } from "../api/authCollections";
+import { setAuthPolicy, updateAuthCollection, type AuthAdministration, type AuthCollection } from "../api/authCollections";
 import { Checkbox, Field } from "../components/Field";
 import { FormSection } from "../components/FormSection";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { policyDraft, policyInput, policyProblems, type PolicyDraft } from "./forms";
 import { administrationQuery } from "./queries";
-import { assertUnchanged, problemText, reportFailure, StaleError, StaleNotice, useDraft } from "./useDraft";
+import { isStale, problemText, reportFailure, StaleNotice, useDraft } from "./useDraft";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
 
@@ -21,18 +21,12 @@ export function PolicyTab({ collection, administration }: { collection: AuthColl
   const error = (key: string) => problemText(t, problems, key);
 
   const save = useMutation({
+    // The policy goes first: a stale one (412) is refused before registration changes. Forcing drops If-Match.
     mutationFn: async (force: boolean) => {
-      await assertUnchanged(force, async () => (await getAuthAdministration(collection.id)).policy, administration.policy);
-      if (draft.registrationEnabled !== collection.registrationEnabled) {
-        // PATCH replaces the field list and has no registration-only form, so the list is read again right
-        // before the write: a copy from page load would drop fields added since (rules are kept when omitted).
-        // shortcut: a change landing between this read and the PATCH is still lost; a server-side revision would close it.
-        const stored = (await listAuthCollections()).find((value) => value.id === collection.id);
-        if (!stored) throw new StaleError();
-        const fields = stored.fields.filter((field) => !field.system);
-        await updateAuthCollection(collection.id, { registrationEnabled: draft.registrationEnabled, fields });
-      }
-      return setAuthPolicy(collection.id, policyInput(draft));
+      const policy = await setAuthPolicy(collection.id, policyInput(draft), force ? undefined : administration.policy.etag);
+      // Without fields or rules, PATCH keeps the stored ones, so the toggle cannot drop a field added meanwhile.
+      if (draft.registrationEnabled !== collection.registrationEnabled) await updateAuthCollection(collection.id, { registrationEnabled: draft.registrationEnabled });
+      return policy;
     },
     onSuccess: async (policy) => {
       queryClient.setQueryData(administrationQuery(collection.id).queryKey, { ...administration, policy });
@@ -58,7 +52,7 @@ export function PolicyTab({ collection, administration }: { collection: AuthColl
         <SaveBar form="auth-policy" dirty={form.dirty} busy={save.isPending} onDiscard={form.reset} />
       </div>
       <div className="page-content">
-        {save.error instanceof StaleError && (
+        {isStale(save.error) && (
           <StaleNotice busy={save.isPending} onReload={() => void queryClient.invalidateQueries({ queryKey: administrationQuery(collection.id).queryKey })} onOverwrite={() => save.mutate(true)} />
         )}
         <form id="auth-policy" className="auth-form auth-form-wide" onSubmit={onSubmit} noValidate>

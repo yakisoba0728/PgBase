@@ -3,7 +3,6 @@ import { useSearchState } from "../app/search";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { RiAddLine, RiErrorWarningLine, RiSearchLine, RiUser3Line } from "@remixicon/react";
 import type { ManagedUser } from "../api/users";
-import { errorText } from "../app/queries";
 import { useTimeFormat } from "../app/format";
 import { Button, RefreshButton } from "../components/Button";
 import { ErrorState, LoadMore } from "../components/Feedback";
@@ -13,21 +12,19 @@ import { openRow } from "../components/DataGrid";
 import { SplitView } from "../components/SplitView";
 import { useT, type Translate } from "../i18n";
 import { NewUserPane } from "./NewUserPane";
-import { userQuery, usersQuery } from "./queries";
-import { isUserId, userStatusFilters, useUserScan, type UserScan, type UserStatusFilter } from "./userScan";
+import { authCollectionsQuery, userQuery, usersQuery } from "./queries";
 import { UserPane } from "./UserPane";
 import "../styles/auth.css";
 
-/** ?q= searches, ?status= filters, ?user=<uuid> opens a user, ?new=1 the create form. */
+/** ?q= searches (exact email or id), ?collection= filters, ?user=<uuid> opens a user, ?new=1 the create form. */
 function useUsersUrl() {
   const { params, update } = useSearchState();
   const set = (user: string | null, creating = false) => update({ user, new: creating ? "1" : null });
-  const status = params.get("status") as UserStatusFilter | null;
   return {
     user: params.get("user"),
     creating: params.has("new"),
     query: params.get("q") ?? "",
-    status: status && userStatusFilters.includes(status) ? status : "all",
+    collection: params.get("collection") ?? "",
     open: (id: string) => set(id),
     create: () => set(null, true),
     close: () => set(null),
@@ -46,22 +43,21 @@ export function UsersActions() {
   );
 }
 
-/** Every user across auth collections. Plain browsing pages by id; search and filters scan all pages. */
+/** Every user across auth collections, paged by id. Search and the collection filter run on the server. */
 export function UsersView() {
   const t = useT();
   const url = useUsersUrl();
   const [text, setText] = useState(url.query);
-  const searching = Boolean(url.query.trim() && !isUserId(url.query)) || url.status !== "all";
-  const users = useInfiniteQuery({ ...usersQuery, enabled: !searching });
-  const scan = useUserScan(url.query, url.status, searching);
-  const jump = isUserId(url.query) ? url.query.trim().toLowerCase() : null;
+  const users = useInfiniteQuery(usersQuery({ q: url.query.trim(), collection: url.collection }));
+  const collections = useQuery(authCollectionsQuery);
+  const names = new Map((collections.data ?? []).map((collection) => [collection.id, collection.name]));
   const openId = url.user ?? null;
-  // The open user is always read fresh, so actions show their effect even on scanned rows.
+  // The open user is always read fresh, so actions show their effect on the listed row too.
   const fresh = useQuery({ ...userQuery(openId ?? ""), enabled: Boolean(openId) });
-  const jumped = useQuery({ ...userQuery(jump ?? ""), enabled: Boolean(jump) });
-  const loaded = users.data?.pages.flatMap((page) => page.items) ?? [];
-  const rows = jump ? (jumped.data ? [jumped.data] : []) : searching ? scan.matches : loaded;
+  const rows = users.data?.pages.flatMap((page) => page.items) ?? [];
+  const first = users.data?.pages[0];
   const openUser = fresh.data ?? rows.find((user) => user.id === openId);
+  const filtered = Boolean(url.query.trim() || url.collection);
 
   const onSearch = (event: FormEvent) => {
     event.preventDefault();
@@ -75,34 +71,24 @@ export function UsersView() {
           setText(event.target.value);
           if (!event.target.value) url.filter({ q: null });
         }} />
-      <Field kind="select" label={t("auth.users.status")} value={url.status} options={userStatusFilters.map((value) => ({ value, label: t(`auth.users.filter.${value}`) }))}
-        onChange={(event) => url.filter({ status: event.target.value === "all" ? null : event.target.value })} />
+      <Field kind="select" label={t("auth.users.collection")} value={url.collection}
+        options={[{ value: "", label: t("auth.users.allCollections") }, ...(collections.data ?? []).map((collection) => ({ value: collection.id, label: collection.name }))]}
+        onChange={(event) => url.filter({ collection: event.target.value || null })} />
     </form>
   );
 
   let body;
-  if (jump) {
-    body = jumped.isPending ? <Loader /> : jumped.isError ? <ErrorState error={jumped.error} busy={jumped.isFetching} onRetry={() => void jumped.refetch()} />
-      : rows.length === 0 ? <EmptyState icon={RiUser3Line}>{t("auth.users.noId")}</EmptyState> : <UserTable t={t} rows={rows} openId={openId} fresh={fresh.data} onOpen={url.open} />;
-  } else if (searching) {
-    body = (
-      <>
-        <ScanBar t={t} scan={scan} />
-        {rows.length === 0 ? (
-          scan.state === "running" ? <Loader /> : scan.error ? null : <EmptyState icon={RiSearchLine}>{t("auth.users.noMatch")}</EmptyState>
-        ) : (
-          <UserTable t={t} rows={rows} openId={openId} fresh={fresh.data} onOpen={url.open} />
-        )}
-      </>
-    );
-  } else if (users.isPending) body = <Loader />;
+  if (users.isPending) body = <Loader />;
   else if (users.isError && !users.data) body = <ErrorState error={users.error} busy={users.isFetching} onRetry={() => void users.refetch()} />;
-  else if (loaded.length === 0) body = <EmptyState icon={RiUser3Line}>{t("auth.users.empty")}</EmptyState>;
+  else if (rows.length === 0) body = filtered ? <EmptyState icon={RiSearchLine}>{t("auth.users.noMatch")}</EmptyState> : <EmptyState icon={RiUser3Line}>{t("auth.users.empty")}</EmptyState>;
   else {
     body = (
       <>
-        <p className="auth-scan txt-hint">{users.hasNextPage ? t("auth.users.loadedMore", { count: loaded.length }) : t("auth.users.count", { count: loaded.length })}</p>
-        <UserTable t={t} rows={rows} openId={openId} fresh={fresh.data} onOpen={url.open} />
+        <p className="auth-scan txt-hint" role="status">
+          {first?.totalCapped ? t("auth.users.countCapped", { count: first.total ?? 0 }) : t("auth.users.count", { count: first?.total ?? rows.length })}
+          {users.hasNextPage ? ` · ${t("auth.users.loadedMore", { count: rows.length })}` : null}
+        </p>
+        <UserTable t={t} rows={rows} names={names} openId={openId} fresh={fresh.data} onOpen={url.open} />
         <LoadMore query={users} />
       </>
     );
@@ -129,27 +115,14 @@ export function UsersView() {
   );
 }
 
-function ScanBar({ t, scan }: { t: Translate; scan: UserScan }) {
-  return (
-    <div className="auth-scan" role="status" aria-live="polite">
-      {scan.state === "running" && <span className="loader" aria-hidden />}
-      <span className="txt-hint">
-        {scan.state === "done" ? t("auth.users.scanDone", { scanned: scan.scanned, count: scan.matches.length }) : t("auth.users.scanProgress", { scanned: scan.scanned, count: scan.matches.length })}
-      </span>
-      {scan.error ? <span className="field-error">{errorText(t, scan.error)}</span> : null}
-      {scan.state === "running" && <Button size="sm" variant="secondary" onClick={scan.stop}>{t("auth.users.scanStop")}</Button>}
-      {scan.state === "paused" && <Button size="sm" variant="secondary" onClick={scan.resume}>{scan.error ? t("common.retry") : t("auth.users.scanResume")}</Button>}
-    </div>
-  );
-}
-
-function UserTable({ t, rows, openId, fresh, onOpen }: { t: Translate; rows: ManagedUser[]; openId: string | null; fresh?: ManagedUser | null; onOpen: (id: string) => void }) {
+function UserTable({ t, rows, names, openId, fresh, onOpen }: { t: Translate; rows: ManagedUser[]; names: Map<string, string>; openId: string | null; fresh?: ManagedUser | null; onOpen: (id: string) => void }) {
   const time = useTimeFormat();
   return (
     <table className="grid" aria-label={t("nav.users")}>
       <thead>
         <tr>
           <th>{t("auth.users.email")}</th>
+          <th>{t("auth.users.collection")}</th>
           <th>{t("auth.users.status")}</th>
           <th>{t("auth.users.verified")}</th>
           <th>{t("auth.users.created")}</th>
@@ -162,6 +135,7 @@ function UserTable({ t, rows, openId, fresh, onOpen }: { t: Translate; rows: Man
           return (
             <tr key={user.id} {...openRow(() => onOpen(user.id), user.id === openId)}>
               <td>{user.email}</td>
+              <td className="mono">{names.get(user.authCollectionId) ?? user.authCollectionId}</td>
               <td><span className="dot" data-tone={user.active ? "success" : "danger"}>{user.active ? t("auth.users.active") : t("auth.users.disabled")}</span></td>
               <td><span className="dot" data-tone={user.verified ? "success" : undefined}>{user.verified ? t("auth.users.yes") : t("auth.users.no")}</span></td>
               <td className="mono">{time(user.createdAt)}</td>

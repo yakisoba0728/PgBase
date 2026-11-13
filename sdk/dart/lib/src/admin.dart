@@ -378,8 +378,29 @@ final class PgBaseAdminClient {
     cancellation: cancellation,
   );
 
-  Future<JsonObject> users({CancellationToken? cancellation}) =>
-      _object('GET', '/api/admin/users', cancellation: cancellation);
+  /// [query] is an exact user id or exact email; [total] adds a count capped
+  /// at 10000 (`totalCapped` beyond).
+  Future<JsonObject> users({
+    int? limit,
+    String? after,
+    String? authCollectionId,
+    String? query,
+    bool total = false,
+    CancellationToken? cancellation,
+  }) => _object(
+    'GET',
+    '/api/admin/users',
+    query: {
+      if (limit != null) 'limit': '$limit',
+      if (after != null) 'after': after,
+      if (authCollectionId != null) 'authCollectionId': authCollectionId,
+      if (query != null) 'q': query,
+      if (total) 'total': 'true',
+    },
+    cancellation: cancellation,
+  );
+  Future<JsonObject> user(String id, {CancellationToken? cancellation}) =>
+      _object('GET', '/api/admin/users/${Uri.encodeComponent(id)}', cancellation: cancellation);
 
   Future<JsonObject> administratorAccounts({
     int? limit,

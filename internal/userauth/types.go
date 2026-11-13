@@ -11,6 +11,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/mailer"
 	"github.com/yakisoba0728/PgBase/internal/recordidentity"
+	"github.com/yakisoba0728/PgBase/internal/validation"
 )
 
 type errorKind uint8
@@ -22,6 +23,7 @@ const (
 	errorRateLimited
 	errorNotFound
 	errorMFARequired
+	errorPreconditionFailed
 )
 
 type authError struct{ kind errorKind }
@@ -40,6 +42,8 @@ func (e *authError) Error() string {
 		return "user not found"
 	case errorMFARequired:
 		return "multi-factor authentication required"
+	case errorPreconditionFailed:
+		return "stored state changed since it was read"
 	default:
 		return "user authentication failed"
 	}
@@ -57,7 +61,25 @@ var (
 	ErrRateLimited        = &authError{kind: errorRateLimited}
 	ErrNotFound           = &authError{kind: errorNotFound}
 	ErrMFARequired        = &authError{kind: errorMFARequired}
+	ErrPreconditionFailed = &authError{kind: errorPreconditionFailed}
 )
+
+// fieldError keeps errors.Is(err, kind) working and names the offending
+// request field for administrator responses (errors.As *validation.Error).
+func fieldError(kind error, field, code string) error {
+	return errors.Join(kind, &validation.Error{Details: []validation.Detail{{Field: field, Code: code}}})
+}
+
+// firstInvalid takes (field string, invalid bool) pairs and names the first
+// invalid field, or "".
+func firstInvalid(checks ...any) string {
+	for i := 0; i+1 < len(checks); i += 2 {
+		if checks[i+1].(bool) {
+			return checks[i].(string)
+		}
+	}
+	return ""
+}
 
 type MFARequiredError struct {
 	ChallengeToken string
@@ -114,6 +136,20 @@ type ManagedUser struct {
 type UserPage struct {
 	Items     []ManagedUser
 	NextAfter uuid.UUID
+	// Total is filled only when requested and stops counting at
+	// maximumUserTotal, setting TotalCapped.
+	Total       int
+	TotalCapped bool
+}
+
+// UserQuery selects one page of users. Search is an exact user id or an exact
+// (case-insensitive) email address.
+type UserQuery struct {
+	After            uuid.UUID
+	Limit            int
+	AuthCollectionID uuid.UUID
+	Search           string
+	Total            bool
 }
 
 type Service struct {

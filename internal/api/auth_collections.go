@@ -32,7 +32,7 @@ type AuthCollections interface {
 	CompleteEmailOTPInCollection(context.Context, uuid.UUID, string, string) (userauth.Session, error)
 	GetProfile(context.Context, uuid.UUID) (map[string]any, error)
 	SetProfile(context.Context, uuid.UUID, map[string]any) (map[string]any, error)
-	ListAuthRecords(context.Context, uuid.UUID, int) ([]userauth.AuthRecord, error)
+	ListAuthRecords(context.Context, uuid.UUID, uuid.UUID, int) ([]userauth.AuthRecord, uuid.UUID, error)
 	GetAuthRecord(context.Context, uuid.UUID, uuid.UUID) (userauth.AuthRecord, error)
 	CreateAuthRecord(context.Context, uuid.UUID, userauth.CreateAuthRecordInput) (userauth.AuthRecord, error)
 	UpdateAuthRecord(context.Context, uuid.UUID, uuid.UUID, userauth.UpdateAuthRecordInput) (userauth.AuthRecord, error)
@@ -275,7 +275,9 @@ func (e authCollectionEndpoints) adminUpdate(w http.ResponseWriter, r *http.Requ
 		Rules               *userauth.AuthCollectionRules `json:"rules"`
 		RecordID            *schema.RecordIDPolicy        `json:"recordId,omitempty"`
 	}
-	if err != nil || decodeStrictJSON(r, &in) != nil || in.RegistrationEnabled == nil || (in.ProfileSchema == nil && in.Fields == nil) {
+	// Omitted fields/profileSchema and rules keep the stored values, read under
+	// the realm row lock, so a registration toggle never rewrites the field list.
+	if err != nil || decodeStrictJSON(r, &in) != nil || in.RegistrationEnabled == nil {
 		writeAuthCollectionError(w, r, userauth.ErrValidation)
 		return
 	}
@@ -283,29 +285,7 @@ func (e authCollectionEndpoints) adminUpdate(w http.ResponseWriter, r *http.Requ
 	if in.ProfileSchema != nil {
 		legacy = *in.ProfileSchema
 	}
-	rules := userauth.AuthCollectionRules{}
-	if in.Rules != nil {
-		rules = *in.Rules
-	} else {
-		values, listErr := e.dependencies.AuthCollections.ListAuthCollections(r.Context())
-		if listErr != nil {
-			writeAuthCollectionError(w, r, listErr)
-			return
-		}
-		found := false
-		for _, value := range values {
-			if value.ID == id {
-				rules = value.Rules
-				found = true
-				break
-			}
-		}
-		if !found {
-			writeAuthCollectionError(w, r, userauth.ErrNotFound)
-			return
-		}
-	}
-	v, err := e.dependencies.AuthCollections.UpdateAuthCollection(r.Context(), id, userauth.UpdateAuthCollectionInput{RegistrationEnabled: *in.RegistrationEnabled, ProfileSchema: legacy, Fields: in.Fields, Rules: rules, RecordID: in.RecordID})
+	v, err := e.dependencies.AuthCollections.UpdateAuthCollection(r.Context(), id, userauth.UpdateAuthCollectionInput{RegistrationEnabled: *in.RegistrationEnabled, ProfileSchema: legacy, Fields: in.Fields, Rules: in.Rules, RecordID: in.RecordID})
 	if err != nil {
 		writeAuthCollectionError(w, r, err)
 		return
@@ -481,5 +461,20 @@ func writeAuthCollectionError(w http.ResponseWriter, r *http.Request, err error)
 	case errors.Is(err, userauth.ErrConflict):
 		response = APIError{Status: 409, Code: "conflict", Message: "Authentication collection conflicts with existing data"}
 	}
+	response.Details = validationDetails(err)
 	writeAPIError(w, r, response)
+}
+
+// validationDetails exposes the field paths an administrator service error
+// names (userauth attaches them only on administrator operations).
+func validationDetails(err error) map[string][]string {
+	var invalid *schema.ValidationError
+	if !errors.As(err, &invalid) {
+		return nil
+	}
+	details := map[string][]string{}
+	for _, detail := range invalid.Details {
+		details[detail.Field] = append(details[detail.Field], detail.Code)
+	}
+	return details
 }

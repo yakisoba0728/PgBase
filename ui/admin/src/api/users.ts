@@ -8,6 +8,7 @@ const seg = encodeURIComponent;
 
 export interface ManagedUser {
   id: string;
+  authCollectionId: string;
   email: string;
   verified: boolean;
   active: boolean;
@@ -19,11 +20,29 @@ export interface ManagedUserPage {
   items: ManagedUser[];
   /** Present when more users follow; pass back as `after`. */
   nextAfter?: string;
+  /** Only with `total: true`; counting stops at 10000 and sets `totalCapped`. */
+  total?: number;
+  totalCapped?: boolean;
 }
 
-/** limit 1..100, default 50. */
-export function listUsers(options: { after?: string; limit?: number; signal?: AbortSignal } = {}): Promise<ManagedUserPage> {
-  return request("GET", base, { query: { after: options.after, limit: options.limit }, signal: options.signal });
+export interface UserListOptions {
+  after?: string;
+  /** 1..100, default 50. */
+  limit?: number;
+  authCollectionId?: string;
+  /** An exact user id or an exact (case-insensitive) email. */
+  q?: string;
+  total?: boolean;
+  signal?: AbortSignal;
+}
+
+export function listUsers(options: UserListOptions = {}): Promise<ManagedUserPage> {
+  const { after, limit, authCollectionId, q, total, signal } = options;
+  return request("GET", base, { query: { after, limit, authCollectionId, q: q || undefined, total: total ? "true" : undefined }, signal });
+}
+
+export function getUser(id: string, signal?: AbortSignal): Promise<ManagedUser> {
+  return request("GET", `${base}/${seg(id)}`, { signal });
 }
 
 export function setUserActive(id: string, active: boolean): Promise<ManagedUser> {

@@ -47,13 +47,18 @@ func (s *Service) ListTokenPolicies(ctx context.Context, realm uuid.UUID) ([]Tok
 }
 
 func (s *Service) PutTokenPolicy(ctx context.Context, realm uuid.UUID, p TokenPolicy) (TokenPolicy, error) {
-	if realm == uuid.Nil || !tokenPolicyPurpose(p.Purpose) || p.TTLSeconds < 60 || p.TTLSeconds > 86400 || len(p.Key) > 4096 {
+	if realm == uuid.Nil {
 		return p, ErrValidation
+	}
+	if field := firstInvalid(
+		"purpose", !tokenPolicyPurpose(p.Purpose),
+		"ttlSeconds", p.TTLSeconds < 60 || p.TTLSeconds > 86400,
+		"key", len(p.Key) > 4096 || p.Key == "" && p.KeyVersion != "" || p.Key != "" && len([]byte(p.Key)) < minimumTokenPolicyKeyBytes,
+		"keyVersion", p.Key != "" && p.KeyVersion == "" || p.KeyVersion != "" && !validTokenPolicyVersion(p.KeyVersion),
+	); field != "" {
+		return p, fieldError(ErrValidation, field, "invalid")
 	}
 	rotating := p.Key != "" || p.KeyVersion != ""
-	if (p.Key == "") != (p.KeyVersion == "") || p.Key != "" && len([]byte(p.Key)) < minimumTokenPolicyKeyBytes || p.KeyVersion != "" && !validTokenPolicyVersion(p.KeyVersion) {
-		return p, ErrValidation
-	}
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		// Serialize first creation with duration-only updates. Row-level policy
 		// locking cannot protect a policy row that does not exist yet.

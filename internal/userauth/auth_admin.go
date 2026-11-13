@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/mail"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,6 +53,43 @@ type AuthPolicy struct {
 	OTPEnabled           bool     `json:"otpEnabled"`
 	OTPDurationSeconds   int      `json:"otpDurationSeconds"`
 	OTPMaxAttempts       int      `json:"otpMaxAttempts"`
+	// ETag is the stored state's entity tag on output. On input a non-empty
+	// value is the precondition checked under the row lock: "*" or one tag
+	// (If-Match), or CreateOnly (If-None-Match: *) for a row that must not exist.
+	ETag string `json:"etag,omitempty"`
+}
+
+// Entity tags are derived from the stored row (including updated_at), never
+// from secret material, so no migration or revision column is needed.
+const (
+	policyETag   = `'"'||md5(p::text)||'"'`
+	providerETag = `'"'||md5((to_jsonb(p)-'client_secret_ciphertext')::text)||'"'`
+	templateETag = `'"'||md5(t::text)||'"'`
+	smtpETag     = `'"'||md5((to_jsonb(c)-'password_ciphertext')::text)||'"'`
+)
+
+// CreateOnly is the input ETag for If-None-Match: *.
+const CreateOnly = "!*"
+
+// preconditionHolds reports whether the precondition expected (empty when
+// absent) admits the current tag (empty when the row does not exist).
+func preconditionHolds(expected, current string) bool {
+	if expected == CreateOnly {
+		return current == ""
+	}
+	return expected == "" || current != "" && (expected == "*" || expected == current)
+}
+
+// lockRealmSettings serializes the settings writes of one realm, so two first
+// writes of an absent row cannot both pass a CreateOnly check. NO KEY UPDATE
+// leaves user registration (a foreign-key share lock) unblocked.
+func lockRealmSettings(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	var locked uuid.UUID
+	err := tx.QueryRow(ctx, `select id from pgbase_meta.auth_collections where id=$1 for no key update`, id).Scan(&locked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
 }
 
 type OAuthProviderConfig struct {
@@ -72,6 +110,7 @@ type OAuthProviderConfig struct {
 	EmailVerifiedField    string   `json:"emailVerifiedField"`
 	AvatarField           string   `json:"avatarField"`
 	ClientSecret          string   `json:"-"`
+	ETag                  string   `json:"etag,omitempty"`
 }
 
 // OAuthProviderCatalog is the safe configuration starter returned by the PB
@@ -97,6 +136,7 @@ type MailTemplate struct {
 	Subject  string `json:"subject"`
 	Body     string `json:"body"`
 	HTMLBody string `json:"htmlBody"`
+	ETag     string `json:"etag,omitempty"`
 }
 type SMTPAdminConfig struct {
 	Address               string `json:"address"`
@@ -107,6 +147,7 @@ type SMTPAdminConfig struct {
 	ImplicitTLS           bool   `json:"implicitTls"`
 	AllowInsecureLoopback bool   `json:"allowInsecureLoopback"`
 	PasswordConfigured    bool   `json:"passwordConfigured"`
+	ETag                  string `json:"etag,omitempty"`
 }
 
 type AuthAdministration struct {
@@ -121,12 +162,12 @@ func (s *Service) GetAuthAdministration(ctx context.Context, collectionID uuid.U
 		return AuthAdministration{}, ErrValidation
 	}
 	out := AuthAdministration{Providers: []OAuthProviderConfig{}, Templates: []MailTemplate{}}
-	if err := s.pool.QueryRow(ctx, `select password_enabled,minimum_password_bytes,maximum_password_bytes,password_pattern,identity_fields,mfa_enabled,mfa_duration_seconds,mfa_rule,otp_enabled,otp_duration_seconds,otp_max_attempts from pgbase_meta.auth_collection_policies where auth_collection_id=$1`, collectionID).Scan(&out.Policy.PasswordEnabled, &out.Policy.MinimumPasswordBytes, &out.Policy.MaximumPasswordBytes, &out.Policy.PasswordPattern, &out.Policy.IdentityFields, &out.Policy.MFAEnabled, &out.Policy.MFADurationSeconds, &out.Policy.MFARule, &out.Policy.OTPEnabled, &out.Policy.OTPDurationSeconds, &out.Policy.OTPMaxAttempts); errors.Is(err, pgx.ErrNoRows) {
+	if err := s.pool.QueryRow(ctx, `select password_enabled,minimum_password_bytes,maximum_password_bytes,password_pattern,identity_fields,mfa_enabled,mfa_duration_seconds,mfa_rule,otp_enabled,otp_duration_seconds,otp_max_attempts,`+policyETag+` from pgbase_meta.auth_collection_policies p where auth_collection_id=$1`, collectionID).Scan(&out.Policy.PasswordEnabled, &out.Policy.MinimumPasswordBytes, &out.Policy.MaximumPasswordBytes, &out.Policy.PasswordPattern, &out.Policy.IdentityFields, &out.Policy.MFAEnabled, &out.Policy.MFADurationSeconds, &out.Policy.MFARule, &out.Policy.OTPEnabled, &out.Policy.OTPDurationSeconds, &out.Policy.OTPMaxAttempts, &out.Policy.ETag); errors.Is(err, pgx.ErrNoRows) {
 		return out, ErrNotFound
 	} else if err != nil {
 		return out, err
 	}
-	rows, err := s.pool.Query(ctx, `select name,enabled,authorization_url,token_url,user_info_url,issuer,jwks_url,client_id,client_secret_ciphertext is not null,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback from pgbase_meta.auth_oauth_providers where auth_collection_id=$1 order by name limit 32`, collectionID)
+	rows, err := s.pool.Query(ctx, `select name,enabled,authorization_url,token_url,user_info_url,issuer,jwks_url,client_id,client_secret_ciphertext is not null,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback,`+providerETag+` from pgbase_meta.auth_oauth_providers p where auth_collection_id=$1 order by name limit 32`, collectionID)
 	if err != nil {
 		return out, err
 	}
@@ -134,7 +175,7 @@ func (s *Service) GetAuthAdministration(ctx context.Context, collectionID uuid.U
 	for rows.Next() {
 		var p OAuthProviderConfig
 		var scopes, redirects []byte
-		if err := rows.Scan(&p.Name, &p.Enabled, &p.AuthorizationURL, &p.TokenURL, &p.UserInfoURL, &p.Issuer, &p.JWKSURL, &p.ClientID, &p.SecretConfigured, &scopes, &redirects, &p.SubjectField, &p.EmailField, &p.EmailVerifiedField, &p.AvatarField, &p.AllowInsecureLoopback); err != nil {
+		if err := rows.Scan(&p.Name, &p.Enabled, &p.AuthorizationURL, &p.TokenURL, &p.UserInfoURL, &p.Issuer, &p.JWKSURL, &p.ClientID, &p.SecretConfigured, &scopes, &redirects, &p.SubjectField, &p.EmailField, &p.EmailVerifiedField, &p.AvatarField, &p.AllowInsecureLoopback, &p.ETag); err != nil {
 			return out, err
 		}
 		if json.Unmarshal(scopes, &p.Scopes) != nil || json.Unmarshal(redirects, &p.RedirectURIs) != nil {
@@ -151,20 +192,20 @@ func (s *Service) GetAuthAdministration(ctx context.Context, collectionID uuid.U
 	if err := rows.Err(); err != nil {
 		return out, err
 	}
-	rows, err = s.pool.Query(ctx, `select purpose,subject,body,html_body from pgbase_meta.auth_mail_templates where auth_collection_id=$1 order by purpose`, collectionID)
+	rows, err = s.pool.Query(ctx, `select purpose,subject,body,html_body,`+templateETag+` from pgbase_meta.auth_mail_templates t where auth_collection_id=$1 order by purpose`, collectionID)
 	if err != nil {
 		return out, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var t MailTemplate
-		if err := rows.Scan(&t.Purpose, &t.Subject, &t.Body, &t.HTMLBody); err != nil {
+		if err := rows.Scan(&t.Purpose, &t.Subject, &t.Body, &t.HTMLBody, &t.ETag); err != nil {
 			return out, err
 		}
 		out.Templates = append(out.Templates, t)
 	}
 	var smtp SMTPAdminConfig
-	err = s.pool.QueryRow(ctx, `select address,sender,username,password_ciphertext is not null,server_name,implicit_tls,allow_insecure_loopback from pgbase_meta.auth_smtp_configs where auth_collection_id=$1`, collectionID).Scan(&smtp.Address, &smtp.From, &smtp.Username, &smtp.PasswordConfigured, &smtp.ServerName, &smtp.ImplicitTLS, &smtp.AllowInsecureLoopback)
+	err = s.pool.QueryRow(ctx, `select address,sender,username,password_ciphertext is not null,server_name,implicit_tls,allow_insecure_loopback,`+smtpETag+` from pgbase_meta.auth_smtp_configs c where auth_collection_id=$1`, collectionID).Scan(&smtp.Address, &smtp.From, &smtp.Username, &smtp.PasswordConfigured, &smtp.ServerName, &smtp.ImplicitTLS, &smtp.AllowInsecureLoopback, &smtp.ETag)
 	if err == nil {
 		out.SMTP = &smtp
 	} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -189,15 +230,30 @@ func (s *Service) SetAuthPolicy(ctx context.Context, collectionID uuid.UUID, pol
 	if policy.OTPMaxAttempts == 0 {
 		policy.OTPMaxAttempts = 5
 	}
-	if collectionID == uuid.Nil || policy.MinimumPasswordBytes < minimumPasswordBytes || policy.MinimumPasswordBytes > 128 || policy.MaximumPasswordBytes < policy.MinimumPasswordBytes || policy.MaximumPasswordBytes > 4096 || len(policy.PasswordPattern) > 512 || (policy.PasswordPattern != "" && !validPasswordPattern(policy.PasswordPattern)) || !validIdentityFields(policy.IdentityFields) || policy.MFADurationSeconds < 60 || policy.MFADurationSeconds > 86400 || len(policy.MFARule) > 1024 || !validMFARule(policy.MFARule) || policy.OTPDurationSeconds < 60 || policy.OTPDurationSeconds > 900 || policy.OTPMaxAttempts < 1 || policy.OTPMaxAttempts > 10 {
+	if collectionID == uuid.Nil {
 		return AuthPolicy{}, ErrValidation
+	}
+	if field := firstInvalid(
+		"minimumPasswordBytes", policy.MinimumPasswordBytes < minimumPasswordBytes || policy.MinimumPasswordBytes > 128,
+		"maximumPasswordBytes", policy.MaximumPasswordBytes < policy.MinimumPasswordBytes || policy.MaximumPasswordBytes > 4096,
+		"passwordPattern", len(policy.PasswordPattern) > 512 || (policy.PasswordPattern != "" && !validPasswordPattern(policy.PasswordPattern)),
+		"identityFields", !validIdentityFields(policy.IdentityFields),
+		"mfaDurationSeconds", policy.MFADurationSeconds < 60 || policy.MFADurationSeconds > 86400,
+		"mfaRule", len(policy.MFARule) > 1024 || !validMFARule(policy.MFARule),
+		"otpDurationSeconds", policy.OTPDurationSeconds < 60 || policy.OTPDurationSeconds > 900,
+		"otpMaxAttempts", policy.OTPMaxAttempts < 1 || policy.OTPMaxAttempts > 10,
+	); field != "" {
+		return AuthPolicy{}, fieldError(ErrValidation, field, "invalid")
 	}
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var previous AuthPolicy
-		if err := tx.QueryRow(ctx, `select password_enabled,minimum_password_bytes,maximum_password_bytes,password_pattern,identity_fields,mfa_enabled,mfa_duration_seconds,mfa_rule,otp_enabled,otp_duration_seconds,otp_max_attempts from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for update`, collectionID).Scan(&previous.PasswordEnabled, &previous.MinimumPasswordBytes, &previous.MaximumPasswordBytes, &previous.PasswordPattern, &previous.IdentityFields, &previous.MFAEnabled, &previous.MFADurationSeconds, &previous.MFARule, &previous.OTPEnabled, &previous.OTPDurationSeconds, &previous.OTPMaxAttempts); errors.Is(err, pgx.ErrNoRows) {
+		if err := tx.QueryRow(ctx, `select password_enabled,minimum_password_bytes,maximum_password_bytes,password_pattern,identity_fields,mfa_enabled,mfa_duration_seconds,mfa_rule,otp_enabled,otp_duration_seconds,otp_max_attempts,`+policyETag+` from pgbase_meta.auth_collection_policies p where auth_collection_id=$1 for update`, collectionID).Scan(&previous.PasswordEnabled, &previous.MinimumPasswordBytes, &previous.MaximumPasswordBytes, &previous.PasswordPattern, &previous.IdentityFields, &previous.MFAEnabled, &previous.MFADurationSeconds, &previous.MFARule, &previous.OTPEnabled, &previous.OTPDurationSeconds, &previous.OTPMaxAttempts, &previous.ETag); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
 			return err
+		}
+		if !preconditionHolds(policy.ETag, previous.ETag) {
+			return ErrPreconditionFailed
 		}
 		var fieldsRaw []byte
 		if err := tx.QueryRow(ctx, `select fields_json from pgbase_meta.auth_collections where id=$1 for share`, collectionID).Scan(&fieldsRaw); errors.Is(err, pgx.ErrNoRows) {
@@ -207,7 +263,7 @@ func (s *Service) SetAuthPolicy(ctx context.Context, collectionID uuid.UUID, pol
 		}
 		var fields []schema.FieldInput
 		if json.Unmarshal(fieldsRaw, &fields) != nil || !identityFieldsMatchAuthSchema(policy.IdentityFields, fields) {
-			return ErrValidation
+			return fieldError(ErrValidation, "identityFields", "not_a_visible_text_field")
 		}
 		for _, field := range policy.IdentityFields {
 			if field == "email" {
@@ -218,16 +274,14 @@ func (s *Service) SetAuthPolicy(ctx context.Context, collectionID uuid.UUID, pol
 				return err
 			}
 			if duplicate {
-				return ErrConflict
+				return fieldError(ErrConflict, "identityFields", "duplicate_values")
 			}
 		}
 		identityFields, _ := json.Marshal(policy.IdentityFields)
-		tag, err := tx.Exec(ctx, `update pgbase_meta.auth_collection_policies set password_enabled=$2,minimum_password_bytes=$3,maximum_password_bytes=$4,password_pattern=$5,identity_fields=$6,mfa_enabled=$7,mfa_duration_seconds=$8,mfa_rule=$9,otp_enabled=$10,otp_duration_seconds=$11,otp_max_attempts=$12,updated_at=CURRENT_TIMESTAMP where auth_collection_id=$1`, collectionID, policy.PasswordEnabled, policy.MinimumPasswordBytes, policy.MaximumPasswordBytes, policy.PasswordPattern, identityFields, policy.MFAEnabled, policy.MFADurationSeconds, policy.MFARule, policy.OTPEnabled, policy.OTPDurationSeconds, policy.OTPMaxAttempts)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() != 1 {
+		if err := tx.QueryRow(ctx, `update pgbase_meta.auth_collection_policies p set password_enabled=$2,minimum_password_bytes=$3,maximum_password_bytes=$4,password_pattern=$5,identity_fields=$6,mfa_enabled=$7,mfa_duration_seconds=$8,mfa_rule=$9,otp_enabled=$10,otp_duration_seconds=$11,otp_max_attempts=$12,updated_at=clock_timestamp() where auth_collection_id=$1 returning `+policyETag, collectionID, policy.PasswordEnabled, policy.MinimumPasswordBytes, policy.MaximumPasswordBytes, policy.PasswordPattern, identityFields, policy.MFAEnabled, policy.MFADurationSeconds, policy.MFARule, policy.OTPEnabled, policy.OTPDurationSeconds, policy.OTPMaxAttempts).Scan(&policy.ETag); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
+		} else if err != nil {
+			return err
 		}
 		return authpolicy.ApplyTransition(ctx, tx, collectionID, authpolicy.Policy{
 			PasswordEnabled: previous.PasswordEnabled, MinimumPasswordBytes: previous.MinimumPasswordBytes,
@@ -287,8 +341,22 @@ func validateStrings(values []string, maxItems, maxBytes int) bool {
 }
 
 func (s *Service) PutOAuthProvider(ctx context.Context, collectionID uuid.UUID, p OAuthProviderConfig) (OAuthProviderConfig, error) {
-	if collectionID == uuid.Nil || !validProviderName(p.Name) || !validateStrings(p.Scopes, 32, 128) || !validateStrings(p.RedirectURIs, 16, 2048) {
+	if collectionID == uuid.Nil {
 		return p, ErrValidation
+	}
+	loopback := p.AllowInsecureLoopback
+	if field := firstInvalid(
+		"name", !validProviderName(p.Name),
+		"scopes", !validateStrings(p.Scopes, 32, 128),
+		"redirectUris", !validateStrings(p.RedirectURIs, 16, 2048) || slices.ContainsFunc(p.RedirectURIs, func(v string) bool { return !validEndpoint(v, loopback) }),
+		"authorizationUrl", !validEndpoint(p.AuthorizationURL, loopback),
+		"tokenUrl", !validEndpoint(p.TokenURL, loopback),
+		"userInfoUrl", p.UserInfoURL != "" && !validEndpoint(p.UserInfoURL, loopback) || p.UserInfoURL == "" && p.JWKSURL == "",
+		"jwksUrl", p.JWKSURL != "" && !validEndpoint(p.JWKSURL, loopback),
+		"issuer", p.JWKSURL != "" && !validEndpoint(p.Issuer, loopback),
+		"clientId", p.ClientID == "" || len(p.ClientID) > 1024,
+	); field != "" {
+		return p, fieldError(ErrValidation, field, "invalid")
 	}
 	if p.Scopes == nil {
 		p.Scopes = []string{}
@@ -301,11 +369,6 @@ func (s *Service) PutOAuthProvider(ctx context.Context, collectionID uuid.UUID, 
 		return p, err
 	}
 	_ = provider
-	for _, redirect := range p.RedirectURIs {
-		if !validEndpoint(redirect, p.AllowInsecureLoopback) {
-			return p, ErrValidation
-		}
-	}
 	scopes, _ := json.Marshal(p.Scopes)
 	redirects, _ := json.Marshal(p.RedirectURIs)
 	var encrypted []byte
@@ -316,10 +379,20 @@ func (s *Service) PutOAuthProvider(ctx context.Context, collectionID uuid.UUID, 
 		}
 	}
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if encrypted == nil {
-			return tx.QueryRow(ctx, `insert into pgbase_meta.auth_oauth_providers(auth_collection_id,name,enabled,authorization_url,token_url,user_info_url,issuer,jwks_url,client_id,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) on conflict(auth_collection_id,name) do update set enabled=excluded.enabled,authorization_url=excluded.authorization_url,token_url=excluded.token_url,user_info_url=excluded.user_info_url,issuer=excluded.issuer,jwks_url=excluded.jwks_url,client_id=excluded.client_id,scopes=excluded.scopes,redirect_uris=excluded.redirect_uris,subject_field=excluded.subject_field,email_field=excluded.email_field,email_verified_field=excluded.email_verified_field,avatar_field=excluded.avatar_field,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP returning client_secret_ciphertext is not null`, collectionID, p.Name, p.Enabled, p.AuthorizationURL, p.TokenURL, p.UserInfoURL, p.Issuer, p.JWKSURL, p.ClientID, scopes, redirects, p.SubjectField, p.EmailField, p.EmailVerifiedField, p.AvatarField, p.AllowInsecureLoopback).Scan(&p.SecretConfigured)
+		if err := lockRealmSettings(ctx, tx, collectionID); err != nil {
+			return err
 		}
-		_, err := tx.Exec(ctx, `insert into pgbase_meta.auth_oauth_providers(auth_collection_id,name,enabled,authorization_url,token_url,user_info_url,issuer,jwks_url,client_id,client_secret_ciphertext,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) on conflict(auth_collection_id,name) do update set enabled=excluded.enabled,authorization_url=excluded.authorization_url,token_url=excluded.token_url,user_info_url=excluded.user_info_url,issuer=excluded.issuer,jwks_url=excluded.jwks_url,client_id=excluded.client_id,client_secret_ciphertext=excluded.client_secret_ciphertext,scopes=excluded.scopes,redirect_uris=excluded.redirect_uris,subject_field=excluded.subject_field,email_field=excluded.email_field,email_verified_field=excluded.email_verified_field,avatar_field=excluded.avatar_field,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP`, collectionID, p.Name, p.Enabled, p.AuthorizationURL, p.TokenURL, p.UserInfoURL, p.Issuer, p.JWKSURL, p.ClientID, encrypted, scopes, redirects, p.SubjectField, p.EmailField, p.EmailVerifiedField, p.AvatarField, p.AllowInsecureLoopback)
+		var current string
+		if err := tx.QueryRow(ctx, `select `+providerETag+` from pgbase_meta.auth_oauth_providers p where auth_collection_id=$1 and name=$2 for update`, collectionID, p.Name).Scan(&current); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if !preconditionHolds(p.ETag, current) {
+			return ErrPreconditionFailed
+		}
+		if encrypted == nil {
+			return tx.QueryRow(ctx, `insert into pgbase_meta.auth_oauth_providers as p(auth_collection_id,name,enabled,authorization_url,token_url,user_info_url,issuer,jwks_url,client_id,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) on conflict(auth_collection_id,name) do update set enabled=excluded.enabled,authorization_url=excluded.authorization_url,token_url=excluded.token_url,user_info_url=excluded.user_info_url,issuer=excluded.issuer,jwks_url=excluded.jwks_url,client_id=excluded.client_id,scopes=excluded.scopes,redirect_uris=excluded.redirect_uris,subject_field=excluded.subject_field,email_field=excluded.email_field,email_verified_field=excluded.email_verified_field,avatar_field=excluded.avatar_field,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP returning client_secret_ciphertext is not null,`+providerETag, collectionID, p.Name, p.Enabled, p.AuthorizationURL, p.TokenURL, p.UserInfoURL, p.Issuer, p.JWKSURL, p.ClientID, scopes, redirects, p.SubjectField, p.EmailField, p.EmailVerifiedField, p.AvatarField, p.AllowInsecureLoopback).Scan(&p.SecretConfigured, &p.ETag)
+		}
+		err := tx.QueryRow(ctx, `insert into pgbase_meta.auth_oauth_providers as p(auth_collection_id,name,enabled,authorization_url,token_url,user_info_url,issuer,jwks_url,client_id,client_secret_ciphertext,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) on conflict(auth_collection_id,name) do update set enabled=excluded.enabled,authorization_url=excluded.authorization_url,token_url=excluded.token_url,user_info_url=excluded.user_info_url,issuer=excluded.issuer,jwks_url=excluded.jwks_url,client_id=excluded.client_id,client_secret_ciphertext=excluded.client_secret_ciphertext,scopes=excluded.scopes,redirect_uris=excluded.redirect_uris,subject_field=excluded.subject_field,email_field=excluded.email_field,email_verified_field=excluded.email_verified_field,avatar_field=excluded.avatar_field,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP returning `+providerETag, collectionID, p.Name, p.Enabled, p.AuthorizationURL, p.TokenURL, p.UserInfoURL, p.Issuer, p.JWKSURL, p.ClientID, encrypted, scopes, redirects, p.SubjectField, p.EmailField, p.EmailVerifiedField, p.AvatarField, p.AllowInsecureLoopback).Scan(&p.ETag)
 		p.SecretConfigured = true
 		return err
 	})
@@ -362,7 +435,19 @@ func (s *Service) PutMailTemplate(ctx context.Context, collectionID uuid.UUID, t
 	if collectionID == uuid.Nil || !validTemplate(t) {
 		return t, ErrValidation
 	}
-	_, err := s.pool.Exec(ctx, `insert into pgbase_meta.auth_mail_templates(auth_collection_id,purpose,subject,body,html_body) values($1,$2,$3,$4,$5) on conflict(auth_collection_id,purpose) do update set subject=excluded.subject,body=excluded.body,html_body=excluded.html_body,updated_at=CURRENT_TIMESTAMP`, collectionID, t.Purpose, t.Subject, t.Body, t.HTMLBody)
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := lockRealmSettings(ctx, tx, collectionID); err != nil {
+			return err
+		}
+		var current string
+		if err := tx.QueryRow(ctx, `select `+templateETag+` from pgbase_meta.auth_mail_templates t where auth_collection_id=$1 and purpose=$2 for update`, collectionID, t.Purpose).Scan(&current); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if !preconditionHolds(t.ETag, current) {
+			return ErrPreconditionFailed
+		}
+		return tx.QueryRow(ctx, `insert into pgbase_meta.auth_mail_templates as t(auth_collection_id,purpose,subject,body,html_body) values($1,$2,$3,$4,$5) on conflict(auth_collection_id,purpose) do update set subject=excluded.subject,body=excluded.body,html_body=excluded.html_body,updated_at=CURRENT_TIMESTAMP returning `+templateETag, collectionID, t.Purpose, t.Subject, t.Body, t.HTMLBody).Scan(&t.ETag)
+	})
 	return t, err
 }
 
@@ -403,12 +488,20 @@ func (s *Service) PutSMTPConfig(ctx context.Context, collectionID uuid.UUID, c S
 			return c, err
 		}
 	}
-	if encrypted == nil {
-		err = s.pool.QueryRow(ctx, `insert into pgbase_meta.auth_smtp_configs(auth_collection_id,address,sender,username,server_name,implicit_tls,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7) on conflict(auth_collection_id) do update set address=excluded.address,sender=excluded.sender,username=excluded.username,server_name=excluded.server_name,implicit_tls=excluded.implicit_tls,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP returning password_ciphertext is not null`, collectionID, c.Address, c.From, c.Username, c.ServerName, c.ImplicitTLS, c.AllowInsecureLoopback).Scan(&c.PasswordConfigured)
-	} else {
-		_, err = s.pool.Exec(ctx, `insert into pgbase_meta.auth_smtp_configs(auth_collection_id,address,sender,username,password_ciphertext,server_name,implicit_tls,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8) on conflict(auth_collection_id) do update set address=excluded.address,sender=excluded.sender,username=excluded.username,password_ciphertext=excluded.password_ciphertext,server_name=excluded.server_name,implicit_tls=excluded.implicit_tls,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP`, collectionID, c.Address, c.From, c.Username, encrypted, c.ServerName, c.ImplicitTLS, c.AllowInsecureLoopback)
-		c.PasswordConfigured = true
-	}
+	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := lockRealmSettings(ctx, tx, collectionID); err != nil {
+			return err
+		}
+		var current string
+		if err := tx.QueryRow(ctx, `select `+smtpETag+` from pgbase_meta.auth_smtp_configs c where auth_collection_id=$1 for update`, collectionID).Scan(&current); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if !preconditionHolds(c.ETag, current) {
+			return ErrPreconditionFailed
+		}
+		// coalesce keeps the stored password when none is sent.
+		return tx.QueryRow(ctx, `insert into pgbase_meta.auth_smtp_configs as c(auth_collection_id,address,sender,username,password_ciphertext,server_name,implicit_tls,allow_insecure_loopback) values($1,$2,$3,$4,$5,$6,$7,$8) on conflict(auth_collection_id) do update set address=excluded.address,sender=excluded.sender,username=excluded.username,password_ciphertext=coalesce(excluded.password_ciphertext,c.password_ciphertext),server_name=excluded.server_name,implicit_tls=excluded.implicit_tls,allow_insecure_loopback=excluded.allow_insecure_loopback,updated_at=CURRENT_TIMESTAMP returning password_ciphertext is not null,`+smtpETag, collectionID, c.Address, c.From, c.Username, encrypted, c.ServerName, c.ImplicitTLS, c.AllowInsecureLoopback).Scan(&c.PasswordConfigured, &c.ETag)
+	})
 	c.Password = ""
 	return c, err
 }

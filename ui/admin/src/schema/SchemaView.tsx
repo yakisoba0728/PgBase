@@ -12,7 +12,7 @@ import { SaveBar } from "../components/SaveBar";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { deleteCollection } from "./apply";
+import { deleteCollection, hasUsers } from "./apply";
 import { FieldPane } from "./FieldPane";
 import { IndexPane } from "./IndexPane";
 import { PlanReview } from "./PlanReview";
@@ -29,9 +29,8 @@ function CollectionSection({ editor }: { editor: SchemaEditor }) {
   return (
     <Section title={t("schema.collection")}>
       <div className="schema-grid">
-        {/* The auth registration keeps the old name on a catalog rename, so auth collections are not renamed here. */}
-        <Field label={t("schema.collectionName")} mono spellCheck={false} autoComplete="off" required value={draft.name} error={error("name")} disabled={!creating && draft.type === "auth"}
-          hint={creating ? undefined : t(draft.type === "auth" ? "schema.authRenameLocked" : "schema.renameCollectionHint")} onChange={(event) => editor.setMeta({ name: event.target.value })} />
+        <Field label={t("schema.collectionName")} mono spellCheck={false} autoComplete="off" required value={draft.name} error={error("name")}
+          hint={creating ? undefined : t(draft.type === "auth" ? "schema.renameAuthHint" : "schema.renameCollectionHint")} onChange={(event) => editor.setMeta({ name: event.target.value })} />
         {draft.type !== "view" && (
           <>
             <Field label={t("schema.compatibilityName")} mono spellCheck={false} value={draft.compatibilityName} error={error("compatibilityName")} hint={t("schema.compatibilityHint")}
@@ -75,8 +74,7 @@ function DangerZone({ collection, editor }: { collection: Collection; editor: Sc
         const result = await truncateCollection(collection.name);
         return t("schema.truncated", { count: result.recordsDeleted });
       }
-      const leftover = await deleteCollection(collection);
-      if (leftover) toast(t("schema.authLeftover", { error: errorText(t, leftover) }), "danger");
+      await deleteCollection(collection);
       return t("schema.deleted", { name: collection.name });
     },
     onSuccess: async (message, kind) => {
@@ -90,7 +88,7 @@ function DangerZone({ collection, editor }: { collection: Collection; editor: Sc
         await queryClient.invalidateQueries({ queryKey: ["records", collection.name] });
       }
     },
-    onError: (error) => toast(errorText(t, error), "danger"),
+    onError: (error) => toast(hasUsers(error) ? t("auth.collections.hasUsers") : errorText(t, error), "danger"),
   });
   return (
     <Section title={t("schema.danger")}>

@@ -5,24 +5,60 @@ import (
 	"crypto/hmac"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
-func (s *Service) ListUsers(ctx context.Context, after uuid.UUID, limit int) (UserPage, error) {
+// maximumUserTotal bounds the opt-in count so it stays an index scan of at
+// most this many entries however many users exist.
+const maximumUserTotal = 10000
+
+// ListUsers pages users by id. Every filter is index-backed: the collection
+// uses (auth_collection_id,id), an id search the primary key, and an exact
+// email search (auth_collection_id,email) for each realm.
+func (s *Service) ListUsers(ctx context.Context, query UserQuery) (UserPage, error) {
 	if err := s.ready(); err != nil {
 		return UserPage{}, err
 	}
-	if limit < 1 || limit > 100 {
+	if query.Limit < 1 || query.Limit > 100 {
 		return UserPage{}, ErrValidation
 	}
+	filter, args := "true", []any{}
+	if query.AuthCollectionID != uuid.Nil {
+		args = append(args, query.AuthCollectionID)
+		filter += fmt.Sprintf(" and auth_collection_id=$%d", len(args))
+	}
+	if search := strings.TrimSpace(query.Search); search != "" {
+		if id, err := uuid.Parse(search); err == nil {
+			args = append(args, id)
+			filter += fmt.Sprintf(" and id=$%d", len(args))
+		} else {
+			args = append(args, strings.ToLower(search))
+			filter += fmt.Sprintf(" and email=$%d and email<>''", len(args))
+			if query.AuthCollectionID == uuid.Nil {
+				filter += " and auth_collection_id=any(array(select id from pgbase_meta.auth_collections))"
+			}
+		}
+	}
+	page := UserPage{}
+	if query.Total {
+		if err := s.pool.QueryRow(ctx, `select count(*) from (select 1 from pgbase_meta.users where `+filter+fmt.Sprintf(` limit %d) t`, maximumUserTotal+1), args...).Scan(&page.Total); err != nil {
+			return UserPage{}, fmt.Errorf("count users: %w", err)
+		}
+		if page.Total > maximumUserTotal {
+			page.Total, page.TotalCapped = maximumUserTotal, true
+		}
+	}
+	limit := query.Limit
+	args = append(args, query.After, limit+1)
 	rows, err := s.pool.Query(ctx, `
 		select id,auth_collection_id,email,verified,active,created_at,updated_at
 		from pgbase_meta.users
-		where id > $1
+		where `+filter+fmt.Sprintf(` and id > $%d
 		order by id
-		limit $2`, after, limit+1)
+		limit $%d`, len(args)-1, len(args)), args...)
 	if err != nil {
 		return UserPage{}, fmt.Errorf("list users: %w", err)
 	}
@@ -40,7 +76,7 @@ func (s *Service) ListUsers(ctx context.Context, after uuid.UUID, limit int) (Us
 	if err := rows.Err(); err != nil {
 		return UserPage{}, fmt.Errorf("list users: %w", err)
 	}
-	page := UserPage{Items: items}
+	page.Items = items
 	if len(items) > limit {
 		page.Items = items[:limit]
 		page.NextAfter = page.Items[len(page.Items)-1].ID
