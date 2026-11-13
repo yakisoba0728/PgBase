@@ -53,8 +53,9 @@ func TestAuthCollectionUpdatePreservesPublishedIdentityFieldContract(t *testing.
 	if _, err := service.SetAuthPolicy(ctx, realm, policy); err != nil {
 		t.Fatal(err)
 	}
+	// An empty (not nil) list removes every field; nil keeps the stored ones.
 	for _, fields := range [][]schema.FieldInput{
-		nil,
+		{},
 		{{Name: "handle", Type: schema.TypeEditor}},
 		{{Name: "handle", Type: schema.TypeText, Hidden: true}},
 	} {
