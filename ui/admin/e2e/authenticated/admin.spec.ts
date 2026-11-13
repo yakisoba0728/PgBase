@@ -299,8 +299,10 @@ test.describe.serial("administrator security", () => {
     await signInAs(page, admin.email, changed);
     await page.goto("/admin/profile");
     const networks = page.getByRole("textbox", { name: "Networks" });
+    // The address the server sees: loopback here, the Docker gateway behind the Compose port mapping.
+    const { clientAddress } = await (await page.request.get("/api/admin/profile/ip-allowlist")).json() as { clientAddress: string };
     await networks.fill("198.51.100.0/24");
-    await expect(page.getByText("Your current address 127.0.0.1 is not inside this list, so it cannot be saved.")).toBeVisible();
+    await expect(page.getByText(`Your current address ${clientAddress} is not inside this list, so it cannot be saved.`)).toBeVisible();
     await expect(page.locator("form").filter({ has: networks }).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
 
     // The page only mirrors the rule; the server is what refuses it.
