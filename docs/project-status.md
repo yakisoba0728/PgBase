@@ -319,22 +319,22 @@ UI를 다시 만들며 서버 응답과 코드에서 관찰한 사항이다. `fr
 
 | 항목 | 결과 |
 | --- | --- |
-| Go 정적 검사 | `gofmt -l .` 빈 출력, `go build ./...`, `go vet ./...`, `go vet -tags=integration ./...`, `scripts/lint-go.sh` 통과 |
+| Go 정적 검사 | `gofmt -l .` 빈 출력, `go build ./...`, `go vet ./...`, `go vet`(`integration`, `integration multiprocess`, `integration releaseartifacts`, `cosignintegration` tag 각각, `GOOS=windows`의 `./internal/cli/...`·`./internal/selfupdate/...`), `scripts/lint-go.sh` 통과 |
 | Go unit | `scripts/test-go-unit.sh -count=1` 통과(구조 예산 test 포함) |
 | PostgreSQL integration | PostgreSQL 17 container와 저장소의 MinIO fixture(`scripts/test-s3-fixture.sh`, 별도 project 이름)로 `scripts/test-go-integration.sh -count=1` 통과(skip allowlist 검사 포함). host에 `pg_dump`/`pg_restore`가 없어 container 안에서 실행하는 wrapper를 PATH에 두었다 |
-| SDK | TypeScript SDK `npm ci`·`npm test` 통과, `examples/user-notes` test 통과. `TestSDKPublicRecordHTTPConformance`는 TypeScript 부분을 통과하고 Dart 부분에서 `dart` 실행 파일이 없어 실패했다(환경) |
+| SDK | TypeScript SDK `npm ci`·`npm test` 통과, `examples/user-notes` test 통과. `TestSDKPublicRecordHTTPConformance`와 main push에서만 도는 `TestAdministrationSDKsAgainstRealHTTPServer`는 TypeScript 부분을 통과하고 Dart 부분에서 `dart` 실행 파일이 없어 실패했다(환경). 관리자 SDK acceptance consumer(`tests/sdk-acceptance/admin_http.mjs`, `sdk/dart/tool/admin_http_acceptance.dart`)는 step-up 인자가 빠져 있어 고쳤다(PR CI에서는 돌지 않아 드러나지 않던 부분) |
 | Observability | dashboard JSON, promtool rule 검사, dashboard PromQL 검사, `go test ./tests/observability` 통과 |
 | Security | `govulncheck ./...` 호출되는 취약점 0, `ui/admin`의 `npm audit --audit-level=high` 0건 |
 | route 계약 | `TestOpenAPIRouteContract` 통과(`docs/openapi.routes.json`이 route table과 일치) |
 | 관리자 UI | `npm run typecheck`, `npm test`(33파일 181 tests), `npm run build` 통과 |
 | 내장 UI | `rm -rf dist && npm ci --ignore-scripts && npm run build` 결과를 commit했고 그 뒤 `npm run verify:dist` 통과. `deployments/Dockerfile`의 `admin-ui` stage로 만든 dist가 commit된 dist와 byte 단위로 같다 |
-| 브라우저 suite | 이 브랜치 binary(`go1.26.11` build)와 PostgreSQL 17 DB 두 개(onboarding·authenticated)로 `npm run test:e2e` 18개 시나리오를 2회 연속 통과(opt-in backup 포함). 기존 15개는 수정 없이 통과했고, 관리자 생성의 현재 비밀번호 요구, profile 비밀번호 변경의 현재 비밀번호 요구, 호출자 주소를 뺀 IP allowlist 거부(UI와 서버 409) 3개를 더했다. 비밀번호 변경·allowlist 시나리오는 test 안에서 만든 일회용 관리자로 실행한다 |
+| 브라우저 suite | 이 브랜치 binary(`go1.26.11` build)와 PostgreSQL 17 DB 두 개(onboarding·authenticated)로 `npm run test:e2e` 18개 시나리오를 2회 연속 통과(opt-in backup 포함). allowlist 시나리오는 서버가 본 주소를 응답에서 읽으므로 Compose(E2E workflow)의 Docker gateway 주소에서도 같은 검사다. 기존 15개는 수정 없이 통과했고, 관리자 생성의 현재 비밀번호 요구, profile 비밀번호 변경의 현재 비밀번호 요구, 호출자 주소를 뺀 IP allowlist 거부(UI와 서버 409) 3개를 더했다. 비밀번호 변경·allowlist 시나리오는 test 안에서 만든 일회용 관리자로 실행한다 |
 | 구조 예산 | handwritten runtime 120,725 → 122,119(Go 94,993 → 96,262, UI 25,732 → 25,857), exported declaration 1,595 → 1,602, UI export 780 → 791, data group 28,545 → 28,912, `internal/query` 7,904 → 7,952. 근거는 `internal/repositorypolicy/loc_budget_test.go`의 2026-11-13 주석 |
 | docs 검사 | `python3 docs/check-status-index.py`, `python3 docs/check-review-links.py` 통과 |
 
 ### 검증하지 않은 것
 
-- Dart SDK는 이 환경에 Dart가 없어 compile·test하지 않았다. TypeScript SDK와 대조해 읽기만 했다.
+- Dart SDK는 이 환경에 Dart가 없어 compile·test하지 않았다. TypeScript SDK와 대조해 읽기만 했다. PR의 필수 check "PostgreSQL integration / 17.9"의 SDK conformance가 Dart 변경의 첫 compile이 된다.
 - 운영 서버(`https://pgbase.yaki.kr`)에서의 upgrade 동작. 배포는 대기 중이다.
 - Chromium 외 브라우저, release gate, CI의 E2E workflow(PostgreSQL 16 Compose).
-- multi-process durability와 관리자 SDK acceptance test(CI에서 main push·수동 실행에서만 도는 단계).
+- main push·수동 실행에서만 도는 단계: unit·integration의 `-race` 실행, multi-process durability, Windows self-update, macOS terminal, release phase artifacts, private attestation(cosign) 검증, 관리자 SDK acceptance의 Dart 부분.

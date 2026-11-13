@@ -8,7 +8,7 @@ main은 `64dad0d`(schema 65)다. UI 재작성 중 발견한 백엔드 문제 22�
 - [x] auth collection·users: 삭제·이름 변경의 realm 일관성, plan의 `type=auth` 생성 거부, designer field 동기화, 끊긴 relation·이름 충돌 거부, users 검색·total·단건 조회·cursor, policy·provider·template·SMTP의 ETag/If-Match(412).
 - [x] 운영: `pgbase serve`의 managed-backup job 등록(upgrade에서 retention·예약을 바꾸지 않음), log 검색·기간 통계·조건부 삭제, dead-letter 목록, 실행 중 backup job 목록, backup 목록 경합, log의 IP/zone 기록.
 - [x] 데이터: view sample uuid, `invalid_view_sql` 세부, rule 오류 세부, rule·filter의 system field, bounded list total, settings null 처리, 환경 변수로 켜는 SQL console(기본 꺼짐).
-- [x] 검증: 구조 예산 재산정, 브라우저 suite 18개 시나리오(step-up 3개 추가) 2회 연속 통과, CI 동등 명령 실행([현재 상태](docs/project-status.md) §12).
+- [x] 검증: 구조 예산 재산정, 브라우저 suite 18개 시나리오(step-up 3개 추가) 2회 연속 통과, CI 동등 명령 실행, 관리자 SDK acceptance consumer의 step-up 인자 보완([현재 상태](docs/project-status.md) §12).
 - [ ] main 병합과 운영 서버 배포(O14): 기존 client는 `currentPassword` 변경에 맞춰야 한다.
 - [ ] migration이 필요한 남은 항목(O15)과 migration 없이 가능한 남은 항목(O16).
 - [ ] Dart SDK compile·test(O17): 이 환경에 Dart가 없어 실행하지 않았다.
