@@ -310,8 +310,11 @@ func (s *Service) GetAuthRecord(ctx context.Context, collectionID, id uuid.UUID)
 
 func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, in CreateAuthRecordInput) (AuthRecord, error) {
 	normalized, err := normalizeEmail(in.Email)
-	if err != nil || validatePassword(in.Password) != nil {
-		return AuthRecord{}, ErrValidation
+	if err != nil {
+		return AuthRecord{}, fieldError(ErrValidation, "email", "invalid")
+	}
+	if validatePassword(in.Password) != nil {
+		return AuthRecord{}, fieldError(ErrValidation, "password", "invalid")
 	}
 	fields, err := s.authRecordContract(ctx, collectionID)
 	if err != nil {
@@ -322,14 +325,17 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 		return AuthRecord{}, err
 	}
 	if !validateTypedProfile(in.Fields, fields, false) {
-		return AuthRecord{}, ErrValidation
+		return AuthRecord{}, fieldError(ErrValidation, "fields", "invalid")
 	}
 	storedFields, ok := prepareAuthPasswordFields(fields, in.Fields, true)
 	if !ok || !validateTypedProfile(storedFields, fields, true) {
-		return AuthRecord{}, ErrValidation
+		return AuthRecord{}, fieldError(ErrValidation, "fields", "invalid")
 	}
 	policy, err := s.authPolicy(ctx, collectionID)
-	if err != nil || !passwordMatchesPolicy(in.Password, policy) {
+	if err == nil && !passwordMatchesPolicy(in.Password, policy) {
+		return AuthRecord{}, fieldError(ErrValidation, "password", "policy")
+	}
+	if err != nil {
 		return AuthRecord{}, ErrValidation
 	}
 	hash, err := s.passwords.Hash(in.Password)

@@ -461,5 +461,20 @@ func writeAuthCollectionError(w http.ResponseWriter, r *http.Request, err error)
 	case errors.Is(err, userauth.ErrConflict):
 		response = APIError{Status: 409, Code: "conflict", Message: "Authentication collection conflicts with existing data"}
 	}
+	response.Details = validationDetails(err)
 	writeAPIError(w, r, response)
+}
+
+// validationDetails exposes the field paths an administrator service error
+// names (userauth attaches them only on administrator operations).
+func validationDetails(err error) map[string][]string {
+	var invalid *schema.ValidationError
+	if !errors.As(err, &invalid) {
+		return nil
+	}
+	details := map[string][]string{}
+	for _, detail := range invalid.Details {
+		details[detail.Field] = append(details[detail.Field], detail.Code)
+	}
+	return details
 }
