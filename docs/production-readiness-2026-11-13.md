@@ -31,3 +31,7 @@
 Schema 65→66은 명시적인 migration이 필요하다. 기존 앱을 정지한 뒤 migrate와 새 앱 시작을 진행한다. schema 변경 후 이전 binary만 배포하는 롤백은 지원하지 않는다. 기존 unsafe SQL view가 있으면 startup preflight가 거부하므로 새 규칙에 맞게 수정해야 한다.
 
 운영 로그인 이후 CRUD·파일·호출자 IP는 계정 접근이 가능한 경우에만 확인한다. 계정·암호·token·키·사용자 데이터는 문서나 CI 로그에 기록하지 않는다.
+
+## 릴리스 gate에서 발견한 종료 경합
+
+v0.3.0 candidate의 PostgreSQL 17 race gate에서 `TestStartedAppSamplesSystemStatusOnceThroughTheNamedTaskRegistry` cleanup이 membership writer의 `write ... i/o timeout`을 실패로 보고했다. 정상 종료가 이미 context를 취소한 뒤 드라이버가 write timeout으로 응답하는 경우였다. 공통 background runner가 취소된 context의 transport timeout에 취소 원인을 연결하도록 수정한다. 실행 중 timeout과 취소 도중의 비-timeout 실패는 계속 보고한다. 세 경우를 시간에 의존하지 않는 unit test로 고정한다. v0.3.0 태그는 이동하지 않으며 실패한 candidate를 promotion하지 않는다. 후속 릴리스는 v0.3.1로 검증한다.
