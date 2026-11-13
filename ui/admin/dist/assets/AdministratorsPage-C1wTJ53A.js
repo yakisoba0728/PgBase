@@ -1,0 +1,1 @@
+import{fr as e,sr as t}from"./Button-CUrnLgw_.js";import{Ln as n}from"./index-Ct2WbDNr.js";import{n as r,t as i}from"./AdministratorsView-DIMFnUoy.js";var a=t();function o(){let t=e();return(0,a.jsx)(n,{title:t(`nav.administrators`),actions:(0,a.jsx)(i,{}),children:(0,a.jsx)(r,{})})}export{o as AdministratorsPage};

@@ -40,7 +40,7 @@ func TestReleasePhaseImageWorkflowSelectsOneImmutableArtifactAndGatesItsDigest(t
 		"--provenance=mode=max",
 		"--sbom=true",
 		"candidate_image=$candidate_image",
-		"sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6",
+		"sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532",
 		"cosign-release: v3.1.2",
 		`scripts/support/create-release-provenance.sh "$RUNNER_TEMP/release-provenance.json" "$EXPECTED_VERSION" "${{ needs.resolve.outputs.source_commit }}"`,
 		"commit: $sourceCommit",

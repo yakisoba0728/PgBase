@@ -1,0 +1,3 @@
+import{sr as e}from"./Button-CUrnLgw_.js";import{t}from"./CopyButton-BOemSqUR.js";var n=e();function r({text:e,label:r,wrap:i}){let a=typeof e==`string`?[{text:e}]:e;return(0,n.jsxs)(`div`,{className:`code-block`,"data-wrap":i?``:void 0,children:[(0,n.jsx)(`div`,{className:`code-block-body`,tabIndex:0,role:`region`,"aria-label":r,children:a.map((e,t)=>(0,n.jsx)(`pre`,{className:`mono`,"data-danger":e.danger?``:void 0,children:e.text},t))}),(0,n.jsx)(t,{className:`code-block-copy`,value:()=>a.map(e=>e.text).join(typeof e==`string`?``:`;
+
+`)})]})}export{r as t};
