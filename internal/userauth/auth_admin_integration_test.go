@@ -308,10 +308,14 @@ func TestAuthAdministrationWritesHonourIfMatch(t *testing.T) {
 	if _, err := service.PutMailTemplate(ctx, realmID, template); !errors.Is(err, ErrPreconditionFailed) {
 		t.Fatalf("If-Match on an absent template = %v", err)
 	}
-	template.ETag = ""
+	// Two administrators creating the same absent template: the second create-only write is refused.
+	template.ETag = CreateOnly
 	created, err := service.PutMailTemplate(ctx, realmID, template)
 	if err != nil || created.ETag == "" {
 		t.Fatalf("create template = %+v, %v", created, err)
+	}
+	if _, err := service.PutMailTemplate(ctx, realmID, template); !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("second create-only template write = %v", err)
 	}
 	template.ETag = created.ETag
 	if _, err := service.PutMailTemplate(ctx, realmID, template); err != nil {

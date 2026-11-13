@@ -125,8 +125,8 @@ function ProviderForm({ collection, administration, existing, preset, initial, o
   const redirects = draft.redirectUris.split("\n").map((line) => line.trim()).filter(Boolean);
 
   const save = useMutation({
-    // A new provider sends no If-Match; an edit sends the loaded etag. Forcing drops it.
-    mutationFn: (force: boolean) => putOAuthProvider(collection.id, draft.name, providerInput(draft), force ? undefined : existing?.etag),
+    // A new provider must not exist yet; an edit sends the loaded etag. Forcing drops the precondition.
+    mutationFn: (force: boolean) => putOAuthProvider(collection.id, draft.name, providerInput(draft), force ? undefined : (existing?.etag ?? null)),
     onSuccess: (saved) => {
       const others = (administration.providers ?? []).filter((provider) => provider.name !== saved.name);
       queryClient.setQueryData(key, { ...administration, providers: [...others, saved].sort((a, b) => a.name.localeCompare(b.name)) });

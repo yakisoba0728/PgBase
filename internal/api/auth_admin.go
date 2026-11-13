@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/mailer"
@@ -390,10 +391,14 @@ func (e authAdministrationEndpoints) userAction(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ifMatchTag returns the one entity tag or "*" of an If-Match header, or ""
-// when it is absent; a list of tags is not accepted on these routes.
+// ifMatchTag returns the one entity tag or "*" of an If-Match header,
+// userauth.CreateOnly for If-None-Match: *, or "" when neither is sent; a list
+// of tags, or both headers, are not accepted on these routes.
 func ifMatchTag(r *http.Request) (string, bool) {
 	set, ok := parseIfMatch(r.Header)
+	if none := r.Header.Values("If-None-Match"); len(none) != 0 {
+		return userauth.CreateOnly, len(none) == 1 && strings.TrimSpace(none[0]) == "*" && !set.Present
+	}
 	switch {
 	case !ok || len(set.Values) > 1:
 		return "", false

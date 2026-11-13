@@ -23,7 +23,8 @@ func TestDesignerFieldSyncAndPartialUpdateKeepRealmFields(t *testing.T) {
 	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: id, Name: name, RegistrationEnabled: true, Fields: []schema.FieldInput{realmOnly}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.RegisterInCollection(ctx, id, "sync@example.test", "correct horse battery staple", "198.51.100.41"); err != nil {
+	session, err := service.RegisterInCollection(ctx, id, "sync@example.test", "correct horse battery staple", "198.51.100.41")
+	if err != nil {
 		t.Fatal(err)
 	}
 	sync := func(removed []string, upserts ...schema.FieldInput) error {
@@ -66,11 +67,18 @@ func TestDesignerFieldSyncAndPartialUpdateKeepRealmFields(t *testing.T) {
 	if err != nil || updated.RegistrationEnabled || len(updated.Fields) != 2 {
 		t.Fatalf("partial update = %+v, %v", updated, err)
 	}
+	if _, err := service.SetProfile(ctx, session.User.ID, map[string]any{"nickname": "Nick", "realm_only": "kept"}); err != nil {
+		t.Fatal(err)
+	}
+	// Dropping a field that users have values for drops those values with it.
 	if err := sync([]string{"nickname"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := names(); len(got) != 1 || got[0] != "realm_only" {
 		t.Fatalf("fields after removal = %v", got)
+	}
+	if profile, err := service.GetProfile(ctx, session.User.ID); err != nil || profile["nickname"] != nil || profile["realm_only"] != "kept" {
+		t.Fatalf("profile after removal = %v, %v", profile, err)
 	}
 	if err := service.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		return service.SyncAuthCollectionFields(ctx, tx, "no_such_realm", nil, []schema.FieldInput{{Name: "x", Type: schema.TypeText}})

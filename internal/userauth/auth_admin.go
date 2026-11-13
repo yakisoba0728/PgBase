@@ -53,8 +53,9 @@ type AuthPolicy struct {
 	OTPEnabled           bool     `json:"otpEnabled"`
 	OTPDurationSeconds   int      `json:"otpDurationSeconds"`
 	OTPMaxAttempts       int      `json:"otpMaxAttempts"`
-	// ETag is the stored state's entity tag on output; on input a non-empty
-	// value is the If-Match precondition ("*" or one tag) checked under the row lock.
+	// ETag is the stored state's entity tag on output. On input a non-empty
+	// value is the precondition checked under the row lock: "*" or one tag
+	// (If-Match), or CreateOnly (If-None-Match: *) for a row that must not exist.
 	ETag string `json:"etag,omitempty"`
 }
 
@@ -67,10 +68,28 @@ const (
 	smtpETag     = `'"'||md5((to_jsonb(c)-'password_ciphertext')::text)||'"'`
 )
 
-// preconditionHolds reports whether the If-Match value expected (empty when
+// CreateOnly is the input ETag for If-None-Match: *.
+const CreateOnly = "!*"
+
+// preconditionHolds reports whether the precondition expected (empty when
 // absent) admits the current tag (empty when the row does not exist).
 func preconditionHolds(expected, current string) bool {
+	if expected == CreateOnly {
+		return current == ""
+	}
 	return expected == "" || current != "" && (expected == "*" || expected == current)
+}
+
+// lockRealmSettings serializes the settings writes of one realm, so two first
+// writes of an absent row cannot both pass a CreateOnly check. NO KEY UPDATE
+// leaves user registration (a foreign-key share lock) unblocked.
+func lockRealmSettings(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	var locked uuid.UUID
+	err := tx.QueryRow(ctx, `select id from pgbase_meta.auth_collections where id=$1 for no key update`, id).Scan(&locked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
 }
 
 type OAuthProviderConfig struct {
@@ -360,6 +379,9 @@ func (s *Service) PutOAuthProvider(ctx context.Context, collectionID uuid.UUID, 
 		}
 	}
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := lockRealmSettings(ctx, tx, collectionID); err != nil {
+			return err
+		}
 		var current string
 		if err := tx.QueryRow(ctx, `select `+providerETag+` from pgbase_meta.auth_oauth_providers p where auth_collection_id=$1 and name=$2 for update`, collectionID, p.Name).Scan(&current); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
@@ -414,6 +436,9 @@ func (s *Service) PutMailTemplate(ctx context.Context, collectionID uuid.UUID, t
 		return t, ErrValidation
 	}
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := lockRealmSettings(ctx, tx, collectionID); err != nil {
+			return err
+		}
 		var current string
 		if err := tx.QueryRow(ctx, `select `+templateETag+` from pgbase_meta.auth_mail_templates t where auth_collection_id=$1 and purpose=$2 for update`, collectionID, t.Purpose).Scan(&current); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
@@ -464,6 +489,9 @@ func (s *Service) PutSMTPConfig(ctx context.Context, collectionID uuid.UUID, c S
 		}
 	}
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := lockRealmSettings(ctx, tx, collectionID); err != nil {
+			return err
+		}
 		var current string
 		if err := tx.QueryRow(ctx, `select `+smtpETag+` from pgbase_meta.auth_smtp_configs c where auth_collection_id=$1 for update`, collectionID).Scan(&current); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err

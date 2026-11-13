@@ -1,6 +1,6 @@
 import { providerPresets } from "./presets";
 import { describe, expect, it } from "vitest";
-import type { AuthCollectionField, AuthPolicy, AuthRecord } from "../api/authCollections";
+import { precondition, type AuthCollectionField, type AuthPolicy, type AuthRecord } from "../api/authCollections";
 import { matchesUser, policyDraft, policyInput, policyProblems, profileChanges, profileDraft, providerDraft, providerInput, providerProblems, templateProblems, tokenProblems, uuidBefore, validEndpoint } from "./forms";
 
 const policy: AuthPolicy = {
@@ -100,5 +100,13 @@ describe("provider presets", () => {
     for (const preset of merged) expect(providerProblems({ ...providerDraft(preset), clientId: "id" })).toEqual({});
     expect(merged.find((preset) => preset.name === "google")?.tokenUrl).toBe("https://a.example/token");
     expect(new Set(merged.map((preset) => preset.name)).size).toBe(merged.length);
+  });
+});
+
+describe("write preconditions", () => {
+  it("sends If-Match for a loaded etag, If-None-Match for a value not stored yet, nothing when forced", () => {
+    expect(precondition('"abc"')).toEqual({ "If-Match": '"abc"' });
+    expect(precondition(null)).toEqual({ "If-None-Match": "*" });
+    expect(precondition(undefined)).toBeUndefined();
   });
 });

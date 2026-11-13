@@ -40,7 +40,8 @@ func TestAuthCollectionHTTPIsolationAndProfile(t *testing.T) {
 	profile := publicUsersRequest(t, app, http.MethodPatch, "/api/v1/auth/customers/profile", map[string]any{"display_name": "Realm User"}, session.Token, nil, nil)
 	assertPublicUsersStatus(t, profile, http.StatusOK)
 	partialUpdate := publicUsersRequest(t, app, http.MethodPatch, "/api/admin/auth-collections/"+realmID.String(), map[string]any{"registrationEnabled": false}, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
-	assertPublicUsersStatus(t, partialUpdate, http.StatusBadRequest)
+	// A registration-only PATCH keeps the stored profile fields.
+	assertPublicUsersStatus(t, partialUpdate, http.StatusOK)
 	stillAcceptsProfile := publicUsersRequest(t, app, http.MethodPatch, "/api/v1/auth/customers/profile", map[string]any{"display_name": "Still Valid"}, session.Token, nil, nil)
 	assertPublicUsersStatus(t, stillAcceptsProfile, http.StatusOK)
 	cross := publicUsersRequest(t, app, http.MethodGet, "/api/v1/auth/users/session", nil, session.Token, nil, nil)

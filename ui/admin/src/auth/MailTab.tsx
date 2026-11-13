@@ -74,7 +74,7 @@ function TemplateForm({ collection, administration, purpose, initial, configured
   const save = useMutation({
     mutationFn: (force: boolean) => {
       const stored = administration.templates?.find((candidate) => candidate.purpose === purpose);
-      return putMailTemplate(collection.id, purpose, { subject: draft.subject, body: draft.body, htmlBody: draft.htmlBody }, force ? undefined : stored?.etag);
+      return putMailTemplate(collection.id, purpose, { subject: draft.subject, body: draft.body, htmlBody: draft.htmlBody }, force ? undefined : (stored?.etag ?? null));
     },
     onSuccess: (saved) => {
       const others = (administration.templates ?? []).filter((candidate) => candidate.purpose !== purpose);
@@ -165,7 +165,7 @@ function SmtpForm({ collection, administration, views }: { collection: AuthColle
 
   const save = useMutation({
     // The whole form is sent; an empty password keeps the stored one.
-    mutationFn: (force: boolean) => putSMTPConfig(collection.id, { ...draft, password: draft.password || undefined }, force ? undefined : administration.smtp?.etag),
+    mutationFn: (force: boolean) => putSMTPConfig(collection.id, { ...draft, password: draft.password || undefined }, force ? undefined : (administration.smtp?.etag ?? null)),
     onSuccess: (saved) => {
       queryClient.setQueryData(administrationQuery(collection.id).queryKey, { ...administration, smtp: saved });
       toast(t("auth.savedToast"));

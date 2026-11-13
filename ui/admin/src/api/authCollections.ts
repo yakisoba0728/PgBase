@@ -227,15 +227,18 @@ export function getAuthAdministration(id: string, signal?: AbortSignal): Promise
   return request("GET", `${base}/${seg(id)}/administration`, { signal });
 }
 
-/** `ifMatch` (the read `etag`, or "*") makes a write fail with 412 precondition_failed when another write landed first. */
-const precondition = (ifMatch?: string) => (ifMatch ? { "If-Match": ifMatch } : undefined);
+/**
+ * `ifMatch` is the read `etag` (If-Match) or `null` for a value that was not stored yet (If-None-Match: *); the
+ * write then fails with 412 precondition_failed when another write landed first. `undefined` writes unconditionally.
+ */
+export const precondition = (ifMatch?: string | null): Record<string, string> | undefined =>
+  ifMatch === undefined ? undefined : ifMatch === null ? { "If-None-Match": "*" } : { "If-Match": ifMatch };
 
-export function setAuthPolicy(id: string, input: AuthPolicyInput, ifMatch?: string): Promise<AuthPolicy> {
+export function setAuthPolicy(id: string, input: AuthPolicyInput, ifMatch?: string | null): Promise<AuthPolicy> {
   return request("PUT", `${base}/${seg(id)}/policy`, { body: input, headers: precondition(ifMatch) });
 }
 
-/** Creating a provider sends no `ifMatch`; updating one sends its `etag`. */
-export function putOAuthProvider(id: string, provider: string, input: OAuthProviderInput, ifMatch?: string): Promise<OAuthProviderConfig> {
+export function putOAuthProvider(id: string, provider: string, input: OAuthProviderInput, ifMatch?: string | null): Promise<OAuthProviderConfig> {
   return request("PUT", `${base}/${seg(id)}/oauth-providers/${seg(provider)}`, { body: input, headers: precondition(ifMatch) });
 }
 
@@ -243,7 +246,7 @@ export function deleteOAuthProvider(id: string, provider: string): Promise<void>
   return request("DELETE", `${base}/${seg(id)}/oauth-providers/${seg(provider)}`);
 }
 
-export function putMailTemplate(id: string, purpose: MailTemplatePurpose, input: MailTemplateInput, ifMatch?: string): Promise<MailTemplate> {
+export function putMailTemplate(id: string, purpose: MailTemplatePurpose, input: MailTemplateInput, ifMatch?: string | null): Promise<MailTemplate> {
   return request("PUT", `${base}/${seg(id)}/mail-templates/${purpose}`, { body: input, headers: precondition(ifMatch) });
 }
 
@@ -251,7 +254,7 @@ export function previewMailTemplate(id: string, purpose: MailTemplatePurpose, in
   return request("POST", `${base}/${seg(id)}/mail-templates/${purpose}/preview`, { body: input });
 }
 
-export function putSMTPConfig(id: string, input: SMTPConfigInput, ifMatch?: string): Promise<SMTPConfig> {
+export function putSMTPConfig(id: string, input: SMTPConfigInput, ifMatch?: string | null): Promise<SMTPConfig> {
   return request("PUT", `${base}/${seg(id)}/smtp`, { body: input, headers: precondition(ifMatch) });
 }
 

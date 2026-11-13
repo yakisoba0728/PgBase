@@ -28,7 +28,7 @@ func (f *fakeAuthAdministration) PutMailTemplate(_ context.Context, _ uuid.UUID,
 	switch t.ETag {
 	case `"stale"`:
 		return t, userauth.ErrPreconditionFailed
-	case `"current"`:
+	case `"current"`, userauth.CreateOnly:
 		t.ETag = `"next"`
 		return t, nil
 	}
@@ -49,7 +49,9 @@ func TestAuthAdministrationConditionalWritesAndFieldDetails(t *testing.T) {
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", "https://pgbase.example")
 		request.Header.Set("X-PgBase-CSRF", session.CSRFToken)
-		if ifMatch != "" {
+		if header, value, found := strings.Cut(ifMatch, ":"); found {
+			request.Header.Set(header, value)
+		} else if ifMatch != "" {
 			request.Header.Set("If-Match", ifMatch)
 		}
 		request.AddCookie(&http.Cookie{Name: adminCookieName, Value: session.RawToken})
@@ -68,6 +70,12 @@ func TestAuthAdministrationConditionalWritesAndFieldDetails(t *testing.T) {
 	}
 	if response := send("/mail-templates/verify", `"a", "b"`, template); response.Code != http.StatusBadRequest {
 		t.Fatalf("tag list status=%d", response.Code)
+	}
+	if response := send("/mail-templates/verify", "If-None-Match:*", template); response.Code != http.StatusOK {
+		t.Fatalf("create-only status=%d body=%s", response.Code, response.Body.String())
+	}
+	if response := send("/mail-templates/verify", `If-None-Match:"x"`, template); response.Code != http.StatusBadRequest {
+		t.Fatalf("If-None-Match tag status=%d", response.Code)
 	}
 	response := send("/token-policies/session", "", `{"ttlSeconds":1}`)
 	var body struct {

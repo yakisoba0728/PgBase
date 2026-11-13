@@ -245,6 +245,12 @@ func (s *Service) SyncAuthCollectionFields(ctx context.Context, tx pgx.Tx, name 
 			fields = append(fields, field)
 		}
 	}
+	// Dropping a designer field drops its values, as the catalog drops the column.
+	if len(removed) > 0 {
+		if _, err := tx.Exec(ctx, `update pgbase_meta.user_auth_profiles p set attributes=p.attributes-$2::text[] from pgbase_meta.users u where p.user_id=u.id and u.auth_collection_id=$1 and p.attributes ?| $2::text[]`, current.ID, removed); err != nil {
+			return err
+		}
+	}
 	_, err := updateAuthCollectionTx(ctx, tx, current.ID, UpdateAuthCollectionInput{RegistrationEnabled: current.RegistrationEnabled, Fields: fields})
 	if errors.Is(err, ErrValidation) {
 		return &schema.ValidationError{Details: []schema.ValidationDetail{{Field: "fields", Code: "invalid_auth_fields"}}}

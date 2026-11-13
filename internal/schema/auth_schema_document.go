@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -369,38 +370,60 @@ func renameAuthRealmReferences(ctx context.Context, db database.DBTX, oldName, n
 }
 
 // syncAuthRealmFields mirrors a designer field change of an auth collection
-// into its realm, whose fields drive user profiles. Catalog-only properties
+// into its realm, whose fields drive user profiles. Only fields this change
+// added, altered, renamed or dropped (matched by field id) are applied, so
+// untouched realm fields keep their own settings. Catalog-only properties
 // (ids, system flags, physical defaults) are not part of a realm field.
 func (s *Service) syncAuthRealmFields(ctx context.Context, tx pgx.Tx, catalog Catalog, previous, next Collection) error {
 	if next.Type != CollectionTypeAuth || s.authPolicyValidator == nil {
 		return nil
 	}
-	kept := map[string]bool{}
-	upserts := []FieldInput{}
+	before := map[uuid.UUID]FieldInput{}
+	for _, field := range previous.Fields {
+		if !field.System {
+			before[field.ID] = realmField(catalog, previous, field)
+		}
+	}
+	removed, upserts := []string{}, []FieldInput{}
 	for _, field := range next.Fields {
 		if field.System {
 			continue
 		}
-		kept[field.Name] = true
-		value := FieldInput{Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Options: cloneFieldOptionsPointer(field.Options), Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help}
-		if field.Relation != nil {
-			target := next.Name
-			if field.Relation.TargetCollectionID != next.ID {
-				collection, ok := collectionByID(catalog, field.Relation.TargetCollectionID)
-				if !ok {
-					return ErrConflict
-				}
-				target = collection.Name
+		value := realmField(catalog, next, field)
+		old, existed := before[field.ID]
+		delete(before, field.ID)
+		if existed && old.Name != value.Name {
+			// A renamed field keeps its profile values, as the catalog column keeps its data.
+			if _, err := tx.Exec(ctx, `update pgbase_meta.user_auth_profiles p set attributes=(p.attributes-$2::text)||jsonb_build_object($3::text,p.attributes->$2::text) from pgbase_meta.users u join pgbase_meta.auth_collections a on a.id=u.auth_collection_id where p.user_id=u.id and a.name=$1 and p.attributes ? $2::text`, next.Name, old.Name, value.Name); err != nil {
+				return err
 			}
-			value.Relation = &RelationInput{TargetCollection: target, Cardinality: field.Relation.Cardinality, MinSelect: intPointer(field.Relation.MinSelect), MaxSelect: intPointer(field.Relation.MaxSelect), OnDelete: field.Relation.OnDelete}
+			removed = append(removed, old.Name)
 		}
-		upserts = append(upserts, value)
+		if !existed || !reflect.DeepEqual(old, value) {
+			upserts = append(upserts, value)
+		}
 	}
-	removed := []string{}
-	for _, field := range previous.Fields {
-		if !field.System && !kept[field.Name] {
-			removed = append(removed, field.Name)
-		}
+	for _, field := range before {
+		removed = append(removed, field.Name)
+	}
+	if len(removed) == 0 && len(upserts) == 0 {
+		return nil
 	}
 	return s.authPolicyValidator.SyncAuthCollectionFields(ctx, tx, next.Name, removed, upserts)
+}
+
+func realmField(catalog Catalog, owner Collection, field Field) FieldInput {
+	value := FieldInput{Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Options: cloneFieldOptionsPointer(field.Options), Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help}
+	if field.Relation != nil {
+		target := owner.Name
+		if field.Relation.TargetCollectionID != owner.ID {
+			// An unknown target stays empty, which the realm's validation refuses.
+			target = ""
+			if collection, ok := collectionByID(catalog, field.Relation.TargetCollectionID); ok {
+				target = collection.Name
+			}
+		}
+		value.Relation = &RelationInput{TargetCollection: target, Cardinality: field.Relation.Cardinality, MinSelect: intPointer(field.Relation.MinSelect), MaxSelect: intPointer(field.Relation.MaxSelect), OnDelete: field.Relation.OnDelete}
+	}
+	return value
 }
