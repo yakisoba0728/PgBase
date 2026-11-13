@@ -1,6 +1,6 @@
 # PgBase 구현 이력과 현재 상태
 
-2026-11-13 최신 기준: 관리자 UI와 backend-fixes 및 의존성 PR #124가 main `8b078a8c`에 병합·운영 반영됐고 main Backend·Frontend·Security가 모두 통과했다. Dart 실제 HTTP·multi-process durability·Windows self-update도 통과했다. 후속 schema 66 변경은 [운영 준비 보완](production-readiness-2026-11-13.md), 실제 남은 작업은 [다음 작업](next-work.md)을 따른다. 아래 날짜별 문단·§11–§12는 당시 상태의 이력이며 현재의 열린 작업 목록이 아니다. 운영 백업은 소유자 요청으로 이번 작업에서 제외했다.
+2026-11-13 최신 기준: PR #124에 이어 [#125](https://github.com/yakisoba0728/PgBase/pull/125)·[#133](https://github.com/yakisoba0728/PgBase/pull/133)을 병합했다. 제품 source `043dc2b3`의 main CI와 전체 signed release gate가 통과했고 [v0.3.1](https://github.com/yakisoba0728/PgBase/releases/tag/v0.3.1)을 게시했다. 같은 source를 운영에 배포해 schema 66/66·health 정상·schema finding 0과 기존 레코드 표시를 확인했다. [구현·검증](production-readiness-2026-11-13.md), [배포](deployment-2026-11-13.md), [남은 결정](next-work.md)을 따른다. 아래 날짜별 문단·§11–§12는 당시 상태의 이력이며 현재 열린 작업 목록이 아니다. 운영 백업은 소유자 요청으로 생성·설정하지 않았다.
 
 2026-11-13 두 번째 병합·배포 후 기준: `backend-fixes`를 [PR #122](https://github.com/yakisoba0728/PgBase/pull/122)로 main `3bec8b3`에 병합하고 `https://pgbase.yaki.kr`에 배포했다(schema 65 그대로). 결과는 [배포 기록](deployment-2026-11-13.md)의 두 번째 절을 따른다. 아래 문단은 병합 전에 쓴 기록이다.
 

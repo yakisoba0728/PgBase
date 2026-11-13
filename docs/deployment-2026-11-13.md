@@ -1,5 +1,7 @@
 # 2026-11-13 새 관리자 UI 병합과 운영 배포
 
+최신 배포는 아래 네 번째 절의 `043dc2b3`·schema 66이다. 앞선 절은 당시 결과를 보존한다.
+
 - 병합: [PR #108](https://github.com/yakisoba0728/PgBase/pull/108)을 merge commit `2912e399b6b1f45cfad8ae8431c1ab5d94c9557e`로 main에 병합했다.
   PR의 필수 CI 5개(Go unit, Observability artifacts, PostgreSQL integration / 17.9, Frontend test, Security audit)가 통과했다.
 - 대상: `https://pgbase.yaki.kr/admin/` (Dokploy Compose 서비스 `PgBase`, 소스 `main`, 자동 배포는 꺼진 상태 유지).
@@ -38,3 +40,18 @@
     Cloudflare·Traefik 뒤에서 프로필 화면에 표시되는 주소가 실제 접속 주소인지 소유자가 확인해야 하며,
     다르면 `PGBASE_TRUSTED_PROXIES` 설정을 먼저 바로잡고 그 전에는 allowlist를 저장하지 않는다.
 - 운영에서 달라지는 점: 프로필 변경, 관리자 생성·활성 전환·비밀번호 재설정, IP allowlist 변경에 현재 비밀번호가 필요하다.
+
+## 같은 날 세 번째 배포: 의존성 통합
+
+PR [#124](https://github.com/yakisoba0728/PgBase/pull/124) main `8b078a8c71304600bf68b2831c0d8a27be974768`을 전체 main CI 성공 후 같은 서비스에 배포했다. deployment `YFTDjQE4C1y6BKLugqHNq`는 `2026-11-13T04:08:07.669Z` 완료. schema 65 유지, 설정·volume 보존, health·인증 경계·UI 자산 SHA256 확인. 운영 백업 생성 없음.
+
+## 같은 날 네 번째 배포: schema 66과 v0.3.1
+
+- PR [#125](https://github.com/yakisoba0728/PgBase/pull/125)와 [#133](https://github.com/yakisoba0728/PgBase/pull/133), source `043dc2b325af3bbb0f1caf69568f239fbed7e0c6`. main [Backend](https://github.com/yakisoba0728/PgBase/actions/runs/43371117456)·[Frontend](https://github.com/yakisoba0728/PgBase/actions/runs/43371117457)·[Security](https://github.com/yakisoba0728/PgBase/actions/runs/43371117507)와 전체 [signed release gate](https://github.com/yakisoba0728/PgBase/actions/runs/43371132129) 성공 후 진행.
+- 기존 writer를 `compose.stop`으로 정지하고 앱·DB exit 0을 확인했다. 기존 환경·도메인·DB/파일 volume·autoDeploy(false)를 보존한 `compose.deploy`가 명시적 migration 후 새 앱을 시작했다. 소유자 지시로 운영 백업은 만들거나 구성하지 않았다.
+- 첫 deployment `2kbTR_NuU8bG7cy7_rwjk`는 Go 빌드 중 Dokploy API가 잠시 502를 반환한 뒤 cancelled로 확인됐다. 원인은 확정하지 못했다. 설정 변경 없이 재시도한 `305sEP7cz1zb8PFjgyHcv`는 `2026-11-13T08:08:29.923Z` 시작, `08:08:59.796Z` 완료(done).
+- `/health/live`, `/health/ready`, `/admin/`, `/admin/collections` 200. 미등록 경로 404, 세션 없는 admin session·dead-letter·user 경로 401, setupRequired false. `script-src 'self'` 유지.
+- `index-MEuasBQ7.js`·`index-BkL_04hT.css` 및 Button·collections·CollectionPage·RichText chunk가 저장소 dist와 SHA256 일치. 앱·PostgreSQL healthy, migrate·files-init exit 0.
+- 기존 관리자 브라우저 세션에서 읽기 전용 확인: migration **66/66**, DB 연결·listener 준비, schema health 정상·finding **0**, 기존 레코드 수 유지. 사용자 값·ID·계정·token은 기록하지 않는다. 운영 CRUD·파일 변경·IP allowlist 저장이나 외부 호출자 IP 일치 검증은 하지 않았다.
+- [v0.3.1](https://github.com/yakisoba0728/PgBase/releases/tag/v0.3.1)과 `latest` 이미지 digest는 `sha256:07bbcff43b2644069acb3a1ae10d854ff2eb4ddcea1501243b104ee53d5bc7b6`. GHCR private 유지. 운영은 이 이미지의 pull이 아닌 같은 source의 Dokploy build다(`dev` 버전 표시). 실패한 v0.3.0 candidate는 promotion하지 않았고 immutable 태그를 보존했다.
+- schema 65→66 이후 이전 binary만 재배포하는 롤백은 지원하지 않는다. 외부 복구 사본은 미확보이며 운영 백업 제외 지시는 유지된다. 최종 문서 PR은 제품 코드·migration·UI 자산을 바꾸지 않아 위 배포 source와 런타임이 같다.

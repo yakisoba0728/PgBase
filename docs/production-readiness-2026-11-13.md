@@ -1,6 +1,6 @@
 # 2026-11-13 운영 준비 보완
 
-기준은 의존성 통합 PR #124의 `8b078a8c`, schema 65다. 이 후속 변경은 schema 66을 추가한다. 아래 구현과 검증·운영 반영을 구분한다.
+의존성 통합 PR #124 이후의 보완을 PR [#125](https://github.com/yakisoba0728/PgBase/pull/125)(`34d1d03f`)와 [#133](https://github.com/yakisoba0728/PgBase/pull/133)(`043dc2b3`)으로 병합했다. schema 66을 추가한다. 아래 구현과 검증·운영 반영을 구분한다.
 
 ## 구현
 
@@ -22,7 +22,10 @@
 - Node 24.22.2: typecheck, UI 33파일/182 tests, build 통과.
 - 최신 binary·schema 66·실제 CSP·독립 PostgreSQL 17 DB 두 개에 대해 browser suite 18/18 통과(관리형 백업 opt-in 포함, 모두 격리 테스트 데이터).
 - schema 66 이후 DB/로컬 파일·S3 파일·extension object의 독립 복원 회귀 통과.
-- PostgreSQL 16/17/18 원격 matrix, Dart analyze/unit, release gate와 운영 반영 결과는 완료 후 추가한다. 기록되지 않은 검증을 완료로 해석하지 않는다.
+- [확장 Backend](https://github.com/yakisoba0728/PgBase/actions/runs/43367289853): PostgreSQL 16.13/17.9/18.3, Dart analyze/unit·실제 HTTP, multi-process durability, Windows self-update, macOS terminal, release-phase artifacts 통과.
+- [확장 Security](https://github.com/yakisoba0728/PgBase/actions/runs/43367740347): x/net 수정 후 이미지 검사 통과. stale undici 알림 3건은 실제 main lockfile의 8.12.4와 공식 수정 버전을 대조해 inaccurate로 정리했다. 열린 Dependabot 보안 알림 0건.
+- 종료 경합 수정은 deterministic unit/race 25회와 원래 PostgreSQL race 재현 test 30회 반복 통과. PR #125·#133 필수 CI 각 5개 통과 후 병합. 최신 main의 Windows self-update도 통과했다.
+- `043dc2b3` main CI: [Backend](https://github.com/yakisoba0728/PgBase/actions/runs/43371117456), [Frontend](https://github.com/yakisoba0728/PgBase/actions/runs/43371117457), [Security](https://github.com/yakisoba0728/PgBase/actions/runs/43371117507) 모두 통과.
 
 ## 운영 제약
 
@@ -30,8 +33,20 @@
 
 Schema 65→66은 명시적인 migration이 필요하다. 기존 앱을 정지한 뒤 migrate와 새 앱 시작을 진행한다. schema 변경 후 이전 binary만 배포하는 롤백은 지원하지 않는다. 기존 unsafe SQL view가 있으면 startup preflight가 거부하므로 새 규칙에 맞게 수정해야 한다.
 
-운영 로그인 이후 CRUD·파일·호출자 IP는 계정 접근이 가능한 경우에만 확인한다. 계정·암호·token·키·사용자 데이터는 문서나 CI 로그에 기록하지 않는다.
+운영의 실제 사용자 데이터에 대한 CRUD·파일 변경·IP allowlist 저장은 수행하지 않는다. 로그인 세션의 읽기 전용 확인은 배포 기록에 별도로 남긴다. 계정·암호·token·키·사용자 데이터는 문서나 CI 로그에 기록하지 않는다.
 
 ## 릴리스 gate에서 발견한 종료 경합
 
 v0.3.0 candidate의 PostgreSQL 17 race gate에서 `TestStartedAppSamplesSystemStatusOnceThroughTheNamedTaskRegistry` cleanup이 membership writer의 `write ... i/o timeout`을 실패로 보고했다. 정상 종료가 이미 context를 취소한 뒤 드라이버가 write timeout으로 응답하는 경우였다. 공통 background runner가 취소된 context의 transport timeout에 취소 원인을 연결하도록 수정한다. 실행 중 timeout과 취소 도중의 비-timeout 실패는 계속 보고한다. 세 경우를 시간에 의존하지 않는 unit test로 고정한다. v0.3.0 태그는 이동하지 않으며 실패한 candidate를 promotion하지 않는다. 후속 릴리스는 v0.3.1로 검증한다.
+
+## 의존성 PR 정리
+
+PR #110–#121은 #124에 통합하거나 Node 26 types 보류 사유로 닫았다. 이후 생성된 선택적 버전 갱신 #126–#132는 검증된 schema 66 릴리스의 의존성 집합을 유지하기 위해 보류 사유를 남기고 닫았다. 필수 보안 패치 x/net 0.62.0은 포함했다. 선택적 새 버전은 다음 유지보수 주기에 다시 검토한다.
+
+## 릴리스와 운영 반영 완료
+
+- [v0.3.1](https://github.com/yakisoba0728/PgBase/releases/tag/v0.3.1), source `043dc2b325af3bbb0f1caf69568f239fbed7e0c6`. [Signed release run 43371132129](https://github.com/yakisoba0728/PgBase/actions/runs/43371132129) 전체 성공: PostgreSQL 16.13/17.9/18.3, 17 race 두 shard, Dart conformance, browser E2E, independent restore, security, macOS, immutable release phases. Windows self-update는 같은 main의 Backend run에서 통과했다(release gate에서는 의도적으로 제외).
+- `v0.3.1`·`latest` digest는 `sha256:07bbcff43b2644069acb3a1ae10d854ff2eb4ddcea1501243b104ee53d5bc7b6`. 서명 검증된 provenance/SBOM의 subject와 일치한다. GHCR는 private 유지. GitHub release에 증거·checksum을 첨부했다.
+- Dokploy source build `043dc2b3` 배포: 기존 writer 정지 후 migration 실행, `2026-11-13T08:08:59.796Z` 완료. schema 65→66. 첫 요청은 빌드 중 Dokploy API가 일시적으로 502를 반환한 뒤 cancelled로 확인됐다. 같은 설정 재시도는 성공했다. 첫 중단의 원인은 확정하지 못했다.
+- 실제 운영 관리자 세션의 읽기 전용 확인: migration 66/66, DB 연결·listener 준비, schema health 정상·finding 0, 기존 레코드 수 유지. HTTP health·deep link·인증 경계와 JS/CSS/lazy chunk SHA256을 확인했다. 앱·PostgreSQL healthy, migrate·files-init exit 0. 비밀값·환경 변수·도메인·volume·autoDeploy(false) 보존. [배포 세부](deployment-2026-11-13.md).
+- 운영 백업 생성·예약 설정은 하지 않았다. 운영 데이터 CRUD·파일 변경·IP allowlist 저장과 외부 접속 IP의 정확한 일치는 확인하지 않았다. 해당 변경 흐름은 격리된 browser/HTTP test로 검증했다.
