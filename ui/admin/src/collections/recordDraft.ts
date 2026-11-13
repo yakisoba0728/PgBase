@@ -1,9 +1,12 @@
 import type { CollectionField } from "../api/collections";
-import type { Draft } from "./fields";
+import { fieldKind, type Draft } from "./fields";
 
 // Unsaved record edits kept in this browser so a reload, a closed tab or a 412 reload does not lose them.
 // Only changed fields are stored, and they are laid over the latest server values when restored, so a
 // recovered draft never reverts what another administrator saved to other fields.
+
+const memory = new Map<string, StoredDraft>();
+export function keepDraft(scope: DraftScope, fields: Record<string, Draft>) { memory.set(key(scope), { fields, savedAt: Date.now() }); }
 
 const prefix = "pgbase.records.draft:";
 const maxAge = 7 * 24 * 3600 * 1000;
@@ -40,6 +43,8 @@ export function changedFields(fields: CollectionField[], drafts: Record<string, 
 }
 
 export function readDraft(scope: DraftScope, fields: CollectionField[], now = Date.now()): StoredDraft | null {
+  const keptInMemory = memory.get(key(scope));
+  if (keptInMemory) { memory.delete(key(scope)); return keptInMemory; }
   try {
     const value = JSON.parse(localStorage.getItem(key(scope)) ?? "null") as StoredDraft | null;
     if (!value || typeof value.savedAt !== "number" || typeof value.fields !== "object") return null;
@@ -58,7 +63,7 @@ export function readDraft(scope: DraftScope, fields: CollectionField[], now = Da
 // A schema change between save and restore (e.g. text -> boolean) must not feed a wrong-typed draft to an input.
 function sameShape(draft: unknown, field: CollectionField): boolean {
   if (field.type === "boolean") return typeof draft === "boolean";
-  if (Array.isArray(draft)) return draft.every((item) => typeof item === "string");
+  if (["relations", "multiselect"].includes(fieldKind(field))) return Array.isArray(draft) && draft.every((item) => typeof item === "string");
   return typeof draft === "string";
 }
 
@@ -82,6 +87,7 @@ export function clearDraft(scope: DraftScope): void {
 
 /** Sign-out: drops every stored record draft on this device, whoever wrote it. */
 export function clearAllDrafts(): void {
+  memory.clear();
   try {
     for (const name of Object.keys(localStorage)) if (name.startsWith(prefix)) localStorage.removeItem(name);
   } catch {

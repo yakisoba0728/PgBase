@@ -21,10 +21,11 @@ describe("RelationPicker create", () => {
     const client = new QueryClient();
     client.setQueryData(["collections"], { collections: { c1: companies } });
     const onChange = vi.fn();
+    const onPendingChange = vi.fn();
     render(
       <QueryClientProvider client={client}>
         <MemoryRouter>
-          <RelationPicker field={field} value={[]} onChange={onChange} readOnly={false} />
+          <RelationPicker onPendingChange={onPendingChange} field={field} value={[]} onChange={onChange} readOnly={false} />
         </MemoryRouter>
       </QueryClientProvider>,
     );
@@ -37,6 +38,7 @@ describe("RelationPicker create", () => {
     await waitFor(() => expect(createRecord).toHaveBeenCalled());
     fireEvent.keyDown(input, { key: "Enter" });
     await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(onPendingChange).toHaveBeenCalledWith(true);
     expect(createRecord).toHaveBeenCalledTimes(1);
     expect(createRecord.mock.calls[0][2]).toMatchObject({ idempotencyKey: expect.stringMatching(/^[0-9a-f]{32}$/) });
     finish({ record: { id: "x1", name: "Acme" } });

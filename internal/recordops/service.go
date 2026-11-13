@@ -3,13 +3,17 @@ package recordops
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/membership"
 	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/passwordfield"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/recordartifact"
@@ -32,16 +36,18 @@ const (
 // remains in package query, while this type owns every transaction-level
 // invariant around identity, revisions, audit, outbox, and replay.
 type Service struct {
-	pool       *database.Pool
-	schemas    *schema.Service
-	reader     *query.Service
-	logger     *slog.Logger
-	recorder   observability.Recorder
-	random     io.Reader
-	members    *membershipWriterProvider
-	hooks      []MutationHook
-	validators []TransactionValidator
-	identities *recordidentity.Service
+	pool          *database.Pool
+	schemas       *schema.Service
+	reader        *query.Service
+	logger        *slog.Logger
+	recorder      observability.Recorder
+	random        io.Reader
+	members       *membershipWriterProvider
+	hooks         []MutationHook
+	validators    []TransactionValidator
+	identities    *recordidentity.Service
+	passwordSlots chan struct{}
+	hashPassword  func(string) (string, error)
 }
 
 // WithTransaction binds service operations to an already admitted PostgreSQL
@@ -66,8 +72,9 @@ func NewService(
 		pool: pool, schemas: schemas,
 		reader: query.NewService(pool, schemas, cursorSecret, logger, recorder),
 		logger: logger, recorder: recorder, random: rand.Reader,
-		members:    newMembershipWriterProvider(pool, runtime),
-		identities: recordidentity.New(rand.Reader),
+		members:       newMembershipWriterProvider(pool, runtime),
+		identities:    recordidentity.New(rand.Reader),
+		passwordSlots: make(chan struct{}, 2), hashPassword: passwordfield.Hash,
 	}
 }
 
@@ -162,7 +169,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 			if found {
 				recordID = replayed.InternalID
 				if request.Principal.Kind != PrincipalAdministrator {
-					if err := authorizeStoredRelationTargets(ctx, tx, catalog, collection, request.Principal, replayed.Record.Data); err != nil {
+					if err := authorizeStoredRelationTargets(ctx, tx, catalog, collection, request.Principal, replayed.Record.Data, request.RuleContext); err != nil {
 						return err
 					}
 					replayInput, err := generatedReplayInput(collection, resolvedInput, replayed.Record.Data)
@@ -180,9 +187,12 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 					if err := s.validateTransaction(ctx, tx, batch, []MutationResult{result}); err != nil {
 						return err
 					}
-					publicReplay := cloneRecordData(replayed.Record.Data)
-					if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicReplay); err != nil {
-						return err
+					publicReplay := replayed.publicRecord
+					if publicReplay == nil {
+						publicReplay = cloneRecordData(replayed.Record.Data)
+						if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicReplay); err != nil {
+							return err
+						}
 					}
 					result.Record.Data = publicReplay
 					projectMutationResult(collection, request.Principal, &result)
@@ -220,7 +230,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := relations.Lock(ctx, tx, recordID); err != nil {
 			return normalizeRelationError(err)
 		}
-		if err := authorizeRelationTargets(ctx, tx, catalog, collection, request.Principal, relations); err != nil {
+		if err := authorizeRelationTargets(ctx, tx, catalog, collection, request.Principal, relations, request.RuleContext); err != nil {
 			return err
 		}
 		data, err := query.EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
@@ -237,7 +247,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := relations.Store(ctx, tx, recordID, data); err != nil {
 			return normalizeRelationError(err)
 		}
-		if err := authorizeStoredRelationTargets(ctx, tx, catalog, collection, request.Principal, data); err != nil {
+		if err := authorizeStoredRelationTargets(ctx, tx, catalog, collection, request.Principal, data, request.RuleContext); err != nil {
 			return err
 		}
 		if err := schema.ValidateRecordSize(data); err != nil {
@@ -266,7 +276,13 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 			}
 		}
 		if len(keyHash) > 0 {
-			body, err := recordartifact.CanonicalRecord(data)
+			publicData := cloneRecordData(data)
+			if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicData); err != nil {
+				return err
+			}
+			receiptData := cloneRecordData(data)
+			receiptData["__pgbase_public_record"] = publicData
+			body, err := json.Marshal(receiptData)
 			if err != nil {
 				return err
 			}
@@ -345,6 +361,36 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err := rejectHiddenInput(collection, request.Principal, request.Input); err != nil {
 			return err
 		}
+		if err := relation.LockMutationCollections(ctx, tx, collection, request.Input); err != nil {
+			return normalizeRelationError(err)
+		}
+		if request.Principal.Kind != PrincipalAdministrator {
+			for _, field := range collection.Fields {
+				if field.Type != schema.TypePassword {
+					continue
+				}
+				if _, present := request.Input[field.Name]; !present {
+					continue
+				}
+				if err := recordaccess.AuthorizeSubject(ctx, tx, collection.AccessCollectionID(), request.Principal, "update"); err != nil {
+					return err
+				}
+				if request.Principal.Kind != identity.Service {
+					rules, _, err := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
+					if err != nil {
+						return err
+					}
+					// Generated values affect request rules; evaluate dynamic rules after generation.
+					if rules.Update.Op == "" {
+						return accessrule.ErrInvalid
+					}
+					if rules.Update.Op == "deny" {
+						return query.ErrRecordNotFound
+					}
+				}
+				break
+			}
+		}
 		mutationSeed, err := s.prepareGeneratedFields(ctx, tx, collection, request.Input, false)
 		if err != nil {
 			return err
@@ -368,7 +414,11 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 				return normalizeRelationError(err)
 			}
 		}
-		mutationInput, err := resolveInputModifiers(collection, mutationSeed, before)
+		modifierBefore := cloneRecordData(before)
+		if err := s.projectRecordIdentity(ctx, tx, catalog, collection, modifierBefore); err != nil {
+			return err
+		}
+		mutationInput, err := resolveInputModifiers(collection, mutationSeed, modifierBefore)
 		if err != nil {
 			return err
 		}
@@ -393,7 +443,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err := relations.Lock(ctx, tx, request.ID); err != nil {
 			return normalizeRelationError(err)
 		}
-		if err := authorizeRelationTargets(ctx, tx, catalog, collection, request.Principal, relations); err != nil {
+		if err := authorizeRelationTargets(ctx, tx, catalog, collection, request.Principal, relations, request.RuleContext); err != nil {
 			return err
 		}
 		requestContext := mutationRuleContext(collection, mutationInput, before, request.RuleContext)
@@ -429,7 +479,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 		if err := relations.Store(ctx, tx, request.ID, after); err != nil {
 			return normalizeRelationError(err)
 		}
-		if err := authorizeStoredRelationTargets(ctx, tx, catalog, collection, request.Principal, after); err != nil {
+		if err := authorizeStoredRelationTargets(ctx, tx, catalog, collection, request.Principal, after, request.RuleContext); err != nil {
 			return err
 		}
 		if err := schema.ValidateRecordSize(after); err != nil {

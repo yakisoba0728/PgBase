@@ -24,12 +24,17 @@ type Policy struct {
 // lock and pass the transaction that stored next.
 func ApplyTransition(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID, previous, next Policy) error {
 	var err error
-	if previous.PasswordEnabled && !next.PasswordEnabled ||
+	invalidate := previous.PasswordEnabled && !next.PasswordEnabled ||
 		next.MinimumPasswordBytes > previous.MinimumPasswordBytes ||
 		!previous.MFAEnabled && next.MFAEnabled ||
-		previous.OTPEnabled && !next.OTPEnabled {
+		previous.OTPEnabled && !next.OTPEnabled
+	if invalidate {
 		_, err = tx.Exec(ctx, `update pgbase_meta.user_sessions set revoked_at=coalesce(revoked_at,CURRENT_TIMESTAMP) where user_id in (select id from pgbase_meta.users where auth_collection_id=$1)`, collectionID)
 	}
+	if err == nil && (invalidate || !next.MFAEnabled) {
+		_, err = tx.Exec(ctx, `delete from pgbase_meta.user_mfa_challenges where user_id in (select id from pgbase_meta.users where auth_collection_id=$1)`, collectionID)
+	}
+
 	if err == nil && !next.MFAEnabled {
 		_, err = tx.Exec(ctx, `delete from pgbase_meta.user_totp_recovery_codes where user_id in (select id from pgbase_meta.users where auth_collection_id=$1)`, collectionID)
 		if err == nil {

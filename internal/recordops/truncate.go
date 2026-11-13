@@ -41,9 +41,11 @@ func (s *Service) Truncate(ctx context.Context, request TruncateRequest) (result
 	if _, nested := ctx.Value(mutationHookKey{}).(*mutationHookRun); nested {
 		return result, ErrNestedCompoundMutation
 	}
-	if _, err := s.members.writer(ctx); err != nil {
+	writer, err := s.members.writer(ctx)
+	if err != nil {
 		return result, unavailableMembership(err)
 	}
+	ctx = context.WithValue(ctx, compoundMembershipKey{}, compoundMembership{provider: s.members, writer: writer})
 	ctx, hooks := s.hookContext(ctx)
 	if hooks != nil {
 		hooks.deferAfter++

@@ -100,11 +100,11 @@ func (host *extensionHost) resolveAuthRecord(ctx context.Context, request extens
 	if strings.TrimSpace(request.Collection) == "" {
 		return userauth.AuthCollection{}, uuid.Nil, extensionError("invalid_auth_record_request", nil)
 	}
-	id, err := requiredUUID(request.RecordID)
-	if err != nil {
-		return userauth.AuthCollection{}, uuid.Nil, extensionError("invalid_auth_record_request", err)
-	}
 	collection, err := host.bridge.authAPI.ResolveAuthCollection(ctx, request.Collection)
+	if err != nil {
+		return userauth.AuthCollection{}, uuid.Nil, mapExtensionError(err)
+	}
+	id, err := host.bridge.authAPI.ResolveAuthRecordID(ctx, collection.ID, request.RecordID)
 	if err != nil {
 		return userauth.AuthCollection{}, uuid.Nil, mapExtensionError(err)
 	}
@@ -116,7 +116,11 @@ func extensionVisibleAuthRecord(record userauth.AuthRecord, showEmail bool) map[
 	for name, value := range record.Fields {
 		result[name] = value
 	}
-	result["id"], result["collectionId"], result["emailVisibility"], result["verified"], result["active"] = record.ID, record.AuthCollectionID, record.EmailVisibility, record.Verified, record.Active
+	publicID := record.PublicID
+	if publicID == "" {
+		publicID = record.ID.String()
+	}
+	result["id"], result["collectionId"], result["emailVisibility"], result["verified"], result["active"] = publicID, record.AuthCollectionID, record.EmailVisibility, record.Verified, record.Active
 	result["created"], result["updated"] = record.CreatedAt.UTC().Format(time.RFC3339Nano), record.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	// AuthRecord has already passed service-side email visibility projection.
 	// This includes owners and principals authorized by the collection's manage

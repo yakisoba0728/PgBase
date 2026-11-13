@@ -98,3 +98,29 @@ func TestProjectionBatchesRootsRelationsAndExpansionsAcrossIdentityScopes(t *tes
 		t.Fatalf("UUID projection queried identities: %d/%d, %v", db.queries, db.rowQueries, err)
 	}
 }
+
+func TestClosureReverseExpansionProjectsAllIdentitiesOnce(t *testing.T) {
+	ctx, pool, parent := identityFixture(t, "reverse_parent")
+	_, _, child := identityFixtureOnPool(t, ctx, pool, "reverse_child")
+	child.Fields = []schema.Field{{Name: "owner", Relation: &schema.RelationSpec{TargetCollectionID: parent.ID}}}
+	catalog := schema.Catalog{Collections: map[string]schema.Collection{parent.Name: parent, child.Name: child}}
+	service, parentID, childID := New(nil), uuid.New(), uuid.New()
+	for _, item := range []struct {
+		collection schema.Collection
+		id         uuid.UUID
+		public     string
+	}{{parent, parentID, "PersonA"}, {child, childID, "PostA"}} {
+		if _, err := service.Reserve(ctx, pool, item.collection, item.id, &item.public); err != nil {
+			t.Fatal(err)
+		}
+	}
+	expanded := map[string]any{"id": childID.String(), "owner": parentID.String()}
+	root := map[string]any{"id": parentID.String(), "expand": map[string]any{child.Name + "_via_owner": []any{expanded}}}
+	db := &projectionDB{DB: pool}
+	if err := service.Project(ctx, db, catalog, parent, root); err != nil {
+		t.Fatal(err)
+	}
+	if root["id"] != "PersonA" || expanded["id"] != "PostA" || expanded["owner"] != "PersonA" || db.queries != 1 {
+		t.Fatalf("projected=%#v child=%#v queries=%d", root, expanded, db.queries)
+	}
+}

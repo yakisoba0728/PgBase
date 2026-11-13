@@ -183,3 +183,17 @@ describe("rebaseDraft", () => {
     expect(result.conflicts).toEqual(["cover"]);
   });
 });
+
+it("round-trips SQL null, quoted null and whitespace strings separately", () => {
+  for (const value of [null, "null", " null ", '"quoted"', " "]) {
+    const input = { op: "eq", field: "title", value };
+    const result = filterRows(input)!;
+    expect(filterFromRows(result.join, result.rows, { title: "text" })).toEqual(input);
+  }
+});
+it("preserves remote field order when only local metadata changes", () => {
+  const base = draftFromCollection(posts, [authors, posts]);
+  const mine = { ...base, help: "mine", fields: base.fields.map((field, index) => index === 0 ? { ...field, help: "mine" } : field) };
+  const latest = { ...base, fields: [...base.fields].reverse() };
+  expect(rebaseDraft(mine, base, latest).draft.fields.map((field) => field.key)).toEqual(latest.fields.map((field) => field.key));
+});

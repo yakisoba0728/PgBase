@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router";
 import { toast } from "../components/Toast";
 import { tNow } from "../i18n";
-import { ApiError } from "../api/http";
+import { advanceSession, sessionGeneration, setCsrfToken, clearCsrfToken, ApiError } from "../api/http";
 import { getSession, logout, type AdminSession } from "../api/session";
 import { clearAllDrafts } from "../collections/recordDraft";
 import { drafts } from "../schema/drafts";
@@ -33,9 +33,12 @@ function forgetDevice(): void {
 
 // The administrator this device's content belongs to; another one signing in starts from nothing.
 const ownerKey = "pgbase.owner";
+const signedOutKey = "pgbase.signedOut";
 
 /** A session from sign-in or setup becomes this tab's: no cached data of an earlier session survives it. */
 export function adoptSession(session: AdminSession): void {
+  advanceSession();
+  setCsrfToken(session.csrfToken);
   const owner = readStorage(ownerKey);
   if (owner !== null && owner !== session.administrator.id) forgetDevice();
   writeStorage(ownerKey, session.administrator.id);
@@ -52,13 +55,15 @@ export function adoptSession(session: AdminSession): void {
 export async function recoverSession(): Promise<string | null> {
   const cached = queryClient.getQueryData(sessionQuery.queryKey);
   if (!cached) return null;
+  const generation = sessionGeneration();
   let session: AdminSession;
   try {
     session = await getSession();
   } catch (error) {
-    if (isUnauthorized(error)) void queryClient.resetQueries({ queryKey: sessionQuery.queryKey });
+    if (generation === sessionGeneration() && isUnauthorized(error)) void queryClient.resetQueries({ queryKey: sessionQuery.queryKey });
     return null;
   }
+  if (generation !== sessionGeneration()) return null;
   const id = session.administrator.id;
   if (id !== cached.administrator.id) {
     forgetTab();
@@ -75,7 +80,15 @@ export const currentAdministrator = () => queryClient.getQueryData(sessionQuery.
 
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
-    if (event.key === ownerKey) void recoverSession();
+    if (event.key === signedOutKey && event.newValue?.split(":")[0] === currentAdministrator()) {
+      advanceSession();
+      clearCsrfToken();
+      forgetDevice();
+      void queryClient.cancelQueries({ queryKey: sessionQuery.queryKey });
+      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== sessionQuery.queryKey[0] });
+      // Keep the observed session query and publish logout, so the guard immediately leaves private screens.
+      queryClient.getQueryCache().find({ queryKey: sessionQuery.queryKey, exact: true })?.setState({ data: undefined, error: new ApiError(401, "unauthorized", "Signed out in another tab"), status: "error", fetchStatus: "idle" });
+    } else if (event.key === ownerKey) void recoverSession();
   });
 }
 
@@ -106,9 +119,12 @@ export function followSignOut(location: { key: string; state: unknown }): void {
  * session. The request outlives the page, and until the server confirms it the next session check ends it first.
  */
 export function finishSignOut(end: boolean): void {
+  const owner = currentAdministrator();
+  if (owner) writeStorage(signedOutKey, `${owner}:${crypto.getRandomValues(new Uint32Array(1))[0]}`);
+  advanceSession();
   forgetDevice();
   queryClient.clear();
-  if (!end) return;
+  if (!end) { clearCsrfToken(); return; }
   writeStorage(signingOutKey, "1");
   // The cache is gone, so a stale token (another tab signed in again) is renewed here rather than by recoverSession.
   const renewed = (error: unknown) => (error instanceof ApiError && error.code === "csrf_rejected" ? getSession().then(() => logout(true)) : Promise.reject(error));

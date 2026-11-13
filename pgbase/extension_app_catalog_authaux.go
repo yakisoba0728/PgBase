@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
@@ -40,7 +41,23 @@ func (host *extensionHost) callAppCatalogAuthAux(ctx context.Context, method str
 		}
 		for _, c := range host.bridge.appControl.app.schemaCache.Load().Collections {
 			if c.Name == q.Name || c.ID.String() == q.Name {
-				return json.Marshal(c)
+				service, err := host.bridge.appControl.schemaService()
+				if err != nil {
+					return nil, err
+				}
+				document, err := service.ExportSchema(ctx)
+				if err != nil {
+					return nil, err
+				}
+				for _, editable := range document.Collections {
+					if editable.Name == c.Name {
+						return json.Marshal(struct {
+							schema.SchemaDocumentCollection
+							ID uuid.UUID `json:"id"`
+						}{editable, c.ID})
+					}
+				}
+				return nil, extensionError("not_found", errors.New("collection not found"))
 			}
 		}
 		if lookup, ok := host.bridge.authMail.(authMailCollectionLookup); ok {

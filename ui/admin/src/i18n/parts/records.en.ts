@@ -16,6 +16,7 @@ export const recordsEn = {
   "file.lastRequired": "A required field keeps at least one file",
   "file.progress": "Uploading {name}",
   "file.uploadingAll": "Uploading files",
+  "file.replace": "Replace file",
   "file.choose": "Choose files",
   "file.maxSize": "up to {max} each",
   "file.sentOnCreate": "Uploaded together when the record is created.",

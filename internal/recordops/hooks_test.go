@@ -154,3 +154,22 @@ func TestFinishedTransactionOutcomeCannotAdmitNewMutationHooks(t *testing.T) {
 		t.Fatalf("finished owner admitted new hooks: %v", err)
 	}
 }
+
+func TestTransactionOutcomeRegisterOnce(t *testing.T) {
+	outcome := NewTransactionOutcome()
+	if outcome.Register(nil) {
+		t.Fatal("nil callback accepted")
+	}
+	calls := 0
+	if !outcome.Register(func(context.Context, error) { calls++ }) {
+		t.Fatal("registration rejected")
+	}
+	outcome.Finish(context.Background(), nil)
+	outcome.Finish(context.Background(), nil)
+	if calls != 1 {
+		t.Fatalf("calls=%d", calls)
+	}
+	if outcome.Register(func(context.Context, error) { t.Fatal("late callback") }) {
+		t.Fatal("finished registration accepted")
+	}
+}

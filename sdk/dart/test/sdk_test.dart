@@ -443,7 +443,17 @@ void main() {
       httpClient: client,
     );
     await admin.login('admin@example.test', 'password');
-    await admin.configureJob('daily', '0 0 * * *', true);
+    await admin.configureJob(
+      'daily',
+      '0 0 * * *',
+      true,
+      timezone: 'Asia/Seoul',
+    );
+    expect(
+      (jsonDecode(utf8.decode(client.requests.last.body))
+          as Map<String, dynamic>)['timezone'],
+      'Asia/Seoul',
+    );
     expect(client.requests.last.headers['x-pgbase-csrf'], 'csrf-token');
     expect(client.requests.last.headers.containsKey('authorization'), isFalse);
   });
@@ -949,6 +959,8 @@ void main() {
       final file = await files.upload('attachment', source);
       final request = client.requests.single;
       expect(file.filename, 'n7.txt');
+      expect(file.protected, isTrue);
+      expect(file.publicUrl, '/public/n7.txt');
       expect(request.headers['x-pgbase-file-size'], '15');
       expect(
         request.headers['x-pgbase-file-sha256'],
@@ -1377,6 +1389,8 @@ final class _ScriptedClient extends http.BaseClient {
         'contentType': 'text/plain',
         'size': 15,
         'thumbnail': false,
+        'protected': true,
+        'publicUrl': '/public/n7.txt',
       });
     if (path.startsWith('/api/v1/user/files/') && request.method == 'GET')
       return http.StreamedResponse(

@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -192,5 +193,105 @@ func TestManagerSerializesPersistsAndRecoversJobs(t *testing.T) {
 	}
 	if err = manager.Delete(context.Background(), uploaded.ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestVerifyRejectsManifestBeyondRestoreLimit(t *testing.T) {
+	directory := t.TempDir()
+	makeArchiveFixture(t, directory)
+	file, err := os.OpenFile(filepath.Join(directory, "manifest.json"), os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := file.Write(bytes.Repeat([]byte(" "), 16<<20))
+	if err := errors.Join(writeErr, file.Close()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyContext(t.Context(), directory); err == nil {
+		t.Fatal("oversized manifest accepted")
+	}
+}
+
+type cancelArchiveWriter struct{ cancel context.CancelFunc }
+
+func (w cancelArchiveWriter) Write(data []byte) (int, error) { w.cancel(); return len(data), nil }
+
+type cancelArchiveReader struct {
+	io.Reader
+	cancel context.CancelFunc
+}
+
+func (r cancelArchiveReader) Read(data []byte) (int, error) {
+	n, err := r.Reader.Read(data)
+	r.cancel()
+	return n, err
+}
+
+func TestArchiveCancellationCleansUnpublishedDestination(t *testing.T) {
+	source := t.TempDir()
+	makeArchiveFixture(t, source)
+	ctx, cancel := context.WithCancel(t.Context())
+	if err := Pack(ctx, source, cancelArchiveWriter{cancel}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Pack cancellation: %v", err)
+	}
+	var encoded bytes.Buffer
+	if err := Pack(t.Context(), source, &encoded); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel = context.WithCancel(t.Context())
+	defer cancel()
+	destination := filepath.Join(t.TempDir(), "canceled")
+	if err := Unpack(ctx, cancelArchiveReader{&encoded, cancel}, destination); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Unpack cancellation: %v", err)
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("unpublished destination retained: %v", err)
+	}
+}
+
+func TestUnpackRejectsOversizedHeaderBeforeWritingPayload(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		size int64
+	}{{"database.dump", maximumUnpackedBytes + 1}, {"manifest.json", (16 << 20) + 1}} {
+		t.Run(test.name, func(t *testing.T) {
+			var encoded bytes.Buffer
+			gz := gzip.NewWriter(&encoded)
+			tw := tar.NewWriter(gz)
+			if err := tw.WriteHeader(&tar.Header{Name: test.name, Typeflag: tar.TypeReg, Mode: 0600, Size: test.size}); err != nil {
+				t.Fatal(err)
+			}
+			// No payload is needed: the header itself exceeds the restore budget.
+			_ = gz.Close()
+			destination := filepath.Join(t.TempDir(), "oversized")
+			if err := Unpack(t.Context(), &encoded, destination); err == nil || !strings.Contains(err.Error(), "exceeds limit") {
+				t.Fatalf("header limit: %v", err)
+			}
+			if _, err := os.Stat(destination); !os.IsNotExist(err) {
+				t.Fatalf("retained rejected destination: %v", err)
+			}
+		})
+	}
+}
+
+func TestArchiveWriterEnforcesCompressedBudgetAndPropagatesCloseFailure(t *testing.T) {
+	var output bytes.Buffer
+	bounded := &boundedArchiveWriter{writer: &output, remaining: 3}
+	if n, err := bounded.Write([]byte("abc")); err != nil || n != 3 {
+		t.Fatalf("exact boundary n=%d err=%v", n, err)
+	}
+	if n, err := bounded.Write([]byte("d")); err == nil || n != 0 || output.String() != "abc" {
+		t.Fatalf("overflow n=%d err=%v output=%q", n, err, output.String())
+	}
+	output.Reset()
+	gz := gzip.NewWriter(&boundedArchiveWriter{writer: &output, remaining: 10})
+	if _, err := gz.Write([]byte("body")); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err == nil {
+		t.Fatal("compressed trailer exceeded budget without failure")
+	}
+	if output.Len() > 10 {
+		t.Fatalf("compressed budget exceeded: %d", output.Len())
 	}
 }

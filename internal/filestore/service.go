@@ -243,7 +243,7 @@ func NewService(pool *database.Pool, objects ObjectStore, authorize AuthorizeFun
 	return &Service{pool: pool, objects: objects, authorize: authorize, options: options, allowed: allowed}, nil
 }
 
-var fieldPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,47}$`)
+var fieldPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
 func (s *Service) Upload(ctx context.Context, principal identity.Subject, input Upload) (File, error) {
 	ctx, release, err := s.beginStorageOperation(ctx)
@@ -520,6 +520,9 @@ func (s *Service) Delete(ctx context.Context, principal identity.Subject, id uui
 	event := &lifecycle.Event{Kind: "file.delete", Data: &FileEvent{File: preview, Principal: principal}}
 	return s.options.Hooks.Run(ctx, event, func() error {
 		return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtextextended($1,0))`, preview.CollectionID.String()+"/"+preview.RecordID.String()+"/"+preview.Field); err != nil {
+				return err
+			}
 			var file File
 			if err := scanFile(tx.QueryRow(ctx, `SELECT id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
 			FROM pgbase_meta.record_files WHERE id=$1 AND status='ready' FOR UPDATE`, id), &file); err != nil {
@@ -531,9 +534,6 @@ func (s *Service) Delete(ctx context.Context, principal identity.Subject, id uui
 			}
 			policy, err := s.resolvedPolicy(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationWrite)
 			if err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtextextended($1,0))`, file.CollectionID.String()+"/"+file.RecordID.String()+"/"+file.Field); err != nil {
 				return err
 			}
 			if policy.Required {

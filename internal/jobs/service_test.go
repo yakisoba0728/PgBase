@@ -114,3 +114,13 @@ func TestRegistryRejectsDuplicateNames(t *testing.T) {
 		t.Fatalf("duplicate registration error = %v", err)
 	}
 }
+
+func TestEveryScheduleValidatesItsTimezone(t *testing.T) {
+	for _, expression := range []string{"@every 1s", "0 0 * * *"} {
+		for _, zone := range []string{"Mars/Base", ""} {
+			if _, err := ParseScheduleInLocation(expression, zone); !errors.Is(err, ErrInvalidSchedule) {
+				t.Fatalf("%q/%q=%v", expression, zone, err)
+			}
+		}
+	}
+}

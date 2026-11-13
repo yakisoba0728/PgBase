@@ -13,6 +13,7 @@ import (
 )
 
 type outboxEnvelope struct {
+	PublicRecord   map[string]any `json:"publicRecord,omitempty"`
 	Version        int            `json:"version"`
 	EventID        uuid.UUID      `json:"eventId"`
 	CollectionID   uuid.UUID      `json:"collectionId"`
@@ -62,9 +63,11 @@ func findIdempotentCreate(ctx context.Context, tx pgx.Tx, principal Principal, c
 	if err != nil {
 		return MutationResult{}, false, errors.New("decode stored idempotency result")
 	}
+	publicRecord, _ := data["__pgbase_public_record"].(map[string]any)
+	delete(data, "__pgbase_public_record")
 	return MutationResult{
 		Record:  &Record{Data: data, ETag: etag, Version: 1},
-		EventID: eventID, InternalID: recordID, Replayed: true,
+		EventID: eventID, InternalID: recordID, Replayed: true, publicRecord: publicRecord,
 	}, true, nil
 }
 

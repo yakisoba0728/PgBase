@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -160,19 +159,36 @@ func operationsConsoleRoutes(d Dependencies) []route {
 				}
 				if r.Method == "PUT" {
 					var input struct {
-						Schedule string `json:"schedule"`
-						Timezone string `json:"timezone"`
-						Enabled  *bool  `json:"enabled"`
+						Schedule string  `json:"schedule"`
+						Timezone *string `json:"timezone"`
+						Enabled  *bool   `json:"enabled"`
 					}
 					if decodeStrictJSON(r, &input) != nil || input.Enabled == nil {
 						writeOperationsError(w, r, jobs.ErrInvalidSchedule)
 						return
 					}
-					if strings.TrimSpace(input.Timezone) == "" {
-						input.Timezone = "UTC"
-					}
 					if extended, ok := d.Jobs.(timezoneManagedJobs); ok {
-						err = extended.ConfigureJobInTimezone(r.Context(), id, input.Schedule, input.Timezone, *input.Enabled)
+						timezone := ""
+						if input.Timezone != nil {
+							timezone = *input.Timezone
+						} else {
+							items, listErr := d.Jobs.ListJobs(r.Context())
+							if listErr != nil {
+								writeOperationsError(w, r, listErr)
+								return
+							}
+							for _, item := range items {
+								if item.ID == id {
+									timezone = item.Timezone
+									break
+								}
+							}
+							if timezone == "" {
+								writeOperationsError(w, r, jobs.ErrNotManageable)
+								return
+							}
+						}
+						err = extended.ConfigureJobInTimezone(r.Context(), id, input.Schedule, timezone, *input.Enabled)
 					} else {
 						err = d.Jobs.ConfigureJob(r.Context(), id, input.Schedule, *input.Enabled)
 					}

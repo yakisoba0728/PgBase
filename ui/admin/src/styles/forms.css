@@ -264,3 +264,10 @@ input[type="checkbox"]:disabled {
   right: 6px;
   bottom: 5px;
 }
+
+.field input:focus-visible, .field textarea:focus-visible, .relation-search input:focus-visible, .rich-text-url input:focus-visible, .rich-text-source:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+fieldset.form { border: 0; margin: 0; padding: 0; min-width: 0; }

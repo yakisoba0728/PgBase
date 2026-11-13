@@ -43,7 +43,7 @@ func TestFailedConstructionReleasesOwnedDatabaseResources(t *testing.T) {
 			if err := acquired.Ping(ctx); err == nil {
 				t.Fatal("failed construction retained its pool")
 			}
-			gate, err := database.TryBackupGate(ctx, url, true)
+			gate, err := database.TryBackupGate(ctx, url, true, false)
 			if err != nil {
 				t.Fatalf("failed construction retained a writer gate or pooled connection: %v", err)
 			}

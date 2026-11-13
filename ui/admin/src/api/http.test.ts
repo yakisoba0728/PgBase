@@ -134,3 +134,11 @@ describe("CSRF recovery", () => {
     expect(sent).toHaveLength(1);
   });
 });
+
+it("never starts a multipart upload with an already aborted signal", async () => {
+  const xhr = vi.fn();
+  vi.stubGlobal("XMLHttpRequest", xhr);
+  const signal = AbortSignal.abort(new DOMException("Cancelled", "AbortError"));
+  await expect(uploadForm("/files", new FormData(), { signal })).rejects.toMatchObject({ name: "AbortError" });
+  expect(xhr).not.toHaveBeenCalled();
+});

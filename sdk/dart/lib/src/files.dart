@@ -17,6 +17,8 @@ final class FileInfo {
     required this.contentType,
     required this.size,
     required this.thumbnail,
+    this.protected,
+    this.publicUrl,
   });
   final String id;
   final String field;
@@ -24,6 +26,8 @@ final class FileInfo {
   final String contentType;
   final int size;
   final bool thumbnail;
+  final bool? protected;
+  final String? publicUrl;
 }
 
 final class Files {
@@ -147,6 +151,12 @@ FileInfo _fileInfo(JsonValue value) {
     contentType: string('contentType'),
     size: parsed,
     thumbnail: thumbnail.value,
+    protected: value['protected'] is JsonBool
+        ? (value['protected'] as JsonBool).value
+        : null,
+    publicUrl: value['publicUrl'] is JsonString
+        ? (value['publicUrl'] as JsonString).value
+        : null,
   );
 }
 

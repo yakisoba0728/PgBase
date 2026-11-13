@@ -4,6 +4,8 @@ package adminauth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"testing"
 	"time"
@@ -19,7 +21,7 @@ func TestAccountPasswordChangeSerializesPendingCredentialRedemption(t *testing.T
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			pool := newAdminAuthPool(t)
-			service := NewService(pool, NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), "account-race-setup", time.Hour, nil)
+			service := NewService(pool, credentialLockPasswords{}, []byte("0123456789abcdef0123456789abcdef"), "account-race-setup", time.Hour, nil)
 			capture := &resetCapture{}
 			if err := service.ConfigurePasswordReset(capture, "https://pgbase.example", time.Hour); err != nil {
 				t.Fatal(err)
@@ -103,7 +105,7 @@ func TestAccountDeactivationPreventsLateCredentialIssuance(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			pool := newAdminAuthPool(t)
-			service := NewService(pool, NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), "account-race-setup", time.Hour, nil)
+			service := NewService(pool, credentialLockPasswords{}, []byte("0123456789abcdef0123456789abcdef"), "account-race-setup", time.Hour, nil)
 			capture := &resetCapture{}
 			if err := service.ConfigurePasswordReset(capture, "https://pgbase.example", time.Hour); err != nil {
 				t.Fatal(err)
@@ -185,7 +187,7 @@ func TestEmailOTPPropagatesCredentialQueryCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	pool := newAdminAuthPool(t)
-	service := NewService(pool, NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), "account-race-setup", time.Hour, nil)
+	service := NewService(pool, credentialLockPasswords{}, []byte("0123456789abcdef0123456789abcdef"), "account-race-setup", time.Hour, nil)
 	if err := service.ConfigureEmailOTP(&resetCapture{}, time.Minute); err != nil {
 		t.Fatal(err)
 	}
@@ -225,6 +227,38 @@ func TestEmailOTPPropagatesCredentialQueryCancellation(t *testing.T) {
 	}
 	if _, err := service.CompleteEmailOTP(ctx, otp.ID, otp.Code, "192.0.2.3"); err != nil {
 		t.Fatalf("failed query consumed the pending OTP: %v", err)
+	}
+}
+
+// Keep KDF scheduling out of database lock tests; distinct passwords must still mismatch.
+type credentialLockPasswords struct{}
+
+func (credentialLockPasswords) Hash(password string) (string, error) {
+	key := sha256.Sum256([]byte(password))
+	return "$argon2id$v=19$m=65536,t=3,p=4$AAAAAAAAAAAAAAAAAAAAAA$" + base64.RawStdEncoding.EncodeToString(key[:]), nil
+}
+func (credentialLockPasswords) Verify(hash, password string) error {
+	expected, _ := (credentialLockPasswords{}).Hash(password)
+	if hash != expected {
+		return ErrInvalidCredentials
+	}
+	return nil
+}
+
+func TestCredentialLockPasswordsPreservePasswordChecks(t *testing.T) {
+	passwords := credentialLockPasswords{}
+	hash, _ := passwords.Hash("original account password")
+	if _, _, valid := parsePasswordHash(hash); !valid {
+		t.Fatal("lock fixture hash fails production shape validation")
+	}
+	if err := passwords.Verify(hash, "original account password"); err != nil {
+		t.Fatal(err)
+	}
+	if err := passwords.Verify(hash, "replacement account password"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("different password accepted: %v", err)
+	}
+	if err := passwords.Verify(dummyPasswordHash, "original account password"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("dummy hash accepted: %v", err)
 	}
 }
 

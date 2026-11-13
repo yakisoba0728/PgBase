@@ -215,6 +215,19 @@ function rebaseRows<T extends { key: string; name: string }>(mine: T[], base: T[
     const previous = latest.slice(0, position).reverse().find((candidate) => result.some((kept) => kept.key === candidate.key));
     result.splice(previous ? result.findIndex((kept) => kept.key === previous.key) + 1 : 0, 0, row);
   });
+  const localBase = mine.filter((row) => base.some((value) => value.key === row.key)).map((row) => row.key);
+  const survivingBase = base.filter((row) => mine.some((value) => value.key === row.key)).map((row) => row.key);
+  if (same(localBase, survivingBase)) {
+    const ordered = latest.flatMap((row) => result.find((value) => value.key === row.key) ?? []);
+    for (const [index, row] of mine.entries()) {
+      if (base.some((value) => value.key === row.key)) continue;
+      const previous = mine.slice(0, index).reverse().find((value) => ordered.some((kept) => kept.key === value.key));
+      let at = previous ? ordered.findIndex((value) => value.key === previous.key) + 1 : 0;
+      while (at < ordered.length && !base.some((value) => value.key === ordered[at].key)) at++;
+      ordered.splice(at, 0, row);
+    }
+    return ordered;
+  }
   return result;
 }
 
@@ -458,7 +471,7 @@ export const filterable = (type: FieldType) => ["boolean", "integer", "bigint", 
 
 const isCompare = (op: string): op is CompareOp => (compareOps as readonly string[]).includes(op);
 
-const valueText = (value: unknown) => (typeof value === "string" ? value : value === undefined ? "" : stringifyJson(value));
+const valueText = (value: unknown) => (typeof value === "string" ? (value.trim() === "null" || value.startsWith('"') ? stringifyJson(value) : value) : value === undefined ? "" : stringifyJson(value));
 
 /** The filter as editable rows, or null when it nests deeper than the row editor shows. */
 export function filterRows(filter: ViewFilter | undefined): { join: "all" | "any"; rows: FilterRow[] } | null {
@@ -476,6 +489,7 @@ export function filterRows(filter: ViewFilter | undefined): { join: "all" | "any
 /** A typed value as the JSON literal the planner expects for the field type. */
 function filterValue(type: FieldType | undefined, text: string): unknown {
   const trimmed = text.trim();
+  if (text.startsWith('"')) { try { const value = parseJson(text); if (typeof value === "string") return value; } catch { /* Plain unquoted input. */ } }
   if (trimmed === "null") return null;
   if (type === "boolean") return trimmed === "true";
   if ((type === "integer" || type === "bigint" || type === "numeric") && /^-?\d+(\.\d+)?$/.test(trimmed)) return parseJson(trimmed);

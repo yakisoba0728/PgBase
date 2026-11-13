@@ -98,7 +98,7 @@ func (a pageAssembler) measureResponse(candidates []pageCandidate, measured int,
 }
 
 func (a pageAssembler) cursor(candidates []pageCandidate, hasMore bool) (string, error) {
-	if !hasMore || len(candidates) == 0 {
+	if a.order.random() || !hasMore || len(candidates) == 0 {
 		return "", nil
 	}
 	return a.order.encodeCursor(a.cursors, candidates[len(candidates)-1], a.expiresAt, a.cursorV5)

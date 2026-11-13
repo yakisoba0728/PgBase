@@ -214,13 +214,22 @@ func runServe(ctx context.Context, args []string, env environment, streams IO) (
 			if options.TLS == nil {
 				options.TLS = &pgbase.TLSOptions{}
 			}
-			options.TLS.Address = *httpsAddress
-			options.TLS.CertificateFile = *httpsCert
-			options.TLS.KeyFile = *httpsKey
-			options.TLS.ACMECacheDirectory = *acmeCache
-			options.TLS.HTTPChallengeAddress = *acmeHTTP
-			if *acmeHosts != "" {
-				options.TLS.ACMEHosts = strings.Split(*acmeHosts, ",")
+			switch item.Name {
+			case "https-address":
+				options.TLS.Address = *httpsAddress
+			case "https-cert":
+				options.TLS.CertificateFile = *httpsCert
+			case "https-key":
+				options.TLS.KeyFile = *httpsKey
+			case "acme-cache-dir":
+				options.TLS.ACMECacheDirectory = *acmeCache
+			case "acme-http-address":
+				options.TLS.HTTPChallengeAddress = *acmeHTTP
+			case "acme-hosts":
+				options.TLS.ACMEHosts = nil
+				if *acmeHosts != "" {
+					options.TLS.ACMEHosts = strings.Split(*acmeHosts, ",")
+				}
 			}
 		}
 	})

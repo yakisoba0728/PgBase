@@ -52,3 +52,26 @@ describe("api reference", () => {
     expect(dartValue({ n: 1, s: "it's", l: [true] })).toBe(`JsonObject({'n': JsonNumber('1'), 's': const JsonString('it\\'s'), 'l': JsonArray([const JsonBool(true)])})`);
   });
 });
+
+it("generates bounded values, authenticated batches and required registration profiles", () => {
+  const collection = { ...notes, type: "auth" as const, fields: [field("i", "integer", { options: { max: "0" } }), field("n", "numeric", { options: { max: "-1.0001" } }), field("nick", "text", { required: true, options: { allowedValues: ["line\nbreak"] } })] };
+  expect(requestBody(collection)).toMatchObject({ i: 0, n: "-1.0001" });
+  const endpoints = buildEndpoints(collection, "user", true);
+  const batch = endpoints.find((endpoint) => endpoint.id === "batch")!;
+  expect(codeSample("curl", batch, collection, "https://example.test", "user")).toContain("Authorization: Bearer");
+  const register = endpoints.find((endpoint) => endpoint.id === "authRegister")!;
+  expect(register.body?.fields).toMatchObject({ nick: "line\nbreak" });
+  expect(codeSample("ts", register, collection, "https://example.test", "user")).toContain("profile:");
+  expect(codeSample("dart", register, collection, "https://example.test", "user")).toContain("profile:");
+  expect(dartValue("line\nbreak")).toContain("line\\nbreak");
+});
+
+it("sends unsafe bounded integers as exact JSON text in JS examples and exact Dart numbers", () => {
+  const collection = { ...notes, type: "auth" as const, fields: [field("n", "bigint", { options: { min: "9007199254740993" } })] };
+  const register = buildEndpoints(collection, "user", true).find((endpoint) => endpoint.id === "authRegister")!;
+  const ts = codeSample("ts", register, collection, "https://example.test", "user");
+  expect(ts).toContain("await fetch(");
+  expect(ts).toContain("9007199254740993");
+  expect(ts).not.toContain("9007199254740992");
+  expect(codeSample("dart", register, collection, "https://example.test", "user")).toContain("JsonNumber('9007199254740993')");
+});

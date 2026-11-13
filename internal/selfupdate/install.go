@@ -107,7 +107,7 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 		return Status{}, ErrReplaceFailed
 	}
 	suffix := targetDigest[:12]
-	manifestSHA, signatureSHA, err := writeEvidence(state, suffix, options.Fetched.ManifestRaw, options.Fetched.SignatureRaw)
+	manifestSHA, signatureSHA, err := writeEvidence(state, suffix+"-"+checksumBytes(options.Fetched.ManifestRaw), options.Fetched.ManifestRaw, options.Fetched.SignatureRaw)
 	if err != nil {
 		return Status{}, err
 	}

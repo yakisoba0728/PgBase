@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/http";
 import { Notice } from "../components/Feedback";
 import { errorText } from "../app/queries";
@@ -7,10 +7,16 @@ import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
 import type { Problems } from "./forms";
 
-/** A form draft compared against its loaded value. Callers key the form by the loaded data,
- * so a save or reload remounts it with a fresh base. */
+/** Untouched forms follow loaded data; edited forms survive background updates. */
 export function useDraft<T extends object>(initial: T) {
   const [draft, setDraft] = useState(initial);
+  const loaded = JSON.stringify(initial);
+  const previous = useRef(loaded);
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = loaded;
+    setDraft((current) => JSON.stringify(current) === before ? initial : current);
+  }, [loaded]);
   const [problems, setProblems] = useState<Problems>({});
   // Set right before a save or delete navigates away, so the guard lets that one through.
   const release = useRef(false);

@@ -1,3 +1,4 @@
+import { isLosslessNumber } from "lossless-json";
 import { stringifyJson } from "../api/http";
 import type { Collection } from "../api/collections";
 import { recordIdExample, requestBody, type Audience, type Endpoint } from "./endpoints";
@@ -25,7 +26,9 @@ function curl(endpoint: Endpoint, collection: Collection, origin: string, audien
   return lines.join(" \\\n  ");
 }
 
-const json = (value: unknown) => JSON.stringify(value);
+const json = stringifyJson;
+
+const exactNumberIn = (value: unknown): boolean => isLosslessNumber(value) || (value !== null && typeof value === "object" && Object.values(value).some(exactNumberIn));
 
 function typescript(endpoint: Endpoint, collection: Collection, origin: string): string {
   const name = JSON.stringify(collection.name);
@@ -34,6 +37,11 @@ function typescript(endpoint: Endpoint, collection: Collection, origin: string):
   const head = `import { PgBaseClient } from "@pgbase/sdk";\n\nconst client = new PgBaseClient(${JSON.stringify(origin)});\n`;
   const records = `const records = client.records(${name});\n`;
   const realm = `const realm = client.realm(${name});\n`;
+  if (endpoint.body && exactNumberIn(endpoint.body)) {
+    const url = JSON.stringify(origin + endpoint.path.replace("{id}", recordIdExample(collection)));
+    const headers = { "Content-Type": "application/json", ...endpoint.headers, ...(endpoint.userOnly || endpoint.path.startsWith("/api/v1/user/") ? { Authorization: "Bearer <token>" } : {}) };
+    return `${head}// Send exact numeric JSON as text so JavaScript cannot round its digits.\nconst response = await fetch(${url}, { method: ${json(endpoint.method)}, headers: ${json(headers)}, body: ${JSON.stringify(stringifyJson(endpoint.body))} });\nif (!response.ok) throw new Error(\`Request failed: \${response.status}\`);\nconst result = await response.json();`;
+  }
   const code: Record<string, string> = {
     list: `${records}const page = await records.list(${json({ ...endpoint.query, limit: 20 })});\n// page.items, page.nextCursor`,
     view: `${records}const record = await records.get(${id});`,
@@ -43,7 +51,7 @@ function typescript(endpoint: Endpoint, collection: Collection, origin: string):
     batch: `const { results } = await client.batch([\n  { operation: "create", collection: ${name}, input: ${body}, idempotencyKey: "batch-create-000001" },\n]);`,
     realtime: `const unsubscribe = await client.realtime.subscribe(${JSON.stringify(`${collection.name}/*`)}, (event) => {\n  console.log(event);\n});`,
     authMethods: `${realm}const methods = await realm.methods();`,
-    authRegister: `${realm}const session = await realm.register("person@example.com", "a-long-passphrase");`,
+    authRegister: `${realm}const session = await realm.register("person@example.com", "a-long-passphrase", { profile: ${json(endpoint.body?.fields ?? {})} });`,
     authLogin: `${realm}const session = await realm.login("person@example.com", "a-long-passphrase");`,
     authRefresh: `${realm}const session = await realm.refresh();`,
     authProfile: `${realm}const profile = await realm.profile();`,
@@ -58,6 +66,7 @@ function typescript(endpoint: Endpoint, collection: Collection, origin: string):
 export function dartValue(value: unknown): string {
   if (value === null || value === undefined) return "const JsonNull()";
   if (typeof value === "string") return `const JsonString(${dartString(value)})`;
+  if (isLosslessNumber(value)) return `JsonNumber('${value.value}')`;
   if (typeof value === "number") return `JsonNumber('${value}')`;
   if (typeof value === "boolean") return `const JsonBool(${value})`;
   if (Array.isArray(value)) return `JsonArray([${value.map(dartValue).join(", ")}])`;
@@ -65,7 +74,7 @@ export function dartValue(value: unknown): string {
   return `JsonObject({${entries.join(", ")}})`;
 }
 
-const dartString = (text: string) => `'${text.replace(/[\\'$]/g, (char) => `\\${char}`)}'`;
+const dartString = (text: string) => `'${text.replace(/[\\'$]/g, (char) => `\\${char}`).replaceAll('\n', '\\n').replaceAll('\r', '\\r')}'`;
 
 function dart(endpoint: Endpoint, collection: Collection, origin: string): string {
   const name = dartString(collection.name);
@@ -84,7 +93,7 @@ function dart(endpoint: Endpoint, collection: Collection, origin: string): strin
     batch: `final result = await client.batch([\n  BatchOperation.create(collection: ${name}, input: ${body}, idempotencyKey: 'batch-create-000001'),\n]);`,
     realtime: `final unsubscribe = await client.realtime.subscribe(${dartString(`${collection.name}/*`)}, (RealtimeEvent event) {\n  print(event.record);\n});`,
     authMethods: `${realm}final methods = await realm.methods();`,
-    authRegister: `${realm}final session = await realm.register('person@example.com', 'a-long-passphrase');`,
+    authRegister: `${realm}final session = await realm.register('person@example.com', 'a-long-passphrase', profile: ${dartValue(endpoint.body?.fields ?? {})});`,
     authLogin: `${realm}final session = await realm.login('person@example.com', 'a-long-passphrase');`,
     authRefresh: `${realm}final session = await realm.refresh();`,
     authProfile: `${realm}final profile = await realm.profile();`,

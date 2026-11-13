@@ -238,7 +238,7 @@ func (s *Service) AdminDeleteAuthAuxiliaryScope(ctx context.Context, administrat
 				return ErrValidation
 			}
 			var actual uuid.UUID
-			var password, otp bool
+			var password, realmPasswordEnabled, otp bool
 			var count int
 			if err = tx.QueryRow(ctx, `select auth_collection_id,password_enabled from pgbase_meta.users where id=$1 and active for update`, q.UserID).Scan(&actual, &password); err != nil {
 				return err
@@ -246,13 +246,13 @@ func (s *Service) AdminDeleteAuthAuxiliaryScope(ctx context.Context, administrat
 			if actual != q.CollectionID {
 				return ErrNotFound
 			}
-			if err = tx.QueryRow(ctx, `select otp_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, actual).Scan(&otp); err != nil {
+			if err = tx.QueryRow(ctx, `select password_enabled,otp_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, actual).Scan(&realmPasswordEnabled, &otp); err != nil {
 				return err
 			}
 			if err = tx.QueryRow(ctx, `select count(*) from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2`, actual, q.UserID).Scan(&count); err != nil {
 				return err
 			}
-			if count > 0 && !password && !otp {
+			if count > 0 && !(password && realmPasswordEnabled) && !otp {
 				return ErrValidation
 			}
 			tag, err = tx.Exec(ctx, `delete from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2`, actual, q.UserID)

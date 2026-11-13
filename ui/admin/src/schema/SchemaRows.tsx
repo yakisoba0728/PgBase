@@ -159,12 +159,12 @@ export function FieldRows({ editor }: { editor: SchemaEditor }) {
 }
 
 /** Read-only field list of a view: its columns follow the query. */
-export function ViewFieldRows({ fields }: { fields: CollectionField[] }) {
+export function ViewFieldRows({ fields, textId = false }: { fields: CollectionField[]; textId?: boolean }) {
   const t = useT();
   return (
     <Section title={t("schema.fields")} count={fields.length}>
       <ul className="schema-rows">
-        <LockedRow name="id" type="uuid" />
+        <LockedRow name="id" type={textId ? "text" : "uuid"} />
         {fields.map((field) => <LockedRow key={field.id} name={field.name} type={field.type} />)}
       </ul>
       <p className="field-hint schema-note">{t("schema.viewFieldsHint")}</p>

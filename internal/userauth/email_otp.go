@@ -33,14 +33,14 @@ func (s *Service) RequestEmailOTPInCollection(ctx context.Context, collectionID 
 	if err != nil {
 		return EmailOTPRequest{}, err
 	}
-	if err := s.consumeRateLimit(ctx, s.subjectHash("email-otp-request", "network", clientAddress), loginNetworkLimit, now); err != nil {
+	if err := s.consumeRateLimit(ctx, s.subjectHash("email-otp-request", "network", clientAddress), s.currentRatePolicy().NetworkMaxFailures, now); err != nil {
 		return EmailOTPRequest{}, err
 	}
 	account := normalized
 	if emailErr != nil {
 		account = "<invalid>"
 	}
-	if err := s.consumeRateLimit(ctx, s.subjectHash("email-otp-request", "account", collectionID.String()+"\x00"+account), loginAccountLimit, now); err != nil {
+	if err := s.consumeRateLimit(ctx, s.subjectHash("email-otp-request", "account", collectionID.String()+"\x00"+account), s.currentRatePolicy().AccountMaxFailures, now); err != nil {
 		return EmailOTPRequest{}, err
 	}
 	result := EmailOTPRequest{OTPID: uuid.NewString()}

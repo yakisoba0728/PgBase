@@ -36,19 +36,67 @@ type ExtensionObjectEvent struct {
 
 type extensionObjectTransactionKey struct{}
 type extensionObjectTransactionState struct {
-	mu       sync.Mutex
-	cond     *sync.Cond
-	tx       pgx.Tx
-	objects  *ExtensionObjects
-	uploaded map[string]struct{}
-	active   int
-	closing  bool
+	mu             sync.Mutex
+	cond           *sync.Cond
+	tx             pgx.Tx
+	objects        *ExtensionObjects
+	uploaded       map[string]struct{}
+	active         int
+	closing        bool
+	storageCtx     context.Context
+	storageRelease func()
 }
 
 func newExtensionObjectTransactionState(tx pgx.Tx, objects *ExtensionObjects) *extensionObjectTransactionState {
 	s := &extensionObjectTransactionState{tx: tx, objects: objects, uploaded: map[string]struct{}{}}
 	s.cond = sync.NewCond(&s.mu)
 	return s
+}
+
+func (o *ExtensionObjects) beginStorageOperation(ctx context.Context) (context.Context, func(), error) {
+	if o == nil || o.store == nil || o.pool == nil {
+		return ctx, func() {}, errors.New("extension object storage unavailable")
+	}
+	if state, ok := ctx.Value(extensionObjectTransactionKey{}).(*extensionObjectTransactionState); ok && state != nil && state.objects == o {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		if state.storageCtx != nil {
+			return extensionStorageContext{Context: ctx, values: state.storageCtx}, func() {}, nil
+		}
+		// Individual host calls cancel their contexts before the enclosing transaction finishes.
+		leaseCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		stop := context.AfterFunc(ctx, cancel)
+		leased, release, err := o.storageOperation(leaseCtx)
+		stop()
+		if err == nil && ctx.Err() != nil {
+			release()
+			err = ctx.Err()
+		}
+		if err != nil {
+			cancel()
+			return ctx, func() {}, err
+		}
+		state.storageCtx = leased
+		state.storageRelease = func() { release(); cancel() }
+		return extensionStorageContext{Context: ctx, values: leased}, func() {}, nil
+	}
+	return o.storageOperation(ctx)
+}
+
+type extensionStorageContext struct {
+	context.Context
+	values context.Context
+}
+
+func (c extensionStorageContext) Value(key any) any { return c.values.Value(key) }
+
+func (o *ExtensionObjects) storageOperation(ctx context.Context) (context.Context, func(), error) {
+	if gate, ok := o.store.(interface {
+		BeginStorageOperation(context.Context) (context.Context, func(), error)
+	}); ok {
+		return gate.BeginStorageOperation(ctx)
+	}
+	return ctx, func() {}, nil
 }
 
 func (s *extensionObjectTransactionState) acquire() bool {
@@ -109,7 +157,12 @@ func (s *extensionObjectTransactionState) finish(ctx context.Context, rolledBack
 		keys = append(keys, key)
 	}
 	s.uploaded = nil
+	release := s.storageRelease
+	s.storageRelease = nil
 	s.mu.Unlock()
+	if release != nil {
+		defer release()
+	}
 	if !rolledBack || s.objects == nil || s.objects.store == nil {
 		return nil
 	}
@@ -198,19 +251,27 @@ func (o *ExtensionObjects) Open(ctx context.Context, namespace, key string) (io.
 }
 
 func (o *ExtensionObjects) open(metadataCtx, readerCtx context.Context, namespace, key string) (io.ReadCloser, error) {
-	physical, err := o.physicalKey(metadataCtx, namespace, key)
+	leased, release, err := o.beginStorageOperation(extensionStorageContext{Context: readerCtx, values: metadataCtx})
 	if err != nil {
 		return nil, err
 	}
+	metadataCtx = extensionStorageContext{Context: metadataCtx, values: leased}
+	physical, err := o.physicalKey(metadataCtx, namespace, key)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	readerCtx = extensionStorageContext{Context: readerCtx, values: metadataCtx}
 	r, err := o.store.Open(readerCtx, physical)
 	if err != nil {
+		release()
 		return nil, err
 	}
 	limit := o.maximumBytes
 	if limit <= 0 {
 		limit = 5 << 20
 	}
-	return &extensionLimitedReader{ReadCloser: r, ctx: readerCtx, remaining: limit + 1}, nil
+	return &extensionLimitedReader{ReadCloser: r, ctx: readerCtx, remaining: limit + 1, release: release}, nil
 }
 
 func (o *ExtensionObjects) physicalKey(ctx context.Context, namespace, key string) (string, error) {
@@ -235,6 +296,12 @@ type extensionLimitedReader struct {
 	io.ReadCloser
 	ctx       context.Context
 	remaining int64
+	release   func()
+}
+
+func (r *extensionLimitedReader) Close() error {
+	defer r.release()
+	return r.ReadCloser.Close()
 }
 
 func (r *extensionLimitedReader) Read(p []byte) (int, error) {
@@ -261,6 +328,11 @@ func (o *ExtensionObjects) WriteStream(ctx context.Context, namespace, key strin
 	if o == nil || o.store == nil || o.pool == nil {
 		return 0, errors.New("extension object storage unavailable")
 	}
+	ctx, release, err := o.beginStorageOperation(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer release()
 	temporary, written, err := o.spool(ctx, data)
 	if temporary != nil {
 		defer func() { _ = temporary.Close(); _ = os.Remove(temporary.Name()) }()
@@ -312,7 +384,14 @@ func (o *ExtensionObjects) publishStream(ctx context.Context, identity, namespac
 		return err
 	}
 	parts := strings.Split(identity, "/")
-	publish := func(tx trustedQuerier) error {
+	publish := func(tx pgx.Tx) error {
+		if gate, ok := o.store.(interface {
+			GuardStoragePublication(context.Context, pgx.Tx) error
+		}); ok {
+			if err := gate.GuardStoragePublication(ctx, tx); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtextextended($1,0))`, parts[1]+"/"+parts[2]); err != nil {
 			return err
 		}
@@ -340,13 +419,37 @@ func (o *ExtensionObjects) publishStream(ctx context.Context, identity, namespac
 		err = o.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error { return publish(tx) })
 	}
 	if err != nil {
-		_ = o.store.Delete(context.WithoutCancel(ctx), physical)
+		if external {
+			_ = o.store.Delete(context.WithoutCancel(ctx), physical)
+		} else {
+			_ = o.cleanupUnpublished(ctx, identity, physical)
+		}
 		if external {
 			state.unregister(physical)
 		}
 		return err
 	}
 	return nil
+}
+
+// A failed COMMIT may have committed. Prove the version is unreferenced under the publication lock before deleting bytes.
+func (o *ExtensionObjects) cleanupUnpublished(ctx context.Context, identity, physical string) error {
+	cleanup, cancel := database.BoundedCleanupContext(ctx)
+	defer cancel()
+	parts := strings.Split(identity, "/")
+	return o.pool.InTx(cleanup, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(cleanup, `select pg_advisory_xact_lock(hashtextextended($1,0))`, parts[1]+"/"+parts[2]); err != nil {
+			return err
+		}
+		var referenced bool
+		if err := tx.QueryRow(cleanup, `select exists(select 1 from pgbase_meta.extension_objects where object_key=$1)`, physical).Scan(&referenced); err != nil {
+			return err
+		}
+		if referenced {
+			return nil
+		}
+		return o.store.Delete(cleanup, physical)
+	})
 }
 
 type extensionContextReader struct {
@@ -394,6 +497,11 @@ func (o *ExtensionObjects) List(ctx context.Context, namespace, prefix, cursor s
 	return out, nil
 }
 func (o *ExtensionObjects) Copy(ctx context.Context, namespace, source, destination string) (int64, error) {
+	ctx, release, err := o.beginStorageOperation(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer release()
 	r, err := o.Open(ctx, namespace, source)
 	if err != nil {
 		return 0, err

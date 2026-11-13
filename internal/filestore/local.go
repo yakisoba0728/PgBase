@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"github.com/yakisoba0728/PgBase/internal/durablefile"
 )
 
 var objectKeyPattern = regexp.MustCompile(`^(?:(?:objects|thumbnails)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|extensions/[0-9a-f]{64}/[0-9a-f]{64}(?:/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)$`)
@@ -22,7 +24,7 @@ func NewLocalStore(root string) (*LocalStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve file root: %w", err)
 	}
-	if err := os.MkdirAll(absolute, 0o700); err != nil {
+	if err := durablefile.MkdirAll(absolute, 0o700); err != nil {
 		return nil, fmt.Errorf("create file root: %w", err)
 	}
 	return &LocalStore{root: absolute}, nil
@@ -43,7 +45,7 @@ func (s *LocalStore) Put(ctx context.Context, key string, source io.Reader) erro
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := durablefile.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create object directory: %w", err)
 	}
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".upload-*")
@@ -57,14 +59,21 @@ func (s *LocalStore) Put(ctx context.Context, key string, source io.Reader) erro
 		return err
 	}
 	_, copyErr := io.Copy(temporary, &contextReader{ctx: ctx, reader: source})
+	if copyErr == nil {
+		copyErr = ctx.Err()
+	}
+	syncErr := temporary.Sync()
 	closeErr := temporary.Close()
 	if copyErr != nil {
 		return fmt.Errorf("write object: %w", copyErr)
 	}
+	if syncErr != nil {
+		return fmt.Errorf("sync object: %w", syncErr)
+	}
 	if closeErr != nil {
 		return fmt.Errorf("close object: %w", closeErr)
 	}
-	if err := os.Rename(temporaryPath, path); err != nil {
+	if err := durablefile.Rename(temporaryPath, path); err != nil {
 		return fmt.Errorf("publish object: %w", err)
 	}
 	return nil

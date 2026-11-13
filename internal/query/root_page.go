@@ -80,7 +80,7 @@ func (s *Service) readRootPageInTx(
 			if err := charge(1); err != nil {
 				return rootPageReadResult{}, err
 			}
-			values, err := order.reloadAnchor(ctx, tx, decoded.AnchorID, membership)
+			values, err := order.reloadAnchor(ctx, tx, decoded.AnchorID, membership, ruleBinding{catalog: plan.relation.catalog, request: plan.ruleContext})
 			if errors.Is(err, ErrRecordNotFound) {
 				return rootPageReadResult{}, invalidCursor()
 			}
@@ -178,6 +178,10 @@ func (s *Service) readSequentialRootPage(
 	for len(result.candidates) < pageLimit {
 		remaining := pageLimit - len(result.candidates)
 		batchLimit := min(rootHydrationBatchSize, remaining)
+		// Random orders select one bounded page; they cannot continue by keyset.
+		if assembler.order.random() {
+			batchLimit = remaining
+		}
 		if err := charge(1); err != nil {
 			return rootPageReadResult{}, err
 		}
@@ -204,6 +208,9 @@ func (s *Service) readSequentialRootPage(
 		if hasMore {
 			batch[batchLimit] = rootStub{}
 			batch = batch[:batchLimit:batchLimit]
+		}
+		if assembler.order.random() {
+			hasMore = false
 		}
 		if len(batch) == 0 {
 			keep, cursor, err := assembler.finish(result.candidates, false)

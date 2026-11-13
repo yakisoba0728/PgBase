@@ -67,6 +67,7 @@ func (control *extensionAppControl) callDatabaseMetadata(ctx context.Context, me
 			}
 			fields = append(fields, map[string]any{"name": string(field.Name), "dataTypeOID": field.DataTypeOID})
 		}
+		rows.Close()
 		if !hasID {
 			return nil, errors.New("view query must select an id column")
 		}

@@ -1,0 +1,27 @@
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { afterEach, expect, it, vi } from "vitest";
+import * as api from "../api/system";
+import { AppleSecretButton } from "./AppleSecret";
+import { setLanguage } from "../i18n";
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+it("locks an integrated client ID and cannot close or adopt a mismatched delayed secret", async () => {
+  setLanguage("en");
+  let resolve!: (value: { secret: string; expiresAt: string }) => void;
+  vi.spyOn(api, "generateAppleClientSecret").mockReturnValue(new Promise((done) => { resolve = done; }));
+  const generated = vi.fn();
+  const client = new QueryClient();
+  const ui = (id: string) => <QueryClientProvider client={client}><AppleSecretButton clientId={id} onGenerated={generated} /></QueryClientProvider>;
+  const { rerender } = render(ui("app.a"));
+  fireEvent.click(screen.getByRole("button", { name: /Apple/ }));
+  const id = screen.getByDisplayValue("app.a");
+  expect(id).toHaveAttribute("readonly");
+  fireEvent.submit(id.closest("form")!);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled());
+  fireEvent(screen.getByRole("dialog"), new Event("cancel", { cancelable: true }));
+  expect(screen.getByRole("dialog")).toHaveAttribute("open");
+  rerender(ui("app.b"));
+  await act(async () => { resolve({ secret: "signed-for-a", expiresAt: "" }); });
+  expect(generated).not.toHaveBeenCalled();
+  cleanup(); client.clear();
+});

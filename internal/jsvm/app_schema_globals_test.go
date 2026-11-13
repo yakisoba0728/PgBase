@@ -36,7 +36,7 @@ func TestPocketBaseConstructorsAndDBXPublicMethods(t *testing.T) {
 	writeFile(t, directory, "route.js", `exports.run=()=>{
   const names=["FieldsList","Field","EditorField","PasswordField","GeoPointField","Command","Middleware","Timezone","FormData"];
   for(const name of names) if(typeof globalThis[name]!=="function") throw new Error("missing "+name);
-  const fields=new FieldsList([{name:"title",type:"text"}]); if(!fields.getByName("title")) throw new Error("FieldsList");
+  const fields=new FieldsList([{name:"title",type:"text"}]); if(fields.export()[0].name!=="title"||fields.filter(()=>true).length!==1||fields.slice().length!==1||!fields.getByName("title")) throw new Error("FieldsList");
   if(new Field({name:"ok",type:"bool"}).export().type!=="bool") throw new Error("Field");
   if(new Timezone("EET").string()!=="EET" || new Timezone("invalid").string()!=="UTC") throw new Error("Timezone");
   const form=new FormData(); form.append("a","b"); if(form.get("a")!=="b") throw new Error("FormData");

@@ -10,6 +10,7 @@ export const rulesEn = {
   "rules.accessLabel": "Allow requests from users and guests",
   "rules.accessOn": "The rules below decide each request.",
   "rules.accessOff": "Off: only administrators and service tokens reach these records, whatever the rules say.",
+  "rules.inherited": "This view uses the source collection’s access policy:",
   "rules.viewHint": "Views are read-only, so only list and view apply.",
   "rules.modeFor": "Who can {action}",
   "rules.mode.admins": "Admins only",

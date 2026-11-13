@@ -22,6 +22,7 @@ interface RelationPickerProps {
   known?: RecordData[];
   error?: string;
   readOnly: boolean;
+  onPendingChange?: (pending: boolean) => void;
 }
 
 const pageSize = 20;
@@ -36,7 +37,7 @@ function useDebounced<T>(value: T, delay: number): T {
 }
 
 /** Picks related records by searching the target collection; selections show as labelled chips. */
-export function RelationPicker({ field, value, onChange, known = [], error, readOnly }: RelationPickerProps) {
+export function RelationPicker({ field, value, onChange, known = [], error, readOnly, onPendingChange }: RelationPickerProps) {
   const t = useT();
   const id = useId();
   const queryClient = useQueryClient();
@@ -99,13 +100,17 @@ export function RelationPicker({ field, value, onChange, known = [], error, read
       toast(t("relation.created", { name }));
     },
     onError: (failure) => {
-      if (failure instanceof ApiError && failure.status > 0) createKey.current = null;
+      if (failure instanceof ApiError && failure.status >= 400 && failure.status < 500 && failure.status !== 408 && failure.status !== 429 && !["idempotency_in_progress", "idempotency_conflict"].includes(failure.code)) createKey.current = null;
       toast(errorText(t, failure), "danger");
     },
     onSettled: () => {
       creating.current = false;
     },
   });
+  const reportPending = useRef(onPendingChange);
+  reportPending.current = onPendingChange;
+  useEffect(() => { reportPending.current?.(create.isPending); }, [create.isPending]);
+  useEffect(() => () => { reportPending.current?.(false); }, []);
   const startCreate = () => {
     if (creating.current) return;
     creating.current = true;

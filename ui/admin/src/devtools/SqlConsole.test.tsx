@@ -1,0 +1,23 @@
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { afterEach, expect, it, vi } from "vitest";
+import * as api from "../api/sql";
+import { SqlConsole } from "./SqlConsole";
+import { setLanguage } from "../i18n";
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+it("keeps the live SQL editor mounted when another history page fails", async () => {
+  setLanguage("en");
+  const list = vi.spyOn(api, "listSqlExecutions").mockResolvedValueOnce({ executions: [], nextCursor: "next", sessionIdentity: "s", writeEnabled: false, writeTargets: [], defaultTimeoutMs: 1000, maximumTimeoutMs: 10000 }).mockRejectedValueOnce(new Error("offline"));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const router = createMemoryRouter([{ path: "*", element: <SqlConsole /> }]);
+  render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+  const editor = await screen.findByRole("textbox", { name: "SQL statement" });
+  fireEvent.change(editor, { target: { value: "select 'keep my text'" } });
+  fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  await screen.findByRole("button", { name: "Retry" });
+  expect(screen.getByRole("textbox", { name: "SQL statement" })).toBe(editor);
+  expect(editor).toHaveValue("select 'keep my text'");
+  cleanup(); client.clear();
+});

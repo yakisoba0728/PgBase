@@ -1,6 +1,7 @@
 import type { authEn } from "./auth.en";
 
 export const authKo: Record<keyof typeof authEn, string> = {
+  "auth.user.fileReferences": "기존 파일 참조 ID를 JSON 배열로 입력하세요.",
   "auth.on": "켜짐",
   "auth.off": "꺼짐",
   "auth.savedToast": "저장했습니다.",

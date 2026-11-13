@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor, cleanup } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { act, fireEvent, render, screen, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/http";
@@ -8,10 +9,11 @@ import { SchemaImport } from "./SchemaImport";
 import { readPending, writePending, type PendingImport } from "./model";
 import { runImport } from "./queries";
 
-const api = vi.hoisted(() => ({ apply: vi.fn(), status: vi.fn() }));
+const api = vi.hoisted(() => ({ apply: vi.fn(), status: vi.fn(), preview: vi.fn() }));
 vi.mock("../api/schema", async (original) => ({
   ...(await original<typeof import("../api/schema")>()),
   applySchemaImport: api.apply,
+  previewSchemaImport: api.preview,
   getSchemaImportOperation: api.status,
 }));
 vi.mock("../app/operations", () => ({ trackOperation: vi.fn(), untrackOperation: vi.fn(), watchOperation: () => () => {} }));
@@ -34,7 +36,7 @@ afterEach(() => { cleanup(); client.clear(); vi.useRealTimers(); });
 
 function restore() {
   writePending(pending);
-  render(<QueryClientProvider client={client}><SchemaImport /></QueryClientProvider>);
+  render(<QueryClientProvider client={client}><RouterProvider router={createMemoryRouter([{ path: "*", element: <SchemaImport /> }])} /></QueryClientProvider>);
 }
 
 describe("schema import recovery", () => {
@@ -56,11 +58,16 @@ describe("schema import recovery", () => {
     await waitFor(() => expect(readPending()).toBeNull());
   });
 
-  it("clears the identity after a definite apply rejection", async () => {
+  it("preserves a restored identity when a resend is definitively refused", async () => {
     api.apply.mockRejectedValueOnce(new ApiError(400, "invalid_request", "rejected"));
     restore();
     await waitFor(() => expect(api.apply).toHaveBeenCalledOnce());
-    await waitFor(() => expect(readPending()).toBeNull());
+    await waitFor(() => expect(readPending()).toEqual(pending));
+  });
+
+  it("rejects a failed receipt instead of reporting success", async () => {
+    api.apply.mockResolvedValueOnce({ operationId: pending.identity.operationId, status: "failed", failureCode: "rejected" });
+    await expect(runImport(pending)).rejects.toMatchObject({ code: "schema_operation_failed" });
   });
 
   it("keeps an accepted apply undecided when its status read fails", async () => {
@@ -73,4 +80,24 @@ describe("schema import recovery", () => {
     expect(error).toBeInstanceOf(Undecided);
     expect(error).toMatchObject({ operationId: pending.identity.operationId });
   });
+});
+
+it("applies a valid metadata-only preview with no physical sections", async () => {
+  api.preview.mockResolvedValue({ document: pending.document, changes: [], checksum: "c", policyChecksum: "p", baseVersion: 1 });
+  api.apply.mockResolvedValue({ operationId: pending.identity.operationId, status: "committed", version: 2 });
+  render(<QueryClientProvider client={client}><RouterProvider router={createMemoryRouter([{ path: "*", element: <SchemaImport /> }])} /></QueryClientProvider>);
+  fireEvent.change(screen.getByRole("textbox", { name: "Document to import" }), { target: { value: '{"format":"pgbase.schema/v1","collections":[]}' } });
+  fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+  await waitFor(() => expect(api.apply).toHaveBeenCalled());
+});
+it("does not let a delayed file read overwrite newer typed JSON", async () => {
+  let finish!: (value: string) => void;
+  render(<QueryClientProvider client={client}><RouterProvider router={createMemoryRouter([{ path: "*", element: <SchemaImport /> }])} /></QueryClientProvider>);
+  fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [{ text: () => new Promise<string>((resolve) => { finish = resolve; }) }] } });
+  const editor = screen.getByRole("textbox", { name: "Document to import" });
+  fireEvent.change(editor, { target: { value: "newer JSON" } });
+  await act(async () => { finish("old file"); });
+  expect(editor).toHaveValue("newer JSON");
 });

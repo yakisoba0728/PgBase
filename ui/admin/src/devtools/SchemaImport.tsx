@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiFileUploadLine } from "@remixicon/react";
 import { ApiError, parseJson } from "../api/http";
@@ -7,6 +7,7 @@ import { errorText } from "../app/queries";
 import { collectionsQuery } from "../collections/queries";
 import { trackOperation, untrackOperation, watchOperation } from "../app/operations";
 import { Button } from "../components/Button";
+import { UnsavedGuard } from "../components/UnsavedGuard";
 import { ChangeList } from "../components/ChangeList";
 import { CodeArea } from "../components/CodeArea";
 import { ConfirmDialog } from "../components/Dialog";
@@ -35,6 +36,9 @@ export function SchemaImport() {
   const queryClient = useQueryClient();
   const catalog = useQuery(collectionsQuery);
   const [text, setText] = useState("");
+  const [appliedText, setAppliedText] = useState("");
+  const reading = useRef(0);
+  const changeText = (value: string) => { reading.current++; setText(value); };
   const [deleteMissing, setDeleteMissing] = useState(false);
   const [pending, setPending] = useState<PendingImport | null>(readPending);
   const [confirming, setConfirming] = useState(false);
@@ -53,6 +57,7 @@ export function SchemaImport() {
 
   const apply = useMutation({
     mutationFn: async (next: PendingImport) => {
+      const resuming = pending?.identity.operationId === next.identity.operationId;
       writePending(next);
       setPending(next);
       trackOperation({ kind: "import", id: next.identity.operationId, checksum: next.checksum });
@@ -60,6 +65,7 @@ export function SchemaImport() {
       try {
         return await runImport(next);
       } catch (error) {
+        if (resuming && !(error instanceof ApiError && error.code === "schema_operation_failed")) throw new Undecided(next.identity.operationId);
         if (!uncertainImport(error)) untrackOperation(next.identity.operationId);
         throw error;
       } finally {
@@ -70,6 +76,7 @@ export function SchemaImport() {
       untrackOperation(next.identity.operationId);
       writePending(null);
       setPending(null);
+      setAppliedText(text);
       preview.reset();
       void queryClient.invalidateQueries({ queryKey: ["collections"] });
       void queryClient.invalidateQueries({ queryKey: ["schema-export"] });
@@ -94,7 +101,10 @@ export function SchemaImport() {
   const loadFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (file) void file.text().then(setText, () => toast(t("devtools.import.readFailed"), "danger"));
+    if (file) {
+      const generation = ++reading.current;
+      void file.text().then((value) => { if (generation === reading.current) setText(value); }, () => toast(t("devtools.import.readFailed"), "danger"));
+    }
   };
 
   const runPreview = () => {
@@ -162,7 +172,7 @@ export function SchemaImport() {
         {danger && (
           <Notice tone="danger" title={t("schema.dangerTitle")}>{t("schema.dangerText")}</Notice>
         )}
-        {sections.length === 0 && <p className="dt-muted">{t("schema.planEmpty")}</p>}
+        {sections.length === 0 && <p className="dt-muted">{t("devtools.import.metadataOnly")}</p>}
         {sections.map((section) => (
           <ChangeList key={section.name} title={section.name} changes={section.items} sql={section.sql} dangerous={dangerousStatement} emptyText={t("devtools.import.metadataOnly")} />
         ))}
@@ -177,14 +187,14 @@ export function SchemaImport() {
           <label className="btn btn-secondary btn-sm">
             <RiFileUploadLine size={16} aria-hidden />
             {t("devtools.import.load")}
-            <input type="file" accept="application/json,.json" className="visually-hidden" onChange={loadFile} />
+            <input type="file" accept="application/json,.json" className="visually-hidden" disabled={apply.isPending} onChange={loadFile} />
           </label>
-          <Checkbox label={t("devtools.import.deleteMissing")} checked={deleteMissing} onChange={(event) => setDeleteMissing(event.target.checked)} />
+          <Checkbox disabled={apply.isPending} label={t("devtools.import.deleteMissing")} checked={deleteMissing} onChange={(event) => setDeleteMissing(event.target.checked)} />
           <div className="dt-actions">
-            <Button size="sm" variant="secondary" disabled={!text.trim()} loading={preview.isPending} onClick={runPreview}>{t("devtools.import.preview")}</Button>
+            <Button size="sm" variant="secondary" disabled={!text.trim() || apply.isPending} loading={preview.isPending} onClick={runPreview}>{t("devtools.import.preview")}</Button>
           </div>
         </div>
-        <CodeArea fill label={t("devtools.import.document")} placeholder={t("devtools.import.placeholder")} value={text} onChange={(event) => setText(event.target.value)} onSubmit={() => text.trim() && runPreview()} />
+        <CodeArea disabled={apply.isPending} fill label={t("devtools.import.document")} placeholder={t("devtools.import.placeholder")} value={text} onChange={(event) => changeText(event.target.value)} onSubmit={() => text.trim() && runPreview()} />
       </section>
       <section className="dt-plan" aria-label={t("devtools.import.plan")}>
         <PaneHeader title={t("devtools.import.plan")} />
@@ -193,13 +203,14 @@ export function SchemaImport() {
           <Button
             variant={danger ? "danger" : "primary"}
             loading={apply.isPending}
-            disabled={!plan || stale || sections.length === 0 || pending !== null}
+            disabled={!plan || stale || pending !== null}
             onClick={() => (danger ? setConfirming(true) : start())}
           >
             {t("schema.apply")}
           </Button>
         </footer>
       </section>
+      <UnsavedGuard dirty={(text.trim() !== "" && text !== appliedText) || pending !== null} busy={apply.isPending} />
       {/* Data loss is confirmed with a typed word; a resumed apply after reload was confirmed before. */}
       <ConfirmDialog open={confirming && danger} danger title={t("devtools.import.confirmTitle")} message={t("devtools.import.confirmText")} confirmLabel={t("schema.apply")}
         typed={{ phrase: "delete", label: t("devtools.import.typeDelete") }} onConfirm={() => { setConfirming(false); start(); }} onCancel={() => setConfirming(false)}>

@@ -36,7 +36,7 @@ func Pack(ctx context.Context, directory string, destination io.Writer) (resultE
 		}
 		remaining -= file.Size
 	}
-	gz := gzip.NewWriter(destination)
+	gz := gzip.NewWriter(&boundedArchiveWriter{writer: destination, remaining: MaximumArchiveBytes})
 	tw := tar.NewWriter(gz)
 	defer func() { resultErr = errors.Join(resultErr, tw.Close(), gz.Close()) }()
 	names := []string{"manifest.json", "database.dump"}
@@ -138,4 +138,20 @@ func Unpack(ctx context.Context, source io.Reader, directory string) (resultErr 
 	}
 	complete = true
 	return nil
+}
+
+// Bound compressed output too: a verified directory may still exceed the
+// upload/restore archive budget after compression.
+type boundedArchiveWriter struct {
+	writer    io.Writer
+	remaining int64
+}
+
+func (w *boundedArchiveWriter) Write(data []byte) (int, error) {
+	if int64(len(data)) > w.remaining {
+		return 0, errors.New("backup archive exceeds limit")
+	}
+	n, err := w.writer.Write(data)
+	w.remaining -= int64(n)
+	return n, err
 }

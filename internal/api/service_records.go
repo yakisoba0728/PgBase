@@ -22,8 +22,12 @@ func serviceSessionMiddleware(auth ServiceTokens, next http.Handler) http.Handle
 			writeServiceCredentialError(w, r)
 			return
 		}
+		if auth == nil {
+			writeServiceCredentialError(w, r)
+			return
+		}
 		principal, err := auth.Authenticate(r.Context(), parts[1])
-		if err != nil {
+		if err != nil || principal.Subject.Kind != identity.Service || !principal.Subject.Valid() {
 			writeServiceCredentialError(w, r)
 			return
 		}

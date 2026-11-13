@@ -141,7 +141,7 @@ func TestAccessRuleAuthAnyMatchPreservesComparisonDirection(t *testing.T) {
 
 func TestAccessRuleRejectsUnsupportedLeftContainsOperands(t *testing.T) {
 	for _, operator := range []string{"~", "!~", "?~", "?!~"} {
-		for _, left := range []string{"'alphabet'", "@request.auth.email"} {
+		for _, left := range []string{"'alphabet'"} {
 			source := left + " " + operator + " title"
 			if _, err := ParseAccessRule(source); !errors.Is(err, accessrule.ErrInvalid) {
 				t.Errorf("unsupported left contains operand accepted: %s (%v)", source, err)
@@ -149,6 +149,15 @@ func TestAccessRuleRejectsUnsupportedLeftContainsOperands(t *testing.T) {
 		}
 		if _, err := ParseAccessRule("title " + operator + " @request.auth.email"); err != nil {
 			t.Errorf("supported right auth operand rejected: %s (%v)", operator, err)
+		}
+	}
+}
+
+func TestAccessRuleAuthContainsPreservesLeftOperand(t *testing.T) {
+	for _, operator := range []string{"~", "!~", "?~", "?!~"} {
+		rule, err := ParseAccessRule("@request.auth.email " + operator + " reviewer.email")
+		if err != nil || rule.Field != "__pgbase_request_auth_email" || rule.OtherField != "reviewer.email" || rule.Auth != "" {
+			t.Fatalf("%s: %#v %v", operator, rule, err)
 		}
 	}
 }

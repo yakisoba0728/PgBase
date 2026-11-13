@@ -231,7 +231,7 @@ test('raw schema export preview and apply preserve integers beyond JavaScript pr
   const client=new PgBaseAdminClient('http://localhost',{fetch:async(url,init)=>{
     calls.push({url:String(url),init});
     if(String(url).endsWith('/schema/export')) return new Response(raw,{headers:{'Content-Type':'application/json'}});
-    if(String(url).endsWith('/import/preview')) return Response.json({baseVersion:4,checksum:'exact',policyChecksum:'policy',changes:[],document:JSON.parse(raw)});
+    if(String(url).endsWith('/import/preview')) return new Response(`{"baseVersion":4,"checksum":"exact","policyChecksum":"policy","changes":[],"document":${raw}}`);
     if(String(url).endsWith('/import/apply')) return Response.json({operationId:'done',status:'committed'});
     throw new Error('unexpected request');
   }});

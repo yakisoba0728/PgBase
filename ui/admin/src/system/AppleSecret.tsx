@@ -21,14 +21,16 @@ export function AppleSecretButton({ clientId, onGenerated }: { clientId?: string
   const [open, setOpen] = useState(false);
   const generate = useMutation({
     mutationFn: generateAppleClientSecret,
-    onSuccess: (value) => {
+    onSuccess: (value, input) => {
       if (!onGenerated) return;
-      onGenerated(value.secret);
-      close();
+      if (input.clientId === clientId) onGenerated(value.secret);
+      setOpen(false);
+      generate.reset();
     },
   });
   // Drops the key and the generated secret with the dialog.
   const close = () => {
+    if (generate.isPending) return;
     setOpen(false);
     generate.reset();
   };
@@ -51,14 +53,14 @@ export function AppleSecretButton({ clientId, onGenerated }: { clientId?: string
         {generate.data && !onGenerated ? (
           <SecretView label={t("system.apple.secret")} value={generate.data.secret} warning={t("system.apple.once")} onDone={close} />
         ) : (
-          <form className="form" onSubmit={onSubmit}>
+          <form className="form" onSubmit={onSubmit}><fieldset disabled={generate.isPending} className="form">
             <p className="txt-hint">{t("system.apple.hint")}</p>
             {generate.isError && (
               <p className="field-error" role="alert">
                 {generate.error instanceof ApiError && generate.error.status === 400 ? t("system.apple.invalid") : errorText(t, generate.error)}
               </p>
             )}
-            <Field label={t("system.apple.clientId")} name="clientId" required mono autoComplete="off" spellCheck={false} maxLength={255} placeholder="com.example.app" defaultValue={clientId} />
+            <Field label={t("system.apple.clientId")} name="clientId" required mono autoComplete="off" spellCheck={false} maxLength={255} placeholder="com.example.app" defaultValue={clientId} readOnly={Boolean(onGenerated)} />
             <div className="sys-pair">
               <Field label={t("system.apple.teamId")} name="teamId" required mono autoComplete="off" spellCheck={false} pattern="[A-Za-z0-9]{10}" maxLength={10} />
               <Field label={t("system.apple.keyId")} name="keyId" required mono autoComplete="off" spellCheck={false} pattern="[A-Za-z0-9]{10}" maxLength={10} />
@@ -66,10 +68,10 @@ export function AppleSecretButton({ clientId, onGenerated }: { clientId?: string
             <Field kind="textarea" label={t("system.apple.privateKey")} name="privateKey" required mono rows={5} spellCheck={false} placeholder="-----BEGIN PRIVATE KEY-----" />
             <Field label={t("system.apple.days")} name="days" type="number" required min={1} max={maxDays} step={1} defaultValue={maxDays} hint={t("system.apple.daysHint", { max: maxDays })} />
             <div className="confirm-actions">
-              <Button variant="secondary" onClick={close}>{t("common.cancel")}</Button>
+              <Button variant="secondary" disabled={generate.isPending} onClick={close}>{t("common.cancel")}</Button>
               <Button type="submit" loading={generate.isPending}>{t("system.apple.generate")}</Button>
             </div>
-          </form>
+          </fieldset></form>
         )}
       </TaskDialog>
     </>

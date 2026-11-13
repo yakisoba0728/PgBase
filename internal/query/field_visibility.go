@@ -162,3 +162,13 @@ func hideMaterializedFields(collection schema.Collection, nodes []expandNode, pr
 		}
 	}
 }
+
+// ValidateFilterFields applies ordinary read visibility checks before another
+// read surface compiles a caller-supplied filter.
+func ValidateFilterFields(catalog schema.Catalog, collection schema.Collection, principal Principal, text string) error {
+	filter, err := parseFilterRequest(text)
+	if err != nil {
+		return err
+	}
+	return rejectHiddenQueryFields(catalog, collection, principal, filter, nil)
+}

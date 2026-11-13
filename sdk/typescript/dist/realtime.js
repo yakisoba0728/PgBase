@@ -8,6 +8,8 @@ export class RealtimeService {
     clientId;
     lastEventId;
     running;
+    subscribing;
+    syncing = Promise.resolve();
     ready;
     resolveReady;
     rejectReady;
@@ -34,6 +36,20 @@ export class RealtimeService {
         this.notify({ state: "stopped", attempt: 0, reason: "reset" });
     }
     async subscribe(topic, listener, options = {}) {
+        const generation = this.client.auth.generation;
+        const start = () => {
+            if (generation !== this.client.auth.generation)
+                throw new PgBaseError(0, "realtime_unsubscribed");
+            return this.subscribeNow(topic, listener, options);
+        };
+        const result = this.subscribing ? this.subscribing.then(start) : start();
+        const tail = result.catch(() => { });
+        this.subscribing = tail;
+        void tail.then(() => { if (this.subscribing === tail)
+            this.subscribing = undefined; });
+        return result;
+    }
+    async subscribeNow(topic, listener, options) {
         if (!validRealtimeTopic(topic))
             throw new PgBaseError(0, "invalid_realtime_topic");
         if (options.maxReconnects !== undefined && (!Number.isInteger(options.maxReconnects) || options.maxReconnects < 0))
@@ -107,8 +123,16 @@ export class RealtimeService {
         const stopOnAuthChange = this.client.auth._onChange(() => { void this.unsubscribe(); });
         this.running = Promise.resolve().then(() => this.run(controller)).finally(() => { stopOnAuthChange(); this.running = undefined; this.ready = undefined; this.resolveReady = undefined; this.rejectReady = undefined; });
     }
-    async sync() { if (this.clientId)
-        await this.client._request("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, this.controller?.signal); }
+    sync() {
+        const controller = this.controller;
+        const result = this.syncing.then(async () => {
+            if (controller !== this.controller || controller?.signal.aborted || !this.clientId)
+                return;
+            await this.client._request("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, controller?.signal);
+        });
+        this.syncing = result.catch(() => { });
+        return result;
+    }
     async run(controller) {
         if (this.listeners.size === 0)
             return;

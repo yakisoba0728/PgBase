@@ -53,7 +53,7 @@ func validJournal(value journal) bool {
 	if value.SchemaVersion != 1 || value.Phase == "" || filepath.Base(value.Target) != value.Target || filepath.Base(value.Candidate) != value.Candidate || filepath.Base(value.Backup) != value.Backup || !validSHA256(value.OldSHA256) || !validSHA256(value.ManifestSHA256) || !validSHA256(value.SignatureSHA256) || !validSHA256(value.TrustFingerprint) {
 		return false
 	}
-	return value.Phase == "manifest_verified" || validSHA256(value.NewSHA256)
+	return value.Phase == "manifest_verified" || value.Phase == "aborted" && value.NewSHA256 == "" || validSHA256(value.NewSHA256)
 }
 
 func writeJournal(stateDir string, value journal) error {

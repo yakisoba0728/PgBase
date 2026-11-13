@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 
 	"github.com/yakisoba0728/PgBase/internal/api"
@@ -57,7 +58,7 @@ func marshalJavaScriptHookData(event *HookEvent) (json.RawMessage, error) {
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return nil, errors.New("JavaScript hook data has trailing JSON")
 	}
-	return json.Marshal(normalizeJavaScriptHookValue(decoded))
+	return json.Marshal(normalizeJavaScriptHookValue(decoded, reflect.ValueOf(value)))
 }
 
 func extensionMailHookRequest(message mailer.Message) extensionMailRequest {
@@ -68,22 +69,52 @@ func extensionMailHookRequest(message mailer.Message) extensionMailRequest {
 	return result
 }
 
-func normalizeJavaScriptHookValue(value any) any {
+func normalizeJavaScriptHookValue(value any, source reflect.Value) any {
+	for source.IsValid() && (source.Kind() == reflect.Pointer || source.Kind() == reflect.Interface) {
+		if source.IsNil() {
+			break
+		}
+		source = source.Elem()
+	}
+	if source.IsValid() && source.Type() == reflect.TypeFor[json.RawMessage]() {
+		return value
+	}
 	switch current := value.(type) {
 	case map[string]any:
 		result := make(map[string]any, len(current))
 		for name, nested := range current {
-			canonical := lowerJavaScriptHookName(name)
+			canonical := name
+			var child reflect.Value
+			if source.IsValid() && source.Kind() == reflect.Struct {
+				for index := 0; index < source.NumField(); index++ {
+					field := source.Type().Field(index)
+					wireName := strings.Split(field.Tag.Get("json"), ",")[0]
+					if wireName == "" {
+						wireName = field.Name
+					}
+					if wireName == name {
+						canonical = lowerJavaScriptHookName(name)
+						child = source.Field(index)
+						break
+					}
+				}
+			} else if source.IsValid() && source.Kind() == reflect.Map && source.Type().Key().Kind() == reflect.String {
+				child = source.MapIndex(reflect.ValueOf(name).Convert(source.Type().Key()))
+			}
 			if forbiddenJavaScriptHookName(canonical) {
 				continue
 			}
-			result[canonical] = normalizeJavaScriptHookValue(nested)
+			result[canonical] = normalizeJavaScriptHookValue(nested, child)
 		}
 		return result
 	case []any:
 		result := make([]any, len(current))
 		for index, nested := range current {
-			result[index] = normalizeJavaScriptHookValue(nested)
+			var child reflect.Value
+			if source.IsValid() && (source.Kind() == reflect.Slice || source.Kind() == reflect.Array) && index < source.Len() {
+				child = source.Index(index)
+			}
+			result[index] = normalizeJavaScriptHookValue(nested, child)
 		}
 		return result
 	default:

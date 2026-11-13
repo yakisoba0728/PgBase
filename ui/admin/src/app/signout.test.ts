@@ -1,9 +1,10 @@
+import { QueryObserver } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/http";
 import type { AdminSession } from "../api/session";
 import { operations, trackOperation } from "./operations";
 import { endSignedOutSession, queryClient, sessionQuery, signingOutKey } from "./queries";
-import { adoptSession, followSignOut, recoverSession } from "./signout";
+import { adoptSession, finishSignOut, followSignOut, recoverSession } from "./signout";
 
 const getSession = vi.hoisted(() => vi.fn());
 const logout = vi.hoisted(() => vi.fn());
@@ -98,4 +99,36 @@ describe("sign-out", () => {
     await expect(endSignedOutSession()).rejects.toMatchObject({ code: "network_error" });
     expect(localStorage.getItem(signingOutKey)).toBe("1");
   });
+});
+
+it.each(["logout", "login"])("ignores an old recovery after %s", async (action) => {
+  adoptSession(session("a"));
+  let resolve!: (value: AdminSession) => void;
+  getSession.mockReturnValue(new Promise<AdminSession>((answer) => { resolve = answer; }));
+  const recovery = recoverSession();
+  if (action === "logout") finishSignOut(false); else adoptSession(session("b"));
+  resolve(session("a", "stale"));
+  await expect(recovery).resolves.toBeNull();
+  expect(queryClient.getQueryData(sessionQuery.queryKey)?.administrator.id).toBe(action === "login" ? "b" : undefined);
+});
+
+it("clears the signed-out owner's other-tab cache but ignores another owner's signal", () => {
+  adoptSession(session("a"));
+  queryClient.setQueryData(["private"], "private content");
+  window.dispatchEvent(new StorageEvent("storage", { key: "pgbase.signedOut", newValue: "b:1" }));
+  expect(queryClient.getQueryData(["private"])).toBe("private content");
+  window.dispatchEvent(new StorageEvent("storage", { key: "pgbase.signedOut", newValue: "a:1" }));
+  expect(queryClient.getQueryData(["private"])).toBeUndefined();
+  expect(queryClient.getQueryData(sessionQuery.queryKey)).toBeUndefined();
+});
+
+it("notifies an active session observer when another tab signs out", () => {
+  adoptSession(session("a"));
+  const observer = new QueryObserver(queryClient, sessionQuery);
+  const unsubscribe = observer.subscribe(() => {});
+  expect(observer.getCurrentResult().data?.administrator.id).toBe("a");
+  window.dispatchEvent(new StorageEvent("storage", { key: "pgbase.signedOut", newValue: "a:2" }));
+  expect(observer.getCurrentResult().data).toBeUndefined();
+  expect(observer.getCurrentResult().error).toMatchObject({ status: 401 });
+  unsubscribe(); observer.destroy();
 });

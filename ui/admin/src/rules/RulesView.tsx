@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { RiErrorWarningLine, RiPlayLine } from "@remixicon/react";
 import { Facts } from "../components/Facts";
@@ -136,16 +137,17 @@ function Reference({ editor }: { editor: RulesEditor }) {
 /** The Rules tab: one row per action, saved together with the public-access gate. */
 export function RulesView({ collection, basePath }: { collection: Collection; basePath: string }) {
   const t = useT();
-  const editor = useRulesEditor(collection, basePath);
+  const source = collection.type === "view" && !collection.view?.sql ? collection.view?.source : undefined;
+  const editor = useRulesEditor(source ? { ...collection, name: source, type: "base" } : collection, basePath);
   if (editor.loading) return <Loader />;
   if (editor.loadError || !editor.drafts) return <div className="page-content"><EmptyState icon={RiErrorWarningLine}>{errorText(t, editor.loadError)}</EmptyState><UnsavedGuard {...editor.guard} /></div>;
   const isView = collection.type === "view";
   const list = (
     <>
       <div className="toolbar">
-        <SaveBar dirty={editor.dirty} busy={editor.save.isPending} onDiscard={editor.discard} onSave={() => editor.save.mutate()} />
+        {source ? <p>{t("rules.inherited")} <Link to={`/collections/${encodeURIComponent(source)}/rules`}>{source}</Link></p> : <SaveBar dirty={editor.dirty} busy={editor.save.isPending} onDiscard={editor.discard} onSave={() => editor.save.mutate()} />}
       </div>
-      <div className="page-content rules-layout">
+      <fieldset className="page-content rules-layout" disabled={Boolean(source) || editor.save.isPending}>
         <div className="rules-main">
 
           <section className="rules-section">
@@ -163,7 +165,7 @@ export function RulesView({ collection, basePath }: { collection: Collection; ba
           {collection.type === "auth" && <AuthRules name={collection.name} />}
         </div>
         <Reference editor={editor} />
-      </div>
+      </fieldset>
       <UnsavedGuard {...editor.guard} />
     </>
   );

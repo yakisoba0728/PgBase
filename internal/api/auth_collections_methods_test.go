@@ -137,7 +137,7 @@ func TestAuthorizedRecordUpdateForwardsManagedCredentialFields(t *testing.T) {
 	actor := userauth.User{ID: uuid.MustParse("019c5b18-8b85-7c34-8d14-3f9aaf8484b2"), AuthCollectionID: collection.ID}
 	target := uuid.MustParse("019c5b18-8b85-7c34-8d14-3f9aaf8484b3")
 	service := &authCollectionMethodStub{collection: collection}
-	r := httptest.NewRequest(http.MethodPatch, "/api/v1/auth/members/records/"+target.String(), bytes.NewBufferString(`{"email":"managed@example.test","emailVisibility":true,"password":"replacement secret","verified":true,"active":false,"fields":{"name":"Managed"}}`))
+	r := httptest.NewRequest(http.MethodPatch, "/api/v1/auth/members/records/"+target.String(), bytes.NewBufferString(`{"email":"managed@example.test","emailVisibility":true,"password":"replacement secret","verified":true,"active":false,"fields":{"name":"Managed","number":9007199254740993,"payload":{"precise":1.234567890123456789}}}`))
 	r.Header.Set("Content-Type", "application/json")
 	r.SetPathValue("authCollection", collection.Name)
 	r.SetPathValue("record", target.String())
@@ -149,6 +149,12 @@ func TestAuthorizedRecordUpdateForwardsManagedCredentialFields(t *testing.T) {
 	}
 	if service.actorID != actor.ID || service.updateID != target || service.updated.Email == nil || *service.updated.Email != "managed@example.test" || service.updated.EmailVisibility == nil || !*service.updated.EmailVisibility || service.updated.Password == nil || service.updated.Verified == nil || service.updated.Active == nil || service.updated.Fields["name"] != "Managed" {
 		t.Fatalf("managed update forwarding actor=%s target=%s input=%#v", service.actorID, service.updateID, service.updated)
+	}
+	if number, ok := service.updated.Fields["number"].(json.Number); !ok || number.String() != "9007199254740993" {
+		t.Fatalf("rounded profile number: %#v", service.updated.Fields)
+	}
+	if value, ok := service.updated.Fields["payload"].(map[string]any)["precise"].(json.Number); !ok || value.String() != "1.234567890123456789" {
+		t.Fatalf("rounded JSON profile: %#v", service.updated.Fields)
 	}
 }
 

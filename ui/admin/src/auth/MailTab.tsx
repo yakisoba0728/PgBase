@@ -109,12 +109,12 @@ function TemplateForm({ collection, administration, purpose, initial, configured
         <div className="auth-form auth-form-wide">
           {views}
           {isStale(save.error) && <StaleNotice busy={save.isPending} onReload={reload} onOverwrite={() => save.mutate(true)} />}
-          <form id="auth-template" className="auth-form" onSubmit={onSubmit} noValidate>
+          <form id="auth-template" className="auth-form" onSubmit={onSubmit} noValidate><fieldset disabled={save.isPending} className="form">
             <p className="txt-hint">{configured ? t("auth.mail.custom") : t("auth.mail.builtIn")} {t("auth.mail.placeholders", { placeholder })}</p>
             <Field label={t("auth.mail.subject")} value={draft.subject} error={error("subject")} onChange={(event) => patch({ subject: event.target.value })} />
             <Field kind="textarea" label={t("auth.mail.text")} mono rows={6} spellCheck={false} value={draft.body} error={error("body")} onChange={(event) => patch({ body: event.target.value })} />
             <Field kind="textarea" label={t("auth.mail.html")} mono rows={8} spellCheck={false} value={draft.htmlBody} error={error("htmlBody")} hint={t("auth.mail.htmlHint")} onChange={(event) => patch({ htmlBody: event.target.value })} />
-          </form>
+          </fieldset></form>
           <Section title={t("auth.mail.preview")}>
             <div className="auth-inline">
               <Field label={t("auth.mail.actionUrl")} mono spellCheck={false} value={actionUrl} error={error("actionUrl")} onChange={(event) => setActionUrl(event.target.value)} />
@@ -180,7 +180,7 @@ function SmtpForm({ collection, administration, views }: { collection: AuthColle
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     const found: Problems = {};
-    if (!/^[^\s:]+:\d{1,5}$/.test(draft.address)) found.address = draft.address ? "pattern" : "required";
+    if (!/^(?:[^\s:\[\]]+|\[[^\s\[\]]+\]):\d{1,5}$/.test(draft.address)) found.address = draft.address ? "pattern" : "required";
     if (!bareEmail(draft.from)) found.from = draft.from ? "email" : "required";
     form.setProblems(found);
     if (Object.keys(found).length === 0) save.mutate(false);
@@ -202,7 +202,7 @@ function SmtpForm({ collection, administration, views }: { collection: AuthColle
         <div className="auth-form auth-form-wide">
           {views}
           {isStale(save.error) && <StaleNotice busy={save.isPending} onReload={reload} onOverwrite={() => save.mutate(true)} />}
-          <form id="auth-smtp" className="auth-form" onSubmit={onSubmit} noValidate autoComplete="off">
+          <form id="auth-smtp" className="auth-form" onSubmit={onSubmit} noValidate autoComplete="off"><fieldset disabled={save.isPending} className="form">
             <p className="txt-hint">{smtp ? t("auth.mail.smtpOwn") : t("auth.mail.smtpServer")}</p>
             <div className="auth-grid">
               <Field label={t("auth.mail.address")} mono placeholder="smtp.example.com:587" value={draft.address} error={error("address")} onChange={(event) => patch({ address: event.target.value })} />
@@ -215,7 +215,7 @@ function SmtpForm({ collection, administration, views }: { collection: AuthColle
             </div>
             <Checkbox label={t("auth.mail.implicitTls")} checked={draft.implicitTls} onChange={(event) => patch({ implicitTls: event.target.checked })} />
             <Checkbox label={t("auth.mail.loopback")} checked={draft.allowInsecureLoopback} onChange={(event) => patch({ allowInsecureLoopback: event.target.checked })} />
-          </form>
+          </fieldset></form>
           <Section title={t("auth.mail.test")} hint={t("auth.mail.testHint")}>
             <div className="auth-inline">
               <Field label={t("auth.mail.recipient")} type="email" value={recipient} error={error("recipient")} onChange={(event) => setRecipient(event.target.value)} />

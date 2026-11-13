@@ -127,3 +127,29 @@ func TestDownloadTokenIsBoundToCurrentUserFileVariantAndExpiry(t *testing.T) {
 		}
 	}
 }
+
+type cancelAtEOFReader struct{ cancel context.CancelFunc }
+
+func (r cancelAtEOFReader) Read(data []byte) (int, error) {
+	r.cancel()
+	return copy(data, []byte("late")), io.EOF
+}
+
+func TestLocalPutDoesNotPublishAfterFinalReadCancelsContext(t *testing.T) {
+	store, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	key := "objects/" + uuid.NewString()
+	if err := store.Put(ctx, key, cancelAtEOFReader{cancel}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled final read: %v", err)
+	}
+	if reader, err := store.Open(t.Context(), key); !errors.Is(err, ErrNotFound) {
+		if reader != nil {
+			_ = reader.Close()
+		}
+		t.Fatalf("canceled bytes published: %v", err)
+	}
+}

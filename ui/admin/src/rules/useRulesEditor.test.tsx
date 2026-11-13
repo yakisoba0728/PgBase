@@ -6,12 +6,12 @@ import type { Collection, CollectionRules } from "../api/collections";
 import { useRulesEditor } from "./useRulesEditor";
 
 const before: CollectionRules = { list: { op: "deny" }, view: { op: "allow" }, create: { op: "deny" }, update: { op: "owner" }, delete: { op: "deny" } };
-const api = vi.hoisted(() => ({ getCollectionRules: vi.fn(), setCollectionRules: vi.fn(), previewCollectionRule: vi.fn(), listRecords: vi.fn() }));
+const api = vi.hoisted(() => ({ getCollectionRules: vi.fn(), setCollectionRules: vi.fn(), setCollectionUserAccess: vi.fn(), previewCollectionRule: vi.fn(), listRecords: vi.fn() }));
 vi.mock("../api/collections", () => ({
   getCollectionRules: api.getCollectionRules,
   setCollectionRules: api.setCollectionRules,
   getCollectionUserAccess: async () => ({ enabled: true }),
-  setCollectionUserAccess: async () => undefined,
+  setCollectionUserAccess: api.setCollectionUserAccess,
   previewCollectionRule: api.previewCollectionRule,
 }));
 
@@ -63,4 +63,31 @@ describe("native rule saves", () => {
     expect(api.previewCollectionRule).toHaveBeenCalledExactlyOnceWith("orders", { rule: before.view, action: "view", recordIds: ["CaseSensitive", "AnotherPublicId"] });
   });
 
+});
+
+it("closes public access before loosening rules and stops when closing fails", async () => {
+  api.setCollectionUserAccess.mockRejectedValueOnce(new Error("refused"));
+  const { result } = editor();
+  await waitFor(() => expect(result.current.drafts).toBeDefined());
+  act(() => { result.current.setAccess(false); result.current.update("list", { mode: "everyone" }); });
+  await act(() => result.current.save.mutateAsync().catch(() => undefined));
+  expect(api.setCollectionUserAccess).toHaveBeenCalledWith("orders", false);
+  expect(api.setCollectionRules).not.toHaveBeenCalled();
+  api.setCollectionUserAccess.mockResolvedValue(undefined);
+  api.setCollectionRules.mockResolvedValue(undefined);
+  await act(() => result.current.save.mutateAsync());
+  expect(api.setCollectionUserAccess.mock.invocationCallOrder[1]).toBeLessThan(api.setCollectionRules.mock.invocationCallOrder[0]);
+});
+
+it("does not attach a delayed preview to a newly edited rule", async () => {
+  let resolve!: (value: { recordId: string; allowed: boolean }[]) => void;
+  api.listRecords.mockResolvedValue({ items: [{ id: "r" }] });
+  api.previewCollectionRule.mockReturnValue(new Promise((done) => { resolve = done; }));
+  const { result } = editor();
+  await waitFor(() => expect(result.current.drafts).toBeDefined());
+  act(() => result.current.preview.mutate("view"));
+  await waitFor(() => expect(api.previewCollectionRule).toHaveBeenCalled());
+  act(() => result.current.update("view", { mode: "admins" }));
+  await act(async () => { resolve([{ recordId: "r", allowed: true }]); });
+  expect(result.current.results.view).toBeUndefined();
 });

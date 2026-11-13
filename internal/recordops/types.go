@@ -39,6 +39,7 @@ const (
 type Record = query.Record
 
 type MutationResult struct {
+	publicRecord  map[string]any
 	Record        *Record
 	EventID       uuid.UUID
 	InternalID    uuid.UUID

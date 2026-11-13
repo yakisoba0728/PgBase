@@ -57,3 +57,18 @@ func TestPublicSnapshotMapsPhysicalNamesAndDropsHiddenFields(t *testing.T) {
 		t.Fatalf("hidden field leaked: %v", record)
 	}
 }
+
+func TestPublicSnapshotPreservesProjectedTextIdentityAndDropsSecrets(t *testing.T) {
+	collection := schema.Collection{ID: uuid.New(), Name: "notes", Fields: []schema.Field{{Name: "title", ColumnName: "fld_title"}, {Name: "secret", ColumnName: "fld_secret", Hidden: true}, {Name: "password", ColumnName: "fld_password", Type: schema.TypePassword}}}
+	id := "018f3b2e-4200-7000-8000-000000000001"
+	record, err := publicSnapshot(collection, []byte(`{"id":"`+id+`","fld_title":"shown","created_at":"2026-09-10T00:00:00Z","fld_secret":"hidden","fld_password":"hash"}`))
+	if err != nil || record["id"] != id || record["title"] != "shown" || record["created"] == nil {
+		t.Fatalf("record=%v err=%v", record, err)
+	}
+	if _, ok := record["secret"]; ok {
+		t.Fatal("hidden field leaked")
+	}
+	if _, ok := record["password"]; ok {
+		t.Fatal("password leaked")
+	}
+}

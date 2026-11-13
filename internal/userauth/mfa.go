@@ -1,6 +1,7 @@
 package userauth
 
 import (
+	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -70,23 +71,35 @@ func (s *Service) mfaRequiredTx(ctx context.Context, tx pgx.Tx, user User) (bool
 	}
 	var rule mfaRule
 	_ = json.Unmarshal([]byte(policy.MFARule), &rule)
-	var got json.RawMessage
+	var got any
 	if rule.Field == "verified" {
-		got = []byte("false")
-		if user.Verified {
-			got = []byte("true")
-		}
+		got = user.Verified
 	} else {
 		var profile []byte
 		err := tx.QueryRow(ctx, `select attributes from pgbase_meta.user_auth_profiles where user_id=$1`, user.ID).Scan(&profile)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
 			return false, err
 		}
-		var values map[string]json.RawMessage
-		_ = json.Unmarshal(profile, &values)
-		got = values[rule.Field]
+		var values map[string]any
+		if decodeAuthProfile(profile, &values) != nil {
+			return false, ErrValidation
+		}
+		var present bool
+		got, present = values[rule.Field]
+		if !present {
+			return false, nil
+		}
 	}
-	return string(got) == string(rule.Equals), nil
+	var expected any
+	decoder := json.NewDecoder(bytes.NewReader(rule.Equals))
+	decoder.UseNumber()
+	if decoder.Decode(&expected) != nil {
+		return false, ErrValidation
+	}
+	return authRuleValuesEqual(got, expected), nil
 }
 
 const (
@@ -141,7 +154,7 @@ func (s *Service) ConfirmTOTPEnrollment(ctx context.Context, userID uuid.UUID, c
 	if err != nil {
 		return RecoveryCodes{}, err
 	}
-	buckets := []rateLimitBucket{{hash: s.subjectHash("mfa-enroll", "account", userID.String()), limit: mfaFailureLimit}}
+	buckets := []rateLimitBucket{{hash: s.subjectHash("mfa-enroll", "account", userID.String()), limit: min(mfaFailureLimit, s.currentRatePolicy().AccountMaxFailures)}}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return RecoveryCodes{}, err
 	}
@@ -201,13 +214,20 @@ func (s *Service) DisableTOTP(ctx context.Context, userID uuid.UUID, currentPass
 	if err != nil {
 		return err
 	}
-	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		valid, err := s.consumeFactorCode(ctx, tx, userID, code, now)
+	var valid bool
+	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var locked uuid.UUID
+		if err := tx.QueryRow(ctx, `select id from pgbase_meta.users where id=$1 and active for update`, userID).Scan(&locked); err != nil {
+			return err
+		}
+
+		var err error
+		valid, err = s.checkFactorCodeTx(ctx, tx, userID, code, now)
 		if err != nil {
 			return err
 		}
 		if !valid {
-			return ErrInvalidCredentials
+			return nil
 		}
 		if _, err := tx.Exec(ctx, `delete from pgbase_meta.user_totp_factors where user_id=$1`, userID); err != nil {
 			return err
@@ -215,6 +235,10 @@ func (s *Service) DisableTOTP(ctx context.Context, userID uuid.UUID, currentPass
 		_, err = revokeSessionsInTx(ctx, tx, userID)
 		return err
 	})
+	if err == nil && !valid {
+		return ErrInvalidCredentials
+	}
+	return err
 }
 
 func (s *Service) CompleteMFA(ctx context.Context, challengeToken, code string) (Session, error) {
@@ -228,7 +252,7 @@ func (s *Service) CompleteMFA(ctx context.Context, challengeToken, code string) 
 	if err != nil {
 		return Session{}, err
 	}
-	buckets := []rateLimitBucket{{hash: s.subjectHash("mfa", "challenge", challengeToken), limit: mfaFailureLimit}}
+	buckets := []rateLimitBucket{{hash: s.subjectHash("mfa", "challenge", challengeToken), limit: min(mfaFailureLimit, s.currentRatePolicy().AccountMaxFailures)}}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return Session{}, err
 	}
@@ -238,8 +262,7 @@ func (s *Service) CompleteMFA(ctx context.Context, challengeToken, code string) 
 		var challengeID, userID uuid.UUID
 		err := tx.QueryRow(ctx, `select id,user_id from pgbase_meta.user_mfa_challenges where token_hash=$1 and consumed_at is null and expires_at>CURRENT_TIMESTAMP`, s.mfaChallengeHash(challengeToken)).Scan(&challengeID, &userID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			invalid = true
-			return nil
+			return ErrInvalidCredentials
 		}
 		if err != nil {
 			return err
@@ -266,7 +289,7 @@ func (s *Service) CompleteMFA(ctx context.Context, challengeToken, code string) 
 			invalid = true
 			return nil
 		}
-		valid, err := s.consumeFactorCode(ctx, tx, userID, code, now)
+		valid, err := s.checkFactorCodeTx(ctx, tx, userID, code, now)
 		if err != nil {
 			return err
 		}
@@ -322,7 +345,7 @@ func (s *Service) verifyUserPassword(ctx context.Context, userID uuid.UUID, pass
 	if err != nil {
 		return ManagedUser{}, "", err
 	}
-	buckets := []rateLimitBucket{{hash: s.subjectHash(operation, "account", userID.String()), limit: loginAccountLimit}}
+	buckets := []rateLimitBucket{{hash: s.subjectHash(operation, "account", userID.String()), limit: s.currentRatePolicy().AccountMaxFailures}}
 	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
 		return ManagedUser{}, "", err
 	}
@@ -348,6 +371,24 @@ func (s *Service) verifyUserPassword(ctx context.Context, userID uuid.UUID, pass
 		return ManagedUser{}, "", ErrInvalidCredentials
 	}
 	return user, hash, nil
+}
+
+// The caller holds the user lock so fresh challenges share one factor budget.
+func (s *Service) checkFactorCodeTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID, code string, now time.Time) (bool, error) {
+	hash := s.subjectHash("mfa", "account", userID.String())
+	var blocked bool
+	if err := tx.QueryRow(ctx, `select coalesce((select blocked_until>$2 from pgbase_meta.user_auth_rate_limits where subject_hash=$1),false)`, hash, now).Scan(&blocked); err != nil {
+		return false, err
+	}
+	if blocked {
+		return false, ErrRateLimited
+	}
+	valid, err := s.consumeFactorCode(ctx, tx, userID, code, now)
+	if err == nil && !valid {
+		policy := s.currentRatePolicy()
+		_, err = recordFailureInTx(ctx, tx, hash, min(mfaFailureLimit, policy.AccountMaxFailures), now, policy.Window, policy.Block)
+	}
+	return valid, err
 }
 
 func (s *Service) consumeFactorCode(ctx context.Context, tx pgx.Tx, userID uuid.UUID, code string, now time.Time) (bool, error) {

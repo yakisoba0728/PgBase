@@ -52,3 +52,20 @@ describe("create retries", () => {
     client.clear();
   });
 });
+
+it("preserves every same-tab 412 edit when persistent storage is blocked", async () => {
+  const fields: Collection["fields"] = ["title", "api_token"].map((name) => ({ id: name, name, type: "text", columnName: name, required: false, unique: false, indexed: false, ordinal: 0, hidden: false, presentable: false }));
+  const edited = { ...collection, fields };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(sessionQuery.queryKey, { administrator: { id: "admin", email: "a", active: true, createdAt: "", updatedAt: "" }, csrfToken: "csrf", expiresAt: "", sqlConsoleEnabled: false });
+  const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  const blocked = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
+  const first = renderHook(() => useRecordForm({ collection: edited, loaded: { record: { id: "r", title: "old" }, etag: '"1"' }, onCreated: vi.fn(), onDeleted: vi.fn() }), { wrapper });
+  act(() => { first.result.current.setDraft("title", "mine"); first.result.current.setDraft("api_token", "secret"); });
+  act(() => first.result.current.reload(true));
+  first.unmount();
+  const second = renderHook(() => useRecordForm({ collection: edited, loaded: { record: { id: "r", title: "remote" }, etag: '"2"' }, onCreated: vi.fn(), onDeleted: vi.fn() }), { wrapper });
+  expect(second.result.current.drafts).toMatchObject({ title: "mine", api_token: "secret" });
+  expect(blocked.mock.calls.some(([, value]) => value.includes("secret"))).toBe(false);
+  second.unmount(); client.clear();
+});

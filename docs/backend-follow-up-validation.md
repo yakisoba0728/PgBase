@@ -1,5 +1,7 @@
 # Backend follow-up validation — 2026-11-13
 
+> **Historical report — superseded:** See [backend closure validation — 2026-11-14 KST](backend-closure-validation.md) for the current results, contracts and remaining limits. The original failures and gates below are preserved as historical evidence.
+
 This follow-up reviews the PostgreSQL rewrite at `1f93b15a` and fixes reproduced correctness defects found in the shared working tree. It adds no dependencies or schema migrations. Independent source reviews supplemented package owners' regression tests; they are not evidence of exhaustive security coverage.
 
 ## Changes

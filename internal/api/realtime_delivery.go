@@ -51,7 +51,9 @@ func (h *realtimeHub) deliverApplicationMessage(w http.ResponseWriter, r *http.R
 }
 
 func (h *realtimeHub) deliverRecordMessages(w http.ResponseWriter, r *http.Request, control *http.ResponseController, client *realtimeClient) error {
-	if !h.revalidate(r.Context(), client) {
+	var valid bool
+	r, valid = h.currentRealtimeRequest(r, client)
+	if !valid {
 		return recordaccess.ErrDenied
 	}
 	client.mu.RLock()
@@ -63,10 +65,13 @@ func (h *realtimeHub) deliverRecordMessages(w http.ResponseWriter, r *http.Reque
 		writeRealtimeStreamError(w, control, err)
 		return err
 	}
-	if !h.revalidate(r.Context(), client) {
+	if !h.revalidateRealtimeRequest(r, client) {
 		return recordaccess.ErrDenied
 	}
 	for index, message := range messages {
+		if !h.revalidateRealtimeRequest(r, client) {
+			return recordaccess.ErrDenied
+		}
 		record, include, err := h.realtimeMessageRecord(r, principal, message)
 		if err != nil {
 			return err
@@ -86,7 +91,7 @@ func (h *realtimeHub) deliverRecordMessages(w http.ResponseWriter, r *http.Reque
 				finish(err)
 				return err
 			}
-			if !h.revalidate(r.Context(), client) {
+			if !h.revalidateRealtimeRequest(r, client) {
 				finish(recordaccess.ErrDenied)
 				return recordaccess.ErrDenied
 			}

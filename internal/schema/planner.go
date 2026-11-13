@@ -294,6 +294,10 @@ func planUpdate(catalog Catalog, current Collection, input UpdateCollectionInput
 				return Plan{}, validation(namePath, "duplicate_id")
 			}
 		}
+		if exists && field.Options == nil {
+			options := cloneFieldOptions(previous.Options)
+			field.Options = &options
+		}
 		carriedDefault := json.RawMessage(nil)
 		if exists {
 			carriedDefault = unchangedStoredDefault(previous, field)

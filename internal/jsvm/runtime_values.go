@@ -47,7 +47,7 @@ func importValue(vm *goja.Runtime, value any, depth, maximumDepth int) (goja.Val
 	case json.Number:
 		return exactValue(vm, value.String()), nil
 	case []any:
-		array := vm.NewArray(len(value))
+		array := vm.NewArray()
 		for index, item := range value {
 			converted, err := importValue(vm, item, depth+1, maximumDepth)
 			if err != nil {
@@ -75,7 +75,17 @@ func importValue(vm *goja.Runtime, value any, depth, maximumDepth int) (goja.Val
 	}
 }
 
-func encodeValue(value goja.Value, maximumDepth int) (json.RawMessage, error) {
+func encodeValue(value goja.Value, maximumDepth int) (output json.RawMessage, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			if exception, ok := recovered.(*goja.Exception); ok {
+				err = exception
+				output = nil
+			} else {
+				panic(recovered)
+			}
+		}
+	}()
 	converted, err := exportValue(value, 0, maximumDepth, make(map[*goja.Object]bool))
 	if err != nil {
 		return nil, err

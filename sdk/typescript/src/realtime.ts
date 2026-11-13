@@ -10,6 +10,8 @@ export class RealtimeService {
   private clientId?: string;
   private lastEventId?: string;
   private running?: Promise<void>;
+  private subscribing?: Promise<unknown>;
+  private syncing: Promise<unknown> = Promise.resolve();
   private ready?: Promise<void>;
   private resolveReady?: () => void;
   private rejectReady?: (error: unknown) => void;
@@ -41,6 +43,19 @@ export class RealtimeService {
   async subscribe(topic: `@${string}`, listener: (event: RealtimeCustomEvent) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
   async subscribe<T extends RecordData = RecordData>(topic: string, listener: (event: RealtimeEvent<T>) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
   async subscribe(topic: string, listener: (event: any) => void, options: RealtimeSubscriptionOptions = {}): Promise<() => Promise<void>> {
+    const generation = this.client.auth.generation;
+    const start = () => {
+      if (generation !== this.client.auth.generation) throw new PgBaseError(0, "realtime_unsubscribed");
+      return this.subscribeNow(topic, listener, options);
+    };
+    const result = this.subscribing ? this.subscribing.then(start) : start();
+    const tail = result.catch(() => {});
+    this.subscribing = tail;
+    void tail.then(() => { if (this.subscribing === tail) this.subscribing = undefined; });
+    return result;
+  }
+
+  private async subscribeNow(topic: string, listener: (event: any) => void, options: RealtimeSubscriptionOptions): Promise<() => Promise<void>> {
     if (!validRealtimeTopic(topic)) throw new PgBaseError(0, "invalid_realtime_topic");
     if (options.maxReconnects !== undefined && (!Number.isInteger(options.maxReconnects) || options.maxReconnects < 0)) throw new PgBaseError(0, "invalid_reconnect_options");
     if (options.reconnectDelayMs !== undefined && (!Number.isFinite(options.reconnectDelayMs) || options.reconnectDelayMs < 0)) throw new PgBaseError(0, "invalid_reconnect_options");
@@ -96,7 +111,15 @@ export class RealtimeService {
     const stopOnAuthChange = this.client.auth._onChange(() => { void this.unsubscribe(); });
     this.running = Promise.resolve().then(() => this.run(controller)).finally(() => { stopOnAuthChange(); this.running = undefined; this.ready = undefined; this.resolveReady = undefined; this.rejectReady = undefined; });
   }
-  private async sync(): Promise<void> { if (this.clientId) await this.client._request<void>("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, this.controller?.signal); }
+  private sync(): Promise<void> {
+    const controller = this.controller;
+    const result = this.syncing.then(async () => {
+      if (controller !== this.controller || controller?.signal.aborted || !this.clientId) return;
+      await this.client._request<void>("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, controller?.signal);
+    });
+    this.syncing = result.catch(() => {});
+    return result;
+  }
   private async run(controller: AbortController): Promise<void> {
     if (this.listeners.size === 0) return;
     let reconnects = 0;

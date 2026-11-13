@@ -20,7 +20,8 @@ export function useModal(open: boolean, onClose: () => void) {
       onClose();
     },
     onClick: (event: MouseEvent<HTMLDialogElement>) => {
-      if (event.target === event.currentTarget) onClose();
+      const bounds = event.currentTarget.getBoundingClientRect();
+      if (event.target === event.currentTarget && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)) onClose();
     },
   };
 }

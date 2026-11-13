@@ -8,6 +8,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
 	"github.com/yakisoba0728/PgBase/internal/api"
 	"github.com/yakisoba0728/PgBase/internal/apiratelimit"
+	"github.com/yakisoba0728/PgBase/internal/backup"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/membership"
 	"github.com/yakisoba0728/PgBase/internal/migrate"
@@ -78,7 +79,7 @@ func newWithCatalogPreflight(
 			return nil, err
 		}
 	}
-	gate, err := database.TryBackupGate(ctx, normalized.DatabaseURL, false)
+	gate, err := database.TryBackupGate(ctx, normalized.DatabaseURL, false, normalized.AllowInsecureDatabase)
 	if err != nil {
 		return nil, fmt.Errorf("acquire PostgreSQL writer gate: %w", err)
 	}
@@ -221,7 +222,7 @@ func newWithCatalogPreflight(
 	if len(runtimeSettingsKey) == 0 {
 		runtimeSettingsKey = normalized.TokenSecret
 	}
-	runtimeSettings, err := runtimesettings.New(ctx, pool, runtimeSettingsKey)
+	runtimeSettings, err := runtimesettings.NewWithTrustedProxies(ctx, pool, runtimeSettingsKey, normalized.TrustedProxies)
 	if err != nil {
 		return nil, fmt.Errorf("initialize runtime settings: %w", err)
 	}
@@ -312,6 +313,9 @@ func newWithCatalogPreflight(
 		return nil, err
 	}
 	app.backupManager = backupManager
+	if controller, ok := dependencies.BackupStorageAdministration.(*backup.StorageController); ok {
+		normalized.Backups.controller = controller
+	}
 	if jobService != nil {
 		dependencies.Jobs = jobService
 	}

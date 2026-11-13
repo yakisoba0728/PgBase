@@ -104,6 +104,26 @@ func (c *extensionHostPolicy) call(ctx context.Context, method string, raw json.
 			return nil, err
 		}
 		return compatibilityInlineFile(request.Name, data)
+	case "filesystem.localPath", "os.rootPath":
+		var request struct{ Root, Key string }
+		if err := decodeExtensionInput(raw, &request); err != nil {
+			return nil, err
+		}
+		root, err := c.safePath(request.Root, false)
+		if err != nil {
+			return nil, err
+		}
+		scoped := *c
+		scoped.root = root
+		path, err := scoped.safePath(request.Key, true)
+		if err != nil {
+			return nil, err
+		}
+		relative, err := filepath.Rel(c.root, path)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]string{"path": relative})
 	case "filesystem.local":
 		var request struct {
 			Root string `json:"root"`
@@ -117,13 +137,30 @@ func (c *extensionHostPolicy) call(ctx context.Context, method string, raw json.
 		}
 		return json.Marshal(map[string]string{"root": path})
 	case "filesystem.localWrite":
-		var request struct{ Path, Data string }
+		var request struct {
+			Path, Data string
+			Chunks     []string
+			Content    any
+		}
 		if err := decodeExtensionInput(raw, &request); err != nil {
 			return nil, err
 		}
 		data, err := base64.StdEncoding.DecodeString(request.Data)
+		if request.Content != nil {
+			data, err = compatibilityBytes(request.Content)
+		}
 		if err != nil {
 			return nil, err
+		}
+		for _, chunk := range request.Chunks {
+			decoded, err := base64.StdEncoding.DecodeString(chunk)
+			if err != nil {
+				return nil, err
+			}
+			if len(decoded) > maximumHostPolicyBytes-len(data) {
+				return nil, errors.New("file exceeds host policy limit")
+			}
+			data = append(data, decoded...)
 		}
 		if len(data) > maximumHostPolicyBytes {
 			return nil, errors.New("file exceeds host policy limit")
@@ -149,8 +186,12 @@ func (c *extensionHostPolicy) call(ctx context.Context, method string, raw json.
 		if err != nil {
 			return nil, err
 		}
-		data, err := os.ReadFile(source)
+		reader, err := os.Open(source)
 		if err != nil {
+			return nil, err
+		}
+		data, err := io.ReadAll(io.LimitReader(reader, maximumHostPolicyBytes+1))
+		if err = errors.Join(err, reader.Close()); err != nil {
 			return nil, err
 		}
 		if len(data) > maximumHostPolicyBytes {
@@ -598,11 +639,15 @@ func compatibilityBytes(value any) ([]byte, error) {
 	case []any:
 		data := make([]byte, len(v))
 		for i, n := range v {
-			number, ok := n.(float64)
-			if !ok || number < 0 || number > 255 {
+			number, ok := n.(json.Number)
+			if !ok {
 				return nil, errors.New("invalid byte array")
 			}
-			data[i] = byte(number)
+			integer, err := number.Int64()
+			if err != nil || integer < 0 || integer > 255 {
+				return nil, errors.New("invalid byte array")
+			}
+			data[i] = byte(integer)
 		}
 		return data, nil
 	default:

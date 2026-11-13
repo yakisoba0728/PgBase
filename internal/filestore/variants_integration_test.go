@@ -3,12 +3,8 @@
 package filestore
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"image"
-	"image/color"
-	"image/png"
 	"testing"
 	"time"
 
@@ -66,13 +62,13 @@ func TestDeletingFileQueuesAllVariantObjectsInTheSameTransaction(t *testing.T) {
 	assertState(0, 4)
 }
 
-func TestVariantInsertFailureQueuesUploadedObjectOutsideAbortedTransaction(t *testing.T) {
-	ctx := context.Background()
+func TestVariantRejectsMissingFileBeforeUploading(t *testing.T) {
+	ctx := t.Context()
 	pool, err := database.Open(ctx, testutil.NewDatabase(t), time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	if err := migrate.New(pool, nil).Up(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -80,30 +76,10 @@ func TestVariantInsertFailureQueuesUploadedObjectOutsideAbortedTransaction(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := image.NewRGBA(image.Rect(0, 0, 4, 4))
-	source.Set(0, 0, color.White)
-	var encoded bytes.Buffer
-	if err := png.Encode(&encoded, source); err != nil {
-		t.Fatal(err)
-	}
-	sourceKey := "objects/" + uuid.NewString()
-	if err := store.Put(ctx, sourceKey, bytes.NewReader(encoded.Bytes())); err != nil {
-		t.Fatal(err)
-	}
 	service := &Service{pool: pool, objects: store, options: Options{MaximumBytes: 1 << 20, MaximumImagePixels: 1_000_000, Now: time.Now}}
-	key, err := service.variantObject(ctx, File{ID: uuid.New(), ObjectKey: sourceKey, ContentType: "image/png"}, "2x2")
-	if err == nil {
-		t.Fatal("variant insert unexpectedly succeeded")
-	}
-	if key == "" {
-		t.Fatal("uploaded variant key was not retained for cleanup")
-	}
-	var queued bool
-	if err := pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.file_object_deletions where object_key=$1)`, key).Scan(&queued); err != nil {
-		t.Fatal(err)
-	}
-	if !queued {
-		t.Fatalf("orphaned variant %q was not queued", key)
+	key, err := service.variantObject(ctx, File{ID: uuid.New(), ObjectKey: "objects/" + uuid.NewString(), ContentType: "image/png"}, "2x2")
+	if !errors.Is(err, ErrNotFound) || key != "" {
+		t.Fatalf("key=%q err=%v", key, err)
 	}
 }
 

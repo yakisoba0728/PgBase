@@ -38,7 +38,7 @@ func newBackupFailureAlerter(pool *database.Pool, options Options) *backupFailur
 }
 
 func (a *backupFailureAlerter) Notify(ctx context.Context, job backup.Job) {
-	if a == nil || a.sender == nil || a.pool == nil {
+	if a == nil || a.sender == nil {
 		return
 	}
 	now := a.now().UTC()
@@ -48,27 +48,15 @@ func (a *backupFailureAlerter) Notify(ctx context.Context, job backup.Job) {
 		return
 	}
 	a.mu.Unlock()
-	rows, err := a.pool.Query(ctx, `select email from pgbase_meta.admins where active order by email`)
+	recipients, err := a.recipients(ctx)
 	if err != nil {
 		a.log(ctx, "read backup alert recipients", err)
 		return
 	}
-	defer rows.Close()
-	var recipients []string
-	for rows.Next() {
-		var email string
-		if err := rows.Scan(&email); err != nil {
-			a.log(ctx, "read backup alert recipient", err)
-			return
-		}
-		recipients = append(recipients, email)
-	}
-	if err := rows.Err(); err != nil || len(recipients) == 0 {
-		if err != nil {
-			a.log(ctx, "read backup alert recipients", err)
-		}
+	if len(recipients) == 0 {
 		return
 	}
+
 	message := mailer.Message{Purpose: "managed_backup_failure", Subject: "PgBase managed backup failed", Text: "A scheduled PgBase backup failed at " + job.UpdatedAt.UTC().Format(time.RFC3339) + ". Check the server diagnostic log and run a verified backup before relying on recovery."}
 	for _, recipient := range recipients {
 		message.To = recipient
@@ -103,4 +91,36 @@ func (a *backupFailureAlerter) log(ctx context.Context, operation string, err er
 	if a.logger != nil {
 		a.logger.ErrorContext(ctx, operation, "error", err)
 	}
+}
+
+// RebindPool waits for recipient reads before the managed restore closes the old pool.
+func (a *backupFailureAlerter) RebindPool(pool *database.Pool) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	a.pool = pool
+	a.mu.Unlock()
+}
+
+func (a *backupFailureAlerter) recipients(ctx context.Context) ([]string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.pool == nil {
+		return nil, nil
+	}
+	rows, err := a.pool.Query(ctx, `select email from pgbase_meta.admins where active order by email`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var recipients []string
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, err
+		}
+		recipients = append(recipients, email)
+	}
+	return recipients, rows.Err()
 }

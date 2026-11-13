@@ -147,7 +147,7 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
   };
   const save = useMutation({
     mutationFn: () => updateJob(job.id, { schedule: schedule.trim(), timezone: timezone.trim(), enabled }),
-    onSuccess: () => toast(t("ops.jobs.saved")),
+    onSuccess: () => { setSchedule(schedule.trim()); setTimezone(timezone.trim() || "UTC"); toast(t("ops.jobs.saved")); },
     onSettled: refresh,
   });
   const run = useMutation({

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -204,4 +205,15 @@ func TestMixedMigrationPreservesLegacyEnvelopeAndValidationMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.Close(t.Context())
+}
+
+func TestNativeResultGetterExceptionsReturnInvalidResult(t *testing.T) {
+	for _, source := range []string{`exports.run=()=>({get value(){throw Error('bad')}})`, `exports.run=()=>({get then(){throw Error('bad')}})`} {
+		runtime, handler := nativeRuntime(t, source)
+		_, err := runtime.Invoke(t.Context(), jsvm.Invocation{Handler: handler})
+		var runtimeError *jsvm.Error
+		if !errors.As(err, &runtimeError) || runtimeError.Code != jsvm.CodeInvalidResult {
+			t.Fatalf("getter error=%v", err)
+		}
+	}
 }

@@ -295,3 +295,114 @@ func TestLeaseFenceCurrentPolicyAndRetention(t *testing.T) {
 		t.Fatalf("pruned event redelivered=%d %v", count, err)
 	}
 }
+
+func TestReadForDeletedTextIdentityUsesPublicOutboxSnapshot(t *testing.T) {
+	for _, public := range []string{"ExactDeleted01", "018f3b2e-4200-7000-8000-000000000001"} {
+		t.Run(public, func(t *testing.T) {
+			s, user, collection := realtimeFixture(t)
+			ctx := t.Context()
+			if _, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.collections SET record_id='{"kind":"text","minLength":1,"maxLength":64,"pattern":"^[A-Za-z0-9-]+$"}'::jsonb WHERE id=$1`, collection); err != nil {
+				t.Fatal(err)
+			}
+			event := seedEvent(t, s, user, collection)
+			if _, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.record_outbox SET envelope=envelope||jsonb_build_object('publicRecord',jsonb_build_object('id',$2::text)) WHERE event_id=$1`, event, public); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Deliver(ctx); err != nil {
+				t.Fatal(err)
+			}
+			_, head, err := s.ReadFor(ctx, ReadRequest{Principal: identity.Subject{Kind: identity.Administrator, ID: uuid.New()}, Collection: "notes"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			deleted := uuid.New()
+			if _, err := s.pool.Exec(ctx, `INSERT INTO pgbase_meta.record_audit_events(event_id,actor_kind,actor_id,request_id,collection_id,collection_name,record_id,operation,schema_version,schema_digest,previous_version,new_version,previous_etag,changed_fields,input_hash,compatibility,committed_at)
+ SELECT $2,actor_kind,actor_id,request_id,collection_id,collection_name,record_id,'delete',schema_version,schema_digest,1,2,'etag',ARRAY[]::text[],input_hash,'missing-if-match',now() FROM pgbase_meta.record_audit_events WHERE event_id=$1`, event, deleted); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.pool.Exec(ctx, `INSERT INTO pgbase_meta.record_outbox(event_id,topic,collection_id,collection_name,record_id,operation,record_version,envelope,created_at,owner_user_id,record_snapshot)
+ SELECT $2,topic,collection_id,collection_name,record_id,'delete',2,envelope||jsonb_build_object('eventId',$2::uuid::text,'operation','delete','recordVersion',2,'tombstone',true),now(),owner_user_id,record_snapshot FROM pgbase_meta.record_outbox WHERE event_id=$1`, event, deleted); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Deliver(ctx); err != nil {
+				t.Fatal(err)
+			}
+			for _, reused := range []bool{false, true} {
+				if reused {
+					// A replacement mapping must not hide the earlier delete event.
+					if _, err := s.pool.Exec(ctx, `INSERT INTO pgbase_meta.record_identities(collection_id,collection_kind,scope_id,internal_id,external_id) VALUES($1,'base',$1,$2,$3)`, collection, uuid.New(), public); err != nil {
+						t.Fatal(err)
+					}
+				}
+				zero := head
+				for _, subscription := range []string{"", public} {
+					events, cursor, err := s.ReadFor(ctx, ReadRequest{Principal: identity.Subject{Kind: identity.Administrator, ID: uuid.New()}, Collection: "notes", PublicID: subscription, After: &zero})
+					if err != nil || len(events) != 1 || events[0].Operation != "delete" || events[0].PublicID != public || events[0].Record["id"] != public || cursor != events[0].Sequence {
+						t.Fatalf("reused=%t events=%#v cursor=%d err=%v", reused, events, cursor, err)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestReadForRejectsHiddenScalarFilterOnBothOperands(t *testing.T) {
+	s, user, collection := realtimeFixture(t)
+	ctx := t.Context()
+	if _, err := s.pool.Exec(ctx, `ALTER TABLE app.notes ADD COLUMN title text, ADD COLUMN secret text`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `INSERT INTO pgbase_meta.fields(id,collection_id,name,column_name,field_type,required,is_unique,is_indexed,has_default,default_json,ordinal,created_at,options_json,hidden)
+ VALUES(gen_random_uuid(),$1,'title','title','text',false,false,false,false,null,0,now(),'{}',false),
+ (gen_random_uuid(),$1,'secret','secret','text',false,false,false,false,null,1,now(),'{}',true)`, collection); err != nil {
+		t.Fatal(err)
+	}
+	zero := int64(0)
+	for _, filter := range []string{"secret = 'known'", "secret = 'wrong'", "title = secret"} {
+		_, _, err := s.ReadFor(ctx, ReadRequest{Principal: identity.Subject{Kind: identity.User, ID: user}, Collection: "notes", Filter: filter, After: &zero})
+		var validation *query.ValidationError
+		if !errors.As(err, &validation) || len(validation.Details) == 0 || validation.Details[0].Code != "hidden_field" {
+			t.Fatalf("%s: %v", filter, err)
+		}
+	}
+	if _, _, err := s.ReadFor(ctx, ReadRequest{Principal: identity.Subject{Kind: identity.Administrator, ID: uuid.New()}, Collection: "notes", Filter: "secret = 'known'", After: &zero}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReadForPublicOutboxReplaysRenamedFieldsUnderCurrentHiddenPolicy(t *testing.T) {
+	s, user, collection := realtimeFixture(t)
+	ctx := t.Context()
+	if _, err := s.pool.Exec(ctx, `ALTER TABLE app.notes ADD COLUMN title text, ADD COLUMN secret text`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `INSERT INTO pgbase_meta.fields(id,collection_id,name,column_name,field_type,required,is_unique,is_indexed,has_default,ordinal,created_at,options_json,hidden)
+ VALUES(gen_random_uuid(),$1,'title','title','text',false,false,false,false,0,now(),'{}',false),
+ (gen_random_uuid(),$1,'secret','secret','text',false,false,false,false,1,now(),'{}',false)`, collection); err != nil {
+		t.Fatal(err)
+	}
+	event := seedEvent(t, s, user, collection)
+	if _, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.record_outbox SET envelope=envelope||jsonb_build_object('publicRecord',jsonb_build_object('id',record_id::text,'title','shown','secret','hidden-later')) WHERE event_id=$1`, event); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.fields SET name='renamed' WHERE collection_id=$1 AND name='title'`, collection); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.fields SET hidden=true WHERE collection_id=$1 AND name='secret'`, collection); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Deliver(ctx); err != nil {
+		t.Fatal(err)
+	}
+	zero := int64(0)
+	events, _, err := s.ReadFor(ctx, ReadRequest{Principal: identity.Subject{Kind: identity.User, ID: user}, Collection: "notes", After: &zero})
+	if err != nil || len(events) != 1 || events[0].Record["renamed"] != "shown" {
+		t.Fatalf("events=%#v err=%v", events, err)
+	}
+	if _, ok := events[0].Record["title"]; ok {
+		t.Fatal("old logical field name replayed")
+	}
+	if _, ok := events[0].Record["secret"]; ok {
+		t.Fatal("currently hidden field replayed")
+	}
+}

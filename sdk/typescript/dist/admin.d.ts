@@ -384,8 +384,8 @@ export declare class ApprovedSchemaPlan {
         headers: Record<string, string>;
     };
 }
-/** A preview plus the exact JSON document that produced it. The apply body is
- * built from this private snapshot so large JSON integers survive preview. */
+/** A preview plus its exact approved JSON document. The apply body keeps this
+ * private snapshot so hooks and large JSON integers survive preview. */
 export declare class ApprovedSchemaImportPlan implements SchemaImportPlan {
     #private;
     readonly baseVersion: number;
@@ -442,7 +442,7 @@ export declare class PgBaseAdminClient {
         items: ScheduledJob[];
         workerEnabled: boolean;
     }>;
-    configureJob(id: string, schedule: string, enabled: boolean, signal?: AbortSignal): Promise<void>;
+    configureJob(id: string, schedule: string, enabled: boolean, signal?: AbortSignal, timezone?: string): Promise<void>;
     queueJob(id: string, signal?: AbortSignal): Promise<void>;
     fileStorageSettings(signal?: AbortSignal): Promise<FileStorageSettings>;
     updateFileStorage(input: FileStorageUpdate, signal?: AbortSignal): Promise<FileStorageSettings>;

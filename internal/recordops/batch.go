@@ -37,9 +37,11 @@ func (s *Service) Batch(ctx context.Context, request BatchRequest) (results []Mu
 	// Register the membership writer before the batch transaction pins schema
 	// state. Upsert identity resolution also pins that state, and registering a
 	// lazy writer afterward would wait on the transaction that owns the pin.
-	if _, err := s.members.writer(ctx); err != nil {
+	writer, err := s.members.writer(ctx)
+	if err != nil {
 		return nil, unavailableMembership(err)
 	}
+	ctx = context.WithValue(ctx, compoundMembershipKey{}, compoundMembership{provider: s.members, writer: writer})
 	ctx, hooks := s.hookContext(ctx)
 	if hooks != nil {
 		hooks.deferAfter++
@@ -48,6 +50,7 @@ func (s *Service) Batch(ctx context.Context, request BatchRequest) (results []Mu
 	err = s.compoundTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		ctx = context.WithValue(ctx, batchMutationKey{}, true)
 		results = nil
+		var publicRecords []map[string]any
 		responseBytes := 0
 		for index, operation := range request.Operations {
 			members := 0
@@ -70,6 +73,21 @@ func (s *Service) Batch(ctx context.Context, request BatchRequest) (results []Mu
 			if err != nil {
 				return fmt.Errorf("batch operation %d: %w", index, err)
 			}
+			var publicData map[string]any
+			if result.Record != nil {
+				catalog, err := s.schemas.EnsureCurrent(ctx, tx)
+				if err != nil {
+					return err
+				}
+				publicData = result.publicRecord
+				if publicData == nil {
+					publicData = cloneRecordData(result.Record.Data)
+					if err := s.projectRecordIdentity(ctx, tx, catalog, catalog.Collections[operationCollection(operation)], publicData); err != nil {
+						return err
+					}
+				}
+			}
+			publicRecords = append(publicRecords, publicData)
 			results = append(results, result)
 			encoded, err := json.Marshal(result.Record)
 			if err != nil {
@@ -99,11 +117,7 @@ func (s *Service) Batch(ctx context.Context, request BatchRequest) (results []Mu
 			name := operationCollection(operation)
 			if collection, ok := catalog.Collections[name]; ok {
 				if results[index].Record != nil {
-					publicData := cloneRecordData(results[index].Record.Data)
-					if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicData); err != nil {
-						return err
-					}
-					results[index].Record.Data = publicData
+					results[index].Record.Data = publicRecords[index]
 				}
 				projectMutationResult(collection, request.Principal, &results[index])
 			}

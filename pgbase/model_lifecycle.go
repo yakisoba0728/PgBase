@@ -3,6 +3,7 @@ package pgbase
 import (
 	"context"
 	"errors"
+	"github.com/yakisoba0728/PgBase/internal/recordops"
 	"strings"
 )
 
@@ -18,10 +19,11 @@ const (
 type ModelMutationEvent struct {
 	Operation string
 	// Family optionally adds the corresponding record or collection phases.
-	Family string
-	Model  any
-	Result any
-	Err    error
+	Family  string
+	Model   any
+	Result  any
+	Err     error
+	outcome *recordops.TransactionOutcome
 }
 
 // RunModelMutation applies the full lifecycle to a custom repository write.
@@ -64,7 +66,20 @@ func (a *App) RunModelMutation(ctx context.Context, event *ModelMutationEvent, e
 			return err
 		}
 	}
-	a.observeMutation(ctx, event, "success")
+	if event.outcome != nil {
+		if !event.outcome.Register(func(finalCtx context.Context, finalErr error) {
+			event.Err = finalErr
+			phase := "success"
+			if finalErr != nil {
+				phase = "error"
+			}
+			a.observeMutation(finalCtx, event, phase)
+		}) {
+			return recordops.ErrTransactionOutcomeRequired
+		}
+	} else {
+		a.observeMutation(ctx, event, "success")
+	}
 	return nil
 }
 
@@ -97,6 +112,6 @@ func (a *App) observeMutation(ctx context.Context, event *ModelMutationEvent, ph
 		if strings.HasPrefix(kind, ".") {
 			continue
 		}
-		_ = a.options.Hooks.Run(ctx, &HookEvent{Kind: kind, Data: event, Err: event.Err}, func() error { return nil })
+		_ = a.options.Hooks.Run(ctx, &HookEvent{Kind: kind, Data: event, Err: event.Err}, func() error { return event.Err })
 	}
 }

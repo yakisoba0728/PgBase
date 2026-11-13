@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"github.com/zkrebbekx/pgparse"
+	"reflect"
 	"slices"
 	"strings"
 	"unicode"
@@ -178,6 +180,7 @@ func comparePhysicalSchema(
 		matched:  make(map[schema.PhysicalObjectRef]struct{}),
 	}
 	required := manifest.Required()
+	comparison.compareNamespaces(required.Namespaces)
 	comparison.compareTables(required.Tables)
 	comparison.compareColumns(required.Columns)
 	comparison.compareIndexes(required.Indexes)
@@ -196,6 +199,14 @@ func (c *physicalComparison) role(ref schema.PhysicalObjectRef, fallback physica
 
 func (c *physicalComparison) append(code string) {
 	appendUniqueFinding(c.report, code, physicalFindingMessages[code])
+}
+
+func (c *physicalComparison) compareNamespaces(required []string) {
+	for _, namespace := range required {
+		if _, ok := c.snapshot.namespaces[namespace]; !ok {
+			c.append("managed_namespace_missing")
+		}
+	}
 }
 
 func (c *physicalComparison) compareTables(required []schema.TableSpec) {
@@ -412,8 +423,8 @@ func indexSpecEqual(want, got schema.IndexSpec) bool {
 	return want.Method == got.Method && slices.Equal(want.Keys, got.Keys) &&
 		slices.Equal(want.IncludedColumns, got.IncludedColumns) &&
 		want.Unique == got.Unique && want.NullsNotDistinct == got.NullsNotDistinct &&
-		want.Primary == got.Primary && want.PredicateSQL == got.PredicateSQL &&
-		want.ExpressionSQL == got.ExpressionSQL &&
+		want.Primary == got.Primary && indexSQLEqual(want.PredicateSQL, got.PredicateSQL) &&
+		indexSQLEqual(want.ExpressionSQL, got.ExpressionSQL) &&
 		want.Valid == got.Valid && want.Ready == got.Ready && want.Live == got.Live
 }
 
@@ -482,6 +493,7 @@ func booleanField(value bool) string {
 // finding. A code with no entry here is a programming error made visible: the
 // report would carry an empty message instead of silently inventing one.
 var physicalFindingMessages = map[string]string{
+	"managed_namespace_missing":                          "A required managed namespace is missing",
 	"collection_table_missing":                           "A catalog collection table is missing",
 	"collection_table_orphaned":                          "A physical collection table is missing from the catalog",
 	"collection_column_missing":                          "A catalog collection column is missing",
@@ -511,4 +523,52 @@ var physicalFindingMessages = map[string]string{
 	"relation_multi_edge_cardinality_trigger_mismatch":   "A multiple relation edge cardinality trigger is missing or inconsistent",
 	"relation_table_orphaned":                            "A physical relation table is missing from relation metadata",
 	"relation_function_orphaned":                         "A physical relation function is missing from relation metadata",
+}
+
+// Parse grouping before ignoring redundant parentheses so operator precedence,
+// quoted identifiers, and literal values remain significant.
+func indexSQLEqual(left, right string) bool {
+	if left == right {
+		return true
+	}
+	a, err := pgparse.ParseOne("select " + left)
+	if err != nil {
+		return false
+	}
+	b, err := pgparse.ParseOne("select " + right)
+	if err != nil {
+		return false
+	}
+	stripSQLGrouping(reflect.ValueOf(a))
+	stripSQLGrouping(reflect.ValueOf(b))
+	return reflect.DeepEqual(a, b)
+}
+
+func stripSQLGrouping(value reflect.Value) {
+	if !value.IsValid() {
+		return
+	}
+	if value.Kind() == reflect.Interface && !value.IsNil() && value.CanSet() {
+		for {
+			group, ok := value.Interface().(*pgparse.ParenExpr)
+			if !ok {
+				break
+			}
+			value.Set(reflect.ValueOf(group.Expr))
+		}
+	}
+	switch value.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if !value.IsNil() {
+			stripSQLGrouping(value.Elem())
+		}
+	case reflect.Struct:
+		for i := 0; i < value.NumField(); i++ {
+			stripSQLGrouping(value.Field(i))
+		}
+	case reflect.Slice:
+		for i := 0; i < value.Len(); i++ {
+			stripSQLGrouping(value.Index(i))
+		}
+	}
 }

@@ -258,6 +258,7 @@ export function PasswordForm({ self, busy, error, currentError, onSubmit, onCanc
   const [mismatch, setMismatch] = useState(false);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (busy) return;
     const form = new FormData(event.currentTarget);
     const value = String(form.get("newPassword") ?? "");
     const ok = value === String(form.get("confirmPassword") ?? "");
@@ -265,7 +266,7 @@ export function PasswordForm({ self, busy, error, currentError, onSubmit, onCanc
     if (ok) onSubmit(value, String(form.get("currentPassword") ?? ""));
   };
   return (
-    <form className="form" onSubmit={submit}>
+    <form className="form" onSubmit={submit}><fieldset disabled={busy} className="form">
       <p className="txt-hint">{self ? t("system.admins.setPasswordSelf") : t("system.admins.setPasswordHint")}</p>
       {error && !currentError && <p className="field-error" role="alert">{error}</p>}
       <CurrentPasswordField error={currentError} />
@@ -275,6 +276,6 @@ export function PasswordForm({ self, busy, error, currentError, onSubmit, onCanc
         {onCancel && <Button variant="secondary" onClick={onCancel}>{t("common.cancel")}</Button>}
         <Button type="submit" variant={self ? "danger" : "primary"} loading={busy}>{t("system.admins.setPassword")}</Button>
       </div>
-    </form>
+    </fieldset></form>
   );
 }

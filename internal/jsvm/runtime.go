@@ -473,12 +473,16 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 	if err != nil {
 		return nil, classifyExecutionError(ctx, vm, state, err, r.limits.MaximumJSONDepth)
 	}
-	if object, ok := result.(*goja.Object); ok {
-		if then := object.Get("then"); !goja.IsUndefined(then) && !goja.IsNull(then) {
-			if _, callable := goja.AssertFunction(then); callable {
-				return nil, &Error{Code: CodeInvalidResult, cause: errors.New("Promise and thenable results are not supported")}
-			}
+	var asynchronous bool
+	if exception := vm.Try(func() {
+		if object, ok := result.(*goja.Object); ok {
+			_, asynchronous = goja.AssertFunction(object.Get("then"))
 		}
+	}); exception != nil {
+		return nil, &Error{Code: CodeInvalidResult, cause: exception}
+	}
+	if asynchronous {
+		return nil, &Error{Code: CodeInvalidResult, cause: errors.New("Promise and thenable results are not supported")}
 	}
 	encoded, err := encodeValue(result, r.limits.MaximumJSONDepth)
 	if err != nil {
@@ -681,7 +685,7 @@ func (r *Runtime) loadNativeModule(vm *goja.Runtime, module *goja.Object) {
 
 func (r *Runtime) hostFunction(vm *goja.Runtime, state *callState, capability, method string) func(goja.FunctionCall) goja.Value {
 	return func(call goja.FunctionCall) goja.Value {
-		if !state.capabilities[capability] {
+		if !state.capabilities[capability] || (method == "app-control.databaseTransaction" || method == "app-control.databaseExec") && !state.capabilities["database"] {
 			panic(vm.ToValue(map[string]any{"name": "PgBaseError", "code": string(CodeCapabilityDenied)}))
 		}
 		if state.host == nil {

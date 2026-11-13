@@ -1,6 +1,7 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { applySchemaImport, exportSchema, getSchemaImportOperation, getSchemaOperation, listSchemaOperations, type SchemaImportResult } from "../api/schema";
 import { getSqlExecution, listSqlExecutions } from "../api/sql";
+import { ApiError } from "../api/http";
 import { Undecided } from "../schema/apply";
 import { sqlActive, type PendingImport } from "./model";
 
@@ -73,5 +74,6 @@ export async function runImport(pending: PendingImport): Promise<SchemaImportRes
       }
     }
   }
+  if (result.status === "failed") throw new ApiError(409, "schema_operation_failed", result.failureCode ?? "failed");
   return result;
 }

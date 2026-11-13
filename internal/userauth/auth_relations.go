@@ -88,16 +88,17 @@ func relationIDs(value any, field schema.FieldInput) []uuid.UUID {
 
 // enforceAuthRelationDeletes applies incoming relation policies before an auth
 // identity is removed. It is transactionally serialized with profile writes.
-func enforceAuthRelationDeletes(ctx context.Context, tx pgx.Tx, targetCollection string, target uuid.UUID) error {
+func enforceAuthRelationDeletes(ctx context.Context, tx pgx.Tx, targetCollection string, target uuid.UUID, authorize func(pgx.Tx, uuid.UUID, uuid.UUID) error) error {
 	rows, err := tx.Query(ctx, `select c.id,c.fields_json,p.user_id,p.attributes from pgbase_meta.auth_collections c join pgbase_meta.users u on u.auth_collection_id=c.id join pgbase_meta.user_auth_profiles p on p.user_id=u.id for update of p`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	type change struct {
-		user    uuid.UUID
-		attrs   map[string]any
-		cascade bool
+		user       uuid.UUID
+		collection uuid.UUID
+		attrs      map[string]any
+		cascade    bool
 	}
 	changes := []change{}
 	for rows.Next() {
@@ -108,7 +109,7 @@ func enforceAuthRelationDeletes(ctx context.Context, tx pgx.Tx, targetCollection
 		}
 		var fields []schema.FieldInput
 		var attrs map[string]any
-		if json.Unmarshal(fieldsRaw, &fields) != nil || json.Unmarshal(attrsRaw, &attrs) != nil {
+		if json.Unmarshal(fieldsRaw, &fields) != nil || decodeAuthProfile(attrsRaw, &attrs) != nil {
 			return errors.New("invalid stored auth relation")
 		}
 		changed, cascade := false, false
@@ -145,13 +146,23 @@ func enforceAuthRelationDeletes(ctx context.Context, tx pgx.Tx, targetCollection
 			}
 		}
 		if changed || cascade {
-			changes = append(changes, change{user, attrs, cascade})
+			changes = append(changes, change{user, collection, attrs, cascade})
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 	rows.Close()
+	// Authorize the complete affected set before referential effects alter actor profiles.
+	if authorize != nil {
+		for _, c := range changes {
+			if c.cascade {
+				if err := authorize(tx, c.collection, c.user); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	for _, c := range changes {
 		if c.cascade {
 			if _, err := tx.Exec(ctx, `delete from pgbase_meta.users where id=$1`, c.user); err != nil {

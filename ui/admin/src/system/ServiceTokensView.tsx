@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { openRow } from "../components/DataGrid";
 import { RiAddLine, RiKey2Line } from "@remixicon/react";
@@ -17,6 +17,7 @@ import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { serviceTokensQuery } from "./queries";
 import { SecretView, TaskDialog } from "../components/Dialog";
+import { UnsavedGuard } from "../components/UnsavedGuard";
 import { Facts } from "../components/Facts";
 import { ErrorState } from "../components/Feedback";
 import "../styles/system.css";
@@ -145,11 +146,13 @@ function IssueToken({ onClose, onIssued }: { onClose: () => void; onIssued: (id:
   const t = useT();
   const queryClient = useQueryClient();
   const collections = useQuery(collectionsQuery);
+  const released = useRef(false);
   const [scopes, setScopes] = useState<Set<string>>(new Set());
   const issue = useMutation({
     mutationFn: issueServiceToken,
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: serviceTokensQuery.queryKey }),
   });
+  const close = () => { if (!issue.isPending) onClose(); };
   const toggle = (key: string, on: boolean) =>
     setScopes((current) => {
       const next = new Set(current);
@@ -171,6 +174,7 @@ function IssueToken({ onClose, onIssued }: { onClose: () => void; onIssued: (id:
   };
   // The raw secret lives only in the mutation result; Done drops it.
   const done = () => {
+    released.current = true;
     const id = issue.data?.id;
     issue.reset();
     if (id) onIssued(id);
@@ -178,8 +182,8 @@ function IssueToken({ onClose, onIssued }: { onClose: () => void; onIssued: (id:
   const invalid = issue.error instanceof ApiError && issue.error.status === 400;
   return (
     <form className="pane-form" onSubmit={onSubmit}>
-      <PaneHeader title={t("system.tokens.new")} onClose={onClose} />
-      <div className="pane-body form">
+      <PaneHeader title={t("system.tokens.new")} onClose={close} />
+      <div className="pane-body form"><fieldset disabled={issue.isPending} className="form">
         {issue.isError && <Notice tone="danger">{invalid ? t("system.tokens.invalid") : errorText(t, issue.error)}</Notice>}
         <Field label={t("system.tokens.name")} name="name" required maxLength={128} autoComplete="off" />
         <Field label={t("system.tokens.days")} name="days" type="number" required min={1} max={365} step={1} defaultValue={30} hint={t("system.tokens.daysHint")} />
@@ -215,12 +219,13 @@ function IssueToken({ onClose, onIssued }: { onClose: () => void; onIssued: (id:
             </table>
           )}
         </fieldset>
-      </div>
+      </fieldset></div>
       <footer className="pane-footer">
         <span className="txt-hint pane-footer-start">{t("system.tokens.selected", { count: scopes.size })}</span>
-        <Button variant="secondary" onClick={onClose}>{t("common.cancel")}</Button>
+        <Button variant="secondary" disabled={issue.isPending} onClick={close}>{t("common.cancel")}</Button>
         <Button type="submit" disabled={scopes.size === 0} loading={issue.isPending}>{t("system.tokens.issue")}</Button>
       </footer>
+      <UnsavedGuard dirty={issue.isPending || Boolean(issue.data)} busy={issue.isPending} release={() => released.current} />
       <TaskDialog open={Boolean(issue.data)} title={t("system.tokens.issuedTitle", { name: issue.data?.name ?? "" })} onClose={done}>
         {issue.data && <SecretView label={t("system.tokens.secret")} value={issue.data.token} warning={t("system.tokens.once")} onDone={done} />}
       </TaskDialog>

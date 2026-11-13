@@ -544,3 +544,45 @@ func TestRunnerTimeoutCancelsAndDiscardsOnlyItsConnection(t *testing.T) {
 		t.Fatalf("query after canceled connection: %v", err)
 	}
 }
+
+// The ambiguous-commit path discards its pool wrapper before reconciliation.
+// Cancellation must retain a stable raw connection throughout that interval.
+func TestCancellationWatcherSurvivesDiscardedPoolConnection(t *testing.T) {
+	fixture := newRunnerFixture(t)
+	connection, err := fixture.runner.acquire(context.Background(), ModeWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := connection.Conn().PgConn()
+	borrowed := &borrowedConnection{connection: connection}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	exited := make(chan struct{})
+	var observed atomic.Bool
+	go func() { defer close(exited); watchCancellation(ctx, raw, done, &observed) }()
+	borrowed.discard()
+	cancel()
+	select {
+	case <-exited:
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancellation watcher did not finish after discard")
+	}
+	if !observed.Load() {
+		t.Fatal("watcher did not observe cancellation")
+	}
+}
+
+func TestRunnerEncodesPostgresNonFiniteDecimalResults(t *testing.T) {
+	fixture := newRunnerFixture(t)
+	result, err := fixture.run(t.Context(), Request{ExecutionID: uuid.New(), Mode: ModeRead, Statements: []Statement{{SQL: `select 'NaN'::numeric, 'Infinity'::float8, '-Infinity'::float4`}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := result.Statements[0].Rows[0]
+	for i, want := range []string{"NaN", "Infinity", "-Infinity"} {
+		if row[i].Kind != CellDecimal || row[i].Text != want {
+			t.Fatalf("cell=%#v want=%s", row[i], want)
+		}
+	}
+}

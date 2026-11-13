@@ -49,7 +49,7 @@ export type RecordEvent = {
   version: number;
 };
 export type EventOptions = {
-  /** Comma-separated record fields requested for realtime payloads. */
+  /** @deprecated Metadata events have no record projection. Use realtime.subscribe for record payloads. Nonempty values reject locally. */
   fields?: string;
   lastEventId?: string | number;
   signal?: AbortSignal;
@@ -79,7 +79,7 @@ export type OAuthLaunchOptions = { open(url: string): void | Promise<void> };
 export type OAuthBrowserAdapter = OAuthLaunchOptions & { waitForCallback(signal?: AbortSignal): Promise<string | URL>; close?(): void };
 export type BatchOperation<T extends RecordData = RecordData> =
   | { operation: "create"; collection: string; input: RecordMutation<T>; idempotencyKey?: string }
-  | { operation: "update"; collection: string; id: string; input: Partial<T>; ifMatch?: string }
+  | { operation: "update"; collection: string; id: string; input: Partial<T> & RecordModifiers; ifMatch?: string }
   | BatchUpsertOperation<T>
   | { operation: "delete"; collection: string; id: string; ifMatch?: string };
 /** An atomic PUT-equivalent batch operation: creates the ID when absent, otherwise updates it. */
@@ -87,14 +87,14 @@ export type BatchUpsertOperation<T extends RecordData = RecordData> = {
   operation: "upsert";
   collection: string;
   id: string;
-  input: Partial<T>;
+  input: Partial<T> & RecordModifiers;
   ifMatch?: string;
 };
 export type BatchResult<T extends RecordData = RecordData> = { eventId: string; record?: T; etag?: string; version?: number };
-export type BatchHTTPRequest<T extends RecordData = RecordData> = { method: "POST" | "PATCH" | "PUT" | "DELETE"; url: string; body?: Partial<T>; headers?: Record<string,string> };
+export type BatchHTTPRequest<T extends RecordData = RecordData> = { method: "POST" | "PATCH" | "PUT" | "DELETE"; url: string; body?: Partial<T> & RecordModifiers; headers?: Record<string,string> };
 export type BatchHTTPResult<T extends RecordData = RecordData> = { status: number; headers?: Record<string,string>; body?: T; eventId: string; etag?: string; version?: number };
 export type BatchFilePart = { blob: Blob; filename: string };
-export type FileInfo = { id: string; field: string; filename: string; contentType: string; size: number; thumbnail: boolean };
+export type FileInfo = { id: string; field: string; filename: string; contentType: string; size: number; thumbnail: boolean; protected?: boolean; publicUrl?: string };
 export type MFAChallenge = { challengeToken: string; expiresAt: string };
 /** Enabled sign-in methods for one explicit public auth collection. */
 export type AuthMethods = {

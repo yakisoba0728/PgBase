@@ -100,6 +100,11 @@ export function errorLocation(sql: string, at: number | undefined, unit: "byte" 
     }
     position = index + 1;
   }
+  if (unit === "char" && position > 0) {
+    const characters = Array.from(sql);
+    if (position > characters.length + 1) return null;
+    position = characters.slice(0, position - 1).join("").length + 1;
+  }
   if (position < 1 || position > sql.length + 1) return null;
   const before = sql.slice(0, position - 1);
   const start = before.lastIndexOf("\n") + 1;

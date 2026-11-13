@@ -82,7 +82,7 @@ func TestCountDoesNotDeriveRowsFromProjectedSQL(t *testing.T) {
 
 func TestPocketBasePageNormalization(t *testing.T) {
 	for _, test := range []struct{ page, perPage, wantPage, wantPerPage int }{
-		{0, 0, 1, 30}, {-2, -3, 1, 30}, {3, 2000, 3, 1000}, {2, 25, 2, 25},
+		{0, 0, 1, 30}, {-2, -3, 1, 30}, {3, 2000, 3, maximumPageLimit}, {2, 25, 2, 25},
 	} {
 		page, perPage := normalizePocketBasePage(test.page, test.perPage)
 		if page != test.wantPage || perPage != test.wantPerPage {

@@ -123,3 +123,18 @@ cannot be recovered; clear local auth and have the user sign in again instead
 of retrying with the old token.
 
 See `../../../docs/dart-sdk.md` for examples and test commands.
+
+
+Native `records.events()` emits change metadata (record ID, operation, version),
+not record data. Its legacy `fields` option is deprecated; nonempty projections
+reject locally before HTTP. Use shared `realtime.subscribe()` topics for filtered
+or projected record payloads.
+
+Logout waits for an already pending refresh, then revokes its replacement token.
+A newer explicit sign-in remains active. Do not retry an uncertain refresh with
+its old single-use token.
+
+`AuthRealm.refresh(fields: ...)` rejects nonempty projections locally before a
+request can rotate the token. Refresh requires the complete `UserSession` return
+contract; omit `fields`. Malformed optional session values report
+`PgBaseProtocolError`.

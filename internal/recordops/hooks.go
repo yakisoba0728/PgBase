@@ -64,8 +64,9 @@ func WithTransactionOutcome(ctx context.Context, tx pgx.Tx, outcome *Transaction
 	return context.WithValue(ctx, transactionOutcomeKey{}, outcome)
 }
 
-func (o *TransactionOutcome) register(callback func(context.Context, error)) bool {
-	if o == nil {
+// Register observes the final transaction outcome; it rejects nil callbacks and completed outcomes.
+func (o *TransactionOutcome) Register(callback func(context.Context, error)) bool {
+	if o == nil || callback == nil {
 		return false
 	}
 	o.mu.Lock()
@@ -116,7 +117,7 @@ func (s *Service) hookContext(ctx context.Context) (context.Context, *mutationHo
 	}
 	run := &mutationHookRun{hooks: s.hooks}
 	if outcome, _ := ctx.Value(transactionOutcomeKey{}).(*TransactionOutcome); outcome != nil {
-		if outcome.register(func(finalCtx context.Context, outcomeErr error) { run.afterCommitted(finalCtx, &outcomeErr) }) {
+		if outcome.Register(func(finalCtx context.Context, outcomeErr error) { run.afterCommitted(finalCtx, &outcomeErr) }) {
 			run.deferAfter++
 		}
 	}

@@ -50,10 +50,11 @@ type StorageUpdate struct {
 type storageLeaseContextKey struct{}
 
 type storageLease struct {
-	store    ObjectStore
-	revision int64
-	backend  uint32
-	conn     *pgx.Conn
+	controller *StorageController
+	store      ObjectStore
+	revision   int64
+	backend    uint32
+	conn       *pgx.Conn
 }
 
 type StorageController struct {
@@ -70,6 +71,9 @@ type StorageController struct {
 // BeginStorageOperation prevents a destination transition until a compound
 // operation has either attached or queued every object it created.
 func (c *StorageController) BeginStorageOperation(ctx context.Context) (context.Context, func(), error) {
+	if lease, ok := ctx.Value(storageLeaseContextKey{}).(storageLease); ok && lease.controller == c {
+		return ctx, func() {}, ctx.Err()
+	}
 	select {
 	case c.operations <- struct{}{}:
 	case <-ctx.Done():
@@ -107,7 +111,8 @@ func (c *StorageController) BeginStorageOperation(ctx context.Context) (context.
 			<-c.operations
 		})
 	}
-	return context.WithValue(ctx, storageLeaseContextKey{}, storageLease{store: store, revision: settings.Revision, backend: backend, conn: conn}), release, nil
+	stop := context.AfterFunc(ctx, release)
+	return context.WithValue(ctx, storageLeaseContextKey{}, storageLease{controller: c, store: store, revision: settings.Revision, backend: backend, conn: conn}), func() { stop(); release() }, nil
 }
 
 func NewStorageController(ctx context.Context, pool *database.Pool, tokenSecret []byte, startup StorageConfig) (*StorageController, error) {

@@ -179,7 +179,7 @@ func planRelationSort(catalog schema.Catalog, root schema.Collection, keys []Sor
 		}
 		if key.Field == externalIDSort {
 			field := externalIdentityCursorField(root)
-			terms = append(terms, orderTerm{key: SortKey{Field: systemFieldID, Desc: key.Desc}, expression: recordIdentityExpression(root.AccessCollectionID(), qualified(root.TableName, systemFieldID)), cursorField: field, indexHint: orderIndexRoot, identityCollectionID: root.AccessCollectionID()})
+			terms = append(terms, orderTerm{key: SortKey{Field: externalIDSort, Desc: key.Desc}, expression: recordIdentityExpression(root.AccessCollectionID(), qualified(root.TableName, systemFieldID)), cursorField: field, indexHint: orderIndexRoot, identityCollectionID: root.AccessCollectionID()})
 			continue
 		}
 		if key.Field == internalRowIDSort {
@@ -368,6 +368,7 @@ type relationSQLRenderer struct {
 	next    int
 	root    schema.Collection
 	catalog schema.Catalog
+	request *accessrule.RequestContext
 }
 
 func (r *relationSQLRenderer) alias(prefix string) string {
@@ -391,7 +392,7 @@ func (p relationListPlan) pageStatementWithPolicy(after *pageBoundary, fetchLimi
 
 func (p relationListPlan) rowsStatementWithPolicy(after *pageBoundary, ownerID *uuid.UUID, root ruleBinding) (Statement, orderSpec, error) {
 	builder := &statementBuilder{}
-	renderer := &relationSQLRenderer{builder: builder, root: p.order.root, catalog: p.catalog}
+	renderer := &relationSQLRenderer{builder: builder, root: p.order.root, catalog: p.catalog, request: root.request}
 	filterSQL, err := compilePlannedRelationFilter(p.filter, renderer, relationRootAlias)
 	if err != nil {
 		return Statement{}, orderSpec{}, err
@@ -467,12 +468,16 @@ func (s orderSpec) renderRelation(
 	return s, joins, nil
 }
 
-func (s orderSpec) anchorStatement(id uuid.UUID, membership *int64) (Statement, error) {
+func (s orderSpec) anchorStatement(id uuid.UUID, membership *int64, bindings ...ruleBinding) (Statement, error) {
 	if id == uuid.Nil {
 		return Statement{}, invalidCursor()
 	}
 	builder := &statementBuilder{}
-	renderer := &relationSQLRenderer{builder: builder}
+	renderer := &relationSQLRenderer{builder: builder, root: s.root}
+	if len(bindings) != 0 {
+		renderer.catalog = bindings[0].catalog
+		renderer.request = bindings[0].request
+	}
 	order, joins, err := s.renderRelation(renderer, relationRootAlias, "rq_anchor")
 	if err != nil {
 		return Statement{}, err
@@ -494,7 +499,7 @@ func compilePlannedRelationFilter(node *plannedRelationFilter, renderer *relatio
 	if node.comparison != nil {
 		comparison := node.comparison
 		if comparison.input.function != nil {
-			column, field, err := compileFilterFunction(renderer.root, comparison.input.function, renderer.builder)
+			column, field, err := compileFilterFunction(renderer.root, comparison.input.function, renderer.builder, sourceAlias)
 			if err != nil {
 				return "", err
 			}
@@ -755,7 +760,7 @@ func renderRelationExists(
 			return "", schema.ErrConflict
 		}
 		if hop.rule != nil {
-			predicate, args, err := compilePolicyPredicate(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args), renderer.catalog)
+			predicate, args, err := compilePolicyPredicateWithRequest(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args), renderer.catalog, renderer.request)
 			if err != nil {
 				return "", err
 			}

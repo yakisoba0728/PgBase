@@ -186,3 +186,5 @@
     margin-left: 0;
   }
 }
+
+fieldset.rules-layout { border: 0; margin: 0; min-width: 0; }

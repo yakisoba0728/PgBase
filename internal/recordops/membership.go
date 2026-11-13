@@ -20,6 +20,13 @@ type membershipWriterProvider struct {
 	injected bool
 }
 
+type compoundMembershipKey struct{}
+
+type compoundMembership struct {
+	provider *membershipWriterProvider
+	writer   membership.Writer
+}
+
 type transactionalMembershipError struct {
 	cause error
 }
@@ -42,6 +49,10 @@ func newMembershipWriterProvider(pool *database.Pool, runtime *membership.Runtim
 func (p *membershipWriterProvider) writer(ctx context.Context) (membership.Writer, error) {
 	if p == nil || p.pool == nil {
 		return membership.Writer{}, membership.ErrUnavailable
+	}
+
+	if ready, ok := ctx.Value(compoundMembershipKey{}).(compoundMembership); ok && ready.provider == p {
+		return ready.writer, nil
 	}
 
 	p.mu.Lock()

@@ -13,6 +13,10 @@ export class PgBaseClient {
     auth;
     realtime;
     fetcher;
+    pendingRefresh;
+    pendingLogout;
+    refreshGeneration;
+    refreshOrigin;
     requestControllers = new Map();
     /** Cancel older reads with the same request URL, or requests with an explicit key. */
     autoCancellation = true;
@@ -44,15 +48,57 @@ export class PgBaseClient {
         const [query, requestSignal] = recordGetArguments(options, signal);
         return this.request(authFieldsPath("/api/v1/auth/session", query), {}, requestSignal, query?.requestKey);
     }
-    async logout(signal) {
+    logout(signal) { return this._logout("/api/v1/auth/logout", signal); }
+    /** Internal session rotation/logout ordering shared by public and realm auth. */
+    _refresh(path, signal) {
+        const previous = this.pendingRefresh;
+        const logout = this.pendingLogout;
+        const operation = (async () => {
+            if (logout)
+                await logout.catch(() => { });
+            if (previous)
+                await previous.catch(() => { });
+            if (!this.auth.token)
+                throw new PgBaseError(0, "authentication_required");
+            const generation = this.auth.generation;
+            const session = refreshSession(await this._request(path, { method: "POST" }, signal));
+            if (generation === this.auth.generation) {
+                if (this.refreshGeneration !== generation)
+                    this.refreshOrigin = generation;
+                this.refreshGeneration = generation + 1;
+                this.auth.save(session.token, session.user);
+            }
+            return session;
+        })();
+        this.pendingRefresh = operation;
+        const clear = () => { if (this.pendingRefresh === operation)
+            this.pendingRefresh = undefined; };
+        void operation.then(clear, clear);
+        return operation;
+    }
+    _logout(path, signal) {
         const generation = this.auth.generation;
-        try {
-            await this.request("/api/v1/auth/logout", { method: "POST" }, signal);
-        }
-        finally {
-            if (generation === this.auth.generation)
-                this.auth.clear();
-        }
+        const refresh = this.pendingRefresh;
+        const origin = this.refreshGeneration === generation ? this.refreshOrigin : generation;
+        const operation = (async () => {
+            if (refresh)
+                await refresh.catch(() => { });
+            if (generation !== this.auth.generation && (this.refreshGeneration !== this.auth.generation || this.refreshOrigin !== origin))
+                return;
+            const current = this.auth.generation;
+            try {
+                await this._request(path, { method: "POST" }, signal);
+            }
+            finally {
+                if (current === this.auth.generation)
+                    this.auth.clear();
+            }
+        })();
+        this.pendingLogout = operation;
+        const clear = () => { if (this.pendingLogout === operation)
+            this.pendingLogout = undefined; };
+        void operation.then(clear, clear);
+        return operation;
     }
     async changePassword(currentPassword, newPassword, signal) {
         const generation = this.auth.generation;
@@ -103,7 +149,7 @@ export class PgBaseClient {
         }, signal);
     }
     requestVerification(signal) {
-        return this.request("/api/v1/auth/request-verification", { method: "POST" }, signal);
+        return this.request("/api/v1/auth/request-verification", { method: "POST", body: "{}" }, signal);
     }
     confirmVerification(token, signal) {
         return this.request("/api/v1/auth/confirm-verification", {
@@ -331,21 +377,9 @@ export class AuthRealm {
         return { ...methods, oauth2: methods.oauth2 ?? { enabled: false, providers: [] } };
     }
     /** Rotates the current bearer token after validating its replacement session. */
-    async refresh(signal) {
-        const generation = this.client.auth.generation;
-        const session = refreshSession(await this.client._request(this.path("refresh"), { method: "POST" }, signal));
-        if (generation === this.client.auth.generation)
-            this.client.auth.save(session.token, session.user);
-        return session;
-    }
+    refresh(signal) { return this.client._refresh(this.path("refresh"), signal); }
     session(signal) { return this.client._request(this.path("session"), {}, signal); }
-    async logout(signal) { const generation = this.client.auth.generation; try {
-        await this.client._request(this.path("logout"), { method: "POST" }, signal);
-    }
-    finally {
-        if (generation === this.client.auth.generation)
-            this.client.auth.clear();
-    } }
+    logout(signal) { return this.client._logout(this.path("logout"), signal); }
     requestPasswordReset(email, signal) { return this.client._request(this.path("request-password-reset"), { method: "POST", body: JSON.stringify({ email }) }, signal); }
     requestOTP(email, signal) { return this.client._request(this.path("otp/request"), { method: "POST", body: JSON.stringify({ email }) }, signal); }
     async completeOTP(otpId, code, signal) {
@@ -560,6 +594,8 @@ export class Records {
         }, signal);
     }
     async *events(options = {}) {
+        if (options.fields)
+            throw new PgBaseError(0, "unsupported_event_projection", { fields: ["Metadata events do not contain records; use realtime.subscribe for projected record payloads."] });
         if (options.maxReconnects !== undefined && (!Number.isInteger(options.maxReconnects) || options.maxReconnects < 0))
             throw new PgBaseError(0, "invalid_reconnect_options");
         if (options.reconnectDelayMs !== undefined && (!Number.isFinite(options.reconnectDelayMs) || options.reconnectDelayMs < 0))
@@ -584,7 +620,7 @@ export class Records {
         try {
             while (!controller.signal.aborted && generation === this.client.auth.generation) {
                 try {
-                    const response = await this.client._eventStream(this.eventsPath(options.fields), lastEventId, controller.signal);
+                    const response = await this.client._eventStream(this.eventsPath(), lastEventId, controller.signal);
                     for await (const message of parseEventStream(response.body, controller.signal)) {
                         if (generation !== this.client.auth.generation || controller.signal.aborted) {
                             return;
@@ -657,9 +693,8 @@ export class Records {
         const suffix = parameters.size ? `?${parameters}` : "";
         return `${base}/${encodeURIComponent(id)}${suffix}`;
     }
-    eventsPath(fields) {
-        const base = `/api/v1/user/collections/${encodeURIComponent(this.collection)}/events`;
-        return fields === undefined ? base : `${base}?fields=${encodeURIComponent(fields)}`;
+    eventsPath() {
+        return `/api/v1/user/collections/${encodeURIComponent(this.collection)}/events`;
     }
     async recordResponse(path, init, signal, requestKey) {
         const response = await this.client._response(path, init, signal, requestKey);

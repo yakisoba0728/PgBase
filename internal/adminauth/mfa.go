@@ -104,6 +104,13 @@ func (s *Service) EnableTOTP(ctx context.Context, email, secret string) error {
 	}
 	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		store := NewStore(tx)
+		locked, _, err := store.AdministratorByEmailForUpdate(ctx, email)
+		if err != nil {
+			return err
+		}
+		if locked.ID != id {
+			return ErrInvalidCredentials
+		}
 		if err := store.SetTOTP(ctx, id, encrypted, s.clock.Now().UTC()); err != nil {
 			return err
 		}
@@ -117,6 +124,13 @@ func (s *Service) DisableTOTP(ctx context.Context, email string) error {
 	}
 	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		store := NewStore(tx)
+		locked, _, err := store.AdministratorByEmailForUpdate(ctx, email)
+		if err != nil {
+			return err
+		}
+		if locked.ID != id {
+			return ErrInvalidCredentials
+		}
 		if err := store.DeleteTOTP(ctx, id); err != nil {
 			return err
 		}

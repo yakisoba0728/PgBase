@@ -39,10 +39,10 @@ export function parseSSEMessage(raw) {
     const message = { data: "" };
     for (const line of raw.split(/\r?\n/)) {
         if (line.startsWith("event:")) {
-            message.event = line.slice(6).trim();
+            message.event = line.slice(6).replace(/^ /, "");
         }
         else if (line.startsWith("id:")) {
-            message.id = line.slice(3).trim();
+            message.id = line.slice(3).replace(/^ /, "");
         }
         else if (line.startsWith("data:")) {
             message.data += `${message.data ? "\n" : ""}${line.slice(5).trimStart()}`;

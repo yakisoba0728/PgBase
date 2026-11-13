@@ -13,6 +13,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/config"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
 func runBackup(ctx context.Context, args []string, env environment, streams IO) (resultErr error) {
@@ -38,6 +39,10 @@ func runBackup(ctx context.Context, args []string, env environment, streams IO) 
 	if err != nil {
 		return configurationError{err: err}
 	}
+	options, err = pgbase.ResolveActiveRestoreTarget(options)
+	if err != nil {
+		return configurationError{err: err}
+	}
 	options.Logger = observability.NewJSONLogger(streams.stderr())
 	files := ""
 	if options.Files.Driver != "" {
@@ -46,7 +51,7 @@ func runBackup(ctx context.Context, args []string, env environment, streams IO) 
 		}
 		files = options.Files.LocalDirectory
 	}
-	gate, err := database.TryBackupGate(ctx, options.DatabaseURL, true)
+	gate, err := database.TryBackupGate(ctx, options.DatabaseURL, true, options.AllowInsecureDatabase)
 	if errors.Is(err, database.ErrBackupGateBusy) {
 		return operationError(options.Logger, "acquire exclusive backup gate", err)
 	}
@@ -59,8 +64,9 @@ func runBackup(ctx context.Context, args []string, env environment, streams IO) 
 		if err != nil {
 			return err
 		}
-		defer func() { _ = connection.Close(operationContext) }()
-		if err := validateBackupStorage(operationContext, connection); err != nil {
+		validationErr := validateBackupStorage(operationContext, connection)
+		closeErr := connection.Close(operationContext)
+		if err := errors.Join(validationErr, closeErr); err != nil {
 			return err
 		}
 		if operation == "create" {

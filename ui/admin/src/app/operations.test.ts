@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/http";
-import { findOperation, operationState, pollWhileRunning, trackOperation, untrackOperation, type TrackedOperation } from "./operations";
+import { findOperation, forgetOperations, operations, operationState, pollWhileRunning, trackOperation, untrackOperation, type TrackedOperation } from "./operations";
 
 const now = 1_000_000_000;
 const op = (kind: TrackedOperation["kind"], extra: Partial<TrackedOperation> = {}): TrackedOperation => ({ kind, id: "x", startedAt: now, ...extra });
@@ -38,7 +38,7 @@ describe("running operations", () => {
   it("persists entries and lets exactly one caller report an outcome", () => {
     trackOperation({ kind: "schema", id: "op-1", subject: "posts", checksum: "c", idempotencyKey: "k" });
     expect(findOperation("schema", "posts")?.idempotencyKey).toBe("k");
-    expect(localStorage.getItem("pgbase.operations")).toContain("op-1");
+    expect(localStorage.getItem("pgbase.operations.op-1")).toContain("op-1");
     expect(untrackOperation("op-1")).toBe(true);
     expect(untrackOperation("op-1")).toBe(false);
     expect(findOperation("schema")).toBeUndefined();
@@ -54,4 +54,24 @@ describe("pollWhileRunning", () => {
     expect(pollWhileRunning(query(undefined, new ApiError(404, "not_found", "")))).toBe(false);
     expect(pollWhileRunning(query(undefined, new ApiError(401, "unauthorized", "")))).toBe(false);
   });
+});
+
+it("retains another tab's operation when this tab adds and removes its own", () => {
+  localStorage.setItem("pgbase.operations.foreign", JSON.stringify({ kind: "schema", id: "foreign", startedAt: Date.now(), idempotencyKey: "recover" }));
+  trackOperation({ kind: "schema", id: "mine" });
+  untrackOperation("mine");
+  expect(findOperation("schema")?.id).toBe("foreign");
+  expect(localStorage.getItem("pgbase.operations.foreign")).toContain("recover");
+  untrackOperation("foreign");
+});
+
+it("retains independent operation identities in memory when storage writes are refused", () => {
+  forgetOperations();
+  const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
+  trackOperation({ kind: "schema", id: "first", idempotencyKey: "a" });
+  trackOperation({ kind: "schema", id: "second", idempotencyKey: "b" });
+  expect(operations().map((operation) => operation.id)).toEqual(["first", "second"]);
+  untrackOperation("first");
+  expect(operations().map((operation) => operation.id)).toEqual(["second"]);
+  forgetOperations(); write.mockRestore();
 });

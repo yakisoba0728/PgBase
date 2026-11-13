@@ -105,7 +105,7 @@ func (h schemaLifecycleHooks) BeginCollectionMutation(ctx context.Context, event
 			phase = "error"
 		}
 		for _, eventKind := range []string{"model." + event.Operation + "." + phase, "collection.model." + event.Operation + "." + phase} {
-			_ = h.registry.Run(ctx, &HookEvent{Kind: eventKind, Data: model, Err: operationErr}, func() error { return nil })
+			_ = h.registry.Run(ctx, &HookEvent{Kind: eventKind, Data: model, Err: operationErr}, func() error { return operationErr })
 		}
 	}, err
 }

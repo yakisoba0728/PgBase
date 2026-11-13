@@ -43,7 +43,7 @@ func normalizeAuthFields(fields []schema.FieldInput, legacy map[string]string) (
 	result := make([]schema.FieldInput, len(fields))
 	compatibility := map[string]string{}
 	for i, field := range fields {
-		if field.ID != nil || !authFieldName.MatchString(field.Name) || seen[field.Name] || field.System != nil && *field.System {
+		if field.ID != nil || !schema.IsAuthFieldType(field.Type) || !authFieldName.MatchString(field.Name) || seen[field.Name] || field.System != nil && *field.System {
 			return nil, nil, false
 		}
 		seen[field.Name] = true

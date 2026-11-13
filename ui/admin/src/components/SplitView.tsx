@@ -1,5 +1,6 @@
-import { useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { RiCloseLine } from "@remixicon/react";
+import { useSmallScreen } from "../app/shell";
 import { useShortcut } from "../app/keys";
 import { readStorage, writeStorage } from "../app/store";
 import { useT } from "../i18n";
@@ -25,6 +26,14 @@ export function SplitView({ list, pane, paneLabel, onClose }: SplitViewProps) {
   const [width, setWidth] = useState(() => Number(readStorage(storageKey)) || 520);
   const [dragging, setDragging] = useState(false);
   const open = pane !== null;
+  const small = useSmallScreen();
+  const panel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!open || !small) return;
+    const previous = document.activeElement as HTMLElement | null;
+    (panel.current?.querySelector<HTMLElement>("button, input, select, textarea, [tabindex='0']") ?? panel.current)?.focus();
+    return () => { if (previous?.isConnected) previous.focus(); };
+  }, [open, small]);
 
   useShortcut("Escape", onClose, { inFields: true, enabled: open });
 
@@ -58,7 +67,7 @@ export function SplitView({ list, pane, paneLabel, onClose }: SplitViewProps) {
 
   return (
     <div ref={root} className="split">
-      <div className="split-list">{list}</div>
+      <div className="split-list" inert={open && small}>{list}</div>
       {open && (
         <>
           <div
@@ -74,7 +83,7 @@ export function SplitView({ list, pane, paneLabel, onClose }: SplitViewProps) {
             onPointerUp={onPointerUp}
             onKeyDown={onKeyDown}
           />
-          <section className="split-pane" aria-label={paneLabel} style={{ width }}>
+          <section ref={panel} tabIndex={-1} className="split-pane" aria-label={paneLabel} style={{ width }}>
             {pane}
           </section>
         </>

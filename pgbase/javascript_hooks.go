@@ -215,7 +215,7 @@ func applyJavaScriptHookPatch(event *HookEvent, raw json.RawMessage) error {
 				continue
 			}
 			var decoded any
-			if json.Unmarshal(value, &decoded) != nil {
+			if decodeExtensionInput(value, &decoded) != nil {
 				return invalidJavaScriptPatch(event.Kind, errors.New("invalid record patch"))
 			}
 			data.Record[name] = decoded

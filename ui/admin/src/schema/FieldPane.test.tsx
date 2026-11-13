@@ -1,0 +1,20 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { FieldPane } from "./FieldPane";
+import { allowedFlags, newField } from "./draft";
+import type { SchemaEditor } from "./useSchemaEditor";
+import { setLanguage } from "../i18n";
+afterEach(cleanup);
+it.each(["file", "password", "autodate"] as const)("clears unsupported text flags when switching to %s", (type) => {
+  setLanguage("en");
+  const field = { ...newField("text", []), required: true, presentable: true, defaultText: '"draft"' };
+  const updateField = vi.fn();
+  const editor = { errors: { fields: {} }, draft: { name: "things" }, updateField } as unknown as SchemaEditor;
+  render(<FieldPane editor={editor} field={field} catalog={[]} />);
+  fireEvent.change(screen.getByRole("combobox", { name: "Type" }), { target: { value: type } });
+  const patch = updateField.mock.calls[0][1];
+  const flags = allowedFlags(type);
+  if (!flags.default) expect(patch.defaultText).toBe("");
+  if (!flags.required) expect(patch.required).toBe(false);
+  if (!flags.presentable) expect(patch.presentable).toBe(false);
+});

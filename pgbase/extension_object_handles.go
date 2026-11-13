@@ -68,6 +68,11 @@ func (h *extensionHost) readObjectChunk(raw json.RawMessage) (json.RawMessage, e
 		n = int(h.maximumObjectBytes() - h.objectBytesRead)
 	}
 	if n <= 0 {
+		var probe [1]byte
+		count, err := r.Read(probe[:])
+		if count == 0 && errors.Is(err, io.EOF) {
+			return json.Marshal(map[string]any{"data": "", "eof": true})
+		}
 		return nil, errors.New("object stream limit reached")
 	}
 	b := make([]byte, n)

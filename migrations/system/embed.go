@@ -196,6 +196,9 @@ var requestLogContextSQL string
 //go:embed 000066_search_and_service_logs.sql
 var searchAndServiceLogsSQL string
 
+//go:embed 000067_file_field_name_length.sql
+var fileFieldNameLengthSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -303,6 +306,7 @@ var migrations = []Migration{
 	{Version: 64, Name: "versioned_extension_objects", SQL: versionedExtensionObjectsSQL, SHA256: sha256.Sum256([]byte(versionedExtensionObjectsSQL))},
 	{Version: 65, Name: "optional_auth_email_uniqueness", SQL: optionalAuthEmailUniquenessSQL, SHA256: sha256.Sum256([]byte(optionalAuthEmailUniquenessSQL))},
 	{Version: 66, Name: "search_and_service_logs", SQL: searchAndServiceLogsSQL, SHA256: sha256.Sum256([]byte(searchAndServiceLogsSQL))},
+	{Version: 67, Name: "file_field_name_length", SQL: fileFieldNameLengthSQL, SHA256: sha256.Sum256([]byte(fileFieldNameLengthSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

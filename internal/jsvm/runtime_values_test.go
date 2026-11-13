@@ -61,3 +61,26 @@ func TestJSONExportChecksDepthBeforeReadingDeepProperties(t *testing.T) {
 		t.Fatalf("read beyond JSON depth limit %d times", reads)
 	}
 }
+
+func TestJSONExportReturnsThrowingGetterError(t *testing.T) {
+	vm := goja.New()
+	value, err := vm.RunString(`({get value(){throw Error("bad getter")}})`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = encodeValue(value, 16); err == nil {
+		t.Fatal("throwing getter accepted")
+	}
+}
+
+func TestJSONImportEmptyArrayHasZeroLength(t *testing.T) {
+	vm := goja.New()
+	value, err := decodeValue(vm, []byte(`[]`), 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := encodeValue(value, 16)
+	if err != nil || string(raw) != "[]" {
+		t.Fatalf("empty array=%s err=%v", raw, err)
+	}
+}

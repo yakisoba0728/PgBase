@@ -1,6 +1,6 @@
 import type { Query } from "@tanstack/react-query";
 import { ApiError, parseJson, stringifyJson } from "../api/http";
-import { createStore, readStorage, writeStorage } from "./store";
+import { createStore, readStorage, removeStorage, writeStorage } from "./store";
 
 // Long-running work started from this browser (backup jobs, file migration, schema
 // import, collection apply and "Run now" on a scheduled job). Kept in localStorage so a reload or another tab
@@ -26,49 +26,61 @@ const storageKey = "pgbase.operations";
 // Undecided schema claims expire server-side after about an hour; anything older is stale.
 const maxAge = 24 * 60 * 60 * 1000;
 
+const volatile = new Map<string, TrackedOperation>();
+const removed = new Set<string>();
+const itemPrefix = `${storageKey}.`;
 function load(): TrackedOperation[] {
   try {
-    const list = parseJson(readStorage(storageKey) ?? "[]");
-    if (!Array.isArray(list)) return [];
-    return (list as TrackedOperation[]).filter((item) => item && typeof item.id === "string" && Date.now() - item.startedAt < maxAge);
-  } catch {
-    return [];
-  }
+    const legacy = parseJson(readStorage(storageKey) ?? "[]");
+    const values = [...(Array.isArray(legacy) ? legacy : []), ...volatile.values()];
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith(itemPrefix)) {
+        try { values.push(parseJson(readStorage(key) ?? "null")); } catch { /* Ignore one damaged entry. */ }
+      }
+    }
+    return [...new Map(values.filter((item): item is TrackedOperation => item && typeof item.id === "string" && !removed.has(item.id) && Date.now() - item.startedAt < maxAge).map((item) => [item.id, item])).values()];
+  } catch { return [...volatile.values()]; }
 }
 
+// Migrate the old aggregate once; each operation then owns its storage key, so independent tabs cannot overwrite it.
+const initialOperations = load();
+for (const item of initialOperations) {
+  writeStorage(itemPrefix + item.id, stringifyJson(item));
+  if (readStorage(itemPrefix + item.id) === null) volatile.set(item.id, item);
+}
+if (initialOperations.every((item) => readStorage(itemPrefix + item.id) !== null)) removeStorage(storageKey);
 const store = createStore<TrackedOperation[]>(load());
-
-function save(next: TrackedOperation[]) {
-  writeStorage(storageKey, stringifyJson(next));
-  store.set(next);
-}
-
-// Another tab started or finished something.
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
-    if (event.key === storageKey) store.set(load());
+    if (event.key === null || event.key === storageKey || event.key.startsWith(itemPrefix)) store.set(load());
   });
 }
-
 export const useOperations = store.use;
 export const operations = store.get;
-
 export function trackOperation(operation: Omit<TrackedOperation, "startedAt">): void {
-  const rest = store.get().filter((item) => item.id !== operation.id);
-  save([...rest, { ...operation, startedAt: Date.now() }]);
+  const item = { ...operation, startedAt: Date.now() };
+  removed.delete(item.id);
+  writeStorage(itemPrefix + item.id, stringifyJson(item));
+  if (readStorage(itemPrefix + item.id) === null) volatile.set(item.id, item);
+  else volatile.delete(item.id);
+  store.set([...load().filter((value) => value.id !== item.id), item]);
 }
-
-/** Removes an entry; true when this call removed it (so exactly one caller reports the outcome). */
+/** Removes an entry; true when this tab observed and removed it. */
 export function untrackOperation(id: string): boolean {
-  const current = store.get();
-  if (!current.some((item) => item.id === id)) return false;
-  save(current.filter((item) => item.id !== id));
-  return true;
+  const exists = store.get().some((item) => item.id === id) || load().some((item) => item.id === id);
+  removed.add(id);
+  volatile.delete(id);
+  removeStorage(itemPrefix + id);
+  store.set(load().filter((item) => item.id !== id));
+  return exists;
 }
-
-/** Sign-out: the entries name collections and jobs and carry replay keys, and they are owner-scoped on the server. */
-export const forgetOperations = () => save([]);
-
+export const forgetOperations = () => {
+  for (const item of [...load(), ...store.get()]) removeStorage(itemPrefix + item.id);
+  volatile.clear();
+  removed.clear();
+  removeStorage(storageKey);
+  store.set([]);
+};
 export const findOperation = (kind: OperationKind, subject?: string) =>
   store.get().find((item) => item.kind === kind && (subject === undefined || item.subject === subject));
 

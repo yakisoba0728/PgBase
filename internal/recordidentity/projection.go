@@ -102,8 +102,23 @@ func (p *identityProjection) collectRecord(collection schema.Collection, record 
 				return err
 			}
 		}
-		if expands, ok := record["expand"].(map[string]any); ok {
-			switch expanded := expands[field.Name].(type) {
+	}
+	if expands, ok := record["expand"].(map[string]any); ok {
+		targets := map[string]schema.Collection{}
+		for _, field := range collection.Fields {
+			if field.Relation != nil {
+				targets[field.Name] = p.collections[field.Relation.TargetCollectionID]
+			}
+		}
+		for _, source := range p.collections {
+			for _, field := range source.Fields {
+				if field.Relation != nil && field.Relation.TargetCollectionID == collection.ID {
+					targets[source.Name+"_via_"+field.Name] = source
+				}
+			}
+		}
+		for name, target := range targets {
+			switch expanded := expands[name].(type) {
 			case map[string]any:
 				if err := p.collectRecord(target, expanded); err != nil {
 					return err

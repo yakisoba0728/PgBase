@@ -1,0 +1,25 @@
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { afterEach, expect, it, vi } from "vitest";
+import type { CollectionField } from "../api/collections";
+import * as api from "../api/records";
+import { FileField } from "./FileField";
+import { recordFilesQuery } from "./queries";
+import { setLanguage } from "../i18n";
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+it("offers atomic replacement for a full required single attachment and lets the server inspect an unknown MIME", async () => {
+  setLanguage("en");
+  const file = { id: "f", filename: "old.txt", size: 3, contentType: "text/plain" } as api.StoredFile;
+  vi.spyOn(api, "listRecordFiles").mockResolvedValue([file]);
+  vi.spyOn(api, "getRecord").mockResolvedValue({ record: { id: "r" }, etag: '"latest"' });
+  const replace = vi.spyOn(api, "replaceRecordFiles").mockResolvedValue({ record: { id: "r" }, etag: '"next"' });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(recordFilesQuery("notes", "r", "cover").queryKey, [file]);
+  const field = { id: "cover", name: "cover", type: "file", required: true, options: { maxSelect: 1, mimeTypes: ["text/plain"] } } as CollectionField;
+  render(<QueryClientProvider client={client}><FileField collection="notes" recordId="r" field={field} readOnly={false} staged={[]} onStage={vi.fn()} /></QueryClientProvider>);
+  expect(screen.getByText("Replace file")).toBeInTheDocument();
+  const picked = new File(["new"], "new.txt", { type: "" });
+  fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [picked] } });
+  await waitFor(() => expect(replace).toHaveBeenCalledWith("notes", "r", '"latest"', "cover", [picked]));
+  cleanup(); client.clear();
+});

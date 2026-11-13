@@ -179,7 +179,7 @@ function ProviderForm({ collection, administration, existing, preset, initial, o
             <AppleSecretButton clientId={draft.clientId} onGenerated={(secret) => { patch({ clientSecret: secret }); toast(t("auth.providers.appleGenerated")); }} />
           </div>
         )}
-        <form id={formId} className="form" onSubmit={onSubmit} noValidate>
+        <form id={formId} className="form" onSubmit={onSubmit} noValidate><fieldset disabled={save.isPending} className="form">
           {!existing && text("name", t("auth.providers.name"), t("auth.providers.nameHint"))}
           <Checkbox label={t("auth.providers.enabled")} checked={draft.enabled} onChange={(event) => patch({ enabled: event.target.checked })} />
           {text("clientId", draft.name === "apple" ? t("auth.providers.appleClientId") : t("auth.providers.clientId"))}
@@ -224,7 +224,7 @@ function ProviderForm({ collection, administration, existing, preset, initial, o
             </div>
           </section>
           <Checkbox label={t("auth.providers.loopback")} checked={draft.allowInsecureLoopback} onChange={(event) => patch({ allowInsecureLoopback: event.target.checked })} />
-        </form>
+        </fieldset></form>
       </div>
       <footer className="pane-footer">
         {existing && <Button variant="transparent" className="txt-danger pane-footer-start" onClick={() => setConfirmRemove(true)}>{t("auth.providers.remove")}</Button>}

@@ -8,6 +8,8 @@ export declare class RealtimeService {
     private clientId?;
     private lastEventId?;
     private running?;
+    private subscribing?;
+    private syncing;
     private ready?;
     private resolveReady?;
     private rejectReady?;
@@ -24,6 +26,7 @@ export declare class RealtimeService {
     resetCursor(): Promise<void>;
     subscribe(topic: `@${string}`, listener: (event: RealtimeCustomEvent) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
     subscribe<T extends RecordData = RecordData>(topic: string, listener: (event: RealtimeEvent<T>) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
+    private subscribeNow;
     /**
      * Subscribes to an application-owned topic without exposing its reserved
      * realtime wire name. The callback receives the original UTF-8 topic.

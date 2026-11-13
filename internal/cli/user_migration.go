@@ -77,7 +77,7 @@ func runUserMigration(ctx context.Context, args []string, env environment, strea
 		return configurationError{err: err, message: userMigrationUsage}
 	}
 	if args[0] == "snapshot" && len(args) != 2 || args[0] == "history-sync" && len(args) != 2 || args[0] == "history-cleanup" && (len(args) > 2 || len(args) == 2 && args[1] != "--dry-run") || args[0] == "down" && (len(args) < 1 || len(args) > 2) ||
-		args[0] != "snapshot" && args[0] != "history-sync" && args[0] != "history-cleanup" && (len(args) != 1 || args[0] != "list" && args[0] != "up" && args[0] != "down" && args[0] != "history" && args[0] != "auto-status" && args[0] != "recover") {
+		args[0] != "down" && args[0] != "snapshot" && args[0] != "history-sync" && args[0] != "history-cleanup" && (len(args) != 1 || args[0] != "list" && args[0] != "up" && args[0] != "down" && args[0] != "history" && args[0] != "auto-status" && args[0] != "recover") {
 		return configurationError{err: errors.New("invalid user migration usage"), message: userMigrationUsage}
 	}
 	javaScriptOptions, err := preflightUserMigrationJavaScript(ctx, env, javaScriptDirectory)

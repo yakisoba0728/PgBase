@@ -71,9 +71,9 @@ func (p rootPlan) pageStatement(after *pageBoundary, fetchLimit int, offsets ...
 	return compileListPageOffset(p.filter, p.order(), after, fetchLimit, offset, p.ownerID, ruleBinding{rule: p.rule, principal: p.principal, collection: p.policyCollection, catalog: p.relation.catalog, request: p.ruleContext})
 }
 
-func (s orderSpec) reloadAnchor(ctx context.Context, tx pgx.Tx, id uuid.UUID, membership *int64) ([]json.RawMessage, error) {
+func (s orderSpec) reloadAnchor(ctx context.Context, tx pgx.Tx, id uuid.UUID, membership *int64, binding ruleBinding) ([]json.RawMessage, error) {
 	if s.relationAnchor {
-		statement, err := s.anchorStatement(id, membership)
+		statement, err := s.anchorStatement(id, membership, binding)
 		if err != nil {
 			return nil, err
 		}

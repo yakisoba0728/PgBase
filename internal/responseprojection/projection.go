@@ -1,6 +1,8 @@
 package responseprojection
 
 import (
+	"bytes"
+	"encoding/json"
 	"html"
 	"regexp"
 	"strconv"
@@ -145,6 +147,14 @@ func (p Projection) RootFields() []string {
 
 func applyProjection(value any, fields []projectionField) any {
 	switch current := value.(type) {
+	case json.RawMessage:
+		var decoded any
+		decoder := json.NewDecoder(bytes.NewReader(current))
+		decoder.UseNumber()
+		if decoder.Decode(&decoded) != nil {
+			return nil
+		}
+		return applyProjection(decoded, fields)
 	case map[string]any:
 		result := make(map[string]any)
 		for key, child := range current {

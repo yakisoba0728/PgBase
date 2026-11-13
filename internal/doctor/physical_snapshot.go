@@ -150,9 +150,9 @@ func loadPhysicalColumns(ctx context.Context, db database.DBTX, namespaces []str
 func loadPhysicalIndexes(ctx context.Context, db database.DBTX, namespaces []string, snapshot *physicalSnapshot) error {
 	rows, err := db.Query(ctx, `select namespaces.nspname, tables.relname, index_tables.relname,
 		access_methods.amname,
-		array(select attributes.attname
+		array(select coalesce(attributes.attname, '')
 			from unnest(indexes.indkey::smallint[]) with ordinality as keys(attribute_number, ordinal)
-			join pg_attribute as attributes
+			left join pg_attribute as attributes
 				on attributes.attrelid = indexes.indrelid and attributes.attnum = keys.attribute_number
 			where keys.ordinal <= indexes.indnkeyatts order by keys.ordinal),
 		indexes.indoption::smallint[],
@@ -160,9 +160,9 @@ func loadPhysicalIndexes(ctx context.Context, db database.DBTX, namespaces []str
 			from unnest(indexes.indclass::oid[]) with ordinality as classes(operator_class, ordinal)
 			join pg_opclass as operator_classes on operator_classes.oid = classes.operator_class
 			where classes.ordinal <= indexes.indnkeyatts order by classes.ordinal),
-		array(select attributes.attname
+		array(select coalesce(attributes.attname, '')
 			from unnest(indexes.indkey::smallint[]) with ordinality as keys(attribute_number, ordinal)
-			join pg_attribute as attributes
+			left join pg_attribute as attributes
 				on attributes.attrelid = indexes.indrelid and attributes.attnum = keys.attribute_number
 			where keys.ordinal > indexes.indnkeyatts order by keys.ordinal),
 		indexes.indnkeyatts::integer, indexes.indnatts::integer,
@@ -197,10 +197,7 @@ func loadPhysicalIndexes(ctx context.Context, db database.DBTX, namespaces []str
 		); err != nil {
 			return fmt.Errorf("scan physical index: %w", err)
 		}
-		// A key whose attribute number is 0 is an expression key, so its name
-		// is absent from the join above. Recording the declared key count keeps
-		// such an index structurally distinct from a plain column index instead
-		// of silently comparing as a shorter one.
+		// Preserve every declared slot, including expression keys (attribute 0).
 		if len(columns) != keyCount || len(operatorClasses) != keyCount ||
 			len(spec.IncludedColumns) != attributeCount-keyCount {
 			spec.ExpressionSQL += "\x00truncated_index_keys"

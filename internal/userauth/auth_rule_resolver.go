@@ -83,14 +83,15 @@ func loadAuthRuleActor(ctx context.Context, db database.DBTX, collectionID uuid.
 	if decodeAuthProfile(raw, &attributes) != nil {
 		return ErrValidation
 	}
+	for name, value := range attributes {
+		request.Auth[name] = value
+	}
 	request.Auth["id"] = principal.ID.String()
 	request.Auth["email"] = email
 	request.Auth["emailVisibility"] = emailVisibility
 	request.Auth["verified"] = verified
 	request.Auth["active"] = active
-	for name, value := range attributes {
-		request.Auth[name] = value
-	}
+
 	return nil
 }
 
@@ -279,18 +280,20 @@ func (r authRuleResolver) resolveRelation(_ authRuleCollection, field schema.Fie
 		return accessrule.Operand{}, errors.New("unknown relation target")
 	}
 	key := field.Name
+	// Derive each nested scope from its parent so correlations cannot be shadowed.
+	userAlias, innerProfile, valueAlias := profileAlias+"u", profileAlias+"p", profileAlias+"v"
 	if field.Relation.Cardinality == schema.RelationMultiple {
-		valueSQL := "arv.value::uuid"
+		valueSQL := valueAlias + ".value::uuid"
 		kind := accessrule.OperandUUID
-		from := fmt.Sprintf(`jsonb_array_elements_text(coalesce(%s.attributes->'%s','[]'::jsonb)) AS arv(value)`, profileAlias, key)
+		from := fmt.Sprintf(`jsonb_array_elements_text(coalesce(%s.attributes->'%s','[]'::jsonb)) AS %s(value)`, profileAlias, key, valueAlias)
 		predicate := "true"
 		if len(tail) > 0 {
-			resolved, err := r.resolve(target, "aru", "arp", strings.Join(tail, "."))
+			resolved, err := r.resolve(target, userAlias, innerProfile, strings.Join(tail, "."))
 			if err != nil || resolved.Cardinality != accessrule.Scalar {
 				return accessrule.Operand{}, errors.New("invalid relation path")
 			}
-			from += ` JOIN pgbase_meta.users AS aru ON aru.id=arv.value::uuid LEFT JOIN pgbase_meta.user_auth_profiles AS arp ON arp.user_id=aru.id`
-			predicate = fmt.Sprintf("aru.auth_collection_id='%s'::uuid", target.ID)
+			from += fmt.Sprintf(` JOIN pgbase_meta.users AS %s ON %s.id=%s.value::uuid LEFT JOIN pgbase_meta.user_auth_profiles AS %s ON %s.user_id=%s.id`, userAlias, userAlias, valueAlias, innerProfile, innerProfile, userAlias)
+			predicate = fmt.Sprintf("%s.auth_collection_id='%s'::uuid", userAlias, target.ID)
 			valueSQL, kind = resolved.SQL, resolved.Kind
 		}
 		return accessrule.Operand{Kind: kind, Cardinality: accessrule.Many, Multi: &accessrule.MultiOperand{From: from, Predicate: predicate, ValueSQL: valueSQL}}, nil
@@ -298,11 +301,11 @@ func (r authRuleResolver) resolveRelation(_ authRuleCollection, field schema.Fie
 	if len(tail) == 0 {
 		return accessrule.Operand{SQL: fmt.Sprintf("(%s.attributes->>'%s')::uuid", profileAlias, key), Kind: accessrule.OperandUUID, Cardinality: accessrule.Scalar}, nil
 	}
-	resolved, err := r.resolve(target, "aru", "arp", strings.Join(tail, "."))
+	resolved, err := r.resolve(target, userAlias, innerProfile, strings.Join(tail, "."))
 	if err != nil || resolved.Cardinality != accessrule.Scalar {
 		return accessrule.Operand{}, errors.New("invalid relation path")
 	}
-	resolved.SQL = fmt.Sprintf(`(SELECT %s FROM pgbase_meta.users AS aru LEFT JOIN pgbase_meta.user_auth_profiles AS arp ON arp.user_id=aru.id WHERE aru.auth_collection_id='%s'::uuid AND aru.id=(%s.attributes->>'%s')::uuid)`, resolved.SQL, target.ID, profileAlias, key)
+	resolved.SQL = fmt.Sprintf(`(SELECT %s FROM pgbase_meta.users AS %s LEFT JOIN pgbase_meta.user_auth_profiles AS %s ON %s.user_id=%s.id WHERE %s.auth_collection_id='%s'::uuid AND %s.id=(%s.attributes->>'%s')::uuid)`, resolved.SQL, userAlias, innerProfile, innerProfile, userAlias, userAlias, target.ID, userAlias, profileAlias, key)
 	return resolved, nil
 }
 

@@ -13,6 +13,10 @@ export declare class PgBaseClient {
     readonly auth: AuthStore;
     readonly realtime: RealtimeService;
     private readonly fetcher;
+    private pendingRefresh?;
+    private pendingLogout?;
+    private refreshGeneration?;
+    private refreshOrigin?;
     private readonly requestControllers;
     /** Cancel older reads with the same request URL, or requests with an explicit key. */
     autoCancellation: boolean;
@@ -26,6 +30,9 @@ export declare class PgBaseClient {
     login(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession>;
     session(options?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
     logout(signal?: AbortSignal): Promise<void>;
+    /** Internal session rotation/logout ordering shared by public and realm auth. */
+    _refresh(path: string, signal?: AbortSignal): Promise<UserSession>;
+    _logout(path: string, signal?: AbortSignal): Promise<void>;
     changePassword(currentPassword: string, newPassword: string, signal?: AbortSignal): Promise<void>;
     requestPasswordReset(email: string, signal?: AbortSignal): Promise<void>;
     requestOTP(email: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<{

@@ -165,8 +165,8 @@ func accessRuleComparison(value filterComparison) (accessrule.Rule, error) {
 	if !ok {
 		return accessrule.Rule{}, accessrule.ErrInvalid
 	}
-	// The persisted AST cannot preserve a contains predicate's left operand.
-	if value.literalLeft || strings.HasPrefix(value.field, ruleAuthPrefix) && value.otherField != "" && strings.HasSuffix(op, "contains") {
+	// A literal on the left has no representation in the persisted AST.
+	if value.literalLeft {
 		return accessrule.Rule{}, accessrule.ErrInvalid
 	}
 	field := joinRuleField(value.field, value.modifier)
@@ -181,6 +181,9 @@ func accessRuleComparison(value filterComparison) (accessrule.Rule, error) {
 	}
 	if value.otherField != "" {
 		other := joinRuleField(value.otherField, value.otherModifier)
+		if strings.HasPrefix(field, ruleAuthPrefix) && strings.HasSuffix(op, "contains") {
+			return accessrule.Rule{Op: op, Field: ruleRequestPrefix + "auth_" + strings.TrimPrefix(field, ruleAuthPrefix), OtherField: other}, nil
+		}
 		if strings.HasPrefix(field, ruleAuthPrefix) {
 			field, other, op = other, field, flipRuleOp(op)
 		}

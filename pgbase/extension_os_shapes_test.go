@@ -20,8 +20,14 @@ func TestPocketBaseOSShapesUseRootedRealHostEffects(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "input.bin"), []byte{0, 1, 127, 128, 255}, 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Mkdir(filepath.Join(root, "folder"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("input.bin", filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
 	manifest := `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/os","access":"public","handler":{"module":"route.js","export":"run"},"capabilities":["os"]}]}`
-	source := `exports.run=()=>{const info=$os.stat("input.bin"),entries=$os.readDir("."),cmd=$os.cmd("echo","deferred"),before=$os.readFile("input.bin"),output=cmd.output(),root=$os.openRoot(".");const nested=root.fs().readFile("input.bin");root.close();let closed=false;try{root.fs().stat("input.bin")}catch(e){closed=true}return {name:info.name(),size:info.size(),dir:info.isDir(),entry:entries[0].name(),bytes:Array.from(before),nested:Array.from(nested),command:Array.from(output),isCommand:cmd instanceof Command,temp:$os.tempDir(),closed}}`
+	source := `exports.run=()=>{const info=$os.stat("input.bin"),entries=$os.readDir("."),cmd=$os.cmd("echo","deferred"),before=$os.readFile("input.bin"),output=cmd.output(),root=$os.openRoot(".");const nested=root.fs().readFile("input.bin");root.close();let closed=false;try{root.fs().stat("input.bin")}catch(e){closed=true}return {regular:entries.find(e=>e.name()==="input.bin").isFile(),directory:entries.find(e=>e.name()==="folder").isFile(),symlink:entries.find(e=>e.name()==="link").isFile(),name:info.name(),size:info.size(),dir:info.isDir(),entry:entries[0].name(),bytes:Array.from(before),nested:Array.from(nested),command:Array.from(output),isCommand:cmd instanceof Command,temp:$os.tempDir(),closed}}`
 	for name, data := range map[string]string{"pgbase.scripts.json": manifest, "route.js": source} {
 		if err := os.WriteFile(filepath.Join(bundleDir, name), []byte(data), 0600); err != nil {
 			t.Fatal(err)
@@ -46,7 +52,7 @@ func TestPocketBaseOSShapesUseRootedRealHostEffects(t *testing.T) {
 		t.Fatalf("%v unwrap=%v", err, errors.Unwrap(err))
 	}
 	text := string(out)
-	for _, want := range []string{`"bytes":[0,1,127,128,255]`, `"nested":[0,1,127,128,255]`, `"size":5`, `"isCommand":true`, `"closed":true`, `100,101,102,101,114,114,101,100,10`} {
+	for _, want := range []string{`"regular":true`, `"directory":false`, `"symlink":false`, `"bytes":[0,1,127,128,255]`, `"nested":[0,1,127,128,255]`, `"size":5`, `"isCommand":true`, `"closed":true`, `100,101,102,101,114,114,101,100,10`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("output=%s missing=%s", text, want)
 		}

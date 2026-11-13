@@ -51,6 +51,10 @@ func openDatabase(ctx context.Context, env environment, streams IO) (*databaseRu
 	if err != nil {
 		return nil, bootstrapError{configuration: true, err: configurationError{err: err}}
 	}
+	options, err = pgbase.ResolveActiveRestoreTarget(options)
+	if err != nil {
+		return nil, bootstrapError{configuration: true, err: configurationError{err: err}}
+	}
 	options.Logger = observability.NewJSONLogger(streams.stderr())
 	pool, err := database.Open(ctx, options.DatabaseURL, options.StatementTimeout, options.AllowInsecureDatabase)
 	if err != nil {

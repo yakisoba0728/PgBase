@@ -25,24 +25,36 @@ func TestPolicyOperandScopesAndRequestValidation(t *testing.T) {
 	defer db.Close(ctx)
 	_, err = db.Exec(ctx, `CREATE SCHEMA app;
  CREATE TABLE app.people(id uuid PRIMARY KEY,email text);
- CREATE TABLE app.posts(id uuid PRIMARY KEY,author uuid,reviewer uuid,payload jsonb);
+ CREATE TABLE app.posts(id uuid PRIMARY KEY,author uuid,reviewer uuid,payload jsonb,value text);
  INSERT INTO app.people VALUES ('00000000-0000-0000-0000-000000000001','alice'),('00000000-0000-0000-0000-000000000002','bob');
- INSERT INTO app.posts VALUES ('00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002','["alice"]');`)
+ INSERT INTO app.posts VALUES ('00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002','["alice"]','bob');`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	people := schema.Collection{ID: uuid.New(), Name: "people", TableName: "people", Fields: []schema.Field{{Name: "email", ColumnName: "email", Type: schema.TypeText}}}
-	posts := schema.Collection{ID: uuid.New(), Name: "posts", TableName: "posts", Fields: []schema.Field{{Name: "payload", ColumnName: "payload", Type: schema.TypeJSONB}}}
+	posts := schema.Collection{ID: uuid.New(), Name: "posts", TableName: "posts", Fields: []schema.Field{{Name: "payload", ColumnName: "payload", Type: schema.TypeJSONB}, {Name: "value", ColumnName: "value", Type: schema.TypeText}}}
 	for _, name := range []string{"author", "reviewer"} {
 		posts.Fields = append(posts.Fields, schema.Field{Name: name, ColumnName: name, Type: schema.TypeRelation, Relation: &schema.RelationSpec{TargetCollectionID: people.ID, Cardinality: schema.RelationSingle}})
 	}
 	catalog := schema.Catalog{Collections: map[string]schema.Collection{"people": people, "posts": posts}}
-	request := &accessrule.RequestContext{Method: "GET", Query: map[string][]string{"a": {"alice"}, "b": {"bob"}}, Auth: map[string]any{"email": "alice"}}
+	request := &accessrule.RequestContext{Method: "GET", Query: map[string][]string{"a": {"alice"}, "b": {"bob"}}, Auth: map[string]any{"email": "alice", "longEmail": "xxalicezz"}}
 	for _, test := range []struct {
 		expression string
 		want       bool
 	}{
 		{`@request.auth.email ?< reviewer.email`, true},
+		{`@request.auth.longEmail ~ author.email`, true},
+		{`@request.auth.longEmail !~ author.email`, false},
+		{`@request.auth.longEmail ?~ author.email`, true},
+		{`@request.auth.longEmail ?!~ author.email`, false},
+		{`@request.auth.email ~ author.email`, true},
+		{`@request.auth.email !~ author.email`, false},
+		{`@request.auth.email ?~ author.email`, true},
+		{`@request.auth.email ?!~ author.email`, false},
+		{`@request.auth.email ~ reviewer.email`, false},
+		{`@request.auth.email !~ reviewer.email`, true},
+		{`@request.auth.email ?~ reviewer.email`, false},
+		{`@request.auth.email ?!~ reviewer.email`, true},
 		{`@request.auth.email ?<= reviewer.email`, true},
 		{`@request.auth.email ?> reviewer.email`, false},
 		{`@request.auth.email ?>= reviewer.email`, false},
@@ -97,7 +109,7 @@ func TestPolicyOperandScopesAndRequestValidation(t *testing.T) {
 			})
 		}
 	}
-	for _, name := range []string{"pb_operand_left", "pgbase_operand_left", "pgbase_operand_right"} {
+	for _, name := range []string{"pb_operand_left", "pgbase_operand_left", "pgbase_operand_right", "pb_rel_a", "pb_rel_b", "pb_edge_a", "pb_each", "pb_request_values", "pb_request_each", "pb_collection"} {
 		t.Run(name, func(t *testing.T) {
 			table := pgx.Identifier{"app", name}.Sanitize()
 			if _, err := db.Exec(ctx, "CREATE TABLE "+table+" AS TABLE app.posts"); err != nil {
@@ -105,12 +117,12 @@ func TestPolicyOperandScopesAndRequestValidation(t *testing.T) {
 			}
 			collection := posts
 			collection.Name, collection.TableName = name, name
-			for _, expression := range []string{"author.email ?= reviewer.email", "author.email = reviewer.email", "author.email ?= author.email"} {
+			for _, expression := range []string{"author.email ?= reviewer.email", "author.email = reviewer.email", "author.email ?= author.email", "payload:each ?= 'alice'", "@request.query.a:each ?= 'alice'", "@request.body.payload:each ?= 'alice'", "payload:each ?= value", "@request.query.a:each ?= value", "@request.body.payload:each ?= value"} {
 				rule, err := query.ParseAccessRule(expression)
 				if err != nil {
 					t.Fatal(err)
 				}
-				sql, args, err := accessrule.CompilePolicy(rule, accessrule.PolicyContext{Catalog: catalog, Collection: collection, Alias: name, EventAlias: "pgbase_operand_left"})
+				sql, args, err := accessrule.CompilePolicy(rule, accessrule.PolicyContext{Catalog: catalog, Collection: collection, Alias: name, EventAlias: "pgbase_operand_left", Request: &accessrule.RequestContext{Query: map[string][]string{"a": {"alice"}}, Body: map[string]json.RawMessage{"payload": json.RawMessage(`["alice"]`)}}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -118,7 +130,7 @@ func TestPolicyOperandScopesAndRequestValidation(t *testing.T) {
 				if err = db.QueryRow(ctx, "SELECT ("+sql+") FROM "+table+" "+pgx.Identifier{name}.Sanitize(), args...).Scan(&got); err != nil {
 					t.Fatalf("%s: %v; SQL %s", expression, err, sql)
 				}
-				if want := expression == "author.email ?= author.email"; got != want {
+				if want := expression == "author.email ?= author.email" || expression == "payload:each ?= 'alice'" || expression == "@request.query.a:each ?= 'alice'" || expression == "@request.body.payload:each ?= 'alice'"; got != want {
 					t.Fatalf("%s allowed=%v want=%v", expression, got, want)
 				}
 			}

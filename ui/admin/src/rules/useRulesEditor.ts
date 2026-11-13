@@ -47,6 +47,7 @@ export function useRulesEditor(collection: Collection, basePath: string) {
   const [errors, setErrors] = useState<Partial<Record<Action, string>>>({});
   const [results, setResults] = useState<Partial<Record<Action, string>>>({});
   const [testAs, setTestAs] = useState("");
+  const previewVersion = useRef(0);
   const focused = useRef<{ action: Action; element: HTMLTextAreaElement } | null>(null);
 
   const loaded = rules.data ? draftsFromRules(rules.data.rules) : undefined;
@@ -58,6 +59,7 @@ export function useRulesEditor(collection: Collection, basePath: string) {
 
   const update = (action: Action, patch: Partial<RuleDraft>) => {
     if (!drafts) return;
+    previewVersion.current++;
     setEdits((current) => ({ ...current, [action]: { ...drafts[action], ...patch } }));
     setErrors(({ [action]: _, ...rest }) => rest);
     setResults(({ [action]: _, ...rest }) => rest);
@@ -74,8 +76,10 @@ export function useRulesEditor(collection: Collection, basePath: string) {
       if (!drafts) return;
       const empty = emptyExpressions(drafts, visible);
       if (empty.length) throw Object.assign(new Error("empty"), { empty });
+      // Close the gate before changing rules; opening it waits until the rules are stored.
+      if (accessChanged && !accessEnabled) await setCollectionUserAccess(name, false);
       if (changedRules.length) await setCollectionRules(name, planSave(drafts, visible));
-      if (accessChanged) await setCollectionUserAccess(name, accessEnabled);
+      if (accessChanged && accessEnabled) await setCollectionUserAccess(name, true);
     },
     onSuccess: async () => {
       discard();
@@ -107,6 +111,8 @@ export function useRulesEditor(collection: Collection, basePath: string) {
 
   const preview = useMutation({
     mutationFn: async (action: Action) => {
+      const version = previewVersion.current;
+      const text = await (async () => {
       const rule = drafts && typedRule(drafts[action]);
       if (!rule || !previewable(action)) return "";
       const userId = testAs.trim();
@@ -117,9 +123,10 @@ export function useRulesEditor(collection: Collection, basePath: string) {
       const decisions = await previewCollectionRule(name, { rule, action, recordIds, ...(userId ? { userId } : {}) });
       const allowed = decisions.filter((decision) => decision.allowed).length;
       return t(userId ? "rules.testResultUser" : "rules.testResultGuest", { allowed, total: decisions.length });
+      })().catch((error: unknown) => errorText(t, error));
+      return { text, version };
     },
-    onSuccess: (text, action) => setResults((current) => ({ ...current, [action]: text })),
-    onError: (error, action) => setResults((current) => ({ ...current, [action]: errorText(t, error) })),
+    onSuccess: ({ text, version }, action) => { if (version === previewVersion.current) setResults((current) => ({ ...current, [action]: text })); },
   });
 
   /** Inserts a reference token into the expression that last had focus. */
@@ -147,7 +154,7 @@ export function useRulesEditor(collection: Collection, basePath: string) {
     errors,
     results,
     testAs,
-    setTestAs,
+    setTestAs: (value: string) => { previewVersion.current++; setTestAs(value); setResults({}); },
     update,
     discard,
     save,
@@ -156,7 +163,8 @@ export function useRulesEditor(collection: Collection, basePath: string) {
     focused,
     guard: {
       dirty,
-      release: () => save.isPending,
+      busy: save.isPending,
+      release: () => false,
       leaves: (_current: Location, next: Location) => next.pathname !== `${basePath}/rules`,
       onDiscard: () => {
         discard();

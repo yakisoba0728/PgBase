@@ -440,3 +440,5 @@ select.schema-input {
   padding-left: 18px;
   font-size: 12px;
 }
+
+fieldset.schema-content { border: 0; margin: 0; min-width: 0; }

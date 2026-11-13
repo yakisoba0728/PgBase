@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
@@ -97,4 +99,116 @@ func TestJavaScriptEnrichAuthRecordUsesRecordAuthorization(t *testing.T) {
 func jsonStrings(values []string) string {
 	raw, _ := json.Marshal(values)
 	return string(raw)
+}
+
+func TestNativeAuthHelpersResolvePublicRecordIDsAndProjectVisibleIdentity(t *testing.T) {
+	fixture := newPublicUsersAppOptions(t, false, nil)
+	setupPublicUsersAdministrator(t, fixture)
+	var actor uuid.UUID
+	if err := fixture.app.pool.QueryRow(t.Context(), `select id from pgbase_meta.admins where email=$1`, publicAdminEmail).Scan(&actor); err != nil {
+		t.Fatal(err)
+	}
+	service := fixture.app.extensions.authAPI.(*userauth.Service)
+	for _, kind := range []string{"text", "UUID-looking text", "default UUID"} {
+		t.Run(kind, func(t *testing.T) {
+			realm, collection, public := userauth.DefaultCollectionID, "users", ""
+			if kind != "default UUID" {
+				realm = uuid.New()
+				collection = "helper_" + realm.String()[:8]
+				public = "AuthVisible01"
+				if kind == "UUID-looking text" {
+					public = uuid.NewString()
+				}
+				policy := schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 36, Pattern: `^[A-Za-z0-9-]+$`}
+				if _, err := service.CreateAuthCollection(t.Context(), userauth.CreateAuthCollectionInput{ID: realm, Name: collection, RecordID: &policy, Rules: userauth.AuthCollectionRules{View: "@request.auth.id = id", Auth: "true"}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			record, err := service.CreateAuthRecord(t.Context(), realm, userauth.CreateAuthRecordInput{ID: public, Email: uuid.NewString() + "@example.test", Password: publicUserOnePass, Active: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			public = record.PublicID
+			if kind != "default UUID" && public == record.ID.String() {
+				t.Fatal("text mapping precondition failed")
+			}
+			host := &extensionHost{bridge: fixture.app.extensions, principal: identity.Subject{Kind: identity.Administrator, ID: actor}, requestID: "native-auth-helper", valid: true, authorityContext: t.Context()}
+			request := extensionAuthRecordRequest{Collection: collection, RecordID: public, AuthMethod: "custom"}
+			input, _ := json.Marshal(request)
+			raw, err := host.Call(t.Context(), "apis.recordAuthResponse", input)
+			if err != nil {
+				t.Fatalf("public ID %q auth response: %v", public, err)
+			}
+			var result struct {
+				JSON struct {
+					Token  string `json:"token"`
+					Record struct {
+						ID string `json:"id"`
+					} `json:"record"`
+				} `json:"json"`
+			}
+			if err := json.Unmarshal(raw, &result); err != nil || result.JSON.Record.ID != public {
+				t.Fatalf("auth identity=%s err=%v", raw, err)
+			}
+			principal, err := service.AuthenticateForCollection(t.Context(), realm, result.JSON.Token)
+			if err != nil || principal.User.ID != record.ID {
+				t.Fatalf("issued session principal=%+v err=%v", principal.User, err)
+			}
+			for _, method := range []string{"apis.enrichRecord", "apis.enrichRecords"} {
+				body := input
+				if method == "apis.enrichRecords" {
+					body, _ = json.Marshal([]extensionAuthRecordRequest{request})
+				}
+				raw, err := host.Call(t.Context(), method, body)
+				if err != nil {
+					t.Fatalf("admin %s: %v", method, err)
+				}
+				var visible map[string]any
+				if method == "apis.enrichRecords" {
+					var records []map[string]any
+					if err := json.Unmarshal(raw, &records); err != nil || len(records) != 1 {
+						t.Fatalf("records=%s err=%v", raw, err)
+					}
+					visible = records[0]
+				} else if err := json.Unmarshal(raw, &visible); err != nil {
+					t.Fatal(err)
+				}
+				if visible["id"] != public {
+					t.Fatalf("%s public identity=%s", method, raw)
+				}
+			}
+			host.principal = identity.Subject{Kind: identity.User, ID: record.ID}
+			if _, err := host.Call(t.Context(), "apis.recordAuthResponse", input); err == nil {
+				t.Fatal("ordinary user issued auth response")
+			}
+			raw, err = host.Call(t.Context(), "apis.enrichRecord", input)
+			if err != nil {
+				t.Fatalf("owner enrich=%s err=%v", raw, err)
+			}
+			var owner struct {
+				ID string `json:"id"`
+			}
+			if err := json.Unmarshal(raw, &owner); err != nil || owner.ID != public {
+				t.Fatalf("owner identity=%s err=%v", raw, err)
+			}
+			host.principal = identity.Subject{Kind: identity.User, ID: uuid.New()}
+			if _, err := host.Call(t.Context(), "apis.enrichRecord", input); err == nil {
+				t.Fatal("foreign user enriched private auth record")
+			}
+			if kind != "default UUID" {
+				host.principal = identity.Subject{Kind: identity.Administrator, ID: actor}
+				request.RecordID = record.ID.String()
+				body, _ := json.Marshal(request)
+				for _, method := range []string{"apis.recordAuthResponse", "apis.enrichRecord", "apis.enrichRecords"} {
+					input := body
+					if method == "apis.enrichRecords" {
+						input, _ = json.Marshal([]extensionAuthRecordRequest{request})
+					}
+					if _, err := host.Call(t.Context(), method, input); err == nil {
+						t.Fatalf("%s accepted internal UUID fallback", method)
+					}
+				}
+			}
+		})
+	}
 }

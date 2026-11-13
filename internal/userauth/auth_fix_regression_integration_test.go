@@ -39,7 +39,7 @@ func TestPasswordDisabledUserCannotLoginWithRetainedHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.issueCheckedSession(ctx, registered.User, hash, now); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := service.issueCheckedSession(ctx, registered.User, hash, now, "correct horse battery staple"); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("locked issuance after password disable error=%v, want ErrInvalidCredentials", err)
 	}
 	var sessionsAfter int

@@ -79,8 +79,8 @@ func normalizePocketBasePage(page, perPage int) (int, int) {
 	}
 	if perPage <= 0 {
 		perPage = 30
-	} else if perPage > 1000 {
-		perPage = 1000
+	} else if perPage > maximumPageLimit {
+		perPage = maximumPageLimit
 	}
 	return page, perPage
 }

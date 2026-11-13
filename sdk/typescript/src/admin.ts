@@ -87,8 +87,8 @@ export class ApprovedSchemaPlan {
   }
 }
 
-/** A preview plus the exact JSON document that produced it. The apply body is
- * built from this private snapshot so large JSON integers survive preview. */
+/** A preview plus its exact approved JSON document. The apply body keeps this
+ * private snapshot so hooks and large JSON integers survive preview. */
 export class ApprovedSchemaImportPlan implements SchemaImportPlan {
   readonly baseVersion: number;
   readonly checksum: string;
@@ -151,10 +151,14 @@ export class PgBaseAdminClient {
   exportSchema(signal?: AbortSignal): Promise<SchemaDocument> { return this.request("/api/admin/schema/export", {}, signal); }
   exportSchemaJSON(signal?: AbortSignal): Promise<string> { return this.requestText("/api/admin/schema/export", {}, signal); }
   async previewSchemaImport(document: SchemaDocument, signal?: AbortSignal): Promise<ApprovedSchemaImportPlan> {
-    const raw = JSON.stringify(document); return new ApprovedSchemaImportPlan(await this.request<SchemaImportPlan>("/api/admin/schema/import/preview", { method: "POST", body: raw }, signal), raw);
+    return this.previewSchemaImportJSON(JSON.stringify(document), signal);
   }
   async previewSchemaImportJSON(documentJSON: string, signal?: AbortSignal): Promise<ApprovedSchemaImportPlan> {
-    return new ApprovedSchemaImportPlan(await this.request<SchemaImportPlan>("/api/admin/schema/import/preview", { method: "POST", body: documentJSON }, signal), documentJSON);
+    const raw = await this.requestText("/api/admin/schema/import/preview", { method: "POST", body: documentJSON }, signal);
+    let preview: SchemaImportPlan;
+    try { preview = JSON.parse(raw) as SchemaImportPlan; }
+    catch { throw new AdminAPIError(0, "invalid_json_response"); }
+    return new ApprovedSchemaImportPlan(preview, approvedDocumentJSON(raw));
   }
   applySchemaImport(plan: SchemaImportPlan, signal?: AbortSignal): Promise<SchemaImportResult> {
     const request = plan instanceof ApprovedSchemaImportPlan ? plan.request() : { headers: { "PgBase-Operation-ID": plan.operationId ?? "", "Idempotency-Key": plan.idempotencyKey ?? "" }, body: JSON.stringify({ document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum }) };
@@ -170,7 +174,7 @@ export class PgBaseAdminClient {
     return this.request(`/api/admin/logs?${query}`, {}, signal);
   }
   jobs(signal?: AbortSignal): Promise<{ items: ScheduledJob[]; workerEnabled: boolean }> { return this.request("/api/admin/jobs", {}, signal); }
-  configureJob(id: string, schedule: string, enabled: boolean, signal?: AbortSignal): Promise<void> { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ schedule, enabled }) }, signal); }
+  configureJob(id: string, schedule: string, enabled: boolean, signal?: AbortSignal, timezone?: string): Promise<void> { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ schedule, enabled, ...(timezone === undefined ? {} : { timezone }) }) }, signal); }
   queueJob(id: string, signal?: AbortSignal): Promise<void> { return this.request(`/api/admin/jobs/${encodeURIComponent(id)}/run`, { method: "POST" }, signal); }
   fileStorageSettings(signal?: AbortSignal): Promise<FileStorageSettings> { return this.request("/api/admin/storage/files", {}, signal); }
   updateFileStorage(input: FileStorageUpdate, signal?: AbortSignal): Promise<FileStorageSettings> { return this.request("/api/admin/storage/files", { method: "PUT", body: JSON.stringify(input) }, signal); }
@@ -272,4 +276,37 @@ export class PgBaseAdminClient {
     }
     return response.blob();
   }
+}
+
+/** Keep the server-approved document bytes intact, including large JSON integers. */
+function approvedDocumentJSON(raw: string): string {
+  let depth = 0;
+  let start: number | undefined;
+  for (let i = 0; i < raw.length; i++) {
+    const char = raw[i];
+    if (char === '"') {
+      const from = i;
+      while (++i < raw.length) {
+        if (raw[i] === "\\") i++;
+        else if (raw[i] === '"') break;
+      }
+      if (depth === 1 && start === undefined && JSON.parse(raw.slice(from, i + 1)) === "document") {
+        let next = i + 1;
+        while (/\s/.test(raw[next] ?? "")) next++;
+        if (raw[next] === ":") {
+          next++;
+          while (/\s/.test(raw[next] ?? "")) next++;
+          start = next;
+          i = next - 1;
+        }
+      }
+      continue;
+    }
+    if (char === "{" || char === "[") depth++;
+    else if (char === "}" || char === "]") {
+      depth--;
+      if (start !== undefined && depth === 0) return raw.slice(start, i).trim();
+    } else if (char === "," && depth === 1 && start !== undefined) return raw.slice(start, i).trim();
+  }
+  throw new AdminAPIError(0, "invalid_schema_import_preview");
 }

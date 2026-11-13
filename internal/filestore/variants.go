@@ -37,6 +37,13 @@ func (s *Service) variantObject(ctx context.Context, file File, variant string) 
 	var key string
 	var uploadedKey string
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var ready uuid.UUID
+		if err := tx.QueryRow(ctx, `select id from pgbase_meta.record_files where id=$1 and status='ready' for update`, file.ID).Scan(&ready); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
 		if err := tx.QueryRow(ctx, `select object_key from pgbase_meta.record_file_variants where file_id=$1 and variant=$2`, file.ID, variant).Scan(&key); err == nil {
 			return nil
 		} else if !errors.Is(err, pgx.ErrNoRows) {

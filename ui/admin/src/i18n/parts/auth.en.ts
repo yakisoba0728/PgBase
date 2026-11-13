@@ -1,4 +1,5 @@
 export const authEn = {
+  "auth.user.fileReferences": "Existing file reference IDs as a JSON array.",
   "auth.on": "On",
   "auth.off": "Off",
   "auth.savedToast": "Saved.",

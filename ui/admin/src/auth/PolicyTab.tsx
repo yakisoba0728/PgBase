@@ -24,6 +24,7 @@ export function PolicyTab({ collection, administration }: { collection: AuthColl
     // The policy goes first: a stale one (412) is refused before registration changes. Forcing drops If-Match.
     mutationFn: async (force: boolean) => {
       const policy = await setAuthPolicy(collection.id, policyInput(draft), force ? undefined : administration.policy.etag);
+      queryClient.setQueryData(administrationQuery(collection.id).queryKey, { ...administration, policy });
       // Without fields or rules, PATCH keeps the stored ones, so the toggle cannot drop a field added meanwhile.
       if (draft.registrationEnabled !== collection.registrationEnabled) await updateAuthCollection(collection.id, { registrationEnabled: draft.registrationEnabled });
       return policy;
@@ -53,9 +54,9 @@ export function PolicyTab({ collection, administration }: { collection: AuthColl
       </div>
       <div className="page-content">
         {isStale(save.error) && (
-          <StaleNotice busy={save.isPending} onReload={() => void queryClient.invalidateQueries({ queryKey: administrationQuery(collection.id).queryKey })} onOverwrite={() => save.mutate(true)} />
+          <StaleNotice busy={save.isPending} onReload={() => void queryClient.fetchQuery({ ...administrationQuery(collection.id), staleTime: 0 }).then((value) => form.patch(policyDraft(value.policy, collection.registrationEnabled)))} onOverwrite={() => save.mutate(true)} />
         )}
-        <form id="auth-policy" className="auth-form auth-form-wide" onSubmit={onSubmit} noValidate>
+        <form id="auth-policy" className="auth-form auth-form-wide" onSubmit={onSubmit} noValidate><fieldset disabled={save.isPending} className="form">
           <FormSection title={t("auth.policy.registration")} hint={t("auth.policy.registrationHint")}>
             <Checkbox label={t("auth.policy.registrationEnabled")} checked={draft.registrationEnabled} onChange={(event) => patch({ registrationEnabled: event.target.checked })} />
           </FormSection>
@@ -85,7 +86,7 @@ export function PolicyTab({ collection, administration }: { collection: AuthColl
             </div>
           </FormSection>
           <p className="txt-hint">{t("auth.policy.sessionHint")}</p>
-        </form>
+        </fieldset></form>
       </div>
       <UnsavedGuard dirty={form.dirty} />
     </div>

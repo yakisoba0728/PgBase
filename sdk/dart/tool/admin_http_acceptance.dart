@@ -20,9 +20,10 @@ Future<void> main() async {
     throw StateError('missing acceptance environment');
   }
 
+  final httpClient = _OriginClient(origin);
   final client = PgBaseAdminClient(
     Uri.parse(baseUrl),
-    httpClient: _OriginClient(origin),
+    httpClient: httpClient,
     sendOriginHeader: false,
   );
   try {
@@ -132,6 +133,7 @@ Future<void> main() async {
     stdout.write('sdk-admin-http-acceptance: ok\n');
   } finally {
     client.close();
+    httpClient.close();
   }
 }
 

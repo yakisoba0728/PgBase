@@ -44,18 +44,22 @@ const hrefs: Record<OperationKind, (operation: TrackedOperation) => string> = {
 function firstInSession(): boolean {
   try {
     if (sessionStorage.getItem("pgbase.operations.discovered")) return false;
-    sessionStorage.setItem("pgbase.operations.discovered", "1");
   } catch {
     // Without session storage discovery runs on every load.
   }
   return true;
 }
-const discover = firstInSession();
 
 /** What the server may have started without this browser: the latest file migration and own running schema applies. */
 function useDiscovery() {
+  const discover = firstInSession();
   const migration = useQuery({ ...migrationQuery(null), refetchInterval: false, staleTime: Infinity, enabled: discover });
   const schema = useQuery({ queryKey: ["schema-operations", "discovery"], queryFn: ({ signal }) => listSchemaOperations({ limit: 20, signal }), staleTime: Infinity, retry: false, enabled: discover });
+  useEffect(() => {
+    if (schema.isSuccess && (migration.isSuccess || isNotFound(migration.error))) {
+      try { sessionStorage.setItem("pgbase.operations.discovered", "1"); } catch { /* Discovery remains available without storage. */ }
+    }
+  }, [schema.isSuccess, migration.isSuccess, migration.error]);
   useEffect(() => {
     const latest = migration.data;
     if (latest && migrationRunning(latest.status) && !findOperation("migration")) trackOperation({ kind: "migration", id: latest.id });

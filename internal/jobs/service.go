@@ -269,12 +269,12 @@ type Schedule struct {
 }
 
 func ParseScheduleInLocation(value, timezone string) (Schedule, error) {
+	location, err := time.LoadLocation(strings.TrimSpace(timezone))
+	if err != nil || strings.TrimSpace(timezone) == "" {
+		return Schedule{}, fmt.Errorf("%w: unknown timezone", ErrInvalidSchedule)
+	}
 	if interval, err := ParseSchedule(value); err == nil {
 		return Schedule{interval: interval}, nil
-	}
-	location, err := time.LoadLocation(strings.TrimSpace(timezone))
-	if err != nil {
-		return Schedule{}, fmt.Errorf("%w: unknown timezone", ErrInvalidSchedule)
 	}
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	calendar, err := parser.Parse(strings.TrimSpace(value))

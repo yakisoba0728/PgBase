@@ -159,7 +159,7 @@ func classifyRelations(catalog []catalogRow, bindings []relationBinding, report 
 			appendUniqueFinding(report, "relation_metadata_mismatch", "Relation metadata is internally inconsistent")
 			continue
 		}
-		names := schema.NewRelationPhysicalNames(row.table, *row.field)
+		names := schema.NewRelationPhysicalNames(row.table, *row.column)
 		storageMatches := false
 		switch binding.cardinality {
 		case schema.RelationSingle:

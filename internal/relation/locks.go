@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"sort"
 
+	"encoding/json"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 const collectionAdvisoryDomain = "pgbase:relation-collection-lock:v1"
@@ -232,4 +234,31 @@ func containsString(values []string, candidate string) bool {
 		}
 	}
 	return false
+}
+
+// LockMutationCollections takes relation collection locks before an update reads its preimage.
+// Modifier operands need that preimage, but their target collections are already known.
+func LockMutationCollections(ctx context.Context, tx pgx.Tx, collection schema.Collection, input map[string]json.RawMessage) error {
+	if tx == nil || collection.ID == uuid.Nil {
+		return ErrInvalidBinding
+	}
+	ids := map[uuid.UUID]struct{}{}
+	for _, field := range collection.Fields {
+		if field.Relation == nil {
+			continue
+		}
+		_, direct := input[field.Name]
+		_, appendValue := input[field.Name+"+"]
+		_, removeValue := input[field.Name+"-"]
+		if direct || appendValue || removeValue {
+			ids[collection.ID] = struct{}{}
+			ids[field.Relation.TargetCollectionID] = struct{}{}
+		}
+	}
+	for _, id := range sortedMapKeys(ids, sortUUIDs) {
+		if _, err := tx.Exec(ctx, "select pg_advisory_xact_lock($1)", collectionAdvisoryKey(id)); err != nil {
+			return fmt.Errorf("lock relation mutation collections: %w", err)
+		}
+	}
+	return nil
 }

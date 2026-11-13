@@ -17,6 +17,7 @@ type cursorV5FilterComparison struct {
 	Kind            string          `json:"kind"`
 	Path            []string        `json:"path"`
 	Type            string          `json:"type"`
+	JSONPath        []string        `json:"jsonPath,omitempty"`
 	Modifier        string          `json:"modifier,omitempty"`
 	Operator        string          `json:"operator"`
 	Value           json.RawMessage `json:"value"`
@@ -63,13 +64,22 @@ func encodeCursorV5Filter(filter *plannedRelationFilter) (json.RawMessage, error
 		if err != nil {
 			return nil, err
 		}
-		value, err := encodeCursorV5FilterValue(*field, comparison.input.value)
+		valueField := *field
+		var jsonPath []string
+		if comparison.path != nil && len(comparison.path.jsonPath) != 0 {
+			jsonPath = comparison.path.jsonPath
+			_, valueField = jsonPathExpression("", jsonPath, comparison.input.value)
+		}
+		if comparison.input.modifier == "length" {
+			valueField.Type = schema.TypeInteger
+		}
+		value, err := encodeCursorV5FilterValue(valueField, comparison.input.value)
 		if err != nil {
 			return nil, err
 		}
 		contains := strings.TrimPrefix(comparison.input.operator, "?") == "~" || strings.TrimPrefix(comparison.input.operator, "?") == "!~"
 		return json.Marshal(cursorV5FilterComparison{
-			Kind: "comparison", Path: path, Type: string(field.Type),
+			Kind: "comparison", Path: path, Type: string(field.Type), JSONPath: jsonPath,
 			Modifier: comparison.input.modifier, Operator: comparison.input.operator, Value: value,
 			LiteralLeft:     contains && comparison.input.literalLeft,
 			PercentWildcard: contains && !comparison.input.literalLeft && comparison.input.percentWildcard,

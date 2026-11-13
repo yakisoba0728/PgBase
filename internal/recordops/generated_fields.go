@@ -13,7 +13,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/fieldvalue"
-	"github.com/yakisoba0728/PgBase/internal/passwordfield"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 	validationdomain "github.com/yakisoba0728/PgBase/internal/validation"
 )
@@ -60,7 +59,18 @@ func (s *Service) prepareGeneratedFields(ctx context.Context, tx pgx.Tx, collect
 			if !supplied {
 				continue
 			}
-			encoded, err := preparePassword(field, raw)
+			encoded, err := preparePassword(field, raw, func(plaintext string) (string, error) {
+				select {
+				case s.passwordSlots <- struct{}{}:
+					defer func() { <-s.passwordSlots }()
+				default:
+					return "", &Error{Code: CodeUnavailable}
+				}
+				if err := ctx.Err(); err != nil {
+					return "", err
+				}
+				return s.hashPassword(plaintext)
+			})
 			if err != nil {
 				return nil, err
 			}
@@ -155,7 +165,7 @@ func uniqueTextValueAvailable(ctx context.Context, tx pgx.Tx, collection schema.
 	return available, err
 }
 
-func preparePassword(field schema.Field, raw json.RawMessage) (json.RawMessage, error) {
+func preparePassword(field schema.Field, raw json.RawMessage, hashPassword func(string) (string, error)) (json.RawMessage, error) {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		if field.Required {
 			return nil, fieldError(field.Name, "required")
@@ -182,7 +192,7 @@ func preparePassword(field schema.Field, raw json.RawMessage) (json.RawMessage, 
 	}); code != "" {
 		return nil, fieldError(field.Name, code)
 	}
-	hash, err := passwordfield.Hash(plaintext)
+	hash, err := hashPassword(plaintext)
 	if err != nil {
 		return nil, err
 	}

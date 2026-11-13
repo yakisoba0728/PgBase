@@ -2,7 +2,7 @@ import { useState, type ChangeEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiCloseLine, RiDeleteBinLine, RiUploadLine } from "@remixicon/react";
 import type { CollectionField } from "../api/collections";
-import { deleteFile, uploadRecordFile, type StoredFile } from "../api/records";
+import { deleteFile, getRecord, replaceRecordFiles, uploadRecordFile, type StoredFile } from "../api/records";
 import { errorText } from "../app/queries";
 import { IconButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
@@ -24,7 +24,7 @@ interface FileFieldProps {
 }
 
 const accepts = (types: string[] | undefined, type: string) =>
-  !types?.length || types.some((pattern) => (pattern.endsWith("/*") ? type.startsWith(pattern.slice(0, -1)) : pattern === type));
+  !type || !types?.length || types.some((pattern) => (pattern.endsWith("/*") ? type.startsWith(pattern.slice(0, -1)) : pattern === type));
 
 /** Picked files that fit the field's limits, and a message for the ones that do not. */
 function checkPicked(t: Translate, field: CollectionField, picked: File[], room: number): { ok: File[]; problem?: string } {
@@ -53,10 +53,16 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
   const preview = useQuery({ ...fileUrlQuery(previewing ?? ({} as StoredFile), "original"), enabled: previewing !== null });
   const max = field.options?.maxSelect ?? 1;
   const current = recordId === null ? staged.length : (files.data?.length ?? 0);
+  const replacing = recordId !== null && max === 1 && current === 1;
   const refresh = () => queryClient.invalidateQueries({ queryKey: recordFilesQuery(collection, recordId ?? "", field.name).queryKey });
 
   const upload = useMutation({
     mutationFn: async (list: File[]) => {
+      if (replacing) {
+        const latest = await getRecord(collection, recordId!);
+        await replaceRecordFiles(collection, recordId!, latest.etag, field.name, list);
+        return;
+      }
       setUploads(list.map((file) => ({ name: file.name, progress: 0 })));
       for (const [index, file] of list.entries()) {
         await uploadRecordFile(collection, recordId!, field.name, file, {
@@ -83,7 +89,7 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
   const onPick = (event: ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(event.target.files ?? []);
     event.target.value = "";
-    const { ok, problem } = checkPicked(t, field, picked, max - current);
+    const { ok, problem } = checkPicked(t, field, picked, replacing ? 1 : max - current);
     if (problem) toast(problem, "danger");
     if (!ok.length) return;
     if (recordId === null) onStage([...staged, ...ok]);
@@ -133,11 +139,11 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
           ))}
           {recordId !== null && files.data?.length === 0 && !uploads.length && <li className="txt-hint">{t("records.noFiles")}</li>}
           {files.isError && <li className="txt-danger">{errorText(t, files.error)}</li>}
-          {!readOnly && current < max && !upload.isPending && (
+          {!readOnly && (current < max || replacing) && !upload.isPending && (
             <li>
               <input id={inputId} type="file" multiple={max - current > 1} accept={field.options?.mimeTypes?.join(",")} className="visually-hidden" onChange={onPick} />
               <label htmlFor={inputId} className="link">
-                <RiUploadLine size={14} aria-hidden /> {recordId === null ? t("file.choose") : t("records.upload")}
+                <RiUploadLine size={14} aria-hidden /> {replacing ? t("file.replace") : recordId === null ? t("file.choose") : t("records.upload")}
               </label>
               {field.options?.maxFileSize ? <span className="txt-hint">{t("file.maxSize", { max: formatBytes(field.options.maxFileSize) })}</span> : null}
             </li>

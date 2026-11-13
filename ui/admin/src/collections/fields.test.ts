@@ -131,3 +131,9 @@ describe("record form drafts", () => {
     expect(buildInput(more, { ...initialDrafts(more), at: ["", ""] }, initialDrafts(more), true).input).toEqual({});
   });
 });
+
+it("uses the server decimal-string grammar for numeric edits", () => {
+  const f = field("n", "numeric");
+  for (const text of ["+1", ".5", "1e3", "01", "1."]) expect(buildInput([f], { n: text }, { n: "" }, true).errors.n).toBe("invalid_number");
+  expect(buildInput([f], { n: "-0.50" }, { n: "" }, true).input.n).toBe("-0.50");
+});

@@ -53,7 +53,7 @@ func (h *rootHydrator) replaySequential(ctx context.Context, stubs []rootStub, v
 	if h.bindErr != nil {
 		return 0, relationHydrationFailure(h.bindErr)
 	}
-	if len(stubs) > rootHydrationBatchSize || h.bindings == nil || visit == nil {
+	if len(stubs) > maximumPageLimit || h.bindings == nil || visit == nil {
 		return 0, relationHydrationFailure(relation.ErrInvalidBinding)
 	}
 	ids := make([]uuid.UUID, len(stubs))

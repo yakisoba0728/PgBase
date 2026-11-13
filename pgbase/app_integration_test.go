@@ -231,8 +231,8 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 
 func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) < 20 || migrations[len(migrations)-1].Version != 66 {
-		t.Fatalf("schema-compiler-generation manifest = %#v", migrations)
+	if len(migrations) < 20 || migrations[len(migrations)-1].Version != 67 {
+		t.Fatalf("unexpected schema-compiler-generation manifest: %d migrations", len(migrations))
 	}
 	tests := []struct {
 		name        string

@@ -57,3 +57,14 @@ func schemaDocumentAuthCollectionForTest() SchemaDocumentAuthCollection {
 		},
 	}
 }
+
+func TestAuthDocumentRejectsUnsupportedFieldTypes(t *testing.T) {
+	value := schemaDocumentAuthCollectionForTest()
+	for _, kind := range []FieldType{"nonsense", "", TypeText} {
+		value.Fields = []FieldInput{{Name: "custom", Type: kind, Required: true}}
+		err := validateDocumentAuthCollections([]SchemaDocumentAuthCollection{value})
+		if (err == nil) != IsAuthFieldType(kind) {
+			t.Fatalf("kind=%q err=%v", kind, err)
+		}
+	}
+}

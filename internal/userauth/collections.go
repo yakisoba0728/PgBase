@@ -430,6 +430,10 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 		} else if err != nil {
 			return err
 		}
+		if err := tx.QueryRow(ctx, `select fields_json,update_rule from pgbase_meta.auth_collections where id=$1 for share`, current.AuthCollectionID).Scan(&fieldsRaw, &updateRule); err != nil {
+			return err
+		}
+
 		var fields []schema.FieldInput
 		if json.Unmarshal(fieldsRaw, &fields) != nil || decodeAuthProfile(existingRaw, &current.Fields) != nil {
 			return ErrValidation
@@ -491,7 +495,7 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 		if _, err := tx.Exec(ctx, `insert into pgbase_meta.user_auth_profiles(user_id,attributes,updated_at) values($1,$2,CURRENT_TIMESTAMP) on conflict(user_id) do update set attributes=excluded.attributes,updated_at=excluded.updated_at`, userID, raw); err != nil {
 			return err
 		}
-		public = publicAuthFields(merged, fields)
+		public = visibleAuthRecord(AuthRecord{Fields: publicAuthFields(merged, fields)}, fields).Fields
 		if err := s.projectAuthRelationIdentities(ctx, tx, public, fields); err != nil {
 			return err
 		}
@@ -507,6 +511,14 @@ func authPolicyTx(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID) (AuthP
 	var p AuthPolicy
 	err := tx.QueryRow(ctx, `select password_enabled,minimum_password_bytes,maximum_password_bytes,password_pattern,identity_fields,mfa_enabled,mfa_duration_seconds,mfa_rule,otp_enabled,otp_duration_seconds,otp_max_attempts from pgbase_meta.auth_collection_policies where auth_collection_id=$1`, collectionID).Scan(&p.PasswordEnabled, &p.MinimumPasswordBytes, &p.MaximumPasswordBytes, &p.PasswordPattern, &p.IdentityFields, &p.MFAEnabled, &p.MFADurationSeconds, &p.MFARule, &p.OTPEnabled, &p.OTPDurationSeconds, &p.OTPMaxAttempts)
 	return p, err
+}
+
+// Acquire policy before user locks, matching policy-transition lock order.
+func lockedAuthPolicyTx(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID) (AuthPolicy, error) {
+	if _, err := tx.Exec(ctx, `select 1 from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, collectionID); err != nil {
+		return AuthPolicy{}, err
+	}
+	return authPolicyTx(ctx, tx, collectionID)
 }
 
 func (s *Service) GetProfile(ctx context.Context, userID uuid.UUID) (map[string]any, error) {
@@ -526,7 +538,7 @@ func (s *Service) GetProfile(ctx context.Context, userID uuid.UUID) (map[string]
 	if decodeAuthProfile(raw, &value) != nil || json.Unmarshal(fieldsRaw, &fields) != nil {
 		return nil, errors.New("invalid stored auth profile")
 	}
-	value = publicAuthFields(value, fields)
+	value = visibleAuthRecord(AuthRecord{Fields: publicAuthFields(value, fields)}, fields).Fields
 	if err := s.projectAuthRelationIdentities(ctx, s.pool, value, fields); err != nil {
 		return nil, err
 	}

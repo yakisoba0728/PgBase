@@ -15,6 +15,7 @@ import (
 func decodeExtensionInput(raw json.RawMessage, destination any) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
 	if err := decoder.Decode(destination); err != nil {
 		return err
 	}

@@ -135,6 +135,20 @@ func (control *extensionAppControl) mutateCollection(ctx context.Context, servic
 	if err := decodeExtensionInput(raw, &request); err != nil {
 		return nil, err
 	}
+	if method == "app-control.collectionDelete" {
+		change := schema.NewDeleteChange(request.Collection.Name)
+		plan, err := service.Preview(ctx, change)
+		if err != nil {
+			return nil, extensionError("schema_preview_failed", err)
+		}
+		operationID := uuid.New()
+		intent, err := schema.GuardedApply(change, plan, actor, operationID, "js-"+operationID.String())
+		if err != nil {
+			return nil, err
+		}
+		result, err := service.Apply(ctx, intent)
+		return marshalAppControl(schema.SchemaImportResult{OperationID: result.Receipt.OperationID, Status: string(result.Receipt.Status), Version: result.Receipt.CommittedVersion, Applied: 1}, err)
+	}
 	document, err := service.ExportSchema(ctx)
 	if err != nil {
 		return nil, err
@@ -147,12 +161,7 @@ func (control *extensionAppControl) mutateCollection(ctx context.Context, servic
 			break
 		}
 	}
-	if method == "app-control.collectionDelete" {
-		if found < 0 {
-			return nil, extensionError("collection_not_found", schema.ErrCollectionNotFound)
-		}
-		document.Collections = append(document.Collections[:found], document.Collections[found+1:]...)
-	} else if found >= 0 {
+	if found >= 0 {
 		document.Collections[found] = request.Collection
 	} else {
 		document.Collections = append(document.Collections, request.Collection)

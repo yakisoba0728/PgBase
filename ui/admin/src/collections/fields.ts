@@ -136,7 +136,7 @@ type Parsed = { ok: true; value: unknown } | { ok: false; error: "invalid_number
 
 // JSON integer syntax: no plus sign, no leading zeros.
 const integerPattern = /^-?(0|[1-9]\d*)$/;
-const decimalPattern = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/;
+const decimalPattern = /^-?(0|[1-9]\d*)(\.\d+)?$/;
 
 function fromDraft(field: CollectionField, draft: Draft): Parsed {
   const kind = fieldKind(field);

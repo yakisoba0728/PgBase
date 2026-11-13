@@ -34,7 +34,7 @@ func renderRelationSortJoins(
 			lateralAlias := renderer.alias(prefix + "_many")
 			conditions := []string{}
 			if hop.rule != nil {
-				predicate, args, err := compilePolicyPredicate(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args), renderer.catalog)
+				predicate, args, err := compilePolicyPredicateWithRequest(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args), renderer.catalog, renderer.request)
 				if err != nil {
 					return "", nil, err
 				}
@@ -72,7 +72,7 @@ func renderRelationSortJoins(
 		}
 		conditions := []string{qualified(targetAlias, systemFieldID) + " = " + qualified(parentAlias, hop.field.ColumnName)}
 		if hop.rule != nil {
-			predicate, args, err := compilePolicyPredicate(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args), renderer.catalog)
+			predicate, args, err := compilePolicyPredicateWithRequest(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args), renderer.catalog, renderer.request)
 			if err != nil {
 				return "", nil, err
 			}
@@ -100,7 +100,7 @@ func selectedRelationRootColumns(collection schema.Collection, alias string) str
 		qualified(alias, systemFieldUpdatedAt),
 	}
 	for _, field := range fieldsByOrdinal(collection) {
-		if isMultipleRelation(field) {
+		if field.Type == schema.TypeFile || isMultipleRelation(field) {
 			continue
 		}
 		column := qualified(alias, field.ColumnName)

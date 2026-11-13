@@ -126,3 +126,8 @@ void realm.oauthStartAndOpen("github", "https://app.test/callback", launchOption
 void records.events({ fields: "id,title" });
 declare const realtimeEvent: RealtimeEvent<Note>;
 void realtimeEvent.action;
+
+const modifierBatch: import('../src/types.js').BatchOperation<{id:string;count:number}> = {operation:'update', collection:'notes', id:'one', input:{'count+':1}};
+const modifierUpsert: import('../src/types.js').BatchUpsertOperation<{id:string;count:number}> = {operation:'upsert', collection:'notes', id:'one', input:{'count+':1}};
+const modifierHttp: import('../src/types.js').BatchHTTPRequest<{id:string;count:number}> = {method:'PATCH',url:'/records/one',body:{'count+':1}};
+void [modifierBatch,modifierUpsert,modifierHttp];

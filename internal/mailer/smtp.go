@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/yakisoba0728/PgBase/internal/validation"
+	"io"
 	"mime"
 	"mime/multipart"
 	"net"
@@ -220,9 +221,13 @@ func writeMailPart(writer *multipart.Writer, contentType, filename string, data 
 		_, err = part.Write(data)
 		return err
 	}
-	encoder := base64.NewEncoder(base64.StdEncoding, part)
-	if _, err = encoder.Write(data); err != nil {
-		return err
+	encodedData := base64.StdEncoding.EncodeToString(data)
+	for len(encodedData) > 0 {
+		size := min(76, len(encodedData))
+		if _, err := io.WriteString(part, encodedData[:size]+"\r\n"); err != nil {
+			return err
+		}
+		encodedData = encodedData[size:]
 	}
-	return encoder.Close()
+	return nil
 }

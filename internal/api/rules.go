@@ -108,6 +108,10 @@ func writeRuleError(w http.ResponseWriter, r *http.Request, err error) {
 			}
 		}
 	}
+	if errors.Is(err, recordaccess.ErrUnsupported) {
+		writeRecordError(w, r, err)
+		return
+	}
 	if errors.Is(err, recordaccess.ErrNotFound) {
 		response = APIError{Status: 404, Code: "not_found", Message: "Collection not found"}
 	}

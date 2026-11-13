@@ -113,6 +113,19 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if media == "multipart/form-data" {
+		if gated, ok := e.files.(interface {
+			BeginStorageOperation(context.Context) (context.Context, func(), error)
+		}); ok {
+			ctx, release, err := gated.BeginStorageOperation(r.Context())
+			if err != nil {
+				writeRecordError(w, r, err)
+				return
+			}
+			defer release()
+			r = r.WithContext(ctx)
+		}
+	}
 	input, staged, err := e.decodeBatch(r, principal)
 	maximumRequests := settings.MaxRequests
 	if err != nil || (len(input.Operations) == 0) == (len(input.Requests) == 0) || len(input.Operations)+len(input.Requests) > maximumRequests {

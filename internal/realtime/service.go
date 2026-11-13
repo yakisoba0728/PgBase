@@ -125,18 +125,19 @@ func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, in
 			return err
 		}
 		type pendingEvent struct {
-			event    Event
-			snapshot []byte
+			event        Event
+			snapshot     []byte
+			publicRecord []byte
 		}
 		pending := make([]pendingEvent, 0, batchSize)
 		for rows.Next() {
 			var event Event
-			var snapshot []byte
-			if err := rows.Scan(&event.Sequence, &event.EventID, &event.Collection, &event.RecordID, &event.Operation, &event.Version, &snapshot); err != nil {
+			var snapshot, publicRecord []byte
+			if err := rows.Scan(&event.Sequence, &event.EventID, &event.Collection, &event.RecordID, &event.Operation, &event.Version, &snapshot, &publicRecord); err != nil {
 				rows.Close()
 				return err
 			}
-			pending = append(pending, pendingEvent{event: event, snapshot: snapshot})
+			pending = append(pending, pendingEvent{event: event, snapshot: snapshot, publicRecord: publicRecord})
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
@@ -146,14 +147,23 @@ func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, in
 		for _, item := range pending {
 			event, snapshot := item.event, item.snapshot
 			event.Action = event.Operation
-			event.Record, err = publicSnapshot(collection, snapshot)
-			if err != nil {
-				return err
+			if len(item.publicRecord) > 0 && string(item.publicRecord) != "null" {
+				event.Record, err = publicSnapshot(collection, item.publicRecord)
+				if err == nil {
+					event.PublicID, _ = event.Record["id"].(string)
+				}
+				if err == nil && event.PublicID == "" {
+					err = errors.New("realtime public record identity missing")
+				}
+			} else {
+				event.Record, err = publicSnapshot(collection, snapshot)
+				if err == nil {
+					err = s.ids.Project(ctx, tx, catalog, collection, event.Record)
+				}
+				if err == nil {
+					event.PublicID, err = s.ids.Public(ctx, tx, collection, event.RecordID)
+				}
 			}
-			if err := s.ids.Project(ctx, tx, catalog, collection, event.Record); err != nil {
-				return err
-			}
-			event.PublicID, err = s.ids.Public(ctx, tx, collection, event.RecordID)
 			if err != nil {
 				return err
 			}
@@ -211,6 +221,12 @@ func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest
 	}
 	if request.PublicID != "" {
 		request.RecordID, err = s.ids.Resolve(ctx, tx, collection, request.PublicID)
+		if errors.Is(err, recordidentity.ErrNotFound) {
+			err = tx.QueryRow(ctx, `SELECT record_id FROM pgbase_meta.record_outbox WHERE collection_id=$1 AND envelope->'publicRecord'->>'id'=$2 ORDER BY created_at DESC LIMIT 1`, collection.ID, request.PublicID).Scan(&request.RecordID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				err = recordidentity.ErrNotFound
+			}
+		}
 		if err != nil {
 			return "", nil, err
 		}
@@ -234,6 +250,9 @@ func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest
 		}
 	}
 	if request.Filter != "" {
+		if err := query.ValidateFilterFields(catalog, collection, request.Principal, request.Filter); err != nil {
+			return "", nil, err
+		}
 		filterSQL, filterArgs, compileErr := query.CompileRecordPredicate(collection, request.Filter, "acl_record", 2+len(args))
 		if compileErr != nil {
 			if relationFilterUnsupported(compileErr) {
@@ -245,12 +264,16 @@ func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest
 		args = append(args, filterArgs...)
 	}
 	table := pgx.Identifier{"app", collection.TableName}.Sanitize()
-	statement := `SELECT event.sequence,event.event_id,event.collection_name,event.record_id,event.operation,event.record_version,outbox.record_snapshot
+	statement := `SELECT event.sequence,event.event_id,event.collection_name,event.record_id,event.operation,event.record_version,outbox.record_snapshot,outbox.envelope->'publicRecord'
  FROM pgbase_meta.realtime_events event JOIN pgbase_meta.record_outbox outbox ON outbox.event_id=event.event_id
  CROSS JOIN LATERAL jsonb_populate_record(NULL::` + table + `,COALESCE((SELECT to_jsonb(current_record) FROM ` + table + ` current_record WHERE current_record.id=event.record_id),outbox.record_snapshot)) acl_record
  WHERE event.collection_id=$1 AND event.sequence>$2`
 	base := []any{collection.ID, cursor}
-	if request.RecordID != uuid.Nil {
+	if request.PublicID != "" {
+		offset := len(base) + len(args) + 1
+		statement += ` AND (outbox.envelope->'publicRecord'->>'id'=$` + fmt.Sprint(offset) + ` OR (NOT (outbox.envelope ? 'publicRecord') AND event.record_id=$` + fmt.Sprint(offset+1) + `))`
+		args = append(args, request.PublicID, request.RecordID)
+	} else if request.RecordID != uuid.Nil {
 		statement += ` AND event.record_id=$` + fmt.Sprint(len(base)+len(args)+1)
 		args = append(args, request.RecordID)
 	}
@@ -324,7 +347,7 @@ func publicSnapshot(collection schema.Collection, raw []byte) (map[string]any, e
 		}
 	}
 	for _, field := range collection.Fields {
-		if !field.Hidden {
+		if !field.Hidden && field.Type != schema.TypePassword {
 			if value, ok := physical[field.ColumnName]; ok {
 				result[field.Name] = value
 			}

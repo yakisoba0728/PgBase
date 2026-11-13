@@ -4,11 +4,15 @@ For a single-instance Dokploy deployment with PostgreSQL and persistent local fi
 
 Validate every pgBase release in a staging copy, keep a current backup, and expect configuration, API, and migration procedures to change during v0.x.
 
+`PGBASE_TRUSTED_PROXIES` seeds the trusted proxy list when the runtime settings document is first created. Saved runtime settings take precedence on later starts, including an intentionally empty list.
+
 ## Database and instance topology
 
 One pgBase project owns one PostgreSQL database. That database contains the `pgbase_meta` system/catalog schema, the `app` collection schema, and the `pgbase_relation` schema used by ordered multiple-relation edge tables and their constraint functions. Do not share one database between unrelated projects or manage pgBase-owned objects outside pgBase.
 
 Multiple pgBase instances for the same project may share the database. They must use the same `PGBASE_TOKEN_SECRET`, `PGBASE_PUBLIC_URL`, trusted proxy policy, and administrator-facing origin policy. Schema changes are serialized in PostgreSQL and other instances synchronize through PostgreSQL `LISTEN`; readiness is false while an instance cannot synchronize.
+
+The official distroless runtime has no PostgreSQL client tools. Managed backup create/restore is supported only in a runtime that supplies matching `pg_dump`/`pg_restore` and their libraries; keep `PGBASE_BACKUPS_DIRECTORY` unset in the official image. See [backup runtime requirements](backup-s3.md).
 
 ## Required production sequence
 

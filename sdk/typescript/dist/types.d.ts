@@ -92,7 +92,7 @@ export type RecordEvent = {
     version: number;
 };
 export type EventOptions = {
-    /** Comma-separated record fields requested for realtime payloads. */
+    /** @deprecated Metadata events have no record projection. Use realtime.subscribe for record payloads. Nonempty values reject locally. */
     fields?: string;
     lastEventId?: string | number;
     signal?: AbortSignal;
@@ -144,7 +144,7 @@ export type BatchOperation<T extends RecordData = RecordData> = {
     operation: "update";
     collection: string;
     id: string;
-    input: Partial<T>;
+    input: Partial<T> & RecordModifiers;
     ifMatch?: string;
 } | BatchUpsertOperation<T> | {
     operation: "delete";
@@ -157,7 +157,7 @@ export type BatchUpsertOperation<T extends RecordData = RecordData> = {
     operation: "upsert";
     collection: string;
     id: string;
-    input: Partial<T>;
+    input: Partial<T> & RecordModifiers;
     ifMatch?: string;
 };
 export type BatchResult<T extends RecordData = RecordData> = {
@@ -169,7 +169,7 @@ export type BatchResult<T extends RecordData = RecordData> = {
 export type BatchHTTPRequest<T extends RecordData = RecordData> = {
     method: "POST" | "PATCH" | "PUT" | "DELETE";
     url: string;
-    body?: Partial<T>;
+    body?: Partial<T> & RecordModifiers;
     headers?: Record<string, string>;
 };
 export type BatchHTTPResult<T extends RecordData = RecordData> = {
@@ -191,6 +191,8 @@ export type FileInfo = {
     contentType: string;
     size: number;
     thumbnail: boolean;
+    protected?: boolean;
+    publicUrl?: string;
 };
 export type MFAChallenge = {
     challengeToken: string;

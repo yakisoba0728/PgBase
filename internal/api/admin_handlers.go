@@ -389,6 +389,7 @@ func decodeStrictJSONBytes(raw []byte, destination any) error {
 		return err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
 		return err

@@ -151,7 +151,7 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if left.Kind == 0 {
+	if left.Kind == 0 || (base == "contains" || base == "not_contains") && left.Kind != OperandText {
 		return "", ErrInvalid
 	}
 	rightSQL := ""
@@ -210,7 +210,7 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 		return "COALESCE(" + valueSQL + " " + op + " " + rhs + ",false)"
 	}
 	if rightMulti != nil {
-		if left.Cardinality != Many || left.Multi == nil || rightMulti.From == "" || rightMulti.ValueSQL == "" {
+		if rightMulti.From == "" || rightMulti.ValueSQL == "" {
 			return "", ErrInvalid
 		}
 		match := func(leftSQL, rightSQL string) string {
@@ -219,6 +219,16 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 				rhs = "('%' || " + rightSQL + " || '%')"
 			}
 			return "COALESCE(" + leftSQL + " " + op + " " + rhs + ",false)"
+		}
+		if left.Cardinality == Scalar {
+			if left.SQL == "" {
+				return "", ErrInvalid
+			}
+			alias := c.projectionAlias("pgbase_operand_right")
+			return "EXISTS (SELECT 1 FROM LATERAL " + multiSource(rightMulti, alias) + " WHERE " + match(left.SQL, alias+".value") + ")", nil
+		}
+		if left.Multi == nil {
+			return "", ErrInvalid
 		}
 		// Project each source in its own scope so resolver aliases cannot shadow
 		// the other operand's value or correlation predicates.
@@ -500,7 +510,8 @@ func (c *expressionCompiler) resolveRequest(path string) (Operand, error) {
 		}
 		if modifier == "each" {
 			parameter := c.typedParameter(OperandJSON, items)
-			return Operand{Kind: OperandText, Cardinality: Many, Multi: &MultiOperand{From: "jsonb_array_elements_text(" + parameter + ") pb_request_values(value)", ValueSQL: "pb_request_values.value"}}, nil
+			alias := c.projectionAlias("pb_request_values")
+			return Operand{Kind: OperandText, Cardinality: Many, Multi: &MultiOperand{From: "jsonb_array_elements_text(" + parameter + ") " + alias + "(value)", ValueSQL: alias + ".value"}}, nil
 		}
 		first := ""
 		if len(items) != 0 {
@@ -560,7 +571,8 @@ func (c *expressionCompiler) resolveRequest(path string) (Operand, error) {
 				return Operand{}, ErrInvalid
 			}
 			parameter := c.typedParameter(OperandJSON, array)
-			return Operand{Kind: OperandText, Cardinality: Many, Multi: &MultiOperand{From: "jsonb_array_elements_text(CASE WHEN jsonb_typeof(" + parameter + ")='array' THEN " + parameter + " ELSE jsonb_build_array(" + parameter + ") END) pb_request_each(value)", ValueSQL: "pb_request_each.value"}}, nil
+			alias := c.projectionAlias("pb_request_each")
+			return Operand{Kind: OperandText, Cardinality: Many, Multi: &MultiOperand{From: "jsonb_array_elements_text(CASE WHEN jsonb_typeof(" + parameter + ")='array' THEN " + parameter + " ELSE jsonb_build_array(" + parameter + ") END) " + alias + "(value)", ValueSQL: alias + ".value"}}, nil
 		}
 		value, err := pbTypedValue(field.Kind, raw)
 		if err != nil {
@@ -607,6 +619,16 @@ func pbTypedValue(kind OperandKind, raw json.RawMessage) (any, error) {
 	case OperandText, OperandTime, OperandUUID:
 		if _, ok := value.(string); !ok {
 			return nil, ErrInvalid
+		}
+		if kind == OperandUUID {
+			if _, err := uuid.Parse(value.(string)); err != nil {
+				return nil, ErrInvalid
+			}
+		}
+		if kind == OperandTime {
+			if _, err := time.Parse(time.RFC3339Nano, value.(string)); err != nil {
+				return nil, ErrInvalid
+			}
 		}
 	case OperandBool:
 		if _, ok := value.(bool); !ok {

@@ -74,14 +74,14 @@ func (r *catalogResolver) Resolve(path string) (Operand, error) {
 		if field.Relation == nil {
 			return Operand{}, ErrInvalid
 		}
-		nextAlias := pgx.Identifier{"pb_rel_" + string(rune('a'+index))}.Sanitize()
+		nextAlias := r.alias("pb_rel_" + string(rune('a'+index)))
 		table := pgx.Identifier{"app", target.TableName}.Sanitize()
 		join := table + " " + nextAlias
 		var condition string
 		if reverse {
 			if field.Relation.Cardinality == schema.RelationMultiple {
 				edge := pgx.Identifier{"pgbase_relation", field.Relation.Storage.Name}.Sanitize()
-				e := pgx.Identifier{"pb_edge_r_" + string(rune('a'+index))}.Sanitize()
+				e := r.alias("pb_edge_r_" + string(rune('a'+index)))
 				join = edge + " " + e + " JOIN " + table + " " + nextAlias + " ON " + nextAlias + `."id"=` + e + `."source_id"`
 				condition = e + `."target_id"=` + alias + `."id"`
 			} else {
@@ -89,7 +89,7 @@ func (r *catalogResolver) Resolve(path string) (Operand, error) {
 			}
 		} else if field.Relation.Cardinality == schema.RelationMultiple {
 			edge := pgx.Identifier{"pgbase_relation", field.Relation.Storage.Name}.Sanitize()
-			e := pgx.Identifier{"pb_edge_" + string(rune('a'+index))}.Sanitize()
+			e := r.alias("pb_edge_" + string(rune('a'+index)))
 			join = edge + " " + e + " JOIN " + table + " " + nextAlias + " ON " + nextAlias + `."id"=` + e + `."target_id"`
 			condition = e + `."source_id"=` + alias + `."id"`
 		} else {
@@ -115,7 +115,7 @@ func (r *catalogResolver) Resolve(path string) (Operand, error) {
 
 func (r *catalogResolver) modifiedOperand(sql string, field schema.Field, from, predicate, modifier string) Operand {
 	if modifier == "each" && field.Type == schema.TypeJSONB {
-		alias := pgx.Identifier{"pb_each"}.Sanitize()
+		alias := r.alias("pb_each")
 		join := "jsonb_array_elements_text(CASE WHEN jsonb_typeof(" + sql + ")='array' THEN " + sql + " ELSE jsonb_build_array(" + sql + ") END) " + alias + "(value)"
 		if from != "" {
 			join = from + " CROSS JOIN LATERAL " + join
@@ -165,7 +165,7 @@ func (r *catalogResolver) ResolveCollection(name, path string) (Operand, error) 
 	if !ok {
 		return Operand{}, ErrInvalid
 	}
-	nested := &catalogResolver{catalog: r.catalog, root: collection, rootAlias: pgx.Identifier{"pb_collection"}.Sanitize()}
+	nested := &catalogResolver{catalog: r.catalog, root: collection, rootAlias: r.alias("pb_collection")}
 	value, err := nested.Resolve(path)
 	if err != nil {
 		return Operand{}, err
@@ -257,4 +257,11 @@ func validPBPath(v string) bool {
 		}
 	}
 	return true
+}
+
+func (r *catalogResolver) alias(name string) string {
+	for (pgx.Identifier{name}).Sanitize() == r.rootAlias {
+		name += "_"
+	}
+	return pgx.Identifier{name}.Sanitize()
 }

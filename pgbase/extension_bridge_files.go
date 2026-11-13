@@ -214,13 +214,12 @@ func (host *extensionHost) callFiles(ctx context.Context, method string, raw jso
 }
 
 func (host *extensionHost) fileCoordinates(ctx context.Context, request extensionFileRequest) (uuid.UUID, uuid.UUID, error) {
-	collectionID, err := host.bridge.files.CollectionID(ctx, request.Collection)
+	if request.Field == "" {
+		return uuid.Nil, uuid.Nil, extensionError("invalid_file_request", filestore.ErrInvalid)
+	}
+	collectionID, recordID, err := host.bridge.files.ResolveRecordID(ctx, request.Collection, request.RecordID)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, mapExtensionError(err)
-	}
-	recordID, err := requiredUUID(request.RecordID)
-	if err != nil || request.Field == "" {
-		return uuid.Nil, uuid.Nil, extensionError("invalid_file_request", err)
 	}
 	return collectionID, recordID, nil
 }

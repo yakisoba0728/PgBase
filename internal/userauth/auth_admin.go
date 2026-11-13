@@ -595,7 +595,8 @@ func (s *Service) configuredOAuthProvider(ctx context.Context, collectionID uuid
 	var c HTTPOAuthConfig
 	c.ProviderName = name
 	var encrypted, scopesRaw, redirectsRaw []byte
-	err := s.pool.QueryRow(ctx, `select authorization_url,token_url,user_info_url,issuer,jwks_url,client_id,client_secret_ciphertext,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback from pgbase_meta.auth_oauth_providers where auth_collection_id=$1 and name=$2 and enabled`, collectionID, name).Scan(&c.AuthorizationURL, &c.TokenURL, &c.UserInfoURL, &c.Issuer, &c.JWKSURL, &c.ClientID, &encrypted, &scopesRaw, &redirectsRaw, &c.SubjectField, &c.EmailField, &c.EmailVerifiedField, &c.AvatarField, &c.AllowInsecureLoopback)
+	var enabled bool
+	err := s.pool.QueryRow(ctx, `select enabled,authorization_url,token_url,user_info_url,issuer,jwks_url,client_id,client_secret_ciphertext,scopes,redirect_uris,subject_field,email_field,email_verified_field,avatar_field,allow_insecure_loopback from pgbase_meta.auth_oauth_providers where auth_collection_id=$1 and name=$2`, collectionID, name).Scan(&enabled, &c.AuthorizationURL, &c.TokenURL, &c.UserInfoURL, &c.Issuer, &c.JWKSURL, &c.ClientID, &encrypted, &scopesRaw, &redirectsRaw, &c.SubjectField, &c.EmailField, &c.EmailVerifiedField, &c.AvatarField, &c.AllowInsecureLoopback)
 	if errors.Is(err, pgx.ErrNoRows) {
 		p, ok := s.oauthProviders[name]
 		if !ok {
@@ -605,6 +606,9 @@ func (s *Service) configuredOAuthProvider(ctx context.Context, collectionID uuid
 	}
 	if err != nil {
 		return nil, nil, err
+	}
+	if !enabled {
+		return nil, nil, ErrValidation
 	}
 	if encrypted != nil {
 		plain, err := s.decrypt("oauth-client-secret", encrypted)

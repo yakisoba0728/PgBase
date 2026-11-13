@@ -4,6 +4,7 @@ import { outside } from "../components/UnsavedGuard";
 import { useSearchState } from "../app/search";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { planCollectionChange, type ApplyIdentity, type Collection, type CollectionType, type CreateCollectionChange, type FieldType } from "../api/collections";
+import { mayHaveRun } from "../devtools/model";
 import { ApiError, stringifyJson } from "../api/http";
 import { previewSchemaImport, type CollectionScaffolds, type SchemaDocument } from "../api/schema";
 import { isWatched, operations, trackOperation, untrackOperation, useOperations, watchOperation } from "../app/operations";
@@ -39,7 +40,7 @@ function authDocument(change: CreateCollectionChange, scaffolds: CollectionScaff
   return {
     format: "pgbase.schema/v1",
     collections: [{ ...scaffolds.auth.collection, ...collection }],
-    authCollections: [{ ...scaffolds.auth.authCollection, name: change.name, recordId: change.recordId }],
+    authCollections: [{ ...scaffolds.auth.authCollection, name: change.name, recordId: change.recordId, fields: change.fields?.filter((field) => !field.system).map(({ default: _default, ...field }) => field) }],
   };
 }
 
@@ -78,6 +79,7 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
   const dirty = !sameDraft(draft, base);
   // Set once the draft is applied or the collection deleted: no more guard, no more planning.
   const finished = useRef(false);
+  const applying = useRef(false);
   // The collection changed on the server since this draft started: planning waits for a rebase.
   const drift = useMemo(
     () => (!creating && dirty && !finished.current && !sameDraft(base, initial) ? rebaseDraft(draft, base, initial) : undefined),
@@ -86,6 +88,7 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
 
   const update = useCallback(
     (change: (current: Draft) => Draft) => {
+      if (applying.current) return;
       const entry = current();
       drafts.set({ ...drafts.get(), [key]: { base: entry.base, draft: change(entry.draft) } });
     },
@@ -94,7 +97,7 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
 
   // Pane state lives in the query string: ?field=, ?index= or ?review.
   const setPane = useCallback(
-    (pane: { field?: string; index?: string; review?: boolean } | null) => setSearch({ field: pane?.field, index: pane?.index, review: pane?.review ? "1" : null }),
+    (pane: { field?: string; index?: string; review?: boolean } | null) => !applying.current && setSearch({ field: pane?.field, index: pane?.index, review: pane?.review ? "1" : null }),
     [setSearch],
   );
   const openField = draft.fields.find((field) => field.key === params.get("field"));
@@ -159,6 +162,7 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
     mutationFn: async () => {
       const planned = planQuery.data;
       if (!planned) throw new Error("no plan");
+      applying.current = true;
       const kind = planned.kind === "import" ? "import" : "schema";
       const resumed = operations().find((operation) => operation.kind === kind && operation.subject === subject && operation.checksum === planned.checksum && operation.idempotencyKey);
       const identity: ApplyIdentity = resumed ? { operationId: resumed.id, idempotencyKey: resumed.idempotencyKey! } : newIdentity();
@@ -169,7 +173,8 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
         else await applyCollection(planned.change, planned.plan, identity);
         untrackOperation(identity.operationId);
       } catch (error) {
-        if (!(error instanceof Undecided) && !(error instanceof ApiError && error.code === "network_error")) untrackOperation(identity.operationId);
+        if (resumed && !(error instanceof ApiError && error.code === "schema_operation_failed")) throw new Undecided(identity.operationId);
+        if (!(error instanceof Undecided) && !mayHaveRun(error) && !(error instanceof ApiError && (error.status === 429 || error.code === "idempotency_in_progress"))) untrackOperation(identity.operationId);
         throw error;
       } finally {
         release();
@@ -183,8 +188,9 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
       await navigate(`/collections/${encodeURIComponent(name)}/schema`, { replace: !creating });
       dropDraft(key);
     },
+    onSettled: () => { applying.current = false; },
     onError: (error) => {
-      if (error instanceof Undecided || (error instanceof ApiError && error.code === "network_error")) return;
+      if (error instanceof Undecided || mayHaveRun(error) || (error instanceof ApiError && (error.status === 429 || error.code === "idempotency_in_progress"))) return;
       if (error instanceof ApiError && error.code === "schema_conflict") void planQuery.refetch();
       toast(errorText(t, error), "danger");
     },
@@ -210,7 +216,7 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
     /** An earlier apply of this collection whose outcome is still open (another plan, another tab, or before a reload). */
     pending: pending && !isWatched(pending.id) && pending.checksum !== planQuery.data?.checksum ? pending : undefined,
     /** Props for the unsaved-changes guard; moving between this collection's tabs keeps the draft. */
-    guard: { dirty, release: () => finished.current, leaves: outside(basePath), onDiscard: () => dropDraft(key) },
+    guard: { dirty, busy: apply.isPending, release: () => finished.current, leaves: outside(basePath), onDiscard: () => dropDraft(key) },
     setPane,
     setMeta: (patch: Partial<Draft>) => update((current) => ({ ...current, ...patch })),
     addField: (fieldType: FieldType) => {
@@ -245,6 +251,7 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
       setPane(null);
     },
     discard: () => {
+      if (applying.current) return;
       dropDraft(key);
       setPane(null);
     },

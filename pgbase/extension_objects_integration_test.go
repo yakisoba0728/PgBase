@@ -85,6 +85,15 @@ func TestExtensionObjectReplacementPublicationFailurePreservesCommittedBytes(t *
 	if err := fixture.app.pool.QueryRow(ctx, `select object_key from pgbase_meta.extension_objects where logical_namespace='module.js' and logical_key='state'`).Scan(&committedKey); err != nil {
 		t.Fatal(err)
 	}
+	// Keep the superseded version queued while this publication failure test inspects physical versions.
+	gcLock, err := fixture.app.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gcLock.Rollback(context.Background())
+	if _, err := gcLock.Exec(ctx, `select pg_advisory_xact_lock(hashtextextended($1,0))`, "file-object/"+committedKey); err != nil {
+		t.Fatal(err)
+	}
 	if err := objects.Write(ctx, "module.js", "state", []byte("replacement")); err != nil {
 		t.Fatal(err)
 	}

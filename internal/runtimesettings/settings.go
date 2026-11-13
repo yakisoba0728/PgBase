@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/jobs"
 	"github.com/yakisoba0728/PgBase/internal/validation"
 )
 
@@ -105,6 +106,9 @@ func validate(v Settings) error {
 	if err := validateStored(v); err != nil {
 		return err
 	}
+	if _, err := jobs.ParseScheduleInLocation(v.Backups.Schedule, v.Backups.Timezone); err != nil {
+		return invalidSetting("backups")
+	}
 	for _, rule := range v.RateLimits.Rules {
 		if !validAPIRateLabel(rule.Label) {
 			return invalidSetting("rateLimits.rules")
@@ -170,11 +174,22 @@ type Controller struct {
 const encryptionDomain = "pgbase-runtime-settings-v1"
 
 func New(ctx context.Context, pool *database.Pool, encryptionKey []byte) (*Controller, error) {
+	return NewWithTrustedProxies(ctx, pool, encryptionKey, nil)
+}
+
+// Startup proxies seed only a missing document; saved empty lists remain authoritative.
+func NewWithTrustedProxies(ctx context.Context, pool *database.Pool, encryptionKey []byte, proxies []netip.Prefix) (*Controller, error) {
 	if pool == nil || len(encryptionKey) < 32 {
 		return nil, ErrInvalid
 	}
 	c := &Controller{pool: pool, key: deriveKey(encryptionKey)}
 	v := Default()
+	for _, prefix := range proxies {
+		if !prefix.IsValid() {
+			return nil, invalidSetting("proxy")
+		}
+		v.Proxy.TrustedProxyCIDRs = append(v.Proxy.TrustedProxyCIDRs, prefix.String())
+	}
 	raw, err := json.Marshal(v)
 	if err != nil {
 		return nil, err

@@ -607,3 +607,17 @@ func assertJSONEqual(t *testing.T, got any, want string) {
 		t.Fatalf("JSON = %s, want %s", gotJSON, want)
 	}
 }
+
+func TestSemanticJSONNumbersCannotCollideWithUserStrings(t *testing.T) {
+	field := schema.Field{Name: "payload", Type: schema.TypeJSONB}
+	for _, pair := range [][2]string{{`1`, `"#number:1"`}, {`{"flag":1}`, `{"flag":"#number:1"}`}, {`[1]`, `["#number:1"]`}, {`1`, `"1"`}} {
+		if FieldInputEqualsStored(field, json.RawMessage(pair[0]), json.RawMessage(pair[1])) {
+			t.Fatalf("equal: %s / %s", pair[0], pair[1])
+		}
+	}
+	for _, raw := range []string{`1.0`, `1e0`, `1.000`} {
+		if !FieldInputEqualsStored(field, json.RawMessage(raw), json.RawMessage(`1`)) {
+			t.Fatalf("not equal: %s / 1", raw)
+		}
+	}
+}

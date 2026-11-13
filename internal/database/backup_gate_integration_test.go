@@ -15,22 +15,22 @@ import (
 func TestBackupGateExcludesWritersAndOtherBackupOperations(t *testing.T) {
 	ctx := context.Background()
 	databaseURL := testutil.NewDatabase(t)
-	writer, err := TryBackupGate(ctx, databaseURL, false)
+	writer, err := TryBackupGate(ctx, databaseURL, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := TryBackupGate(ctx, databaseURL, true); !errors.Is(err, ErrBackupGateBusy) {
+	if _, err := TryBackupGate(ctx, databaseURL, true, false); !errors.Is(err, ErrBackupGateBusy) {
 		t.Fatalf("exclusive with writer = %v", err)
 	}
 	if err := writer.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	exclusive, err := TryBackupGate(ctx, databaseURL, true)
+	exclusive, err := TryBackupGate(ctx, databaseURL, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer exclusive.Close(ctx)
-	if _, err := TryBackupGate(ctx, databaseURL, false); !errors.Is(err, ErrBackupGateBusy) {
+	if _, err := TryBackupGate(ctx, databaseURL, false, false); !errors.Is(err, ErrBackupGateBusy) {
 		t.Fatalf("writer with exclusive = %v", err)
 	}
 }
@@ -42,12 +42,12 @@ func TestDatabasePoolConnectionsParticipateInBackupGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = TryBackupGate(ctx, databaseURL, true); !errors.Is(err, ErrBackupGateBusy) {
+	if _, err = TryBackupGate(ctx, databaseURL, true, false); !errors.Is(err, ErrBackupGateBusy) {
 		t.Fatalf("exclusive with active pool = %v", err)
 	}
 	// Losing the standalone lifetime session does not create a backup window:
 	// every live/reconnected pool session independently holds the shared lock.
-	lifetime, err := TryBackupGate(ctx, databaseURL, false)
+	lifetime, err := TryBackupGate(ctx, databaseURL, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestDatabasePoolConnectionsParticipateInBackupGate(t *testing.T) {
 	if err = pool.Ping(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = TryBackupGate(ctx, databaseURL, true); !errors.Is(err, ErrBackupGateBusy) {
+	if _, err = TryBackupGate(ctx, databaseURL, true, false); !errors.Is(err, ErrBackupGateBusy) {
 		t.Fatalf("exclusive after lifetime gate loss = %v", err)
 	}
 	pool.Close()
@@ -65,7 +65,7 @@ func TestDatabasePoolConnectionsParticipateInBackupGate(t *testing.T) {
 	// shared lock until it exits.
 	var exclusive *BackupGate
 	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(25 * time.Millisecond) {
-		exclusive, err = TryBackupGate(ctx, databaseURL, true)
+		exclusive, err = TryBackupGate(ctx, databaseURL, true, false)
 		if err == nil {
 			break
 		}
@@ -83,7 +83,7 @@ func TestBackupGateMonitorReportsSessionLoss(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	databaseURL := testutil.NewDatabase(t)
-	gate, err := TryBackupGate(ctx, databaseURL, false)
+	gate, err := TryBackupGate(ctx, databaseURL, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}

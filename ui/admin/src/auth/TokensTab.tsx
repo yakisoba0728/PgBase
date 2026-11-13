@@ -78,7 +78,7 @@ export function TokensTab({ collection, policies }: { collection: AuthCollection
         <SaveBar form="auth-tokens" dirty={form.dirty} busy={save.isPending} onDiscard={form.reset} />
       </div>
       <div className="page-content">
-        <form id="auth-tokens" className="auth-form auth-form-wide" onSubmit={onSubmit} noValidate>
+        <form id="auth-tokens" className="auth-form auth-form-wide" onSubmit={onSubmit} noValidate><fieldset disabled={save.isPending} className="form">
           <table className="grid auth-table">
             <thead>
               <tr>
@@ -102,7 +102,7 @@ export function TokensTab({ collection, policies }: { collection: AuthCollection
             </tbody>
           </table>
           <p className="txt-hint">{t("auth.tokens.hint")}</p>
-        </form>
+        </fieldset></form>
       </div>
       <UnsavedGuard dirty={form.dirty} />
     </div>

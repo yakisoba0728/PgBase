@@ -166,7 +166,7 @@ function DestinationForm({ current, locked }: { current: FileStorageSettings; lo
         <Notice tone="danger">{t(storageErrorKey(failed, "migration"))}</Notice>
       )}
       <fieldset className="form" disabled={locked || start.isPending}>
-        <StorageFields draft={draft} errors={errors} secretConfigured={false} secretHint={t("storage.migration.secretHint")} onChange={change} />
+        <StorageFields draft={draft} errors={errors} secretConfigured={current.secretConfigured} secretHint={t("storage.migration.secretHint")} onChange={change} />
       </fieldset>
       <footer className="storage-actions">
         {preview.data && <span className="storage-preview mono">{t("storage.migration.previewResult", { count: preview.data.totalObjects })}</span>}

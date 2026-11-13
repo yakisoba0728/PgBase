@@ -64,6 +64,7 @@ export const storageKo: Record<keyof typeof storageEn, string> = {
   "storage.form.prefix": "키 접두사",
   "storage.form.region": "리전",
   "storage.form.endpoint": "엔드포인트",
+  "storage.form.backupEndpointHint": "AWS는 비워 두세요. 사용자 지정 백업 서비스는 https 또는 http를 지원합니다.",
   "storage.form.endpointHint": "AWS는 비워 두세요. 그 외에는 https, http는 루프백만 됩니다.",
   "storage.form.accessKey": "액세스 키",
   "storage.form.secretKey": "시크릿 키",
