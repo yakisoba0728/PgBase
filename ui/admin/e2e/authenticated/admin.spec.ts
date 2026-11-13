@@ -246,6 +246,76 @@ test.describe.serial("auth workflow", () => {
   });
 });
 
+test.describe.serial("administrator security", () => {
+  // A throwaway administrator owns the password change and the allowlist, so the shared
+  // worker session and the operator's credentials survive reruns. Wrong passwords are kept
+  // to one per test: they count toward the sign-in throttle of this network.
+  const admin = { email: `admin-${suffix}@example.test`, password: `admin password ${suffix}` };
+  const changed = `changed password ${suffix}`;
+
+  async function signInAs(page: Page, email: string, password: string): Promise<void> {
+    await page.context().clearCookies();
+    await signIn(page, email, password);
+    await expect(page.getByRole("button", { name: "Account" })).toContainText(email);
+  }
+
+  test("creating an administrator requires the current password", async ({ page }) => {
+    await page.goto("/admin/administrators");
+    await page.getByRole("button", { name: "New administrator" }).click();
+    const form = page.getByRole("region", { name: "Administrator" });
+    await form.getByRole("textbox", { name: "Email" }).fill(admin.email);
+    await form.getByRole("textbox", { name: "Password", exact: true }).fill(admin.password);
+    const current = form.getByRole("textbox", { name: "Current password" });
+    await current.fill("not the current password");
+    await form.getByRole("button", { name: "Create", exact: true }).click();
+    await expect(form.getByText("The current password is incorrect.")).toBeVisible();
+    await expect(page.getByRole("cell", { name: admin.email })).toHaveCount(0);
+
+    await current.fill(credentials().password);
+    await form.getByRole("button", { name: "Create", exact: true }).click();
+    await expect(page.getByRole("status").getByText(`${admin.email} added.`)).toBeVisible();
+    await expect(page.getByRole("cell", { name: admin.email })).toBeVisible();
+  });
+
+  test("changing the profile password requires the current password", async ({ page }) => {
+    await signInAs(page, admin.email, admin.password);
+    await page.goto("/admin/profile");
+    const current = page.getByRole("textbox", { name: "Current password" }).nth(1);
+    await page.getByRole("textbox", { name: "New password" }).fill(changed);
+    await page.getByRole("textbox", { name: "Repeat password" }).fill(changed);
+    await current.fill("not the current password");
+    await page.getByRole("button", { name: "Set password" }).click();
+    await expect(page.getByText("The current password is incorrect.")).toBeVisible();
+
+    // The change ends every session of the account, this one included.
+    await current.fill(admin.password);
+    await page.getByRole("button", { name: "Set password" }).click();
+    await expect(page).toHaveURL(/\/admin\/login$/);
+    await signIn(page, admin.email, changed);
+    await expect(page.getByRole("button", { name: "Account" })).toContainText(admin.email);
+  });
+
+  test("the IP allowlist refuses a list that excludes the caller", async ({ page, baseURL }) => {
+    await signInAs(page, admin.email, changed);
+    await page.goto("/admin/profile");
+    const networks = page.getByRole("textbox", { name: "Networks" });
+    await networks.fill("198.51.100.0/24");
+    await expect(page.getByText("Your current address 127.0.0.1 is not inside this list, so it cannot be saved.")).toBeVisible();
+    await expect(page.locator("form").filter({ has: networks }).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+
+    // The page only mirrors the rule; the server is what refuses it.
+    const session = await (await page.request.get("/api/admin/session")).json() as { csrfToken: string };
+    const refused = await page.request.patch("/api/admin/profile/ip-allowlist", {
+      headers: { "X-PgBase-CSRF": session.csrfToken, Origin: new URL(baseURL ?? "").origin },
+      data: { currentPassword: changed, prefixes: ["198.51.100.0/24"] },
+    });
+    expect(refused.status()).toBe(409);
+    expect(await refused.json()).toMatchObject({ error: { code: "ip_allowlist_excludes_caller" } });
+    const after = await (await page.request.get("/api/admin/profile/ip-allowlist")).json() as { prefixes: string[] };
+    expect(after.prefixes).toEqual([]);
+  });
+});
+
 test("shows request log entries", async ({ page }) => {
   await page.goto("/admin/logs");
   const rows = page.getByRole("table", { name: "Logs" }).getByRole("row");
