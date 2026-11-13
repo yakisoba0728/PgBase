@@ -11,6 +11,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/mailer"
 	"github.com/yakisoba0728/PgBase/internal/recordidentity"
+	"github.com/yakisoba0728/PgBase/internal/validation"
 )
 
 type errorKind uint8
@@ -58,6 +59,12 @@ var (
 	ErrNotFound           = &authError{kind: errorNotFound}
 	ErrMFARequired        = &authError{kind: errorMFARequired}
 )
+
+// fieldError keeps errors.Is(err, kind) working and names the offending
+// request field for administrator responses (errors.As *validation.Error).
+func fieldError(kind error, field, code string) error {
+	return errors.Join(kind, &validation.Error{Details: []validation.Detail{{Field: field, Code: code}}})
+}
 
 type MFARequiredError struct {
 	ChallengeToken string

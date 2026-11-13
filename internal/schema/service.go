@@ -58,6 +58,9 @@ type AuthExecutablePolicyValidator interface {
 	ValidatePasswordPattern(string) bool
 	ValidateMFARule(string) bool
 	ValidateAuthRule(string, []FieldInput) bool
+	// SyncAuthCollectionFields applies a designer field change to the realm
+	// paired with an auth collection, inside the schema apply transaction.
+	SyncAuthCollectionFields(ctx context.Context, tx pgx.Tx, name string, removed []string, upserts []FieldInput) error
 }
 
 func (s *Service) SetAuthExecutablePolicyValidator(validator AuthExecutablePolicyValidator) {
@@ -92,6 +95,9 @@ func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err er
 	operationStarted := time.Now()
 	relationOperation := changeHasRelationInput(change)
 	defer s.finishOperation(ctx, observability.OperationRelationSchema, operationStarted, &err, &relationOperation)
+	if err = rejectSingleAuthCreate(change); err != nil {
+		return Plan{}, err
+	}
 	var catalog Catalog
 	var companions bool
 	if isSQLViewChange(change) {
@@ -142,6 +148,9 @@ func (s *Service) Preview(ctx context.Context, change Change) (plan Plan, err er
 	case changeDelete:
 		current := catalog.Collections[change.deleteName]
 		relationOperation = collectionHasRelationField(current) || len(catalog.Incoming[current.ID]) != 0
+		if _, err := pairedAuthRealm(ctx, s.pool, current, ""); err != nil {
+			return Plan{}, err
+		}
 	}
 	projected, err := projectCatalog(catalog, change, plan)
 	if err != nil {

@@ -15,7 +15,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/yakisoba0728/PgBase/internal/authpolicy"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 type SchemaDocumentAuthCollection struct {
@@ -287,4 +289,118 @@ func (s *Service) newImportedAuthTokenKey(purpose string) (string, []byte, error
 		return "", nil, err
 	}
 	return hex.EncodeToString(versionRaw), gcm.Seal(nonce, nonce, raw, []byte(domain)), nil
+}
+
+// An auth collection is a catalog collection paired by name with a realm
+// (pgbase_meta.auth_collections). A single-collection change cannot create the
+// realm, so new auth collections go through the schema import, which carries
+// both halves (see Scaffolds).
+func rejectSingleAuthCreate(change Change) error {
+	if change.kind == changeCreate && change.create.Type == CollectionTypeAuth {
+		return validation("type", "auth_requires_schema_import")
+	}
+	return nil
+}
+
+const defaultAuthRealmID = "00000000-0000-0000-0000-000000000001"
+
+// pairedAuthRealm returns the realm deleted with an auth collection, or
+// uuid.Nil when it has none. Its users would be orphaned, so they block it.
+func pairedAuthRealm(ctx context.Context, db database.DBTX, current Collection, lock string) (uuid.UUID, error) {
+	var id uuid.UUID
+	var users bool
+	if current.Type != CollectionTypeAuth {
+		return uuid.Nil, nil
+	}
+	err := db.QueryRow(ctx, `select id,exists(select 1 from pgbase_meta.users u where u.auth_collection_id=a.id) from pgbase_meta.auth_collections a where name=$1`+lock, current.Name).Scan(&id, &users)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return uuid.Nil, nil
+	case err != nil:
+		return uuid.Nil, err
+	case id.String() == defaultAuthRealmID:
+		return uuid.Nil, validation("name", "default_auth_collection_protected")
+	case users:
+		return uuid.Nil, validation("name", "auth_collection_has_users")
+	}
+	return id, nil
+}
+
+func deletePairedAuthRealm(ctx context.Context, tx pgx.Tx, current Collection) error {
+	id, err := pairedAuthRealm(ctx, tx, current, " for update")
+	if err != nil || id == uuid.Nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `delete from pgbase_meta.auth_collections where id=$1`, id)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23001") {
+		return validation("name", "auth_collection_has_users")
+	}
+	return err
+}
+
+// renameAuthRealmReferences keeps realms consistent with a catalog rename:
+// a renamed auth collection renames its realm, and realm relation fields that
+// target the old name follow it.
+func renameAuthRealmReferences(ctx context.Context, db database.DBTX, oldName, newName string, auth bool) error {
+	if auth {
+		var id uuid.UUID
+		err := db.QueryRow(ctx, `select id from pgbase_meta.auth_collections where name=$1 for update`, oldName).Scan(&id)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if err == nil {
+			if id.String() == defaultAuthRealmID {
+				return validation("name", "default_auth_collection_protected")
+			}
+			// Catalog names are a subset of realm names, so newName is a valid realm name.
+			_, err = db.Exec(ctx, `update pgbase_meta.auth_collections set name=$2,updated_at=clock_timestamp() where id=$1`, id, newName)
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				return validation("name", "auth_collection_name_taken")
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
+	_, err := db.Exec(ctx, `update pgbase_meta.auth_collections set fields_json=(select jsonb_agg(case when f->'relation'->>'targetCollection'=$1 then jsonb_set(f,'{relation,targetCollection}',to_jsonb($2::text)) else f end order by n) from jsonb_array_elements(fields_json) with ordinality e(f,n)),updated_at=clock_timestamp() where fields_json @> jsonb_build_array(jsonb_build_object('relation',jsonb_build_object('targetCollection',$1::text)))`, oldName, newName)
+	return err
+}
+
+// syncAuthRealmFields mirrors a designer field change of an auth collection
+// into its realm, whose fields drive user profiles. Catalog-only properties
+// (ids, system flags, physical defaults) are not part of a realm field.
+func (s *Service) syncAuthRealmFields(ctx context.Context, tx pgx.Tx, catalog Catalog, previous, next Collection) error {
+	if next.Type != CollectionTypeAuth || s.authPolicyValidator == nil {
+		return nil
+	}
+	kept := map[string]bool{}
+	upserts := []FieldInput{}
+	for _, field := range next.Fields {
+		if field.System {
+			continue
+		}
+		kept[field.Name] = true
+		value := FieldInput{Name: field.Name, Type: field.Type, Required: field.Required, Unique: field.Unique, Indexed: field.Indexed, Options: cloneFieldOptionsPointer(field.Options), Hidden: field.Hidden, Presentable: field.Presentable, Help: field.Help}
+		if field.Relation != nil {
+			target := next.Name
+			if field.Relation.TargetCollectionID != next.ID {
+				collection, ok := collectionByID(catalog, field.Relation.TargetCollectionID)
+				if !ok {
+					return ErrConflict
+				}
+				target = collection.Name
+			}
+			value.Relation = &RelationInput{TargetCollection: target, Cardinality: field.Relation.Cardinality, MinSelect: intPointer(field.Relation.MinSelect), MaxSelect: intPointer(field.Relation.MaxSelect), OnDelete: field.Relation.OnDelete}
+		}
+		upserts = append(upserts, value)
+	}
+	removed := []string{}
+	for _, field := range previous.Fields {
+		if !field.System && !kept[field.Name] {
+			removed = append(removed, field.Name)
+		}
+	}
+	return s.authPolicyValidator.SyncAuthCollectionFields(ctx, tx, next.Name, removed, upserts)
 }

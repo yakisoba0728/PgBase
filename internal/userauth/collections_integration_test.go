@@ -88,7 +88,7 @@ func TestAuthCollectionRulesSupportEmailVisibilityOnCreateAndUpdate(t *testing.T
 		t.Fatalf("created view rule = %q, want %q", created.Rules.View, rules.View)
 	}
 	updatedRules := AuthCollectionRules{View: "emailVisibility = false"}
-	updated, err := service.UpdateAuthCollection(ctx, id, UpdateAuthCollectionInput{Rules: updatedRules})
+	updated, err := service.UpdateAuthCollection(ctx, id, UpdateAuthCollectionInput{Rules: &updatedRules})
 	if err != nil {
 		t.Fatalf("update collection with emailVisibility rule: %v", err)
 	}

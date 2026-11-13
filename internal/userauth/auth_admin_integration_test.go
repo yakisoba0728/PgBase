@@ -167,8 +167,13 @@ func TestDurationOnlyTokenPolicyUpdatePreservesLiveSessionUntilExplicitRotation(
 		}
 	}
 	created, err := s.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 120})
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !created.KeyConfigured {
+		t.Fatalf("created token policy = %+v, %v", created, err)
+	}
+	// Every stored policy row carries a key (key_ciphertext is NOT NULL); purposes
+	// without a row are absent from the list, not listed with keyConfigured=false.
+	if listed, err := s.ListTokenPolicies(ctx, DefaultCollectionID); err != nil || len(listed) != 1 || listed[0].Purpose != "session" || !listed[0].KeyConfigured {
+		t.Fatalf("listed token policies = %+v, %v", listed, err)
 	}
 	session, err := s.Register(ctx, "duration-policy@example.test", "Correct horse battery", "duration-policy")
 	if err != nil {

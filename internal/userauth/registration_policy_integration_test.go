@@ -65,7 +65,7 @@ func TestPublicRegistrationEnforcesCollectionCreatePolicy(t *testing.T) {
 				for i := range fields {
 					fields[i].Required = false
 				}
-				if _, err := service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: fields, Rules: rules}); err != nil {
+				if _, err := service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Fields: fields, Rules: &rules}); err != nil {
 					t.Fatal(err)
 				}
 				session, err := register()
@@ -129,7 +129,7 @@ func TestOAuthRegistrationUsesPolicyCommittedDuringProviderExchange(t *testing.T
 		t.Fatal("OAuth provider exchange never started")
 	}
 	rules.Create = "false"
-	_, err = service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Rules: rules})
+	_, err = service.UpdateAuthCollection(ctx, collectionID, UpdateAuthCollectionInput{RegistrationEnabled: true, Rules: &rules})
 	close(provider.release)
 	if err != nil {
 		t.Fatal(err)

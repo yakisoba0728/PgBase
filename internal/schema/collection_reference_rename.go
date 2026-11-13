@@ -12,11 +12,15 @@ import (
 
 func (s *Store) renameCollectionReferences(ctx context.Context, collectionID uuid.UUID, newName string) error {
 	var oldName string
-	if err := s.db.QueryRow(ctx, `select name from pgbase_meta.collections where id=$1 for update`, collectionID).Scan(&oldName); err != nil {
+	var collectionType CollectionType
+	if err := s.db.QueryRow(ctx, `select name,collection_type from pgbase_meta.collections where id=$1 for update`, collectionID).Scan(&oldName, &collectionType); err != nil {
 		return fmt.Errorf("read collection name before rename: %w", err)
 	}
 	if oldName == newName {
 		return nil
+	}
+	if err := renameAuthRealmReferences(ctx, s.db, oldName, newName, collectionType == CollectionTypeAuth); err != nil {
+		return err
 	}
 	rows, err := s.db.Query(ctx, `select collection_id,rules from pgbase_meta.collection_rules for update`)
 	if err != nil {

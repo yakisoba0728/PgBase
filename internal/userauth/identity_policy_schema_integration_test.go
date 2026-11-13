@@ -58,11 +58,11 @@ func TestAuthCollectionUpdatePreservesPublishedIdentityFieldContract(t *testing.
 		{{Name: "handle", Type: schema.TypeEditor}},
 		{{Name: "handle", Type: schema.TypeText, Hidden: true}},
 	} {
-		if _, err := service.UpdateAuthCollection(ctx, realm, UpdateAuthCollectionInput{Fields: fields, Rules: rules}); !errors.Is(err, ErrValidation) {
+		if _, err := service.UpdateAuthCollection(ctx, realm, UpdateAuthCollectionInput{Fields: fields, Rules: &rules}); !errors.Is(err, ErrValidation) {
 			t.Fatalf("invalid identity schema transition accepted for %#v: %v", fields, err)
 		}
 	}
-	if _, err := service.UpdateAuthCollection(ctx, realm, UpdateAuthCollectionInput{Fields: []schema.FieldInput{visibleText}, Rules: rules}); err != nil {
+	if _, err := service.UpdateAuthCollection(ctx, realm, UpdateAuthCollectionInput{Fields: []schema.FieldInput{visibleText}, Rules: &rules}); err != nil {
 		t.Fatalf("valid identity schema update rejected: %v", err)
 	}
 }
