@@ -1,5 +1,17 @@
 # 다음 작업과 완료 기준
 
+2026-11-13 후속 갱신: main은 `64dad0d`(schema 65)다. 브랜치 `backend-fixes`가 O13의 22건을 처리했다(수정 또는 의도된 동작으로 문서화, migration이 필요한 부분은 열림). migration은 없다. 이 기록 작성 시점에 병합과 배포는 대기 중이다. 세부는 [현재 상태](project-status.md) §11·§12를 따른다.
+
+## 2026-11-13 후속 열린 항목
+
+| ID | 작업 | 완료 증거 |
+| --- | --- | --- |
+| O13 | **처리(브랜치 `backend-fixes`, 병합 대기).** 22건 중 수정 17건(13·14는 index가 필요한 부분이 남음), 의도된 동작 문서화 2건(10 relation 공개 접근, 15 `keyConfigured`), 일부 수정 3건(12 service-token principal, 16 일부 endpoint의 field 단위 오류, 21 file metadata 일괄 조회가 남음) | 병합 후 필수 CI 통과 |
+| O14 | `backend-fixes`의 main 병합과 운영 서버 배포. 관리자 보안 요청 body의 `currentPassword` 필수화와 SDK method 인자 변경은 기존 client를 깨뜨린다. 운영 서버의 upgrade는 저장된 `backups.enabled`/`backups.keep`을 지우고 예약 백업을 꺼진 상태로 둔다([현재 상태](project-status.md) §12) | 필수 CI 통과, 병합, 배포 후 health·관리자 로그인·Settings의 백업 값 확인 |
+| O15 | migration이 필요한 남은 백엔드 항목: service-token 요청의 request log principal, request log 검색·dead-letter 목록 index, users 부분 문자열 검색 index | 각각 migration과 test |
+| O16 | migration 없이 가능한 남은 항목: file metadata 일괄 조회, storage·backup·import·SMTP 오류의 field 단위 세부 정보, `pg_catalog` view를 거치는 view 의존성 검사 우회, migration snapshot replay의 realm 일관성 검사 | 항목별 재현 test와 수정 |
+| O17 | Dart SDK 변경(관리자 method의 `currentPassword`, users filter, records `total`)을 Dart가 있는 환경에서 compile·test | `dart analyze`·`dart test` 통과(CI integration의 SDK conformance 포함) |
+
 2026-11-13 갱신: main은 그대로 `7fbf1db`(schema 65)다. 관리자 UI를 브랜치 `frontend-rebuild`에서 처음부터 다시 작성했고 서버 API 계약과 schema는 바뀌지 않았다. 세부는 [현재 상태](project-status.md) §11을 따른다. 아래 표의 O11–O13을 더하고, 2026-11-12 열린 항목은 그대로 남는다.
 
 ## 2026-11-13 열린 항목

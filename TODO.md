@@ -1,5 +1,18 @@
 # pgBase 구현 현황 / TODO
 
+## 2026-11-13 후속 — 백엔드 수정(`backend-fixes`)
+
+main은 `64dad0d`(schema 65)다. UI 재작성 중 발견한 백엔드 문제 22건을 브랜치 `backend-fixes`에서 처리했다. migration은 없다. 항목별 처리·계약 변경·검증은 [현재 상태](docs/project-status.md) §11·§12, 남은 일은 [후속 작업](docs/next-work.md) O14–O17을 따른다.
+
+- [x] 관리자 보안: 자기 email·비밀번호·IP allowlist 변경과 관리자 생성·활성/비활성·다른 관리자 비밀번호 재설정에 현재 비밀번호(step-up) 요구, 자기 password-reset route 차단, allowlist가 호출자 주소를 돌려주고 그 주소를 뺀 목록을 거부, email 변경 시 대기 중인 reset link·OTP 무효화.
+- [x] auth collection·users: 삭제·이름 변경의 realm 일관성, plan의 `type=auth` 생성 거부, designer field 동기화, 끊긴 relation·이름 충돌 거부, users 검색·total·단건 조회·cursor, policy·provider·template·SMTP의 ETag/If-Match(412).
+- [x] 운영: `pgbase serve`의 managed-backup job 등록(upgrade에서 retention·예약을 바꾸지 않음), log 검색·기간 통계·조건부 삭제, dead-letter 목록, 실행 중 backup job 목록, backup 목록 경합, log의 IP/zone 기록.
+- [x] 데이터: view sample uuid, `invalid_view_sql` 세부, rule 오류 세부, rule·filter의 system field, bounded list total, settings null 처리, 환경 변수로 켜는 SQL console(기본 꺼짐).
+- [x] 검증: 구조 예산 재산정, 브라우저 suite 18개 시나리오(step-up 3개 추가) 2회 연속 통과, CI 동등 명령 실행([현재 상태](docs/project-status.md) §12).
+- [ ] main 병합과 운영 서버 배포(O14): 기존 client는 `currentPassword` 변경에 맞춰야 한다.
+- [ ] migration이 필요한 남은 항목(O15)과 migration 없이 가능한 남은 항목(O16).
+- [ ] Dart SDK compile·test(O17): 이 환경에 Dart가 없어 실행하지 않았다.
+
 ## 2026-11-13 현재 — 관리자 UI 전면 재작성(`frontend-rebuild`)
 
 main은 그대로 `7fbf1db`(schema 65)다. 관리자 UI를 브랜치 `frontend-rebuild`에서 처음부터 다시 작성했다. 세부·검증 범위·백엔드 관찰 목록은 [현재 상태](docs/project-status.md) §11을 따른다.
@@ -9,7 +22,7 @@ main은 그대로 `7fbf1db`(schema 65)다. 관리자 UI를 브랜치 `frontend-r
 - [ ] 미검증: S3 migration(일부만), production binary의 SQL console, Chromium 외 브라우저, release gate, CI E2E workflow에서의 새 suite(이 작업에서는 실행하지 않음).
 - [ ] 구조 예산 test와 commit된 `ui/admin/dist` 재생성: 마지막 단계에서 맞춘다(현재 red).
 - [x] main 병합과 운영 서버 배포: [PR #108](https://github.com/yakisoba0728/PgBase/pull/108) `2912e39` 병합, 2026-11-13 `https://pgbase.yaki.kr` 배포. [배포 기록](docs/deployment-2026-11-13.md).
-- [ ] UI 재작성 중 발견한 백엔드 문제 22건(수정하지 않음): [현재 상태](docs/project-status.md) §11 목록. 항목별 확인·결정 필요.
+- [x] UI 재작성 중 발견한 백엔드 문제 22건: 브랜치 `backend-fixes`에서 처리(위 2026-11-13 후속 항목, 병합 대기).
 
 ## 2026-11-12 — 관리자 UI 재구축, 한국어 지원, Dokploy 서버 배포
 
