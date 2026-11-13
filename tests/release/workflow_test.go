@@ -183,7 +183,7 @@ func TestReleaseCandidateVerifiesItsOwnProvenanceAndSBOM(t *testing.T) {
 		t.Error("release-image.yml keeps no attestation verification evidence")
 	}
 	for _, contract := range []string{
-		"sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6",
+		"sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532",
 		"cosign-release: v3.1.2",
 		"COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}",
 		"COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}",
@@ -205,7 +205,7 @@ func TestReleasePhaseUsesTheSamePrivateSigningTrustRoot(t *testing.T) {
 	source := workflowSource(t, "release-phase-image.yml")
 	candidate := strings.Join(workflowJobs(t, "release-phase-image.yml")["candidate"], "\n")
 	for _, contract := range []string{
-		"sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6",
+		"sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532",
 		"cosign-release: v3.1.2",
 		"scripts/support/create-release-provenance.sh",
 		"scripts/support/sign-release-attestation.sh",
