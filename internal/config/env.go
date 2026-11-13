@@ -94,6 +94,9 @@ func loadEnv(lookup func(string) (string, bool), name string, requireRuntimeSett
 	if err := loadTLS(lookup, &opts); err != nil {
 		return pgbase.Options{}, err
 	}
+	if err := loadSQLConsole(lookup, &opts); err != nil {
+		return pgbase.Options{}, err
+	}
 	if raw, ok := value(lookup, "PGBASE_PUBLIC_DIR"); ok {
 		opts.PublicDir = raw
 	}

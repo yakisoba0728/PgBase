@@ -203,7 +203,7 @@ func (handlers *SQLConsoleHandlers) List(w http.ResponseWriter, request *http.Re
 		Executions:       make([]sqlConsoleExecutionDTO, len(page.Executions)),
 		SessionIdentity:  handlers.sessionIdentity(request),
 		WriteEnabled:     len(handlers.writeTargets) > 0,
-		WriteTargets:     append([]SQLConsoleWriteTarget(nil), handlers.writeTargets...),
+		WriteTargets:     append([]SQLConsoleWriteTarget{}, handlers.writeTargets...), // [] when read-only
 		DefaultTimeoutMS: handlers.defaultTimeout.Milliseconds(),
 		MaximumTimeoutMS: handlers.maximumTimeout.Milliseconds(),
 	}

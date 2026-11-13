@@ -168,6 +168,15 @@ func TestSQLConsoleHandlerEnforcesConfiguredTimeoutCapability(t *testing.T) {
 	}
 }
 
+func TestSQLConsoleReadOnlyHistoryListsNoWriteTargetsAsAnArray(t *testing.T) {
+	handlers, _ := NewSQLConsoleHandlers(&fakeSQLConsoleService{}, []byte("n8-api-session-secret-that-is-long-enough"), SQLConsoleHandlerOptions{})
+	response := httptest.NewRecorder()
+	handlers.List(response, requestWithAdminPrincipal(t, http.MethodGet, SQLConsoleQueriesPath, ""))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"writeEnabled":false,"writeTargets":[]`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestSQLConsoleHistoryReturnsCapabilitiesAndCanonicalCursor(t *testing.T) {
 	service := &fakeSQLConsoleService{}
 	next := sqlconsole.Cursor{CreatedAt: time.Now().UTC().Truncate(time.Microsecond), ID: uuid.New()}
