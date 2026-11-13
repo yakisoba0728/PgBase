@@ -289,7 +289,7 @@ func Create(ctx context.Context, destination, databaseURL, files string) (result
 		return err
 	}
 	dump := filepath.Join(temporary, "database.dump")
-	if err = run(ctx, "pg_dump", []string{"--format=custom", "--no-owner", "--no-acl", "--schema=pgbase_meta", "--schema=app", "--schema=pgbase_relation", "--file", dump}, command.env); err != nil {
+	if err = run(ctx, "pg_dump", []string{"--format=custom", "--no-owner", "--no-acl", "--schema=pgbase_meta", "--schema=app", "--schema=pgbase_relation", "--extension=*", "--file", dump}, command.env); err != nil {
 		return err
 	}
 	databaseFile, err := checksum(ctx, dump, "database.dump")

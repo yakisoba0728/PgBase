@@ -3,6 +3,8 @@ package mailer
 import (
 	"bufio"
 	"context"
+	"errors"
+	"github.com/yakisoba0728/PgBase/internal/validation"
 	"net"
 	"strings"
 	"testing"
@@ -151,6 +153,23 @@ func serveSMTPFixture(connection net.Conn, messages chan<- string) {
 			return
 		default:
 			write("502 unsupported\r\n")
+		}
+	}
+}
+
+func TestSMTPValidationIdentifiesFieldWithoutEchoingInput(t *testing.T) {
+	for _, test := range []struct {
+		config SMTPConfig
+		field  string
+	}{
+		{SMTPConfig{Address: "bad-address", From: "sender@example.test"}, "address"},
+		{SMTPConfig{Address: "localhost:25", From: "not a mailbox"}, "from"},
+		{SMTPConfig{Address: "remote.example:25", From: "sender@example.test", AllowInsecure: true}, "allowInsecureLoopback"},
+	} {
+		_, err := NewSMTP(test.config)
+		var invalid *validation.Error
+		if !errors.As(err, &invalid) || len(invalid.Details) != 1 || invalid.Details[0].Field != test.field {
+			t.Fatalf("validation=%v field=%s", err, test.field)
 		}
 	}
 }

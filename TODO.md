@@ -1,5 +1,7 @@
 # pgBase 구현 현황 / TODO
 
+2026-11-13 현재 진행표는 [다음 작업](docs/next-work.md)과 [운영 준비 보완](docs/production-readiness-2026-11-13.md)을 따른다. UI·backend-fixes·의존성 PR #124는 병합·운영 반영됐다. 아래 항목은 날짜별 실행 이력이며 미구현 목록으로 합산하지 않는다. 운영 백업 생성/설정은 소유자 요청으로 이번 작업에서 제외한다.
+
 ## 2026-11-13 후속 — 백엔드 수정(`backend-fixes`)
 
 main은 `64dad0d`(schema 65)다. UI 재작성 중 발견한 백엔드 문제 22건을 브랜치 `backend-fixes`에서 처리했다. migration은 없다. 항목별 처리·계약 변경·검증은 [현재 상태](docs/project-status.md) §11·§12, 남은 일은 [후속 작업](docs/next-work.md) O14–O17을 따른다.

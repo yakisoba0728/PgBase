@@ -136,7 +136,8 @@ import (
 //	                                          view sample uuid, invalid_view_sql
 //
 // No migration and no package move; exact group 28,912, no spare allowance.
-const dataGroupRuntimeLimit = 28912
+// 2026-11-13 readiness fixes: exact data group +66 for resolved SQL-view guards and authenticated snapshot replay.
+const dataGroupRuntimeLimit = 28978
 
 var dataGroupPackages = []string{
 	"internal/database",
@@ -556,11 +557,13 @@ type structuralLimit struct {
 // the collection-delete refusal text; the client-side user scan and the
 // read-before-write stale check they replace are deleted. No classifier
 // exclusions or spare allowance are added.
+// Readiness stack vs 8b078a8c: runtime +308, UI +7; one optional metadata interface and one service method; dump includes required extensions.
+// SQL/catalog guards, snapshot parity, service logs/search and field diagnostics are authorized fixes; no classifiers or file limits changed.
 var structuralLimits = []structuralLimit{
-	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 122119, "backend-fixes branch exact measurement"},
-	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 25857, "rewrite plus backend-fixes consumers; no spare allowance"},
-	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 104, "optional range transport/store and runtime capability boundaries"},
-	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1602, "reviewed backend-fixes service boundaries"},
+	{"handwritten runtime lines", func(m repositoryMetrics) int { return m.Runtime.Handwritten.LOC }, 122427, "readiness fixes exact measurement; no spare allowance"},
+	{"UI runtime lines", func(m repositoryMetrics) int { return m.Runtime.UI.LOC }, 25864, "bulk metadata cache seeding; no spare allowance"},
+	{"production interface declarations", func(m repositoryMetrics) int { return m.ProductionGo.Interfaces }, 105, "optional administrator bulk metadata capability"},
+	{"production exported declarations", func(m repositoryMetrics) int { return m.ProductionGo.Exported }, 1603, "administrator bulk metadata boundary"},
 	{"production New* constructors", func(m repositoryMetrics) int { return m.ProductionGo.Constructors }, 64, "measured final 20-defect correctness constructors"},
 	{"production files over 800 lines", func(m repositoryMetrics) int { return len(m.LongFiles) }, 0, "plan 0"},
 	{"UI page direct useState/useEffect", func(m repositoryMetrics) int { return m.UI.PageHooks }, 0, "pages are route wrappers; screen state lives in feature views"},

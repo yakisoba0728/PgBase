@@ -60,6 +60,20 @@ func TestPrivateRecordFileHTTPContract(t *testing.T) {
 	if file.ID == "" || file.Filename != "note.txt" || file.Size != int64(len(content)) || file.Thumbnail {
 		t.Fatalf("file response = %+v", file)
 	}
+
+	var metadata struct {
+		FileMetadata map[string]map[string][]struct {
+			ID string `json:"id"`
+		} `json:"fileMetadata"`
+	}
+	metadataPage := publicUsersRequest(t, app, http.MethodGet, "/api/v1/collections/documents/records?files=true", nil, "", adminCookie, nil)
+	assertPublicUsersStatus(t, metadataPage, http.StatusOK)
+	decodePublicUsersJSON(t, metadataPage, &metadata)
+	if values := metadata.FileMetadata[record.ID]["attachment"]; len(values) != 1 || values[0].ID != file.ID {
+		t.Fatalf("bulk file metadata=%+v", metadata)
+	}
+	deniedMetadata := publicUsersRequest(t, app, http.MethodGet, "/api/v1/user/collections/documents/records?files=true", nil, owner.Token, nil, nil)
+	assertPublicUsersStatus(t, deniedMetadata, http.StatusForbidden)
 	adminUploadWithoutCSRF := multipartFileRequest(t, app, "/api/admin/collections/documents/records/"+record.ID+"/files/attachment", "", adminCookie, "admin.txt", "text/plain", content, nil)
 	assertPublicUsersStatus(t, adminUploadWithoutCSRF, http.StatusForbidden)
 	badDigest := multipartFileRequest(t, app, base, owner.Token, nil, "bad.txt", "text/plain", content, map[string]string{"X-PgBase-File-SHA256": hex.EncodeToString(make([]byte, sha256.Size))})

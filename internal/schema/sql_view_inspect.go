@@ -86,12 +86,33 @@ func InspectSQLView(ctx context.Context, tx pgx.Tx, catalog Catalog, sql string)
 	return SQLViewInspection{Fields: fields, Dependencies: dependencies, HasCreatedAt: hasCreatedAt, HasUpdatedAt: hasUpdatedAt}, nil
 }
 
+const sqlViewQueryTrees = `with recursive view_oids(oid) as (
+ select $1::oid
+ union
+ select c.oid from view_oids v join pg_rewrite r on r.ev_class=v.oid,
+ lateral regexp_matches(r.ev_action::text, ':relid ([0-9]+)', 'g') m
+ join pg_class c on c.oid=(m)[1]::oid and c.relkind='v'
+), query_tree as (select ev_action::text body from pg_rewrite where ev_class in (select oid from view_oids))`
+
 func inspectSQLViewDependencies(ctx context.Context, tx pgx.Tx, viewOID uint32, catalog Catalog) ([]uuid.UUID, error) {
 	allowed := make(map[string]Collection, len(catalog.Collections))
 	for _, c := range catalog.Collections {
 		allowed[c.TableName] = c
 	}
-	rows, err := tx.Query(ctx, `select distinct n.nspname,c.relname,coalesce(a.attname,'') from pg_rewrite r join pg_depend d on d.classid='pg_rewrite'::regclass and d.objid=r.oid join pg_class c on d.refclassid='pg_class'::regclass and d.refobjid=c.oid join pg_namespace n on n.oid=c.relnamespace left join pg_attribute a on a.attrelid=c.oid and a.attnum=d.refobjsubid where r.ev_class=$1 and c.oid<>$1`, viewOID)
+	// Pinned catalogs have no pg_depend edge; whole-row reads include password columns.
+	rows, err := tx.Query(ctx, sqlViewQueryTrees+`, permissions as (
+ select (m)[1]::oid relid,string_to_array(trim((m)[2]),' ')::int[] cols
+ from query_tree,lateral regexp_matches(body,
+ '\{RTEPERMISSIONINFO :relid ([0-9]+)[^{}]*:selectedCols \(b([^)]*)\)', 'g') m
+), refs as (
+ select d.refobjid relid,d.refobjsubid attnum from pg_rewrite r join pg_depend d
+ on d.classid='pg_rewrite'::regclass and d.objid=r.oid and d.refclassid='pg_class'::regclass where r.ev_class in (select oid from view_oids)
+ union select relid,0 from permissions
+ union select p.relid,a.attnum from permissions p join pg_attribute a on a.attrelid=p.relid
+ where (7=any(p.cols) or a.attnum+7=any(p.cols)) and a.attnum>0 and not a.attisdropped
+)
+ select distinct n.nspname,c.relname,coalesce(a.attname,'') from refs d join pg_class c on c.oid=d.relid
+ join pg_namespace n on n.oid=c.relnamespace left join pg_attribute a on a.attrelid=c.oid and a.attnum=d.attnum where c.oid<>$1`, viewOID)
 	if err != nil {
 		return nil, err
 	}
@@ -121,16 +142,14 @@ func inspectSQLViewDependencies(ctx context.Context, tx pgx.Tx, viewOID uint32, 
 	}
 	rows.Close()
 	var forbidden bool
-	err = tx.QueryRow(ctx, `with query_tree as (
-		select ev_action::text body from pg_rewrite where ev_class=$1
-	), function_ids as (
+	err = tx.QueryRow(ctx, sqlViewQueryTrees+`, function_ids as (
 		select distinct (match)[1]::oid oid from query_tree,
 		lateral regexp_matches(body, ':(?:funcid|aggfnoid|winfnoid|opfuncid) ([0-9]+)', 'g') match
 	)
 	select
-		exists(select 1 from pg_rewrite r join pg_depend d on d.classid='pg_rewrite'::regclass and d.objid=r.oid join pg_proc p on d.refclassid='pg_proc'::regclass and d.refobjid=p.oid join pg_namespace n on n.oid=p.pronamespace where r.ev_class=$1 and (n.nspname<>'pg_catalog' or p.provolatile='v'))
-		or exists(select 1 from pg_rewrite r join pg_depend d on d.classid='pg_rewrite'::regclass and d.objid=r.oid join pg_operator o on d.refclassid='pg_operator'::regclass and d.refobjid=o.oid join pg_namespace n on n.oid=o.oprnamespace where r.ev_class=$1 and n.nspname<>'pg_catalog')
-		or exists(select 1 from pg_rewrite r join pg_depend d on d.classid='pg_rewrite'::regclass and d.objid=r.oid join pg_type t on d.refclassid='pg_type'::regclass and d.refobjid=t.oid join pg_namespace n on n.oid=t.typnamespace where r.ev_class=$1 and n.nspname<>'pg_catalog')
+		exists(select 1 from pg_rewrite r join pg_depend d on d.classid='pg_rewrite'::regclass and d.objid=r.oid join pg_proc p on d.refclassid='pg_proc'::regclass and d.refobjid=p.oid join pg_namespace n on n.oid=p.pronamespace where r.ev_class in (select oid from view_oids) and (n.nspname<>'pg_catalog' or p.provolatile='v'))
+		or exists(select 1 from pg_rewrite r join pg_depend d on d.classid='pg_rewrite'::regclass and d.objid=r.oid join pg_operator o on d.refclassid='pg_operator'::regclass and d.refobjid=o.oid join pg_namespace n on n.oid=o.oprnamespace where r.ev_class in (select oid from view_oids) and n.nspname<>'pg_catalog')
+		or exists(select 1 from pg_rewrite r join pg_depend d on d.classid='pg_rewrite'::regclass and d.objid=r.oid join pg_type t on d.refclassid='pg_type'::regclass and d.refobjid=t.oid join pg_namespace n on n.oid=t.typnamespace where r.ev_class in (select oid from view_oids) and n.nspname<>'pg_catalog')
 		or exists(select 1 from function_ids f left join pg_proc p on p.oid=f.oid left join pg_namespace n on n.oid=p.pronamespace where p.oid is null or f.oid=0 or n.nspname<>'pg_catalog' or p.provolatile='v')`, viewOID).Scan(&forbidden)
 	if err != nil {
 		return nil, err
@@ -211,4 +230,21 @@ func viewQueryError(err error) error {
 		return err
 	}
 	return viewSQLError("query_failed", ValidationDetail{Field: "view.sql.sqlState", Code: postgres.Code})
+}
+
+// Recheck persisted SQL views at startup so old unsafe definitions cannot survive an upgrade.
+func validateCatalogSQLViews(ctx context.Context, tx pgx.Tx, catalog Catalog) error {
+	for _, collection := range catalog.Collections {
+		if collection.View == nil || collection.View.SQL == "" {
+			continue
+		}
+		var oid uint32
+		if err := tx.QueryRow(ctx, `select to_regclass($1)::oid`, pgx.Identifier{"app", collection.TableName}.Sanitize()).Scan(&oid); err != nil {
+			return err
+		}
+		if _, err := inspectSQLViewDependencies(ctx, tx, oid, catalog); err != nil {
+			return err
+		}
+	}
+	return nil
 }

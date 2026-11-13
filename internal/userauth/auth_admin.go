@@ -478,7 +478,7 @@ func (s *Service) PutSMTPConfig(ctx context.Context, collectionID uuid.UUID, c S
 	}
 	sender, err := mailer.NewSMTP(mailer.SMTPConfig{Address: c.Address, From: c.From, Username: c.Username, Password: c.Password, ServerName: c.ServerName, ImplicitTLS: c.ImplicitTLS, AllowInsecure: c.AllowInsecureLoopback, Timeout: 10 * time.Second})
 	if err != nil {
-		return c, ErrValidation
+		return c, errors.Join(ErrValidation, err)
 	}
 	_ = sender
 	var encrypted []byte

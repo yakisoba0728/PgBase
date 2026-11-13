@@ -91,3 +91,59 @@ func TestInspectSQLViewRejectsOnlyReferencedPasswordColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestInspectSQLViewRejectsPinnedCatalogsAndWholeRowPasswords(t *testing.T) {
+	pool, service, actor := newSchemaServiceTest(t)
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "inspect_secrets", Fields: []FieldInput{{Name: "label", Type: TypeText}, {Name: "secret", Type: TypePassword}}}, actor)
+	catalog, err := service.Catalog(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`select '00000000-0000-0000-0000-000000000001'::uuid id, relname::text label from pg_catalog.pg_class limit 1`,
+		`select id, row_to_json(s)::text label from app.inspect_secrets s`,
+		`select id, to_jsonb(s) label from app.inspect_secrets s`,
+		`with hidden as (select * from pg_catalog.pg_class) select '00000000-0000-0000-0000-000000000001'::uuid id, relname::text label from hidden limit 1`,
+		`select id,label from app.inspect_secrets where exists(select 1 from pg_catalog.pg_class)`,
+	} {
+		if err := pool.InTx(t.Context(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := InspectSQLView(t.Context(), tx, catalog, statement); !errors.Is(err, ErrConflict) {
+				t.Fatalf("unsafe query accepted: %s: %v", statement, err)
+			}
+			var one int
+			return tx.QueryRow(t.Context(), "select 1").Scan(&one)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, statement := range []string{
+		`select id,label from app.inspect_secrets`,
+		`select '00000000-0000-0000-0000-000000000001'::uuid id,count(*)::bigint total from app.inspect_secrets`,
+	} {
+		if err := pool.InTx(t.Context(), pgx.TxOptions{}, func(tx pgx.Tx) error { _, err := InspectSQLView(t.Context(), tx, catalog, statement); return err }); err != nil {
+			t.Fatalf("safe query rejected: %s: %v", statement, err)
+		}
+	}
+}
+
+func TestPersistedSQLViewsAreRecheckedOnUpgradeAndThroughWrappers(t *testing.T) {
+	pool, service, actor := newSchemaServiceTest(t)
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "view_sources", Fields: []FieldInput{{Name: "label", Type: TypeText}}}, actor)
+	applyFreshPlan(t, service, CreateCollectionInput{Name: "saved_view", Type: CollectionTypeView, View: &ViewInput{SQL: `select id,label from app.view_sources`}}, actor)
+	if _, err := pool.Exec(t.Context(), `create or replace view app.saved_view as select '00000000-0000-0000-0000-000000000001'::uuid id,'1970-01-01'::timestamptz created_at,'1970-01-01'::timestamptz updated_at,relname::text collate "default" label from pg_catalog.pg_class limit 1`); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := service.Catalog(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.InTx(t.Context(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+		_, err := InspectSQLView(t.Context(), tx, catalog, `select id,label from app.saved_view`)
+		return err
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("unsafe saved wrapper=%v", err)
+	}
+	if err := PreflightCatalog(t.Context(), pool, &Cache{}); !errors.Is(err, ErrCatalogInvalid) {
+		t.Fatalf("unsafe saved view startup=%v", err)
+	}
+}

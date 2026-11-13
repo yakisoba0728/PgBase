@@ -15,6 +15,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/doctor"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/userauth"
 	"github.com/yakisoba0728/PgBase/internal/usermigrate"
 )
 
@@ -171,7 +172,7 @@ func ApplyUserMigrationSnapshot(ctx context.Context, tx pgx.Tx, before, after []
 	if tx == nil {
 		return fmt.Errorf("apply user migration snapshot: transaction is nil")
 	}
-	return schema.ApplyMigrationSnapshot(ctx, tx, before, after, validateUserMigrationRules)
+	return schema.ApplyMigrationSnapshot(ctx, tx, before, after, validateUserMigrationRules, new(userauth.Service))
 }
 
 func validateUserMigrationRules(catalog schema.Catalog, collection schema.Collection, raw json.RawMessage) error {

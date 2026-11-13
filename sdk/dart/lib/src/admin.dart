@@ -378,7 +378,7 @@ final class PgBaseAdminClient {
     cancellation: cancellation,
   );
 
-  /// [query] is an exact user id or exact email; [total] adds a count capped
+  /// [query] is an exact user id or literal email substring; [total] adds a count capped
   /// at 10000 (`totalCapped` beyond).
   Future<JsonObject> users({
     int? limit,

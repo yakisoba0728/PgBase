@@ -443,7 +443,7 @@ func migrationCollectionEqual(left, right MigrationSnapshotCollection) bool {
 
 // ApplyMigrationSnapshot applies one generated snapshot transition inside the
 // user migration transaction. The runner owns the single schema-version bump.
-func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw []byte, validateRules func(Catalog, Collection, json.RawMessage) error) error {
+func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw []byte, validateRules func(Catalog, Collection, json.RawMessage) error, validators ...AuthExecutablePolicyValidator) error {
 	if validateRules == nil {
 		return errors.New("migration rule validator is required")
 	}
@@ -475,6 +475,12 @@ func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw 
 		return err
 	}
 	service := &Service{}
+	if len(validators) > 1 {
+		return errors.New("at most one authentication validator is allowed")
+	}
+	if len(validators) == 1 {
+		service.authPolicyValidator = validators[0]
+	}
 	companions, err := companionCapabilityReady(ctx, tx)
 	if err != nil {
 		return err
@@ -483,6 +489,7 @@ func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw 
 	if err != nil {
 		return err
 	}
+	initialCatalog := catalog
 	beforeMap, afterMap := migrationCollectionMap(before), migrationCollectionMap(after)
 	currentViews := orderedMigrationViews(before, true)
 	for _, item := range currentViews {
@@ -575,6 +582,13 @@ func ApplyMigrationSnapshot(ctx context.Context, tx pgx.Tx, beforeRaw, afterRaw 
 			return err
 		}
 	}
+	for _, previous := range initialCatalog.Collections {
+		if next, ok := catalog.Collections[previous.Name]; ok && next.Type == CollectionTypeAuth {
+			if err := service.syncAuthRealmFields(ctx, tx, catalog, previous, next); err != nil {
+				return err
+			}
+		}
+	}
 	for _, item := range after.Collections {
 		collection, ok := catalog.Collections[item.Name]
 		if !ok {
@@ -630,6 +644,9 @@ func applySnapshotChange(ctx context.Context, tx pgx.Tx, service *Service, store
 	now := time.Now().UTC()
 	switch change.kind {
 	case changeCreate:
+		if err := rejectSingleAuthCreate(change); err != nil {
+			return err
+		}
 		collection, err := newCollectionMetadata(plan.Definition)
 		if err != nil {
 			return err
@@ -643,6 +660,9 @@ func applySnapshotChange(ctx context.Context, tx pgx.Tx, service *Service, store
 		}
 	case changeUpdate:
 		current := catalog.Collections[change.update.Name]
+		if current.Type == CollectionTypeAuth && service.authPolicyValidator == nil {
+			return validation("type", "auth_migration_validator_required")
+		}
 		if err := validateRequiredRelationAdds(ctx, tx, current, plan.Definition, true); err != nil {
 			return err
 		}
@@ -672,8 +692,15 @@ func applySnapshotChange(ctx context.Context, tx pgx.Tx, service *Service, store
 		if err := store.UpdateCollection(ctx, next, plan.Definition, now); err != nil {
 			return err
 		}
+
 	case changeDelete:
 		current := catalog.Collections[change.deleteName]
+		if err := refuseRealmRelationsTo(ctx, tx, current.Name); err != nil {
+			return err
+		}
+		if err := deletePairedAuthRealm(ctx, tx, current); err != nil {
+			return err
+		}
 		if err := service.executePlan(ctx, tx, plan); err != nil {
 			return err
 		}

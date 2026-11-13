@@ -131,7 +131,7 @@ umask 077
 pgcompose stop pgbase
 pgcompose exec -T postgres pg_dump -U pgbase -d pgbase \
   --format=custom --no-owner --no-acl \
-  --schema=pgbase_meta --schema=app --schema=pgbase_relation > database.dump
+  --schema=pgbase_meta --schema=app --schema=pgbase_relation --extension='*' > database.dump
 pgcompose run --rm --no-deps -T --entrypoint /bin/tar files-init -C /files -czf - . > files.tar.gz
 ```
 

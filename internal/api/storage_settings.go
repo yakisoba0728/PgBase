@@ -77,5 +77,6 @@ func writeStorageError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, filestore.ErrNotFound):
 		response = APIError{Status: 404, Code: "not_found", Message: "Storage migration was not found"}
 	}
+	response.Details = validationDetails(err)
 	writeAPIError(w, r, response)
 }

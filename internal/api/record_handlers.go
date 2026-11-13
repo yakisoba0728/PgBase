@@ -167,7 +167,7 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, page)
+	e.writeRecordPage(w, r, principal, page)
 }
 
 func parsePocketBasePage(values neturl.Values) (recordops.PocketBaseListRequest, bool, bool) {

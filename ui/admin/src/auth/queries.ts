@@ -24,7 +24,7 @@ export const providerCatalogQuery = queryOptions({
 
 const missing = (error: unknown) => error instanceof ApiError && (error.status === 400 || error.status === 404);
 
-/** Users by id; the server filters by collection and by an exact email or id (`q`). The first page carries the (capped) total. */
+/** Users by id; the server filters by collection and by an email substring or exact id (`q`). The first page carries the (capped) total. */
 export const usersQuery = (filter: { q: string; collection: string }) =>
   infiniteQueryOptions({
     queryKey: ["auth", "users", "list", filter.q, filter.collection],

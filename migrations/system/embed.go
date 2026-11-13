@@ -193,6 +193,9 @@ var authRecordModelSQL string
 //go:embed 000055_request_log_context.sql
 var requestLogContextSQL string
 
+//go:embed 000066_search_and_service_logs.sql
+var searchAndServiceLogsSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -299,6 +302,7 @@ var migrations = []Migration{
 	{Version: 63, Name: "advanced_collection_indexes", SQL: advancedCollectionIndexesSQL, SHA256: sha256.Sum256([]byte(advancedCollectionIndexesSQL))},
 	{Version: 64, Name: "versioned_extension_objects", SQL: versionedExtensionObjectsSQL, SHA256: sha256.Sum256([]byte(versionedExtensionObjectsSQL))},
 	{Version: 65, Name: "optional_auth_email_uniqueness", SQL: optionalAuthEmailUniquenessSQL, SHA256: sha256.Sum256([]byte(optionalAuthEmailUniquenessSQL))},
+	{Version: 66, Name: "search_and_service_logs", SQL: searchAndServiceLogsSQL, SHA256: sha256.Sum256([]byte(searchAndServiceLogsSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

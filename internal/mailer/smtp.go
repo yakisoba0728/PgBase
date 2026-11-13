@@ -8,9 +8,11 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/yakisoba0728/PgBase/internal/validation"
 	"mime"
 	"mime/multipart"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"net/textproto"
 	"strings"
@@ -32,17 +34,24 @@ type SMTP struct{ config SMTPConfig }
 
 func NewSMTP(config SMTPConfig) (*SMTP, error) {
 	if config.Address == "" || config.From == "" || strings.ContainsAny(config.From, "\r\n") {
-		return nil, errors.New("invalid SMTP configuration")
+		field := "from"
+		if config.Address == "" {
+			field = "address"
+		}
+		return nil, &validation.Error{Details: []validation.Detail{{Field: field, Code: "invalid"}}}
+	}
+	if _, err := mail.ParseAddress(config.From); err != nil {
+		return nil, &validation.Error{Details: []validation.Detail{{Field: "from", Code: "invalid"}}}
 	}
 	if config.Timeout <= 0 {
 		config.Timeout = 10 * time.Second
 	}
 	host, _, err := net.SplitHostPort(config.Address)
 	if err != nil {
-		return nil, errors.New("invalid SMTP address")
+		return nil, &validation.Error{Details: []validation.Detail{{Field: "address", Code: "invalid"}}}
 	}
 	if config.AllowInsecure && !localSMTPHost(host) {
-		return nil, errors.New("insecure SMTP is allowed only for a loopback server")
+		return nil, &validation.Error{Details: []validation.Detail{{Field: "allowInsecureLoopback", Code: "loopback_required"}}}
 	}
 	if config.ServerName == "" {
 		config.ServerName = host

@@ -59,6 +59,9 @@ func preflightCatalogWithLimit(
 		if err != nil {
 			return classifyCatalogPreflightError(err)
 		}
+		if err := validateCatalogSQLViews(ctx, tx, catalog); err != nil {
+			return classifyCatalogPreflightError(err)
+		}
 		compiled, err = cache.prepare(catalog, wireLimit)
 		err = classifyCatalogPreflightError(err)
 		if err == nil && afterPrepare != nil {

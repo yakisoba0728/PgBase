@@ -4,7 +4,7 @@ This feature is available in source after M1 (PR #26). It is not part of the pub
 
 ## Administrator UI
 
-Sign in to the administrator UI and open **Users**. The page shows public users' email, auth collection, ID, active state and timestamps, with the number of matching users (shown as "more than 10000" beyond that). It loads up to 100 users per page in ascending ID order; **Load more** continues and **Refresh** returns to the first page. Search takes an exact email address or user ID and the collection selector narrows the list; both run on the server. This is a live paginated view, so refresh to discover new accounts created before the current page boundary.
+Sign in to the administrator UI and open **Users**. The page shows public users' email, auth collection, ID, active state and timestamps, with the number of matching users (shown as "more than 10000" beyond that). It loads up to 100 users per page in ascending ID order; **Load more** continues and **Refresh** returns to the first page. Search takes a literal email substring or exact user ID and the collection selector narrows the list; both run on the server. This is a live paginated view, so refresh to discover new accounts created before the current page boundary.
 
 - **Deactivate** confirms the action, makes the account inactive and revokes all its stored sessions in one transaction. The user's existing records and ownership remain intact.
 - **Activate** permits fresh login. It never restores previously revoked sessions.
@@ -20,7 +20,7 @@ These routes use the administrator cookie. Reads enforce the existing same-origi
 
 | Method and route | Request | Success response |
 | --- | --- | --- |
-| `GET /api/admin/users` | Optional `after=<UUID>`, `limit=1..100` (default 50), `authCollectionId=<UUID>`, `q=<exact email or user id>`, `total=true` | `200 {items:[user],nextAfter?:UUID,total?:number,totalCapped?:true}` |
+| `GET /api/admin/users` | Optional `after=<UUID>`, `limit=1..100` (default 50), `authCollectionId=<UUID>`, `q=<email substring or exact user id>`, `total=true` | `200 {items:[user],nextAfter?:UUID,total?:number,totalCapped?:true}` |
 | `GET /api/admin/users/{id}` | No body | `200 user` |
 | `PATCH /api/admin/users/{id}` | JSON `{active:boolean}` | `200 user` |
 | `POST /api/admin/users/{id}/revoke-sessions` | No body | `200 {revokedSessions:number}` |
@@ -28,7 +28,7 @@ These routes use the administrator cookie. Reads enforce the existing same-origi
 
 The `user` shape is `{id,authCollectionId,email,verified,active,createdAt,updatedAt}`.
 
-Filters are index-backed and combine with the `after` keyset: `authCollectionId` uses the `(auth_collection_id,id)` index; `q` is an exact user id (primary key) or, otherwise, an exact email address compared case-insensitively against the `(auth_collection_id,email)` index of each realm. Partial or substring search is not offered, because it cannot use these indexes. `total=true` adds the number of matching users; it counts at most 10,000 and then reports `total:10000,totalCapped:true`. An unknown filter value, an empty parameter or `q` longer than 320 bytes returns 400. It never includes password hashes, session tokens or rate-limit data. Empty lists return `items:[]`; the last page omits `nextAfter`. Unknown/duplicate query fields, invalid IDs and malformed bodies return 400. A missing target user returns 404. Database failures return a redacted 503. Responses use `Cache-Control: no-store`.
+Filters combine with the `after` keyset: `authCollectionId` uses `(auth_collection_id,id)`; `q` matches an exact UUID or a case-insensitive literal email substring. `%`, `_` and backslash are literal characters. Schema 66 adds a pg_trgm GIN index for email searches; fewer than three searchable characters can still require a scan. `total=true` adds the number of matching users; it counts at most 10,000 and then reports `total:10000,totalCapped:true`. An unknown filter value, an empty parameter or `q` longer than 320 bytes returns 400. It never includes password hashes, session tokens or rate-limit data. Empty lists return `items:[]`; the last page omits `nextAfter`. Unknown/duplicate query fields, invalid IDs and malformed bodies return 400. A missing target user returns 404. Database failures return a redacted 503. Responses use `Cache-Control: no-store`.
 
 ## Change your password
 

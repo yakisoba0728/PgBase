@@ -166,7 +166,7 @@ export const authKo: Record<keyof typeof authEn, string> = {
   "auth.users.empty": "사용자가 없습니다.",
   "auth.users.missing": "이 ID의 사용자가 없습니다.",
   "auth.users.search": "검색",
-  "auth.users.searchHint": "정확한 이메일 또는 ID 입력 후 Enter",
+  "auth.users.searchHint": "이메일 일부 또는 정확한 ID 입력 후 Enter",
   "auth.users.allCollections": "모든 컬렉션",
   "auth.users.noMatch": "일치하는 사용자가 없습니다.",
   "auth.users.detail": "사용자",

@@ -90,7 +90,7 @@ func CreateOnline(ctx context.Context, destination, databaseURL string, objects 
 		return err
 	}
 	dump := filepath.Join(temporary, "database.dump")
-	if err = run(ctx, "pg_dump", []string{"--format=custom", "--no-owner", "--no-acl", "--schema=pgbase_meta", "--schema=app", "--schema=pgbase_relation", "--snapshot", snapshot, "--file", dump}, command.env); err != nil {
+	if err = run(ctx, "pg_dump", []string{"--format=custom", "--no-owner", "--no-acl", "--schema=pgbase_meta", "--schema=app", "--schema=pgbase_relation", "--extension=*", "--snapshot", snapshot, "--file", dump}, command.env); err != nil {
 		return err
 	}
 	manifest := Manifest{Format: FormatVersion, CreatedAt: time.Now().UTC(), PostgreSQLMajor: major, Files: []File{}}

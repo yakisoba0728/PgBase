@@ -16,7 +16,7 @@ import { authCollectionsQuery, userQuery, usersQuery } from "./queries";
 import { UserPane } from "./UserPane";
 import "../styles/auth.css";
 
-/** ?q= searches (exact email or id), ?collection= filters, ?user=<uuid> opens a user, ?new=1 the create form. */
+/** ?q= searches (email substring or exact id), ?collection= filters, ?user=<uuid> opens a user, ?new=1 the create form. */
 function useUsersUrl() {
   const { params, update } = useSearchState();
   const set = (user: string | null, creating = false) => update({ user, new: creating ? "1" : null });

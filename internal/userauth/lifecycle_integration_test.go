@@ -159,8 +159,8 @@ func TestListUsersUsesUUIDKeysetAndContainsNoCredentials(t *testing.T) {
 	if err != nil || len(byID.Items) != 1 || byID.Items[0].Email != "list-b@example.com" {
 		t.Fatalf("id search = %#v, %v", byID, err)
 	}
-	if none, err := service.ListUsers(ctx, UserQuery{Limit: 10, Search: "list"}); err != nil || len(none.Items) != 0 {
-		t.Fatalf("partial email is not a match = %#v, %v", none, err)
+	if none, err := service.ListUsers(ctx, UserQuery{Limit: 10, Search: "list"}); err != nil || len(none.Items) != 4 {
+		t.Fatalf("partial email search = %#v, %v", none, err)
 	}
 	records, next, err := service.ListAuthRecords(ctx, DefaultCollectionID, uuid.Nil, 2)
 	if err != nil || len(records) != 2 || next != records[1].ID {

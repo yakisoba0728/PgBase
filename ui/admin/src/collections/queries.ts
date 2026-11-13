@@ -20,8 +20,13 @@ const pageSize = 200;
 export const recordsQuery = (collection: string, filter: string, sort: string, expand: string) =>
   infiniteQueryOptions({
     queryKey: ["records", collection, "list", { filter, sort, expand }],
-    queryFn: ({ pageParam, signal }) =>
-      listRecords(collection, { filter: filter || undefined, sort: sort || undefined, expand: expand || undefined, cursor: pageParam, limit: pageSize, total: pageParam ? undefined : true, signal }),
+    queryFn: async ({ pageParam, signal, client }) => {
+      const page = await listRecords(collection, { filter: filter || undefined, sort: sort || undefined, expand: expand || undefined, cursor: pageParam, limit: pageSize, total: pageParam ? undefined : true, files: true, signal });
+      for (const [id, fields] of Object.entries(page.fileMetadata ?? {})) {
+        for (const [field, files] of Object.entries(fields)) client.setQueryData(recordFilesQuery(collection, id, field).queryKey, files);
+      }
+      return page;
+    },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor,
     // Refetching an infinite list replays every loaded page; past a few pages that is left to Refresh.

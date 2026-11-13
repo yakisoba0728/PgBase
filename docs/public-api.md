@@ -149,3 +149,7 @@ Errors use `{error:{code,message,details?},requestId?...}` according to the comm
 ## Local validation boundary
 
 These additions have been exercised with source builds, disposable PostgreSQL instances, local HTTP clients, a local SMTP sink and local OAuth fixtures. The TypeScript SDK is buildable and packable locally; it is not published as a supported npm release. No real external OAuth account or external mail delivery was used. Cloud deployment behavior, production SLOs, multi-hour soak results and public package or image publication remain unverified and are not claimed by this document.
+
+## Administrator record-page file metadata
+
+On the native administrator record list, `files=true` adds `fileMetadata`, indexed by public record ID and field name. Values have the same shape as the file-list endpoint, including empty arrays for empty file fields. Default responses and existing file endpoints are unchanged. Metadata batches are limited to 200 records and 10,000 files; custom file-service implementations without this optional capability retain their existing response. This option is not available to user, service or anonymous principals and does not grant download access.
