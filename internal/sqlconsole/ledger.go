@@ -68,17 +68,17 @@ func (ledger *Ledger) AcquireCoordinator(ctx context.Context) (*Coordinator, err
 	}
 	var acquired bool
 	if err := connection.QueryRow(ctx, `select pg_catalog.pg_try_advisory_lock($1)`, coordinatorLockKey).Scan(&acquired); err != nil {
-		_ = connection.Close(ctx)
+		_ = database.CloseCoordinationSession(context.Background(), connection)
 		return nil, err
 	}
 	if !acquired {
-		_ = connection.Close(ctx)
+		_ = database.CloseCoordinationSession(context.Background(), connection)
 		return nil, ErrCoordinatorBusy
 	}
 	// A previous coordinator may have lost its session while its independent
 	// execution transactions still run. Drain them before reconciling history.
 	if _, err := connection.Exec(ctx, `select pg_catalog.pg_advisory_lock($1)`, executionGateKey); err != nil {
-		_ = connection.Close(context.Background())
+		_ = database.CloseCoordinationSession(context.Background(), connection)
 		return nil, err
 	}
 	return &Coordinator{connection: connection, pool: ledger.pool, pid: connection.PgConn().PID()}, nil
@@ -91,7 +91,7 @@ func (coordinator *Coordinator) Close() {
 	coordinator.closeOnce.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		_ = coordinator.connection.Close(ctx)
+		_ = database.CloseCoordinationSession(ctx, coordinator.connection)
 	})
 }
 

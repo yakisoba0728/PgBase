@@ -18,6 +18,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/recordartifact"
 	"github.com/yakisoba0728/PgBase/internal/relation"
 	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/userauth"
 )
 
 type deleteRecordSnapshot struct {
@@ -115,6 +116,28 @@ func (s *Service) deleteGraphInTransaction(
 	}
 	if err := authorizeDeleteClosure(ctx, tx, catalog, groups, request.Principal, request.RuleContext); err != nil {
 		return MutationResult{}, err
+	}
+	targets := make([]userauth.RelationDeleteTarget, 0, len(deletes))
+	for _, group := range groups {
+		for _, id := range group.deletes {
+			targets = append(targets, userauth.RelationDeleteTarget{Collection: group.collection.Name, ID: id})
+		}
+	}
+	var authorizeAuthDelete func(pgx.Tx, uuid.UUID, uuid.UUID) error
+	if request.Principal.Kind != PrincipalAdministrator {
+		authorizeAuthDelete = func(tx pgx.Tx, collectionID, targetID uuid.UUID) error {
+			return userauth.AuthorizeAuthRecordDeleteInTx(ctx, tx, request.Principal, collectionID, targetID)
+		}
+	}
+	if err := userauth.EnforceRelationDeletes(ctx, tx, targets, authorizeAuthDelete); err != nil {
+		switch {
+		case errors.Is(err, userauth.ErrConflict):
+			return MutationResult{}, schema.ErrConflict
+		case errors.Is(err, userauth.ErrInvalidCredentials):
+			return MutationResult{}, query.ErrRecordNotFound
+		default:
+			return MutationResult{}, err
+		}
 	}
 
 	identities, err := identityCache.identitiesFor(s, root, deletes, updates)

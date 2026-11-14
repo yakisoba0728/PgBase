@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 type StorageMigrationStatus struct {
@@ -381,7 +382,7 @@ func (s *ObjectMigrationService) copyOne(ctx context.Context, id uuid.UUID) (boo
 	if err != nil {
 		return false, err
 	}
-	defer closeStorageSession(coordination)
+	defer func() { _ = database.CloseCoordinationSession(context.Background(), coordination) }()
 	if _, err = coordination.Exec(ctx, `select pg_advisory_lock(hashtextextended($1,0))`, migrationObjectLockName(id, key)); err != nil {
 		return false, err
 	}

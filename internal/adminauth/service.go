@@ -241,18 +241,18 @@ func (s *Service) BeginSetupGuard(ctx context.Context, token string) (func(), er
 		return nil, err
 	}
 	if _, err = conn.Exec(ctx, "select pg_advisory_lock($1)", setupAdvisoryLockKey); err != nil {
-		_ = conn.Close(context.Background())
+		_ = database.CloseCoordinationSession(context.Background(), conn)
 		return nil, err
 	}
 	count, err := NewStore(conn).AdministratorCount(ctx)
 	if err != nil || count != 0 {
-		_ = conn.Close(context.Background())
+		_ = database.CloseCoordinationSession(context.Background(), conn)
 		if err != nil {
 			return nil, err
 		}
 		return nil, ErrSetupUnavailable
 	}
-	return func() { _ = conn.Close(context.Background()) }, nil
+	return func() { _ = database.CloseCoordinationSession(context.Background(), conn) }, nil
 }
 
 func (s *Service) setupRequired(ctx context.Context) (bool, error) {
