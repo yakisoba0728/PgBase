@@ -1,5 +1,7 @@
 # PgBase 구현 이력과 현재 상태
 
+2026-11-15 최신 기준: 관리자 UI 개편을 [PR #142](https://github.com/yakisoba0728/PgBase/pull/142)로 main `588e14a93e828345c2edda760cd4c90381211328`에 병합하고 운영에 배포했다. `ui/admin`만 바뀌었고 서버 API와 schema 67은 그대로다. 범위·검증·남은 일은 §13을 따른다. 2026-11-14의 백엔드 재작성과 후속 수정(PR #135–#141, schema 67)은 [재작성 검증](backend-rewrite-validation.md)·[main 독립 검토](final-main-review.md)에 기록돼 있고 이 문서에는 절이 없다. 아래 문단은 그 이전 기록이다.
+
 2026-11-13 최신 기준: PR #124에 이어 [#125](https://github.com/yakisoba0728/PgBase/pull/125)·[#133](https://github.com/yakisoba0728/PgBase/pull/133)을 병합했다. 제품 source `043dc2b3`의 main CI와 전체 signed release gate가 통과했고 [v0.3.1](https://github.com/yakisoba0728/PgBase/releases/tag/v0.3.1)을 게시했다. 같은 source를 운영에 배포해 schema 66/66·health 정상·schema finding 0과 기존 레코드 표시를 확인했다. [구현·검증](production-readiness-2026-11-13.md), [배포](deployment-2026-11-13.md), [남은 결정](next-work.md)을 따른다. 아래 날짜별 문단·§11–§12는 당시 상태의 이력이며 현재 열린 작업 목록이 아니다. 운영 백업은 소유자 요청으로 생성·설정하지 않았다.
 
 2026-11-13 두 번째 병합·배포 후 기준: `backend-fixes`를 [PR #122](https://github.com/yakisoba0728/PgBase/pull/122)로 main `3bec8b3`에 병합하고 `https://pgbase.yaki.kr`에 배포했다(schema 65 그대로). 결과는 [배포 기록](deployment-2026-11-13.md)의 두 번째 절을 따른다. 아래 문단은 병합 전에 쓴 기록이다.
@@ -342,3 +344,59 @@ UI를 다시 만들며 서버 응답과 코드에서 관찰한 사항이다. `fr
 - 운영 서버(`https://pgbase.yaki.kr`)에서의 upgrade 동작. 배포는 대기 중이다.
 - Chromium 외 브라우저, release gate, CI의 E2E workflow(PostgreSQL 16 Compose).
 - main push·수동 실행에서만 도는 단계: unit·integration의 `-race` 실행, multi-process durability, Windows self-update, macOS terminal, release phase artifacts, private attestation(cosign) 검증, 관리자 SDK acceptance의 Dart 부분.
+
+## 13. 2026-11-15 관리자 UI 개편(`feat/admin-ui-overhaul`)
+
+기록일: 2026-11-15 KST. main `47e8d852`(schema 67)에서 분기한 `feat/admin-ui-overhaul`을 [PR #142](https://github.com/yakisoba0728/PgBase/pull/142)로 squash 병합했다(main `588e14a9`). 바뀐 곳은 `ui/admin`(소스·test·E2E·dist)뿐이다. migration, 서버 API, SDK는 바뀌지 않았다.
+
+### 바뀐 것
+
+- **디자인 토큰**: 고정 간격 스케일(`--sp-*`), 굵기 3단계, z-index 층, 모션 시간·곡선, 그림자 2단계를 추가했다. `tokens.css` 밖에 px 글꼴 크기와 색 리터럴이 없다.
+- **공용 컴포넌트**: `QueryView`와 `combineQueries`가 로딩·오류·새로고침 실패 상태를 맡는다. `Table`/`Row`가 목록 셸과 행 열기 동작을 맡는다. `Input`/`Select`/`Textarea`가 유일한 폼 컨트롤이고 `Field`가 그 위에 있다. 알림은 `Notice` 하나, 모달 셸은 `.modal` 하나다. `Unavailable`, `GroupCheckbox`, `WindowNotice`, `FileButton`을 추가했다. 화면별 클래스 변형(`.ops-control`, `.schema-input`, `-pair`·`-actions`·`-section` 계열)은 공용 클래스로 합쳤다.
+- **화면 간 동작**: 페이지 폼의 저장은 상단 `SaveBar`, pane 편집기의 저장은 pane 바닥이다. 파괴적 동작은 pane 바닥 왼쪽 또는 폼 맨 아래 위험 구역에 둔다. 확인은 세 단계다: 되돌릴 수 있으면 실행취소 토스트, 단건 삭제는 일반 확인, 대량·복구 불가는 이름 입력.
+- **대규모 사용**: 레코드 일괄 삭제는 batch endpoint를 쓰고 진행률·취소·실패 재시도를 보여 준다. 필터 결과 전체 선택은 최대 20,000건이다. dead event 일괄 재시도, 목록 10페이지 창, 설정 구역 내비, 서비스 토큰 scope 표의 전체 선택·검색, 팔레트 사용자 검색, 500행 초과 SQL 결과 가상화, 백업·복원 업로드 진행률을 추가했다.
+- **꺼진 기능**: 백업 route는 `PGBASE_BACKUPS_DIRECTORY`가 있을 때만 등록된다. 목록 요청의 404를 "꺼져 있음"으로 해석해 안내하고 만들기·업로드를 비활성화한다. SQL console과 저장소 탭도 같은 `Unavailable` 표시를 쓴다.
+- **시각·모션**: guest 화면(login·reset·setup)이 같은 카드를 쓴다. 화면 전환, 상세 pane 열림·닫힘, 대화상자·팔레트·드롭다운·토스트, 탭 밑줄 이동, 새 행 강조, 통계 값 교체에 전환을 넣었다. `prefers-reduced-motion`이면 전역 규칙 하나로 모두 꺼진다. nav의 "최근" 구역과 하단 토스트 띠를 없앴다.
+
+### 사용자가 알아야 할 동작 변화
+
+- 레코드 일괄 삭제는 컬렉션 이름을 입력해야 한다.
+- 스키마 필드·인덱스 제거는 확인 없이 실행되고 토스트에서 되돌린다.
+- 백업 복원은 동의 체크박스 대신 archive 파일명을 입력한다. 로그 전체 삭제는 "Logs"를 입력한다.
+- polling이나 재조회가 실패하면 이전 데이터를 유지하고 "새로 고치지 못함 / 다시 시도" 알림을 보인다.
+- API 탭 pane을 닫아도 URL에 `endpoint=`가 남지 않는다.
+
+### 수정한 결함
+
+전수 조사에서 약 35건, 개편 후 신규 코드 리뷰에서 8건, browser suite에서 1건을 고쳤다. 주요 항목:
+
+- 대화상자 안에서 텍스트를 드래그하다 밖에서 놓으면 닫히던 문제(일회성 token 표시 포함).
+- polling 한 번 실패로 이미 받은 데이터가 오류 화면으로 바뀌던 문제(jobs, realtime, logs, SQL 결과 등).
+- 파일 교체 뒤 다른 필드를 저장하면 나던 거짓 412.
+- 정책 저장 뒤 dirty가 풀리지 않아 이동이 막히던 문제.
+- 2페이지 이후 관리자를 여는 deep link가 빈 화면이던 문제.
+- 로딩 skeleton의 메뉴 버튼으로 drawer를 열면 닫을 때 포커스가 돌아오지 않던 문제. 개편 전 build에서도 재현됐다.
+
+### 검증한 것과 방법
+
+- Node 26.13.0 로컬: `npm run typecheck`, `npm test`(71파일/381 tests), 깨끗한 `npm run build`.
+- `go test ./ui/admin/ ./internal/repositorypolicy/` 통과.
+- 로컬 PostgreSQL 17과 실제 binary에 대해 browser suite: authenticated 23 통과·1 opt-in skip, onboarding 1 통과. 추가한 시나리오는 필터 일괄 삭제(필터 밖 레코드 보존), 체크한 행만 삭제, 파일 업로드·교체, 확인 단계, 팔레트 사용자 검색, API 탭 URL이다.
+- PR 필수 CI 5개 통과. Frontend check가 Node 24로 다시 build한 dist와 commit된 dist의 일치를 확인한다.
+- 운영 배포: Dokploy 배포 `done`. 운영 `/admin/`의 진입 JS·CSS가 병합된 dist와 파일명·SHA-256까지 일치한다. `/admin/login`·`/admin/collections` 200, 인증 없는 `/api/admin/session` 401.
+
+### 검증하지 않은 것
+
+- 운영에 로그인한 화면 확인, 서버 `doctor`, binary 일치 job. 배포 전 서버 dump도 뜨지 않았다.
+- 초기 setup 화면과 login OTP 단계의 browser 확인.
+- 다크 테마와 900px 미만은 일부 화면만 봤다.
+- 마지막 browser suite 실행 뒤의 CSS 한 규칙 변경(nav 하단 영역).
+- Chromium 외 브라우저, CI의 E2E workflow, release gate.
+- 로컬 개발 서버의 요청 log에 0–3ms짜리 500 응답이 찍혔다. 원인은 확인하지 않았다(UI 변경과 무관한 관찰).
+
+### 계획과 달라진 것
+
+- `Toolbar` 컴포넌트는 만들지 않고 공용 클래스를 유지했다. `Table`은 열 정의·정렬이 없는 얇은 셸이다.
+- 작업 실행 이력은 서버 endpoint가 없어 건너뛰었다.
+- 서비스 토큰의 64는 발급 한도가 아니라 목록 조회 limit이어서 생성 버튼을 막지 않았다.
+- `QueryView`로 옮기지 않은 화면: 레코드 편집기, API 탭, 컬렉션 nav, 관계 선택기, plan 검토, 로그 통계 띠.
