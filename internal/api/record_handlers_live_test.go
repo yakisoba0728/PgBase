@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,9 +82,16 @@ func TestRecordRoutesPersistNullableValuesThroughLiveService(t *testing.T) {
 	if createdResponse.Header().Get("Location") != "/api/v1/collections/nullable_api_records/records/"+id {
 		t.Fatalf("create Location = %q", createdResponse.Header().Get("Location"))
 	}
+	loadedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(loadedResponse, authenticatedRecordRequest(http.MethodGet,
+		"/api/v1/collections/nullable_api_records/records/"+id, "", true))
+	if loadedResponse.Code != http.StatusOK || loadedResponse.Header().Get("ETag") != createdETag ||
+		strings.Join(loadedResponse.Header().Values("Cache-Control"), ", ") != "no-store, no-transform" {
+		t.Fatalf("record GET cannot preserve its write validator through a compressing proxy: status=%d headers=%v", loadedResponse.Code, loadedResponse.Header())
+	}
 	nullableUpdate := authenticatedRecordRequest(http.MethodPatch, "/api/v1/collections/nullable_api_records/records/"+id,
 		`{"active":null,"note":null}`, true)
-	nullableUpdate.Header.Set("If-Match", createdETag)
+	nullableUpdate.Header.Set("If-Match", loadedResponse.Header().Get("ETag"))
 	nullableResponse := httptest.NewRecorder()
 	handler.ServeHTTP(nullableResponse, nullableUpdate)
 	if nullableResponse.Code != http.StatusOK {

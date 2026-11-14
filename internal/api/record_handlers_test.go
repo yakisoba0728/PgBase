@@ -81,6 +81,13 @@ func TestRecordRoutesExposeFiveCRUDContracts(t *testing.T) {
 		if response.Code != test.want {
 			t.Errorf("%s %s status=%d body=%s", test.method, test.path, response.Code, response.Body.String())
 		}
+		wantCache := "no-store"
+		if response.Header().Get("ETag") != "" {
+			wantCache += ", no-transform"
+		}
+		if got := strings.Join(response.Header().Values("Cache-Control"), ", "); got != wantCache {
+			t.Errorf("%s %s Cache-Control=%q, want %q", test.method, test.path, got, wantCache)
+		}
 	}
 	if records.listRequest.Collection != "posts" || records.listRequest.Cursor != "signed" || records.listRequest.Limit != 2 ||
 		records.getRequest.PublicID != id.String() || records.updateRequest.PublicID != id.String() || records.deleteRequest.PublicID != id.String() {
