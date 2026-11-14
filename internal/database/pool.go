@@ -207,6 +207,15 @@ func (p *Pool) OpenCoordinationSession(ctx context.Context) (*pgx.Conn, error) {
 	return conn, nil
 }
 
+// CloseCoordinationSession acknowledges lock release before closing the socket.
+// pgx Close alone does not wait for PostgreSQL to process session termination.
+func CloseCoordinationSession(ctx context.Context, conn *pgx.Conn) error {
+	cleanup, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_, unlockErr := conn.Exec(cleanup, `select pg_catalog.pg_advisory_unlock_all()`)
+	return errors.Join(unlockErr, conn.Close(cleanup))
+}
+
 // Close closes the pool and waits for borrowed connections to be returned.
 func (p *Pool) Close() {
 	if p == nil {

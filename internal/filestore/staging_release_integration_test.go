@@ -4,12 +4,12 @@ package filestore
 
 import (
 	"context"
-	"net"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
@@ -26,25 +26,8 @@ func testStorageSessionRelease(t *testing.T, admission bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	url := testutil.NewDatabase(t)
-	config, err := pgx.ParseConfig(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Hold the server session open after the client closes, making delayed
-	// Terminate processing deterministic instead of depending on scheduling.
-	var wire *delayedStagingTermination
-	config.DialFunc = func(ctx context.Context, network, address string) (net.Conn, error) {
-		conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
-		if err != nil {
-			return nil, err
-		}
-		wire = &delayedStagingTermination{Conn: conn}
-		return wire, nil
-	}
-	owner, err := pgx.ConnectConfig(ctx, config)
-	if wire != nil {
-		t.Cleanup(func() { _ = wire.Conn.Close() })
-	}
+	owner, cleanup, err := testutil.ConnectWithDelayedTermination(ctx, url)
+	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +58,7 @@ func testStorageSessionRelease(t *testing.T, admission bool) {
 		t.Fatal("live staging owner did not protect its object")
 	}
 	if admission {
-		closeStorageSession(owner)
+		_ = database.CloseCoordinationSession(ctx, owner)
 	} else {
 		(&stagedObjectOwnership{conn: owner, key: key, ownConn: true}).release()
 	}
@@ -83,14 +66,3 @@ func testStorageSessionRelease(t *testing.T, admission bool) {
 		t.Fatal("release returned before PostgreSQL acknowledged the staging unlock")
 	}
 }
-
-type delayedStagingTermination struct{ net.Conn }
-
-func (c *delayedStagingTermination) Write(data []byte) (int, error) {
-	if len(data) == 5 && data[0] == 'X' {
-		return len(data), nil
-	}
-	return c.Conn.Write(data)
-}
-
-func (*delayedStagingTermination) Close() error { return nil }

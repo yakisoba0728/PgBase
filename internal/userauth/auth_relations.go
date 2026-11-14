@@ -31,13 +31,29 @@ func validateAuthRelationTargets(ctx context.Context, tx pgx.Tx, owner uuid.UUID
 		}
 		ids := relationIDs(attributes[field.Name], field)
 		for _, id := range ids {
-			var exists bool
-			err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.auth_collections c join pgbase_meta.users u on u.auth_collection_id=c.id where c.name=$1 and u.id=$2 and u.active) or exists(select 1 from pgbase_meta.collections c join pgbase_meta.record_revisions r on r.collection_id=c.id where c.name=$1 and r.record_id=$2)`, field.Relation.TargetCollection, id).Scan(&exists)
+			var authTarget uuid.UUID
+			err := tx.QueryRow(ctx, `select u.id from pgbase_meta.auth_collections c join pgbase_meta.users u on u.auth_collection_id=c.id where c.name=$1 and u.id=$2 and u.active for key share of u`, field.Relation.TargetCollection, id).Scan(&authTarget)
+			if err == nil {
+				continue
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			var tableName string
+			err = tx.QueryRow(ctx, `select c.table_name from pgbase_meta.collections c join pgbase_meta.record_revisions r on r.collection_id=c.id where c.name=$1 and r.record_id=$2 and c.collection_type='base'`, field.Relation.TargetCollection, id).Scan(&tableName)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrValidation
+			}
 			if err != nil {
 				return err
 			}
-			if !exists {
+			var nativeTarget uuid.UUID
+			err = tx.QueryRow(ctx, `select id from `+pgx.Identifier{"app", tableName}.Sanitize()+` where id=$1 for key share`, id).Scan(&nativeTarget)
+			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrValidation
+			}
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -86,91 +102,163 @@ func relationIDs(value any, field schema.FieldInput) []uuid.UUID {
 	return []uuid.UUID{id}
 }
 
-// enforceAuthRelationDeletes applies incoming relation policies before an auth
-// identity is removed. It is transactionally serialized with profile writes.
+// RelationDeleteTarget identifies a caller-owned root of a record deletion.
+type RelationDeleteTarget struct {
+	Collection string
+	ID         uuid.UUID
+}
+
 func enforceAuthRelationDeletes(ctx context.Context, tx pgx.Tx, targetCollection string, target uuid.UUID, authorize func(pgx.Tx, uuid.UUID, uuid.UUID) error) error {
-	rows, err := tx.Query(ctx, `select c.id,c.fields_json,p.user_id,p.attributes from pgbase_meta.auth_collections c join pgbase_meta.users u on u.auth_collection_id=c.id join pgbase_meta.user_auth_profiles p on p.user_id=u.id for update of p`)
+	return EnforceRelationDeletes(ctx, tx, []RelationDeleteTarget{{Collection: targetCollection, ID: target}}, authorize)
+}
+
+// EnforceRelationDeletes applies incoming auth-profile policies to the complete
+// caller-owned deletion set before the caller removes its root records.
+func EnforceRelationDeletes(ctx context.Context, tx pgx.Tx, targets []RelationDeleteTarget, authorize func(pgx.Tx, uuid.UUID, uuid.UUID) error) error {
+	if len(targets) == 0 {
+		return nil
+	}
+	type recordKey struct {
+		collection string
+		id         uuid.UUID
+	}
+	closure := make([]recordKey, 0, len(targets))
+	roots := map[recordKey]bool{}
+	deleted := map[recordKey]bool{}
+	collectionNames := []string{}
+	seenCollections := map[string]bool{}
+	for _, target := range targets {
+		if target.Collection == "" || target.ID == uuid.Nil {
+			return ErrValidation
+		}
+		if !seenCollections[target.Collection] {
+			seenCollections[target.Collection] = true
+			collectionNames = append(collectionNames, target.Collection)
+		}
+		key := recordKey{target.Collection, target.ID}
+		if !roots[key] {
+			roots[key], deleted[key] = true, true
+			closure = append(closure, key)
+		}
+	}
+	// Pin definitions until commit; unrelated deletes never need profile row locks.
+	metadata, err := tx.Query(ctx, `select exists(select 1 from jsonb_array_elements(c.fields_json) field where field->>'type'='relation' and field->'relation'->>'targetCollection'=any($1::text[])) from pgbase_meta.auth_collections c order by c.id for share of c`, collectionNames)
+	if err != nil {
+		return err
+	}
+	related := false
+	for metadata.Next() {
+		var referencesRoot bool
+		if err := metadata.Scan(&referencesRoot); err != nil {
+			metadata.Close()
+			return err
+		}
+		related = related || referencesRoot
+	}
+	if err := metadata.Err(); err != nil {
+		metadata.Close()
+		return err
+	}
+	metadata.Close()
+	if !related {
+		return nil
+	}
+	rows, err := tx.Query(ctx, `select c.id,c.name,c.fields_json,p.user_id,p.attributes from pgbase_meta.auth_collections c join pgbase_meta.users u on u.auth_collection_id=c.id join pgbase_meta.user_auth_profiles p on p.user_id=u.id order by p.user_id for update of p`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	type change struct {
-		user       uuid.UUID
-		collection uuid.UUID
-		attrs      map[string]any
-		cascade    bool
+	type profile struct {
+		key          recordKey
+		collectionID uuid.UUID
+		attrs        map[string]any
+		changed      bool
 	}
-	changes := []change{}
+	type reference struct {
+		source *profile
+		field  schema.FieldInput
+	}
+	profiles := []*profile{}
+	incoming := map[recordKey][]reference{}
 	for rows.Next() {
-		var collection, user uuid.UUID
+		value := &profile{}
 		var fieldsRaw, attrsRaw []byte
-		if err := rows.Scan(&collection, &fieldsRaw, &user, &attrsRaw); err != nil {
+		if err := rows.Scan(&value.collectionID, &value.key.collection, &fieldsRaw, &value.key.id, &attrsRaw); err != nil {
 			return err
 		}
 		var fields []schema.FieldInput
-		var attrs map[string]any
-		if json.Unmarshal(fieldsRaw, &fields) != nil || decodeAuthProfile(attrsRaw, &attrs) != nil {
+		if json.Unmarshal(fieldsRaw, &fields) != nil || decodeAuthProfile(attrsRaw, &value.attrs) != nil {
 			return errors.New("invalid stored auth relation")
 		}
-		changed, cascade := false, false
+		profiles = append(profiles, value)
 		for _, field := range fields {
-			if field.Type != schema.TypeRelation || field.Relation.TargetCollection != targetCollection {
+			if field.Type != schema.TypeRelation {
 				continue
 			}
-			ids := relationIDs(attrs[field.Name], field)
-			found := false
-			for _, id := range ids {
-				found = found || id == target
+			for _, id := range relationIDs(value.attrs[field.Name], field) {
+				key := recordKey{field.Relation.TargetCollection, id}
+				incoming[key] = append(incoming[key], reference{value, field})
 			}
-			if !found {
-				continue
-			}
-			switch field.Relation.OnDelete {
-			case schema.RelationRestrict:
-				return ErrConflict
-			case schema.RelationCascade:
-				cascade = true
-			case schema.RelationSetNull:
-				if field.Relation.Cardinality == schema.RelationMultiple {
-					next := []any{}
-					for _, v := range attrs[field.Name].([]any) {
-						if v.(string) != target.String() {
-							next = append(next, v)
-						}
-					}
-					attrs[field.Name] = next
-				} else {
-					delete(attrs, field.Name)
-				}
-				changed = true
-			}
-		}
-		if changed || cascade {
-			changes = append(changes, change{user, collection, attrs, cascade})
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 	rows.Close()
-	// Authorize the complete affected set before referential effects alter actor profiles.
+	for index := 0; index < len(closure); index++ {
+		for _, ref := range incoming[closure[index]] {
+			if ref.field.Relation.OnDelete == schema.RelationCascade && !deleted[ref.source.key] {
+				deleted[ref.source.key] = true
+				closure = append(closure, ref.source.key)
+			}
+		}
+	}
+	// Check the complete closure before writing, including references to cascaded records.
+	for _, key := range closure {
+		for _, ref := range incoming[key] {
+			if deleted[ref.source.key] {
+				continue
+			}
+			switch ref.field.Relation.OnDelete {
+			case schema.RelationRestrict:
+				return ErrConflict
+			case schema.RelationSetNull:
+				if ref.field.Relation.Cardinality == schema.RelationMultiple {
+					next := []any{}
+					for _, raw := range ref.source.attrs[ref.field.Name].([]any) {
+						if raw.(string) != key.id.String() {
+							next = append(next, raw)
+						}
+					}
+					ref.source.attrs[ref.field.Name] = next
+				} else {
+					delete(ref.source.attrs, ref.field.Name)
+				}
+				ref.source.changed = true
+			}
+		}
+	}
+	// Authorize every cascade before effects alter profiles used by the rules.
 	if authorize != nil {
-		for _, c := range changes {
-			if c.cascade {
-				if err := authorize(tx, c.collection, c.user); err != nil {
+		for _, value := range profiles {
+			if !roots[value.key] && deleted[value.key] {
+				if err := authorize(tx, value.collectionID, value.key.id); err != nil {
 					return err
 				}
 			}
 		}
 	}
-	for _, c := range changes {
-		if c.cascade {
-			if _, err := tx.Exec(ctx, `delete from pgbase_meta.users where id=$1`, c.user); err != nil {
+	for _, value := range profiles {
+		if !roots[value.key] && deleted[value.key] {
+			if _, err := tx.Exec(ctx, `delete from pgbase_meta.users where id=$1`, value.key.id); err != nil {
 				return err
 			}
-		} else {
-			raw, _ := json.Marshal(c.attrs)
-			if _, err := tx.Exec(ctx, `update pgbase_meta.user_auth_profiles set attributes=$2,updated_at=current_timestamp where user_id=$1`, c.user, raw); err != nil {
+		} else if value.changed {
+			raw, err := json.Marshal(value.attrs)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `update pgbase_meta.user_auth_profiles set attributes=$2,updated_at=current_timestamp where user_id=$1`, value.key.id, raw); err != nil {
 				return err
 			}
 		}

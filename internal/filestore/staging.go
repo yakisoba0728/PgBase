@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/lifecycle"
 )
@@ -43,7 +44,7 @@ func (o *stagedObjectOwnership) release() {
 	}
 	o.once.Do(func() {
 		if o.ownConn {
-			closeStorageSession(o.conn)
+			_ = database.CloseCoordinationSession(context.Background(), o.conn)
 			return
 		}
 		cleanup, cancel := context.WithTimeout(context.Background(), time.Second)

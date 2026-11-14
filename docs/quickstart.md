@@ -1,6 +1,6 @@
 # 10-minute quickstart
 
-This path runs the development Compose stack: PostgreSQL 16.13 plus the locally built pgBase image. It requires Docker Engine or Docker Desktop with Docker Compose v2. The local ports `8090` and `5432` must be available unless you change them in `deployments/.env`.
+This path runs the development Compose stack: PostgreSQL 16.16 plus the locally built pgBase image. It requires Docker Engine or Docker Desktop with Docker Compose v2. The local ports `8090` and `5432` must be available unless you change them in `deployments/.env`.
 
 ## 1. Create the local environment file
 

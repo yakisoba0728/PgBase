@@ -4,12 +4,12 @@ pgBase is a PostgreSQL-backed application backend with an embedded administrator
 
 PgBase is an independent project inspired by PocketBase. Its PostgreSQL data model, authentication, APIs, and operational contracts guide development. See the [2026-09-22 implementation and next steps](docs/workstreams/independent-product-2026-09-22/README.md); the PocketBase comparison is reference material, not a requirement for identical behavior.
 
-The latest release is [v0.3.1](https://github.com/yakisoba0728/PgBase/releases/tag/v0.3.1); its source is deployed to production with schema 66. The current source includes schema 66: SQL view reference validation (including persisted views), authentication-safe migration replay, service-token request-log identities, indexed log/email search, and administrator record-page file metadata. Administrator security writes require `currentPassword`. See [current status](docs/project-status.md), [readiness changes and verification](docs/production-readiness-2026-11-13.md), and [remaining work](docs/next-work.md). Historical implementation and deployment records are retained in those documents.
+The latest release is [v0.3.1](https://github.com/yakisoba0728/PgBase/releases/tag/v0.3.1); its source is deployed to production with schema 66. Current main requires schema 67, which aligns file metadata field-name limits with the supported schema fields. It also includes SQL view reference validation (including persisted views), authentication-safe migration replay, service-token request-log identities, indexed log/email search, and administrator record-page file metadata. Administrator security writes require `currentPassword`. See [current status](docs/project-status.md), [readiness changes and verification](docs/production-readiness-2026-11-13.md), and [remaining work](docs/next-work.md). Historical implementation and deployment records are retained in those documents.
 
 ## Quick start
 
 1. Copy `deployments/.env.example` to `deployments/.env` and generate all three required secrets as described in [the quickstart](docs/quickstart.md#1-create-the-local-environment-file).
-2. Start PostgreSQL 16.13 and pgBase:
+2. Start PostgreSQL 16.16 and pgBase:
 
    ```console
    docker compose --env-file deployments/.env -f deployments/docker-compose.yml up -d --build --wait
@@ -23,6 +23,8 @@ The bundled Compose file is a development convenience and sets `PGBASE_AUTO_MIGR
 
 - [PostgreSQL 기반 백엔드 재설계와 적용 범위](docs/backend-redesign.md)
 - [백엔드 재작성 구현과 통합 검증](docs/backend-rewrite-validation.md)
+- [현재 런타임·백업·플랫폼 검증](docs/runtime-verification.md)
+- [병합된 main 독립 검토와 후속 수정](docs/final-main-review.md)
 - [한국어 지원과 PocketBase 스타일 화면 개선](docs/admin-korean-ui.md)
 - [2026-11-13 새 관리자 UI 병합과 운영 배포](docs/deployment-2026-11-13.md)
 - [2026-11-12 서버 배포 기록](docs/deployment-2026-11-12.md)

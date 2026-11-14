@@ -146,9 +146,6 @@ func (s *Service) UpdateAuthorizedAuthRecord(ctx context.Context, collectionID, 
 	var rules AuthCollectionRules
 	request := authRecordMutationValues(in)
 	updated, err := s.updateAuthRecord(ctx, collectionID, target, in, func(tx pgx.Tx, current AuthRecord) error {
-		if _, err := tx.Exec(ctx, `select id from pgbase_meta.auth_collections where id=$1 for share`, collectionID); err != nil {
-			return err
-		}
 		var err error
 		fields, rules, err = authRecordRulesDB(ctx, tx, collectionID)
 		if err != nil {
@@ -214,26 +211,35 @@ func (s *Service) visibleAuthRecordForPrincipal(ctx context.Context, record Auth
 }
 func (s *Service) DeleteAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID) error {
 	return s.deleteAuthRecord(ctx, collectionID, target, func(tx pgx.Tx, collectionID, target uuid.UUID) error {
-		var locked uuid.UUID
-		if err := tx.QueryRow(ctx, `select id from pgbase_meta.users where auth_collection_id=$1 and id=$2 for update`, collectionID, target).Scan(&locked); err != nil {
-			return err
-		}
-		var rule *string
-		if err := tx.QueryRow(ctx, `select delete_rule from pgbase_meta.auth_collections where id=$1 for share`, collectionID).Scan(&rule); err != nil {
-			return err
-		}
-		if rule == nil {
-			return ErrInvalidCredentials
-		}
-		allowed, err := EvaluateAuthRecordRuleInTx(ctx, tx, collectionID, *rule, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: AuthRecord{ID: target}})
-		if err != nil {
-			return err
-		}
-		if !allowed {
-			return ErrInvalidCredentials
-		}
-		return nil
+		return AuthorizeAuthRecordDeleteInTx(ctx, tx, identity.Subject{Kind: identity.User, ID: principal}, collectionID, target)
 	})
+}
+
+// AuthorizeAuthRecordDeleteInTx checks the current auth collection rule for a
+// cascading user deletion in the caller's transaction.
+func AuthorizeAuthRecordDeleteInTx(ctx context.Context, tx pgx.Tx, principal identity.Subject, collectionID, target uuid.UUID) error {
+	if principal.Kind != identity.User || principal.ID == uuid.Nil {
+		return ErrInvalidCredentials
+	}
+	var locked uuid.UUID
+	if err := tx.QueryRow(ctx, `select id from pgbase_meta.users where auth_collection_id=$1 and id=$2 for update`, collectionID, target).Scan(&locked); err != nil {
+		return err
+	}
+	var rule *string
+	if err := tx.QueryRow(ctx, `select delete_rule from pgbase_meta.auth_collections where id=$1 for share`, collectionID).Scan(&rule); err != nil {
+		return err
+	}
+	if rule == nil {
+		return ErrInvalidCredentials
+	}
+	allowed, err := EvaluateAuthRecordRuleInTx(ctx, tx, collectionID, *rule, AuthRuleContext{Principal: principal, Current: AuthRecord{ID: target}})
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrInvalidCredentials
+	}
+	return nil
 }
 
 func (s *Service) authRecordRules(ctx context.Context, id uuid.UUID) ([]schema.FieldInput, AuthCollectionRules, error) {
@@ -344,36 +350,50 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 	if validatePassword(in.Password) != nil {
 		return AuthRecord{}, fieldError(ErrValidation, "password", "invalid")
 	}
-	fields, err := s.authRecordContract(ctx, collectionID)
-	if err != nil {
-		return AuthRecord{}, err
-	}
-	in.Fields = applyAuthAutoDates(in.Fields, fields, true, time.Now())
-	if err := s.resolveAuthRelationIdentities(ctx, s.pool, in.Fields, fields); err != nil {
-		return AuthRecord{}, err
-	}
-	if !validateTypedProfile(in.Fields, fields, false) {
-		return AuthRecord{}, fieldError(ErrValidation, "fields", "invalid")
-	}
-	storedFields, ok := prepareAuthPasswordFields(fields, in.Fields, true)
-	if !ok || !validateTypedProfile(storedFields, fields, true) {
-		return AuthRecord{}, fieldError(ErrValidation, "fields", "invalid")
-	}
-	policy, err := s.authPolicy(ctx, collectionID)
-	if err == nil && !passwordMatchesPolicy(in.Password, policy) {
-		return AuthRecord{}, fieldError(ErrValidation, "password", "policy")
-	}
-	if err != nil {
-		return AuthRecord{}, ErrValidation
-	}
 	hash, err := s.passwords.Hash(in.Password)
 	if err != nil {
 		return AuthRecord{}, err
 	}
-	raw, _ := json.Marshal(storedFields)
 	id := uuid.New()
 	var out AuthRecord
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		policy, err := lockedAuthPolicyTx(ctx, tx, collectionID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if !passwordMatchesPolicy(in.Password, policy) {
+			return fieldError(ErrValidation, "password", "policy")
+		}
+		var fieldsRaw []byte
+		if err := tx.QueryRow(ctx, `select fields_json from pgbase_meta.auth_collections where id=$1 for share`, collectionID).Scan(&fieldsRaw); err != nil {
+			return err
+		}
+		var fields []schema.FieldInput
+		if err := json.Unmarshal(fieldsRaw, &fields); err != nil {
+			return errors.New("invalid stored auth fields")
+		}
+		var now time.Time
+		if err := tx.QueryRow(ctx, `select current_timestamp`).Scan(&now); err != nil {
+			return err
+		}
+		attributes := applyAuthAutoDates(in.Fields, fields, true, now)
+		if err := s.resolveAuthRelationIdentities(ctx, tx, attributes, fields); err != nil {
+			return err
+		}
+		if !validateTypedProfile(attributes, fields, false) {
+			return fieldError(ErrValidation, "fields", "invalid")
+		}
+		storedFields, ok := prepareAuthPasswordFields(fields, attributes, true)
+		if !ok || !validateTypedProfile(storedFields, fields, true) {
+			return fieldError(ErrValidation, "fields", "invalid")
+		}
+		raw, err := json.Marshal(storedFields)
+		if err != nil {
+			return err
+		}
 		recordIDPolicy, err := authRecordIDPolicy(ctx, tx, collectionID)
 		if err != nil {
 			return err
@@ -396,10 +416,6 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 			return err
 		}
 		if err := validateAuthIdentityUnique(ctx, tx, collectionID, id, storedFields, policy.IdentityFields); err != nil {
-			return err
-		}
-		var now time.Time
-		if err := tx.QueryRow(ctx, `select current_timestamp`).Scan(&now); err != nil {
 			return err
 		}
 		_, err = tx.Exec(ctx, `insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,email_visibility,active,verified,created_at,updated_at) values($1,$2,$3,$4,$5,$6,$7,$8,$8)`, id, collectionID, normalized, hash, in.EmailVisibility, in.Active, in.Verified, now)
@@ -453,6 +469,10 @@ func (s *Service) updateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 		if err := tx.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id=$2 for update of u`, collectionID, id).Scan(&current.ID, &current.AuthCollectionID, &current.Email, &current.EmailVisibility, &current.Verified, &current.Active, &rawExisting, &current.CreatedAt, &current.UpdatedAt); errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
+			return err
+		}
+		var realm uuid.UUID
+		if err := tx.QueryRow(ctx, `select id from pgbase_meta.auth_collections where id=$1 for share`, collectionID).Scan(&realm); err != nil {
 			return err
 		}
 		fields, _, err = authRecordRulesDB(ctx, tx, collectionID)
@@ -519,10 +539,11 @@ func (s *Service) updateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 		if tag.RowsAffected() != 1 {
 			return ErrNotFound
 		}
-		if in.Fields != nil {
-			raw, _ := json.Marshal(merged)
-			_, e = tx.Exec(ctx, `insert into pgbase_meta.user_auth_profiles(user_id,attributes,updated_at) values($1,$2,current_timestamp) on conflict(user_id) do update set attributes=excluded.attributes,updated_at=excluded.updated_at`, id, raw)
+		raw, marshalErr := json.Marshal(merged)
+		if marshalErr != nil {
+			return marshalErr
 		}
+		_, e = tx.Exec(ctx, `insert into pgbase_meta.user_auth_profiles(user_id,attributes,updated_at) values($1,$2,current_timestamp) on conflict(user_id) do update set attributes=excluded.attributes,updated_at=excluded.updated_at`, id, raw)
 		if e == nil && (hash != nil || email != nil || in.Active != nil && !*in.Active || in.Verified != nil && !*in.Verified) {
 			_, e = revokeSessionsInTx(ctx, tx, id)
 		}
