@@ -2,7 +2,7 @@
 
 export interface PaletteItem {
   id: string;
-  group: "recent" | "collections" | "screens" | "actions";
+  group: "recent" | "collections" | "screens" | "actions" | "users";
   label: string;
   /** Extra words that should find the item (a path, the other language's name). */
   keywords?: string;
@@ -33,11 +33,14 @@ export function matchScore(query: string, text: string): number {
   return Math.max(1, 400 - gaps * 10 - hay.length / 100);
 }
 
-const groupOrder: PaletteItem["group"][] = ["recent", "collections", "screens", "actions"];
+const groupOrder: PaletteItem["group"][] = ["recent", "collections", "screens", "actions", "users"];
 
-/** Items for a query: all of them in group order when empty, else the matches best first (at most `limit`). */
+/** Items for a query: all of them in group order when empty (collections capped at `limit`), else the matches best first (at most `limit`). */
 export function rankItems(items: PaletteItem[], query: string, limit = 50): PaletteItem[] {
-  if (!query.trim()) return [...items].sort((a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group)).slice(0, limit);
+  if (!query.trim()) {
+    const collections = items.filter((item) => item.group === "collections").slice(0, limit);
+    return [...items.filter((item) => item.group !== "collections"), ...collections].sort((a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group));
+  }
   return items
     .filter((item) => item.group !== "recent")
     .map((item) => ({ item, score: Math.max(matchScore(query, item.label), item.keywords ? matchScore(query, item.keywords) - 50 : -1) }))

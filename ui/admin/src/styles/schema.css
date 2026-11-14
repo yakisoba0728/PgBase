@@ -2,7 +2,7 @@
 .schema-content {
   display: grid;
   align-content: start;
-  gap: 28px;
+  gap: var(--sp-24);
   padding-top: var(--space-xs);
 }
 
@@ -13,18 +13,13 @@
 .schema-section-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-8);
   min-height: var(--control-sm);
-  margin-bottom: 6px;
-}
-
-.schema-section-head h2 {
-  font-size: 13px;
-  font-weight: 650;
+  margin-bottom: var(--sp-6);
 }
 
 .schema-count {
-  color: var(--text-disabled);
+  color: var(--text-hint);
   font-size: var(--font-size-sm);
   font-variant-numeric: tabular-nums;
 }
@@ -34,7 +29,7 @@
 }
 
 .schema-note {
-  margin: 4px 2px 0;
+  margin: var(--sp-4) var(--sp-2) 0;
 }
 
 .schema-grid {
@@ -44,17 +39,10 @@
   gap: var(--space-xs);
 }
 
-.schema-pair {
-  display: grid;
-  align-items: start;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: var(--space-xs);
-}
-
 .schema-checks {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px 18px;
+  gap: var(--sp-2) var(--sp-16);
 }
 
 /* Rows: tone, not borders. The open row takes the accent, edited rows a state dot. */
@@ -71,11 +59,16 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   border-radius: var(--radius);
-  transition: background var(--speed);
+  transition: background var(--dur);
 }
 
+/* The row carries the hover so its tools share it; the row button inside adds none. */
 .schema-row:hover {
-  background: var(--surface-1);
+  background: var(--hover);
+}
+
+.schema-row > .row-btn:hover {
+  background: none;
 }
 
 .schema-row[aria-current="true"] {
@@ -86,24 +79,15 @@
   color: var(--text-hint);
 }
 
+/* Columns of a field or index row; the clickable rows are .row-btn, the static header row matches their box. */
 .schema-row-main {
   display: grid;
   grid-template-columns: 16px minmax(120px, 1.1fr) minmax(90px, 1fr) minmax(0, 1.6fr) 72px 14px;
   align-items: center;
-  gap: 12px;
+  gap: var(--sp-12);
   min-width: 0;
   min-height: var(--row);
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--radius);
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-
-button.schema-row-main {
-  cursor: pointer;
+  padding: var(--sp-8) var(--sp-12);
 }
 
 .schema-row-main > svg {
@@ -114,7 +98,7 @@ button.schema-row-main {
   overflow: hidden;
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -130,7 +114,7 @@ button.schema-row-main {
 
 .schema-flags {
   display: flex;
-  gap: 4px;
+  gap: var(--sp-4);
   min-width: 0;
   overflow: hidden;
 }
@@ -138,12 +122,12 @@ button.schema-row-main {
 .schema-flag {
   flex: none;
   height: 20px;
-  padding: 0 8px;
-  border-radius: var(--radius-pill);
+  padding: 0 var(--sp-8);
+  border-radius: var(--radius-xs);
   background: var(--surface-2);
   color: var(--text-hint);
   font-size: var(--font-size-xs);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   line-height: 20px;
 }
 
@@ -151,7 +135,7 @@ button.schema-row-main {
   grid-column: 5;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--sp-4);
   color: var(--text-hint);
   font-size: var(--font-size-xs);
 }
@@ -170,25 +154,20 @@ button.schema-row-main {
 
 .schema-lock {
   grid-column: 6;
-  color: var(--text-disabled);
+  color: var(--text-hint);
 }
 
 .schema-row-tools {
   display: flex;
   min-width: 60px;
-  padding-right: 4px;
+  padding-right: var(--sp-4);
   opacity: 0;
-  transition: opacity var(--speed);
+  transition: opacity var(--dur);
 }
 
 .schema-row:hover .schema-row-tools,
 .schema-row-tools:focus-within {
   opacity: 1;
-}
-
-.schema-row-tools .icon-btn {
-  width: 26px;
-  height: 26px;
 }
 
 .schema-row[data-invalid] {
@@ -197,13 +176,12 @@ button.schema-row-main {
 
 .schema-row-error {
   grid-column: 1 / -1;
-  padding: 0 12px 8px 40px;
+  padding: 0 var(--sp-12) var(--sp-8) var(--sp-40);
   color: var(--danger);
   font-size: var(--font-size-sm);
 }
 
 /* Option groups inside the field pane. */
-fieldset.form,
 .schema-group {
   min-width: 0;
   margin: 0;
@@ -216,28 +194,20 @@ fieldset.form,
   gap: var(--space-xs);
 }
 
-.schema-group legend {
-  margin-bottom: var(--space-xs);
-  padding: 0;
-  color: var(--text-hint);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-}
-
 .schema-columns-pick {
   display: grid;
   gap: 0;
   margin: 0;
-  padding: 4px 8px;
+  padding: var(--sp-4) var(--sp-8);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--input);
   list-style: none;
 }
 
 .schema-columns-pick li {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-8);
   min-height: var(--control-sm);
 }
 
@@ -245,20 +215,9 @@ fieldset.form,
   margin-left: auto;
 }
 
-.schema-order {
-  height: 26px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-}
-
 .schema-sample {
   display: grid;
-  gap: 6px;
+  gap: var(--sp-6);
   margin-top: var(--space-sm);
 }
 
@@ -271,21 +230,22 @@ fieldset.form,
   cursor: default;
 }
 
-.schema-danger {
-  display: grid;
-  gap: 2px;
+/* The collection's danger zone: last on the page, set apart by a rule. */
+.schema-content > .form-section:last-child {
+  margin-top: var(--space);
+  box-shadow: 0 -1px 0 var(--line);
 }
 
-.schema-danger > div {
+.danger-zone > div {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-10);
 }
 
 /* New collection: three plain choices. */
 .schema-choices {
   display: grid;
-  gap: 4px;
+  gap: var(--sp-4);
   max-width: 560px;
   margin: 0;
   padding: 0;
@@ -296,17 +256,17 @@ fieldset.form,
   display: grid;
   grid-template-columns: 20px 90px minmax(0, 1fr);
   align-items: center;
-  gap: 14px;
+  gap: var(--sp-12);
   min-height: 56px;
-  padding: 0 16px;
+  padding: 0 var(--sp-16);
   border-radius: var(--radius);
   color: inherit;
   text-decoration: none;
-  transition: background var(--speed);
+  transition: background var(--dur);
 }
 
 .schema-choice:hover {
-  background: var(--surface-1);
+  background: var(--hover);
 }
 
 .schema-choice svg {
@@ -337,9 +297,9 @@ fieldset.form,
   display: grid;
   gap: 0;
   margin: 0;
-  padding: 4px 8px;
+  padding: var(--sp-4) var(--sp-8);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--input);
   list-style: none;
 }
 
@@ -350,7 +310,7 @@ fieldset.form,
 .schema-keys li {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-6);
   min-height: var(--control-sm);
 }
 
@@ -378,11 +338,6 @@ fieldset.form,
   font-size: var(--font-size-xs);
 }
 
-.schema-join {
-  justify-self: start;
-  width: auto;
-}
-
 .schema-filter {
   display: grid;
   gap: var(--space-xs);
@@ -408,37 +363,14 @@ fieldset.form,
   margin-top: var(--space-xs);
 }
 
-/* Compact filled control for rows of selects and inputs. */
-.schema-input {
-  width: 100%;
-  min-width: 0;
-  height: var(--control-sm);
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--input);
-  color: var(--text);
-  font-size: var(--font-size-sm);
-  outline: 0;
-}
-
-.schema-input:focus-visible {
-  background: var(--input-focus);
-  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
-}
-
-select.schema-input {
-  cursor: pointer;
-}
-
 .schema-start {
   justify-self: start;
 }
 
 .schema-confirm-list {
-  margin: 0 0 12px;
-  padding-left: 18px;
-  font-size: 12px;
+  margin: 0 0 var(--sp-12);
+  padding-left: var(--sp-16);
+  font-size: var(--font-size-sm);
 }
 
 fieldset.schema-content { border: 0; margin: 0; min-width: 0; }

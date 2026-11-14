@@ -12,19 +12,46 @@
   --line-height-sm: 16px;
   --font-size-xs: 11px;
   --font-size-title: 16px;
+  --font-size-display: 20px;
 
-  /* Radius scale: chips and checkboxes, menu rows, controls, surfaces, pills. */
-  --radius-xs: 5px;
-  --radius-sm: 8px;
-  --radius: 10px;
-  --radius-lg: 16px;
+  /* Weights: body, labels, headings and emphasis. */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-bold: 600;
+
+  /* Radius scale: checkboxes and code, menu rows and small controls, controls, overlays.
+     Pill only for status chips and dots, toggles and round avatars. */
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
   --radius-pill: 999px;
 
   /* Spacing on a 4px rhythm. */
   --space-xs: 8px;
   --space-sm: 12px;
   --space: 20px;
-  --gutter: 8px;
+
+  /* Fixed spacing named by pixel value; unlike --space it never changes with the viewport. */
+  --sp-2: 2px;
+  --sp-4: 4px;
+  --sp-6: 6px;
+  --sp-8: 8px;
+  --sp-10: 10px;
+  --sp-12: 12px;
+  --sp-16: 16px;
+  --sp-20: 20px;
+  --sp-24: 24px;
+  --sp-32: 32px;
+  --sp-40: 40px;
+
+  /* Stacking, low to high: sticky cells, what sits over them, the mobile pane, drawer scrim, drawer, toasts. */
+  --z-raised: 1;
+  --z-raised-over: 2;
+  --z-pane: 20;
+  --z-drawer-scrim: 29;
+  --z-drawer: 30;
+  --z-toast: 100;
 
   --control: 36px;
   --control-sm: 30px;
@@ -32,42 +59,88 @@
   --nav: 240px;
   --rail: 60px;
   --header: 56px;
-  --speed: 160ms;
-  --speed-active: 70ms;
+  /* Motion: three durations, an ease-out for what appears and a quicker ease-in for what leaves.
+     --dur-fast: presses and exits; --dur: colour changes, menus, toasts; --dur-slow: panes, dialogs, page entrance, drawer.
+     Distances are tokens too, so reduced motion can zero them in one place. */
+  --dur-fast: 90ms;
+  --dur: 150ms;
+  --dur-slow: 220ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --rise: 4px;
+  --slide: 16px;
+  --scale-from: 0.98;
+  /* A pressed button or toggle gives a little; staggered groups start one step apart, capped at 8 steps. */
+  --press: 0.97;
+  --stagger: 30ms;
+  /* Every disabled control: buttons, icon buttons, row buttons, checkboxes, editor tools. */
+  --disabled-opacity: 0.45;
 
   /* Accent: contrast checked against white text (light) and the dark surfaces (dark). */
   --accent: light-dark(#336791, #8db4dc);
   --accent-text: light-dark(#fff, #101214);
   --accent-hover: color-mix(in srgb, var(--accent), light-dark(#000, #fff) 10%);
+  --accent-active: color-mix(in srgb, var(--accent), light-dark(#000, #fff) 20%);
   --accent-soft: color-mix(in srgb, var(--accent), var(--surface) 88%);
   --accent-faint: color-mix(in srgb, var(--accent), var(--surface) 95%);
-  --ring: color-mix(in srgb, var(--accent), transparent 35%);
+  /* The one hover fill for transparent controls and rows, on any surface (translucent; sticky cells layer it over --surface). */
+  --hover: color-mix(in srgb, var(--text), transparent 94%);
 
   --success: light-dark(#1d7a4a, #5cc28b);
   --warning: light-dark(#a35c00, #e3a548);
   --danger: light-dark(#b42335, #f07c86);
   --danger-text: light-dark(#fff, #101214);
+  --danger-hover: color-mix(in srgb, var(--danger), light-dark(#000, #fff) 10%);
+  --danger-active: color-mix(in srgb, var(--danger), light-dark(#000, #fff) 20%);
 
-  /* Neutrals, faintly tinted by the accent. Areas are told apart by tone, not borders:
-     bg (app canvas) < surface (the sheet) < raised (pane, menus, dialogs). */
+  /* Neutrals, faintly tinted by the accent. Regions are flat and split by one --line border;
+     raised is for overlays (menus, dialogs, palette). */
   --bg: color-mix(in oklab, var(--accent) 5%, light-dark(#edeff2, #0d0e10));
   --surface: light-dark(#fff, #16171a);
   --surface-raised: light-dark(#fff, #1d1f23);
   --surface-1: color-mix(in oklab, var(--accent) 2%, light-dark(#f4f5f7, #202226));
   --surface-2: color-mix(in oklab, var(--accent) 3%, light-dark(#ebedf0, #282a2f));
   --surface-3: color-mix(in oklab, var(--accent) 3%, light-dark(#dfe2e6, #33363c));
-  --line: light-dark(rgb(16 24 40 / 8%), rgb(255 255 255 / 7%));
+  --line: light-dark(rgb(16 24 40 / 9%), rgb(255 255 255 / 8.5%));
   --text: light-dark(#1b1e23, #e8e9eb);
   --text-hint: light-dark(#5d636b, #9da2aa);
+  /* Disabled controls only; informative muted text uses --text-hint. */
   --text-disabled: light-dark(#949aa2, #686c73);
-
-  --input: color-mix(in oklab, var(--accent) 2%, light-dark(#f0f2f4, #25272b));
-  --input-focus: var(--surface);
+  /* The edge of a control (inputs, checkboxes); --line is too faint for it. */
+  --border-control: color-mix(in srgb, var(--text-hint), var(--surface) 30%);
   --backdrop: light-dark(rgb(16 22 32 / 22%), rgb(0 0 0 / 50%));
   --shadow-near: light-dark(rgb(16 24 40 / 6%), rgb(0 0 0 / 35%));
   --shadow-far: light-dark(rgb(16 24 40 / 10%), rgb(0 0 0 / 50%));
-  /* The one elevation level: the detail pane and overlays. */
-  --shadow: 0 0 0 1px var(--line), 0 1px 2px var(--shadow-near), 0 10px 28px -8px var(--shadow-far);
+  /* Two elevation levels. 1: what sits beside the page (detail pane, sticky header once scrolled, toasts);
+     2: what floats over it (menus, popovers, dialogs, palette, drawer). */
+  --shadow-1: 0 1px 2px var(--shadow-near), 0 4px 16px -8px var(--shadow-far);
+  --shadow-2: 0 0 0 1px var(--line), 0 2px 4px var(--shadow-near), 0 16px 40px -12px var(--shadow-far);
+  /* The select chevron, stroked in --text-hint (SVG cannot read custom properties, so one per theme below). */
+  --chevron: var(--chevron-light);
+  --chevron-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%235d636b' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --chevron-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239da2aa' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --chevron: var(--chevron-dark);
+  }
+}
+
+:root[data-theme="dark"] {
+  --chevron: var(--chevron-dark);
+}
+
+/* Reduced motion: nothing travels or scales; the global rule in base.css makes durations instant. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --rise: 0px;
+    --slide: 0px;
+    --scale-from: 1;
+    --press: 1;
+    /* Delays are not durations: the global rule cannot zero them, so the step itself goes. */
+    --stagger: 0ms;
+  }
 }
 
 :root[data-theme="light"] {
@@ -81,6 +154,5 @@
 @media (max-width: 899px) {
   :root {
     --space: 16px;
-    --gutter: 0px;
   }
 }

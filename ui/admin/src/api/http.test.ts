@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LosslessNumber } from "lossless-json";
-import { ApiError, clearCsrfToken, onCsrfRejected, parseJson, request, setCsrfToken, stringifyJson, uploadForm } from "./http";
+import { ApiError, clearCsrfToken, onCsrfRejected, parseJson, request, setCsrfToken, stringifyJson, upload } from "./http";
 
 describe("parseJson / stringifyJson", () => {
   it("keeps safe numbers as numbers and unsafe ones exact", () => {
@@ -127,7 +127,7 @@ describe("CSRF recovery", () => {
     }
     vi.stubGlobal("XMLHttpRequest", FakeXhr);
     onCsrfRejected(async () => signedIn, issuer);
-    const pending = uploadForm("/api/files", new FormData());
+    const pending = upload("/api/files", new FormData());
     signedIn = "b";
     sent[0].onload?.();
     await expect(pending).rejects.toMatchObject({ code: "session_changed" });
@@ -139,6 +139,72 @@ it("never starts a multipart upload with an already aborted signal", async () =>
   const xhr = vi.fn();
   vi.stubGlobal("XMLHttpRequest", xhr);
   const signal = AbortSignal.abort(new DOMException("Cancelled", "AbortError"));
-  await expect(uploadForm("/files", new FormData(), { signal })).rejects.toMatchObject({ name: "AbortError" });
+  await expect(upload("/files", new FormData(), { signal })).rejects.toMatchObject({ name: "AbortError" });
   expect(xhr).not.toHaveBeenCalled();
+});
+
+describe("upload with a raw body", () => {
+  class FakeXhr {
+    static last: FakeXhr;
+    status = 0;
+    responseText = "";
+    headers: Record<string, string> = {};
+    body: unknown;
+    upload: { onprogress?: (event: { lengthComputable: boolean; loaded: number; total: number }) => void } = {};
+    onload: (() => void) | null = null;
+    onabort: (() => void) | null = null;
+    withCredentials = false;
+    constructor() { FakeXhr.last = this; }
+    open() {}
+    setRequestHeader(key: string, value: string) { this.headers[key] = value; }
+    send(body: unknown) { this.body = body; }
+    abort() { this.onabort?.(); }
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    clearCsrfToken();
+  });
+
+  it("sends the blob with CSRF and reports progress", async () => {
+    vi.stubGlobal("XMLHttpRequest", FakeXhr);
+    setCsrfToken("tok");
+    const progress: number[] = [];
+    const archive = new Blob(["gz"]);
+    const pending = upload<{ id: string }>("/up", archive, { headers: { "Content-Type": "application/gzip" }, onProgress: (f) => progress.push(f) });
+    const xhr = FakeXhr.last;
+    xhr.upload.onprogress?.({ lengthComputable: true, loaded: 1, total: 4 });
+    xhr.status = 201;
+    xhr.responseText = '{"id":"b1"}';
+    xhr.onload?.();
+    await expect(pending).resolves.toEqual({ id: "b1" });
+    expect(progress).toEqual([0.25]);
+    expect(xhr.body).toBe(archive);
+    expect(xhr.headers).toMatchObject({ "Content-Type": "application/gzip", "X-PgBase-CSRF": "tok" });
+  });
+
+  it("aborts on the signal", async () => {
+    vi.stubGlobal("XMLHttpRequest", FakeXhr);
+    const abort = new AbortController();
+    const pending = upload("/up", new Blob(["gz"]), { signal: abort.signal });
+    abort.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("rejects a status whose Response cannot be built (304) instead of never settling", async () => {
+    vi.stubGlobal("XMLHttpRequest", FakeXhr);
+    const pending = upload("/up", new Blob(["gz"]));
+    FakeXhr.last.status = 304;
+    FakeXhr.last.onload?.();
+    await expect(pending).rejects.toMatchObject({ status: 304, code: "invalid_response" });
+  });
+
+  it("maps the error envelope to ApiError", async () => {
+    vi.stubGlobal("XMLHttpRequest", FakeXhr);
+    const pending = upload("/up", new Blob(["gz"]));
+    FakeXhr.last.status = 413;
+    FakeXhr.last.responseText = '{"error":{"code":"too_large","message":"Too large"}}';
+    FakeXhr.last.onload?.();
+    await expect(pending).rejects.toMatchObject({ status: 413, code: "too_large", message: "Too large" });
+  });
 });

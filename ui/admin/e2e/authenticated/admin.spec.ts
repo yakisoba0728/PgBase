@@ -200,7 +200,16 @@ test.describe.serial("collection workflow", () => {
   test("a data-losing schema change needs the collection name typed", async ({ page }) => {
     await page.goto(`/admin/collections/${products}/schema`);
     await page.getByRole("button", { name: /^active/ }).click();
+    // Removing a field asks nothing up front; it offers an undo, and the typed confirmation comes with the plan.
     await page.getByRole("region", { name: "Schema detail" }).getByRole("button", { name: "Remove field" }).click();
+    const removed = page.getByRole("status", { name: "Notifications" });
+    await expect(removed).toContainText("active removed.");
+    await expect(page.getByRole("button", { name: /^active/ })).toHaveCount(0);
+    await removed.getByRole("button", { name: "Undo" }).click();
+    await expect(page.getByRole("button", { name: /^active/ })).toBeVisible();
+    await page.getByRole("button", { name: /^active/ }).click();
+    await page.getByRole("region", { name: "Schema detail" }).getByRole("button", { name: "Remove field" }).click();
+    await expect(page.getByRole("button", { name: /^active/ })).toHaveCount(0);
     await page.getByRole("button", { name: "Review changes" }).click();
     await page.getByRole("button", { name: "Apply", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "This change loses data" });
@@ -241,9 +250,158 @@ test.describe.serial("auth workflow", () => {
     await detail.getByRole("textbox", { name: "Password", exact: true }).fill(`user password ${suffix}`);
     await detail.getByRole("button", { name: "Create", exact: true }).click();
     await expect(page).toHaveURL(/user=/);
-    await page.getByRole("searchbox", { name: "Search" }).fill(email);
+    // The search is submitted with Enter, like the record filter.
+    const search = page.getByRole("searchbox", { name: "Search" });
+    await search.fill(email);
+    await search.press("Enter");
+    await expect(page).toHaveURL(/[?&]q=/);
     await expect(page.getByRole("cell", { name: email })).toBeVisible();
   });
+
+  test("the command palette finds a user by email", async ({ page }) => {
+    const email = `user-${suffix}@example.test`;
+    await page.goto("/admin/settings");
+    await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+    await page.keyboard.press("ControlOrMeta+k");
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("combobox", { name: "Go to or run a command" }).fill(`user-${suffix}`);
+    const option = dialog.getByRole("option").filter({ hasText: email });
+    await expect(option).toBeVisible();
+    // The group heading is aria-hidden, so it is found by its text.
+    await expect(dialog.locator(".palette-group", { hasText: "Users" })).toBeVisible();
+    await option.click();
+    await expect(page).toHaveURL(/\/admin\/auth\/users\?(.*&)?user=/);
+    await expect(page.getByRole("region", { name: "User" }).getByRole("heading", { name: email })).toBeVisible();
+  });
+});
+
+test.describe.serial("bulk record delete", () => {
+  const bulk = `e2e_bulk_${suffix}`;
+  // A page holds 200 rows, and "select all matching" is only offered once more match than one page shows.
+  const dropCount = 203;
+  const keep = ["keep-a", "keep-b", "keep-c"];
+
+  test("deleting all records matching a filter leaves the rest", async ({ page, baseURL }) => {
+    test.setTimeout(120_000);
+    await page.goto("/admin/new-collection");
+    await page.getByRole("link", { name: /^Base/ }).click();
+    await page.getByRole("region", { name: "Collection" }).getByRole("textbox", { name: "Name", exact: true }).fill(bulk);
+    await addField(page, "Text", "title");
+    await reviewAndApply(page);
+
+    const session = await (await page.request.get("/api/admin/session")).json() as { csrfToken: string };
+    const headers = { "X-PgBase-CSRF": session.csrfToken, Origin: new URL(baseURL ?? "").origin };
+    const titles = [...keep, ...Array.from({ length: dropCount }, (_, index) => `drop-${index}`)];
+    // Seeded through the batch API (50 per request by default): a burst of single creates trips the session rate limit.
+    for (let at = 0; at < titles.length; at += 50) {
+      const requests = titles.slice(at, at + 50).map((title) => ({ method: "POST", url: `/api/v1/collections/${bulk}/records`, body: { title } }));
+      const batch = await page.request.post("/api/v1/collections/batch", { headers, data: { requests } });
+      expect(batch.ok()).toBe(true);
+      const { results } = await batch.json() as { results: { status: number }[] };
+      expect(results.map((result) => result.status)).toEqual(requests.map(() => 201));
+    }
+
+    await page.goto(`/admin/collections/${bulk}`);
+    const filter = page.getByRole("searchbox", { name: "Filter records" });
+    await filter.fill("title ~ 'drop'");
+    await filter.press("Enter");
+    // The first filtered page, not the unfiltered one, must be on screen before the header tick.
+    await expect(page.getByText(`200 of ${dropCount} loaded`)).toBeVisible();
+    await page.getByRole("checkbox", { name: "Select all loaded records" }).check();
+    await page.getByRole("button", { name: `Select all ${dropCount} matching` }).click();
+    await expect(page.getByText(`All ${dropCount} matching selected`)).toBeVisible();
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+
+    const dialog = page.getByRole("dialog", { name: `Delete all ${dropCount} matching records?` });
+    const confirm = dialog.getByRole("button", { name: "Delete", exact: true });
+    await expect(confirm).toBeDisabled();
+    await dialog.getByRole("textbox", { name: `Type ${bulk} to confirm` }).fill(bulk);
+    await confirm.click();
+    await expect(page.getByText(`Deleted ${dropCount}.`, { exact: true })).toBeVisible();
+
+    await filter.fill("");
+    await filter.press("Enter");
+    await expect(page.getByText(`${keep.length} records`, { exact: true })).toBeVisible();
+    for (const title of keep) await expect(page.getByRole("cell", { name: title, exact: true })).toBeVisible();
+    await expect(page.getByRole("cell", { name: /^drop-/ })).toHaveCount(0);
+  });
+
+  test("deleting ticked rows deletes only those rows", async ({ page }) => {
+    await page.goto(`/admin/collections/${bulk}`);
+    for (const title of keep.slice(0, 2)) {
+      await page.getByRole("row").filter({ has: page.getByRole("cell", { name: title, exact: true }) }).getByRole("checkbox").check();
+    }
+    await expect(page.getByText("2 selected")).toBeVisible();
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Delete 2 records?" });
+    const confirm = dialog.getByRole("button", { name: "Delete", exact: true });
+    await expect(confirm).toBeDisabled();
+    await dialog.getByRole("textbox", { name: `Type ${bulk} to confirm` }).fill(bulk);
+    await confirm.click();
+    await expect(page.getByText("Deleted 2.", { exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.getByText("1 record", { exact: true })).toBeVisible();
+    await expect(page.getByRole("cell", { name: keep[2], exact: true })).toBeVisible();
+  });
+});
+
+test("uploads, replaces a record file and saves the record afterwards", async ({ page }) => {
+  const files = `e2e_files_${suffix}`;
+  await page.goto("/admin/new-collection");
+  await page.getByRole("link", { name: /^Base/ }).click();
+  await page.getByRole("region", { name: "Collection" }).getByRole("textbox", { name: "Name", exact: true }).fill(files);
+  await addField(page, "Text", "title");
+  await addField(page, "File", "attachment");
+  await reviewAndApply(page);
+
+  await page.goto(`/admin/collections/${files}`);
+  const detail = page.getByRole("region", { name: "Record" });
+  const attachments = detail.getByRole("list", { name: "attachment" });
+  // A file staged on a new record is sent with the create.
+  await page.getByRole("button", { name: "New record" }).click();
+  await detail.getByRole("textbox", { name: /^title/ }).fill("Staged file");
+  await detail.getByLabel("Choose files").setInputFiles({ name: "staged.txt", mimeType: "text/plain", buffer: Buffer.from("staged") });
+  await expect(attachments).toContainText("staged.txt");
+  await detail.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/record=/);
+  await expect(attachments.getByRole("button", { name: "Preview staged.txt" })).toBeVisible();
+  // The "Saved." toast sits over the pane's footer buttons until it fades.
+  await page.getByRole("status", { name: "Notifications" }).getByRole("button", { name: "Dismiss" }).click();
+
+  // A saved record without a file uploads one directly.
+  await page.getByRole("button", { name: "New record" }).click();
+  await expect(detail.getByRole("heading", { name: "New record" })).toBeVisible();
+  await detail.getByRole("textbox", { name: /^title/ }).fill("With file");
+  await detail.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(attachments.getByText("No files.")).toBeVisible();
+  await detail.getByLabel("Upload", { exact: true }).setInputFiles({ name: "first.txt", mimeType: "text/plain", buffer: Buffer.from("first") });
+  await expect(attachments.getByRole("button", { name: "Preview first.txt" })).toBeVisible();
+  await page.reload();
+  await expect(attachments.getByRole("button", { name: "Preview first.txt" })).toBeVisible();
+
+  await detail.getByLabel("Replace file").setInputFiles({ name: "second.txt", mimeType: "text/plain", buffer: Buffer.from("second") });
+  await expect(attachments.getByRole("button", { name: "Preview second.txt" })).toBeVisible();
+  await expect(attachments.getByRole("button", { name: "Preview first.txt" })).toHaveCount(0);
+
+  // Replacing the file changes the record's ETag; the next save must not be refused as stale (412).
+  await detail.getByRole("textbox", { name: /^title/ }).fill("With file edited");
+  const saved = page.waitForResponse((response) => response.request().method() === "PATCH" && response.url().includes(`/collections/${files}/records/`));
+  await detail.getByRole("button", { name: "Save", exact: true }).click();
+  expect((await saved).status()).toBe(200);
+  await expect(page.getByRole("cell", { name: "With file edited" })).toBeVisible();
+  await page.reload();
+  await expect(attachments.getByRole("button", { name: "Preview second.txt" })).toBeVisible();
+});
+
+test("closing the API endpoint pane drops it from the URL", async ({ page }) => {
+  await page.goto(`/admin/collections/${products}/api`);
+  // "list" is shown by default without a URL param, so open a different endpoint first.
+  await page.getByRole("button", { name: /^POST/ }).first().click();
+  await expect(page).toHaveURL(/[?&]endpoint=/);
+  const pane = page.getByRole("region", { name: "Endpoint" });
+  await pane.getByRole("button", { name: "Close" }).click();
+  await expect(pane).toHaveCount(0);
+  await expect(page).not.toHaveURL(/[?&]endpoint=/);
 });
 
 test.describe.serial("administrator security", () => {
@@ -323,6 +481,18 @@ test("shows request log entries", async ({ page }) => {
   const rows = page.getByRole("table", { name: "Logs" }).getByRole("row");
   // The header row plus at least one entry: earlier tests and this page's own requests are logged.
   await expect(rows.nth(1)).toBeVisible();
+});
+
+test("deleting all request logs needs the screen name typed", async ({ page }) => {
+  await page.goto("/admin/logs");
+  await page.getByRole("button", { name: "Delete all", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Delete all request logs?" });
+  const confirm = dialog.getByRole("button", { name: "Delete all", exact: true });
+  await expect(confirm).toBeDisabled();
+  await dialog.getByRole("textbox", { name: "Type Logs to confirm" }).fill("Logs");
+  await confirm.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText("Request logs deleted.")).toBeVisible();
 });
 
 test("saves application settings", async ({ page }) => {

@@ -25,7 +25,7 @@
 
 .ops-bar-fill {
   fill: color-mix(in srgb, var(--tone, var(--text-hint)), transparent 55%);
-  transition: fill var(--speed);
+  transition: fill var(--dur);
 }
 
 .ops-bar:hover .ops-bar-fill,
@@ -37,38 +37,24 @@
 .ops-bar text {
   fill: var(--text-hint);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
 }
 
 .ops-bar[data-active] text {
   fill: var(--text);
-  font-weight: 600;
+  font-weight: var(--weight-bold);
 }
 
 .ops-figures a {
   color: inherit;
 }
 
-/* The list window moved past the newest entries. */
-.ops-window {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-sm);
-  margin: 0 8px var(--space-xs);
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-1);
-  color: var(--text-hint);
-  font-size: var(--font-size-sm);
-}
-
 .ops-figures {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px var(--space);
+  gap: var(--sp-4) var(--space);
   margin: 0;
-  padding-bottom: 14px;
+  padding-bottom: var(--sp-12);
 }
 
 .ops-figures dt,
@@ -88,7 +74,7 @@
   color: var(--tone);
 }
 
-/* Filter toolbar: pill controls in the searchbar's style. */
+/* Filter toolbar: wraps on narrow screens. */
 .ops-filters {
   flex-wrap: wrap;
 }
@@ -97,55 +83,32 @@
   flex: 1 1 260px;
 }
 
-.ops-control {
-  height: 34px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--input);
-  color: var(--text);
-  font-size: var(--font-size-sm);
-  outline: 0;
-  transition: background var(--speed), box-shadow var(--speed);
-}
-
-.ops-control:hover {
-  background: color-mix(in srgb, var(--input), var(--text) 3%);
-}
-
-.ops-control:focus-visible {
-  background: var(--input-focus);
-  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
-}
-
-select.ops-control {
-  cursor: pointer;
+/* From and to wrap together, never one per line. */
+.ops-range-pair {
+  display: inline-flex;
+  gap: var(--sp-8);
 }
 
 .ops-range {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-6);
   color: var(--text-hint);
   font-size: var(--font-size-sm);
-}
-
-.ops-range .ops-control {
-  font-family: var(--font-mono);
 }
 
 .ops-method {
   display: inline-block;
   min-width: 56px;
-  margin-right: 8px;
+  margin-right: var(--sp-8);
   color: var(--text-hint);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-weight: var(--weight-bold);
 }
 
 .ops-aside {
-  margin-left: 8px;
+  margin-left: var(--sp-8);
   color: var(--text-hint);
   font-size: var(--font-size-sm);
 }
@@ -169,47 +132,20 @@ select.ops-control {
 }
 
 .ops-tiles > div {
-  padding: 14px 16px;
+  padding: var(--sp-12) var(--sp-16);
   border-radius: var(--radius);
   background: var(--surface-1);
 }
 
 .ops-tiles dd {
-  margin: 4px 0 0;
-  font-size: 20px;
+  margin: var(--sp-4) 0 0;
+  font-size: var(--font-size-display);
   font-variant-numeric: tabular-nums;
 }
 
 .ops-tiles dd.ops-aside {
-  margin: 2px 0 0;
+  margin: var(--sp-2) 0 0;
   font-size: var(--font-size-sm);
-}
-
-.ops-section {
-  max-width: 640px;
-}
-
-.ops-section > p {
-  margin: 0 0 var(--space-sm);
-  font-size: var(--font-size-sm);
-}
-
-.ops-inline {
-  display: flex;
-  gap: 8px;
-}
-
-.ops-inline .searchbar {
-  flex: 1;
-}
-
-.ops-inline .searchbar[data-invalid] {
-  box-shadow: 0 0 0 1px var(--danger);
-}
-
-.ops-section > .field-error {
-  margin-top: 6px;
-  padding: 0 14px;
 }
 
 /* The request column takes the spare width so time and status stay compact. */
@@ -219,6 +155,3 @@ select.ops-control {
   min-width: 320px;
 }
 
-.ops-section .subtitle {
-  margin-top: 0;
-}

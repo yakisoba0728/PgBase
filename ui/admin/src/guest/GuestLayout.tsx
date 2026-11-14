@@ -2,22 +2,32 @@ import type { ReactNode } from "react";
 import { ApiError } from "../api/http";
 import { LanguageMenu, ThemeMenu } from "../app/menus";
 import { errorText } from "../app/queries";
+import { Notice } from "../components/Feedback";
 import { useT } from "../i18n";
 
-export function GuestLayout({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * The one guest card (sign-in, reset, setup): wordmark and display controls on top, the step's title and lead,
+ * its form, and the server it talks to underneath, on the hairline-grid canvas.
+ */
+export function GuestLayout({ title, lead, children }: { title: string; lead?: string; children: ReactNode }) {
   return (
     <div className="guest">
       <main className="guest-column">
-        <div className="guest-brand wordmark">
-          <b>Pg</b>Base
-        </div>
-        <h1 className="guest-title">{title}</h1>
-        {children}
-        <div className="guest-footer">
+        <header className="guest-head">
+          <div className="guest-brand wordmark">
+            <b>Pg</b>Base
+          </div>
           <LanguageMenu />
           <ThemeMenu />
+        </header>
+        {/* Keyed so a step change (password to two-factor code) re-runs the heading's entrance. */}
+        <div className="guest-heading" key={title}>
+          <h1 className="guest-title">{title}</h1>
+          {lead && <p className="guest-lead">{lead}</p>}
         </div>
+        {children}
       </main>
+      <p className="guest-host mono">{window.location.host}</p>
     </div>
   );
 }
@@ -27,7 +37,7 @@ export function FormError({ error, credentialsKey }: { error: unknown; credentia
   const t = useT();
   if (!error) return null;
   const text = credentialsKey && error instanceof ApiError && error.code === "invalid_credentials" ? t(credentialsKey) : errorText(t, error);
-  return <p className="field-error" role="alert">{text}</p>;
+  return <Notice tone="danger">{text}</Notice>;
 }
 
 /** Reads one text value from a submitted form. */

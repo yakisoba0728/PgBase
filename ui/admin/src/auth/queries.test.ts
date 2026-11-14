@@ -3,7 +3,7 @@ import { QueryClient } from "@tanstack/react-query";
 import type { AuthCollection, AuthRecord } from "../api/authCollections";
 import { ApiError } from "../api/http";
 import type { ManagedUser } from "../api/users";
-import { userQuery, userRecordQuery, usersQuery } from "./queries";
+import { refreshUserLists, userQuery, userRecordQuery, usersQuery } from "./queries";
 import { deleteRefusal, hasUsers } from "../schema/apply";
 import { translate } from "../i18n";
 import { isStale, rejectedFields } from "./useDraft";
@@ -32,6 +32,18 @@ describe("user queries", () => {
     expect(listUsers).toHaveBeenLastCalledWith(expect.objectContaining({ after: undefined, q: "ann@example.test", authCollectionId: "c2", total: true }));
     await client.fetchInfiniteQuery({ ...usersQuery({ q: "", collection: "" }), pages: 2 });
     expect(listUsers).toHaveBeenLastCalledWith(expect.objectContaining({ after: "x", q: undefined, authCollectionId: undefined, total: false }));
+  });
+
+  it("starts a list over after users were added or removed when its window has left the first page, whose total would go stale", async () => {
+    const client = new QueryClient();
+    const shifted = usersQuery({ q: "", collection: "" }).queryKey;
+    const atStart = usersQuery({ q: "ann", collection: "" }).queryKey;
+    client.setQueryData(shifted, { pages: [{ items: [] }], pageParams: ["after-1"] } as never);
+    client.setQueryData(atStart, { pages: [{ items: [] }], pageParams: [undefined] } as never);
+    await refreshUserLists(client);
+    expect(client.getQueryData(shifted)).toBeUndefined();
+    expect(client.getQueryData(atStart)).toBeDefined();
+    expect(client.getQueryState(atStart)?.isInvalidated).toBe(true);
   });
 
   it("reads one user directly and maps a missing one to null", async () => {

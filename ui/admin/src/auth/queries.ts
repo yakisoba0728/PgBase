@@ -1,4 +1,5 @@
-import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions, type Query, type QueryClient } from "@tanstack/react-query";
+import { pageWindow, windowShifted } from "../app/queries";
 import { getAuthAdministration, listAuthCollections, listAuthRecords, listOAuthProviderCatalog, listTokenPolicies, type AuthCollection, type AuthRecord } from "../api/authCollections";
 import { ApiError } from "../api/http";
 import { getUser, listUserOAuthIdentities, listUsers, type ManagedUser } from "../api/users";
@@ -30,9 +31,22 @@ export const usersQuery = (filter: { q: string; collection: string }) =>
     queryKey: ["auth", "users", "list", filter.q, filter.collection],
     queryFn: ({ pageParam, signal }) =>
       listUsers({ after: pageParam, limit: 100, q: filter.q || undefined, authCollectionId: filter.collection || undefined, total: pageParam === undefined, signal }),
-    initialPageParam: undefined as string | undefined,
+    ...pageWindow,
     getNextPageParam: (page) => page.nextAfter,
   });
+
+/**
+ * After users were created or deleted. A list whose window moved past its first page has no fresh total to show,
+ * so it starts over from that page (as "back to start" does); every other users query just refetches.
+ */
+export function refreshUserLists(queryClient: QueryClient) {
+  // Collected first: once reset, a list no longer looks shifted.
+  const restart = new Set<Query>(queryClient.getQueryCache().findAll({ queryKey: ["auth", "users", "list"], predicate: (query) => windowShifted(query.state.data as { pageParams: unknown[] } | undefined) }));
+  return Promise.all([
+    queryClient.resetQueries({ queryKey: ["auth", "users"], predicate: (query) => restart.has(query) }),
+    queryClient.invalidateQueries({ queryKey: ["auth", "users"], predicate: (query) => !restart.has(query) }),
+  ]);
+}
 
 /** One user by id; null when there is none. */
 export const userQuery = (id: string) =>

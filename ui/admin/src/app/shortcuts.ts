@@ -19,7 +19,7 @@ export const gotoEntries = [{ key: "c", path: "/collections", label: "nav.collec
 /** Registers the shell shortcuts (palette, help, filter, new, go-to); Esc and save belong to panes and save bars. */
 export function useShellShortcuts(): void {
   const navigate = useNavigate();
-  useShortcut("mod+k", togglePalette, { inFields: true });
+  useShortcut("mod+k", togglePalette, { inFields: true, inOverlays: true });
   useShortcut("?", () => setHelp(true));
   useShortcut("/", () => {
     const input = document.querySelector<HTMLInputElement>("main [data-filter]");

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useRef } from "react";
-import { Outlet, useLocation } from "react-router";
+import { Outlet, useLocation, useMatches } from "react-router";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { useT } from "../i18n";
 import { AppNav } from "./AppNav";
@@ -18,8 +18,15 @@ export function AppShell() {
   const help = useHelp();
   const small = useSmallScreen();
   const root = useRef<HTMLDivElement>(null);
+  // Any navigation (link, palette, shortcut, account menu) closes the drawer.
+  useEffect(() => setDrawer(false), [location.pathname]);
+  // One Suspense per screen: tab and splat changes inside a screen keep its state; another screen or collection remounts.
+  const match = useMatches().at(-1);
+  const { tab: _tab, "*": _rest, ...params } = match?.params ?? {};
+  const screenKey = `${match?.id}:${JSON.stringify(params)}`;
   useEffect(() => {
     if (!drawer || !small) return;
+    // The opener can be the loading skeleton's menu button, replaced once the screen mounts; then the live one gets focus back.
     const previous = drawerOpener();
     const nav = root.current?.querySelector<HTMLElement>(".nav");
     const focus = () => {
@@ -38,7 +45,7 @@ export function AppShell() {
     };
     document.addEventListener("keydown", escape);
     document.addEventListener("keydown", trap);
-    return () => { cancelAnimationFrame(frame); nav?.removeEventListener("transitionend", focus); document.removeEventListener("keydown", escape); document.removeEventListener("keydown", trap); if (previous?.isConnected) previous.focus(); };
+    return () => { cancelAnimationFrame(frame); nav?.removeEventListener("transitionend", focus); document.removeEventListener("keydown", escape); document.removeEventListener("keydown", trap); (previous?.isConnected ? previous : root.current?.querySelector<HTMLElement>(".nav-open"))?.focus(); };
   }, [drawer, small]);
   // Mounted from first use on, so closing goes through dialog.close() and focus returns to the trigger.
   const [used, setUsed] = useState(false);
@@ -49,7 +56,7 @@ export function AppShell() {
       <AppNav />
       <button type="button" className="nav-scrim" aria-label={t("common.close")} onClick={() => setDrawer(false)} />
       <main className="main" inert={drawer && small}>
-        <Suspense key={location.pathname} fallback={<PageSkeleton />}>
+        <Suspense key={screenKey} fallback={<PageSkeleton />}>
           <Outlet />
         </Suspense>
       </main>

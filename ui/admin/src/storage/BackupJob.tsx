@@ -11,13 +11,14 @@ import { useT } from "../i18n";
 import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { describePhase } from "./model";
-import { backupJobQuery, backupsQuery, runningBackupJobsQuery } from "./queries";
+import { backupJobQuery, backupsQuery, runningBackupJobsQuery, useBackupsConsole } from "./queries";
 
 /** The job to show: the one in the URL, else one this browser started and has not seen finish, else one the server is running. */
 export function useShownJob(): string | null {
   const { params } = useSearchState();
   useOperations();
-  const running = useQuery(runningBackupJobsQuery);
+  const { listed } = useBackupsConsole();
+  const running = useQuery({ ...runningBackupJobsQuery, enabled: listed });
   return params.get("job") ?? (findOperation("backup") ?? findOperation("restore"))?.id ?? running.data?.[0]?.id ?? null;
 }
 

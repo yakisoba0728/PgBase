@@ -1,15 +1,16 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { windowOpen, windowShifted } from "../app/queries";
 import { useSearchState } from "../app/search";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiAddLine, RiErrorWarningLine, RiSearchLine, RiUser3Line } from "@remixicon/react";
 import type { ManagedUser } from "../api/users";
 import { useTimeFormat } from "../app/format";
 import { Button, RefreshButton } from "../components/Button";
-import { ErrorState, LoadMore } from "../components/Feedback";
-import { EmptyState, Skeleton } from "../components/Feedback";
-import { Field, Searchbar } from "../components/Field";
-import { openRow } from "../components/DataGrid";
+import { EmptyState, LoadMore, WindowNotice } from "../components/Feedback";
+import { Searchbar, Select } from "../components/Field";
+import { QueryView } from "../components/QueryView";
 import { SplitView } from "../components/SplitView";
+import { Row, Table, TableScroll } from "../components/Table";
 import { useT, type Translate } from "../i18n";
 import { NewUserPane } from "./NewUserPane";
 import { authCollectionsQuery, userQuery, usersQuery } from "./queries";
@@ -28,7 +29,7 @@ function useUsersUrl() {
     open: (id: string) => set(id),
     create: () => set(null, true),
     close: () => set(null),
-    filter: (changes: Record<string, string | null>) => update(changes),
+    filter: (changes: Record<string, string | null>, typing = false) => update(changes, { replace: typing }),
   };
 }
 
@@ -49,15 +50,23 @@ export function UsersView() {
   const url = useUsersUrl();
   const [text, setText] = useState(url.query);
   useEffect(() => setText(url.query), [url.query]);
-  const users = useInfiniteQuery(usersQuery({ q: url.query.trim(), collection: url.collection }));
+  const listQuery = usersQuery({ q: url.query.trim(), collection: url.collection });
+  const users = useInfiniteQuery(listQuery);
+  const queryClient = useQueryClient();
   const collections = useQuery(authCollectionsQuery);
   const names = new Map((collections.data ?? []).map((collection) => [collection.id, collection.name]));
   const openId = url.user ?? null;
   // The open user is always read fresh, so actions show their effect on the listed row too.
   const fresh = useQuery({ ...userQuery(openId ?? ""), enabled: Boolean(openId) });
   const rows = users.data?.pages.flatMap((page) => page.items) ?? [];
-  const first = users.data?.pages[0];
-  const openUser = fresh.data ?? rows.find((user) => user.id === openId);
+  // The window moved past the first page; its total is only sent with that page, so keep the last one seen.
+  const shifted = windowShifted(users.data);
+  const firstSeen = useRef<{ key: string; page: NonNullable<typeof users.data>["pages"][number] }>(undefined);
+  const listKey = JSON.stringify(listQuery.queryKey);
+  if (users.data && !shifted) firstSeen.current = { key: listKey, page: users.data.pages[0] };
+  const first = firstSeen.current?.key === listKey ? firstSeen.current.page : undefined;
+  // null means the user is gone; only a still-loading read falls back to the listed row.
+  const openUser = fresh.data === null ? undefined : (fresh.data ?? rows.find((user) => user.id === openId));
   const filtered = Boolean(url.query.trim() || url.collection);
 
   const onSearch = (event: FormEvent) => {
@@ -66,47 +75,53 @@ export function UsersView() {
   };
 
   const toolbar = (
-    <form className="toolbar auth-user-filter" role="search" onSubmit={onSearch}>
-      <Searchbar label={t("auth.users.search")} primary placeholder={t("auth.users.searchHint")} value={text}
+    <form className="toolbar" role="search" onSubmit={onSearch}>
+      <Searchbar size="sm" label={t("auth.users.search")} primary placeholder={t("auth.users.searchHint")} value={text}
         onChange={(event) => {
           setText(event.target.value);
-          if (!event.target.value) url.filter({ q: null });
+          if (!event.target.value) url.filter({ q: null }, true);
         }} />
-      <Field kind="select" label={t("auth.users.collection")} value={url.collection}
-        options={[{ value: "", label: t("auth.users.allCollections") }, ...(collections.data ?? []).map((collection) => ({ value: collection.id, label: collection.name }))]}
-        onChange={(event) => url.filter({ collection: event.target.value || null })} />
+      <Select size="sm" className="control-fit" aria-label={t("auth.users.collection")} value={url.collection} onChange={(event) => url.filter({ collection: event.target.value || null })}>
+        <option value="">{t("auth.users.allCollections")}</option>
+        {(collections.data ?? []).map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}
+      </Select>
     </form>
   );
 
-  let body;
-  if (users.isPending) body = <Skeleton />;
-  else if (users.isError && !users.data) body = <ErrorState error={users.error} busy={users.isFetching} onRetry={() => void users.refetch()} />;
-  else if (rows.length === 0) body = filtered ? <EmptyState icon={RiSearchLine}>{t("auth.users.noMatch")}</EmptyState> : <EmptyState icon={RiUser3Line}>{t("auth.users.empty")}</EmptyState>;
-  else {
-    body = (
-      <>
-        <p className="auth-scan txt-hint" role="status">
-          {first?.totalCapped ? t("auth.users.countCapped", { count: first.total ?? 0 }) : t("auth.users.count", { count: first?.total ?? rows.length })}
-          {users.hasNextPage ? ` · ${t("auth.users.loadedMore", { count: rows.length })}` : null}
-        </p>
-        <UserTable t={t} rows={rows} names={names} openId={openId} fresh={fresh.data} onOpen={url.open} />
-        <LoadMore query={users} />
-      </>
-    );
-  }
+  const body = (
+    <QueryView query={users} isEmpty={(data) => data.pages.every((page) => page.items.length === 0)}
+      empty={filtered ? <EmptyState icon={RiSearchLine}>{t("auth.users.noMatch")}</EmptyState> : <EmptyState icon={RiUser3Line}>{t("auth.users.empty")}</EmptyState>}>
+      {() => (
+        <>
+          <p className="auth-scan txt-hint" role="status">
+            {first?.totalCapped ? t("auth.users.countCapped", { count: first.total ?? 0 }) : t("auth.users.count", { count: first?.total ?? rows.length })}
+            {users.hasNextPage || shifted ? ` · ${t("auth.users.loadedMore", { count: rows.length })}` : null}
+          </p>
+          {shifted && (
+            <WindowNotice action={t("auth.users.toStart")} onReset={(button) => {
+              button.closest(".grid-scroll")?.scrollTo(0, 0);
+              void queryClient.resetQueries({ queryKey: listQuery.queryKey });
+            }}>{t("auth.users.shifted", { count: rows.length })}</WindowNotice>
+          )}
+          <UserTable t={t} rows={rows} names={names} openId={openId} fresh={fresh.data} onOpen={url.open} />
+          {/* Once the window is full each further page takes a click, as in the logs list. */}
+          <LoadMore query={users} auto={windowOpen(users.data)} />
+        </>
+      )}
+    </QueryView>
+  );
 
   let pane = null;
   if (url.creating) pane = <NewUserPane onClose={url.close} onCreated={url.open} />;
   else if (openUser) pane = <UserPane key={openUser.id} user={openUser} onClose={url.close} />;
-  else if (openId && fresh.isError) pane = <ErrorState error={fresh.error} busy={fresh.isFetching} onRetry={() => void fresh.refetch()} />;
-  else if (openId && fresh.data === null) pane = <EmptyState icon={RiErrorWarningLine}>{t("auth.users.missing")}</EmptyState>;
-  else if (openId) pane = <Skeleton variant="form" />;
+  // Not in the loaded rows: the single lookup decides (null is "no such user").
+  else if (openId) pane = <QueryView query={fresh} skeleton="form" empty={<EmptyState icon={RiErrorWarningLine}>{t("common.notFound")}</EmptyState>} isEmpty={(data) => data === null}>{() => null}</QueryView>;
   return (
     <SplitView
       list={
         <>
           {toolbar}
-          <div className="grid-scroll">{body}</div>
+          <TableScroll>{body}</TableScroll>
         </>
       }
       paneLabel={t("auth.users.detail")}
@@ -119,7 +134,7 @@ export function UsersView() {
 function UserTable({ t, rows, names, openId, fresh, onOpen }: { t: Translate; rows: ManagedUser[]; names: Map<string, string>; openId: string | null; fresh?: ManagedUser | null; onOpen: (id: string) => void }) {
   const time = useTimeFormat();
   return (
-    <table className="grid" aria-label={t("nav.users")}>
+    <Table label={t("nav.users")}>
       <thead>
         <tr>
           <th>{t("auth.users.email")}</th>
@@ -134,17 +149,17 @@ function UserTable({ t, rows, names, openId, fresh, onOpen }: { t: Translate; ro
         {rows.map((row) => {
           const user = fresh && fresh.id === row.id ? fresh : row;
           return (
-            <tr key={user.id} {...openRow(() => onOpen(user.id), user.id === openId)}>
+            <Row key={user.id} current={user.id === openId} onOpen={() => onOpen(user.id)}>
               <td>{user.email}</td>
               <td className="mono">{names.get(user.authCollectionId) ?? user.authCollectionId}</td>
               <td><span className="dot" data-tone={user.active ? "success" : "danger"}>{user.active ? t("auth.users.active") : t("auth.users.disabled")}</span></td>
               <td><span className="dot" data-tone={user.verified ? "success" : undefined}>{user.verified ? t("auth.users.yes") : t("auth.users.no")}</span></td>
               <td className="mono">{time(user.createdAt)}</td>
               <td className="mono txt-hint">{user.id}</td>
-            </tr>
+            </Row>
           );
         })}
       </tbody>
-    </table>
+    </Table>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiFileUploadLine } from "@remixicon/react";
 import { ApiError, parseJson } from "../api/http";
@@ -6,7 +6,7 @@ import { previewSchemaImport, type SchemaDocument } from "../api/schema";
 import { errorText } from "../app/queries";
 import { collectionsQuery } from "../collections/queries";
 import { trackOperation, untrackOperation, watchOperation } from "../app/operations";
-import { Button } from "../components/Button";
+import { Button, FileButton } from "../components/Button";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { ChangeList } from "../components/ChangeList";
 import { CodeArea } from "../components/CodeArea";
@@ -98,9 +98,7 @@ export function SchemaImport() {
     if (stored) apply.mutate(stored);
   }, []); // mount only
 
-  const loadFile = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
+  const loadFile = ([file]: File[]) => {
     if (file) {
       const generation = ++reading.current;
       void file.text().then((value) => { if (generation === reading.current) setText(value); }, () => toast(t("devtools.import.readFailed"), "danger"));
@@ -122,15 +120,15 @@ export function SchemaImport() {
   const plan = preview.data;
   const stale = plan !== undefined && (preview.variables?.text !== text || preview.variables?.deleteMissing !== deleteMissing);
   const sections = plan && catalog.data ? importSections(plan, catalog.data) : [];
-  const danger = sections.some((section) => section.danger);
+  const losing = sections.filter((section) => section.danger);
+  const danger = losing.length > 0;
   const lost = apply.error !== null && uncertainImport(apply.error);
   const start = () => plan && apply.mutate({ identity: newIdentity(), document: plan.document, baseVersion: plan.baseVersion, checksum: plan.checksum });
 
   let body;
   if (pending && (apply.isPending || lost)) {
     body = (
-      <div className="pane-notice" role="status">
-        <strong>{apply.isPending ? t("devtools.import.applying") : t(apply.error instanceof Undecided ? "schema.undecidedTitle" : "schema.lostTitle")}</strong>
+      <Notice role="status" title={apply.isPending ? t("devtools.import.applying") : t(apply.error instanceof Undecided ? "schema.undecidedTitle" : "schema.lostTitle")}>
         <p className="mono dt-muted">{pending.identity.operationId}</p>
         {!apply.isPending && (
           <>
@@ -138,15 +136,14 @@ export function SchemaImport() {
             <Button size="sm" variant="secondary" onClick={() => apply.mutate(pending)}>{t("schema.checkAgain")}</Button>
           </>
         )}
-      </div>
+      </Notice>
     );
   } else if (preview.isPending) {
     body = <Skeleton variant="form" />;
   } else if (preview.error) {
     const problems = preview.error instanceof ApiError ? problemList(preview.error.details) : [];
     body = (
-      <div className="pane-notice" data-tone="danger" role="alert">
-        <strong>{t("devtools.import.rejected")}</strong>
+      <Notice tone="danger" title={t("devtools.import.rejected")}>
         <p>{preview.error instanceof InvalidJson ? t("schema.error.invalid_json") : errorText(t, preview.error)}</p>
         {problems.length > 0 && (
           <ul className="dt-problems">
@@ -158,7 +155,7 @@ export function SchemaImport() {
             ))}
           </ul>
         )}
-      </div>
+      </Notice>
     );
   } else if (!plan) {
     body = <EmptyState icon={RiFileUploadLine}>{t("devtools.import.empty")}</EmptyState>;
@@ -183,14 +180,10 @@ export function SchemaImport() {
   return (
     <div className="dt-transfer">
       <section className="dt-main dt-import-input" aria-label={t("devtools.import.document")}>
-        <div className="toolbar">
-          <label className="btn btn-secondary btn-sm">
-            <RiFileUploadLine size={16} aria-hidden />
-            {t("devtools.import.load")}
-            <input type="file" accept="application/json,.json" className="visually-hidden" disabled={apply.isPending} onChange={loadFile} />
-          </label>
+        <div className="toolbar toolbar-inset">
+          <FileButton size="sm" icon={RiFileUploadLine} accept="application/json,.json" disabled={apply.isPending} onFiles={loadFile}>{t("devtools.import.load")}</FileButton>
           <Checkbox disabled={apply.isPending} label={t("devtools.import.deleteMissing")} checked={deleteMissing} onChange={(event) => setDeleteMissing(event.target.checked)} />
-          <div className="dt-actions">
+          <div className="actions">
             <Button size="sm" variant="secondary" disabled={!text.trim() || apply.isPending} loading={preview.isPending} onClick={runPreview}>{t("devtools.import.preview")}</Button>
           </div>
         </div>
@@ -211,11 +204,11 @@ export function SchemaImport() {
         </footer>
       </section>
       <UnsavedGuard dirty={(text.trim() !== "" && text !== appliedText) || pending !== null} busy={apply.isPending} />
-      {/* Data loss is confirmed with a typed word; a resumed apply after reload was confirmed before. */}
+      {/* Data loss is confirmed by typing the first affected collection's name (all are listed); a resumed apply after reload was confirmed before. */}
       <ConfirmDialog open={confirming && danger} danger title={t("devtools.import.confirmTitle")} message={t("devtools.import.confirmText")} confirmLabel={t("schema.apply")}
-        typed={{ phrase: "delete", label: t("devtools.import.typeDelete") }} onConfirm={() => { setConfirming(false); start(); }} onCancel={() => setConfirming(false)}>
+        typed={{ phrase: losing[0]?.name ?? "", label: t("common.typeToConfirm", { name: losing[0]?.name ?? "" }) }} onConfirm={() => { setConfirming(false); start(); }} onCancel={() => setConfirming(false)}>
         <ul className="dt-problems">
-          {sections.filter((section) => section.danger).map((section) => (
+          {losing.map((section) => (
             <li key={section.name}>
               <span className="mono">{section.name}</span>
               <span>{section.items.filter((item) => item.danger).map((item) => item.name).join(", ")}</span>

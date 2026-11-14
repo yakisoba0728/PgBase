@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiAddLine, RiDeleteBinLine, RiRefreshLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
@@ -7,28 +7,26 @@ import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
-import { Skeleton, Notice } from "../components/Feedback";
-import { ErrorState } from "../components/Feedback";
+import { Notice } from "../components/Feedback";
+import { QueryView } from "../components/QueryView";
 import { FormSection } from "../components/FormSection";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT, type MessageKey, type Translate } from "../i18n";
-import { isDirty, sections, toDraft, toPatch, validate, type FieldError, type FieldSpec, type RuleDraft, type SettingsDraft } from "./settingsForm";
+import { dirtySections, isDirty, ruleDraft, sections, toDraft, toPatch, validate, type FieldError, type FieldSpec, type RuleDraft, type SettingsDraft } from "./settingsForm";
 import { settingsQuery } from "./queries";
 import "../styles/system.css";
 
 const audiences = ["", "@guest", "@auth"];
-const emptyRule: RuleDraft = { label: "", audience: "", duration: "60", maxRequests: "100" };
+const emptyRule = { label: "", audience: "", duration: "60", maxRequests: "100" };
 const label = (t: Translate, path: string) => t(`system.field.${path}` as MessageKey);
 const hints = new Set(["batch.maxBodyBytes", "backups.schedule", "backups.timezone", "backups.keep", "proxy.trustedProxyCIDRs", "rateLimits.excludedIPs", "logs.includeIP", "logs.includeAuth"]);
 
 /** Every runtime setting the server exposes, saved as one revisioned document. */
 export function SettingsView() {
   const query = useQuery({ ...settingsQuery, refetchOnReconnect: false });
-  if (query.isPending) return <Skeleton variant="form" />;
-  if (query.isError) return <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />;
   // A new revision (save, reload, refresh) starts a fresh draft.
-  return <SettingsForm key={query.data.revision} settings={query.data} />;
+  return <QueryView query={query} skeleton="form">{(settings) => <SettingsForm key={settings.revision} settings={settings} />}</QueryView>;
 }
 
 function SettingsForm({ settings }: { settings: RuntimeSettings }) {
@@ -79,6 +77,8 @@ function SettingsForm({ settings }: { settings: RuntimeSettings }) {
   const invalid = save.error instanceof ApiError && save.error.code === "invalid_settings";
   const rejectedPath = invalid ? Object.keys((save.error as ApiError).details ?? {})[0] : undefined;
   const fieldError = (path: string) => message(t, errors[path]);
+  const scroller = useRef<HTMLFieldSetElement>(null);
+  const changed = dirty ? dirtySections(draft, settings) : new Set<string>();
 
   return (
     <form className="page-form" noValidate onSubmit={onSubmit}>
@@ -88,21 +88,22 @@ function SettingsForm({ settings }: { settings: RuntimeSettings }) {
             loading={reload.isPending} onClick={() => reload.mutate()}>{t("system.settings.reload")}</Button>
         </SaveBar>
       </div>
-      <fieldset disabled={save.isPending} className="sys-scroll" style={{ border: 0, margin: 0, minWidth: 0 }}>
+      <SectionIndex scroller={scroller} changed={changed} />
+      <fieldset ref={scroller} disabled={save.isPending} className="sys-scroll">
         {save.isError && (
-          <Notice tone="danger" className="sys-notice" actions={conflict && <Button size="sm" variant="secondary" loading={latest.isPending} onClick={() => latest.mutate()}>{t("system.settings.loadLatest")}</Button>}>
+          <Notice tone="danger" actions={conflict && <Button size="sm" variant="secondary" loading={latest.isPending} onClick={() => latest.mutate()}>{t("system.settings.loadLatest")}</Button>}>
             {conflict ? t("system.settings.conflict") : invalid ? (rejectedPath ? t("system.settings.invalidAt", { path: rejectedPath }) : t("system.settings.invalid")) : errorText(t, save.error)}
           </Notice>
         )}
         {sections.map((section) => (
           <FormSection key={section.id} title={t(`system.section.${section.id}` as MessageKey)} hint={t(`system.sectionHint.${section.id}` as MessageKey)}>
-            <div className="sys-fields">
+            <div className="sys-fields" id={anchor(section.id)}>
               {section.fields.map((spec) => (
                 <SettingField key={spec.path} spec={spec} value={draft.values[spec.path]} error={fieldError(spec.path)} onChange={(value) => setValue(spec.path, value)} />
               ))}
             </div>
             {section.id === "rateLimits" && (
-              <RulesEditor rules={draft.rules} errors={errors} onChange={setRule} onAdd={() => setDraft((current) => ({ ...current, rules: [...current.rules, emptyRule] }))}
+              <RulesEditor rules={draft.rules} errors={errors} onChange={setRule} onAdd={() => setDraft((current) => ({ ...current, rules: [...current.rules, ruleDraft(emptyRule)] }))}
                 onRemove={(index) => setDraft((current) => ({ ...current, rules: current.rules.filter((_, i) => i !== index) }))} />
             )}
           </FormSection>
@@ -110,6 +111,48 @@ function SettingsForm({ settings }: { settings: RuntimeSettings }) {
       </fieldset>
       <UnsavedGuard dirty={dirty} busy={save.isPending} />
     </form>
+  );
+}
+
+const anchor = (id: string) => `settings-${id}`;
+const sectionOf = (id: string) => document.getElementById(anchor(id))?.closest("section") ?? null;
+
+/** Links to each section; the one at the top of the scroll area is marked current, edited ones carry a dot. */
+function SectionIndex({ scroller, changed }: { scroller: RefObject<HTMLFieldSetElement | null>; changed: Set<string> }) {
+  const t = useT();
+  const [current, setCurrent] = useState(sections[0].id);
+  useEffect(() => {
+    const root = scroller.current;
+    if (!root || typeof IntersectionObserver === "undefined") return;
+    const visible = new Map<string, boolean>();
+    // A section is current once it reaches the top third of the scroll area.
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) visible.set(entry.target.getAttribute("data-section") ?? "", entry.isIntersecting);
+      const first = sections.find((section) => visible.get(section.id));
+      if (first) setCurrent(first.id);
+    }, { root, rootMargin: "0px 0px -66% 0px" });
+    for (const section of sections) {
+      const element = sectionOf(section.id);
+      if (!element) continue;
+      element.setAttribute("data-section", section.id);
+      observer.observe(element);
+    }
+    return () => observer.disconnect();
+  }, [scroller]);
+  return (
+    <nav className="sys-index" aria-label={t("system.settings.sections")}>
+      {sections.map((section) => (
+        <a key={section.id} href={`#${anchor(section.id)}`} aria-current={current === section.id ? "true" : undefined}
+          onClick={(event) => {
+            event.preventDefault();
+            setCurrent(section.id);
+            sectionOf(section.id)?.scrollIntoView({ block: "start" });
+          }}>
+          {t(`system.section.${section.id}` as MessageKey)}
+          {changed.has(section.id) && <span className="sys-index-dirty" title={t("common.unsaved")}><span className="visually-hidden">{t("common.unsaved")}</span></span>}
+        </a>
+      ))}
+    </nav>
   );
 }
 
@@ -160,7 +203,7 @@ function RulesEditor({ rules, errors, onChange, onAdd, onRemove }: RulesEditorPr
       <p className="txt-hint">{t("system.rules.hint")}</p>
       {message(t, errors["rules"]) && <p className="field-error" role="alert">{message(t, errors["rules"])}</p>}
       {rules.map((rule, index) => (
-        <div key={index} className="sys-rule">
+        <div key={rule.id} className="sys-rule">
           <Field label={t("system.rules.label")} mono spellCheck={false} autoComplete="off" placeholder="POST /api/v1/collections/" value={rule.label} error={message(t, errors[`rules.${index}.label`])} onChange={(event) => onChange(index, { label: event.target.value })} />
           <Field kind="select" label={t("system.rules.audience")} value={rule.audience} options={audiences.map((value) => ({ value, label: t(`system.audience.${value || "all"}` as MessageKey) }))} onChange={(event) => onChange(index, { audience: event.target.value })} />
           <Field label={t("system.rules.duration")} mono inputMode="numeric" value={rule.duration} error={message(t, errors[`rules.${index}.duration`])} onChange={(event) => onChange(index, { duration: event.target.value })} />

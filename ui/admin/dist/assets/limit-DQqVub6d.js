@@ -1,0 +1,1 @@
+async function e(e,t,n,r){let i=Array(e.length),a=0;return await Promise.all(Array.from({length:Math.min(t,e.length)},async()=>{for(;a<e.length;){let t=a++;try{i[t]={status:`fulfilled`,value:await n(e[t])}}catch(e){i[t]={status:`rejected`,reason:e}}r?.(e[t],i[t])}})),i}export{e as t};

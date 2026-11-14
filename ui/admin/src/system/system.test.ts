@@ -23,7 +23,7 @@ describe("allowlistCovers", () => {
     expect(allowlistCovers(["203.0.113.0/24"], "")).toBe(false);
   });
 });
-import { isDirty, toDraft, toPatch, validate } from "./settingsForm";
+import { dirtySections, isDirty, ruleDraft, toDraft, toPatch, validate } from "./settingsForm";
 
 const settings: RuntimeSettings = {
   batch: { enabled: true, maxRequests: 50, maxBodyBytes: 155193344, timeoutMs: 30000 },
@@ -85,9 +85,9 @@ describe("settings draft", () => {
     draft.values["backups.keep"] = "";
     draft.values["rateLimits.excludedIPs"] = "10.0.0.1\nnope";
     draft.rules = [
-      { label: "GET /api/v1/x", audience: "", duration: "60", maxRequests: "10" },
-      { label: "GET /api/v1/x", audience: "", duration: "0", maxRequests: "10" },
-      { label: "get /x", audience: "@auth", duration: "60", maxRequests: "100001" },
+      ruleDraft({ label: "GET /api/v1/x", audience: "", duration: "60", maxRequests: "10" }),
+      ruleDraft({ label: "GET /api/v1/x", audience: "", duration: "0", maxRequests: "10" }),
+      ruleDraft({ label: "get /x", audience: "@auth", duration: "60", maxRequests: "100001" }),
     ];
     const errors = validate(draft);
     expect(errors["batch.maxRequests"]).toEqual({ key: "system.invalid.range", vars: { min: 1, max: 100 } });
@@ -101,5 +101,29 @@ describe("settings draft", () => {
     expect(errors["rules.2.label"]?.key).toBe("system.invalid.rateLabel");
     expect(errors["rules.2.maxRequests"]?.key).toBe("system.invalid.range");
     expect(Object.keys(validate(toDraft(settings)))).toEqual([]);
+  });
+
+  it("keys rule rows by a client id that is never sent", () => {
+    const stored = { ...settings, rateLimits: { ...settings.rateLimits, rules: [{ label: "GET /a", audience: "", duration: 60, maxRequests: 10 }, { label: "GET /b", audience: "", duration: 60, maxRequests: 10 }] } };
+    const draft = toDraft(stored);
+    const [first, second] = draft.rules;
+    expect(first.id).not.toBe(second.id);
+    // Removing the first row leaves the second with its own key.
+    draft.rules = [second];
+    expect(draft.rules[0].id).toBe(second.id);
+    expect(toPatch(draft, 3).rateLimits.rules).toEqual([{ label: "GET /b", audience: "", duration: 60, maxRequests: 10 }]);
+    expect(isDirty(toDraft(stored), stored)).toBe(false);
+  });
+});
+
+describe("dirtySections", () => {
+  it("marks only the sections whose normalised values changed", () => {
+    const draft = toDraft(settings);
+    expect(dirtySections(draft, settings).size).toBe(0);
+    draft.values["rateLimits.admin.windowSeconds"] = "60";
+    draft.values["proxy.trustedProxyCIDRs"] = "\n";
+    expect([...dirtySections(draft, settings)]).toEqual(["adminThrottle"]);
+    draft.rules = [ruleDraft({ label: "/api", audience: "", duration: "60", maxRequests: "10" })];
+    expect([...dirtySections(draft, settings)].sort()).toEqual(["adminThrottle", "rateLimits"]);
   });
 });

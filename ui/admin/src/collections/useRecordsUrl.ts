@@ -16,13 +16,15 @@ const maxSearchFields = 30;
  * anything with an operator is sent as a filter expression. */
 export function buildFilter(input: string, fields: CollectionField[]): string {
   const text = input.trim();
-  if (text === "" || /[=~<>!&|()']/.test(text)) return text;
+  // A quote alone (O'Brien) is a search word; expressions always carry an operator.
+  if (text === "" || /[=~<>!&|()]/.test(text)) return text;
+  const quoted = (value: string) => `'${value.replaceAll("'", "''")}'`;
   const searchable = fields
     .filter((field) => (field.type === "text" || field.type === "editor") && !field.hidden)
     .sort((a, b) => Number(b.presentable) - Number(a.presentable) || Number(b.indexed || b.unique) - Number(a.indexed || a.unique))
     .slice(0, maxSearchFields);
-  if (searchable.length === 0) return `id = '${text}'`;
-  return searchable.map((field) => `${field.name}:lower ~ '${text.toLowerCase()}'`).join(" || ");
+  if (searchable.length === 0) return `id = ${quoted(text)}`;
+  return searchable.map((field) => `${field.name}:lower ~ ${quoted(text.toLowerCase())}`).join(" || ");
 }
 
 /** Records view state kept in the query string: filter, sort and the open record. */
@@ -39,7 +41,10 @@ export function useRecordsUrl() {
       sort,
       record,
       creating,
-      setFilter: (value: string) => update({ filter: value.trim() || null }),
+      /** `replace` for updates driven by typing, so each keystroke is not a history entry. */
+      setFilter: (value: string, replace?: boolean) => update({ filter: value.trim() || null }, { replace }),
+      /** Recovery from a rejected query: the sort can be the part the server refused. */
+      clearQuery: () => update({ filter: null, sort: null }),
       toggleSort: (field: string) => update({ sort: nextSort(sort, field) || null }),
       open: (id: string) => update({ record: id, new: null }),
       create: () => update({ record: null, new: "1" }),

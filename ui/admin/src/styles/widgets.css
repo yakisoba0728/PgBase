@@ -10,13 +10,13 @@
 .code-block-body {
   max-height: min(420px, 50vh);
   overflow: auto;
-  padding: 8px 40px 8px 10px;
+  padding: var(--sp-8) var(--sp-40) var(--sp-8) var(--sp-10);
   border-radius: inherit;
   outline: 0;
 }
 
 .code-block-body:focus-visible {
-  box-shadow: 0 0 0 2px var(--ring);
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
 .code-block pre {
@@ -32,8 +32,8 @@
 }
 
 .code-block pre + pre {
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: var(--sp-8);
+  padding-top: var(--sp-8);
   border-top: 1px solid var(--surface-3);
 }
 
@@ -43,8 +43,8 @@
 
 .code-block-copy {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: var(--sp-4);
+  right: var(--sp-4);
 }
 
 /* Monospace editor. */
@@ -52,15 +52,10 @@
   width: 100%;
   min-height: 72px;
   margin: 0;
-  padding: 12px 14px;
-  border: 0;
-  border-radius: var(--radius);
-  background: var(--surface-1);
-  color: var(--text);
+  padding: var(--sp-12);
   font-size: var(--font-size-sm);
   line-height: 1.6;
   tab-size: 2;
-  outline: 0;
   resize: vertical;
 }
 
@@ -72,14 +67,24 @@
   resize: none;
 }
 
-.code-area:focus-visible {
-  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
-}
-
 /* Text that will write carries the warning tone so the mode is never missed. */
 .code-area[data-tone="warning"] {
-  background: color-mix(in srgb, var(--warning), var(--surface-1) 92%);
+  background: color-mix(in srgb, var(--warning), var(--surface) 92%);
   box-shadow: inset 3px 0 0 var(--warning);
+}
+
+/* A scrolled list's window moved past its first page. */
+.list-window {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin: 0 var(--sp-8) var(--space-xs);
+  padding: var(--sp-8) var(--sp-12);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
 }
 
 /* One long-running job. */
@@ -87,9 +92,15 @@
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: 12px 14px;
+  padding: var(--sp-12);
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--tone, var(--accent)), var(--surface) 90%);
+  background: color-mix(in srgb, var(--tone, var(--accent)), var(--surface) 93%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone, var(--accent)), transparent 76%);
+  animation: enter var(--dur) var(--ease-out);
+}
+
+.job-progress > .dot {
+  animation: pop var(--dur-slow) var(--ease-out);
 }
 
 .job-progress-text {
@@ -97,7 +108,7 @@
   flex: 1;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 12px;
+  gap: var(--sp-4) var(--sp-12);
   min-width: 0;
   font-size: var(--font-size-sm);
 }
@@ -112,7 +123,7 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-8);
   font-size: var(--font-size-sm);
 }
 
@@ -132,7 +143,9 @@
 }
 
 .progress-bar::-webkit-progress-value {
+  border-radius: var(--radius-pill);
   background: var(--accent);
+  transition: inline-size var(--dur-slow) var(--ease-out);
 }
 
 .progress-bar::-moz-progress-bar {
@@ -157,7 +170,7 @@
 }
 
 .data-grid-null {
-  color: var(--text-disabled);
+  color: var(--text-hint);
   font-style: italic;
 }
 
@@ -167,7 +180,7 @@
 }
 
 .schema-plan-title {
-  margin-bottom: 6px;
+  margin-bottom: var(--sp-6);
   font-size: var(--font-size-sm);
 }
 
@@ -182,9 +195,9 @@
 .schema-changes li {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-8);
   min-height: 32px;
-  padding: 0 10px;
+  padding: 0 var(--sp-10);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
 }
@@ -196,7 +209,7 @@
 .schema-change-kind {
   flex: none;
   width: 72px;
-  font-weight: 600;
+  font-weight: var(--weight-bold);
 }
 
 .schema-changes li[data-kind="add"] .schema-change-kind {
@@ -233,9 +246,9 @@
 }
 
 .schema-sql summary {
-  padding: 6px 2px;
+  padding: var(--sp-6) var(--sp-2);
   color: var(--text-hint);
   font-size: var(--font-size-sm);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   cursor: pointer;
 }

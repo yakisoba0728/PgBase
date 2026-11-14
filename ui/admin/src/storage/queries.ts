@@ -1,6 +1,6 @@
-import { queryOptions } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import { getBackupJob, listBackups, listRunningBackupJobs } from "../api/backups";
-import { ApiError } from "../api/http";
+import { ApiError, isNotFound } from "../api/http";
 import { getBackupStorageSettings, getFileStorageSettings, getLatestStorageMigration, getStorageMigration, type BackupStorageSettings, type FileStorageSettings, type StorageMigrationState, type StorageMigrationStatus } from "../api/storage";
 import { operations, startWindow, type TrackedOperation } from "../app/operations";
 
@@ -8,6 +8,15 @@ export const backupsQuery = queryOptions({
   queryKey: ["backups", "list"],
   queryFn: ({ signal }) => listBackups(signal),
 });
+
+/**
+ * The backup console is opt-in (PGBASE_BACKUPS_DIRECTORY): a server without it never registered the list route, so it
+ * answers 404. `listed` (the list has loaded) gates the console's other reads, which would 404 alongside it.
+ */
+export function useBackupsConsole(): { off: boolean; listed: boolean } {
+  const list = useQuery(backupsQuery);
+  return { off: list.data === undefined && isNotFound(list.error), listed: list.data !== undefined };
+}
 
 export const backupStorageQuery = queryOptions({
   queryKey: ["storage", "backups"],
@@ -31,8 +40,6 @@ export const runningBackupJobsQuery = queryOptions({
   queryKey: ["backups", "running"],
   queryFn: ({ signal }) => listRunningBackupJobs(signal),
 });
-
-const isNotFound = (error: unknown) => error instanceof ApiError && error.status === 404;
 
 /** A backup job, polled until it finishes. Restore swaps the server underneath, so 503s and dropped connections keep polling. */
 export const backupJobQuery = (id: string) =>

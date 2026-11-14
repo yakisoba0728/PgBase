@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
-import { NavLink } from "react-router";
+import { useRef, useState, type ReactNode } from "react";
+import { NavLink, useLocation } from "react-router";
 import { RiMenuLine } from "@remixicon/react";
 import { setDrawer } from "../app/shell";
 import { useT } from "../i18n";
 import { IconButton } from "./Button";
+import { useTabIndicator } from "./Tabs";
 
 interface PageProps {
   title: ReactNode;
@@ -17,6 +18,12 @@ interface PageProps {
 
 export function Page({ title, crumb, actions, tabs, children }: PageProps) {
   const t = useT();
+  const row = useRef<HTMLElement>(null);
+  useTabIndicator(row, Boolean(tabs));
+  // A sibling tab (or sub-path) replacing the body cross-fades it: the attribute alternates so the animation restarts.
+  const { pathname } = useLocation();
+  const [swap, setSwap] = useState({ pathname, parity: 0 });
+  if (swap.pathname !== pathname) setSwap({ pathname, parity: swap.parity + 1 });
   return (
     <>
       <header className="page-header">
@@ -25,10 +32,10 @@ export function Page({ title, crumb, actions, tabs, children }: PageProps) {
           {crumb && <span className="crumb">{crumb} /</span>}
           <span>{title}</span>
         </h1>
-        {actions && <div className="page-actions">{actions}</div>}
+        {actions && <div className="actions">{actions}</div>}
       </header>
       {tabs && (
-        <nav className="page-tabs" aria-label={t("nav.views")}>
+        <nav ref={row} className="page-tabs" aria-label={t("nav.views")}>
           {tabs.map((tab) => (
             <NavLink key={tab.to} to={tab.to} end={tab.end} className="page-tab">
               {tab.label}
@@ -36,7 +43,7 @@ export function Page({ title, crumb, actions, tabs, children }: PageProps) {
           ))}
         </nav>
       )}
-      <div className="page-body">{children}</div>
+      <div className="page-body" data-swap={swap.parity ? (swap.parity % 2 ? "a" : "b") : undefined}>{children}</div>
     </>
   );
 }

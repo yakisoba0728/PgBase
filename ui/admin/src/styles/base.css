@@ -44,17 +44,20 @@ kbd,
   font-family: var(--font-mono);
 }
 
+/* A key cap: a hairline edge and a slightly heavier bottom, so it reads as a key and not a chip. */
 kbd {
   display: inline-block;
   min-width: 20px;
-  padding: 1px 5px;
+  padding: 1px var(--sp-4);
   border-radius: var(--radius-xs);
-  background: var(--surface-1);
+  background: var(--surface);
   color: var(--text-hint);
+  font-family: var(--font);
   font-size: var(--font-size-xs);
+  font-weight: var(--weight-medium);
   line-height: 16px;
   text-align: center;
-  box-shadow: inset 0 -1px 0 var(--line);
+  box-shadow: inset 0 0 0 1px var(--border-control), inset 0 -1px 0 var(--border-control);
 }
 
 ::selection {
@@ -70,12 +73,18 @@ kbd {
   outline-offset: 2px;
 }
 
+/* Figures line up in every table and stat. */
+table,
+.mono {
+  font-variant-numeric: tabular-nums;
+}
+
 .link {
   border-radius: var(--radius-xs);
   color: var(--text-hint);
   font-size: var(--font-size-sm);
   text-decoration: none;
-  transition: color var(--speed);
+  transition: color var(--dur);
 }
 
 .link:hover {
@@ -99,13 +108,143 @@ kbd {
   white-space: nowrap;
 }
 
+/* The one reduced-motion rule (tokens.css also zeroes travel distances): everything changes at once. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
-  *::after {
+  *::after,
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
     transition-duration: 0s !important;
     animation-duration: 0s !important;
+    animation-iteration-count: 1 !important;
   }
+}
+
+/* View transitions (toast and pane exits) only move what is named: the page itself is never snapshotted,
+   and clicks pass through the transition layer to the live page underneath. */
+:root {
+  view-transition-name: none;
+}
+
+::view-transition {
+  pointer-events: none;
+}
+
+/* Enter: a short fade with a small rise. One keyframe set, used by the page body, panes and overlays;
+   from-only, so nothing is left transformed once it ends (a transform would re-anchor fixed children). */
+@keyframes enter {
+  from {
+    opacity: 0;
+    translate: 0 var(--rise);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes enter-side {
+  from {
+    opacity: 0;
+    translate: var(--slide) 0;
+  }
+}
+
+@keyframes leave-side {
+  to {
+    opacity: 0;
+    translate: var(--slide) 0;
+  }
+}
+
+@keyframes leave {
+  to {
+    opacity: 0;
+    translate: 0 var(--rise);
+  }
+}
+
+/* The page body's opacity-only cross-fade when a sibling tab or sub-path replaces its content (Page.tsx alternates
+   the two names so the animation restarts). Opacity only: a transform would re-anchor the fixed mobile pane. */
+@keyframes swap-a {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes swap-b {
+  from {
+    opacity: 0;
+  }
+}
+
+/* A small mark appearing in place: a copied check, a status dot turning on. */
+@keyframes pop {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+
+/* A figure that changed: the new value drops into place. */
+@keyframes tick {
+  from {
+    opacity: 0;
+    translate: 0 calc(-1 * var(--rise));
+  }
+}
+
+/* A figure keyed by its value (realtime tiles, log totals) replays this whenever the value changes. */
+.tick {
+  animation: tick var(--dur) var(--ease-out);
+}
+
+/* A row that just arrived or changed: an accent wash that drains away. */
+@keyframes flash {
+  from {
+    background-color: var(--accent-soft);
+  }
+}
+
+/* Staggered entrance: the children of .stagger (stat tiles) and of a settings or status scroll (its sections) arrive
+   one step apart, capped so a long list is never slow. Opacity only, so a pane inside one is never re-anchored. */
+:is(.stagger, .sys-scroll) > * {
+  animation: fade-in var(--dur-slow) var(--ease-out) backwards;
+  animation-delay: calc(var(--stagger) * 7);
+}
+
+:is(.stagger, .sys-scroll) > :nth-child(1) { animation-delay: 0ms; }
+:is(.stagger, .sys-scroll) > :nth-child(2) { animation-delay: var(--stagger); }
+:is(.stagger, .sys-scroll) > :nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
+:is(.stagger, .sys-scroll) > :nth-child(4) { animation-delay: calc(var(--stagger) * 3); }
+:is(.stagger, .sys-scroll) > :nth-child(5) { animation-delay: calc(var(--stagger) * 4); }
+:is(.stagger, .sys-scroll) > :nth-child(6) { animation-delay: calc(var(--stagger) * 5); }
+:is(.stagger, .sys-scroll) > :nth-child(7) { animation-delay: calc(var(--stagger) * 6); }
+
+/* Disclosures open and close by height instead of snapping (engines without ::details-content just snap). */
+details {
+  interpolate-size: allow-keywords;
+}
+
+details::details-content {
+  block-size: 0;
+  overflow: clip;
+  transition: block-size var(--dur-slow) var(--ease-out), content-visibility var(--dur-slow) allow-discrete;
+}
+
+details[open]::details-content {
+  block-size: auto;
+}
+
+/* Switching theme swaps every colour at once: no control may fade its own (theme.ts sets this for a moment). */
+:root[data-theme-switching] *,
+:root[data-theme-switching] *::before,
+:root[data-theme-switching] *::after {
+  transition: none !important;
 }
 
 button.link {
@@ -115,8 +254,20 @@ button.link {
   cursor: pointer;
 }
 
+/* The one eyebrow label: small uppercase group titles (navigation groups, API and rule reference). */
+.nav-group-title,
+.api-pane h3,
+.rules-ref-group h3,
+.shortcuts h3 {
+  color: var(--text-hint);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .wordmark {
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
 }
 

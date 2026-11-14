@@ -1,4 +1,4 @@
-import { advanceSession, sessionGeneration, ApiError, clearCsrfToken, request, setCsrfToken } from "./http";
+import { advanceSession, sessionGeneration, ApiError, clearCsrfToken, request, setCsrfToken, upload } from "./http";
 
 // POST /api/admin/login is a legacy alias served by the same handler as
 // /api/admin/auth/login, so it is intentionally not wrapped.
@@ -79,11 +79,11 @@ export function getSetupBackupJob(setupToken: string, id: string): Promise<Setup
 }
 
 /** The server accepts only application/gzip, whatever the file's own type. */
-export function uploadSetupBackup(setupToken: string, archive: Blob, signal?: AbortSignal): Promise<SetupBackupEntry> {
-  return request("POST", "/api/admin/setup/backups/upload", {
-    raw: archive,
-    signal,
+export function uploadSetupBackup(setupToken: string, archive: Blob, signal?: AbortSignal, onProgress?: (fraction: number) => void): Promise<SetupBackupEntry> {
+  return upload("/api/admin/setup/backups/upload", archive, {
     headers: { ...setupHeaders(setupToken), "Content-Type": "application/gzip" },
+    signal,
+    onProgress,
   });
 }
 

@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { Page } from "../components/Page";
@@ -65,4 +66,32 @@ it("shows the destination skeleton during lazy navigation and removes it when re
   await act(async () => { finish({ default: () => <Page title="Settings">Settings loaded</Page> }); });
   expect(screen.getByText("Settings loaded")).toBeInTheDocument();
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
+});
+
+it("closes the mobile drawer on any navigation, not only nav link clicks", async () => {
+  vi.stubGlobal("innerWidth", 600);
+  const router = createMemoryRouter([{ element: <AppShell />, children: [
+    { path: "/", element: <Page title="Home">Home</Page> },
+    { path: "/profile", element: <Page title="Profile">Profile</Page> },
+  ] }]);
+  render(<RouterProvider router={router} />);
+  act(() => setDrawer(true));
+  expect(document.querySelector("main")).toHaveAttribute("inert");
+  await act(async () => { await router.navigate("/profile"); });
+  expect(document.querySelector("main")).not.toHaveAttribute("inert");
+});
+
+it("keeps the screen mounted across its own tabs and remounts it for another collection", async () => {
+  let mounts = 0;
+  function Screen() {
+    const [id] = useState(() => ++mounts);
+    return <Page title="Collection">mount {id}</Page>;
+  }
+  const router = createMemoryRouter([{ element: <AppShell />, children: [{ path: "/collections/:name/:tab?", element: <Screen /> }] }], { initialEntries: ["/collections/a"] });
+  render(<RouterProvider router={router} />);
+  expect(screen.getByText("mount 1")).toBeInTheDocument();
+  await act(async () => { await router.navigate("/collections/a/schema"); });
+  expect(screen.getByText("mount 1")).toBeInTheDocument();
+  await act(async () => { await router.navigate("/collections/b"); });
+  expect(screen.getByText("mount 2")).toBeInTheDocument();
 });

@@ -1,10 +1,9 @@
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { RiErrorWarningLine, RiEyeLine, RiTableLine, RiUser3Line } from "@remixicon/react";
+import { RiEyeLine, RiTableLine, RiUser3Line } from "@remixicon/react";
 import { getCollectionScaffolds, type CollectionType } from "../api/collections";
-import { errorText } from "../app/queries";
 import { collectionsQuery } from "../collections/queries";
-import { EmptyState, Skeleton } from "../components/Feedback";
+import { QueryView } from "../components/QueryView";
 import { useT } from "../i18n";
 import { SchemaView } from "./SchemaView";
 import "../styles/schema.css";
@@ -39,11 +38,17 @@ export function NewCollectionChooser() {
 
 /** Step two: the Schema editor in its "new" state, seeded from the server scaffolds. */
 export function NewCollectionEditor({ type }: { type: CollectionType }) {
-  const t = useT();
   const catalog = useQuery(collectionsQuery);
   const scaffolds = useQuery({ queryKey: ["collection-scaffolds"], queryFn: ({ signal }) => getCollectionScaffolds(signal), staleTime: Infinity });
-  const error = catalog.error ?? scaffolds.error;
-  if (error) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, error)}</EmptyState>;
-  if (!catalog.data || !scaffolds.data) return <Skeleton variant="form" />;
-  return <SchemaView key={type} type={type} catalog={catalog.data} scaffolds={scaffolds.data} basePath={`/new-collection/${type}`} />;
+  return (
+    <div className="page-form">
+      <QueryView query={catalog} skeleton="form">
+        {(collections) => (
+          <QueryView query={scaffolds} skeleton="form">
+            {(seeds) => <SchemaView key={type} type={type} catalog={collections} scaffolds={seeds} basePath={`/new-collection/${type}`} />}
+          </QueryView>
+        )}
+      </QueryView>
+    </div>
+  );
 }

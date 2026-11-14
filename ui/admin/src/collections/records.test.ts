@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Collection, CollectionField, FieldType } from "../api/collections";
 import { visibleRange } from "../components/virtualRows";
-import { collectAll, settleLimited } from "./bulk";
+import { ApiError } from "../api/http";
+import { collectAll, deleteAll } from "./bulk";
 import { moveColumn, orderedColumns, toggleColumn, visibleColumns } from "./columns";
 import { changedFields, keepDraft, clearDraft, readDraft, writeDraft } from "./recordDraft";
 import { expandFor, htmlText, labelField, recordLabel, relationSearchFilter } from "./relation";
@@ -75,18 +76,57 @@ describe("bulk helpers", () => {
     expect(await collectAll(async (cursor) => pages[cursor ? 1 : 0])).toEqual({ items: [{ id: "1" }, { id: "2" }], complete: true });
     expect((await collectAll(async () => pages[0], 3)).complete).toBe(false);
   });
-  it("limits concurrency and keeps results in order", async () => {
-    let running = 0;
-    let peak = 0;
-    const results = await settleLimited([1, 2, 3, 4, 5], 2, async (n) => {
-      peak = Math.max(peak, ++running);
-      await new Promise((resolve) => setTimeout(resolve, 1));
-      running--;
-      if (n === 3) throw new Error("no");
-      return n * 2;
+});
+
+describe("deleteAll", () => {
+  const ids = Array.from({ length: 60 }, (_, index) => `r${index}`);
+  const run = (options: Partial<Parameters<typeof deleteAll>[1]> & { signal?: AbortSignal }) =>
+    deleteAll(ids, { batchSize: 0, batch: async () => {}, one: async () => {}, signal: new AbortController().signal, onProgress: () => {}, ...options });
+
+  it("sends one batch per chunk and reports progress", async () => {
+    const chunks: number[] = [];
+    const progress: number[] = [];
+    const outcome = await run({ batchSize: 25, batch: async (chunk) => void chunks.push(chunk.length), onProgress: (done) => progress.push(done) });
+    expect(chunks).toEqual([25, 25, 10]);
+    expect(progress).toEqual([25, 50, 60]);
+    expect(outcome).toMatchObject({ failed: [], stopped: false });
+    expect(outcome.deleted).toHaveLength(60);
+  });
+  it("retries a refused (atomic) batch record by record, counting a 404 as deleted", async () => {
+    const outcome = await run({
+      batchSize: 50,
+      batch: async (chunk) => { if (chunk.includes("r3")) throw new ApiError(409, "restricted", "no"); },
+      one: async (id) => {
+        if (id === "r3") throw new ApiError(409, "restricted", "no");
+        if (id === "r4") throw new ApiError(404, "not_found", "gone");
+      },
     });
-    expect(peak).toBe(2);
-    expect(results.map((result) => result.status)).toEqual(["fulfilled", "fulfilled", "rejected", "fulfilled", "fulfilled"]);
+    expect(outcome.failed).toEqual(["r3"]);
+    expect(outcome.reason).toBeInstanceOf(ApiError);
+    expect(outcome.deleted).toHaveLength(59);
+  });
+  it("falls back to single deletes for good when batches are disabled", async () => {
+    let batches = 0;
+    const singles: string[] = [];
+    await run({ batchSize: 10, batch: async () => { batches++; throw new ApiError(503, "batch_disabled", "off"); }, one: async (id) => void singles.push(id) });
+    expect(batches).toBe(1);
+    expect(singles).toHaveLength(60);
+  });
+  it("stops issuing requests once cancelled; what was sent stays deleted", async () => {
+    const abort = new AbortController();
+    const sent: string[] = [];
+    const outcome = await run({ signal: abort.signal, one: async (id) => void sent.push(id), onProgress: () => abort.abort() });
+    expect(sent).toHaveLength(24);
+    expect(outcome).toMatchObject({ stopped: true, failed: [] });
+    expect(outcome.deleted).toEqual(sent);
+  });
+  it("sends nothing more once cancelled mid-chunk", async () => {
+    const abort = new AbortController();
+    const sent: string[] = [];
+    const outcome = await run({ signal: abort.signal, one: async (id) => { sent.push(id); if (sent.length === 3) abort.abort(); } });
+    expect(sent.length).toBeLessThanOrEqual(8);
+    expect(outcome.stopped).toBe(true);
+    expect(outcome.deleted).toEqual(sent);
   });
 });
 
@@ -108,4 +148,18 @@ it("keeps sensitive 412 edits only in memory and rejects mismatched persisted sh
   expect(readDraft(scope, fields)?.fields).toEqual({ api_token: "secret", title: "mine" });
   expect(JSON.stringify(localStorage)).not.toContain("secret");
   clearDraft(scope);
+});
+
+it("restores a stored geoPoint draft", () => {
+  const scope = { admin: "a", collection: "c", record: "geo" };
+  writeDraft(scope, { place: ["126.9", "37.5"] });
+  expect(readDraft(scope, [field("place", "geoPoint")])?.fields).toEqual({ place: ["126.9", "37.5"] });
+  clearDraft(scope);
+});
+
+it("clearing a draft also forgets edits kept in memory", () => {
+  const scope = { admin: "a", collection: "c", record: "mem" };
+  keepDraft(scope, { title: "kept" });
+  clearDraft(scope);
+  expect(readDraft(scope, [field("title", "text")])).toBeNull();
 });

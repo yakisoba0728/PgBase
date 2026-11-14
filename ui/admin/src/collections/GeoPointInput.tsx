@@ -2,6 +2,7 @@ import { useId } from "react";
 import { RiMapPinLine } from "@remixicon/react";
 import type { CollectionField } from "../api/collections";
 import { useT } from "../i18n";
+import { Input } from "../components/Field";
 
 interface GeoPointInputProps {
   field: CollectionField;
@@ -30,11 +31,11 @@ export function GeoPointInput({ field, value, onChange, error, readOnly }: GeoPo
         <div className="geo-inputs">
           <label>
             <span className="txt-hint">{t("geo.lon")}</span>
-            <input className="field-control mono" inputMode="decimal" autoComplete="off" value={lon} disabled={readOnly} placeholder="-180 … 180" aria-invalid={error ? true : undefined} onChange={(event) => onChange([event.target.value, lat])} />
+            <Input mono inputMode="decimal" autoComplete="off" value={lon} disabled={readOnly} placeholder="-180 … 180" invalid={Boolean(error)} onChange={(event) => onChange([event.target.value, lat])} />
           </label>
           <label>
             <span className="txt-hint">{t("geo.lat")}</span>
-            <input className="field-control mono" inputMode="decimal" autoComplete="off" value={lat} disabled={readOnly} placeholder="-90 … 90" aria-invalid={error ? true : undefined} onChange={(event) => onChange([lon, event.target.value])} />
+            <Input mono inputMode="decimal" autoComplete="off" value={lat} disabled={readOnly} placeholder="-90 … 90" invalid={Boolean(error)} onChange={(event) => onChange([lon, event.target.value])} />
           </label>
           {valid && (
             <a className="icon-btn" href={map} target="_blank" rel="noreferrer noopener" aria-label={t("geo.openMap")} title={t("geo.openMap")}>

@@ -3,6 +3,8 @@ import { RiArrowDownLine, RiArrowUpLine } from "@remixicon/react";
 import type { Collection, CollectionField } from "../api/collections";
 import type { RecordData } from "../api/records";
 import { CopyButton } from "../components/CopyButton";
+import { Checkbox, GroupCheckbox } from "../components/Field";
+import { opensRow, Table, useArrivals } from "../components/Table";
 import { useVirtualRows, visibleRange } from "../components/virtualRows";
 import { useT } from "../i18n";
 import { fieldKind } from "./fields";
@@ -45,6 +47,7 @@ export function RecordsTable({ collection, catalog, columns, records, sort, onSo
   const anchor = useRef<string | null>(null);
   const focusPending = useRef(false);
   const tbody = useRef<HTMLTableSectionElement>(null);
+  const arrived = useArrivals(useMemo(() => records.map((record) => record.id), [records]));
   const width = checkWidth + idWidth + columns.reduce((sum, name) => sum + columnWidth(byName.get(name)), 0);
 
   // Moves keyboard focus to row `index`, scrolling it into the rendered window first.
@@ -104,8 +107,8 @@ export function RecordsTable({ collection, catalog, columns, records, sort, onSo
     return (
       <button type="button" className="sort-btn" data-sorted={direction ? "" : undefined} onClick={() => onSort(name)}>
         {children}
-        {direction === "asc" && <RiArrowUpLine size={13} aria-label={t("records.sortedAsc")} />}
-        {direction === "desc" && <RiArrowDownLine size={13} aria-label={t("records.sortedDesc")} />}
+        {direction === "asc" && <RiArrowUpLine size={14} aria-label={t("records.sortedAsc")} />}
+        {direction === "desc" && <RiArrowDownLine size={14} aria-label={t("records.sortedDesc")} />}
       </button>
     );
   };
@@ -119,7 +122,7 @@ export function RecordsTable({ collection, catalog, columns, records, sort, onSo
   const tabStop = focusRow >= rows.start && focusRow < rows.end ? focusRow : rows.start;
 
   return (
-    <table className="grid records-grid" aria-label={collection.name} aria-rowcount={records.length + 1} style={{ width }}>
+    <Table className="records-grid" label={collection.name} aria-rowcount={records.length + 1} style={{ width }}>
       <colgroup>
         <col style={{ width: checkWidth }} />
         <col style={{ width: idWidth }} />
@@ -130,15 +133,7 @@ export function RecordsTable({ collection, catalog, columns, records, sort, onSo
       <thead>
         <tr aria-rowindex={1}>
           <th className="col-check sticky-check">
-            <input
-              type="checkbox"
-              aria-label={t("records.selectAll")}
-              checked={records.length > 0 && checkedCount === records.length}
-              ref={(input) => {
-                if (input) input.indeterminate = checkedCount > 0 && checkedCount < records.length;
-              }}
-              onChange={(event) => onSelect(records.map((record) => record.id), event.target.checked)}
-            />
+            <GroupCheckbox label={t("records.selectAll")} chosen={checkedCount} total={records.length} onChange={(on) => onSelect(records.map((record) => record.id), on)} />
           </th>
           <th className="sticky-id" aria-sort={ariaSort("id")}>{header("id", "id", true)}</th>
           {columns.map((name) => {
@@ -170,6 +165,7 @@ export function RecordsTable({ collection, catalog, columns, records, sort, onSo
               columns={columns}
               byName={byName}
               current={record.id === openId}
+              arrived={arrived.has(record.id)}
               checked={selected.has(record.id)}
               focusable={index === tabStop}
               settled={index >= screen.start && index < screen.end}
@@ -187,7 +183,7 @@ export function RecordsTable({ collection, catalog, columns, records, sort, onSo
           </tr>
         )}
       </tbody>
-    </table>
+    </Table>
   );
 }
 
@@ -199,6 +195,8 @@ interface RecordRowProps {
   columns: string[];
   byName: Map<string, CollectionField>;
   current: boolean;
+  /** Just created: the brief arrival wash. */
+  arrived: boolean;
   checked: boolean;
   focusable: boolean;
   settled: boolean;
@@ -209,7 +207,7 @@ interface RecordRowProps {
   onPeek: OnPeek;
 }
 
-const RecordRow = memo(function RecordRow({ index, record, collection, catalog, columns, byName, current, checked, focusable, settled, onOpen, onCheck, onKey, onFocusRow, onPeek }: RecordRowProps) {
+const RecordRow = memo(function RecordRow({ index, record, collection, catalog, columns, byName, current, arrived, checked, focusable, settled, onOpen, onCheck, onKey, onFocusRow, onPeek }: RecordRowProps) {
   const t = useT();
   const stop = (event: MouseEvent) => event.stopPropagation();
   return (
@@ -218,14 +216,15 @@ const RecordRow = memo(function RecordRow({ index, record, collection, catalog, 
       aria-rowindex={index + 2}
       tabIndex={focusable ? 0 : -1}
       aria-current={current || undefined}
+      data-arrived={arrived ? "" : undefined}
       data-checked={checked ? "" : undefined}
-      onClick={() => onOpen(record.id)}
+      // Windowed rows keep their own roving focus and keys, so only the click rule of the shared Row applies.
+      onClick={(event) => opensRow(event) && onOpen(record.id)}
       onKeyDown={(event) => onKey(event, index, record)}
       onFocus={(event) => event.target === event.currentTarget && onFocusRow(index)}
     >
       <td className="col-check sticky-check" onClick={stop}>
-        <input
-          type="checkbox"
+        <Checkbox
           aria-label={t("records.select", { id: record.id })}
           checked={checked}
           onChange={(event) => onCheck(index, event.target.checked, (event.nativeEvent as globalThis.MouseEvent).shiftKey)}
@@ -234,7 +233,7 @@ const RecordRow = memo(function RecordRow({ index, record, collection, catalog, 
       <td className="sticky-id">
         <span className="id-cell">
           <span className="cell-text">{record.id}</span>
-          <CopyButton label={t("common.copyId")} value={record.id} />
+          <CopyButton size="xs" className="icon-btn-raised" label={t("common.copyId")} value={record.id} />
         </span>
       </td>
       {columns.map((name) => (

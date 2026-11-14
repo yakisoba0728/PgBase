@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { RiCloseLine } from "@remixicon/react";
 import { useSmallScreen } from "../app/shell";
 import { useShortcut } from "../app/keys";
@@ -28,11 +28,22 @@ export function SplitView({ list, pane, paneLabel, onClose }: SplitViewProps) {
   const open = pane !== null;
   const small = useSmallScreen();
   const panel = useRef<HTMLElement>(null);
+  // The pane unmounts at once (its unmount drives the focus return above); a static, hidden copy plays the exit.
+  const panelRef = useCallback((node: HTMLElement | null) => {
+    panel.current = node;
+    if (node) return () => leaveCopy(node, root.current);
+  }, []);
+  // At any width, closing the pane returns focus to where it was opened from, unless focus has moved on.
   useEffect(() => {
-    if (!open || !small) return;
+    if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
-    (panel.current?.querySelector<HTMLElement>("button, input, select, textarea, [tabindex='0']") ?? panel.current)?.focus();
-    return () => { if (previous?.isConnected) previous.focus(); };
+    return () => {
+      const lost = !document.activeElement || document.activeElement === document.body || !document.activeElement.isConnected;
+      if (lost && previous?.isConnected) previous.focus();
+    };
+  }, [open]);
+  useEffect(() => {
+    if (open && small) (panel.current?.querySelector<HTMLElement>("button, input, select, textarea, [tabindex='0']") ?? panel.current)?.focus();
   }, [open, small]);
 
   useShortcut("Escape", onClose, { inFields: true, enabled: open });
@@ -83,13 +94,37 @@ export function SplitView({ list, pane, paneLabel, onClose }: SplitViewProps) {
             onPointerUp={onPointerUp}
             onKeyDown={onKeyDown}
           />
-          <section ref={panel} tabIndex={-1} className="split-pane" aria-label={paneLabel} style={{ width }}>
+          <section ref={panelRef} tabIndex={-1} className="split-pane" aria-label={paneLabel} style={{ width }}>
             {pane}
           </section>
         </>
       )}
     </div>
   );
+}
+
+/**
+ * Slides a closed pane out: an inert, aria-hidden copy (no ids or name, so queries never find two panes) takes the
+ * pane's place and leaves. Only when the split view itself stays, i.e. the pane closed rather than the screen leaving.
+ */
+function leaveCopy(node: HTMLElement, split: HTMLElement | null) {
+  const copy = node.cloneNode(true) as HTMLElement;
+  const scrolled = [...node.querySelectorAll<HTMLElement>(".pane-body")].map((body) => body.scrollTop);
+  queueMicrotask(() => {
+    if (!split?.isConnected) return;
+    copy.removeAttribute("aria-label");
+    copy.removeAttribute("tabindex");
+    for (const element of copy.querySelectorAll("[id]")) element.removeAttribute("id");
+    copy.setAttribute("aria-hidden", "true");
+    copy.inert = true;
+    copy.classList.add("split-pane-leaving");
+    split.append(copy);
+    copy.querySelectorAll<HTMLElement>(".pane-body").forEach((body, index) => (body.scrollTop = scrolled[index] ?? 0));
+    // A timer as well as animationend: a background tab never finishes the animation.
+    const remove = () => copy.remove();
+    copy.addEventListener("animationend", remove, { once: true });
+    setTimeout(remove, 400);
+  });
 }
 
 interface PaneHeaderProps {

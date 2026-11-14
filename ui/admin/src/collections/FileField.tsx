@@ -1,10 +1,10 @@
-import { useState, type ChangeEvent } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiCloseLine, RiDeleteBinLine, RiUploadLine } from "@remixicon/react";
 import type { CollectionField } from "../api/collections";
 import { deleteFile, getRecord, replaceRecordFiles, uploadRecordFile, type StoredFile } from "../api/records";
 import { errorText } from "../app/queries";
-import { IconButton } from "../components/Button";
+import { FileButton, IconButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { FilePreview } from "../components/FilePreview";
 import { formatBytes } from "../app/format";
@@ -21,6 +21,8 @@ interface FileFieldProps {
   readOnly: boolean;
   staged: File[];
   onStage: (files: File[]) => void;
+  /** After an upload, replacement or removal of a saved record's file. */
+  onRecordChanged?: () => void;
 }
 
 const accepts = (types: string[] | undefined, type: string) =>
@@ -43,7 +45,7 @@ function checkPicked(t: Translate, field: CollectionField, picked: File[], room:
 }
 
 /** Attachments of one file field: thumbnails, preview, upload with progress and removal. */
-export function FileField({ collection, recordId, field, readOnly, staged, onStage }: FileFieldProps) {
+export function FileField({ collection, recordId, field, readOnly, staged, onStage, onRecordChanged }: FileFieldProps) {
   const t = useT();
   const queryClient = useQueryClient();
   const [removing, setRemoving] = useState<StoredFile | null>(null);
@@ -54,7 +56,11 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
   const max = field.options?.maxSelect ?? 1;
   const current = recordId === null ? staged.length : (files.data?.length ?? 0);
   const replacing = recordId !== null && max === 1 && current === 1;
-  const refresh = () => queryClient.invalidateQueries({ queryKey: recordFilesQuery(collection, recordId ?? "", field.name).queryKey });
+  const refresh = () => {
+    // File writes can change the record's ETag; the form reloads it (keeping edits) so its next save is not refused with 412.
+    onRecordChanged?.();
+    return queryClient.invalidateQueries({ queryKey: recordFilesQuery(collection, recordId ?? "", field.name).queryKey });
+  };
 
   const upload = useMutation({
     mutationFn: async (list: File[]) => {
@@ -86,16 +92,13 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
     },
   });
 
-  const onPick = (event: ChangeEvent<HTMLInputElement>) => {
-    const picked = Array.from(event.target.files ?? []);
-    event.target.value = "";
+  const onPick = (picked: File[]) => {
     const { ok, problem } = checkPicked(t, field, picked, replacing ? 1 : max - current);
     if (problem) toast(problem, "danger");
     if (!ok.length) return;
     if (recordId === null) onStage([...staged, ...ok]);
     else upload.mutate(ok);
   };
-  const inputId = `file-${field.id}`;
   // The server keeps a required field from losing its last file.
   const lastRequired = field.required && current <= 1;
 
@@ -141,10 +144,9 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
           {files.isError && <li className="txt-danger">{errorText(t, files.error)}</li>}
           {!readOnly && (current < max || replacing) && !upload.isPending && (
             <li>
-              <input id={inputId} type="file" multiple={max - current > 1} accept={field.options?.mimeTypes?.join(",")} className="visually-hidden" onChange={onPick} />
-              <label htmlFor={inputId} className="link">
-                <RiUploadLine size={14} aria-hidden /> {replacing ? t("file.replace") : recordId === null ? t("file.choose") : t("records.upload")}
-              </label>
+              <FileButton look="link" icon={RiUploadLine} multiple={max - current > 1} accept={field.options?.mimeTypes?.join(",")} onFiles={onPick}>
+                {replacing ? t("file.replace") : recordId === null ? t("file.choose") : t("records.upload")}
+              </FileButton>
               {field.options?.maxFileSize ? <span className="txt-hint">{t("file.maxSize", { max: formatBytes(field.options.maxFileSize) })}</span> : null}
             </li>
           )}

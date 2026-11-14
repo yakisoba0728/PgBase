@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { setAuthPolicy, updateAuthCollection, type AuthAdministration, type AuthCollection } from "../api/authCollections";
 import { Checkbox, Field } from "../components/Field";
@@ -11,8 +11,8 @@ import { isStale, problemText, reportFailure, StaleNotice, useDraft } from "./us
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
 
-/** Registration (on the collection) plus every field of PUT /policy, saved together. */
-export function PolicyTab({ collection, administration }: { collection: AuthCollection; administration: AuthAdministration }) {
+/** Registration (on the collection) plus every field of PUT /policy, saved together; `children` (the danger zone) sits below, outside the form. */
+export function PolicyTab({ collection, administration, children }: { collection: AuthCollection; administration: AuthAdministration; children?: ReactNode }) {
   const t = useT();
   const queryClient = useQueryClient();
   const initial = policyDraft(administration.policy, collection.registrationEnabled);
@@ -31,11 +31,19 @@ export function PolicyTab({ collection, administration }: { collection: AuthColl
     },
     onSuccess: async (policy) => {
       queryClient.setQueryData(administrationQuery(collection.id).queryKey, { ...administration, policy });
+      // The server normalises some values (e.g. identity field spacing); start again from what it stored.
+      form.patch(policyDraft(policy, draft.registrationEnabled));
       await queryClient.invalidateQueries({ queryKey: ["auth", "collections"] });
       toast(t("auth.savedToast"));
     },
     onError: (failure) => reportFailure(t, failure),
   });
+
+  const reload = () =>
+    void queryClient.fetchQuery({ ...administrationQuery(collection.id), staleTime: 0 }).then((value) => {
+      form.patch(policyDraft(value.policy, collection.registrationEnabled));
+      save.reset();
+    }, (failure) => reportFailure(t, failure));
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -54,7 +62,7 @@ export function PolicyTab({ collection, administration }: { collection: AuthColl
       </div>
       <div className="page-content">
         {isStale(save.error) && (
-          <StaleNotice busy={save.isPending} onReload={() => void queryClient.fetchQuery({ ...administrationQuery(collection.id), staleTime: 0 }).then((value) => form.patch(policyDraft(value.policy, collection.registrationEnabled)))} onOverwrite={() => save.mutate(true)} />
+          <StaleNotice busy={save.isPending} onReload={reload} onOverwrite={() => save.mutate(true)} />
         )}
         <form id="auth-policy" className="auth-form auth-form-wide" onSubmit={onSubmit} noValidate><fieldset disabled={save.isPending} className="form">
           <FormSection title={t("auth.policy.registration")} hint={t("auth.policy.registrationHint")}>
@@ -87,6 +95,7 @@ export function PolicyTab({ collection, administration }: { collection: AuthColl
           </FormSection>
           <p className="txt-hint">{t("auth.policy.sessionHint")}</p>
         </fieldset></form>
+        {children && <div className="auth-form auth-form-wide auth-danger">{children}</div>}
       </div>
       <UnsavedGuard dirty={form.dirty} />
     </div>

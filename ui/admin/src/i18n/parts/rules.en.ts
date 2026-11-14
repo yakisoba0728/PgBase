@@ -4,8 +4,6 @@ export const rulesEn = {
 
   "rules.title": "Rules",
   "rules.saved": "Rules saved.",
-  "rules.partialTitle": "Rules saved only partly",
-  "rules.partialText": "The expressions were saved, but restoring {actions} failed, so the server now allows only administrators there. Retry to restore their earlier rules.",
   "rules.accessTitle": "User and guest access",
   "rules.accessLabel": "Allow requests from users and guests",
   "rules.accessOn": "The rules below decide each request.",

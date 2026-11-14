@@ -6,7 +6,7 @@ import { RiFilterLine } from "@remixicon/react";
 import { stringify } from "lossless-json";
 import { Button } from "../components/Button";
 import { CodeBlock } from "../components/CodeBlock";
-import { ErrorState, Skeleton } from "../components/Feedback";
+import { QueryView } from "../components/QueryView";
 import { useT } from "../i18n";
 import { statusTone } from "./format";
 import { logQuery } from "./queries";
@@ -40,17 +40,15 @@ export function LogDetail({ id, onClose, onFilterRoute }: LogDetailProps) {
     <>
       <PaneHeader title={`#${id}`} mono onClose={onClose} />
       <div className="pane-body">
-        {query.isPending ? (
-          <Skeleton variant="form" />
-        ) : query.isError ? (
-          <ErrorState error={query.error} onRetry={query.refetch} />
-        ) : (
-          <>
-            <Facts items={rows.map(([label, value]) => ({ label, value }))} />
-            <h3 className="subtitle">{t("ops.logs.raw")}</h3>
-            <CodeBlock label={t("ops.logs.raw")} text={raw} />
-          </>
-        )}
+        <QueryView query={query} skeleton="form">
+          {() => (
+            <>
+              <Facts items={rows.map(([label, value]) => ({ label, value }))} />
+              <h3 className="subtitle">{t("ops.logs.raw")}</h3>
+              <CodeBlock label={t("ops.logs.raw")} text={raw} />
+            </>
+          )}
+        </QueryView>
       </div>
       {entry && (
         <footer className="pane-footer">

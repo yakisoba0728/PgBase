@@ -4,7 +4,14 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 4px var(--space) var(--space);
+  padding: var(--sp-4) var(--space) var(--space);
+}
+
+/* The settings form scrolls inside its fieldset (disabled while saving). */
+fieldset.sys-scroll {
+  min-width: 0;
+  margin: 0;
+  border: 0;
 }
 
 .sys-fields {
@@ -22,17 +29,12 @@
 .sys-check {
   display: grid;
   grid-column: 1 / -1;
-  gap: 2px;
-  padding: 2px 4px;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
 }
 
 .sys-check .field-hint {
   padding-left: 26px;
-}
-
-.sys-notice {
-  max-width: 980px;
-  margin-top: var(--space-sm);
 }
 
 /* Rate-limit rules: one row per rule. */
@@ -48,7 +50,7 @@
 .sys-subtitle {
   margin: 0;
   font-size: var(--font-size);
-  font-weight: 600;
+  font-weight: var(--weight-bold);
 }
 
 .sys-rules > .txt-hint {
@@ -65,12 +67,12 @@
 }
 
 .sys-rule > .icon-btn {
-  margin-top: 12px;
+  margin-top: var(--sp-12);
 }
 
 .sys-findings {
   display: grid;
-  gap: 6px;
+  gap: var(--sp-6);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -78,21 +80,15 @@
 
 .sys-findings li {
   display: grid;
-  gap: 2px;
+  gap: var(--sp-2);
 }
 
 /* Detail pane actions: a title and its effect, with the button on the right. */
-.sys-actions {
-  display: grid;
-  gap: 2px;
-  margin-top: var(--space);
-}
-
 .sys-action {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: 10px 8px;
+  padding: var(--sp-10) var(--sp-8);
   border-radius: var(--radius-sm);
 }
 
@@ -106,49 +102,11 @@
 }
 
 .sys-subtitle {
-  margin: var(--space) 0 8px;
-}
-
-.sys-inline {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-xs);
-  max-width: 520px;
-}
-
-.sys-inline .field-wrap {
-  flex: 1;
-}
-
-.sys-inline > .btn {
-  margin-top: 8px;
+  margin: var(--space) 0 var(--sp-8);
 }
 
 .sys-narrow {
   max-width: 520px;
-}
-
-.sys-row-end {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.sys-code {
-  margin: 0;
-  padding: 10px 12px;
-  overflow: auto;
-  border-radius: var(--radius-sm);
-  background: var(--surface-1);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.sys-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-xs);
 }
 
 .sys-scopes {
@@ -156,17 +114,6 @@
   margin: 0;
   padding: 0;
   border: 0;
-}
-
-.sys-scopes legend {
-  margin-bottom: 6px;
-  color: var(--text-hint);
-  font-size: var(--font-size-sm);
-}
-
-.sys-scopes .grid td,
-.sys-scopes .grid th {
-  height: 34px;
 }
 
 .sys-center {
@@ -185,3 +132,56 @@
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* Settings section index: one scrolling row of links under the save toolbar, at every width. */
+.sys-index {
+  display: flex;
+  flex: none;
+  gap: var(--sp-4);
+  overflow-x: auto;
+  padding: var(--sp-6) var(--space);
+  box-shadow: 0 1px 0 var(--line);
+  scrollbar-width: none;
+}
+
+.sys-index a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-8);
+  border-radius: var(--radius-sm);
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.sys-index a:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.sys-index a[aria-current="true"] {
+  background: var(--surface-1);
+  color: var(--text);
+  font-weight: var(--weight-medium);
+}
+
+.sys-index-dirty {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+/* Scope table: a row's or column's select-all sits beside its label. */
+.sys-scope-head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-6);
+}
+
+.sys-scopes .searchbar {
+  margin-bottom: var(--sp-6);
+}
+

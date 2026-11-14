@@ -10,40 +10,11 @@
   max-width: 1040px;
 }
 
-.auth-section {
-  display: grid;
-  gap: var(--space-sm);
-}
-
-.auth-section > header {
-  display: grid;
-  gap: 2px;
-}
-
-.auth-section h2 {
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.auth-section p {
-  font-size: var(--font-size-sm);
-}
-
 .auth-grid {
   display: grid;
   align-items: start;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: var(--space-xs);
-}
-
-.auth-inline {
-  display: flex;
-  align-items: end;
-  gap: var(--space-xs);
-}
-
-.auth-inline > .field-wrap {
-  flex: 1;
 }
 
 /* Provider and identity rows: tone, not borders. */
@@ -60,33 +31,17 @@
 }
 
 .auth-row {
-  display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-sm);
-  width: 100%;
-  min-height: var(--row);
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--radius);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--speed);
 }
 
-.auth-row:hover {
-  background: var(--surface-1);
-}
-
-.auth-row[aria-current="true"] {
-  background: var(--accent-soft);
-}
-
+/* A read-only row in the same box as .row-btn. */
 .auth-row-static {
-  cursor: default;
+  display: grid;
+  align-items: center;
+  gap: var(--sp-12);
+  min-height: var(--row);
+  padding: var(--sp-8) var(--sp-12);
+  border-radius: var(--radius);
   background: var(--surface-1);
 }
 
@@ -111,14 +66,12 @@
 .auth-form .auth-table td {
   overflow: visible;
   height: auto;
-  padding-block: 4px;
+  padding-block: var(--sp-4);
   vertical-align: top;
   line-height: var(--control-sm);
 }
 
 .auth-cell-input {
-  height: var(--control-sm);
-  width: 100%;
   min-width: 120px;
 }
 
@@ -134,17 +87,6 @@
   gap: var(--space-xs);
 }
 
-.auth-code {
-  margin: 0;
-  padding: 12px 14px;
-  overflow: auto;
-  border-radius: var(--radius);
-  background: var(--surface-1);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  white-space: pre-wrap;
-}
-
 /* User pane */
 .auth-pane {
   display: grid;
@@ -152,18 +94,13 @@
   gap: var(--space);
 }
 
-.auth-actions {
-  display: grid;
-  gap: 1px;
-}
-
 .auth-action {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-6);
   min-height: var(--row);
-  padding: 4px 12px;
+  padding: var(--sp-4) var(--sp-12);
   border-radius: var(--radius);
   background: var(--surface-1);
 }
@@ -173,12 +110,6 @@
   margin-right: auto;
   color: var(--text-hint);
   font-size: var(--font-size-sm);
-}
-
-.auth-record-footer {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .auth-link-row a,
@@ -201,7 +132,7 @@
 
 .auth-preview-pair figure {
   display: grid;
-  gap: 6px;
+  gap: var(--sp-6);
   margin: 0;
   min-width: 0;
 }
@@ -228,7 +159,7 @@
   align-items: center;
   gap: var(--space-sm);
   margin-bottom: var(--space-sm);
-  padding: 10px 12px;
+  padding: var(--sp-10) var(--sp-12);
   border-radius: var(--radius);
   background: var(--surface-1);
 }
@@ -238,28 +169,20 @@
   font-size: var(--font-size-sm);
 }
 
-.auth-row:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
 /* Users: search and status filter above the list, and the scan progress line. */
-.auth-user-filter {
-  gap: var(--space-xs);
-  align-items: end;
-}
-
-.auth-user-filter .field-wrap:first-child {
-  flex: 1;
-  max-width: 420px;
-}
-
 .auth-scan {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px var(--space-sm);
+  gap: var(--sp-6) var(--space-sm);
   margin: 0;
-  padding: 6px var(--space);
+  padding: var(--sp-6) var(--space);
   font-size: var(--font-size-sm);
 }
+
+/* The danger zone below a collection's policy form, set off like the next form section. */
+.auth-danger {
+  margin-top: var(--space);
+  box-shadow: 0 -1px 0 var(--line);
+}
+

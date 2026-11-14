@@ -43,7 +43,6 @@ export const authKo: Record<keyof typeof authEn, string> = {
   "auth.collections.delete": "컬렉션 삭제",
   "auth.collections.deleteTitle": "{name}을(를) 삭제할까요?",
   "auth.collections.deleteText": "로그인 설정과 테이블이 삭제되며 되돌릴 수 없습니다. 사용자가 남아 있으면 거부됩니다.",
-  "auth.collections.typeName": "확인하려면 {name} 입력",
   "auth.collections.deleted": "{name}을(를) 삭제했습니다.",
   "auth.collections.hasUsers": "아직 사용자가 있습니다. 사용자를 먼저 삭제하세요.",
 
@@ -164,8 +163,9 @@ export const authKo: Record<keyof typeof authEn, string> = {
   "auth.users.count": "사용자 {count}명",
   "auth.users.countCapped": "사용자 {count}명 이상",
   "auth.users.loadedMore": "{count}명 불러옴",
+  "auth.users.shifted": "뒤쪽 사용자 {count}명을 보는 중입니다. 목록을 가볍게 유지하려고 앞쪽 항목은 내렸습니다.",
+  "auth.users.toStart": "처음으로",
   "auth.users.empty": "사용자가 없습니다.",
-  "auth.users.missing": "이 ID의 사용자가 없습니다.",
   "auth.users.search": "검색",
   "auth.users.searchHint": "이메일 일부 또는 정확한 ID 입력 후 Enter",
   "auth.users.allCollections": "모든 컬렉션",
@@ -231,6 +231,5 @@ export const authKo: Record<keyof typeof authEn, string> = {
   "auth.user.deleteTitle": "{email}을(를) 삭제할까요?",
   "auth.user.deleteText": "계정과 세션이 삭제되며 되돌릴 수 없습니다.",
   "auth.user.deleted": "{email}을(를) 삭제했습니다.",
-  "auth.user.typeEmail": "확인하려면 {email}을 입력하세요",
   "auth.user.impersonateDisabled": "먼저 사용자를 활성화하세요.",
 };

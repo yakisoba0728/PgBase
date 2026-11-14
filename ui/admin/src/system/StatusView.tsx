@@ -1,9 +1,8 @@
 import type { ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
-import type { SystemStatusProbe } from "../api/system";
-import { errorText } from "../app/queries";
-import { Skeleton } from "../components/Feedback";
-import { ErrorState } from "../components/Feedback";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import type { SchemaHealth, SystemStatus, SystemStatusProbe } from "../api/system";
+import { Notice } from "../components/Feedback";
+import { QueryView } from "../components/QueryView";
 import { Facts } from "../components/Facts";
 import { FormSection } from "../components/FormSection";
 import { useT } from "../i18n";
@@ -25,24 +24,25 @@ function Probes({ items }: { items: SystemStatusProbe[] }) {
   const t = useT();
   if (items.length === 0) return null;
   return (
-    <p className="warning-note" role="note">
+    <Notice role="note">
       {t("system.status.unavailable")} <span className="mono">{items.map((item) => `${item.component} (${item.code})`).join(", ")}</span>
-    </p>
+    </Notice>
   );
 }
 
 /** Read-only: GET /api/admin/system and /api/admin/system/health, sampled by the server. */
 export function StatusView() {
+  const status = useQuery(systemStatusQuery);
+  // Both requests start together, but health is its own block: a failed health read must not hide the server status.
+  const health = useQuery(schemaHealthQuery);
+  return <QueryView query={status} skeleton="cards">{(s) => <Status s={s} health={health} />}</QueryView>;
+}
+
+function Status({ s, health }: { s: SystemStatus; health: UseQueryResult<SchemaHealth> }) {
   const t = useT();
   const time = useTimeFormat();
-  const status = useQuery(systemStatusQuery);
-  const health = useQuery(schemaHealthQuery);
-  if (status.isPending || health.isPending) return <Skeleton variant="cards" />;
-  if (status.isError) return <ErrorState error={status.error} busy={status.isFetching} onRetry={() => void status.refetch()} />;
-  const s = status.data;
   const migrationTone: Tone = s.migrationDirty ? "danger" : s.migrationCurrent < s.migrationLatest ? "warning" : "success";
   const yes = (ok: boolean, good: string, bad: string) => <Dot tone={ok ? "success" : "danger"}>{ok ? good : bad}</Dot>;
-  const healthTone: Tone = health.data?.state === "healthy" ? "success" : health.data?.state === "drift" ? "warning" : "danger";
 
   return (
     <div className="sys-scroll">
@@ -66,32 +66,37 @@ export function StatusView() {
         />
       </FormSection>
       <FormSection title={t("system.status.schema")} hint={health.data && t("system.status.sampled", { time: time(health.data.sampledAt, true) })}>
-        {health.isError ? (
-          <p className="field-error">{errorText(t, health.error)}</p>
-        ) : (
-          <>
-            <Probes items={health.data.unavailable} />
-            <Props
-              rows={[
-                [t("system.status.state"), <Dot tone={healthTone}>{t(`system.health.${health.data.state}`)}</Dot>],
-                [t("system.status.findings"), <span className="mono">{health.data.findingCount}</span>],
-                [t("system.status.retries"), <span className="mono">{health.data.retries}</span>],
-                [t("system.status.lastSuccess"), health.data.lastSuccessAt ? time(health.data.lastSuccessAt, true) : <span className="na">{t("common.na")}</span>],
-              ]}
-            />
-            {health.data.findings.length > 0 && (
-              <ul className="sys-findings">
-                {health.data.findings.map((finding, index) => (
-                  <li key={index}>
-                    <Dot tone={finding.severity === "error" ? "danger" : "warning"}><span className="mono">{finding.code}</span></Dot>
-                    <span>{finding.message}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
-        )}
+        <QueryView query={health} skeleton="list">{(h) => <Health health={h} />}</QueryView>
       </FormSection>
     </div>
+  );
+}
+
+function Health({ health }: { health: SchemaHealth }) {
+  const t = useT();
+  const time = useTimeFormat();
+  const healthTone: Tone = health.state === "healthy" ? "success" : health.state === "drift" ? "warning" : "danger";
+  return (
+    <>
+      <Probes items={health.unavailable} />
+      <Props
+        rows={[
+          [t("system.status.state"), <Dot tone={healthTone}>{t(`system.health.${health.state}`)}</Dot>],
+          [t("system.status.findings"), <span className="mono">{health.findingCount}</span>],
+          [t("system.status.retries"), <span className="mono">{health.retries}</span>],
+          [t("system.status.lastSuccess"), health.lastSuccessAt ? time(health.lastSuccessAt, true) : <span className="na">{t("common.na")}</span>],
+        ]}
+      />
+      {health.findings.length > 0 && (
+        <ul className="sys-findings">
+          {health.findings.map((finding, index) => (
+            <li key={index}>
+              <Dot tone={finding.severity === "error" ? "danger" : "warning"}><span className="mono">{finding.code}</span></Dot>
+              <span>{finding.message}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }

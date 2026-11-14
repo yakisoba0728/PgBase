@@ -4,10 +4,10 @@ import { UnsavedGuard } from "../components/UnsavedGuard";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { truncateCollection, type Collection, type CollectionType } from "../api/collections";
 import type { CollectionScaffolds } from "../api/schema";
-import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { Field } from "../components/Field";
+import { FormSection } from "../components/FormSection";
 import { SaveBar } from "../components/SaveBar";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
@@ -42,7 +42,7 @@ function CollectionSection({ editor }: { editor: SchemaEditor }) {
               options={[{ value: "uuid", label: t("schema.recordId.uuid") }, { value: "text", label: t("schema.recordId.text") }]} />
             {recordId.kind === "text" && (
               <>
-                <div className="schema-pair">
+                <div className="field-pair">
                   <Field label={t("schema.recordId.minLength")} type="number" min={1} max={255} mono disabled={!creating} value={recordId.minLength ?? ""}
                     onChange={(event) => editor.setMeta({ recordId: { ...recordId, minLength: event.target.value === "" ? undefined : Number(event.target.value) } })} />
                   <Field label={t("schema.recordId.maxLength")} type="number" min={1} max={255} mono disabled={!creating} value={recordId.maxLength ?? ""}
@@ -85,22 +85,23 @@ function DangerZone({ collection, editor }: { collection: Collection; editor: Sc
         await queryClient.invalidateQueries({ queryKey: ["collections"] });
         navigate("/collections", { replace: true });
       } else {
-        await queryClient.invalidateQueries({ queryKey: ["records", collection.name] });
+        // Reset, not invalidate: a list with many loaded pages skips refetch on mount and would show deleted rows.
+        await queryClient.resetQueries({ queryKey: ["records", collection.name] });
       }
     },
     onError: (error) => toast(deleteRefusal(t, error), "danger"),
   });
   return (
-    <Section title={t("schema.danger")}>
-      <div className="schema-danger">
+    <FormSection title={t("common.dangerZone")}>
+      <div className="action-list danger-zone">
         {collection.type !== "view" && (
           <div>
-            <Button size="sm" variant="transparent" className="txt-danger" onClick={() => setAction("truncate")}>{t("schema.truncate")}</Button>
+            <Button size="sm" variant="danger" onClick={() => setAction("truncate")}>{t("schema.truncate")}</Button>
             <span className="field-hint">{t("schema.truncateHint")}</span>
           </div>
         )}
         <div>
-          <Button size="sm" variant="transparent" className="txt-danger" onClick={() => setAction("delete")}>{t("schema.delete")}</Button>
+          <Button size="sm" variant="danger" onClick={() => setAction("delete")}>{t("schema.delete")}</Button>
           <span className="field-hint">{t("schema.deleteHint")}</span>
         </div>
       </div>
@@ -111,11 +112,11 @@ function DangerZone({ collection, editor }: { collection: Collection; editor: Sc
         confirmLabel={t(action === "delete" ? "schema.delete" : "schema.truncate")}
         danger
         busy={run.isPending}
-        typed={{ phrase: collection.name, label: t("schema.typeName", { name: collection.name }) }}
+        typed={{ phrase: collection.name, label: t("common.typeToConfirm", { name: collection.name }) }}
         onConfirm={() => action && run.mutate(action)}
         onCancel={close}
       />
-    </Section>
+    </FormSection>
   );
 }
 

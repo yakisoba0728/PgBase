@@ -4,21 +4,10 @@
   font-size: var(--font-size-sm);
 }
 
-.dt-danger {
-  color: var(--danger);
-}
-
-.dt-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-}
-
 /* State pill: neutral when settled, coloured only for live or failed states. */
 .dt-code {
   margin: 0;
-  padding: 12px 14px;
+  padding: var(--sp-12);
   border: 0;
   border-radius: var(--radius);
   background: var(--surface-1);
@@ -26,11 +15,6 @@
   font-size: var(--font-size-sm);
   line-height: 1.6;
   tab-size: 2;
-  outline: 0;
-}
-
-.dt-code:focus-visible {
-  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
 }
 
 /* Schema transfer: picker or input on the left, document or plan on the right. */
@@ -56,7 +40,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 30px;
+  min-height: var(--control-sm);
   color: var(--text-hint);
   font-size: var(--font-size-sm);
 }
@@ -64,19 +48,19 @@
 .dt-checks {
   display: grid;
   align-content: start;
-  gap: 2px;
+  gap: var(--sp-2);
   min-height: 0;
   overflow-y: auto;
 }
 
 .dt-checks .checkbox {
-  min-height: 30px;
-  padding: 0 8px;
+  min-height: var(--control-sm);
+  padding: 0 var(--sp-8);
   border-radius: var(--radius-sm);
 }
 
 .dt-checks .checkbox:hover {
-  background: var(--surface-1);
+  background: var(--hover);
 }
 
 .dt-main {
@@ -85,12 +69,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: 0 var(--space) var(--space-sm) 0;
-}
-
-.dt-main .toolbar {
-  padding-left: 0;
-  padding-right: 0;
+  padding: var(--space-sm) var(--space) var(--space-sm) 0;
 }
 
 .dt-main > .dt-code {
@@ -110,16 +89,14 @@
   flex-direction: column;
   width: min(520px, 45%);
   min-height: 0;
-  margin: 2px var(--space-xs) var(--space-xs) 0;
   overflow: hidden;
-  border-radius: calc(var(--radius-lg) - 4px);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow);
+  border-left: 1px solid var(--line);
+  background: var(--surface);
 }
 
 .dt-problems {
   display: grid;
-  gap: 4px;
+  gap: var(--sp-4);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -129,7 +106,7 @@
 .dt-problems li {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--sp-8);
 }
 
 /* Schema operations: undecided rows read as live. */
@@ -145,19 +122,11 @@
   min-height: 0;
 }
 
-.dt-sql-main {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-}
-
 .dt-editor-wrap {
   display: flex;
   flex: none;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-4);
   padding: var(--space-sm) var(--space) 0;
 }
 
@@ -167,7 +136,6 @@
 
 .dt-sql-bar {
   flex-wrap: wrap;
-  padding: 0;
 }
 
 .dt-outcome {
@@ -189,7 +157,7 @@
 
 .dt-caret {
   margin: 0;
-  padding: 8px 10px;
+  padding: var(--sp-8) var(--sp-10);
   border-radius: var(--radius-sm);
   background: var(--surface-1);
   color: var(--text);
@@ -209,12 +177,21 @@
 }
 
 .dt-result .grid + .grid,
-.dt-result .dt-command + .grid {
+.dt-result .dt-command + .grid,
+.dt-result > .dt-window:not(:first-child),
+.dt-result > .dt-window + * {
   margin-top: var(--space-sm);
 }
 
+/* A result past 500 rows scrolls on its own, rendering only the rows in view. */
+.dt-window {
+  max-height: 70vh;
+  overflow: auto;
+  outline: 0;
+}
+
 .dt-command {
-  padding: 6px 12px;
+  padding: var(--sp-6) var(--sp-12);
   font-size: var(--font-size-sm);
 }
 
@@ -230,47 +207,28 @@
 }
 
 .dt-history-title {
-  padding: 4px 10px 0;
+  padding: var(--sp-4) var(--sp-10) 0;
   color: var(--text-hint);
   font-size: var(--font-size-sm);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .dt-history ul {
   display: grid;
-  gap: 2px;
+  gap: var(--sp-2);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.dt-history li button {
-  display: grid;
-  gap: 4px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--speed);
-}
-
-.dt-history li button:hover {
-  background: var(--surface-1);
-}
-
-.dt-history li button[aria-current="true"] {
-  background: var(--accent-soft);
+.dt-history .row-btn {
+  gap: var(--sp-4);
 }
 
 .dt-history-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-6);
 }
 
 .dt-history-meta .mono {
@@ -287,23 +245,6 @@
   -webkit-line-clamp: 2;
 }
 
-.dt-disabled {
-  display: grid;
-  gap: var(--space-xs);
-  justify-items: start;
-  max-width: 560px;
-  color: var(--text);
-}
-
-.dt-disabled svg {
-  color: var(--text-hint);
-}
-
-.dt-disabled h2 {
-  font-size: var(--font-size-title);
-  font-weight: 600;
-}
-
 @media (max-width: 899px) {
   .dt-transfer,
   .dt-sql {
@@ -315,6 +256,11 @@
   .dt-plan,
   .dt-history {
     width: auto;
+  }
+
+  .dt-plan {
+    border-left: 0;
+    border-top: 1px solid var(--line);
   }
 
   .dt-main {

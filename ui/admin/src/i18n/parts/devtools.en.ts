@@ -27,7 +27,6 @@ export const devtoolsEn = {
   "devtools.import.appliedVersion": "Import applied. Schema version {version}.",
   "devtools.import.confirmTitle": "Apply an import that deletes data?",
   "devtools.import.confirmText": "These collections lose collections, columns or rows. Only a backup brings them back.",
-  "devtools.import.typeDelete": "Type delete to confirm",
 
   "devtools.ops.empty": "No schema changes yet.",
   "devtools.ops.detail": "Operation",
@@ -54,7 +53,7 @@ export const devtoolsEn = {
 
   "devtools.sql.offTitle": "The SQL console is off",
   "devtools.sql.offText": "This server was started without it, so its routes are not registered.",
-  "devtools.sql.offHow": "It is enabled only by Go applications that embed PgBase and set Options.SQLConsole with three dedicated, least-privileged database roles (compiler, read, writer). The pgbase binary has no setting for it.",
+  "devtools.sql.offHow": "Only a Go application that embeds PgBase can turn it on, by setting this option with three dedicated, least-privileged database roles (compiler, read, writer). The pgbase binary has no setting for it.",
   "devtools.sql.editor": "SQL statement",
   "devtools.sql.modeLabel": "Mode",
   "devtools.sql.mode.read": "Read",

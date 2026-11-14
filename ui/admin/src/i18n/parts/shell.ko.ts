@@ -13,6 +13,9 @@ export const shellKo: Record<keyof typeof shellEn, string> = {
   "palette.group.collections": "컬렉션",
   "palette.group.screens": "화면",
   "palette.group.actions": "명령",
+  "palette.group.users": "사용자",
+  "palette.usersLoading": "사용자 검색 중…",
+  "palette.usersFailed": "사용자를 검색하지 못했습니다: {error}",
   "palette.newCollection": "새 컬렉션",
   "palette.newRecord": "{name}에 새 레코드",
   "palette.theme": "테마: {mode}",
@@ -31,7 +34,6 @@ export const shellKo: Record<keyof typeof shellEn, string> = {
   "shortcuts.group.general": "일반",
   "shortcuts.group.navigation": "이동",
 
-  "nav.recent": "최근",
 
   "field.reveal": "표시",
   "field.capsLock": "Caps Lock이 켜져 있습니다.",

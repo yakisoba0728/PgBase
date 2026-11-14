@@ -135,7 +135,22 @@ export function FieldRows({ editor }: { editor: SchemaEditor }) {
           const locked = Boolean(field.system);
           return (
             <li key={field.key} className="schema-row" data-state={state} data-invalid={fieldErrors ? "" : undefined} aria-current={editor.openField?.key === field.key || undefined} data-locked={locked ? "" : undefined}>
-              <button type="button" className="schema-row-main" onClick={() => editor.setPane({ field: field.key })}>
+              <button
+                type="button"
+                className="row-btn schema-row-main"
+                data-field-key={field.key}
+                aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                onClick={() => editor.setPane({ field: field.key })}
+                onKeyDown={(event) => {
+                  const step = event.altKey && !event.ctrlKey && !event.metaKey ? ({ ArrowUp: -1, ArrowDown: 1 } as const)[event.key as "ArrowUp" | "ArrowDown"] : undefined;
+                  if (!step) return;
+                  event.preventDefault();
+                  editor.moveField(field.key, step);
+                  // A keyed reorder may re-insert the focused row, which drops focus; put it back.
+                  const list = event.currentTarget.closest("ul");
+                  requestAnimationFrame(() => list?.querySelector<HTMLElement>(`[data-field-key="${CSS.escape(field.key)}"]`)?.focus());
+                }}
+              >
                 <Icon size={16} aria-hidden />
                 <span className="schema-name">{field.name || <span className="na">{t("schema.unnamed")}</span>}</span>
                 <span className="schema-type">{field.type === "relation" && field.relation?.targetCollection ? `→ ${field.relation.targetCollection}` : field.type}</span>
@@ -144,8 +159,8 @@ export function FieldRows({ editor }: { editor: SchemaEditor }) {
                 {locked && <RiLockLine className="schema-lock" size={14} aria-label={t("schema.locked")} />}
               </button>
               <span className="schema-row-tools">
-                <IconButton label={t("schema.moveUp", { name: field.name })} icon={RiArrowUpSLine} disabled={position === 0} onClick={() => editor.moveField(field.key, -1)} />
-                <IconButton label={t("schema.moveDown", { name: field.name })} icon={RiArrowDownSLine} disabled={position === draft.fields.length - 1} onClick={() => editor.moveField(field.key, 1)} />
+                <IconButton size="xs" label={t("schema.moveUp", { name: field.name })} icon={RiArrowUpSLine} disabled={position === 0} onClick={() => editor.moveField(field.key, -1)} />
+                <IconButton size="xs" label={t("schema.moveDown", { name: field.name })} icon={RiArrowDownSLine} disabled={position === draft.fields.length - 1} onClick={() => editor.moveField(field.key, 1)} />
               </span>
               {fieldErrors && <p className="schema-row-error" role="alert">{describeErrors(t, fieldErrors)}</p>}
             </li>
@@ -194,7 +209,7 @@ export function IndexRows({ editor }: { editor: SchemaEditor }) {
               : indexColumns(index).map((key) => `${key.field ?? key.expression}${key.order === "desc" ? " desc" : ""}`).join(", ");
             return (
               <li key={index.key} className="schema-row" data-state={state} data-invalid={indexErrors ? "" : undefined} aria-current={editor.openIndex?.key === index.key || undefined}>
-                <button type="button" className="schema-row-main" onClick={() => editor.setPane({ index: index.key })}>
+                <button type="button" className="row-btn schema-row-main" onClick={() => editor.setPane({ index: index.key })}>
                   <RiKey2Line size={16} aria-hidden />
                   <span className="schema-name">{index.name}</span>
                   <span className="schema-type schema-columns">{columns || <span className="na">{t("schema.noColumns")}</span>}{index.where ? ` where ${index.where}` : ""}</span>

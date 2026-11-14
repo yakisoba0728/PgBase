@@ -3,37 +3,35 @@ import { useQuery } from "@tanstack/react-query";
 import { RiDownloadLine } from "@remixicon/react";
 import { stringify } from "lossless-json";
 import { Button } from "../components/Button";
-import { ErrorState, Skeleton } from "../components/Feedback";
+import { QueryView } from "../components/QueryView";
 import { Checkbox } from "../components/Field";
 import { useT } from "../i18n";
 import { useSearchState } from "../app/search";
+import { downloadJson } from "../app/download";
 import { pickCollections } from "./model";
 import { exportQuery } from "./queries";
+import type { SchemaDocument } from "../api/schema";
 import "../styles/devtools.css";
 
 /** Collection picker on the left, the exported document on the right. Skipped names live in ?skip=. */
 export function SchemaExport() {
+  const query = useQuery(exportQuery);
+  // A column, so a "couldn't refresh" notice sits above the picker rather than beside it.
+  return <div className="page-form"><QueryView query={query} skeleton="editor">{(schema) => <ExportPicker schema={schema} />}</QueryView></div>;
+}
+
+function ExportPicker({ schema: loaded }: { schema: SchemaDocument }) {
   const t = useT();
   const { params, update } = useSearchState();
-  const query = useQuery(exportQuery);
-  if (query.isPending) return <Skeleton variant="editor" />;
-  if (query.isError) return <ErrorState error={query.error} onRetry={query.refetch} />;
-
   // An empty project exports `collections: null`.
-  const data = { ...query.data, collections: query.data.collections ?? [] };
+  const data = { ...loaded, collections: loaded.collections ?? [] };
   const names = data.collections.map((collection) => collection.name);
   const skip = (params.get("skip") ?? "").split(",").filter((name) => names.includes(name));
   const setSkip = (next: string[]) => update({ skip: next.join(",") || null });
-  const text = stringify(pickCollections(data, skip), null, 2) ?? "";
+  const exported = pickCollections(data, skip);
+  const text = stringify(exported, null, 2) ?? "";
   const picked = names.length - skip.length;
 
-  const download = () => {
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-    link.download = "pgbase-schema.json";
-    link.click();
-    URL.revokeObjectURL(link.href);
-  };
 
   return (
     <div className="dt-transfer">
@@ -60,14 +58,14 @@ export function SchemaExport() {
             ))}
           </div>
         )}
-        {(query.data.authCollections?.length ?? 0) > 0 && <p className="dt-muted">{t("devtools.export.authKept", { count: query.data.authCollections?.length ?? 0 })}</p>}
+        {(loaded.authCollections?.length ?? 0) > 0 && <p className="dt-muted">{t("devtools.export.authKept", { count: loaded.authCollections?.length ?? 0 })}</p>}
       </aside>
       <section className="dt-main" aria-label={t("devtools.export.document")}>
-        <div className="toolbar">
+        <div className="toolbar toolbar-inset">
           <span className="dt-muted">{t("devtools.export.size", { lines: text.split("\n").length })}</span>
-          <div className="dt-actions">
+          <div className="actions">
             <CopyButton text value={text} />
-            <Button size="sm" icon={RiDownloadLine} onClick={download}>{t("devtools.download")}</Button>
+            <Button size="sm" icon={RiDownloadLine} onClick={() => downloadJson("pgbase-schema.json", exported)}>{t("devtools.download")}</Button>
           </div>
         </div>
         <pre className="dt-code mono" tabIndex={0} aria-label={t("devtools.export.document")}>{text}</pre>

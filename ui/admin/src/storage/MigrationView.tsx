@@ -4,9 +4,10 @@ import { Facts } from "../components/Facts";
 import { cancelStorageMigration, previewStorageMigration, resumeStorageMigration, startStorageMigration, type FileStorageSettings, type StorageMigrationStatus } from "../api/storage";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { ErrorState, Skeleton, Notice } from "../components/Feedback";
+import { Notice } from "../components/Feedback";
+import { combineQueries, QueryView } from "../components/QueryView";
 import { toast } from "../components/Toast";
-import { ApiError } from "../api/http";
+import { ApiError, isNotFound } from "../api/http";
 import { trackOperation, untrackOperation, useOperations, watchOperation } from "../app/operations";
 import { JobProgress } from "../components/JobProgress";
 import { useT, type Translate } from "../i18n";
@@ -15,7 +16,7 @@ import { useSearchState } from "../app/search";
 import { newIdentity } from "../schema/apply";
 import { destinationOf, draftFrom, storageErrorKey, validateDraft, type StorageDraft } from "./model";
 import { awaitingStart, fileStorageQuery, migrationQuery, migrationRunning, migrationStartedAt } from "./queries";
-import { StorageFields } from "./StorageForm";
+import { StorageFields, StorageOff } from "./StorageForm";
 
 
 function describeSettings(t: Translate, settings: Pick<FileStorageSettings, "driver" | "bucket" | "region" | "endpoint">): string {
@@ -32,26 +33,32 @@ export function MigrationView() {
   const startedAt = migrationStartedAt(useOperations(), id);
   // Starting writes the new id to the URL first; the previous answer stays so the form (and its pending start) stays mounted.
   const migration = useQuery({ ...migrationQuery(id), placeholderData: keepPreviousData });
-  if (files.isPending || migration.isPending) return <Skeleton variant="form" />;
-  if (files.isError || migration.isError) return <ErrorState error={files.error ?? migration.error} onRetry={() => Promise.all([files.refetch(), migration.refetch()])} />;
-  // Judged at each answer's time (dataUpdatedAt also re-renders on unchanged polls), so the lock ends with the start window.
-  const starting = awaitingStart(id, migration.data, startedAt, migration.dataUpdatedAt);
+  if (files.data === undefined && isNotFound(files.error)) return <StorageOff kind="files" />;
+  // null is a real answer (no migration yet); only a missing one replaces the screen.
   return (
-    <div className="storage-form">
-      <section className="storage-block" aria-label={t("storage.migration.source")}>
-        <h2 className="subtitle">{t("storage.migration.source")}</h2>
-        <p className="mono">{describeSettings(t, files.data)}</p>
-      </section>
-      {starting ? (
-        <section className="storage-block" aria-label={t("storage.migration.latest")}>
-          <h2 className="subtitle">{t("storage.migration.latest")}</h2>
-          <JobProgress title={t("storage.migration.starting")} state="running" detail={t("storage.migration.startingText")} meta={<span className="mono">{id}</span>} />
-        </section>
-      ) : (
-        <MigrationStatus migration={migration.data} />
-      )}
-      <DestinationForm key={files.data.revision} current={files.data} locked={starting || migrationRunning(migration.data?.status)} />
-    </div>
+    <QueryView query={combineQueries(files, migration)} skeleton="form">
+      {([current, latest]) => {
+        // Judged at each answer's time (dataUpdatedAt also re-renders on unchanged polls), so the lock ends with the start window.
+        const starting = awaitingStart(id, latest, startedAt, migration.dataUpdatedAt);
+        return (
+          <div className="storage-form">
+            <section className="storage-block" aria-label={t("storage.migration.source")}>
+              <h2 className="subtitle">{t("storage.migration.source")}</h2>
+              <p className="mono">{describeSettings(t, current)}</p>
+            </section>
+            {starting ? (
+              <section className="storage-block" aria-label={t("storage.migration.latest")}>
+                <h2 className="subtitle">{t("storage.migration.latest")}</h2>
+                <JobProgress title={t("storage.migration.starting")} state="running" detail={t("storage.migration.startingText")} meta={<span className="mono">{id}</span>} />
+              </section>
+            ) : (
+              <MigrationStatus migration={latest} />
+            )}
+            <DestinationForm key={current.revision} current={current} locked={starting || migrationRunning(latest?.status)} />
+          </div>
+        );
+      }}
+    </QueryView>
   );
 }
 
@@ -93,7 +100,7 @@ function MigrationStatus({ migration }: { migration: StorageMigrationStatus | nu
         error={migration.failure}
         action={
           (canCancel || canResume) && (
-            <div className="storage-actions">
+            <div className="actions">
               {canResume && <Button size="sm" variant="secondary" loading={resume.isPending} onClick={() => resume.mutate(migration.id)}>{t("storage.migration.resume")}</Button>}
               {canCancel && <Button size="sm" variant="danger" disabled={status === "canceling"} onClick={() => setConfirm(true)}>{t("storage.migration.cancel")}</Button>}
             </div>
@@ -157,24 +164,29 @@ function DestinationForm({ current, locked }: { current: FileStorageSettings; lo
     if (Object.keys(validateDraft(draft, current.secretConfigured, false)).length === 0) preview.mutate();
   };
   const failed = preview.error ?? start.error;
+  // The destination is what gets typed to confirm: its bucket, or the local disk's name.
+  const target = draft.driver === "s3" ? draft.bucket.trim() : t("storage.local");
 
   return (
-    <form className="storage-block" onSubmit={onSubmit} noValidate aria-label={t("storage.migration.target")}>
-      <h2 className="subtitle">{t("storage.migration.target")}</h2>
-      {locked && <p className="warning-note">{t("storage.migration.running")}</p>}
-      {failed && (
-        <Notice tone="danger">{t(storageErrorKey(failed, "migration"))}</Notice>
-      )}
-      <fieldset className="form" disabled={locked || start.isPending}>
-        <StorageFields draft={draft} errors={errors} secretConfigured={current.secretConfigured} secretHint={t("storage.migration.secretHint")} onChange={change} />
-      </fieldset>
-      <footer className="storage-actions">
-        {preview.data && <span className="storage-preview mono">{t("storage.migration.previewResult", { count: preview.data.totalObjects })}</span>}
-        <Button type="submit" variant="secondary" disabled={locked || start.isPending} loading={preview.isPending}>{t("storage.migration.preview")}</Button>
-        <Button disabled={locked || !preview.data} loading={start.isPending} onClick={() => setConfirm(true)}>{t("storage.migration.start")}</Button>
-      </footer>
-      <ConfirmDialog open={confirm} title={t("storage.migration.startTitle")} confirmLabel={t("storage.migration.start")} busy={start.isPending}
-        onConfirm={() => start.mutate()} onCancel={() => setConfirm(false)}>
+    <>
+      <form className="storage-block" onSubmit={onSubmit} noValidate aria-label={t("storage.migration.target")}>
+        <h2 className="subtitle">{t("storage.migration.target")}</h2>
+        {locked && <Notice role="note">{t("storage.migration.running")}</Notice>}
+        {failed && (
+          <Notice tone="danger">{t(storageErrorKey(failed, "migration"))}</Notice>
+        )}
+        <fieldset className="form" disabled={locked || start.isPending}>
+          <StorageFields draft={draft} errors={errors} secretConfigured={current.secretConfigured} secretHint={t("storage.migration.secretHint")} onChange={change} />
+        </fieldset>
+        <footer className="actions">
+          {preview.data && <span className="storage-preview mono">{t("storage.migration.previewResult", { count: preview.data.totalObjects })}</span>}
+          <Button type="submit" variant="secondary" disabled={locked || start.isPending} loading={preview.isPending}>{t("storage.migration.preview")}</Button>
+          <Button disabled={locked || !preview.data} loading={start.isPending} onClick={() => setConfirm(true)}>{t("storage.migration.start")}</Button>
+        </footer>
+      </form>
+      {/* Outside the form: Enter in the typed field must not also submit a preview. */}
+      <ConfirmDialog open={confirm} danger title={t("storage.migration.startTitle")} confirmLabel={t("storage.migration.start")} busy={start.isPending}
+        typed={{ phrase: target, label: t("common.typeToConfirm", { name: target }) }} onConfirm={() => start.mutate()} onCancel={() => setConfirm(false)}>
         <ul className="storage-steps">
           <li>{t("storage.migration.startStep1", { count: preview.data?.totalObjects ?? 0, target: describeSettings(t, destinationOf(draft)) })}</li>
           <li>{t("storage.migration.startStep2")}</li>
@@ -182,6 +194,6 @@ function DestinationForm({ current, locked }: { current: FileStorageSettings; lo
           <li>{t("storage.migration.startStep4")}</li>
         </ul>
       </ConfirmDialog>
-    </form>
+    </>
   );
 }

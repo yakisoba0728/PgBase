@@ -5,11 +5,12 @@ import { sessionGeneration, ApiError } from "../api/http";
 import { updateIpAllowlist, updateProfile, type Administrator, type IpAllowlist } from "../api/session";
 import { errorText, sessionQuery } from "../app/queries";
 import { Button } from "../components/Button";
+import { CodeBlock } from "../components/CodeBlock";
 import { ConfirmDialog } from "../components/Dialog";
-import { ErrorState } from "../components/Feedback";
-import { Skeleton } from "../components/Feedback";
+import { Notice } from "../components/Feedback";
 import { Field } from "../components/Field";
 import { FormSection } from "../components/FormSection";
+import { QueryView } from "../components/QueryView";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { CurrentPasswordField, currentPasswordError, PasswordForm } from "./AdministratorsView";
@@ -17,17 +18,22 @@ import { allowlistCovers, isMaskedPrefix, lines } from "./net";
 import { allowlistQuery, profileQuery } from "./queries";
 import "../styles/system.css";
 
-/** The signed-in administrator: email, password and the network allowlist. */
+/**
+ * The signed-in administrator: email, password and the network allowlist. Each section is its own step-up change
+ * (it re-checks the current password), so each is a `form.form.sys-narrow` with its own submit in `.actions`.
+ */
 export function ProfileView() {
   const profile = useQuery(profileQuery);
-  if (profile.isPending) return <Skeleton variant="form" />;
-  if (profile.isError) return <ErrorState error={profile.error} busy={profile.isFetching} onRetry={() => void profile.refetch()} />;
   return (
-    <div className="sys-scroll">
-      <EmailSection key={profile.data.email} profile={profile.data} />
-      <PasswordSection />
-      <AllowlistSection profile={profile.data} />
-    </div>
+    <QueryView query={profile} skeleton="form">
+      {(data) => (
+        <div className="sys-scroll">
+          <EmailSection key={data.email} profile={data} />
+          <PasswordSection />
+          <AllowlistSection profile={data} />
+        </div>
+      )}
+    </QueryView>
   );
 }
 
@@ -56,12 +62,14 @@ function EmailSection({ profile }: { profile: Administrator }) {
   };
   return (
     <FormSection title={t("system.profile.email")} hint={t("system.profile.emailHint")}>
-      <form className="sys-inline" onSubmit={onSubmit}>
-        <Field label={t("system.admins.email")} name="email" type="email" required autoComplete="username" disabled={save.isPending} value={email} error={error} onChange={(event) => setEmail(event.target.value)} />
-        <Field label={t("system.profile.currentPassword")} name="currentPassword" type="password" required autoComplete="current-password" disabled={save.isPending} value={current} error={currentError}
+      <form className="form sys-narrow" onSubmit={onSubmit}><fieldset disabled={save.isPending} className="form">
+        <Field label={t("system.admins.email")} name="email" type="email" required autoComplete="username" value={email} error={error} onChange={(event) => setEmail(event.target.value)} />
+        <Field label={t("system.profile.currentPassword")} name="currentPassword" type="password" required autoComplete="current-password" value={current} error={currentError}
           onChange={(event) => setCurrent(event.target.value)} />
-        <Button type="submit" disabled={email.trim() === profile.email || !current} loading={save.isPending}>{t("records.save")}</Button>
-      </form>
+        <div className="actions">
+          <Button type="submit" disabled={email.trim() === profile.email || !current} loading={save.isPending}>{t("records.save")}</Button>
+        </div>
+      </fieldset></form>
     </FormSection>
   );
 }
@@ -80,9 +88,7 @@ function PasswordSection() {
   const error = !change.isError ? undefined : change.error instanceof ApiError && change.error.code === "invalid_profile" ? t("system.admins.invalidPassword") : errorText(t, change.error);
   return (
     <FormSection title={t("system.profile.password")}>
-      <div className="sys-narrow">
-        <PasswordForm self busy={change.isPending} error={error} currentError={currentPasswordError(t, change.error)} onSubmit={(value, current) => change.mutate({ value, current })} />
-      </div>
+      <PasswordForm self busy={change.isPending} error={error} currentError={currentPasswordError(t, change.error)} onSubmit={(value, current) => change.mutate({ value, current })} />
     </FormSection>
   );
 }
@@ -92,13 +98,9 @@ function AllowlistSection({ profile }: { profile: Administrator }) {
   const query = useQuery(allowlistQuery);
   return (
     <FormSection title={t("system.profile.allowlist")} hint={t("system.profile.allowlistHint")}>
-      {query.isPending ? (
-        <Skeleton variant="form" />
-      ) : query.isError ? (
-        <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />
-      ) : (
-        <AllowlistForm key={query.data.prefixes.join(",")} allowlist={query.data} profile={profile} />
-      )}
+      <QueryView query={query} skeleton="form">
+        {(allowlist) => <AllowlistForm key={allowlist.prefixes.join(",")} allowlist={allowlist} profile={profile} />}
+      </QueryView>
     </FormSection>
   );
 }
@@ -145,22 +147,23 @@ function AllowlistForm({ allowlist, profile }: { allowlist: IpAllowlist; profile
     setConfirming(true);
   };
   return (
-    <form className="form sys-narrow" noValidate onSubmit={onSubmit}>
-      <p className="warning-note" role="note">{t("system.profile.lockout")}</p>
+    <form className="form sys-narrow" noValidate onSubmit={onSubmit}><fieldset disabled={save.isPending} className="form">
+      <Notice role="note">{t("system.profile.lockout")}</Notice>
       <p className="txt-hint">{t("system.profile.clientAddress")} <span className="mono">{clientAddress}</span></p>
-      <Field kind="textarea" label={t("system.profile.prefixes")} mono rows={4} spellCheck={false} placeholder={"203.0.113.0/24\n127.0.0.1/32"} disabled={save.isPending} value={text}
+      <Field kind="textarea" label={t("system.profile.prefixes")} mono rows={4} spellCheck={false} placeholder={"203.0.113.0/24\n127.0.0.1/32"} value={text}
         error={invalid ?? excludesSelf ?? serverError} hint={t("system.profile.prefixesHint")} onChange={(event) => setText(event.target.value)} />
-      <div className="sys-row-end">
+      <div className="actions">
         <Button type="submit" disabled={!dirty || Boolean(invalid) || Boolean(excludesSelf)} loading={save.isPending}>{t("records.save")}</Button>
       </div>
+    </fieldset>
       <ConfirmDialog open={confirming} title={t(entries.length === 0 ? "system.profile.allowlistClear" : "system.profile.allowlistConfirm")} confirmLabel={t("records.save")} danger={entries.length > 0} busy={save.isPending}
         confirmDisabled={!current} onConfirm={() => save.mutate()} onCancel={() => { if (!save.isPending) closeConfirm(); }}>
         {entries.length > 0 && (
           <>
             <p>{t("system.profile.allowlistConfirmText")}</p>
-            <pre className="sys-code">{entries.join("\n")}</pre>
+            <CodeBlock wrap label={t("system.profile.allowlist")} text={entries.join("\n")} />
             <p className="txt-hint">{t("system.profile.recovery")}</p>
-            <pre className="sys-code">{`pgbase admin ip deny --email ${profile.email} --cidr <CIDR>`}</pre>
+            <CodeBlock wrap label={t("system.profile.recovery")} text={`pgbase admin ip deny --email ${profile.email} --cidr <CIDR>`} />
           </>
         )}
         <CurrentPasswordField value={current} error={currentError} onChange={setCurrent} />

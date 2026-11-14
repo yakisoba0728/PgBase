@@ -1,4 +1,4 @@
-import { request, requestBlob, requestWithHeaders, stringifyJson, uploadForm } from "./http";
+import { request, requestBlob, requestWithHeaders, stringifyJson, upload } from "./http";
 
 // Contracts mirror internal/api/record_handlers.go, batch_handlers.go and file_handlers.go.
 // An administrator cookie session uses /api/v1/collections/... for records (the
@@ -120,6 +120,11 @@ export async function deleteRecord(collection: string, id: string, options: { if
   });
 }
 
+/** Deletes `ids` in one atomic batch request (all or none). */
+export async function deleteRecordsBatch(collection: string, ids: string[]): Promise<void> {
+  await request("POST", "/api/v1/collections/batch", { body: { requests: ids.map((id) => ({ method: "DELETE", url: `${recordsPath(collection)}/${seg(id)}` })) } });
+}
+
 // ---------------------------------------------------------------------------
 // Files
 // ---------------------------------------------------------------------------
@@ -164,7 +169,7 @@ export async function uploadRecordFile(
 ): Promise<StoredFile> {
   const form = new FormData();
   form.append("file", file, file.name);
-  return uploadForm(recordFilesPath(collection, id, field), form, {
+  return upload(recordFilesPath(collection, id, field), form, {
     headers: { "X-PgBase-File-Size": String(file.size), "X-PgBase-File-SHA256": await sha256Hex(file) },
     ...options,
   });
@@ -193,7 +198,7 @@ async function writeRecordWithFiles(
   const headers = options.update ? { "If-Match": options.update.etag } : options.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined;
   form.append("requests", stringifyJson({ requests: [{ method: options.update ? "PATCH" : "POST", url: recordsPath(collection) + (options.update ? `/${seg(options.update.id)}` : ""), body, headers }] }));
   for (const [name, file] of parts) form.append(name, file, file.name);
-  const result = await uploadForm<{ results: { body: RecordData; etag?: string }[] }>("/api/v1/collections/batch", form, { onProgress: options.onProgress });
+  const result = await upload<{ results: { body: RecordData; etag?: string }[] }>("/api/v1/collections/batch", form, { onProgress: options.onProgress });
   return { record: result.results[0].body, etag: result.results[0].etag ?? "" };
 }
 

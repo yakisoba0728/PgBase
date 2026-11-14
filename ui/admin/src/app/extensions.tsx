@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { RiPuzzle2Line } from "@remixicon/react";
-import { EmptyState } from "../components/Feedback";
+import { EmptyState, ErrorState } from "../components/Feedback";
 import { Page } from "../components/Page";
 import { useT } from "../i18n";
 import { createStore } from "./store";
@@ -37,21 +37,25 @@ export function ExtensionScreenPage() {
   const { id } = useParams();
   const screen = useExtensionScreens().find((candidate) => candidate.id === id);
   const container = useRef<HTMLDivElement>(null);
+  const [failure, setFailure] = useState<{ error: unknown } | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const element = container.current;
     if (!screen || !element) return;
+    setFailure(null);
     let cleanup: void | (() => void);
     try {
       cleanup = screen.mount(element);
     } catch (error) {
       console.error(`pgbaseAdmin: screen "${screen.id}" failed to mount`, error);
+      setFailure({ error });
     }
     return () => {
       if (typeof cleanup === "function") cleanup();
       element.replaceChildren();
     };
-  }, [screen]);
+  }, [screen, attempt]);
 
   if (!screen) {
     return (
@@ -62,7 +66,8 @@ export function ExtensionScreenPage() {
   }
   return (
     <Page title={screen.label}>
-      <div ref={container} className="page-content" />
+      {failure && <ErrorState error={failure.error} onRetry={() => setAttempt((count) => count + 1)} />}
+      <div ref={container} className="page-content" hidden={failure !== null} />
     </Page>
   );
 }

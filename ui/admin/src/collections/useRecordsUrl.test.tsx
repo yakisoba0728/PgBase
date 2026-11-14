@@ -26,6 +26,10 @@ describe("buildFilter", () => {
     expect(buildFilter("n > 3", fields)).toBe("n > 3");
     expect(buildFilter("", fields)).toBe("");
   });
+  it("searches a word with an apostrophe, escaping the quote", () => {
+    expect(buildFilter("O'Brien", fields)).toBe("title:lower ~ 'o''brien' || body:lower ~ 'o''brien'");
+    expect(buildFilter("O'Brien", [])).toBe("id = 'O''Brien'");
+  });
 });
 
 describe("useRecordsUrl", () => {
@@ -59,6 +63,12 @@ describe("useRecordsUrl", () => {
     const params = new URLSearchParams(result.current.location.search);
     expect(params.get("filter")).toBe("first");
     expect(params.get("record")).toBe("r1");
+  });
+
+  it("clears a rejected sort together with the filter", () => {
+    const { result } = setup("/collections/posts?filter=a&sort=-nope&record=r1");
+    act(() => result.current.url.clearQuery());
+    expect(new URLSearchParams(result.current.location.search).toString()).toBe("record=r1");
   });
 
   it("keeps creating separate from a record id and clears both on close", () => {

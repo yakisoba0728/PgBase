@@ -1,4 +1,5 @@
-import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions, type InfiniteData, type QueryClient } from "@tanstack/react-query";
+import { pageWindow } from "../app/queries";
 import { applySchemaImport, exportSchema, getSchemaImportOperation, getSchemaOperation, listSchemaOperations, type SchemaImportResult } from "../api/schema";
 import { getSqlExecution, listSqlExecutions } from "../api/sql";
 import { ApiError } from "../api/http";
@@ -16,7 +17,7 @@ export const exportQuery = queryOptions({
 export const schemaOperationsQuery = infiniteQueryOptions({
   queryKey: ["schema-operations", "list"],
   queryFn: ({ pageParam, signal }) => listSchemaOperations({ limit: 50, cursor: pageParam, signal }),
-  initialPageParam: undefined as string | undefined,
+  ...pageWindow,
   getNextPageParam: (page) => page.nextCursor,
   // Undecided operations settle on their own; keep the list current until they do.
   refetchInterval: (query) => (query.state.data?.pages.some((page) => page.items.some((item) => undecided(item.status))) ? 2000 : false),
@@ -42,9 +43,24 @@ export const sqlHistoryKey = ["sql", "history"] as const;
 export const sqlHistoryQuery = infiniteQueryOptions({
   queryKey: sqlHistoryKey,
   queryFn: ({ pageParam, signal }) => listSqlExecutions(pageParam, signal),
-  initialPageParam: undefined as string | undefined,
+  ...pageWindow,
   getNextPageParam: (page) => page.nextCursor,
 });
+
+/**
+ * Brings the SQL history back to its newest page. Its window may have moved past it (a plain refetch starts at the
+ * oldest page kept), and a reset would unmount the workbench with the editor, so the shown data stays until the refetch lands.
+ */
+export async function refreshSqlHistory(queryClient: QueryClient, toNewest: boolean) {
+  type History = InfiniteData<unknown, string | undefined>;
+  const original = toNewest ? queryClient.getQueryData<History>(sqlHistoryKey) : undefined;
+  // The kept page is a middle one, not the newest: it may only stand in while the newest is fetched.
+  const trimmed = original && queryClient.setQueryData<History>(sqlHistoryKey, { pages: original.pages.slice(0, 1), pageParams: [undefined] });
+  await queryClient.invalidateQueries({ queryKey: sqlHistoryKey });
+  // A failed refetch leaves the stand-in: put the real window (and its notice) back; the error stays on the query.
+  const query = queryClient.getQueryCache().find<History>({ queryKey: sqlHistoryKey, exact: true });
+  if (trimmed && query?.state.status === "error" && query.state.data === trimmed) query.setState({ data: original });
+}
 
 export const sqlExecutionQuery = (id: string) =>
   queryOptions({

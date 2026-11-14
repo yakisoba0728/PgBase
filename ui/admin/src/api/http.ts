@@ -16,6 +16,9 @@ export class ApiError extends Error {
   }
 }
 
+/** A 404: the thing asked for does not exist, or (on a list route) the server never registered the feature. */
+export const isNotFound = (error: unknown) => error instanceof ApiError && error.status === 404;
+
 export type Query = Record<string, string | number | boolean | undefined | null>;
 
 export interface RequestOptions {
@@ -23,8 +26,6 @@ export interface RequestOptions {
   body?: unknown;
   signal?: AbortSignal;
   headers?: Record<string, string>;
-  /** Sent as-is with no JSON encoding (file or backup upload). */
-  raw?: BodyInit;
   /** Outlives the page (a sign-out followed at once by a reload or tab close). */
   keepalive?: boolean;
 }
@@ -101,8 +102,8 @@ const send = (method: string, path: string, options: RequestOptions) => withCsrf
 
 async function sendOnce(method: string, path: string, options: RequestOptions): Promise<Response> {
   const headers = new Headers(options.headers);
-  let body: BodyInit | undefined = options.raw;
-  if (body === undefined && options.body !== undefined) {
+  let body: string | undefined;
+  if (options.body !== undefined) {
     body = stringifyJson(options.body);
     if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   }
@@ -164,12 +165,19 @@ export async function request<T>(
   return (await requestWithHeaders<T>(method, path, options)).data;
 }
 
-/** A form upload over XHR, the one transport that reports upload progress (0..1). Errors match `request`. */
-export function uploadForm<T>(path: string, form: FormData, options: { headers?: Record<string, string>; onProgress?: (fraction: number) => void; signal?: AbortSignal } = {}): Promise<T> {
-  return withCsrfRecovery(() => uploadOnce<T>(path, form, options));
+interface UploadOptions {
+  headers?: Record<string, string>;
+  /** Fraction of the body sent so far (0..1). */
+  onProgress?: (fraction: number) => void;
+  signal?: AbortSignal;
 }
 
-function uploadOnce<T>(path: string, form: FormData, options: { headers?: Record<string, string>; onProgress?: (fraction: number) => void; signal?: AbortSignal }): Promise<T> {
+/** A POST over XHR, the one transport that reports upload progress; the body is a multipart form or a raw blob. Errors match `request`. */
+export function upload<T>(path: string, body: FormData | Blob, options: UploadOptions = {}): Promise<T> {
+  return withCsrfRecovery(() => uploadOnce<T>(path, body, options));
+}
+
+function uploadOnce<T>(path: string, body: FormData | Blob, options: UploadOptions): Promise<T> {
   return new Promise((resolve, reject) => {
     if (options.signal?.aborted) { reject(options.signal.reason ?? new DOMException("Aborted", "AbortError")); return; }
     const xhr = new XMLHttpRequest();
@@ -184,7 +192,15 @@ function uploadOnce<T>(path: string, form: FormData, options: { headers?: Record
     xhr.onabort = () => reject(new DOMException("Aborted", "AbortError"));
     xhr.onload = () => {
       if (xhr.status < 200 || xhr.status >= 300) {
-        void toApiError(new Response(xhr.responseText, { status: xhr.status })).then(reject);
+        let response: Response;
+        try {
+          response = new Response(xhr.responseText, { status: xhr.status });
+        } catch {
+          // A status that cannot carry a body (304) or is outside 200-599 makes the constructor throw.
+          reject(new ApiError(xhr.status, "invalid_response", `Unexpected ${xhr.status} response`));
+          return;
+        }
+        void toApiError(response).then(reject);
         return;
       }
       try {
@@ -194,7 +210,7 @@ function uploadOnce<T>(path: string, form: FormData, options: { headers?: Record
       }
     };
     options.signal?.addEventListener("abort", () => xhr.abort());
-    xhr.send(form);
+    xhr.send(body);
   });
 }
 

@@ -4,6 +4,7 @@ export const systemEn = {
   "system.tab.status": "Status",
 
   "system.settings.saved": "Settings saved.",
+  "system.settings.sections": "Settings sections",
   "system.settings.reloaded": "Settings reloaded from the database.",
   "system.settings.reload": "Reload settings",
   "system.settings.reloadDirty": "Save or discard your edits first.",
@@ -133,6 +134,8 @@ export const systemEn = {
 
   "system.admins.new": "New administrator",
   "system.admins.detail": "Administrator",
+  "system.admins.shifted": "Showing {count} later administrators; earlier ones left the list to keep it light.",
+  "system.admins.toStart": "Back to start",
   "system.admins.email": "Email",
   "system.admins.password": "Password",
   "system.admins.passwordHint": "12 characters or more.",
@@ -217,6 +220,10 @@ export const systemEn = {
   "system.tokens.daysHint": "1 to 365 days.",
   "system.tokens.noCollections": "Create a collection first.",
   "system.tokens.selected": "{count} {count|scope|scopes} selected",
+  "system.tokens.filter": "Filter collections",
+  "system.tokens.noMatch": "No collection matches.",
+  "system.tokens.allColumn": "{action} on every listed collection",
+  "system.tokens.allRow": "Every action on {name}",
   "system.tokens.issue": "Issue token",
   "system.tokens.invalid": "Check the name (1–128 characters), expiry and scopes.",
   "system.tokens.issuedTitle": "Token “{name}” issued",

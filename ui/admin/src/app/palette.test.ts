@@ -28,4 +28,11 @@ describe("palette matching", () => {
     expect(rankItems(items, "").map((entry) => entry.group)).toEqual(["recent", "collections", "screens", "actions"]);
     expect(rankItems(items, "products").map((entry) => entry.group)).toEqual(["collections"]);
   });
+
+  it("caps only the collections when empty, so screens and sign-out stay listed", () => {
+    const many = Array.from({ length: 60 }, (_, index) => item(`c${index}`, "collections"));
+    const shown = rankItems([...many, item("Logs"), item("Sign out", "actions")], "");
+    expect(shown.filter((entry) => entry.group === "collections")).toHaveLength(50);
+    expect(shown.map((entry) => entry.label)).toContain("Sign out");
+  });
 });

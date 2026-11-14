@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { createPortal, flushSync } from "react-dom";
 import { RiCloseLine } from "@remixicon/react";
 import { createStore } from "../app/store";
 import { useT } from "../i18n";
@@ -16,6 +18,15 @@ interface ToastItem {
 }
 
 const store = createStore<ToastItem[]>([]);
+// Open modal dialogs, newest last. A modal makes everything outside it inert and covers it, top layer included,
+// so while one is open the toast is drawn inside it (fixed to the viewport) where it can be seen and dismissed.
+const layers = createStore<HTMLDialogElement[]>([]);
+
+/** Called by useModal when a modal dialog opens; the returned function is called when it closes. */
+export function raiseToasts(dialog: HTMLDialogElement): () => void {
+  layers.set([...layers.get().filter((open) => open !== dialog), dialog]);
+  return () => layers.set(layers.get().filter((open) => open !== dialog));
+}
 let sequence = 0;
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
 
@@ -26,11 +37,21 @@ function hold(id: number) {
 
 function dismiss(id: number) {
   hold(id);
-  const rest = store.get().filter((item) => item.id !== id);
-  store.set(rest);
-  // The one waiting underneath shows next, with its full time.
-  const next = rest.at(-1);
-  if (next && !timers.has(next.id)) schedule(next);
+  leave(() => {
+    const rest = store.get().filter((item) => item.id !== id);
+    store.set(rest);
+    // The one waiting underneath shows next, with its full time.
+    const next = rest.at(-1);
+    if (next && !timers.has(next.id)) schedule(next);
+  });
+}
+
+/** Removes a toast inside a view transition where there is one, so it can fade out (only the toast is named; clicks pass through). */
+function leave(update: () => void) {
+  // A hidden page skips transitions (and would reject them): update at once.
+  if (typeof document.startViewTransition !== "function" || document.hidden) return update();
+  const transition = document.startViewTransition(() => flushSync(update));
+  transition.ready.catch(() => {});
 }
 
 function schedule(item: ToastItem) {
@@ -57,33 +78,44 @@ export function toast(message: string, tone: ToastItem["tone"] = "info", action?
 export function ToastHost() {
   const t = useT();
   const items = store.use();
-  return (
-    <section className="toasts" role="status" aria-live="polite" aria-label={t("common.notifications")}>
-      {items.slice(-1).map((item) => (
-        <div
-          key={item.id}
-          className={item.tone === "danger" ? "toast toast-danger" : "toast"}
-          onMouseEnter={() => hold(item.id)}
-          onFocus={() => hold(item.id)}
-          onMouseLeave={(event) => !event.currentTarget.matches(":focus-within") && schedule(item)}
-          onBlur={(event) => !event.currentTarget.matches(":hover") && schedule(item)}
+  const layer = layers.use().at(-1);
+  // Moving to another layer remounts the toast, so a hover or focus hold never gets its leave or blur: start it again.
+  useEffect(() => {
+    const top = store.get().at(-1);
+    if (top && !timers.has(top.id)) schedule(top);
+  }, [layer]);
+  const shown = items.slice(-1).map((item) => (
+    <div
+      key={item.id}
+      className={item.tone === "danger" ? "toast toast-danger" : "toast"}
+      onMouseEnter={() => hold(item.id)}
+      onFocus={() => hold(item.id)}
+      onMouseLeave={(event) => !event.currentTarget.matches(":focus-within") && schedule(item)}
+      onBlur={(event) => !event.currentTarget.matches(":hover") && schedule(item)}
+    >
+      <p title={item.message}>{item.message}</p>
+      {item.action && (
+        <button
+          type="button"
+          className="link toast-action"
+          onClick={() => {
+            dismiss(item.id);
+            item.action?.run();
+          }}
         >
-          <p title={item.message}>{item.message}</p>
-          {item.action && (
-            <button
-              type="button"
-              className="link toast-action"
-              onClick={() => {
-                dismiss(item.id);
-                item.action?.run();
-              }}
-            >
-              {item.action.label}
-            </button>
-          )}
-          <IconButton label={t("common.dismiss")} icon={RiCloseLine} onClick={() => dismiss(item.id)} />
-        </div>
-      ))}
-    </section>
+          {item.action.label}
+        </button>
+      )}
+      <IconButton size="xs" label={t("common.dismiss")} icon={RiCloseLine} onClick={() => dismiss(item.id)} />
+    </div>
+  ));
+  return (
+    <>
+      {/* The band keeps its place in the shell either way, so nothing moves when a dialog opens or closes. */}
+      <section className="toasts" role="status" aria-live="polite" aria-label={t("common.notifications")}>
+        {!layer && shown}
+      </section>
+      {layer && createPortal(<section className="toasts" role="status" aria-live="polite" aria-label={t("common.notifications")}>{shown}</section>, layer)}
+    </>
   );
 }

@@ -64,14 +64,14 @@ function OptionFields({ field, catalog, collectionName, set, setRelation }: {
       <Group title={t("schema.options")}>
         <Field kind="select" label={t("schema.opt.target")} value={relation.targetCollection} onChange={(event) => setRelation({ targetCollection: event.target.value })}
           options={[{ value: "", label: t("schema.opt.choose") }, ...targets.map((name) => ({ value: name, label: name }))]} />
-        <div className="schema-pair">
+        <div className="field-pair">
           <Field kind="select" label={t("schema.opt.cardinality")} value={relation.cardinality ?? "single"} onChange={(event) => setRelation({ cardinality: event.target.value as RelationInput["cardinality"] })}
             options={[{ value: "single", label: t("schema.opt.single") }, { value: "multiple", label: t("schema.opt.multiple") }]} />
           <Field kind="select" label={t("schema.opt.onDelete")} value={relation.onDelete ?? "set_null"} onChange={(event) => setRelation({ onDelete: event.target.value as RelationInput["onDelete"] })}
             options={(["set_null", "restrict", "cascade"] as const).map((value) => ({ value, label: t(`schema.opt.onDelete.${value}`) }))} />
         </div>
         {relation.cardinality === "multiple" && (
-          <div className="schema-pair">
+          <div className="field-pair">
             <Field label={t("schema.opt.minSelect")} type="number" min={0} mono value={relation.minSelect ?? ""} onChange={(event) => setRelation({ minSelect: int(event.target.value) })} />
             <Field label={t("schema.opt.maxSelect")} type="number" min={0} mono value={relation.maxSelect ?? ""} onChange={(event) => setRelation({ maxSelect: int(event.target.value) })} />
           </div>
@@ -83,9 +83,9 @@ function OptionFields({ field, catalog, collectionName, set, setRelation }: {
 
   return (
     <Group title={t("schema.options")}>
-      {(has("minLength") || has("maxLength")) && <div className="schema-pair">{num("minLength", "schema.opt.minLength")}{num("maxLength", "schema.opt.maxLength")}</div>}
+      {(has("minLength") || has("maxLength")) && <div className="field-pair">{num("minLength", "schema.opt.minLength")}{num("maxLength", "schema.opt.maxLength")}</div>}
       {(has("min") || has("max")) && (
-        <div className="schema-pair">
+        <div className="field-pair">
           {str("min", "schema.opt.min", isDate ? "schema.opt.dateHint" : "schema.opt.decimalHint")}
           {str("max", "schema.opt.max", isDate ? "schema.opt.dateHint" : undefined)}
         </div>
@@ -96,17 +96,17 @@ function OptionFields({ field, catalog, collectionName, set, setRelation }: {
           options={[{ value: "", label: t("schema.opt.formatNone") }, { value: "email", label: "email" }, { value: "url", label: "url" }]} />
       )}
       {has("allowedDomains") && o.format && (
-        <div className="schema-pair">
+        <div className="field-pair">
           <ListField label={t("schema.opt.allowedDomains")} value={o.allowedDomains} onChange={(value) => set("allowedDomains", value)} />
           <ListField label={t("schema.opt.deniedDomains")} value={o.deniedDomains} onChange={(value) => set("deniedDomains", value)} />
         </div>
       )}
       {str("autogeneratePattern", "schema.opt.autogenerate", "schema.opt.autogenerateHint")}
       {has("allowedValues") && <ListField label={t("schema.opt.allowedValues")} hint={t(field.type === "jsonb" ? "schema.opt.allowedValuesMulti" : "schema.opt.allowedValuesHint")} value={o.allowedValues} onChange={(value) => set("allowedValues", value)} />}
-      {field.type === "jsonb" && <div className="schema-pair">{num("minSelect", "schema.opt.minSelect")}{num("maxSelect", "schema.opt.maxSelect")}</div>}
+      {field.type === "jsonb" && <div className="field-pair">{num("minSelect", "schema.opt.minSelect")}{num("maxSelect", "schema.opt.maxSelect")}</div>}
       {field.type === "file" && (
         <>
-          <div className="schema-pair">{num("maxSelect", "schema.opt.maxFiles")}{num("maxFileSize", "schema.opt.maxFileSize", "schema.opt.bytes")}</div>
+          <div className="field-pair">{num("maxSelect", "schema.opt.maxFiles")}{num("maxFileSize", "schema.opt.maxFileSize", "schema.opt.bytes")}</div>
           <ListField label={t("schema.opt.mimeTypes")} hint={t("schema.opt.mimeHint")} value={o.mimeTypes} onChange={(value) => set("mimeTypes", value)} />
           <ListField label={t("schema.opt.thumbs")} hint={t("schema.opt.thumbsHint")} value={o.thumbs} onChange={(value) => set("thumbs", value)} />
           <Checkbox label={t("schema.opt.protected")} checked={o.protected ?? true} onChange={(event) => set("protected", event.target.checked)} />
@@ -154,7 +154,7 @@ export function FieldPane({ editor, field, catalog }: { editor: SchemaEditor; fi
           <Notice tone="danger" title={t("schema.serverRejected")}>{describeErrors(t, errors)}</Notice>
         )}
         <fieldset className="form" disabled={locked}>
-          <div className="schema-pair">
+          <div className="field-pair">
             <Field label={t("schema.fieldName")} mono spellCheck={false} autoComplete="off" value={field.name} onChange={(event) => update({ name: event.target.value })}
               hint={field.id && !locked ? t("schema.renameHint") : undefined} />
             <Field kind="select" label={t("schema.fieldType")} value={field.type} onChange={(event) => changeType(event.target.value as FieldType)}
@@ -176,7 +176,7 @@ export function FieldPane({ editor, field, catalog }: { editor: SchemaEditor; fi
         </fieldset>
       </div>
       <footer className="pane-footer">
-        {!locked && <Button variant="transparent" className="txt-danger pane-footer-start" onClick={() => editor.removeField(field.key)}>{t("schema.removeField")}</Button>}
+        {!locked && <Button variant="danger" className="pane-footer-start" onClick={() => editor.removeField(field.key)}>{t("schema.removeField")}</Button>}
         <Button variant="secondary" onClick={() => editor.setPane(null)}>{t("common.close")}</Button>
       </footer>
     </>
