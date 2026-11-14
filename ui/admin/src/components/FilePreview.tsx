@@ -26,10 +26,10 @@ export function FilePreview({ file, url, error, onClose }: FilePreviewProps) {
   const modal = useModal(file !== null, onClose);
   const image = file?.contentType.startsWith("image/");
   return (
-    <dialog className="file-preview" aria-label={file?.name} {...modal}>
+    <dialog className="modal file-preview" aria-label={file?.name} {...modal}>
       {file && (
         <>
-          <header className="file-preview-head">
+          <header className="modal-head file-preview-head">
             <span className="file-preview-name" title={file.name}>{file.name}</span>
             <span className="txt-hint">{formatBytes(file.size)} · {file.contentType || "?"}</span>
             {url && (
@@ -39,7 +39,7 @@ export function FilePreview({ file, url, error, onClose }: FilePreviewProps) {
             )}
             <IconButton label={t("common.close")} icon={RiCloseLine} onClick={onClose} autoFocus />
           </header>
-          <div className="file-preview-body">
+          <div className="modal-body file-preview-body">
             {error ? (
               <p className="txt-danger">{error}</p>
             ) : !url ? (

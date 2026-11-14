@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { Field } from "./Field";
-import { ConfirmDialog } from "./Dialog";
+import { ConfirmDialog, TaskDialog } from "./Dialog";
 import { SaveBar } from "./SaveBar";
 import { toast, ToastHost } from "./Toast";
 
@@ -45,6 +45,18 @@ describe("ConfirmDialog", () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
+  it("comes back when the browser closes it natively while busy, and keeps hosting toasts", () => {
+    const onCancel = vi.fn();
+    render(<><ToastHost /><ConfirmDialog open busy title="Deleting" onConfirm={() => {}} onCancel={onCancel} /></>);
+    const dialog = screen.getByRole("dialog", { name: "Deleting" }) as HTMLDialogElement;
+    // Chrome's repeated Escape: closed without a cancelable cancel; the busy parent ignores onCancel.
+    act(() => dialog.close());
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(dialog.open).toBe(true);
+    act(() => toast("Still working"));
+    expect(dialog).toContainElement(screen.getByText("Still working"));
+  });
+
   it("renders nothing inside while closed", () => {
     render(<ConfirmDialog open={false} title="Hidden" message="secret" onConfirm={() => {}} onCancel={() => {}} />);
     expect(screen.queryByText("secret")).not.toBeInTheDocument();
@@ -69,6 +81,21 @@ describe("Toast", () => {
     }
   });
 
+  it("still leaves after the delay when a dialog opens while it is hovered", () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(<><ToastHost /><TaskDialog open={false} title="Task" onClose={() => {}}>body</TaskDialog></>);
+      act(() => toast("Hovered"));
+      fireEvent.mouseEnter(screen.getByText("Hovered").closest(".toast")!);
+      // The toast moves into the dialog; the remounted element never gets the mouseleave.
+      rerender(<><ToastHost /><TaskDialog open title="Task" onClose={() => {}}>body</TaskDialog></>);
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(screen.queryByText("Hovered")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows only the newest; an error underneath waits without timing out, a plain note is replaced", () => {
     vi.useFakeTimers();
     try {
@@ -88,6 +115,20 @@ describe("Toast", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+  it("shows a toast raised under a modal dialog inside it, where it can be dismissed without closing the dialog", () => {
+    const close = vi.fn();
+    const { rerender } = render(<><ToastHost /><TaskDialog open title="Task" onClose={close}>body</TaskDialog></>);
+    act(() => toast("Copied"));
+    const dialog = screen.getByRole("dialog", { name: "Task" });
+    expect(dialog).toContainElement(screen.getByText("Copied"));
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Dismiss" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByText("Copied")).not.toBeInTheDocument();
+    expect(close).not.toHaveBeenCalled();
+    act(() => toast("Saved"));
+    rerender(<><ToastHost /><TaskDialog open={false} title="Task" onClose={close}>body</TaskDialog></>);
+    expect(screen.getByText("Saved").closest("dialog")).toBeNull();
   });
 });
 

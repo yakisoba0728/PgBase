@@ -41,7 +41,6 @@ export const authEn = {
   "auth.collections.delete": "Delete collection",
   "auth.collections.deleteTitle": "Delete {name}?",
   "auth.collections.deleteText": "Its sign-in settings and table are removed. A collection that still has users is refused. This cannot be undone.",
-  "auth.collections.typeName": "Type {name} to confirm",
   "auth.collections.deleted": "{name} deleted.",
   "auth.collections.hasUsers": "This collection still has users. Delete them first.",
 
@@ -162,8 +161,9 @@ export const authEn = {
   "auth.users.count": "{count} {count|user|users}",
   "auth.users.countCapped": "More than {count} users",
   "auth.users.loadedMore": "{count} loaded",
+  "auth.users.shifted": "Showing {count} later users; earlier ones left the list to keep it light.",
+  "auth.users.toStart": "Back to start",
   "auth.users.empty": "No users.",
-  "auth.users.missing": "No user with this id.",
   "auth.users.search": "Search",
   "auth.users.searchHint": "Email substring or exact id, then Enter",
   "auth.users.allCollections": "All collections",
@@ -229,6 +229,5 @@ export const authEn = {
   "auth.user.deleteTitle": "Delete {email}?",
   "auth.user.deleteText": "The account and its sessions are removed. This cannot be undone.",
   "auth.user.deleted": "{email} deleted.",
-  "auth.user.typeEmail": "Type {email} to confirm",
   "auth.user.impersonateDisabled": "Enable the user first.",
 };

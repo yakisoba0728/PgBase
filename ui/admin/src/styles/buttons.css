@@ -2,54 +2,86 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--sp-6);
   height: var(--control);
-  padding: 0 16px;
+  padding: 0 var(--sp-16);
   border: 0;
   border-radius: var(--radius);
   background: var(--accent);
   color: var(--accent-text);
-  font-weight: 600;
+  font-weight: var(--weight-bold);
   white-space: nowrap;
   cursor: pointer;
-  transition: background var(--speed), color var(--speed), opacity var(--speed), scale var(--speed);
+  box-shadow: 0 1px 1px var(--shadow-near);
+  transition: background var(--dur), color var(--dur), opacity var(--dur), box-shadow var(--dur), scale var(--dur) var(--ease-out);
+}
+
+a.btn {
+  text-decoration: none;
 }
 
 .btn:has(> svg:first-child),
 .btn:has(> .loader:first-child) {
-  padding-left: 12px;
+  padding-left: var(--sp-12);
 }
 
 .btn:hover {
   background: var(--accent-hover);
 }
 
+/* Pressed: one step deeper than hover and a little smaller, at once; released, it springs back. */
+:is(.btn, .icon-btn):active:not(:disabled, [aria-busy="true"]) {
+  scale: var(--press);
+}
+
 .btn:active:not(:disabled) {
-  scale: 0.98;
-  transition-duration: var(--speed-active);
+  background: var(--accent-active);
+  box-shadow: none;
+  transition-duration: var(--dur-fast);
 }
 
 .btn:disabled {
-  opacity: 0.45;
+  opacity: var(--disabled-opacity);
+  box-shadow: none;
   cursor: default;
+}
+
+/* Loading is not disabled-looking: the button keeps its colour and shows the spinner (it is disabled for clicks). */
+.btn[aria-busy="true"] {
+  opacity: 1;
+  cursor: progress;
+}
+
+.btn .loader {
+  animation: spin calc(var(--dur-slow) * 3) linear infinite, enter var(--dur) var(--ease-out);
 }
 
 .btn-secondary {
   background: var(--surface-2);
   color: var(--text);
+  box-shadow: none;
 }
 
 .btn-secondary:hover {
   background: var(--surface-3);
 }
 
+.btn-secondary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-3), var(--text) 8%);
+}
+
 .btn-transparent {
   background: transparent;
   color: var(--text-hint);
+  box-shadow: none;
+}
+
+.btn-transparent:active:not(:disabled) {
+  background: color-mix(in srgb, var(--text), transparent 90%);
 }
 
 .btn-transparent:hover {
-  background: var(--surface-2);
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -59,19 +91,23 @@
 }
 
 .btn-danger:hover {
-  background: color-mix(in srgb, var(--danger), light-dark(#000, #fff) 10%);
+  background: var(--danger-hover);
+}
+
+.btn-danger:active:not(:disabled) {
+  background: var(--danger-active);
 }
 
 .btn-sm {
   height: var(--control-sm);
-  padding: 0 12px;
+  padding: 0 var(--sp-12);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
 }
 
 .btn-sm:has(> svg:first-child),
 .btn-sm:has(> .loader:first-child) {
-  padding-left: 9px;
+  padding-left: var(--sp-8);
 }
 
 .btn-block {
@@ -91,33 +127,115 @@
   height: var(--control-sm);
   padding: 0;
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius);
   background: transparent;
   color: var(--text-hint);
   cursor: pointer;
-  transition: background var(--speed), color var(--speed);
+  transition: background var(--dur), color var(--dur), scale var(--dur) var(--ease-out);
+}
+
+.icon-btn-xs {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
 }
 
 .icon-btn:hover,
 .icon-btn[aria-expanded="true"] {
-  background: var(--surface-2);
+  background: var(--hover);
   color: var(--text);
+}
+
+/* An icon button floating over content (a cell's peek or copy, back-to-top): opaque, edged, hover layered on top. */
+.icon-btn-raised {
+  background: var(--surface-raised);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.icon-btn-raised:hover {
+  background: linear-gradient(var(--hover) 0 0), var(--surface-raised);
 }
 
 .icon-btn:active:not(:disabled) {
   background: var(--surface-3);
-  transition-duration: var(--speed-active);
+  transition-duration: var(--dur-fast);
 }
 
 .icon-btn:disabled {
-  opacity: 0.4;
+  opacity: var(--disabled-opacity);
   cursor: default;
 }
 
 .btn.txt-danger {
   color: var(--danger);
+  box-shadow: none;
 }
 
 .btn.txt-danger:hover {
   background: color-mix(in srgb, var(--danger), transparent 90%);
+}
+
+/* A whole list row as one button (endpoint, provider, schema field, history entry): the list's own class adds
+   only its columns. Hover, current and focus match the table rows'. */
+.row-btn {
+  display: grid;
+  align-items: center;
+  gap: var(--sp-12);
+  width: 100%;
+  min-width: 0;
+  min-height: var(--row);
+  padding: var(--sp-8) var(--sp-12);
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur);
+}
+
+.row-btn:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.row-btn[aria-current="true"] {
+  background: var(--accent-soft);
+}
+
+.row-btn:focus-visible {
+  outline-offset: -2px;
+}
+
+.row-btn:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: default;
+}
+
+/* FileButton: the label is the visible control, the hidden file input inside it takes focus and the disabled state. */
+.file-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-4);
+  cursor: pointer;
+}
+
+.btn.file-button {
+  gap: var(--sp-6);
+}
+
+.file-button:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.file-button:has(input:disabled) {
+  opacity: var(--disabled-opacity);
+  cursor: default;
+}
+
+/* CopyButton's moment of success: the check pops in, in the success tone, then the copy icon returns. */
+[data-copied] > svg {
+  color: var(--success);
+  animation: pop var(--dur-slow) var(--ease-out);
 }

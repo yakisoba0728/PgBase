@@ -8,6 +8,8 @@ import { tokenPoliciesQuery } from "./queries";
 import { problemText, reportFailure, useDraft } from "./useDraft";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
+import { Table } from "../components/Table";
+import { Input } from "../components/Field";
 
 const purposes: TokenPolicyPurpose[] = ["session", "verify", "password_reset", "email_change", "otp", "impersonation"];
 
@@ -65,7 +67,7 @@ export function TokensTab({ collection, policies }: { collection: AuthCollection
     const error = problemText(t, problems, `${purpose}.${key}`);
     return (
       <td>
-        <input className="field-control mono auth-cell-input" aria-label={`${purpose} ${label}`} aria-invalid={error ? true : undefined} title={error} autoComplete="off" spellCheck={false} {...extra}
+        <Input size="sm" mono className="auth-cell-input" aria-label={`${purpose} ${label}`} invalid={Boolean(error)} title={error} autoComplete="off" spellCheck={false} {...extra}
           value={draft[purpose][key]} onChange={(event) => set(purpose, { [key]: event.target.value })} />
         {error && <span className="field-error" role="alert">{error}</span>}
       </td>
@@ -79,7 +81,7 @@ export function TokensTab({ collection, policies }: { collection: AuthCollection
       </div>
       <div className="page-content">
         <form id="auth-tokens" className="auth-form auth-form-wide" onSubmit={onSubmit} noValidate><fieldset disabled={save.isPending} className="form">
-          <table className="grid auth-table">
+          <Table className="auth-table" label={t("auth.tab.tokens")}>
             <thead>
               <tr>
                 <th>{t("auth.tokens.purpose")}</th>
@@ -100,7 +102,7 @@ export function TokensTab({ collection, policies }: { collection: AuthCollection
                 </tr>
               ))}
             </tbody>
-          </table>
+          </Table>
           <p className="txt-hint">{t("auth.tokens.hint")}</p>
         </fieldset></form>
       </div>

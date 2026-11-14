@@ -7,38 +7,85 @@ dialog::backdrop {
   background: var(--backdrop);
 }
 
-.confirm {
+/* Modals open with a backdrop fade and a slight scale, and close quicker the same way (the dialog stays mounted,
+   so display/overlay transition discretely and the exit is pure CSS). */
+.modal,
+.modal::backdrop {
+  transition: opacity var(--dur-fast) var(--ease-in), scale var(--dur-fast) var(--ease-in), display var(--dur-fast) allow-discrete, overlay var(--dur-fast) allow-discrete;
+}
+
+.modal:not([open]),
+.modal:not([open])::backdrop {
+  opacity: 0;
+}
+
+.modal:not([open]) {
+  scale: var(--scale-from);
+}
+
+/* A dialog whose content unmounts with `open` (TaskDialog) would fade an empty shell: it closes at once. */
+.modal:empty {
+  transition: none;
+}
+
+.modal[open],
+.modal[open]::backdrop {
+  transition-duration: var(--dur-slow);
+  transition-timing-function: var(--ease-out);
+}
+
+@starting-style {
+  .modal[open],
+  .modal[open]::backdrop {
+    opacity: 0;
+  }
+
+  .modal[open] {
+    scale: var(--scale-from);
+  }
+}
+
+/* The one modal shell (useModal): confirmations, task dialogs, the command palette and file preview share the
+   surface, radius, shadow and the head/body/actions padding; each keeps its own width and content layout. */
+.modal {
   width: min(100vw - 32px, 420px);
-  padding: 22px 22px 18px;
+  max-height: calc(100dvh - 48px);
+  padding: 0;
   border: 0;
   border-radius: var(--radius-lg);
   background: var(--surface-raised);
-  box-shadow: var(--shadow);
+  color: var(--text);
+  box-shadow: var(--shadow-2);
 }
 
-.confirm[open] {
-  animation: rise var(--speed) ease-out;
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  min-height: 48px;
+  padding: var(--sp-8) var(--sp-8) var(--sp-8) var(--sp-16);
+  box-shadow: 0 1px 0 var(--line);
 }
 
-.confirm[open]::backdrop {
-  animation: fade var(--speed) ease-out;
+.modal-body {
+  padding: var(--sp-20);
 }
 
-.confirm-title {
-  margin-bottom: 6px;
-  font-size: 15px;
-  font-weight: 600;
+.modal-title {
+  margin-bottom: var(--sp-6);
+  font-size: var(--font-size);
+  font-weight: var(--weight-bold);
 }
 
-.confirm p {
+.modal-title ~ p {
   color: var(--text-hint);
 }
 
-.confirm-actions {
+.modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 22px;
+  gap: var(--sp-8);
+  margin-top: var(--sp-20);
 }
 
 .dropdown {
@@ -47,29 +94,43 @@ dialog::backdrop {
   overscroll-behavior: contain;
   min-width: 190px;
   margin: 0;
-  padding: 5px;
+  padding: var(--sp-4);
   border: 0;
   border-radius: var(--radius-lg);
   background: var(--surface-raised);
   color: var(--text);
-  box-shadow: var(--shadow);
-  transition: opacity var(--speed), translate var(--speed), display var(--speed) allow-discrete, overlay var(--speed) allow-discrete;
+  box-shadow: var(--shadow-2);
 }
 
-.dropdown:not(:popover-open) {
+/* Menus and popovers: a fade with a 4px shift from the anchor's side (placeNear sets data-side), out quicker. */
+:is(.dropdown, .popover) {
+  --shift: calc(-1 * var(--rise));
+  transition: opacity var(--dur-fast) var(--ease-in), translate var(--dur-fast) var(--ease-in), display var(--dur-fast) allow-discrete, overlay var(--dur-fast) allow-discrete;
+}
+
+:is(.dropdown, .popover):popover-open {
+  transition-duration: var(--dur);
+  transition-timing-function: var(--ease-out);
+}
+
+:is(.dropdown, .popover):not(:popover-open) {
   opacity: 0;
-  translate: 0 3px;
+  translate: 0 var(--shift);
+}
+
+:is(.dropdown, .popover)[data-side="above"] {
+  --shift: var(--rise);
 }
 
 @starting-style {
-  .dropdown:popover-open {
+  :is(.dropdown, .popover):popover-open {
     opacity: 0;
-    translate: 0 3px;
+    translate: 0 var(--shift);
   }
 }
 
 .dropdown-label {
-  padding: 7px 10px 5px;
+  padding: var(--sp-6) var(--sp-10) var(--sp-4);
   color: var(--text-hint);
   font-size: var(--font-size-sm);
   line-height: var(--line-height-sm);
@@ -78,26 +139,31 @@ dialog::backdrop {
 .dropdown-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-8);
   width: 100%;
-  min-height: 34px;
-  padding: 0 10px;
+  min-height: var(--control);
+  padding: 0 var(--sp-10);
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: background var(--speed);
+  transition: background var(--dur), color var(--dur);
+}
+
+.dropdown-item:active {
+  background: color-mix(in srgb, var(--text), transparent 90%);
+  transition-duration: var(--dur-fast);
 }
 
 .dropdown-item:hover,
 .dropdown-item:focus-visible {
-  background: var(--surface-1);
+  background: var(--hover);
   outline: 0;
 }
 
 .dropdown-item:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--ring);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .dropdown-item svg {
@@ -112,25 +178,33 @@ dialog::backdrop {
 .toasts {
   /* Guest screens: floating at the top centre. In the app they take a band above it (below). */
   position: fixed;
-  top: 8px;
+  top: var(--sp-8);
   left: 50%;
   translate: -50% 0;
-  z-index: 100;
+  z-index: var(--z-toast);
   display: grid;
-  gap: 8px;
+  gap: var(--sp-8);
   max-width: min(420px, calc(100vw - 32px));
 }
 
 .toast {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 7px 7px 7px 14px;
+  gap: var(--sp-8);
+  padding: var(--sp-6) var(--sp-6) var(--sp-6) var(--sp-12);
   border-radius: var(--radius);
   background: var(--text);
   color: var(--surface);
-  box-shadow: var(--shadow);
-  animation: rise var(--speed) ease-out;
+  box-shadow: var(--shadow-2);
+  animation: enter-down var(--dur) var(--ease-out);
+}
+
+/* Guest screens show toasts at the top, so they come down from it. */
+@keyframes enter-down {
+  from {
+    opacity: 0;
+    translate: 0 calc(-1 * var(--rise));
+  }
 }
 
 .toast-danger {
@@ -140,7 +214,7 @@ dialog::backdrop {
 
 .toast p {
   flex: 1;
-  padding-top: 4px;
+  padding-top: var(--sp-4);
 }
 
 .toast .icon-btn {
@@ -151,18 +225,6 @@ dialog::backdrop {
   background: color-mix(in srgb, currentcolor, transparent 85%);
 }
 
-@keyframes rise {
-  from {
-    opacity: 0;
-    translate: 0 6px;
-  }
-}
-
-@keyframes fade {
-  from {
-    opacity: 0;
-  }
-}
 
 .records-toolbar .dropdown-btn-text {
   font-size: var(--font-size-sm);
@@ -174,12 +236,12 @@ dialog::backdrop {
   overflow-y: auto;
   max-width: calc(100vw - 16px);
   margin: 0;
-  padding: 6px;
+  padding: var(--sp-6);
   border: 0;
   border-radius: var(--radius-lg);
   background: var(--surface-raised);
   color: var(--text);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-2);
 }
 
 .peek {
@@ -190,15 +252,15 @@ dialog::backdrop {
 .peek-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 6px 6px 14px;
+  gap: var(--sp-8);
+  padding: var(--sp-6) var(--sp-6) var(--sp-6) var(--sp-12);
   font-size: var(--font-size-sm);
   box-shadow: 0 1px 0 var(--line);
 }
 
 .peek-title {
   font-family: var(--font-mono);
-  font-weight: 600;
+  font-weight: var(--weight-bold);
 }
 
 .peek-head .txt-hint {
@@ -208,7 +270,7 @@ dialog::backdrop {
 .peek-body {
   max-height: min(50vh, 420px);
   margin: 0;
-  padding: 12px 14px;
+  padding: var(--sp-12);
   overflow: auto;
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
@@ -219,13 +281,7 @@ dialog::backdrop {
 /* File preview dialog. */
 .file-preview {
   width: min(100vw - 32px, 960px);
-  max-height: calc(100vh - 48px);
-  padding: 0;
   overflow: hidden;
-  border: 0;
-  border-radius: var(--radius-lg);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow);
 }
 
 .file-preview[open] {
@@ -234,18 +290,13 @@ dialog::backdrop {
 }
 
 .file-preview-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 8px 8px 16px;
   font-size: var(--font-size-sm);
-  box-shadow: 0 1px 0 var(--line);
 }
 
 .file-preview-name {
   min-width: 0;
   overflow: hidden;
-  font-weight: 600;
+  font-weight: var(--weight-bold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -260,7 +311,6 @@ dialog::backdrop {
   flex: 1;
   min-height: 200px;
   place-items: center;
-  padding: 16px;
   overflow: auto;
   background: var(--surface-1);
 }
@@ -274,56 +324,39 @@ dialog::backdrop {
 .file-preview-other {
   display: grid;
   justify-items: center;
-  gap: 10px;
+  gap: var(--sp-10);
   color: var(--text-hint);
 }
 
-/* Actions can sit anywhere in the main column, so in the app the toasts live in a status line the shell always
-   reserves under it: a toast appearing or expiring moves nothing, and no control is ever placed where it shows.
-   The line has a fixed height whatever it holds (one toast, at most two lines of text; three on phones). */
-#root:has(> .app) {
-  display: flex;
-  flex-direction: column;
-  height: 100dvh;
-}
-
-#root > .app {
-  flex: 1;
-  height: auto;
-  min-height: 0;
-  /* The drawer and full-screen panes (position: fixed) stay inside the app, above the status line. */
-  contain: layout;
-}
-
-/* The status line takes the place of the main sheet's bottom gutter. */
-#root > .app .main {
-  margin-bottom: 0;
-}
-
+/* In the app, toasts float at the bottom-right of the main area (an empty host takes no space and lets clicks
+   through). With a detail pane open they sit above its footer, so Save and Create are never covered. They rise from
+   that edge and leave with a quicker fade down (a view transition, Toast.tsx). */
 #root > .app ~ .toasts {
-  position: static;
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  height: 40px;
-  max-width: none;
-  padding: 0 8px;
-  overflow: hidden;
+  top: auto;
+  right: var(--space);
+  bottom: var(--space);
+  left: auto;
   translate: none;
-  background: var(--bg);
+  justify-items: end;
+  pointer-events: none;
+  transition: bottom var(--dur-slow) var(--ease-out);
+}
+
+#root:has(.split-pane) > .app ~ .toasts {
+  bottom: calc(var(--control) + var(--space-sm) * 2 + var(--sp-8));
+}
+
+.toasts .toast {
+  pointer-events: auto;
 }
 
 #root > .app ~ .toasts .toast {
   align-items: center;
   min-width: 0;
-  max-width: min(560px, 100%);
-  min-height: 30px;
-  padding: 2px 2px 2px 12px;
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-sm);
-  box-shadow: none;
-  animation-name: fade;
+  max-width: min(560px, calc(100vw - 32px));
+  min-height: var(--control);
+  padding: var(--sp-4) var(--sp-4) var(--sp-4) var(--sp-12);
+  animation-name: enter;
 }
 
 #root > .app ~ .toasts .toast p {
@@ -331,27 +364,38 @@ dialog::backdrop {
   padding: 0;
   overflow: hidden;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
 }
 
-#root > .app ~ .toasts .icon-btn {
-  width: 26px;
-  height: 26px;
-}
-
-/* Phones have no hover to reveal a cut-off message, so the line is taller there and holds three lines. */
-@media (max-width: 599px) {
+/* Phones and the drawer layout: centred, raised above a full-screen pane's footer. */
+@media (max-width: 899px) {
   #root > .app ~ .toasts {
-    height: 56px;
+    right: auto;
+    bottom: calc(var(--control) + var(--space-sm) * 2 + var(--sp-8));
+    left: 50%;
+    translate: -50% 0;
+    justify-items: center;
   }
+}
 
-  #root > .app ~ .toasts .toast p {
-    -webkit-line-clamp: 3;
-  }
+.toast {
+  view-transition-name: toast;
+}
+
+::view-transition-old(toast) {
+  animation: leave var(--dur-fast) var(--ease-in) both;
+}
+
+::view-transition-new(toast) {
+  animation: enter var(--dur) var(--ease-out) both;
+}
+
+::view-transition-group(toast) {
+  animation-duration: var(--dur);
 }
 
 .toast-action {
   flex: none;
   align-self: center;
-  font-weight: 600;
+  font-weight: var(--weight-bold);
 }

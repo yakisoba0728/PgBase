@@ -43,7 +43,7 @@ export function RecordEditor({ collection, recordId, onClose, onCreated, onCreat
     <>
       <PaneHeader title={recordId} onClose={onClose} />
       {query.isError ? (
-        <ErrorState error={query.error} busy={query.isFetching} onRetry={query.refetch} />
+        <ErrorState query={query} />
       ) : (
         <Skeleton variant="form" />
       )}
@@ -117,7 +117,7 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
           )}
           {collection.fields.map((field) => {
             if (field.type === "file")
-              return <FileField key={field.id} collection={collection.name} recordId={form.record?.id ?? null} field={field} readOnly={readOnly || form.save.isPending || form.remove.isPending} staged={form.files[field.name] ?? []} onStage={(list) => form.setFiles(field.name, list)} />;
+              return <FileField key={field.id} collection={collection.name} recordId={form.record?.id ?? null} field={field} readOnly={readOnly || form.save.isPending || form.remove.isPending} staged={form.files[field.name] ?? []} onStage={(list) => form.setFiles(field.name, list)} onRecordChanged={() => form.reload(true)} />;
             if (field.type === "autodate") {
               const value = form.record?.[field.name];
               return <Field key={field.id} label={field.name} aside={field.type} value={typeof value === "string" ? shortDate(value) : ""} placeholder={t("records.autodateHint")} readOnly />;
@@ -140,7 +140,7 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
       {!readOnly && (
         <footer className="pane-footer">
           {form.record && (
-            <Button variant="transparent" className="txt-danger pane-footer-start" onClick={() => setConfirmDelete(true)}>{t("common.delete")}</Button>
+            <Button variant="danger" className="pane-footer-start" onClick={() => setConfirmDelete(true)}>{t("common.delete")}</Button>
           )}
           <SaveBar form={formId} dirty={form.dirty} busy={form.save.isPending} onDiscard={form.isNew ? onClose : form.reset}
             saveLabel={form.isNew ? t("records.create") : t("records.save")} saveDisabled={relationPending || (!form.dirty && !form.isNew)}>

@@ -1,17 +1,19 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiPlugLine } from "@remixicon/react";
+import { RiArchive2Line, RiHardDrive3Line, RiPlugLine } from "@remixicon/react";
 import type { BackupStorageSettings, FileStorageSettings, StorageDriver } from "../api/storage";
 import { testBackupStorage, testFileStorage, updateBackupStorageSettings, updateFileStorageSettings } from "../api/storage";
 import { Button } from "../components/Button";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
-import { ErrorState, Skeleton, Notice } from "../components/Feedback";
+import { Notice, Unavailable } from "../components/Feedback";
+import { QueryView } from "../components/QueryView";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { backupUpdate, draftFrom, fileUpdate, isDirty, storageErrorKey, validateDraft, type DraftErrors, type StorageDraft } from "./model";
 import { storageSettingsQuery } from "./queries";
+import { isNotFound } from "../api/http";
 
 interface FieldsProps {
   draft: StorageDraft;
@@ -35,13 +37,13 @@ export function StorageFields({ draft, onChange, errors, secretConfigured, backu
         options={[{ value: "local", label: t("storage.local") }, { value: "s3", label: t("storage.s3") }]} />
       {s3 && (
         <>
-          <div className="storage-pair">
+          <div className="field-pair">
             <Field label={t("storage.form.bucket")} mono required spellCheck={false} autoComplete="off" value={draft.bucket} error={err("bucket")} onChange={(event) => onChange({ bucket: event.target.value })} />
             <Field label={t("storage.form.region")} mono required spellCheck={false} autoComplete="off" placeholder="us-east-1" value={draft.region} error={err("region")} onChange={(event) => onChange({ region: event.target.value })} />
           </div>
           {backups && <Field label={t("storage.form.prefix")} mono spellCheck={false} autoComplete="off" value={draft.prefix} error={err("prefix")} onChange={(event) => onChange({ prefix: event.target.value })} />}
           <Field label={t("storage.form.endpoint")} mono spellCheck={false} autoComplete="off" placeholder="https://" value={draft.endpoint} error={err("endpoint")} hint={t(backups ? "storage.form.backupEndpointHint" : "storage.form.endpointHint")} onChange={(event) => onChange({ endpoint: event.target.value })} />
-          <div className="storage-pair">
+          <div className="field-pair">
             <Field label={t("storage.form.accessKey")} mono spellCheck={false} autoComplete="off" value={draft.accessKey} error={err("accessKey")} onChange={(event) => onChange({ accessKey: event.target.value })} />
             <Field label={t("storage.form.secretKey")} mono type="password" autoComplete="new-password" disabled={draft.clearSecret} value={draft.secretKey} error={err("secretKey")}
               hint={secretHint ?? (secretConfigured ? t("storage.form.secretStored") : t("storage.form.secretNone"))} onChange={(event) => onChange({ secretKey: event.target.value })} />
@@ -55,13 +57,20 @@ export function StorageFields({ draft, onChange, errors, secretConfigured, backu
   );
 }
 
+/** File storage and backups are both opt-in on the server; without one its routes are not registered and answer 404. */
+export function StorageOff({ kind }: { kind: "files" | "backups" }) {
+  const t = useT();
+  return kind === "files"
+    ? <Unavailable icon={RiHardDrive3Line} title={t("storage.files.offTitle")} setting="PGBASE_FILES_DRIVER" how={t("storage.files.offHow")}>{t("storage.files.offText")}</Unavailable>
+    : <Unavailable icon={RiArchive2Line} title={t("storage.backups.offTitle")} setting="PGBASE_BACKUPS_DIRECTORY" how={t("storage.backups.offHow")}>{t("storage.backups.offText")}</Unavailable>;
+}
+
 /** Settings for uploaded files or backup archives: Save/Discard, then a connection test of what is saved. */
 export function StorageSettingsForm({ kind }: { kind: "files" | "backups" }) {
   const query = useQuery({ ...storageSettingsQuery(kind), refetchOnReconnect: false });
-  if (query.isPending) return <Skeleton variant="form" />;
-  if (query.isError) return <ErrorState error={query.error} onRetry={query.refetch} />;
+  if (query.data === undefined && isNotFound(query.error)) return <div className="page-content"><StorageOff kind={kind} /></div>;
   // Keyed by revision: a save or reload starts a clean draft from the server copy.
-  return <SettingsEditor key={query.data.revision} kind={kind} saved={query.data} />;
+  return <QueryView query={query} skeleton="form">{(saved) => <SettingsEditor key={saved.revision} kind={kind} saved={saved} />}</QueryView>;
 }
 
 function SettingsEditor({ kind, saved }: { kind: "files" | "backups"; saved: FileStorageSettings | BackupStorageSettings }) {

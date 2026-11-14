@@ -44,12 +44,11 @@ export function PlanReview({ editor }: { editor: SchemaEditor }) {
     body = <Skeleton variant="form" />;
   } else if (rowErrors || errors.other.length) {
     body = (
-      <div className="pane-notice" data-tone="danger" role="alert">
-        <strong>{t("schema.planRejected")}</strong>
+      <Notice tone="danger" title={t("schema.planRejected")}>
         {rowErrors > 0 && <p>{t("schema.fixRows")}</p>}
         {Object.entries(errors.collection).map(([key, codes]) => <p key={key}>{key}: {describeErrors(t, codes)}</p>)}
         {errors.other.map((line) => <p key={line} className="mono">{line}</p>)}
-      </div>
+      </Notice>
     );
   } else if (planQuery.isError) {
     body = (
@@ -104,7 +103,7 @@ export function PlanReview({ editor }: { editor: SchemaEditor }) {
         confirmLabel={t("schema.apply")}
         danger
         busy={apply.isPending}
-        typed={{ phrase: name, label: t("schema.typeName", { name }) }}
+        typed={{ phrase: name, label: t("common.typeToConfirm", { name }) }}
         onConfirm={() => apply.mutate(undefined, { onSettled: () => setConfirming(false) })}
         onCancel={() => setConfirming(false)}
       >

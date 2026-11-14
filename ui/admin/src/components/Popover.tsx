@@ -11,6 +11,8 @@ export function placeNear(panel: HTMLElement, anchor: DOMRect, align: "start" | 
   const below = room.below > 260 || room.below >= room.above;
   style.top = below ? `${anchor.bottom + 4}px` : "";
   style.bottom = below ? "" : `${window.innerHeight - anchor.top + 4}px`;
+  // The open/close shift moves away from the anchor (overlays.css).
+  panel.dataset.side = below ? "below" : "above";
   // Never past the viewport edge: the panel scrolls instead.
   style.maxHeight = `${Math.max(120, below ? room.below : room.above)}px`;
   style.right = align === "end" ? `${Math.max(8, window.innerWidth - anchor.right)}px` : "";

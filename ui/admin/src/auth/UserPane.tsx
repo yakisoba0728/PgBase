@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { deleteAuthRecord, updateAuthRecord, type AuthCollection, type AuthRecord } from "../api/authCollections";
 import {
@@ -13,18 +13,17 @@ import {
   type ManagedUser,
 } from "../api/users";
 import { ApiError } from "../api/http";
-import { errorText } from "../app/queries";
 import { useTimeFormat } from "../app/format";
 import { Button } from "../components/Button";
 import { Facts } from "../components/Facts";
 import { ConfirmDialog, SecretView, TaskDialog } from "../components/Dialog";
-import { Skeleton } from "../components/Feedback";
+import { QueryView } from "../components/QueryView";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT, type MessageKey } from "../i18n";
 import { bareEmail, profileChanges, profileDraft, profileFields, type Problems } from "./forms";
 import { ProfileFields } from "./ProfileFields";
-import { authCollectionsQuery, identitiesQuery, userRecordQuery } from "./queries";
+import { authCollectionsQuery, identitiesQuery, refreshUserLists, userRecordQuery } from "./queries";
 import { problemText, reportFailure, useDraft } from "./useDraft";
 import { SaveBar } from "../components/SaveBar";
 import { PaneHeader } from "../components/SplitView";
@@ -62,6 +61,8 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
   const [action, setAction] = useState<Action | null>(null);
   const [duration, setDuration] = useState("300");
   const [session, setSession] = useState<ImpersonationSession | null>(null);
+  // Set right before a delete closes the pane, so unsaved profile edits do not hold a deleted user open.
+  const release = useRef(false);
   const refreshUsers = () => queryClient.invalidateQueries({ queryKey: ["auth", "users"] });
 
   const run = useMutation({
@@ -92,6 +93,7 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
           return t("auth.user.unlinked", { provider: current.provider });
         case "delete":
           await deleteAuthRecord(resolved.data!.collection.id, resolved.data!.record.id);
+          release.current = true;
           onClose();
           return t("auth.user.deleted", { email: user.email });
       }
@@ -100,7 +102,9 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
       const undo = undoable[current.kind];
       toast(message, "info", undo && { label: t("common.undo"), run: () => void undo(user.id).then(refreshUsers, (failure) => reportFailure(t, failure)) });
       setAction(null);
-      if (current.kind !== "impersonate" && current.kind !== "unlink") void refreshUsers();
+      // A delete changes the total; other actions keep the list where it is.
+      if (current.kind === "delete") void refreshUserLists(queryClient);
+      else if (current.kind !== "impersonate" && current.kind !== "unlink") void refreshUsers();
     },
     onError: (failure) => reportFailure(t, failure),
   });
@@ -113,50 +117,43 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
   };
   const text = action ? actionText[action.kind] ?? null : null;
 
-  return (
+  const top = (
     <>
-      <PaneHeader title={user.email} copy={{ label: t("common.copyId"), value: user.id }} onClose={onClose} />
-      <div className="pane-body auth-pane">
-        <Facts
-          items={[
-            { label: "ID", value: user.id, mono: true, copy: true },
-            { label: t("auth.users.collection"), value: resolved.data ? resolved.data.collection.name : resolved.isPending ? "…" : t("auth.user.unresolved"), mono: true },
-            { label: t("auth.users.created"), value: time(user.createdAt, true) },
-            { label: t("auth.users.updated"), value: time(user.updatedAt, true) },
-          ]}
-        />
+      <Facts
+        items={[
+          { label: "ID", value: user.id, mono: true, copy: true },
+          { label: t("auth.users.collection"), value: resolved.data ? resolved.data.collection.name : resolved.isPending ? "…" : t("auth.user.unresolved"), mono: true },
+          { label: t("auth.users.created"), value: time(user.createdAt, true) },
+          { label: t("auth.users.updated"), value: time(user.updatedAt, true) },
+        ]}
+      />
 
-        <div className="auth-actions">
-          <div className="auth-action">
-            <span>{t("auth.users.status")}</span>
-            <span className="dot" data-tone={user.active ? "success" : undefined}>{user.active ? t("auth.users.active") : t("auth.users.disabled")}</span>
-            <Button size="sm" variant="secondary" onClick={() => ask({ kind: user.active ? "disable" : "enable" })}>{user.active ? t("auth.user.disable") : t("auth.user.enable")}</Button>
-          </div>
-          <div className="auth-action">
-            <span>{t("auth.users.verified")}</span>
-            <span className="dot" data-tone={user.verified ? "success" : undefined}>{user.verified ? t("auth.users.yes") : t("auth.users.no")}</span>
-            <Button size="sm" variant="secondary" onClick={() => ask({ kind: user.verified ? "unverify" : "verify" })}>{user.verified ? t("auth.user.markUnverified") : t("auth.user.markVerified")}</Button>
-            {!user.verified && <Button size="sm" variant="secondary" onClick={() => ask({ kind: "sendVerification" })}>{t("auth.user.sendVerification")}</Button>}
-          </div>
-          <div className="auth-action">
-            <span>{t("auth.user.access")}</span>
-            <Button size="sm" variant="secondary" onClick={() => ask({ kind: "sendReset" })}>{t("auth.user.sendReset")}</Button>
-            <Button size="sm" variant="secondary" onClick={() => ask({ kind: "revoke" })}>{t("auth.user.revoke")}</Button>
-            <Button size="sm" variant="secondary" disabled={!user.active} title={user.active ? undefined : t("auth.user.impersonateDisabled")} onClick={() => ask({ kind: "impersonate" })}>{t("auth.user.impersonate")}</Button>
-          </div>
+      <div className="action-list">
+        <div className="auth-action">
+          <span>{t("auth.users.status")}</span>
+          <span className="dot" data-tone={user.active ? "success" : undefined}>{user.active ? t("auth.users.active") : t("auth.users.disabled")}</span>
+          <Button size="sm" variant="secondary" onClick={() => ask({ kind: user.active ? "disable" : "enable" })}>{user.active ? t("auth.user.disable") : t("auth.user.enable")}</Button>
         </div>
+        <div className="auth-action">
+          <span>{t("auth.users.verified")}</span>
+          <span className="dot" data-tone={user.verified ? "success" : undefined}>{user.verified ? t("auth.users.yes") : t("auth.users.no")}</span>
+          <Button size="sm" variant="secondary" onClick={() => ask({ kind: user.verified ? "unverify" : "verify" })}>{user.verified ? t("auth.user.markUnverified") : t("auth.user.markVerified")}</Button>
+          {!user.verified && <Button size="sm" variant="secondary" onClick={() => ask({ kind: "sendVerification" })}>{t("auth.user.sendVerification")}</Button>}
+        </div>
+        <div className="auth-action">
+          <span>{t("auth.user.access")}</span>
+          <Button size="sm" variant="secondary" onClick={() => ask({ kind: "sendReset" })}>{t("auth.user.sendReset")}</Button>
+          <Button size="sm" variant="secondary" onClick={() => ask({ kind: "revoke" })}>{t("auth.user.revoke")}</Button>
+          <Button size="sm" variant="secondary" disabled={!user.active} title={user.active ? undefined : t("auth.user.impersonateDisabled")} onClick={() => ask({ kind: "impersonate" })}>{t("auth.user.impersonate")}</Button>
+        </div>
+      </div>
 
-        <section className="auth-section">
-          <header><h2>{t("auth.user.identities")}</h2></header>
-          {identities.isPending ? (
-            <Skeleton />
-          ) : identities.isError ? (
-            <p className="txt-hint">{errorText(t, identities.error)}</p>
-          ) : identities.data.length === 0 ? (
-            <p className="txt-hint">{t("auth.user.noIdentities")}</p>
-          ) : (
+      <section className="stack-section">
+        <header><h2>{t("auth.user.identities")}</h2></header>
+        <QueryView query={identities} skeleton="list" empty={<p className="txt-hint">{t("auth.user.noIdentities")}</p>}>
+          {(data) => (
             <ul className="auth-rows">
-              {identities.data.map((identity) => (
+              {data.map((identity) => (
                 <li key={identity.provider} className="auth-row auth-row-static">
                   <span className="mono">{identity.provider}</span>
                   <span className="txt-hint auth-row-meta mono">{identity.subject}</span>
@@ -165,20 +162,28 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
               ))}
             </ul>
           )}
-        </section>
+        </QueryView>
+      </section>
+    </>
+  );
 
-        {resolved.isPending ? (
-          <Skeleton variant="form" />
-        ) : resolved.data ? (
-          <ProfileForm key={`${resolved.data.record.id}:${resolved.data.record.updatedAt}`} userId={user.id} collection={resolved.data.collection} record={resolved.data.record} onDelete={() => ask({ kind: "delete" })} />
-        ) : (
-          <p className="txt-hint">{resolved.isError ? errorText(t, resolved.error) : t("auth.user.unresolvedHint")}</p>
-        )}
-      </div>
+  return (
+    <div className="pane-form">
+      <PaneHeader title={user.email} copy={{ label: t("common.copyId"), value: user.id }} onClose={onClose} />
+      {resolved.data ? (
+        <ProfileForm key={`${resolved.data.record.id}:${resolved.data.record.updatedAt}`} userId={user.id} collection={resolved.data.collection} record={resolved.data.record} release={release} onDelete={() => ask({ kind: "delete" })}>
+          {top}
+        </ProfileForm>
+      ) : (
+        <div className="pane-body auth-pane">
+          {top}
+          <QueryView query={resolved} skeleton="form">{() => <p className="txt-hint">{t("auth.user.unresolvedHint")}</p>}</QueryView>
+        </div>
+      )}
 
       <ConfirmDialog open={action !== null} title={text ? t(text.title, { email: user.email, provider: action?.kind === "unlink" ? action.provider : "" }) : ""} message={text ? t(text.text, { email: user.email }) : undefined}
         confirmLabel={text ? t(text.confirm) : undefined} danger={text?.danger} busy={run.isPending}
-        typed={action?.kind === "delete" ? { phrase: user.email, label: t("auth.user.typeEmail", { email: user.email }) } : undefined} onConfirm={() => action && run.mutate(action)} onCancel={() => setAction(null)}>
+        typed={action?.kind === "delete" || action?.kind === "revoke" ? { phrase: user.email, label: t("common.typeToConfirm", { name: user.email }) } : undefined} onConfirm={() => action && run.mutate(action)} onCancel={() => setAction(null)}>
         {action?.kind === "impersonate" && (
           <Field kind="select" label={t("auth.user.duration")} value={duration} onChange={(event) => setDuration(event.target.value)}
             options={["60", "300", "600", "900"].map((value) => ({ value, label: t("auth.user.minutes", { count: Number(value) / 60 }) }))} />
@@ -191,11 +196,12 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
             details={<p className="txt-hint">{t("auth.user.expires", { at: time(session.expiresAt, true) })}</p>} />
         )}
       </TaskDialog>
-    </>
+    </div>
   );
 }
 
-function ProfileForm({ userId, collection, record, onDelete }: { userId: string; collection: AuthCollection; record: AuthRecord; onDelete: () => void }) {
+/** The pane body below `children` (facts, actions, identities) ends with the record form; Delete and Save sit in the pane footer. */
+function ProfileForm({ userId, collection, record, release, onDelete, children }: { userId: string; collection: AuthCollection; record: AuthRecord; release: RefObject<boolean>; onDelete: () => void; children: ReactNode }) {
   const t = useT();
   const queryClient = useQueryClient();
   const fields = profileFields(collection);
@@ -232,22 +238,27 @@ function ProfileForm({ userId, collection, record, onDelete }: { userId: string;
   const profileProblems = Object.fromEntries(Object.entries(problems).filter(([key]) => key.startsWith("profile.")).map(([key, value]) => [key.slice(8), value]));
 
   return (
-    <section className="auth-section">
-      <header>
-        <h2>{t("auth.user.record")}</h2>
-        {record.id !== userId && <p className="txt-hint mono">{record.id}</p>}
-      </header>
-      <form id="auth-user-record" className="form" onSubmit={onSubmit} noValidate autoComplete="off"><fieldset disabled={save.isPending} className="form">
-        <Field label={t("auth.users.email")} type="email" value={draft.email} error={problemText(t, problems, "email")} onChange={(event) => patch({ email: event.target.value })} />
-        <Field label={t("auth.user.newPassword")} type="password" autoComplete="new-password" value={draft.password} hint={t("auth.user.newPasswordHint")} onChange={(event) => patch({ password: event.target.value })} />
-        <Checkbox label={t("auth.user.emailVisibility")} checked={draft.emailVisibility} onChange={(event) => patch({ emailVisibility: event.target.checked })} />
-        <ProfileFields t={t} fields={fields} draft={draft.profile} problems={profileProblems} onChange={(name, value) => patch({ profile: { ...draft.profile, [name]: value } })} />
-      </fieldset></form>
-      <div className="auth-record-footer">
-        <Button size="sm" variant="transparent" className="txt-danger" onClick={onDelete}>{t("auth.user.delete")}</Button>
-        <SaveBar form="auth-user-record" dirty={form.dirty} busy={save.isPending} onDiscard={form.reset} />
+    <>
+      <div className="pane-body auth-pane">
+        {children}
+        <section className="stack-section">
+          <header>
+            <h2>{t("auth.user.record")}</h2>
+            {record.id !== userId && <p className="txt-hint mono">{record.id}</p>}
+          </header>
+          <form id="auth-user-record" className="form" onSubmit={onSubmit} noValidate autoComplete="off"><fieldset disabled={save.isPending} className="form">
+            <Field label={t("auth.users.email")} type="email" value={draft.email} error={problemText(t, problems, "email")} onChange={(event) => patch({ email: event.target.value })} />
+            <Field label={t("auth.user.newPassword")} type="password" autoComplete="new-password" value={draft.password} hint={t("auth.user.newPasswordHint")} onChange={(event) => patch({ password: event.target.value })} />
+            <Checkbox label={t("auth.user.emailVisibility")} checked={draft.emailVisibility} onChange={(event) => patch({ emailVisibility: event.target.checked })} />
+            <ProfileFields t={t} fields={fields} draft={draft.profile} problems={profileProblems} onChange={(name, value) => patch({ profile: { ...draft.profile, [name]: value } })} />
+          </fieldset></form>
+        </section>
       </div>
-      <UnsavedGuard dirty={form.dirty} busy={save.isPending} />
-    </section>
+      <footer className="pane-footer">
+        <Button variant="danger" className="pane-footer-start" onClick={onDelete}>{t("auth.user.delete")}</Button>
+        <SaveBar form="auth-user-record" dirty={form.dirty} busy={save.isPending} onDiscard={form.reset} />
+      </footer>
+      <UnsavedGuard dirty={form.dirty} busy={save.isPending} release={() => release.current} />
+    </>
   );
 }

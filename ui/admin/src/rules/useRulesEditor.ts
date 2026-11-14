@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { Location } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { combineQueries } from "../components/QueryView";
 import {
   getCollectionRules,
   getCollectionUserAccess,
@@ -82,9 +83,10 @@ export function useRulesEditor(collection: Collection, basePath: string) {
       if (accessChanged && accessEnabled) await setCollectionUserAccess(name, true);
     },
     onSuccess: async () => {
+      // Drop the edits only once the stored rules are back, so the old ones never flash in between.
+      await queryClient.invalidateQueries({ queryKey: rulesQueryKey(name) });
       discard();
       setResults({});
-      await queryClient.invalidateQueries({ queryKey: rulesQueryKey(name) });
       toast(t("rules.saved"));
     },
     onError: (error) => {
@@ -145,8 +147,8 @@ export function useRulesEditor(collection: Collection, basePath: string) {
   return {
     collection,
     visible,
-    loading: rules.isPending || access.isPending,
-    loadError: rules.error ?? access.error,
+    /** The rules and the access gate as one load, for QueryView. */
+    query: combineQueries(rules, access),
     drafts,
     accessEnabled,
     setAccess: setAccessEdit,

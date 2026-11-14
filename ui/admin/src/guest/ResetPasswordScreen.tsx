@@ -5,6 +5,7 @@ import { RiLockPasswordLine, RiMailLine } from "@remixicon/react";
 import { confirmPasswordReset, requestPasswordReset } from "../api/session";
 import { Button } from "../components/Button";
 import { Field } from "../components/Field";
+import { Notice } from "../components/Feedback";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { FormError, formValue, GuestLayout, matchingPassword } from "./GuestLayout";
@@ -23,9 +24,9 @@ function RequestReset() {
     mutation.mutate(formValue(new FormData(event.currentTarget), "email"));
   };
   return (
-    <GuestLayout title={t("reset.requestTitle")}>
+    <GuestLayout title={t("reset.requestTitle")} lead={t("reset.requestLead")}>
       {mutation.isSuccess ? (
-        <p className="notice" role="status">{t("reset.requestSent")}</p>
+        <Notice tone="info" role="status">{t("reset.requestSent")}</Notice>
       ) : (
         <form className="form" onSubmit={onSubmit} onInput={() => mutation.isError && mutation.reset()}>
           <Field label={t("field.email")} icon={RiMailLine} name="email" type="email" required autoFocus autoComplete="username" />
@@ -55,7 +56,7 @@ function ConfirmReset({ token }: { token: string }) {
     mutation.mutate(new FormData(event.currentTarget));
   };
   return (
-    <GuestLayout title={t("reset.confirmTitle")}>
+    <GuestLayout title={t("reset.confirmTitle")} lead={t("reset.confirmLead")}>
       <form className="form" onSubmit={onSubmit} onInput={() => mutation.isError && mutation.reset()}>
         <Field label={t("field.newPassword")} icon={RiLockPasswordLine} name="password" type="password" required autoFocus autoComplete="new-password" />
         <Field label={t("field.passwordConfirm")} icon={RiLockPasswordLine} name="passwordConfirm" type="password" required autoComplete="new-password" />

@@ -1,23 +1,23 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useLeaveSession } from "../app/signout";
-import { openRow } from "../components/DataGrid";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiAddLine, RiLockPasswordLine, RiLogoutCircleRLine } from "@remixicon/react";
+import { RiAddLine, RiErrorWarningLine, RiLockPasswordLine, RiLogoutCircleRLine } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { updateProfile, type Administrator } from "../api/session";
 import { createAdministrator, resetAdministratorPassword, revokeAdministratorSessions, setAdministratorActive } from "../api/system";
-import { errorText, sessionQuery } from "../app/queries";
+import { errorText, sessionQuery, windowOpen, windowShifted } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { Skeleton, LoadMore, Notice } from "../components/Feedback";
-import { ErrorState } from "../components/Feedback";
+import { EmptyState, LoadMore, Notice, WindowNotice } from "../components/Feedback";
+import { QueryView } from "../components/QueryView";
+import { Row, Table, TableScroll } from "../components/Table";
 import { Field } from "../components/Field";
 import { SplitView, PaneHeader } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
 import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
-import { administratorsQuery } from "./queries";
+import { administratorQuery, administratorsQuery } from "./queries";
 import { TaskDialog } from "../components/Dialog";
 import { Facts } from "../components/Facts";
 import "../styles/system.css";
@@ -47,50 +47,67 @@ export function AdministratorsView() {
   const { params, update } = useSearchState();
   const session = useQuery(sessionQuery);
   const query = useInfiniteQuery(administratorsQuery);
+  const queryClient = useQueryClient();
   const items = query.data?.pages.flatMap((page) => page.items) ?? [];
   const selfId = session.data?.administrator.id;
   const openId = params.get("admin");
-  const open = items.find((item) => item.id === openId);
+  const listed = items.find((item) => item.id === openId);
+  // A deep link past the loaded pages reads that administrator on its own.
+  const single = useQuery({ ...administratorQuery(openId ?? ""), enabled: Boolean(openId && openId !== "new" && !listed) });
+  // The last listed copy keeps the pane mounted (and its edits) while the lookup runs after the row leaves the window.
+  const lastListed = useRef<Administrator>(undefined);
+  if (listed) lastListed.current = listed;
+  const fallback = lastListed.current?.id === openId ? lastListed.current : undefined;
+  const open = listed ?? (single.data !== undefined ? single.data : fallback) ?? undefined;
+  const shifted = windowShifted(query.data);
   const close = () => update({ admin: null });
 
   const list = (
-    <div className="grid-scroll">
-      {query.isPending ? (
-        <Skeleton />
-      ) : query.isError && !query.data ? (
-        <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />
-      ) : (
-        <>
-          <table className="grid" aria-label={t("nav.administrators")}>
-            <thead>
-              <tr>
-                <th>{t("system.admins.email")}</th>
-                <th>{t("system.admins.status")}</th>
-                <th>{t("system.admins.created")}</th>
-                <th>{t("system.admins.updated")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id} {...openRow(() => update({ admin: item.id }), openId === item.id)}>
-                  <td>
-                    {item.email}{" "}
-                    {item.id === selfId && <span className="chip">{t("system.admins.you")}</span>}
-                  </td>
-                  <td><span className="dot" data-tone={item.active ? "success" : undefined}>{item.active ? t("system.admins.active") : t("system.admins.disabled")}</span></td>
-                  <td className="mono">{time(item.createdAt)}</td>
-                  <td className="mono">{time(item.updatedAt)}</td>
+    <TableScroll>
+      <QueryView query={query}>
+        {() => (
+          <>
+            {shifted && (
+              <WindowNotice action={t("system.admins.toStart")} onReset={(button) => {
+                button.closest(".grid-scroll")?.scrollTo(0, 0);
+                void queryClient.resetQueries({ queryKey: administratorsQuery.queryKey, exact: true });
+              }}>{t("system.admins.shifted", { count: items.length })}</WindowNotice>
+            )}
+            <Table label={t("nav.administrators")}>
+              <thead>
+                <tr>
+                  <th>{t("system.admins.email")}</th>
+                  <th>{t("system.admins.status")}</th>
+                  <th>{t("system.admins.created")}</th>
+                  <th>{t("system.admins.updated")}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          <LoadMore query={query} />
-        </>
-      )}
-    </div>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <Row key={item.id} current={openId === item.id} onOpen={() => update({ admin: item.id })}>
+                    <td>
+                      {item.email}{" "}
+                      {item.id === selfId && <span className="chip">{t("system.admins.you")}</span>}
+                    </td>
+                    <td><span className="dot" data-tone={item.active ? "success" : undefined}>{item.active ? t("system.admins.active") : t("system.admins.disabled")}</span></td>
+                    <td className="mono">{time(item.createdAt)}</td>
+                    <td className="mono">{time(item.updatedAt)}</td>
+                  </Row>
+                ))}
+              </tbody>
+            </Table>
+            <LoadMore query={query} auto={windowOpen(query.data)} />
+          </>
+        )}
+      </QueryView>
+    </TableScroll>
   );
 
-  const pane = openId === "new" ? <NewAdministrator onClose={close} onCreated={(id) => update({ admin: id })} /> : open ? <AdministratorPane key={open.id} admin={open} self={open.id === selfId} onClose={close} /> : null;
+  let pane = null;
+  if (openId === "new") pane = <NewAdministrator onClose={close} onCreated={(id) => update({ admin: id })} />;
+  else if (open) pane = <AdministratorPane key={open.id} admin={open} self={open.id === selfId} onClose={close} />;
+  // Not in the loaded list: the single lookup decides (null is "no such administrator").
+  else if (openId) pane = <QueryView query={single} skeleton="form" empty={<EmptyState icon={RiErrorWarningLine}>{t("common.notFound")}</EmptyState>} isEmpty={(data) => data === null}>{() => null}</QueryView>;
   return <SplitView list={list} pane={pane} paneLabel={t("system.admins.detail")} onClose={close} />;
 }
 
@@ -194,9 +211,9 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
             { label: "ID", value: admin.id, mono: true, copy: true },
           ]}
         />
-        <div className="sys-actions">
+        <div className="action-list">
           <Action title={admin.active ? t("system.admins.disable") : t("system.admins.enable")} text={admin.active ? t("system.admins.disableHint") : t("system.admins.enableHint")}>
-            <Button variant={admin.active ? "danger" : "secondary"} size="sm" loading={active.isPending} onClick={() => {
+            <Button variant="secondary" size="sm" loading={active.isPending} onClick={() => {
               active.reset();
               setPending("active");
             }}>
@@ -217,7 +234,7 @@ function AdministratorPane({ admin, self, onClose }: { admin: Administrator; sel
         <CurrentPasswordField value={current} error={activeCurrentError} onChange={setCurrent} />
       </ConfirmDialog>
       <ConfirmDialog open={pending === "revoke"} title={t("system.admins.revokeTitle", { email: admin.email })} message={self ? t("system.admins.revokeSelf") : t("system.admins.revokeHint")} confirmLabel={t("system.admins.revoke")} danger busy={revoke.isPending}
-        onConfirm={() => revoke.mutate()} onCancel={() => setPending(null)} />
+        typed={{ phrase: admin.email, label: t("common.typeToConfirm", { name: admin.email }) }} onConfirm={() => revoke.mutate()} onCancel={() => setPending(null)} />
       <TaskDialog open={pending === "password"} title={t("system.admins.passwordTitle", { email: admin.email })} onClose={closePassword}>
         <PasswordForm self={self} busy={password.isPending} error={password.isError ? adminError(t, password.error, "password", self) : undefined} currentError={currentPasswordError(t, password.error)}
           onSubmit={(value, current) => password.mutate({ value, current })} onCancel={closePassword} />
@@ -266,13 +283,14 @@ export function PasswordForm({ self, busy, error, currentError, onSubmit, onCanc
     if (ok) onSubmit(value, String(form.get("currentPassword") ?? ""));
   };
   return (
-    <form className="form" onSubmit={submit}><fieldset disabled={busy} className="form">
+    <form className={onCancel ? "form" : "form sys-narrow"} onSubmit={submit}><fieldset disabled={busy} className="form">
       <p className="txt-hint">{self ? t("system.admins.setPasswordSelf") : t("system.admins.setPasswordHint")}</p>
       {error && !currentError && <p className="field-error" role="alert">{error}</p>}
       <CurrentPasswordField error={currentError} />
       <Field label={t("system.admins.newPassword")} name="newPassword" type="password" required minLength={12} maxLength={1024} autoComplete="new-password" hint={t("system.admins.passwordHint")} />
       <Field label={t("system.admins.confirmPassword")} name="confirmPassword" type="password" required autoComplete="new-password" error={mismatch ? t("error.password_mismatch") : undefined} />
-      <div className="confirm-actions">
+      {/* In a dialog (with Cancel) the dialog's button row; on the profile page the section's. */}
+      <div className={onCancel ? "modal-actions" : "actions"}>
         {onCancel && <Button variant="secondary" onClick={onCancel}>{t("common.cancel")}</Button>}
         <Button type="submit" variant={self ? "danger" : "primary"} loading={busy}>{t("system.admins.setPassword")}</Button>
       </div>

@@ -13,6 +13,7 @@ import {
   type MailTemplatePurpose,
 } from "../api/authCollections";
 import { Button } from "../components/Button";
+import { CodeBlock } from "../components/CodeBlock";
 import { Checkbox, Field } from "../components/Field";
 import { Tabs } from "../components/Tabs";
 import { toast } from "../components/Toast";
@@ -116,7 +117,7 @@ function TemplateForm({ collection, administration, purpose, initial, configured
             <Field kind="textarea" label={t("auth.mail.html")} mono rows={8} spellCheck={false} value={draft.htmlBody} error={error("htmlBody")} hint={t("auth.mail.htmlHint")} onChange={(event) => patch({ htmlBody: event.target.value })} />
           </fieldset></form>
           <Section title={t("auth.mail.preview")}>
-            <div className="auth-inline">
+            <div className="field-inline">
               <Field label={t("auth.mail.actionUrl")} mono spellCheck={false} value={actionUrl} error={error("actionUrl")} onChange={(event) => setActionUrl(event.target.value)} />
               <Button variant="secondary" icon={RiEyeLine} loading={render.isPending} onClick={onPreview}>{t("auth.mail.render")}</Button>
             </div>
@@ -132,7 +133,7 @@ function TemplateForm({ collection, administration, purpose, initial, configured
                   )}
                   <figure>
                     <figcaption className="txt-hint">{t("auth.mail.text")}</figcaption>
-                    <pre className="auth-code">{preview.text}</pre>
+                    <CodeBlock wrap label={t("auth.mail.text")} text={preview.text} />
                   </figure>
                 </div>
               </div>
@@ -190,6 +191,7 @@ function SmtpForm({ collection, administration, views }: { collection: AuthColle
       form.setProblems({ ...problems, recipient: "email" });
       return;
     }
+    form.setProblems(({ recipient: _, ...rest }) => rest);
     test.mutate();
   };
 
@@ -217,7 +219,7 @@ function SmtpForm({ collection, administration, views }: { collection: AuthColle
             <Checkbox label={t("auth.mail.loopback")} checked={draft.allowInsecureLoopback} onChange={(event) => patch({ allowInsecureLoopback: event.target.checked })} />
           </fieldset></form>
           <Section title={t("auth.mail.test")} hint={t("auth.mail.testHint")}>
-            <div className="auth-inline">
+            <div className="field-inline">
               <Field label={t("auth.mail.recipient")} type="email" value={recipient} error={error("recipient")} onChange={(event) => setRecipient(event.target.value)} />
               <Button variant="secondary" icon={RiMailSendLine} loading={test.isPending} disabled={form.dirty} onClick={onTest}>{t("auth.mail.sendTest")}</Button>
             </div>

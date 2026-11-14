@@ -23,7 +23,8 @@ export function AppleSecretButton({ clientId, onGenerated }: { clientId?: string
     mutationFn: generateAppleClientSecret,
     onSuccess: (value, input) => {
       if (!onGenerated) return;
-      if (input.clientId === clientId) onGenerated(value.secret);
+      // The form sends the trimmed id; compare it the same way.
+      if (input.clientId === clientId?.trim()) onGenerated(value.secret);
       setOpen(false);
       generate.reset();
     },
@@ -61,13 +62,13 @@ export function AppleSecretButton({ clientId, onGenerated }: { clientId?: string
               </p>
             )}
             <Field label={t("system.apple.clientId")} name="clientId" required mono autoComplete="off" spellCheck={false} maxLength={255} placeholder="com.example.app" defaultValue={clientId} readOnly={Boolean(onGenerated)} />
-            <div className="sys-pair">
+            <div className="field-pair">
               <Field label={t("system.apple.teamId")} name="teamId" required mono autoComplete="off" spellCheck={false} pattern="[A-Za-z0-9]{10}" maxLength={10} />
               <Field label={t("system.apple.keyId")} name="keyId" required mono autoComplete="off" spellCheck={false} pattern="[A-Za-z0-9]{10}" maxLength={10} />
             </div>
             <Field kind="textarea" label={t("system.apple.privateKey")} name="privateKey" required mono rows={5} spellCheck={false} placeholder="-----BEGIN PRIVATE KEY-----" />
             <Field label={t("system.apple.days")} name="days" type="number" required min={1} max={maxDays} step={1} defaultValue={maxDays} hint={t("system.apple.daysHint", { max: maxDays })} />
-            <div className="confirm-actions">
+            <div className="modal-actions">
               <Button variant="secondary" disabled={generate.isPending} onClick={close}>{t("common.cancel")}</Button>
               <Button type="submit" loading={generate.isPending}>{t("system.apple.generate")}</Button>
             </div>

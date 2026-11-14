@@ -63,7 +63,7 @@ export function readDraft(scope: DraftScope, fields: CollectionField[], now = Da
 // A schema change between save and restore (e.g. text -> boolean) must not feed a wrong-typed draft to an input.
 function sameShape(draft: unknown, field: CollectionField): boolean {
   if (field.type === "boolean") return typeof draft === "boolean";
-  if (["relations", "multiselect"].includes(fieldKind(field))) return Array.isArray(draft) && draft.every((item) => typeof item === "string");
+  if (["relations", "multiselect", "geo"].includes(fieldKind(field))) return Array.isArray(draft) && draft.every((item) => typeof item === "string");
   return typeof draft === "string";
 }
 
@@ -78,6 +78,7 @@ export function writeDraft(scope: DraftScope, fields: Record<string, Draft>, now
 }
 
 export function clearDraft(scope: DraftScope): void {
+  memory.delete(key(scope));
   try {
     localStorage.removeItem(key(scope));
   } catch {

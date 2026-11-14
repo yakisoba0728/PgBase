@@ -43,6 +43,24 @@ describe("native rule saves", () => {
     expect(result.current.drafts?.update.loaded).toEqual({ op: "owner" });
   });
 
+  it("keeps the edits on screen until the saved rules have been fetched", async () => {
+    const saved = { ...before, list: { op: "expression", expression: "status = 'open'" } };
+    let finish!: () => void;
+    api.setCollectionRules.mockImplementation(async () => {
+      api.getCollectionRules.mockReturnValue(new Promise((resolve) => { finish = () => resolve({ collection: "orders", rules: saved }); }));
+    });
+    const { result } = editor();
+    await waitFor(() => expect(result.current.drafts).toBeDefined());
+    act(() => result.current.update("list", { mode: "expression", expression: "status = 'open'" }));
+    let done!: Promise<unknown>;
+    act(() => { done = result.current.save.mutateAsync(); });
+    await waitFor(() => expect(api.getCollectionRules).toHaveBeenCalledTimes(2));
+    expect(result.current.drafts?.list.mode).toBe("expression");
+    await act(async () => { finish(); await done; });
+    expect(result.current.drafts?.list.mode).toBe("expression");
+    expect(result.current.guard.dirty).toBe(false);
+  });
+
   it("keeps edits available after a failed atomic save", async () => {
     api.setCollectionRules.mockRejectedValue(new Error("network"));
     const { result } = editor();

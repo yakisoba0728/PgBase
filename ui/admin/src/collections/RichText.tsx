@@ -29,6 +29,7 @@ import { Button } from "../components/Button";
 import { Notice } from "../components/Feedback";
 import { useT } from "../i18n";
 import "../styles/richtext.css";
+import { Input, Textarea } from "../components/Field";
 
 interface RichTextProps {
   id: string;
@@ -196,13 +197,13 @@ export default function RichText({ id, label, value, onChange, readOnly, invalid
       )}
       {urlFor && !source && (
         <div className="rich-text-url">
-          <input
-            className="field-control"
+          <Input
+            size="sm"
             autoFocus
             value={url}
             placeholder={urlFor === "image" ? "https://…/image.png" : "https://…"}
             aria-label={urlFor === "image" ? t("editor.imageUrl") : t("editor.linkUrl")}
-            aria-invalid={url.trim() !== "" && !safeURL(url.trim(), urlFor === "image") ? true : undefined}
+            invalid={url.trim() !== "" && !safeURL(url.trim(), urlFor === "image")}
             onChange={(event) => setUrl(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
@@ -221,7 +222,7 @@ export default function RichText({ id, label, value, onChange, readOnly, invalid
         </div>
       )}
       {source ? (
-        <textarea id={id} className="field-control mono rich-text-source" aria-label={label} aria-invalid={invalid || undefined} rows={12} spellCheck={false} value={value} disabled={readOnly} onChange={(event) => onChange(event.target.value)} />
+        <Textarea id={id} mono className="rich-text-source" aria-label={label} invalid={invalid} rows={12} spellCheck={false} value={value} disabled={readOnly} onChange={(event) => onChange(event.target.value)} />
       ) : (
         <EditorContent editor={editor} className="rich-text-body" />
       )}

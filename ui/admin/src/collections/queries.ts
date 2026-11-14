@@ -40,13 +40,6 @@ export function countText(t: Translate, loaded: number, more: boolean, first?: R
   return t(first.totalCapped ? "records.loadedOfAtLeast" : "records.loadedOf", { count: loaded, total: first.totalItems.toLocaleString() });
 }
 
-/** Edits the loaded list pages in place, so a save or delete never refetches every loaded page. */
-function patchLists(queryClient: QueryClient, collection: string, update: (items: RecordData[]) => RecordData[]) {
-  queryClient.setQueriesData<InfiniteData<RecordPage>>({ queryKey: ["records", collection, "list"] }, (data) =>
-    data ? { ...data, pages: data.pages.map((page) => ({ ...page, items: update(page.items) })) } : data,
-  );
-}
-
 /** Let the server apply filters and sort again, fetching only the first page. */
 export function replaceInLists(queryClient: QueryClient, collection: string, _record: RecordData, _withExpand = false) {
   void queryClient.resetQueries({ queryKey: ["records", collection, "list"] });
@@ -55,9 +48,21 @@ export function addToLists(queryClient: QueryClient, collection: string, _record
   void queryClient.resetQueries({ queryKey: ["records", collection, "list"] });
 }
 
+/** Drops deleted records from the loaded pages in place (no refetch of every loaded page); an exact total shrinks with them, so "N matching" stays true. */
 export function removeFromLists(queryClient: QueryClient, collection: string, ids: string[]) {
   const gone = new Set(ids);
-  patchLists(queryClient, collection, (items) => items.filter((item) => !gone.has(item.id)));
+  queryClient.setQueriesData<InfiniteData<RecordPage>>({ queryKey: ["records", collection, "list"] }, (data) => {
+    if (!data) return data;
+    let removed = 0;
+    const pages = data.pages.map((page) => {
+      const items = page.items.filter((item) => !gone.has(item.id));
+      removed += page.items.length - items.length;
+      return { ...page, items };
+    });
+    const first = pages[0];
+    if (first?.totalItems !== undefined && !first.totalCapped) pages[0] = { ...first, totalItems: Math.max(0, first.totalItems - removed) };
+    return { ...data, pages };
+  });
 }
 
 /** `expand` only shapes the fetch (relation labels), not the key, so a save can replace the cached record. */

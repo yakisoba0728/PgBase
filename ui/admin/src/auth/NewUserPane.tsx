@@ -2,13 +2,13 @@ import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createAuthRecord, type AuthCollection } from "../api/authCollections";
 import { ApiError } from "../api/http";
-import { ErrorState, Skeleton } from "../components/Feedback";
+import { QueryView } from "../components/QueryView";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { bareEmail, profileChanges, profileDraft, type Problems, type ProfileDraft } from "./forms";
 import { ProfileFields } from "./ProfileFields";
-import { administrationQuery, authCollectionsQuery } from "./queries";
+import { administrationQuery, authCollectionsQuery, refreshUserLists } from "./queries";
 import { problemText, reportFailure, useDraft } from "./useDraft";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
@@ -21,7 +21,7 @@ export function NewUserPane({ onClose, onCreated }: { onClose: () => void; onCre
   return (
     <>
       <PaneHeader title={t("auth.users.new")} onClose={onClose} />
-      {collections.data ? <NewUserForm collections={collections.data} onClose={onClose} onCreated={onCreated} /> : collections.isError ? <ErrorState error={collections.error} onRetry={collections.refetch} /> : <Skeleton variant="form" />}
+      <QueryView query={collections} skeleton="form">{(data) => <NewUserForm collections={data} onClose={onClose} onCreated={onCreated} />}</QueryView>
     </>
   );
 }
@@ -54,7 +54,7 @@ function NewUserForm({ collections, onClose, onCreated }: { collections: AuthCol
     onSuccess: async (record) => {
       toast(t("auth.users.created_toast", { email: record.email ?? draft.email }));
       form.release.current = true;
-      await queryClient.invalidateQueries({ queryKey: ["auth", "users"] });
+      await refreshUserLists(queryClient);
       // Under the uuid id policy the record id is the user id; text ids cannot be mapped back here.
       if (collection?.recordId?.kind === "text") onClose();
       else onCreated(record.id);

@@ -9,6 +9,8 @@ import { useSchemaEditor } from "./useSchemaEditor";
 import { drafts } from "./drafts";
 import { forgetOperations, operations } from "../app/operations";
 import { ApiError } from "../api/http";
+import * as toasts from "../components/Toast";
+import { setLanguage } from "../i18n";
 afterEach(() => { vi.restoreAllMocks(); drafts.set({}); forgetOperations(); });
 function wrapper(client: QueryClient) {
   return ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}><MemoryRouter initialEntries={["/new-collection/base"]}>{children}</MemoryRouter></QueryClientProvider>;
@@ -45,5 +47,36 @@ it("locks draft/pane edits during apply and preserves an uncertain operation ide
   await act(async () => { reject(new ApiError(502, "invalid_response", "lost")); });
   await waitFor(() => expect(result.current.apply.isError).toBe(true));
   expect(operations()[0]?.idempotencyKey).toBeTruthy();
+  unmount(); client.clear();
+});
+it("drops cached records of the collection after a schema change applies", async () => {
+  const definition = { id: "c", name: "notes", fields: [], indexes: [] } as unknown as api.PlannedCollection;
+  vi.spyOn(api, "planCollectionChange").mockResolvedValue({ definition, sql: [], checksum: "c", baseVersion: 1 } as api.CollectionPlan);
+  vi.spyOn(api, "applyCollectionChange").mockResolvedValue({} as never);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const key = ["records", "notes", "list", { filter: "", sort: "", expand: "" }];
+  client.setQueryData(key, { pages: [{ items: [{ id: "old" }] }], pageParams: [undefined] });
+  const { result, unmount } = renderHook(() => useSchemaEditor({ type: "base", catalog: [], basePath: "/new-collection/base" }), { wrapper: wrapper(client) });
+  act(() => result.current.setMeta({ name: "notes" }));
+  act(() => result.current.setPane({ review: true }));
+  await waitFor(() => expect(result.current.planQuery.data).toBeDefined());
+  act(() => result.current.apply.mutate());
+  await waitFor(() => expect(result.current.apply.isSuccess).toBe(true));
+  expect(client.getQueryData(key)).toBeUndefined();
+  unmount(); client.clear();
+});
+it("removes a field from the draft at once and puts it back in place from the toast's undo", async () => {
+  setLanguage("en");
+  const notify = vi.spyOn(toasts, "toast");
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const { result, unmount } = renderHook(() => useSchemaEditor({ type: "base", catalog: [], basePath: "/new-collection/base" }), { wrapper: wrapper(client) });
+  act(() => { result.current.addField("text"); result.current.addField("boolean"); });
+  const [first, second] = result.current.draft.fields;
+  act(() => result.current.removeField(first.key));
+  expect(result.current.draft.fields.map((field) => field.key)).toEqual([second.key]);
+  const undo = notify.mock.calls[0][2];
+  expect(undo?.label).toBe("Undo");
+  act(() => undo!.run());
+  expect(result.current.draft.fields.map((field) => field.key)).toEqual([first.key, second.key]);
   unmount(); client.clear();
 });

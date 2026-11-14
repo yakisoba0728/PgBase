@@ -1,14 +1,19 @@
 /* Rich-text field (Tiptap). injectCSS is off for the CSP, so the ProseMirror essentials live here. */
+/* Boxed like a control: the toolbar and document share one edge. */
 .rich-text {
-  margin: 0 4px 4px;
   overflow: hidden;
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  box-shadow: 0 0 0 1px var(--line);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius);
+  background: var(--surface);
+  transition: border-color var(--dur);
+}
+
+.rich-text:focus-within {
+  border-color: var(--accent);
 }
 
 .rich-text[data-invalid] {
-  box-shadow: 0 0 0 1px var(--danger);
+  border-color: var(--danger);
 }
 
 .rich-text-bar {
@@ -16,7 +21,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 1px;
-  padding: 4px;
+  padding: var(--sp-4);
   box-shadow: 0 1px 0 var(--line);
 }
 
@@ -24,21 +29,21 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 6px;
+  gap: var(--sp-4);
+  min-width: var(--control-sm);
+  height: var(--control-sm);
+  padding: 0 var(--sp-6);
   border: 0;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   background: none;
   color: var(--text-hint);
   font-size: var(--font-size-xs);
-  font-weight: 600;
+  font-weight: var(--weight-bold);
   cursor: pointer;
 }
 
 .rt-btn:hover:not(:disabled) {
-  background: var(--surface-1);
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -48,7 +53,7 @@
 }
 
 .rt-btn:disabled {
-  opacity: 0.4;
+  opacity: var(--disabled-opacity);
   cursor: default;
 }
 
@@ -59,26 +64,26 @@
 .rt-sep {
   width: 1px;
   height: 16px;
-  margin: 0 4px;
+  margin: 0 var(--sp-4);
   background: var(--line);
 }
 
 .rich-text-url {
   display: flex;
-  gap: 6px;
-  padding: 6px;
+  gap: var(--sp-6);
+  padding: var(--sp-6);
   box-shadow: 0 1px 0 var(--line);
 }
 
 .rich-text-url .field-control {
   flex: 1;
-  height: var(--control-sm);
 }
 
 .rich-text-source {
   display: block;
   width: 100%;
   min-height: 220px;
+  border: 0;
   border-radius: 0;
   resize: vertical;
 }
@@ -86,17 +91,18 @@
 .rich-text-doc {
   min-height: 160px;
   max-height: 480px;
-  padding: 10px 12px;
+  padding: var(--sp-10) var(--sp-12);
   overflow-y: auto;
-  outline: 0;
   line-height: 1.6;
   white-space: pre-wrap;
   word-wrap: break-word;
   font-variant-ligatures: none;
 }
 
-.rich-text-doc:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--ring);
+/* Inside the clipped box the focus ring is drawn inward. */
+.rich-text-doc:focus-visible,
+.rich-text-source:focus-visible {
+  outline-offset: -2px;
 }
 
 .rich-text-doc > * + * {
@@ -104,8 +110,8 @@
 }
 
 .rich-text-doc h2 {
-  font-size: 16px;
-  font-weight: 650;
+  font-size: var(--font-size-title);
+  font-weight: var(--weight-bold);
 }
 
 .rich-text-doc ul,
@@ -122,13 +128,13 @@
 }
 
 .rich-text-doc blockquote {
-  padding-left: 12px;
+  padding-left: var(--sp-12);
   color: var(--text-hint);
   box-shadow: inset 3px 0 0 var(--line);
 }
 
 .rich-text-doc pre {
-  padding: 8px 10px;
+  padding: var(--sp-8) var(--sp-10);
   border-radius: var(--radius-xs);
   background: var(--surface-1);
   font-family: var(--font-mono);
@@ -169,21 +175,21 @@
 .rich-text-doc th {
   position: relative;
   min-width: 1em;
-  padding: 4px 8px;
+  padding: var(--sp-4) var(--sp-8);
   border: 1px solid var(--surface-3);
   vertical-align: top;
 }
 
 .rich-text-doc th {
   background: var(--surface-1);
-  font-weight: 600;
+  font-weight: var(--weight-bold);
   text-align: left;
 }
 
 .rich-text-doc .selectedCell::after {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: var(--z-raised-over);
   background: var(--accent-faint);
   content: "";
   pointer-events: none;

@@ -9,6 +9,7 @@ import { FileThumb } from "./FileThumb";
 import { cellView, fieldKind, shortDate } from "./fields";
 import { recordFilesQuery } from "./queries";
 import { labelField, recordLabel } from "./relation";
+import { IconButton } from "../components/Button";
 
 /** Fixed column widths: the grid uses table-layout: fixed so rows can be windowed without reflow. */
 export function columnWidth(field: CollectionField | undefined): number {
@@ -66,9 +67,7 @@ export const RecordCell = memo(function RecordCell({ field, name, record, collec
     onPeek(name, full(), event.currentTarget);
   };
   const peekButton = (full: () => string) => (
-    <button type="button" className="peek-btn" tabIndex={-1} aria-label={t("peek.show", { name })} title={t("peek.show", { name })} onClick={peek(full)}>
-      <RiExpandDiagonal2Line size={14} aria-hidden />
-    </button>
+    <IconButton size="xs" className="icon-btn-raised peek-btn" tabIndex={-1} label={t("peek.show", { name })} icon={RiExpandDiagonal2Line} onClick={peek(full)} />
   );
   switch (view.kind) {
     case "empty":

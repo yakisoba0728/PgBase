@@ -1,15 +1,16 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { openRow } from "../components/DataGrid";
-import { RiAddLine, RiKey2Line } from "@remixicon/react";
+import { RiAddLine, RiErrorWarningLine, RiKey2Line } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { issueServiceToken, revokeServiceToken, type ServiceToken, type ServiceTokenScope } from "../api/system";
 import { errorText } from "../app/queries";
 import { collectionsQuery } from "../collections/queries";
 import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, Skeleton, Notice } from "../components/Feedback";
-import { Field } from "../components/Field";
+import { EmptyState, Notice, Skeleton } from "../components/Feedback";
+import { QueryView } from "../components/QueryView";
+import { Row, Table, TableScroll } from "../components/Table";
+import { Checkbox, Field, GroupCheckbox, Searchbar } from "../components/Field";
 import { SplitView, PaneHeader } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
@@ -19,7 +20,6 @@ import { serviceTokensQuery } from "./queries";
 import { SecretView, TaskDialog } from "../components/Dialog";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { Facts } from "../components/Facts";
-import { ErrorState } from "../components/Feedback";
 import "../styles/system.css";
 
 const actions: ServiceTokenScope["action"][] = ["read", "create", "update", "delete"];
@@ -55,50 +55,50 @@ export function ServiceTokensView() {
   const close = () => update({ token: null });
 
   const list = (
-    <div className="grid-scroll">
-      {query.isPending ? (
-        <Skeleton />
-      ) : query.isError ? (
-        <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />
-      ) : items.length === 0 ? (
-        <EmptyState icon={RiKey2Line}>{t("system.tokens.empty")}</EmptyState>
-      ) : (
-        <>
-          <table className="grid" aria-label={t("nav.tokens")}>
-            <thead>
-              <tr>
-                <th>{t("system.tokens.name")}</th>
-                <th>{t("system.tokens.state")}</th>
-                <th>{t("system.tokens.scopes")}</th>
-                <th>{t("system.tokens.expires")}</th>
-                <th>{t("system.tokens.created")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => {
-                const state = tokenState(t, item);
-                return (
-                  <tr key={item.id} {...openRow(() => update({ token: item.id }), openId === item.id)}>
-                    <td>{item.name}</td>
-                    <td><span className="dot" data-tone={state.tone}>{state.label}</span></td>
-                    <td className="sys-scope-cell">{[...new Set(item.scopes.map((scope) => names.get(scope.collectionId) ?? scope.collectionId))].join(", ")}</td>
-                    <td className="mono">{time(item.expiresAt)}</td>
-                    <td className="mono">{time(item.createdAt)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {items.length >= 64 && <p className="grid-foot txt-hint">{t("system.tokens.capped")}</p>}
-        </>
-      )}
-    </div>
+    <TableScroll>
+      <QueryView query={query} empty={<EmptyState icon={RiKey2Line}>{t("system.tokens.empty")}</EmptyState>} isEmpty={(data) => data.items.length === 0}>
+        {() => (
+          <>
+            <Table label={t("nav.tokens")}>
+              <thead>
+                <tr>
+                  <th>{t("system.tokens.name")}</th>
+                  <th>{t("system.tokens.state")}</th>
+                  <th>{t("system.tokens.scopes")}</th>
+                  <th>{t("system.tokens.expires")}</th>
+                  <th>{t("system.tokens.created")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => {
+                  const state = tokenState(t, item);
+                  return (
+                    <Row key={item.id} current={openId === item.id} onOpen={() => update({ token: item.id })}>
+                      <td>{item.name}</td>
+                      <td><span className="dot" data-tone={state.tone}>{state.label}</span></td>
+                      <td className="sys-scope-cell">{[...new Set(item.scopes.map((scope) => names.get(scope.collectionId) ?? scope.collectionId))].join(", ")}</td>
+                      <td className="mono">{time(item.expiresAt)}</td>
+                      <td className="mono">{time(item.createdAt)}</td>
+                    </Row>
+                  );
+                })}
+              </tbody>
+            </Table>
+            {items.length >= 64 && <p className="grid-foot txt-hint">{t("system.tokens.capped")}</p>}
+          </>
+        )}
+      </QueryView>
+    </TableScroll>
   );
 
-  const pane = openId === "new" ? <IssueToken onClose={close} onIssued={(id) => update({ token: id })} /> : open ? <TokenPane key={open.id} token={open} names={names} onClose={close} /> : null;
+  let pane = null;
+  if (openId === "new") pane = <IssueToken onClose={close} onIssued={(id) => update({ token: id })} />;
+  else if (open) pane = <TokenPane key={open.id} token={open} names={names} onClose={close} />;
+  // The full list is loaded, so a token missing from it once it settles does not exist (a just-issued one arrives with the refetch).
+  else if (openId && query.data && !query.isFetching) pane = <EmptyState icon={RiErrorWarningLine}>{t("common.notFound")}</EmptyState>;
+  else if (openId && !query.isError) pane = <Skeleton variant="form" />;
   return <SplitView list={list} pane={pane} paneLabel={t("system.tokens.detail")} onClose={close} />;
 }
-
 function TokenPane({ token, names, onClose }: { token: ServiceToken; names: Map<string, string>; onClose: () => void }) {
   const t = useT();
   const time = useTimeFormat();
@@ -153,11 +153,13 @@ function IssueToken({ onClose, onIssued }: { onClose: () => void; onIssued: (id:
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: serviceTokensQuery.queryKey }),
   });
   const close = () => { if (!issue.isPending) onClose(); };
-  const toggle = (key: string, on: boolean) =>
+  const setMany = (keys: string[], on: boolean) =>
     setScopes((current) => {
       const next = new Set(current);
-      if (on) next.add(key);
-      else next.delete(key);
+      for (const key of keys) {
+        if (on) next.add(key);
+        else next.delete(key);
+      }
       return next;
     });
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -189,35 +191,11 @@ function IssueToken({ onClose, onIssued }: { onClose: () => void; onIssued: (id:
         <Field label={t("system.tokens.days")} name="days" type="number" required min={1} max={365} step={1} defaultValue={30} hint={t("system.tokens.daysHint")} />
         <fieldset className="sys-scopes">
           <legend>{t("system.tokens.scopes")}</legend>
-          {collections.isPending ? (
-            <Skeleton />
-          ) : (collections.data ?? []).length === 0 ? (
-            <p className="txt-hint">{t("system.tokens.noCollections")}</p>
-          ) : (
-            <table className="grid">
-              <thead>
-                <tr>
-                  <th>{t("system.tokens.collection")}</th>
-                  {actions.map((action) => <th key={action} className="sys-center">{t(`system.tokens.action.${action}`)}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {(collections.data ?? []).map((collection) => (
-                  <tr key={collection.id}>
-                    <td className="mono">{collection.name}</td>
-                    {actions.map((action) => {
-                      const key = `${collection.id}/${action}`;
-                      return (
-                        <td key={action} className="sys-center">
-                          <input type="checkbox" aria-label={`${collection.name} ${t(`system.tokens.action.${action}`)}`} checked={scopes.has(key)} onChange={(event) => toggle(key, event.target.checked)} />
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <QueryView query={collections} empty={<p className="txt-hint">{t("system.tokens.noCollections")}</p>}>
+            {(data) => (
+              <ScopeTable collections={data} scopes={scopes} onChange={setMany} />
+            )}
+          </QueryView>
         </fieldset>
       </fieldset></div>
       <footer className="pane-footer">
@@ -230,5 +208,65 @@ function IssueToken({ onClose, onIssued }: { onClose: () => void; onIssued: (id:
         {issue.data && <SecretView label={t("system.tokens.secret")} value={issue.data.token} warning={t("system.tokens.once")} onDone={done} />}
       </TaskDialog>
     </form>
+  );
+}
+
+/** Collections by action; a filter narrows the rows, and a column's box applies to the rows shown. */
+function ScopeTable({ collections, scopes, onChange }: { collections: { id: string; name: string }[]; scopes: Set<string>; onChange: (keys: string[], on: boolean) => void }) {
+  const t = useT();
+  const [filter, setFilter] = useState("");
+  const needle = filter.trim().toLowerCase();
+  const shown = needle ? collections.filter((collection) => collection.name.toLowerCase().includes(needle)) : collections;
+  const key = (id: string, action: string) => `${id}/${action}`;
+  const group = (label: string, keys: string[]) => (
+    <GroupCheckbox label={label} chosen={keys.filter((item) => scopes.has(item)).length} total={keys.length} onChange={(on) => onChange(keys, on)} />
+  );
+  return (
+    <>
+      {/* Inside the issue form: Enter filters, it never submits. */}
+      <Searchbar size="sm" label={t("system.tokens.filter")} value={filter} onChange={(event) => setFilter(event.target.value)}
+        onKeyDown={(event) => event.key === "Enter" && event.preventDefault()} />
+      <Table label={t("system.tokens.scopes")}>
+        <thead>
+          <tr>
+            <th>{t("system.tokens.collection")}</th>
+            {actions.map((action) => {
+              const name = t(`system.tokens.action.${action}`);
+              return (
+                <th key={action} className="sys-center">
+                  <label className="sys-scope-head">
+                    {group(t("system.tokens.allColumn", { action: name }), shown.map((collection) => key(collection.id, action)))}
+                    {name}
+                  </label>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {shown.length === 0 && (
+            <tr><td colSpan={actions.length + 1} className="txt-hint">{t("system.tokens.noMatch")}</td></tr>
+          )}
+          {shown.map((collection) => (
+            <tr key={collection.id}>
+              <td className="mono">
+                <label className="sys-scope-head">
+                  {group(t("system.tokens.allRow", { name: collection.name }), actions.map((action) => key(collection.id, action)))}
+                  {collection.name}
+                </label>
+              </td>
+              {actions.map((action) => {
+                const k = key(collection.id, action);
+                return (
+                  <td key={action} className="sys-center">
+                    <Checkbox aria-label={`${collection.name} ${t(`system.tokens.action.${action}`)}`} checked={scopes.has(k)} onChange={(event) => onChange([k], event.target.checked)} />
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+    </>
   );
 }

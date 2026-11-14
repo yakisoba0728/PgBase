@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { keyLabel } from "../app/keys";
 import { RiPlayLine, RiTerminalBoxLine } from "@remixicon/react";
-import { ApiError } from "../api/http";
+import { isNotFound } from "../api/http";
 import { submitSql, type SqlExecutionPage, type SqlMode, type SqlSubmitInput } from "../api/sql";
-import { errorText } from "../app/queries";
+import { errorText, windowOpen, windowShifted } from "../app/queries";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, ErrorState, Skeleton, Notice } from "../components/Feedback";
+import { EmptyState, LoadMore, Notice, Unavailable, WindowNotice } from "../components/Feedback";
+import { QueryView } from "../components/QueryView";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { CodeArea } from "../components/CodeArea";
 import { Checkbox } from "../components/Field";
@@ -18,7 +19,7 @@ import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { newIdentity } from "../schema/apply";
 import { mayHaveRun, recallStatements, rememberStatement, statementText } from "./model";
-import { sqlExecutionQuery, sqlHistoryQuery } from "./queries";
+import { refreshSqlHistory, sqlExecutionQuery, sqlHistoryQuery } from "./queries";
 import { SqlResult, statusTone } from "./SqlResult";
 import "../styles/devtools.css";
 
@@ -27,22 +28,41 @@ import "../styles/devtools.css";
 export function SqlConsole() {
   const t = useT();
   const history = useInfiniteQuery(sqlHistoryQuery);
-  if (history.isPending) return <Skeleton variant="editor" />;
-  if (!history.data && history.error instanceof ApiError && history.error.status === 404) {
+  const queryClient = useQueryClient();
+  if (!history.data && isNotFound(history.error)) {
     return (
       <div className="page-content">
-        <div className="dt-disabled">
-          <RiTerminalBoxLine size={24} aria-hidden />
-          <h2>{t("devtools.sql.offTitle")}</h2>
-          <p>{t("devtools.sql.offText")}</p>
-          <p className="dt-muted">{t("devtools.sql.offHow")}</p>
-        </div>
+        <Unavailable icon={RiTerminalBoxLine} title={t("devtools.sql.offTitle")} setting="Options.SQLConsole" how={t("devtools.sql.offHow")}>{t("devtools.sql.offText")}</Unavailable>
       </div>
     );
   }
-  if (history.isError && !history.data) return <ErrorState error={history.error} onRetry={history.refetch} />;
-  const pages = history.data!.pages;
-  return <>{history.isError && <ErrorState error={history.error} onRetry={history.refetch} />}<Workbench settings={pages[0]} executions={pages.flatMap((page) => page.executions)} more={history.hasNextPage ? () => history.fetchNextPage() : undefined} loadingMore={history.isFetchingNextPage} /></>;
+  return (
+    <div className="page-form">
+      <QueryView query={history} skeleton="editor">
+        {(data) => {
+          const executions = data.pages.flatMap((page) => page.executions);
+          const shifted = windowShifted(data);
+          return (
+            <Workbench
+              settings={data.pages[0]}
+              executions={executions}
+              more={
+                <>
+                  {shifted && (
+                    <WindowNotice action={t("ops.logs.newest")} onReset={(button) => {
+                      button.closest(".dt-history")?.scrollTo(0, 0);
+                      void refreshSqlHistory(queryClient, true);
+                    }}>{t("ops.logs.shifted", { count: executions.length })}</WindowNotice>
+                  )}
+                  <LoadMore query={history} auto={windowOpen(data)} />
+                </>
+              }
+            />
+          );
+        }}
+      </QueryView>
+    </div>
+  );
 }
 
 interface SqlAttempt {
@@ -54,12 +74,12 @@ interface SqlAttempt {
 interface WorkbenchProps {
   settings: SqlExecutionPage;
   executions: SqlExecutionPage["executions"];
-  more?: () => void;
-  loadingMore: boolean;
+  /** The history's "Load more" footer. */
+  more: ReactNode;
 }
 
 /** Editor and result on the left, this session's history on the right; ?run= is the shown execution. */
-function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) {
+function Workbench({ settings, executions, more }: WorkbenchProps) {
   const t = useT();
   const time = useTimeFormat();
   const queryClient = useQueryClient();
@@ -120,7 +140,7 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
   return (
     <div className="dt-sql">
       <UnsavedGuard dirty={sql.trim() !== "" || lostWrite !== null} busy={submit.isPending} leaves={(current, next) => current.pathname !== next.pathname} />
-      <section className="dt-sql-main" aria-label={t("nav.sql")}>
+      <section className="page-form" aria-label={t("nav.sql")}>
         <div className="dt-editor-wrap" data-write={writing ? "" : undefined}>
           <CodeArea
             label={t("devtools.sql.editor")}
@@ -132,7 +152,7 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
             onChange={(event) => setSql(event.target.value)}
             onSubmit={start}
           />
-          <div className="toolbar dt-sql-bar">
+          <div className="toolbar toolbar-inset dt-sql-bar">
             {settings.writeEnabled && (
               <Tabs
                 label={t("devtools.sql.modeLabel")}
@@ -146,7 +166,7 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
             )}
             {writing && <Checkbox label={t("devtools.sql.dryRunLabel")} checked={dryRun} onChange={(event) => setDryRun(event.target.checked)} />}
             <span className="dt-muted">{settings.writeEnabled ? (writing ? t("devtools.sql.writeHint") : t("devtools.sql.readHint")) : t("devtools.sql.readOnly")}</span>
-            <div className="dt-actions">
+            <div className="actions">
               <kbd>{keyLabel("mod").join("")} ↵</kbd>
               <Button size="sm" variant={writing ? "danger" : "primary"} icon={RiPlayLine} loading={submit.isPending} disabled={!statementText(sql) || blocked} onClick={start}>
                 {writing ? t("devtools.sql.runWrite") : t("devtools.sql.run")}
@@ -177,6 +197,7 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
                 <li key={execution.id}>
                   <button
                     type="button"
+                    className="row-btn"
                     aria-current={run === execution.id ? "true" : undefined}
                     onClick={() => {
                       if (text !== undefined) setSql(text);
@@ -195,7 +216,7 @@ function Workbench({ settings, executions, more, loadingMore }: WorkbenchProps) 
             })}
           </ul>
         )}
-        {more && <Button size="sm" variant="secondary" loading={loadingMore} onClick={more}>{t("common.loadMore")}</Button>}
+        {more}
       </aside>
       <ConfirmDialog
         open={setAside}

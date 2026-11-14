@@ -11,6 +11,9 @@ export const shellEn = {
   "palette.group.collections": "Collections",
   "palette.group.screens": "Screens",
   "palette.group.actions": "Commands",
+  "palette.group.users": "Users",
+  "palette.usersLoading": "Searching users…",
+  "palette.usersFailed": "Couldn’t search users: {error}",
   "palette.newCollection": "New collection",
   "palette.newRecord": "New record in {name}",
   "palette.theme": "Theme: {mode}",
@@ -29,7 +32,6 @@ export const shellEn = {
   "shortcuts.group.general": "General",
   "shortcuts.group.navigation": "Go to",
 
-  "nav.recent": "Recent",
 
   "field.reveal": "Reveal",
   "field.capsLock": "Caps Lock is on.",

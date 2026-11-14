@@ -6,6 +6,7 @@ export const systemKo: Record<keyof typeof systemEn, string> = {
   "system.tab.status": "상태",
 
   "system.settings.saved": "설정을 저장했습니다.",
+  "system.settings.sections": "설정 구역",
   "system.settings.reloaded": "데이터베이스에서 설정을 다시 불러왔습니다.",
   "system.settings.reload": "설정 다시 불러오기",
   "system.settings.reloadDirty": "먼저 변경 사항을 저장하거나 되돌리세요.",
@@ -135,6 +136,8 @@ export const systemKo: Record<keyof typeof systemEn, string> = {
 
   "system.admins.new": "새 관리자",
   "system.admins.detail": "관리자",
+  "system.admins.shifted": "뒤쪽 관리자 {count}명을 보는 중입니다. 목록을 가볍게 유지하려고 앞쪽 항목은 내렸습니다.",
+  "system.admins.toStart": "처음으로",
   "system.admins.email": "이메일",
   "system.admins.password": "비밀번호",
   "system.admins.passwordHint": "12자 이상.",
@@ -219,6 +222,10 @@ export const systemKo: Record<keyof typeof systemEn, string> = {
   "system.tokens.daysHint": "1~365일.",
   "system.tokens.noCollections": "먼저 컬렉션을 만드세요.",
   "system.tokens.selected": "{count}개 선택",
+  "system.tokens.filter": "컬렉션 필터",
+  "system.tokens.noMatch": "일치하는 컬렉션이 없습니다.",
+  "system.tokens.allColumn": "표시된 모든 컬렉션에 {action}",
+  "system.tokens.allRow": "{name}의 모든 동작",
   "system.tokens.issue": "토큰 발급",
   "system.tokens.invalid": "이름(1~128자), 만료 기간, 권한 범위를 확인하세요.",
   "system.tokens.issuedTitle": "“{name}” 토큰을 발급했습니다",

@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -18,6 +18,7 @@ import {
   RiUser3Line,
   type RemixiconComponentType,
 } from "@remixicon/react";
+import { listUsers } from "../api/users";
 import { collectionsQuery } from "../collections/queries";
 import { Button } from "../components/Button";
 import { TaskDialog, useModal } from "../components/Dialog";
@@ -29,6 +30,7 @@ import { rankItems, type PaletteItem } from "./palette";
 import { collectionPath, useRecentCollections } from "./recent";
 import { setHelp, setPalette, useHelp, usePalette } from "./shell";
 import { useSignOut } from "./signout";
+import { errorText } from "./queries";
 import { setTheme, themeModes } from "./theme";
 
 const languageNames = { ko: "한국어", en: "English" };
@@ -85,10 +87,37 @@ function CommandPalette() {
   const close = () => setPalette(false);
   const modal = useModal(open, close);
   return (
-    <dialog className="palette" {...modal} aria-labelledby="palette-title">
+    <dialog className="modal palette" {...modal} aria-labelledby="palette-title">
       {open && <PaletteBody onClose={close} />}
     </dialog>
   );
+}
+
+/** Users whose email contains the text (or with that exact id), once two characters are typed; the server matches, so no ranking. */
+function useUserItems(query: string) {
+  const navigate = useNavigate();
+  const collections = useQuery(collectionsQuery).data;
+  const text = query.trim();
+  const [debounced, setDebounced] = useState(text);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(text), 250);
+    return () => clearTimeout(timer);
+  }, [text]);
+  const enabled = debounced.length >= 2 && debounced === text;
+  // A changed query cancels the request in flight (the signal), and results never outlive their query.
+  const users = useQuery({ queryKey: ["palette", "users", debounced], queryFn: ({ signal }) => listUsers({ q: debounced, limit: 5, signal }), enabled, staleTime: 30_000, retry: false });
+  const items = useMemo(() => enabled && users.data
+    ? users.data.items.map((user): Item => ({
+        id: `user:${user.id}`,
+        group: "users",
+        label: user.email || user.id,
+        hint: collections?.find((collection) => collection.id === user.authCollectionId)?.name,
+        icon: RiUser3Line,
+        run: () => void navigate(`/auth/users?user=${encodeURIComponent(user.id)}`),
+      }))
+    : [], [enabled, users.data, collections, navigate]);
+  const status = text.length < 2 ? null : !enabled || users.isPending ? "loading" : users.isError ? "error" : null;
+  return { items, status, error: users.error };
 }
 
 function PaletteBody({ onClose }: { onClose: () => void }) {
@@ -96,7 +125,8 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   const items = useItems();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const shown = useMemo(() => rankItems(items, query), [items, query]);
+  const users = useUserItems(query);
+  const shown = useMemo(() => [...rankItems(items, query), ...users.items], [items, query, users.items]);
   const index = Math.min(active, shown.length - 1);
 
   const run = (item: Item | undefined) => {
@@ -126,7 +156,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   return (
     <>
       <h2 id="palette-title" className="visually-hidden">{t("palette.title")}</h2>
-      <div className="palette-search">
+      <div className="modal-head palette-search">
         <RiSearchLine size={16} aria-hidden />
         <input
           autoFocus
@@ -170,7 +200,17 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
             </li>
           );
         })}
-        {shown.length === 0 && <li className="palette-empty" role="presentation">{t("palette.empty")}</li>}
+        {users.status && (
+          <li role="presentation">
+            {!shown.some((item) => item.group === "users") && <div className="palette-group" aria-hidden>{t("palette.group.users")}</div>}
+            {users.status === "loading" ? (
+              <div className="palette-status" role="status">{t("palette.usersLoading")}</div>
+            ) : (
+              <div className="palette-status" role="alert" data-tone="danger">{t("palette.usersFailed", { error: errorText(t, users.error) })}</div>
+            )}
+          </li>
+        )}
+        {shown.length === 0 && !users.status && <li className="palette-empty" role="presentation">{t("palette.empty")}</li>}
       </ul>
     </>
   );
@@ -221,7 +261,7 @@ function ShortcutsHelp() {
           </dl>
         </section>
       </div>
-      <div className="confirm-actions">
+      <div className="modal-actions">
         <Button variant="secondary" onClick={() => setHelp(false)}>{t("common.close")}</Button>
       </div>
     </TaskDialog>

@@ -1,17 +1,16 @@
+import type { KeyboardEvent } from "react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { RiErrorWarningLine, RiPlayLine } from "@remixicon/react";
+import { RiPlayLine } from "@remixicon/react";
 import { Facts } from "../components/Facts";
 import { UnsavedGuard } from "../components/UnsavedGuard";
-import { listAuthCollections } from "../api/authCollections";
+import { authCollectionsQuery } from "../auth/queries";
 import { stringifyJson } from "../api/http";
 import type { Collection } from "../api/collections";
-import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
-import { EmptyState, Skeleton } from "../components/Feedback";
+import { QueryView } from "../components/QueryView";
 import { Checkbox, Field } from "../components/Field";
 import { SaveBar } from "../components/SaveBar";
-import { SplitView } from "../components/SplitView";
 import { useT, type MessageKey } from "../i18n";
 import { expressionChanged, modes, previewable, typedRule, type Action } from "./model";
 import { useRulesEditor, type RulesEditor } from "./useRulesEditor";
@@ -37,21 +36,35 @@ function RuleRow({ editor, action }: { editor: RulesEditor; action: Action }) {
   const error = editor.errors[action];
   const testable = previewable(action) && typedRule(draft) !== null;
   const testing = editor.preview.isPending && editor.preview.variables === action;
+  const choose = (mode: typeof draft.mode) => editor.update(action, { mode, expression: mode === "expression" ? draft.expression || draft.loaded.expression || "" : draft.expression });
+  const onModeKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
+    if (!step) return;
+    event.preventDefault();
+    const at = modes.indexOf(draft.mode as (typeof modes)[number]);
+    // From a custom rule (no enabled mode checked) the arrows land on the first or last mode.
+    const next = modes[(Math.max(at, step > 0 ? -1 : 0) + step + modes.length) % modes.length];
+    choose(next);
+    event.currentTarget.querySelector<HTMLElement>(`[data-mode="${next}"]`)?.focus();
+  };
   return (
     <li className="rule-row" data-invalid={error ? "" : undefined}>
       <div className="rule-head">
         <span className="rule-action mono">{action}</span>
         <span className="rule-desc">{t(`rules.action.${action}` as MessageKey)}</span>
-        <div className="rule-modes" role="radiogroup" aria-label={t("rules.modeFor", { action })}>
+        <div className="rule-modes" role="radiogroup" aria-label={t("rules.modeFor", { action })} onKeyDown={onModeKey}>
           {(draft.mode === "custom" ? [...modes, "custom" as const] : modes).map((mode) => (
             <button
               key={mode}
               type="button"
               role="radio"
               aria-checked={draft.mode === mode}
+              // Radio group: one tab stop (the checked mode, or the first when the rule is custom); arrows move.
+              tabIndex={mode === (draft.mode === "custom" ? modes[0] : draft.mode) ? 0 : -1}
+              data-mode={mode}
               disabled={mode === "custom"}
               className="rule-mode"
-              onClick={() => editor.update(action, { mode, expression: mode === "expression" ? draft.expression || draft.loaded.expression || "" : draft.expression })}
+              onClick={() => choose(mode)}
             >
               {t(`rules.mode.${mode}`)}
             </button>
@@ -94,11 +107,11 @@ function RuleRow({ editor, action }: { editor: RulesEditor; action: Action }) {
 /** Auth records use the auth collection's own rule set; shown for reference. */
 function AuthRules({ name }: { name: string }) {
   const t = useT();
-  const query = useQuery({ queryKey: ["auth-collections"], queryFn: ({ signal }) => listAuthCollections(signal) });
+  const query = useQuery(authCollectionsQuery);
   const auth = query.data?.find((item) => item.name === name);
   if (!auth) return null;
   return (
-    <section className="rules-section">
+    <section className="stack-section">
       <h2>{t("rules.authTitle")}</h2>
       <p className="field-hint">{t("rules.authHint")}</p>
       <Facts items={Object.entries(auth.rules).map(([key, value]) => ({ label: <span className="mono">{key}</span>, value: value === null ? <span className="na">{t("rules.mode.admins")}</span> : value === "" ? t("rules.mode.everyone") : value, mono: value !== null && value !== "" }))} />
@@ -139,35 +152,38 @@ export function RulesView({ collection, basePath }: { collection: Collection; ba
   const t = useT();
   const source = collection.type === "view" && !collection.view?.sql ? collection.view?.source : undefined;
   const editor = useRulesEditor(source ? { ...collection, name: source, type: "base" } : collection, basePath);
-  if (editor.loading) return <Skeleton variant="form" />;
-  if (editor.loadError || !editor.drafts) return <div className="page-content"><EmptyState icon={RiErrorWarningLine}>{errorText(t, editor.loadError)}</EmptyState><UnsavedGuard {...editor.guard} /></div>;
   const isView = collection.type === "view";
-  const list = (
+  return (
     <>
-      <div className="toolbar">
-        {source ? <p>{t("rules.inherited")} <Link to={`/collections/${encodeURIComponent(source)}/rules`}>{source}</Link></p> : <SaveBar dirty={editor.dirty} busy={editor.save.isPending} onDiscard={editor.discard} onSave={() => editor.save.mutate()} />}
-      </div>
-      <fieldset className="page-content rules-layout" disabled={Boolean(source) || editor.save.isPending}>
-        <div className="rules-main">
+      <QueryView query={editor.query} skeleton="form">
+        {() => (
+          <div className="page-form">
+            <div className="toolbar">
+              {source ? <p>{t("rules.inherited")} <Link to={`/collections/${encodeURIComponent(source)}/rules`}>{source}</Link></p> : <SaveBar dirty={editor.dirty} busy={editor.save.isPending} onDiscard={editor.discard} onSave={() => editor.save.mutate()} />}
+            </div>
+            <fieldset className="page-content rules-layout" disabled={Boolean(source) || editor.save.isPending}>
+              <div className="rules-main">
 
-          <section className="rules-section">
-            <h2>{t("rules.accessTitle")}</h2>
-            <Checkbox label={t("rules.accessLabel")} checked={editor.accessEnabled} onChange={(event) => editor.setAccess(event.target.checked)} />
-            <p className="field-hint">{t(editor.accessEnabled ? "rules.accessOn" : "rules.accessOff")}</p>
-          </section>
-          <section className="rules-section">
-            <h2>{t("rules.title")}</h2>
-            {isView && <p className="field-hint">{t("rules.viewHint")}</p>}
-            <ul className="rules-list">
-              {editor.visible.map((action) => <RuleRow key={action} editor={editor} action={action} />)}
-            </ul>
-          </section>
-          {collection.type === "auth" && <AuthRules name={collection.name} />}
-        </div>
-        <Reference editor={editor} />
-      </fieldset>
+                <section className="stack-section">
+                  <h2>{t("rules.accessTitle")}</h2>
+                  <Checkbox label={t("rules.accessLabel")} checked={editor.accessEnabled} onChange={(event) => editor.setAccess(event.target.checked)} />
+                  <p className="field-hint">{t(editor.accessEnabled ? "rules.accessOn" : "rules.accessOff")}</p>
+                </section>
+                <section className="stack-section">
+                  <h2>{t("rules.title")}</h2>
+                  {isView && <p className="field-hint">{t("rules.viewHint")}</p>}
+                  <ul className="rules-list">
+                    {editor.visible.map((action) => <RuleRow key={action} editor={editor} action={action} />)}
+                  </ul>
+                </section>
+                {collection.type === "auth" && <AuthRules name={collection.name} />}
+              </div>
+              <Reference editor={editor} />
+            </fieldset>
+          </div>
+        )}
+      </QueryView>
       <UnsavedGuard {...editor.guard} />
     </>
   );
-  return <SplitView list={list} pane={null} paneLabel={t("rules.reference")} onClose={() => undefined} />;
 }

@@ -23,7 +23,7 @@ export function LogStats({ range, active, onPick }: { range: Pick<RequestLogFilt
   const settings = useQuery({ ...settingsQuery, refetchOnMount: true, staleTime: 60_000 });
   const retention = settings.data?.logs.retentionDays;
   const [hover, setHover] = useState<string | null>(null);
-  if (stats.isError) return <p className="ops-stats txt-hint">{errorText(t, stats.error)}</p>;
+  if (stats.isError && !stats.data) return <p className="ops-stats txt-hint">{errorText(t, stats.error)}</p>;
   const data = stats.data;
   if (!data) return <div className="ops-stats"><Skeleton variant="cards" /></div>;
   const counts = classes.map((c) => data.statusClasses[`${c}xx`]);
@@ -71,11 +71,11 @@ export function LogStats({ range, active, onPick }: { range: Pick<RequestLogFilt
       <dl className="ops-figures">
         <div>
           <dt>{shown ? `${shown}xx` : t("ops.logs.total")}</dt>
-          <dd className="mono">{shown ? shownCount : String(data.total)}</dd>
+          <dd className="mono tick" key={shown ? `${shown}:${shownCount}` : String(data.total)}>{shown ? shownCount : String(data.total)}</dd>
         </div>
         <div>
           <dt>{t("ops.logs.avg")}</dt>
-          <dd className="mono">{data.averageDurationMs.toFixed(1)} ms</dd>
+          <dd className="mono tick" key={data.averageDurationMs.toFixed(1)}>{data.averageDurationMs.toFixed(1)} ms</dd>
         </div>
         <div>
           <dt>{t("ops.logs.span")}</dt>

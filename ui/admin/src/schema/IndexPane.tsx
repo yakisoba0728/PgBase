@@ -4,7 +4,7 @@ import { Notice } from "../components/Feedback";
 import type { IndexKey } from "../api/collections";
 import { Button, IconButton } from "../components/Button";
 import { CodeArea } from "../components/CodeArea";
-import { Checkbox, Field } from "../components/Field";
+import { Checkbox, Field, Input, Select } from "../components/Field";
 import { Tabs } from "../components/Tabs";
 import { useT } from "../i18n";
 import { indexable, indexCollations, rawIndexTemplate, type DraftIndex } from "./draft";
@@ -73,14 +73,14 @@ export function IndexPane({ editor, index }: { editor: SchemaEditor; index: Draf
                         <span className="schema-count">{position + 1}</span>
                         <span className="mono schema-key-name" title={name}>{key.expression !== undefined ? `(${name})` : name}</span>
                         {textual && (
-                          <select className="schema-order" aria-label={t("schema.index.collation", { name })} value={key.collation ?? ""} onChange={(event) => patchKey(position, { collation: event.target.value || undefined })}>
+                          <Select size="sm" mono className="control-fit" aria-label={t("schema.index.collation", { name })} value={key.collation ?? ""} onChange={(event) => patchKey(position, { collation: event.target.value || undefined })}>
                             {indexCollations.map((collation) => <option key={collation} value={collation}>{collation || t("schema.index.defaultCollation")}</option>)}
-                          </select>
+                          </Select>
                         )}
-                        <select className="schema-order" aria-label={t("schema.order", { name })} value={key.order ?? "asc"} onChange={(event) => patchKey(position, { order: event.target.value as "asc" | "desc" })}>
+                        <Select size="sm" mono className="control-fit" aria-label={t("schema.order", { name })} value={key.order ?? "asc"} onChange={(event) => patchKey(position, { order: event.target.value as "asc" | "desc" })}>
                           <option value="asc">asc</option>
                           <option value="desc">desc</option>
-                        </select>
+                        </Select>
                         <IconButton label={t("schema.moveUp", { name })} icon={RiArrowUpSLine} disabled={position === 0} onClick={() => move(position, -1)} />
                         <IconButton label={t("schema.moveDown", { name })} icon={RiArrowDownSLine} disabled={position === keys.length - 1} onClick={() => move(position, 1)} />
                         <IconButton label={t("schema.index.removeKey", { name })} icon={RiCloseLine} onClick={() => setKeys(keys.filter((_, index) => index !== position))} />
@@ -89,12 +89,12 @@ export function IndexPane({ editor, index }: { editor: SchemaEditor; index: Draf
                   })}
                 </ol>
                 <div className="schema-key-add">
-                  <select className="schema-input" aria-label={t("schema.index.addColumn")} value="" disabled={candidates.length === 0 || keys.length >= 8}
+                  <Select size="sm" aria-label={t("schema.index.addColumn")} value="" disabled={candidates.length === 0 || keys.length >= 8}
                     onChange={(event) => event.target.value && setKeys([...keys, { field: event.target.value }])}>
                     <option value="">{t("schema.index.addColumn")}</option>
                     {candidates.map((field) => <option key={field.key} value={field.name}>{field.name}</option>)}
-                  </select>
-                  <input className="schema-input mono" aria-label={t("schema.index.expression")} placeholder="lower(title)" spellCheck={false} value={expression} disabled={keys.length >= 8}
+                  </Select>
+                  <Input size="sm" mono aria-label={t("schema.index.expression")} placeholder="lower(title)" spellCheck={false} value={expression} disabled={keys.length >= 8}
                     onChange={(event) => setExpression(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addExpression(); } }} />
                   <Button size="sm" variant="secondary" icon={RiAddLine} disabled={!expression.trim() || keys.length >= 8} onClick={addExpression}>{t("schema.index.addExpression")}</Button>
                 </div>
@@ -107,7 +107,7 @@ export function IndexPane({ editor, index }: { editor: SchemaEditor; index: Draf
         </div>
       </div>
       <footer className="pane-footer">
-        <Button variant="transparent" className="txt-danger pane-footer-start" onClick={() => editor.removeIndex(index.key)}>{t("schema.removeIndex")}</Button>
+        <Button variant="danger" className="pane-footer-start" onClick={() => editor.removeIndex(index.key)}>{t("schema.removeIndex")}</Button>
         <Button variant="secondary" onClick={() => editor.setPane(null)}>{t("common.close")}</Button>
       </footer>
     </>

@@ -2,12 +2,13 @@ import { Skeleton } from "../components/Feedback";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiAddLine, RiCloseLine, RiExternalLinkLine, RiSearchLine } from "@remixicon/react";
+import { RiAddLine, RiCloseLine, RiExternalLinkLine } from "@remixicon/react";
 import type { CollectionField } from "../api/collections";
 import { ApiError } from "../api/http";
 import { createRecord, listRecords, type RecordData } from "../api/records";
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
+import { Searchbar } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { collectionsQuery } from "./queries";
@@ -157,12 +158,12 @@ export function RelationPicker({ field, value, onChange, known = [], error, read
                   <span className={name === selected ? "mono" : undefined}>{name}</span>
                   {target && (
                     <Link to={`/collections/${encodeURIComponent(target.name)}?record=${encodeURIComponent(selected)}`} target="_blank" rel="noopener" className="relation-chip-btn" aria-label={t("relation.open", { name })} title={t("relation.open", { name })}>
-                      <RiExternalLinkLine size={13} aria-hidden />
+                      <RiExternalLinkLine size={14} aria-hidden />
                     </Link>
                   )}
                   {!readOnly && (
                     <button type="button" className="relation-chip-btn" aria-label={t("relation.remove", { name })} title={t("relation.remove", { name })} onClick={() => onChange(value.filter((item) => item !== selected))}>
-                      <RiCloseLine size={13} aria-hidden />
+                      <RiCloseLine size={14} aria-hidden />
                     </button>
                   )}
                 </li>
@@ -171,32 +172,30 @@ export function RelationPicker({ field, value, onChange, known = [], error, read
           </ul>
         )}
         {!readOnly && !full && (
-          <div className="relation-search">
-            <RiSearchLine size={14} aria-hidden />
-            <input
-              id={`${id}-search`}
-              role="combobox"
-              aria-expanded={open}
-              aria-controls={listId}
-              aria-autocomplete="list"
-              aria-activedescendant={active >= 0 ? `${id}-option-${active}` : undefined}
-              aria-invalid={error ? true : undefined}
-              value={text}
-              autoComplete="off"
-              spellCheck={false}
-              placeholder={label ? t("relation.searchBy", { field: label.name }) : t("relation.searchId")}
-              onChange={(event) => {
-                setText(event.target.value);
-                setOpen(true);
-                setActive(-1);
-              }}
-              onFocus={() => setOpen(true)}
-              onBlur={(event) => {
-                if (!event.currentTarget.parentElement?.parentElement?.contains(event.relatedTarget)) setOpen(false);
-              }}
-              onKeyDown={onKeyDown}
-            />
-          </div>
+          // Named by the field label above (htmlFor); the placeholder says what it searches by.
+          <Searchbar
+            label={label ? t("relation.searchBy", { field: label.name }) : t("relation.searchId")}
+            aria-label={undefined}
+            type="text"
+            invalid={Boolean(error)}
+            id={`${id}-search`}
+            role="combobox"
+            aria-expanded={open}
+            aria-controls={listId}
+            aria-autocomplete="list"
+            aria-activedescendant={active >= 0 ? `${id}-option-${active}` : undefined}
+            value={text}
+            onChange={(event) => {
+              setText(event.target.value);
+              setOpen(true);
+              setActive(-1);
+            }}
+            onFocus={() => setOpen(true)}
+            onBlur={(event) => {
+              if (!event.currentTarget.parentElement?.parentElement?.contains(event.relatedTarget)) setOpen(false);
+            }}
+            onKeyDown={onKeyDown}
+          />
         )}
         {open && !readOnly && !full && (
           <div className="relation-results">

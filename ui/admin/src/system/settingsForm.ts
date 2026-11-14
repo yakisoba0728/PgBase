@@ -90,7 +90,13 @@ export const sections: { id: string; fields: FieldSpec[] }[] = [
 
 const specs = sections.flatMap((section) => section.fields);
 
+let ruleIds = 0;
+/** A rule row with a fresh key. */
+export const ruleDraft = (rule: Omit<RuleDraft, "id">): RuleDraft => ({ id: ++ruleIds, ...rule });
+
 export interface RuleDraft {
+  /** Client-only row key, so removing a row does not shift another row's inputs; never sent. */
+  id: number;
   label: string;
   audience: string;
   duration: string;
@@ -125,7 +131,7 @@ export function toDraft(settings: RuntimeSettings): SettingsDraft {
     // Older servers sent unset list fields as null.
     values[spec.path] = spec.kind === "bool" ? Boolean(value) : spec.kind === "lines" ? ((value as string[] | null) ?? []).join("\n") : String(value ?? "");
   }
-  const rules = (settings.rateLimits.rules ?? []).map((rule) => ({
+  const rules = (settings.rateLimits.rules ?? []).map((rule) => ruleDraft({
     label: rule.label,
     audience: rule.audience,
     duration: String(rule.duration),
@@ -155,6 +161,18 @@ export function toPatch(draft: SettingsDraft, revision: number) {
 /** Same document, compared as text so line spacing in list fields is not a change. */
 export function isDirty(draft: SettingsDraft, settings: RuntimeSettings): boolean {
   return JSON.stringify(toPatch(draft, 0)) !== JSON.stringify(toPatch(toDraft(settings), 0));
+}
+
+/** Sections whose normalised values differ from the saved ones; the rate-limit rules count towards "rateLimits". */
+export function dirtySections(draft: SettingsDraft, settings: RuntimeSettings): Set<string> {
+  const now = toPatch(draft, 0);
+  const saved = toPatch(toDraft(settings), 0);
+  const same = (path: string) => JSON.stringify(read(now, path)) === JSON.stringify(read(saved, path));
+  const dirty = new Set<string>();
+  for (const section of sections) {
+    if (section.fields.some((spec) => !same(spec.path)) || (section.id === "rateLimits" && !same("rateLimits.rules"))) dirty.add(section.id);
+  }
+  return dirty;
 }
 
 function validRateLabel(label: string): boolean {

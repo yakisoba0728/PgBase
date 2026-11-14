@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { useSearchState } from "../app/search";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RiAddLine, RiKey2Line } from "@remixicon/react";
+import { RiAddLine, RiErrorWarningLine, RiKey2Line } from "@remixicon/react";
 import { deleteOAuthProvider, putOAuthProvider, type AuthAdministration, type AuthCollection, type OAuthProviderConfig } from "../api/authCollections";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState } from "../components/Feedback";
+import { EmptyState, Notice } from "../components/Feedback";
 import { Checkbox, Field, Searchbar } from "../components/Field";
 import { PaneHeader, SplitView } from "../components/SplitView";
 import { CopyButton } from "../components/CopyButton";
@@ -47,7 +47,7 @@ export function ProvidersTab({ collection, administration }: { collection: AuthC
         <ul className="auth-rows">
           {providers.map((provider) => (
             <li key={provider.name}>
-              <button type="button" className="auth-row" aria-current={provider.name === openName} onClick={() => open({ provider: provider.name })}>
+              <button type="button" className="row-btn auth-row" aria-current={provider.name === openName} onClick={() => open({ provider: provider.name })}>
                 <span className="mono">{provider.name}</span>
                 <span className="txt-hint auth-row-meta">{provider.clientId}</span>
                 <span className="dot" data-tone={provider.enabled ? "success" : undefined}>{provider.enabled ? t("auth.on") : t("auth.off")}</span>
@@ -66,7 +66,7 @@ export function ProvidersTab({ collection, administration }: { collection: AuthC
       <ProviderForm key={`${source.name}:${adding ?? ""}:${JSON.stringify(current ?? null)}`} collection={collection} administration={administration} existing={current}
         preset={presets.find((entry) => entry.name === source.name)} initial={providerDraft(source)} onClose={close} onSaved={(name) => open({ provider: name })} />
     );
-  }
+  } else if (openName !== null) pane = <EmptyState icon={RiErrorWarningLine}>{t("common.notFound")}</EmptyState>;
   return <SplitView list={list} paneLabel={t("auth.providers.detail")} onClose={close} pane={pane} />;
 }
 
@@ -79,11 +79,11 @@ function PresetPicker({ presets, taken, onPick, onClose }: { presets: ProviderPr
     <>
       <PaneHeader title={t("auth.providers.add")} onClose={onClose} />
       <div className="pane-body auth-pane">
-        <Searchbar label={t("auth.providers.find")} autoFocus value={filter} onChange={(event) => setFilter(event.target.value)} />
+        <Searchbar size="sm" label={t("auth.providers.find")} autoFocus value={filter} onChange={(event) => setFilter(event.target.value)} />
         <ul className="auth-rows">
           {shown.map((preset) => (
             <li key={preset.name}>
-              <button type="button" className="auth-row" disabled={taken.has(preset.name)} onClick={() => onPick(preset.name)}>
+              <button type="button" className="row-btn auth-row" disabled={taken.has(preset.name)} onClick={() => onPick(preset.name)}>
                 <span>{preset.label}</span>
                 <span className="txt-hint auth-row-meta mono">{preset.name}</span>
                 <span className="txt-hint">{taken.has(preset.name) ? t("auth.providers.configured") : ""}</span>
@@ -91,7 +91,7 @@ function PresetPicker({ presets, taken, onPick, onClose }: { presets: ProviderPr
             </li>
           ))}
           <li>
-            <button type="button" className="auth-row" onClick={() => onPick("custom")}>
+            <button type="button" className="row-btn auth-row" onClick={() => onPick("custom")}>
               <span>{t("auth.providers.custom")}</span>
               <span className="txt-hint auth-row-meta">{t("auth.providers.customHint")}</span>
               <span />
@@ -171,7 +171,7 @@ function ProviderForm({ collection, administration, existing, preset, initial, o
       <PaneHeader title={existing ? existing.name : preset?.label || t("auth.providers.new")} mono={Boolean(existing)} onClose={onClose} />
       <div className="pane-body">
         {isStale(save.error) && <StaleNotice busy={save.isPending} onReload={() => void queryClient.invalidateQueries({ queryKey: key })} onOverwrite={() => save.mutate(true)} />}
-        {preset?.selfHosted && !existing && <p className="warning-note" role="note">{t("auth.providers.selfHosted")}</p>}
+        {preset?.selfHosted && !existing && <Notice role="note">{t("auth.providers.selfHosted")}</Notice>}
         {draft.name === "apple" && (
           // Outside the form: the generator is a form of its own.
           <div className="auth-apple">
@@ -187,7 +187,7 @@ function ProviderForm({ collection, administration, existing, preset, initial, o
             placeholder={existing?.secretConfigured ? t("auth.secretKept") : undefined} hint={draft.clientSecret && draft.name === "apple" ? t("auth.providers.appleFilled") : existing?.secretConfigured ? t("auth.secretStored") : t("auth.secretNone")}
             onChange={(event) => patch({ clientSecret: event.target.value })} />
 
-          <section className="auth-section">
+          <section className="stack-section">
             <header>
               <h2>{t("auth.providers.callback")}</h2>
               <p className="txt-hint">{draft.name === "apple" ? t("auth.providers.callbackApple") : t("auth.providers.callbackHint")}</p>
@@ -197,7 +197,7 @@ function ProviderForm({ collection, administration, existing, preset, initial, o
             {draft.name !== "apple" && redirects.length > 0 && <ul className="auth-rows">{redirects.map(copyRow)}</ul>}
           </section>
 
-          <section className="auth-section">
+          <section className="stack-section">
             <header>
               <h2>{t("auth.providers.endpoints")}</h2>
             </header>
@@ -211,7 +211,7 @@ function ProviderForm({ collection, administration, existing, preset, initial, o
             {text("scopes", t("auth.providers.scopes"), t("auth.providers.scopesHint"))}
           </section>
 
-          <section className="auth-section">
+          <section className="stack-section">
             <header>
               <h2>{t("auth.providers.mapping")}</h2>
               <p className="txt-hint">{t("auth.providers.mappingHint")}</p>
@@ -227,7 +227,7 @@ function ProviderForm({ collection, administration, existing, preset, initial, o
         </fieldset></form>
       </div>
       <footer className="pane-footer">
-        {existing && <Button variant="transparent" className="txt-danger pane-footer-start" onClick={() => setConfirmRemove(true)}>{t("auth.providers.remove")}</Button>}
+        {existing && <Button variant="danger" className="pane-footer-start" onClick={() => setConfirmRemove(true)}>{t("auth.providers.remove")}</Button>}
         <SaveBar form={formId} dirty={form.dirty || !existing} busy={save.isPending} onDiscard={existing ? form.reset : onClose} />
       </footer>
       <ConfirmDialog open={confirmRemove} title={t("auth.providers.removeTitle", { name: draft.name })} message={t("auth.providers.removeText")} confirmLabel={t("auth.providers.remove")} danger busy={remove.isPending}

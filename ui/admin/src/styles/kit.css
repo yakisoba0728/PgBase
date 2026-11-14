@@ -13,9 +13,7 @@
 }
 
 .form-section > header h2 {
-  margin: 0 0 4px;
-  font-size: 14px;
-  font-weight: 600;
+  margin: 0 0 var(--sp-4);
 }
 
 .form-section > header p {
@@ -29,7 +27,7 @@
 
 .facts {
   display: grid;
-  gap: 2px;
+  gap: var(--sp-2);
   margin: 0 0 var(--space-sm);
 }
 
@@ -38,7 +36,7 @@
   grid-template-columns: 160px minmax(0, 1fr);
   align-items: baseline;
   gap: var(--space-sm);
-  padding: 8px;
+  padding: var(--sp-8);
   border-radius: var(--radius-sm);
 }
 
@@ -56,23 +54,14 @@
   overflow-wrap: anywhere;
 }
 
-.warning-note {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--warning), var(--surface-raised) 88%);
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-sm);
-}
-
 /* Short-task dialogs: wider than a confirmation. */
 .task-dialog {
   width: min(560px, calc(100vw - 32px));
 }
 
 .task-dialog .form,
-.task-dialog > p {
-  margin-bottom: 4px;
+.task-dialog .modal-body > p {
+  margin-bottom: var(--sp-4);
 }
 
 .secret-box {
@@ -82,8 +71,6 @@
 
 .secret-box textarea {
   width: 100%;
-  border-radius: var(--radius);
-  background: var(--input);
   word-break: break-all;
 }
 
@@ -101,14 +88,121 @@
   color: var(--tone);
 }
 
-.facts-copy {
-  margin: -6px 0 -6px 4px;
-  vertical-align: middle;
+/* A copyable value keeps its button on its line: the value wraps (overflow-wrap) before the button moves under it. */
+.facts dd:has(> .facts-copy) {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
 }
 
-/* Notes that open a list, pane or block keep space before what they describe. */
-.grid-scroll > .warning-note,
-.pane-body > .warning-note,
-.storage-block > .warning-note {
-  margin: 0 0 var(--space-sm);
+.facts-copy {
+  flex: none;
+  margin: -6px 0;
+}
+
+
+/* The one inline message box (Notice): warning by default, danger, or neutral info (the accent). The tone shows
+   three ways at low volume: a faint wash, a hairline edge in the tone, and the tone's icon; the text stays --text.
+   It arrives with the shared entrance, so an error revealed under a form fades in rather than jumping. */
+.notice {
+  --tone: var(--warning);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--sp-10);
+  margin-bottom: var(--space-sm);
+  padding: var(--sp-10) var(--sp-12);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--tone), var(--surface) 92%);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone), transparent 72%);
+  animation: enter var(--dur) var(--ease-out);
+}
+
+.notice[data-tone="danger"] {
+  --tone: var(--danger);
+}
+
+.notice[data-tone="info"] {
+  --tone: var(--accent);
+  background: color-mix(in srgb, var(--tone), var(--surface) 95%);
+}
+
+.notice-icon {
+  margin-top: var(--sp-2);
+  color: var(--tone);
+}
+
+.notice-text {
+  display: grid;
+  justify-items: start;
+  gap: var(--sp-6);
+  min-width: 0;
+}
+
+.notice-text > strong {
+  font-weight: var(--weight-bold);
+}
+
+.notice:last-child {
+  margin-bottom: 0;
+}
+
+/* QueryView's "couldn't refresh" notice lands wherever QueryView does. Directly in an unpadded container (the page
+   body, a whole-page form, a detail pane) it takes the content padding itself, and the page body stacks it on top. */
+.page-body:has(> .query-stale) {
+  flex-direction: column;
+}
+
+:is(.page-body, .page-form) > .query-stale {
+  flex: none;
+  margin: var(--space) var(--space) 0;
+}
+
+.split-pane > .query-stale {
+  flex: none;
+  margin: var(--space-sm) var(--space-sm) 0;
+}
+
+.notice-body > * + * {
+  margin-top: var(--sp-4);
+}
+
+.notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-6);
+}
+
+/* A titled block stacked over its content: a heading (and hint) above fields, rows or a table. FormSection is the
+   two-column variant for settings pages. */
+.stack-section {
+  display: grid;
+  align-content: start;
+  gap: var(--space-sm);
+}
+
+.stack-section > header {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.stack-section > header p,
+.stack-section > p {
+  font-size: var(--font-size-sm);
+}
+
+/* Buttons at the end of a page header, toolbar or footer. */
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+  margin-left: auto;
+}
+
+/* A detail pane's actions, one row each (rows: .auth-action, .sys-action). */
+.action-list {
+  display: grid;
+  gap: var(--sp-2);
 }

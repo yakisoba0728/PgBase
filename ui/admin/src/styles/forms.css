@@ -5,42 +5,26 @@
 
 .field-wrap {
   display: grid;
-  gap: 6px;
+  gap: var(--sp-6);
   min-width: 0;
 }
 
-/* A filled block: the label sits inside, above a borderless control. */
+/* Label above, the control below it in a bordered box. Composite fields (files, relations, geo, rich text)
+   reuse the frame and box their own parts. */
 .field {
   display: grid;
+  gap: var(--sp-6);
   min-width: 0;
-  border-radius: var(--radius);
-  background: var(--input);
-  transition: background var(--speed), box-shadow var(--speed);
-}
-
-.field:hover {
-  background: color-mix(in srgb, var(--input), var(--text) 3%);
-}
-
-.field:has(> .field-control:focus) {
-  background: var(--input-focus);
-  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
 }
 
 .field-label {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 9px 12px 0;
+  gap: var(--sp-4);
   color: var(--text-hint);
   font-size: var(--font-size-sm);
   line-height: var(--line-height-sm);
-  font-weight: 500;
-  transition: color var(--speed);
-}
-
-.field:has(> .field-control:focus) .field-label {
-  color: var(--text);
+  font-weight: var(--weight-medium);
 }
 
 .field-label svg {
@@ -49,7 +33,7 @@
 
 .field-label .mono {
   margin-left: auto;
-  color: var(--text-disabled);
+  color: var(--text-hint);
   font-size: var(--font-size-xs);
 }
 
@@ -57,38 +41,75 @@
   color: var(--danger);
 }
 
+/* The one control box: inputs, selects, textareas, the search box and code editors on every screen. */
+.field-control,
+.searchbar,
+.code-area {
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius);
+  background-color: var(--surface);
+  color: var(--text);
+  transition: border-color var(--dur), outline-color var(--dur);
+}
+
+:is(.field-control, .searchbar, .code-area):hover:not(:focus, :focus-within, :disabled, :read-only:not(select, .searchbar), [aria-invalid="true"], [data-invalid]) {
+  border-color: var(--text-hint);
+}
+
+:is(.field-control, .code-area):focus,
+.searchbar:focus-within {
+  border-color: var(--accent);
+  outline: 3px solid color-mix(in srgb, var(--accent), transparent 70%);
+  outline-offset: 0;
+}
+
+/* An invalid field keeps its danger edge; the focus ring stays accent so focus still shows. */
+
+:is(.field-control, .code-area)[aria-invalid="true"],
+.searchbar[data-invalid] {
+  border-color: var(--danger);
+}
+
 .field-control {
   display: block;
   width: 100%;
-  min-height: 32px;
-  padding: 3px 12px 9px;
-  border: 0;
-  border-radius: 0 0 var(--radius) var(--radius);
-  background: transparent;
-  outline: 0;
+  min-width: 0;
+  height: var(--control);
+  padding: 0 var(--sp-10);
+}
+
+/* The small size: dense rows and toolbars, level with .btn-sm (same height, radius and text size). */
+:is(.field-control, .searchbar).control-sm {
+  height: var(--control-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+
+.field-control.control-sm {
+  padding: 0 var(--sp-8);
+}
+
+/* Layout only: a control in a row (toolbar, key list) takes its content's width instead of the row's. */
+.field-control.control-fit {
+  width: auto;
+  flex: none;
 }
 
 .field-control::placeholder {
-  color: var(--text-disabled);
-}
-
-.field-control:focus-visible {
-  outline: 0;
+  color: var(--text-hint);
 }
 
 /* Disabled (read-only collections) and read-only inputs: quieter fill, muted value. */
-.field:has(> .field-control:read-only:not(select)),
-.field:has(> .field-control:disabled) {
-  background: var(--surface-1);
-}
-
 .field-control:read-only:not(select),
 .field-control:disabled {
+  background-color: var(--surface-1);
   color: var(--text-hint);
 }
 
 textarea.field-control {
+  height: auto;
   min-height: 92px;
+  padding-block: var(--sp-8);
   resize: vertical;
 }
 
@@ -97,53 +118,54 @@ textarea.field-control.mono {
   line-height: 18px;
 }
 
-select.field-control {
+/* One chevron for every select: a stroked SVG in the hint colour per theme (--chevron), centred vertically with
+   the same right inset at both sizes; the text stops short of it. */
+select.field-control:not([multiple]) {
+  appearance: none;
+  padding-right: var(--sp-32);
+  background-image: var(--chevron);
+  background-position: right var(--sp-12) center;
+  background-size: 10px 6px;
+  background-repeat: no-repeat;
+  text-overflow: ellipsis;
   cursor: pointer;
 }
 
+select.field-control:disabled {
+  cursor: default;
+}
+
 select.field-control[multiple] {
-  padding: 2px 8px 8px;
+  height: auto;
+  padding: var(--sp-4) var(--sp-6);
 }
 
 .field-hint,
 .field-error {
-  padding: 0 12px;
   font-size: var(--font-size-sm);
   line-height: var(--line-height-sm);
   color: var(--text-hint);
 }
 
-.form > .field-error,
-.pane-body > .field-hint {
-  padding: 0;
-}
-
 .field-error {
   color: var(--danger);
-}
-
-.field[data-invalid] {
-  background: color-mix(in srgb, var(--danger), var(--input) 90%);
 }
 
 .field[data-invalid] .field-label {
   color: var(--danger);
 }
 
-.field[data-invalid]:has(> .field-control:focus) {
-  background: var(--input-focus);
-  box-shadow: 0 0 0 1px var(--danger), 0 0 0 4px color-mix(in srgb, var(--danger), transparent 85%);
-}
-
-/* Inside a filled field (file attachments) the hint and list keep the label's inset. */
-.field > .field-hint {
-  padding: 3px 12px 10px;
+.field[data-invalid] .field-control,
+.field[data-invalid] .searchbar,
+.field[data-invalid] .rich-text,
+.field[data-invalid] > .file-list {
+  border-color: var(--danger);
 }
 
 .checkbox {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-10);
   min-height: var(--control-sm);
   cursor: pointer;
   user-select: none;
@@ -163,12 +185,12 @@ input[type="checkbox"] {
   width: 16px;
   height: 16px;
   margin: 0;
-  border: 1.5px solid color-mix(in srgb, var(--text-hint), transparent 35%);
+  border: 1.5px solid var(--border-control);
   border-radius: var(--radius-xs);
   background: var(--surface);
   appearance: none;
   cursor: pointer;
-  transition: background var(--speed), border-color var(--speed);
+  transition: background var(--dur), border-color var(--dur);
 }
 
 input[type="checkbox"]:hover:not(:disabled) {
@@ -190,7 +212,7 @@ input[type="checkbox"]::before {
   border-width: 0 0 2px 2px;
   rotate: -45deg;
   scale: 0;
-  transition: scale var(--speed);
+  transition: scale var(--dur) var(--ease-out);
 }
 
 input[type="checkbox"]:checked::before {
@@ -206,68 +228,103 @@ input[type="checkbox"]:indeterminate::before {
   scale: 1;
 }
 
+input[type="checkbox"]:active:not(:disabled) {
+  scale: 0.9;
+  transition-duration: var(--dur-fast);
+}
+
+input[type="checkbox"] {
+  transition: background var(--dur), border-color var(--dur), scale var(--dur) var(--ease-out);
+}
+
 input[type="checkbox"]:disabled {
-  opacity: 0.5;
+  opacity: var(--disabled-opacity);
   cursor: default;
 }
 
 .searchbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 14px;
-  border-radius: var(--radius-pill);
-  background: var(--input);
+  gap: var(--sp-8);
+  height: var(--control);
+  padding: 0 var(--sp-10);
   color: var(--text-hint);
-  transition: background var(--speed), box-shadow var(--speed);
 }
 
-.searchbar:hover {
-  background: color-mix(in srgb, var(--input), var(--text) 3%);
-}
+/* The input inside a search box draws no ring of its own; the box carries it (above). */
 
-.searchbar:focus-within {
-  background: var(--input-focus);
-  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
+/* A trailing button (IconButton size="xs", e.g. help) sits against the box's end. */
+.searchbar .icon-btn {
+  margin-right: calc(-1 * var(--sp-6));
 }
 
 .searchbar input {
   flex: 1;
   min-width: 0;
+  height: 100%;
   border: 0;
   background: transparent;
   color: var(--text);
-  font-size: var(--font-size-sm);
+  font-size: inherit;
   outline: 0;
 }
 
 .searchbar input::placeholder {
-  color: var(--text-disabled);
+  color: var(--text-hint);
 }
 
 .searchbar.mono input {
   font-family: var(--font-mono);
 }
 
-/* Password reveal sits inside the filled block, over the end of the input. */
+/* Password reveal sits inside the box, over the end of the input. */
 .field:has(> .field-reveal) {
   position: relative;
 }
 
 .field-control-reveal {
-  padding-right: 40px;
+  padding-right: var(--sp-40);
 }
 
 .field-reveal {
   position: absolute;
-  right: 6px;
-  bottom: 5px;
+  /* Centred in the control box. */
+  right: calc((var(--control) - var(--control-sm)) / 2);
+  bottom: calc((var(--control) - var(--control-sm)) / 2);
 }
 
-.field input:focus-visible, .field textarea:focus-visible, .relation-search input:focus-visible, .rich-text-url input:focus-visible, .rich-text-source:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
 
 fieldset.form { border: 0; margin: 0; padding: 0; min-width: 0; }
+
+/* The one group label inside a form or pane (a fieldset's legend); section headings are .subtitle. */
+legend {
+  margin-bottom: var(--space-xs);
+  padding: 0;
+  color: var(--text-hint);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-bold);
+}
+
+/* Two short fields side by side; they stack when narrow. */
+.field-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  align-items: start;
+  gap: var(--space-xs);
+}
+
+/* A field and its button on one line, the button level with the control (below the label) whatever the hint. */
+.field-inline {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+}
+
+.field-inline > .field-wrap {
+  flex: 1;
+}
+
+.field-inline > .btn {
+  flex: none;
+  margin-top: calc(var(--line-height-sm) + var(--sp-6));
+}

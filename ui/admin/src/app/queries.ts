@@ -6,6 +6,21 @@ import { en } from "../i18n/en";
 import type { Translate } from "../i18n";
 import { readStorage, removeStorage } from "./store";
 
+/** Pages a scrolled list keeps in memory (and in the DOM); further pages push the first ones out. */
+const windowPages = 10;
+
+/**
+ * Infinite-query options for those lists. The API pages one way only, so a page pushed out of the window is reached
+ * again by starting over.
+ */
+export const pageWindow = { initialPageParam: undefined as string | undefined, getPreviousPageParam: () => undefined, maxPages: windowPages };
+
+/** The window has moved past the first page. */
+export const windowShifted = (data: { pageParams: unknown[] } | undefined) => data !== undefined && data.pageParams[0] !== undefined;
+
+/** Pages load on scroll until the window is full; past that a click asks for each one. */
+export const windowOpen = (data: { pages: unknown[] } | undefined) => (data?.pages.length ?? 0) < windowPages;
+
 /** Set by a confirmed sign-out until the server has ended that session. */
 export const signingOutKey = "pgbase.signingOut";
 

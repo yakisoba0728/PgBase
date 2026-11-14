@@ -6,8 +6,9 @@ import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
 import { CodeArea } from "../components/CodeArea";
 import { CodeBlock } from "../components/CodeBlock";
+import { TableScroll } from "../components/Table";
 import { DataGrid } from "../components/DataGrid";
-import { Checkbox, Field } from "../components/Field";
+import { Checkbox, Field, Input, Select } from "../components/Field";
 import { Tabs } from "../components/Tabs";
 import { useT } from "../i18n";
 import { compareOps, filterable, filterFromRows, filterRows, projectable, type DeclarativeView, type FilterRow } from "./draft";
@@ -43,13 +44,13 @@ function SqlView({ editor }: { editor: SchemaEditor }) {
       {sample.data && fresh && (
         <div className="schema-sample">
           <p className="field-hint">{t("schema.sampleResult", { columns: sample.data.fields.length, rows: sample.data.items?.length ?? 0 })}</p>
-          <div className="grid-scroll">
+          <TableScroll>
             <DataGrid
               label={t("schema.sample")}
               columns={columns.map((name) => ({ name, type: sample.data.fields.find((field) => field.Name === name)?.Type }))}
               rows={(sample.data.items ?? []).map((row) => columns.map((name) => ({ text: sampleText(row[name]) })))}
             />
-          </div>
+          </TableScroll>
         </div>
       )}
     </>
@@ -100,10 +101,10 @@ function DeclarativeEditor({ editor, catalog }: { editor: SchemaEditor; catalog:
             {editable ? (
               <>
                 {editable.rows.length > 1 && (
-                  <select className="schema-input schema-join" aria-label={t("schema.view.join")} value={editable.join} onChange={(event) => setRows(event.target.value as "all" | "any", editable.rows)}>
+                  <Select size="sm" className="control-fit schema-start" aria-label={t("schema.view.join")} value={editable.join} onChange={(event) => setRows(event.target.value as "all" | "any", editable.rows)}>
                     <option value="all">{t("schema.view.all")}</option>
                     <option value="any">{t("schema.view.any")}</option>
-                  </select>
+                  </Select>
                 )}
                 <ul className="schema-filter">
                   {editable.rows.map((row, position) => {
@@ -111,20 +112,20 @@ function DeclarativeEditor({ editor, catalog }: { editor: SchemaEditor; catalog:
                     const type = types[row.field];
                     return (
                       <li key={position}>
-                        <select className="schema-input" aria-label={t("schema.view.field")} value={row.field} onChange={(event) => change({ field: event.target.value })}>
+                        <Select size="sm" aria-label={t("schema.view.field")} value={row.field} onChange={(event) => change({ field: event.target.value })}>
                           {filterFields.map((field) => <option key={field.id} value={field.name}>{field.name}</option>)}
-                        </select>
-                        <select className="schema-input mono" aria-label={t("schema.view.op")} value={row.op} onChange={(event) => change({ op: event.target.value as FilterRow["op"] })}>
+                        </Select>
+                        <Select size="sm" mono aria-label={t("schema.view.op")} value={row.op} onChange={(event) => change({ op: event.target.value as FilterRow["op"] })}>
                           {compareOps.filter((op) => (type !== "boolean" && type !== "uuid") || op === "eq" || op === "ne").map((op) => <option key={op} value={op}>{t(`schema.view.op.${op}`)}</option>)}
-                        </select>
+                        </Select>
                         {type === "boolean" ? (
-                          <select className="schema-input mono" aria-label={t("schema.view.value")} value={row.value === "false" ? "false" : row.value === "null" ? "null" : "true"} onChange={(event) => change({ value: event.target.value })}>
+                          <Select size="sm" mono aria-label={t("schema.view.value")} value={row.value === "false" ? "false" : row.value === "null" ? "null" : "true"} onChange={(event) => change({ value: event.target.value })}>
                             <option value="true">true</option>
                             <option value="false">false</option>
                             <option value="null">null</option>
-                          </select>
+                          </Select>
                         ) : (
-                          <input className="schema-input mono" aria-label={t("schema.view.value")} spellCheck={false} placeholder={type === "timestamptz" || type === "autodate" ? "2026-01-01T00:00:00Z" : "null"} value={row.value} onChange={(event) => change({ value: event.target.value })} />
+                          <Input size="sm" mono aria-label={t("schema.view.value")} spellCheck={false} placeholder={type === "timestamptz" || type === "autodate" ? "2026-01-01T00:00:00Z" : "null"} value={row.value} onChange={(event) => change({ value: event.target.value })} />
                         )}
                         <IconButton label={t("schema.view.removeCondition")} icon={RiCloseLine} onClick={() => setRows(editable.join, editable.rows.filter((_, index) => index !== position))} />
                       </li>

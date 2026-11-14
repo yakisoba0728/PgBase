@@ -1,12 +1,13 @@
-import { Navigate, useParams } from "react-router";
-import { RiDatabase2Line, RiErrorWarningLine } from "@remixicon/react";
+import { Link, Navigate, useParams } from "react-router";
+import { RiAddLine, RiDatabase2Line, RiErrorWarningLine } from "@remixicon/react";
 import { RecordsActions, RecordsView } from "../collections/RecordsView";
 import { ApiView } from "../apidocs/ApiView";
 import { RulesView } from "../rules/RulesView";
 import { useCollection } from "../collections/queries";
 import { SchemaView } from "../schema/SchemaView";
 import { SchemaDraftGuard } from "../schema/DraftGuard";
-import { EmptyState, ErrorState } from "../components/Feedback";
+import { EmptyState } from "../components/Feedback";
+import { QueryView } from "../components/QueryView";
 import { Page } from "../components/Page";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { useT } from "../i18n";
@@ -18,14 +19,15 @@ const subTabs = ["schema", "rules", "api"] as const;
 export function CollectionPage() {
   const t = useT();
   const { name = "", tab } = useParams();
-  const { collection, data, isPending, error, refetch } = useCollection(name);
+  const query = useCollection(name);
+  const { collection, data } = query;
   useCollectionVisit(collection ? collection.name : "", tab);
   if (tab && !subTabs.includes(tab as (typeof subTabs)[number])) return <Navigate to={`/collections/${encodeURIComponent(name)}`} replace />;
-  if (isPending) return <PageSkeleton />;
+  if (query.isPending) return <PageSkeleton />;
   if (!collection) {
     return (
       <Page title={name}>
-        {error ? <ErrorState error={error} onRetry={refetch} /> : <EmptyState icon={RiErrorWarningLine}>{t("collections.missing")}</EmptyState>}
+        <QueryView query={query}>{() => <EmptyState icon={RiErrorWarningLine}>{t("collections.missing")}</EmptyState>}</QueryView>
       </Page>
     );
   }
@@ -55,15 +57,16 @@ export function CollectionPage() {
 /** /collections: opens the first collection, or says there are none. */
 export function CollectionsIndexPage() {
   const t = useT();
-  const { data, isPending, error, refetch } = useCollection("");
+  const query = useCollection("");
+  const { data } = query;
   const recent = useRecentCollections(data?.map((collection) => collection.name));
-  if (isPending) return <PageSkeleton />;
+  if (query.isPending) return <PageSkeleton />;
   // The most recently opened collection, else the first one.
   const first = recent[0] ? { name: recent[0] } : data?.[0];
   if (first) return <Navigate to={`/collections/${encodeURIComponent(first.name)}`} replace />;
   return (
     <Page title={t("nav.collections")}>
-      {error ? <ErrorState error={error} onRetry={refetch} /> : <EmptyState icon={RiDatabase2Line}>{t("collections.empty")}</EmptyState>}
+      <QueryView query={query}>{() => <EmptyState icon={RiDatabase2Line} action={<Link className="btn btn-sm" to="/new-collection"><RiAddLine size={16} aria-hidden />{t("collections.new")}</Link>}>{t("collections.empty")}</EmptyState>}</QueryView>
     </Page>
   );
 }

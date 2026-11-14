@@ -1,4 +1,4 @@
-import { request } from "./http";
+import { request, upload } from "./http";
 
 export interface BackupEntry {
   id: string;
@@ -35,12 +35,8 @@ export async function createBackup(): Promise<BackupJob> {
 }
 
 /** Uploads a gzip backup archive (.tar.gz) as the raw request body. */
-export async function uploadBackup(archive: Blob, signal?: AbortSignal): Promise<BackupEntry> {
-  return request<BackupEntry>("POST", "/api/admin/backups/upload", {
-    raw: archive,
-    headers: { "Content-Type": "application/gzip" },
-    signal,
-  });
+export function uploadBackup(archive: Blob, signal?: AbortSignal, onProgress?: (fraction: number) => void): Promise<BackupEntry> {
+  return upload<BackupEntry>("/api/admin/backups/upload", archive, { headers: { "Content-Type": "application/gzip" }, signal, onProgress });
 }
 
 /** The archive (served as pgbase-{id}.tar.gz); a same-origin link streams it to disk instead of buffering up to 2 GiB. */

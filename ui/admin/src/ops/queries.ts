@@ -1,4 +1,5 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
+import { pageWindow } from "../app/queries";
 import { listJobs } from "../api/jobs";
 import { getRequestLog, getRequestLogStatistics, listRequestLogs, type RequestLogFilter } from "../api/logs";
 import { getRealtimeStatus, listDeadRealtimeEvents } from "../api/realtime";
@@ -6,18 +7,12 @@ import { localToRfc3339 } from "./format";
 
 export const logsKey = ["logs"] as const;
 
-/** Pages of 50 kept in memory (and in the DOM); older pages push the newest ones out. */
-export const logWindowPages = 10;
-
 export const logsQuery = (filter: Omit<RequestLogFilter, "before">) =>
   infiniteQueryOptions({
     queryKey: [...logsKey, "list", filter],
     queryFn: ({ pageParam, signal }) => listRequestLogs({ ...filter, before: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
+    ...pageWindow,
     getNextPageParam: (page) => (page.nextBefore === undefined ? undefined : String(page.nextBefore)),
-    // The API pages only towards older entries, so a dropped newer page is reached again by starting over.
-    getPreviousPageParam: () => undefined,
-    maxPages: logWindowPages,
   });
 
 /** Statistics for the list's time window only; the other filters do not apply to them. */
@@ -48,11 +43,11 @@ export const realtimeQuery = queryOptions({
   refetchInterval: 5000,
 });
 
-/** Dead events, newest first; "load more" follows the opaque cursor. */
+/** Dead events, newest first; "load more" follows the opaque cursor, and older pages push the newest ones out. */
 export const deadEventsQuery = infiniteQueryOptions({
   queryKey: [...realtimeKey, "dead"],
   queryFn: ({ pageParam, signal }) => listDeadRealtimeEvents(pageParam, signal),
-  initialPageParam: undefined as string | undefined,
+  ...pageWindow,
   getNextPageParam: (page) => page.nextBefore,
 });
 

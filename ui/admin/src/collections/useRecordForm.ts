@@ -147,7 +147,7 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
   const reload = (keepEdits: boolean) => {
     if (keepEdits) {
       const changed = Object.fromEntries(Object.entries(drafts).filter(([name, value]) => JSON.stringify(value) !== JSON.stringify(initial[name])));
-      keepDraft(scope, changed);
+      if (Object.keys(changed).length) keepDraft(scope, changed);
     }
     else settle();
     setConflict(false);

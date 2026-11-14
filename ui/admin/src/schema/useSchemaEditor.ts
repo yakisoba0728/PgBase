@@ -184,6 +184,8 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
     onSuccess: async (name) => {
       finished.current = true;
       await queryClient.invalidateQueries({ queryKey: ["collections"] });
+      // Cached records carry the old fields; a long list would otherwise skip its refetch on mount.
+      await queryClient.resetQueries({ queryKey: ["records", name] });
       toast(t("schema.applied"));
       await navigate(`/collections/${encodeURIComponent(name)}/schema`, { replace: !creating });
       dropDraft(key);
@@ -226,9 +228,17 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
     },
     updateField: (fieldKey: string, patch: Partial<DraftField>) =>
       update((current) => ({ ...current, fields: current.fields.map((field) => (field.key === fieldKey ? { ...field, ...patch } : field)) })),
+    // Removing only edits the draft, so it is undone from the toast rather than confirmed first.
     removeField: (fieldKey: string) => {
+      const at = draft.fields.findIndex((field) => field.key === fieldKey);
+      if (at < 0) return;
+      const removed = draft.fields[at];
       update((current) => ({ ...current, fields: current.fields.filter((field) => field.key !== fieldKey) }));
       setPane(null);
+      toast(t("schema.removed", { name: removed.name || t("schema.removeField") }), "info", {
+        label: t("common.undo"),
+        run: () => update((current) => (current.fields.some((field) => field.key === fieldKey) ? current : { ...current, fields: [...current.fields.slice(0, at), removed, ...current.fields.slice(at)] })),
+      });
     },
     moveField: (fieldKey: string, step: -1 | 1) =>
       update((current) => {
@@ -247,8 +257,15 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
     updateIndex: (indexKey: string, patch: Partial<DraftIndex>) =>
       update((current) => ({ ...current, indexes: current.indexes.map((index) => (index.key === indexKey ? { ...index, ...patch } : index)) })),
     removeIndex: (indexKey: string) => {
+      const at = draft.indexes.findIndex((index) => index.key === indexKey);
+      if (at < 0) return;
+      const removed = draft.indexes[at];
       update((current) => ({ ...current, indexes: current.indexes.filter((index) => index.key !== indexKey) }));
       setPane(null);
+      toast(t("schema.removed", { name: removed.name || t("schema.removeIndex") }), "info", {
+        label: t("common.undo"),
+        run: () => update((current) => (current.indexes.some((index) => index.key === indexKey) ? current : { ...current, indexes: [...current.indexes.slice(0, at), removed, ...current.indexes.slice(at)] })),
+      });
     },
     discard: () => {
       if (applying.current) return;

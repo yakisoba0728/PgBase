@@ -25,3 +25,15 @@ it("locks an integrated client ID and cannot close or adopt a mismatched delayed
   expect(generated).not.toHaveBeenCalled();
   cleanup(); client.clear();
 });
+
+it("adopts a secret for a client ID that only differs by surrounding spaces", async () => {
+  setLanguage("en");
+  vi.spyOn(api, "generateAppleClientSecret").mockResolvedValue({ secret: "signed" });
+  const generated = vi.fn();
+  const client = new QueryClient();
+  render(<QueryClientProvider client={client}><AppleSecretButton clientId="app.a " onGenerated={generated} /></QueryClientProvider>);
+  fireEvent.click(screen.getByRole("button", { name: /Apple/ }));
+  fireEvent.submit(screen.getByDisplayValue("app.a").closest("form")!);
+  await waitFor(() => expect(generated).toHaveBeenCalledWith("signed"));
+  cleanup(); client.clear();
+});

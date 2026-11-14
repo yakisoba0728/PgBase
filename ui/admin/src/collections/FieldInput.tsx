@@ -81,7 +81,7 @@ export function FieldInput({ field, value, onChange, error, readOnly, expand, on
     case "multiselect": {
       const options = (field.options?.allowedValues ?? []).map((option) => ({ value: option, label: option }));
       const onSelect = (event: { target: HTMLSelectElement }) => onChange(Array.from(event.target.selectedOptions, (option) => option.value));
-      return <Field {...shared} kind="select" multiple value={Array.isArray(value) ? value : []} onChange={onSelect} options={options} size={Math.min(6, options.length)} />;
+      return <Field {...shared} kind="select" multiple value={Array.isArray(value) ? value : []} onChange={onSelect} options={options} rows={Math.min(6, options.length)} />;
     }
     case "date":
       return <Field {...shared} aside={`${field.type} · UTC`} type="datetime-local" step={1} value={text} onChange={onText} />;

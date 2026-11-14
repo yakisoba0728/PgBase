@@ -1,1 +1,0 @@
-import{fr as e}from"./Button-YRMuBXDw.js";var t=e();function n({label:e,onSubmit:n,tone:r,fill:i,...a}){return(0,t.jsx)(`textarea`,{className:`code-area mono`,"data-tone":r,"data-fill":i?``:void 0,"aria-label":e,spellCheck:!1,autoComplete:`off`,autoCapitalize:`off`,onKeyDown:e=>{e.key===`Enter`&&(e.metaKey||e.ctrlKey)&&n&&(e.preventDefault(),n())},...a})}export{n as t};

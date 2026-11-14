@@ -1,7 +1,10 @@
 import { useSearchState } from "../app/search";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useSmallScreen } from "../app/shell";
 import { Facts } from "../components/Facts";
-import { listAuthCollections } from "../api/authCollections";
+import { ErrorState } from "../components/Feedback";
+import { authCollectionsQuery } from "../auth/queries";
 import { getCollectionRules, getCollectionUserAccess, type Collection } from "../api/collections";
 import { stringifyJson } from "../api/http";
 import { CodeBlock } from "../components/CodeBlock";
@@ -90,16 +93,20 @@ export function ApiView({ collection }: { collection: Collection }) {
   const access = useQuery({ queryKey: [...rulesQueryKey(policySource), "access"], queryFn: ({ signal }) => getCollectionUserAccess(policySource, signal) });
   const audience: Audience = params.get("as") === "user" ? "user" : "guest";
   const language = (languages as readonly string[]).includes(params.get("lang") ?? "") ? (params.get("lang") as Language) : "curl";
-  const realms = useQuery({ queryKey: ["auth-collections"], queryFn: ({ signal }) => listAuthCollections(signal), enabled: collection.type === "auth" });
+  const realms = useQuery({ ...authCollectionsQuery, enabled: collection.type === "auth" });
   const endpoints = buildEndpoints(collection, audience, Boolean(realms.data?.some((realm) => realm.name === collection.name)));
-  const selected = endpoints.find((endpoint) => endpoint.id === (params.get("endpoint") ?? "list"));
+  // No ?endpoint= means the default: "list" beside the list on desktop, nothing over it on small screens or once closed.
+  const small = useSmallScreen();
+  const [closed, setClosed] = useState(false);
+  const selected = endpoints.find((endpoint) => endpoint.id === (params.get("endpoint") ?? (small || closed ? undefined : "list")));
   const set = (key: string, value: string | null) => update({ [key]: value }, { replace: true });
+  const close = () => { setClosed(true); set("endpoint", null); };
 
   const ruleText = (endpoint: Endpoint) => {
     if (endpoint.id === "batch") return t("api.rule.perOperation");
     if (!endpoint.rule) return t(endpoint.userOnly ? "api.rule.session" : "api.rule.open");
     const rule = rules.data?.rules[endpoint.rule];
-    if (!rule) return "…";
+    if (!rule) return rules.isError ? "—" : "…";
     if (access.data && !access.data.enabled) return t("api.rule.gateOff");
     const draft = draftFromRule(rule);
     return draft.mode === "expression" ? draft.expression : draft.mode === "custom" ? stringifyJson(rule) : t(`rules.mode.${draft.mode}`);
@@ -112,10 +119,11 @@ export function ApiView({ collection }: { collection: Collection }) {
         {access.data && !access.data.enabled && <span className="api-gate">{t("api.gateOff")}</span>}
       </div>
       <div className="page-content api-content">
+        {(rules.isError || access.isError) && <ErrorState query={rules.isError ? rules : access} />}
         <ul className="api-list">
           {endpoints.map((endpoint) => (
             <li key={endpoint.id}>
-              <button type="button" className="api-row" aria-current={selected?.id === endpoint.id} onClick={() => set("endpoint", endpoint.id)}>
+              <button type="button" className="row-btn api-row" aria-current={selected?.id === endpoint.id} onClick={() => set("endpoint", endpoint.id)}>
                 <span className="api-method" data-method={endpoint.method}>{endpoint.method}</span>
                 <span className="api-path mono">{endpoint.path}</span>
                 <span className="api-row-rule">{ruleText(endpoint)}</span>
@@ -131,7 +139,7 @@ export function ApiView({ collection }: { collection: Collection }) {
     </>
   );
   const pane = selected ? (
-    <EndpointPane onClose={() => set("endpoint", "none")} endpoint={selected} collection={collection} audience={audience} language={language} ruleText={ruleText(selected)} onLanguage={(value) => set("lang", value === "curl" ? null : value)} />
+    <EndpointPane onClose={close} endpoint={selected} collection={collection} audience={audience} language={language} ruleText={ruleText(selected)} onLanguage={(value) => set("lang", value === "curl" ? null : value)} />
   ) : null;
-  return <SplitView list={list} pane={pane} paneLabel={t("api.detail")} onClose={() => set("endpoint", "none")} />;
+  return <SplitView list={list} pane={pane} paneLabel={t("api.detail")} onClose={close} />;
 }

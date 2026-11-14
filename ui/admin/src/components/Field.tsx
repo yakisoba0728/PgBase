@@ -1,6 +1,41 @@
-import { useId, useState, type InputHTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { useId, useState, type ComponentProps, type InputHTMLAttributes, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { RiEyeLine, RiEyeOffLine, RiSearchLine, type RemixiconComponentType } from "@remixicon/react";
 import { useT } from "../i18n";
+
+/**
+ * The look every bordered control shares. Two heights only: `md` (--control, forms) and `sm` (--control-sm, toolbars
+ * and dense rows, level with `Button size="sm"`). `className` is for layout (width, flex), never for restyling the box.
+ */
+interface ControlLook {
+  size?: "md" | "sm";
+  /** Monospace, for ids, numbers, operators and JSON. */
+  mono?: boolean;
+  invalid?: boolean;
+  className?: string;
+}
+
+const controlClass = ({ size, mono, className }: ControlLook, base = "field-control") =>
+  [base, size === "sm" && "control-sm", mono && "mono", className].filter(Boolean).join(" ");
+
+type InputProps = Omit<ComponentProps<"input">, "size"> & ControlLook;
+/** `rows` is the native `size` (visible rows of a multiple select); `size` is the control size, as everywhere. */
+type SelectProps = Omit<ComponentProps<"select">, "size"> & ControlLook & { rows?: number };
+/** One height only: it grows with its rows. */
+type TextareaProps = ComponentProps<"textarea"> & Omit<ControlLook, "size">;
+
+/** A bare text, number, date or datetime input; give it an `aria-label` (or use `Field` for a visible label). */
+export function Input({ size, mono, invalid, className, ...rest }: InputProps) {
+  return <input className={controlClass({ size, mono, className })} aria-invalid={invalid || undefined} {...rest} />;
+}
+
+/** A bare select with the shared chevron; options are its children. */
+export function Select({ size, rows, mono, invalid, className, ...rest }: SelectProps) {
+  return <select size={rows} className={controlClass({ size, mono, className })} aria-invalid={invalid || undefined} {...rest} />;
+}
+
+export function Textarea({ mono, invalid, className, ...rest }: TextareaProps) {
+  return <textarea className={controlClass({ mono, className })} aria-invalid={invalid || undefined} {...rest} />;
+}
 
 interface FieldBase {
   label: string;
@@ -14,39 +49,33 @@ interface FieldBase {
   mono?: boolean;
 }
 
-type InputField = FieldBase & { kind?: "input" } & Omit<InputHTMLAttributes<HTMLInputElement>, "className">;
-type TextareaField = FieldBase & { kind: "textarea" } & Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "className">;
-type SelectField = FieldBase & { kind: "select"; options: { value: string; label: string }[] } & Omit<SelectHTMLAttributes<HTMLSelectElement>, "className">;
+type InputField = FieldBase & { kind?: "input" } & Omit<InputProps, "className" | "size" | "mono" | "invalid">;
+type TextareaField = FieldBase & { kind: "textarea" } & Omit<TextareaProps, "className" | "size" | "mono" | "invalid">;
+type SelectField = FieldBase & { kind: "select"; options: { value: string; label: string }[] } & Omit<SelectProps, "className" | "size" | "mono" | "invalid">;
 
-/** A label row above a filled control, with an optional hint or error below. */
+/** A label row above one of the bare controls above, with an optional hint or error below. */
 export function Field(props: InputField | TextareaField | SelectField) {
   const { label, icon: Icon, hint, error, required, aside, mono, kind, id: ownId, ...control } = props as FieldBase & { kind?: string; id?: string; options?: SelectField["options"] };
   const autoId = useId();
   const id = ownId ?? autoId;
   const noteId = `${id}-note`;
-  const shared = {
-    id,
-    required,
-    className: mono ? "field-control mono" : "field-control",
-    "aria-invalid": error ? true : undefined,
-    "aria-describedby": error || hint ? noteId : undefined,
-  };
+  const shared = { id, required, mono, invalid: Boolean(error), "aria-describedby": error || hint ? noteId : undefined };
   let input: ReactNode;
   if (kind === "textarea") {
-    input = <textarea {...(control as TextareaHTMLAttributes<HTMLTextAreaElement>)} {...shared} />;
+    input = <Textarea {...(control as TextareaProps)} {...shared} />;
   } else if (kind === "select") {
     const { options = [], ...select } = control as SelectField;
     input = (
-      <select {...select} {...shared}>
+      <Select {...select} {...shared}>
         {options.map((option) => (
           <option key={option.value} value={option.value}>{option.label}</option>
         ))}
-      </select>
+      </Select>
     );
-  } else if ((control as InputHTMLAttributes<HTMLInputElement>).type === "password") {
+  } else if ((control as InputProps).type === "password") {
     return <PasswordField {...(props as InputField)} id={id} />;
   } else {
-    input = <input {...(control as InputHTMLAttributes<HTMLInputElement>)} {...shared} />;
+    input = <Input {...(control as InputProps)} {...shared} />;
   }
   return (
     <FieldFrame id={id} label={label} icon={Icon} required={required} aside={aside} error={error} hint={hint}>
@@ -88,13 +117,14 @@ function PasswordField(props: InputField & { id: string }) {
   return (
     <FieldFrame id={id} label={label} icon={icon} required={required} aside={aside} error={error} hint={hint}
       extra={caps && <p className="field-hint" role="status">{t("field.capsLock")}</p>}>
-      <input
+      <Input
         {...rest}
         id={id}
         type={shown ? "text" : "password"}
         required={required}
-        className={mono ? "field-control field-control-reveal mono" : "field-control field-control-reveal"}
-        aria-invalid={error ? true : undefined}
+        mono={mono}
+        className="field-control-reveal"
+        invalid={Boolean(error)}
         aria-describedby={error || hint ? `${id}-note` : undefined}
         onKeyDown={(event) => {
           track(event);
@@ -116,9 +146,11 @@ function PasswordField(props: InputField & { id: string }) {
   );
 }
 
-type CheckProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "className"> & { label: ReactNode };
+type CheckProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "className"> & { label?: ReactNode };
 
+/** A checkbox with its text beside it; without `label` the bare box (table cells), named by `aria-label`. */
 export function Checkbox({ label, ...rest }: CheckProps) {
+  if (label === undefined) return <input type="checkbox" {...rest} />;
   return (
     <label className="checkbox">
       <input type="checkbox" {...rest} />
@@ -127,9 +159,21 @@ export function Checkbox({ label, ...rest }: CheckProps) {
   );
 }
 
-type SearchbarProps = Omit<InputHTMLAttributes<HTMLInputElement>, "className"> & {
+/** A box for a group of `total` items: checked when all are chosen, indeterminate when some are; a click picks all or none. */
+export function GroupCheckbox({ label, chosen, total, onChange }: { label: string; chosen: number; total: number; onChange: (on: boolean) => void }) {
+  const all = total > 0 && chosen === total;
+  return (
+    <input type="checkbox" aria-label={label} checked={all} disabled={total === 0}
+      ref={(input) => { if (input) input.indeterminate = chosen > 0 && !all; }}
+      onChange={() => onChange(!all)} />
+  );
+}
+
+type SearchbarProps = Omit<InputHTMLAttributes<HTMLInputElement>, "className" | "size"> & {
   label: string;
   icon?: RemixiconComponentType;
+  /** As for the other controls; toolbars use "sm". */
+  size?: "md" | "sm";
   mono?: boolean;
   invalid?: boolean;
   inputRef?: Ref<HTMLInputElement>;
@@ -139,10 +183,10 @@ type SearchbarProps = Omit<InputHTMLAttributes<HTMLInputElement>, "className"> &
   children?: ReactNode;
 };
 
-/** The one search/filter pill for toolbars; the label doubles as the placeholder unless one is given. */
-export function Searchbar({ label, icon: Icon = RiSearchLine, mono, invalid, inputRef, primary, children, type = "search", ...rest }: SearchbarProps) {
+/** The one search box (icon, input, trailing controls) in the shared control box; the label doubles as the placeholder unless one is given. */
+export function Searchbar({ label, icon: Icon = RiSearchLine, size, mono, invalid, inputRef, primary, children, type = "search", ...rest }: SearchbarProps) {
   return (
-    <div className={mono ? "searchbar mono" : "searchbar"} data-invalid={invalid ? "" : undefined}>
+    <div className={controlClass({ size, mono }, "searchbar")} data-invalid={invalid ? "" : undefined}>
       <Icon size={14} aria-hidden />
       <input ref={inputRef} type={type} aria-label={label} placeholder={label} aria-invalid={invalid || undefined} data-filter={primary ? "" : undefined} spellCheck={false} autoComplete="off" {...rest} />
       {children}

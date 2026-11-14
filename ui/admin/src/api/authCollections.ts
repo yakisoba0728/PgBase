@@ -62,17 +62,6 @@ export interface AuthCollection {
   recordId?: RecordIDPolicy;
 }
 
-export interface CreateAuthCollectionInput {
-  /** Client-generated UUID, required. */
-  id: string;
-  name: string;
-  registrationEnabled: boolean;
-  profileSchema?: Record<string, string>;
-  fields?: AuthCollectionField[];
-  rules?: Partial<AuthCollectionRules>;
-  recordId?: RecordIDPolicy;
-}
-
 /** registrationEnabled is required. Omitted fields/profileSchema and rules keep the stored ones (read under the row lock). */
 export interface UpdateAuthCollectionInput {
   registrationEnabled: boolean;
@@ -333,10 +322,6 @@ export interface UpdateAuthRecordInput {
 export async function listAuthRecords(id: string, options: { after?: string; limit?: number; signal?: AbortSignal } = {}): Promise<{ items: AuthRecord[]; nextAfter?: string }> {
   const result = await request<{ items: AuthRecord[] | null; nextAfter?: string }>("GET", `${base}/${seg(id)}/records`, { query: { after: options.after, limit: options.limit }, signal: options.signal });
   return { items: result.items ?? [], nextAfter: result.nextAfter };
-}
-
-export function getAuthRecord(id: string, record: string, signal?: AbortSignal): Promise<AuthRecord> {
-  return request("GET", `${base}/${seg(id)}/records/${seg(record)}`, { signal });
 }
 
 export function createAuthRecord(id: string, input: CreateAuthRecordInput): Promise<AuthRecord> {

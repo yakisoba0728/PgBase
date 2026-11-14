@@ -30,7 +30,7 @@ export interface UserListOptions {
   /** 1..100, default 50. */
   limit?: number;
   authCollectionId?: string;
-  /** An exact user id or an exact (case-insensitive) email. */
+  /** An exact user id (a UUID), else a case-insensitive substring of the email. */
   q?: string;
   total?: boolean;
   signal?: AbortSignal;

@@ -1,1 +1,0 @@
-import{Cr as e,Tr as t,fr as n}from"./Button-YRMuBXDw.js";var r=t(e(),1),i=n();function a({title:e,hint:t,children:n}){let a=(0,r.useId)();return(0,i.jsxs)(`section`,{className:`form-section`,"aria-labelledby":a,children:[(0,i.jsxs)(`header`,{children:[(0,i.jsx)(`h2`,{id:a,children:e}),t&&(0,i.jsx)(`p`,{className:`txt-hint`,children:t})]}),n]})}export{a as t};

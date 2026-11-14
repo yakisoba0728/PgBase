@@ -25,11 +25,13 @@ interface CopyButtonProps {
   label?: string;
   /** Shows the label beside the icon (a secondary button) instead of an icon-only button. */
   text?: boolean;
+  /** Icon-only size, as for IconButton. */
+  size?: "xs";
   className?: string;
 }
 
 /** The single copy affordance: the icon turns into a check for a moment after a successful copy. */
-export function CopyButton({ value, label, text, className }: CopyButtonProps) {
+export function CopyButton({ value, label, text, size, className }: CopyButtonProps) {
   const t = useT();
   const [done, setDone] = useState(false);
   useEffect(() => {
@@ -44,8 +46,8 @@ export function CopyButton({ value, label, text, className }: CopyButtonProps) {
     void copyText(typeof value === "function" ? value() : value).then(setDone);
   };
   return text ? (
-    <Button variant="secondary" icon={icon} className={className} onClick={onClick}>{name}</Button>
+    <Button variant="secondary" icon={icon} className={className} data-copied={done || undefined} onClick={onClick}>{name}</Button>
   ) : (
-    <IconButton label={name} icon={icon} className={className} onClick={onClick} />
+    <IconButton label={name} icon={icon} size={size} className={className} data-copied={done || undefined} onClick={onClick} />
   );
 }

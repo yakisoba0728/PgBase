@@ -29,7 +29,6 @@ export const devtoolsKo: Record<keyof typeof devtoolsEn, string> = {
   "devtools.import.appliedVersion": "가져오기를 적용했습니다. 스키마 버전 {version}.",
   "devtools.import.confirmTitle": "데이터를 지우는 가져오기를 적용할까요?",
   "devtools.import.confirmText": "다음 컬렉션에서 컬렉션, 열 또는 행이 사라집니다. 백업으로만 되돌릴 수 있습니다.",
-  "devtools.import.typeDelete": "확인하려면 delete를 입력하세요",
 
   "devtools.ops.empty": "아직 스키마 변경이 없습니다.",
   "devtools.ops.detail": "작업",
@@ -56,7 +55,7 @@ export const devtoolsKo: Record<keyof typeof devtoolsEn, string> = {
 
   "devtools.sql.offTitle": "SQL 콘솔이 꺼져 있습니다",
   "devtools.sql.offText": "이 서버는 SQL 콘솔 없이 시작되어 해당 경로가 등록되지 않았습니다.",
-  "devtools.sql.offHow": "PgBase를 내장한 Go 애플리케이션에서 Options.SQLConsole에 전용 최소 권한 데이터베이스 역할 세 개(compiler, read, writer)를 지정해야 켜집니다. pgbase 실행 파일에는 이 설정이 없습니다.",
+  "devtools.sql.offHow": "PgBase를 내장한 Go 애플리케이션에서만 이 옵션에 전용 최소 권한 데이터베이스 역할 세 개(compiler, read, writer)를 지정해 켤 수 있습니다. pgbase 실행 파일에는 이 설정이 없습니다.",
   "devtools.sql.editor": "SQL 문",
   "devtools.sql.modeLabel": "모드",
   "devtools.sql.mode.read": "읽기",

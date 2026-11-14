@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useQueries, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
-import { ApiError } from "../api/http";
+import { ApiError, isNotFound } from "../api/http";
 import { listSchemaOperations } from "../api/schema";
 import { RunningOperations } from "../components/Nav";
 import { toast } from "../components/Toast";
@@ -10,8 +10,6 @@ import { jobsQuery } from "../ops/queries";
 import { useT, type MessageKey } from "../i18n";
 import { backupJobQuery, migrationQuery, migrationRunning } from "../storage/queries";
 import { findOperation, isWatched, operations, operationState, pollWhileRunning, trackOperation, untrackOperation, useOperations, type OperationKind, type TrackedOperation } from "./operations";
-
-const isNotFound = (error: unknown) => error instanceof ApiError && error.status === 404;
 
 function queryFor(operation: TrackedOperation): UseQueryOptions<unknown> {
   switch (operation.kind) {
@@ -50,16 +48,21 @@ function firstInSession(): boolean {
   return true;
 }
 
+// A refusal (4xx, e.g. a feature this server runs without) is an answer too: asking again on every load cannot change it.
+// A 401 is not: the session ended, and discovery should run again once signed back in.
+const answered = (query: { isSuccess: boolean; error: unknown }) =>
+  query.isSuccess || (query.error instanceof ApiError && query.error.status >= 400 && query.error.status < 500 && query.error.status !== 401);
+
 /** What the server may have started without this browser: the latest file migration and own running schema applies. */
 function useDiscovery() {
   const discover = firstInSession();
   const migration = useQuery({ ...migrationQuery(null), refetchInterval: false, staleTime: Infinity, enabled: discover });
   const schema = useQuery({ queryKey: ["schema-operations", "discovery"], queryFn: ({ signal }) => listSchemaOperations({ limit: 20, signal }), staleTime: Infinity, retry: false, enabled: discover });
   useEffect(() => {
-    if (schema.isSuccess && (migration.isSuccess || isNotFound(migration.error))) {
+    if (answered(schema) && answered(migration)) {
       try { sessionStorage.setItem("pgbase.operations.discovered", "1"); } catch { /* Discovery remains available without storage. */ }
     }
-  }, [schema.isSuccess, migration.isSuccess, migration.error]);
+  }, [schema.isSuccess, schema.error, migration.isSuccess, migration.error]);
   useEffect(() => {
     const latest = migration.data;
     if (latest && migrationRunning(latest.status) && !findOperation("migration")) trackOperation({ kind: "migration", id: latest.id });

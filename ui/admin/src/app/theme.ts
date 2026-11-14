@@ -19,8 +19,15 @@ function apply(mode: ThemeMode): void {
 
 apply(store.get());
 
+let switching: ReturnType<typeof setTimeout> | undefined;
+
 export function setTheme(mode: ThemeMode): void {
   writeStorage(storageKey, mode);
+  // Colours swap at once instead of every control fading on its own; a timer (not a frame) clears it, so a hidden tab clears it too.
+  const root = document.documentElement;
+  root.dataset.themeSwitching = "";
+  clearTimeout(switching);
+  switching = setTimeout(() => delete root.dataset.themeSwitching, 100);
   apply(mode);
   store.set(mode);
 }

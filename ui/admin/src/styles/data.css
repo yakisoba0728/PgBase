@@ -1,36 +1,50 @@
-/* Tabs (segmented pill track), toolbar, record grid, cells and chips. */
+/* Tabs (underlined row), toolbar, record grid, cells and chips. */
 .tabs,
 .page-tabs {
+  position: relative;
   display: flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-1);
-  box-shadow: inset 0 0 0 1px var(--line);
+  gap: var(--sp-4);
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+/* One underline that slides to the current tab (useTabIndicator measures it); tabs keep their own as the fallback. */
+:is(.tabs, .page-tabs)[data-indicator]::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: var(--tab-w);
+  height: 2px;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  background: var(--accent);
+  translate: var(--tab-x) 0;
+  transition: translate var(--dur-slow) var(--ease-out), width var(--dur-slow) var(--ease-out);
+  pointer-events: none;
 }
 
 .tab,
 .page-tab {
   display: inline-flex;
-  flex: 1 0 auto;
+  flex: none;
   align-items: center;
   justify-content: center;
-  height: 28px;
-  padding: 0 14px;
+  height: var(--control-sm);
+  padding: 0 var(--sp-8);
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   background: transparent;
   color: var(--text-hint);
   font-size: var(--font-size-sm);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
-  transition: background var(--speed), color var(--speed), box-shadow var(--speed);
+  transition: background var(--dur), color var(--dur), box-shadow var(--dur);
 }
 
 .tab:hover,
 .page-tab:hover {
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -41,10 +55,18 @@
 
 .tab[aria-selected="true"],
 .page-tab[aria-current="page"] {
-  background: var(--surface-raised);
   color: var(--text);
-  font-weight: 600;
-  box-shadow: 0 0 0 1px var(--line), 0 1px 2px var(--shadow-near);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+[data-indicator] > :is(.tab, .page-tab) {
+  box-shadow: none;
+}
+
+.tab:active,
+.page-tab:active {
+  background: color-mix(in srgb, var(--text), transparent 90%);
+  transition-duration: var(--dur-fast);
 }
 
 .toolbar {
@@ -53,6 +75,11 @@
   gap: var(--space-xs);
   padding: var(--space-sm) var(--space) var(--space-xs);
   flex: none;
+}
+
+/* A toolbar inside an already padded container (a panel, under an editor): the container gives the sides and top. */
+.toolbar.toolbar-inset {
+  padding: 0 0 var(--space-xs);
 }
 
 .toolbar form {
@@ -64,19 +91,23 @@
 .save-state {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-8);
   margin-right: auto;
   color: var(--text-hint);
   font-size: var(--font-size-sm);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
+  transition: color var(--dur);
 }
 
+/* The dot changes colour and gains a soft ring when edits are pending; the label swap is instant. */
 .save-state::before {
   content: "";
   width: 7px;
   height: 7px;
   border-radius: var(--radius-pill);
-  background: var(--surface-3);
+  background: var(--border-control);
+  box-shadow: 0 0 0 0 transparent;
+  transition: background var(--dur), box-shadow var(--dur-slow) var(--ease-out);
 }
 
 .save-state[data-dirty] {
@@ -85,6 +116,7 @@
 
 .save-state[data-dirty]::before {
   background: var(--warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning), transparent 78%);
 }
 
 .toolbar-count {
@@ -98,10 +130,10 @@
 .toolbar-selection {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-6);
   margin-left: auto;
   font-size: var(--font-size-sm);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   white-space: nowrap;
 }
 
@@ -124,17 +156,17 @@
 .grid th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: var(--z-raised);
   height: 36px;
-  padding: 0 12px;
+  padding: 0 var(--sp-12);
   background: var(--surface);
   color: var(--text-hint);
   font-size: var(--font-size-sm);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   text-align: left;
   white-space: nowrap;
   box-shadow: inset 0 -1px 0 var(--line);
-  transition: box-shadow var(--speed);
+  transition: box-shadow var(--dur);
 }
 
 @container scroll-state(scrollable: top) {
@@ -152,11 +184,11 @@
 .grid td {
   max-width: 280px;
   height: var(--row);
-  padding: 0 12px;
+  padding: 0 var(--sp-12);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: background var(--speed);
+  transition: background var(--dur);
 }
 
 .grid td:first-child {
@@ -169,7 +201,7 @@
 
 .grid .col-check {
   width: 1px;
-  padding: 0 4px 0 12px;
+  padding: 0 var(--sp-4) 0 var(--sp-12);
   line-height: 0;
 }
 
@@ -184,12 +216,13 @@
   font-family: inherit;
 }
 
-.grid tbody tr {
+/* Rows that open their item are focusable (Row, the records grid); only those take the pointer. */
+.grid tbody tr[tabindex] {
   cursor: pointer;
 }
 
 .grid tbody tr:hover td {
-  background: var(--surface-1);
+  background: var(--hover);
 }
 
 .grid tbody tr[data-checked] td {
@@ -198,6 +231,11 @@
 
 .grid tbody tr[aria-current="true"] td {
   background: var(--accent-soft);
+}
+
+/* The open row also carries an accent edge, so it reads as current and not merely checked. */
+.grid tbody tr[aria-current="true"] td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .grid tbody tr:focus-visible {
@@ -219,16 +257,16 @@
 .sort-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 30px;
+  gap: var(--sp-4);
+  height: var(--control-sm);
   padding: 0;
   border: 0;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   background: none;
   color: inherit;
   font: inherit;
   cursor: pointer;
-  transition: color var(--speed);
+  transition: color var(--dur);
 }
 
 .sort-btn:hover,
@@ -242,30 +280,29 @@
 }
 
 .th-type {
-  color: var(--text-disabled);
+  color: var(--text-hint);
   font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 400;
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-regular);
 }
 
 .id-cell {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--sp-2);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
 }
 
 .id-cell .icon-btn {
-  width: 24px;
-  height: 24px;
   opacity: 0;
   translate: -3px 0;
-  transition: opacity var(--speed), translate var(--speed), background var(--speed), color var(--speed);
+  transition: opacity var(--dur), translate var(--dur), background var(--dur), color var(--dur);
 }
 
 .grid tr:hover .id-cell .icon-btn,
-.id-cell .icon-btn:focus-visible {
+.grid tr:focus-within .id-cell .icon-btn,
+.id-cell:focus-within .icon-btn {
   opacity: 1;
   translate: 0 0;
 }
@@ -281,19 +318,20 @@
 }
 
 .na {
-  color: var(--text-disabled);
+  color: var(--text-hint);
 }
 
 .chip {
   display: inline-block;
+  font-variant-numeric: tabular-nums;
   max-width: 180px;
   height: 22px;
-  margin-right: 4px;
-  padding: 0 9px;
-  border-radius: var(--radius-pill);
+  margin-right: var(--sp-4);
+  padding: 0 var(--sp-8);
+  border-radius: var(--radius-sm);
   background: var(--surface-2);
   font-size: var(--font-size-sm);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   line-height: 22px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -302,7 +340,7 @@
 }
 
 .chip.mono {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 /* State tones, shared by chips, dots and figures. */
@@ -322,15 +360,17 @@
   --tone: var(--accent);
 }
 
+/* The one tone treatment, shared with Notice and JobProgress: a faint wash, a hairline in the tone, tone text. */
 .chip[data-tone] {
-  background: color-mix(in srgb, var(--tone), var(--surface) 86%);
+  background: color-mix(in srgb, var(--tone), var(--surface) 88%);
   color: var(--tone);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone), transparent 76%);
 }
 
 .chip .loader {
   width: 10px;
   height: 10px;
-  margin-right: 6px;
+  margin-right: var(--sp-6);
   vertical-align: -1px;
 }
 
@@ -338,17 +378,29 @@
 .dot {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-6);
   white-space: nowrap;
 }
 
+/* The dot sits in a faint ring of its own tone (the save-state dot's language); a running (accent) state breathes. */
 .dot::before {
   content: "";
   flex: none;
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--tone, var(--text-disabled));
+  background: var(--tone, var(--text-hint));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone, var(--text-hint)), transparent 82%);
+}
+
+.dot[data-tone="accent"]::before {
+  animation: breathe calc(var(--dur-slow) * 8) ease-in-out infinite;
+}
+
+@keyframes breathe {
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--tone), transparent 90%);
+  }
 }
 
 .grid-foot {
@@ -359,25 +411,25 @@
 
 .file-list {
   display: grid;
-  gap: 2px;
+  gap: var(--sp-2);
   margin: 0;
-  padding: 4px 6px 6px;
+  padding: var(--sp-4) var(--sp-6) var(--sp-6);
   list-style: none;
 }
 
 .file-list li {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-8);
   min-height: var(--control-sm);
-  padding: 0 2px 0 6px;
+  padding: 0 var(--sp-2) 0 var(--sp-6);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
-  transition: background var(--speed);
+  transition: background var(--dur);
 }
 
 .file-list li:hover {
-  background: color-mix(in srgb, var(--surface-raised), transparent 40%);
+  background: var(--hover);
 }
 
 .file-list li span:first-of-type {
@@ -388,24 +440,18 @@
   white-space: nowrap;
 }
 
-.file-list .link {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-}
-
-.file-list input:focus-visible + .link {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
 
 @media (max-width: 599px) {
   .toolbar {
     flex-wrap: wrap;
   }
 
-  .toolbar form {
+  /* A toolbar inside an already padded container (a panel, under an editor): the container gives the sides and top. */
+.toolbar.toolbar-inset {
+  padding: 0 0 var(--space-xs);
+}
+
+.toolbar form {
     flex-basis: 100%;
     max-width: none;
   }
@@ -421,9 +467,22 @@
   color: var(--text-hint);
 }
 
-/* A heading inside a pane or section body. */
-.subtitle {
-  margin: var(--space) 0 8px;
+/* The one section heading inside a page, pane or form section; only margins differ by container. */
+.subtitle,
+.form-section > header h2,
+.stack-section h2,
+.api-syntax h2,
+.schema-section-head h2 {
   font-size: var(--font-size);
-  font-weight: 600;
+  font-weight: var(--weight-bold);
+}
+
+.subtitle {
+  margin: var(--space) 0 var(--sp-8);
+}
+
+/* A row that just arrived (a created record, a retried event; Table.tsx decides): its cells wash in the accent
+   and drain back to their own background. */
+tr[data-arrived] > td {
+  animation: flash calc(var(--dur-slow) * 4) var(--ease-out);
 }

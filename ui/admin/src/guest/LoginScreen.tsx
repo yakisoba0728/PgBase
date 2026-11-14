@@ -54,7 +54,7 @@ export function LoginScreen() {
   const error = pending && !mutation.variables?.otpCode ? null : mutation.error;
 
   return (
-    <GuestLayout title={pending ? t("login.otpTitle") : t("login.title")}>
+    <GuestLayout title={pending ? t("login.otpTitle") : t("login.title")} lead={pending ? t("login.otpLead") : t("login.lead")}>
       <form className="form" onSubmit={onSubmit} onInput={() => error && mutation.reset()}>
         {pending ? (
           <Field key="otp" label={t("field.otp")} icon={RiShieldKeyholeLine} name="otp" required autoFocus inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]*" />
