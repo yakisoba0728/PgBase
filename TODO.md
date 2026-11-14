@@ -1,6 +1,25 @@
 # pgBase 구현 현황 / TODO
 
+2026-11-15 최신 결과: 관리자 UI 개편을 [PR #142](https://github.com/yakisoba0728/PgBase/pull/142)로 main `588e14a9`에 병합하고 운영에 배포했다(schema 67 그대로, migration 없음). 세부·검증 범위·남은 일은 [현재 상태](docs/project-status.md) §13과 [다음 작업](docs/next-work.md)을 따른다. 아래 문단과 미완료 표시는 당시 이력이다.
+
 2026-11-13 최신 결과: PR #124·#125·#133 병합, main CI·전체 릴리스 gate 통과, v0.3.1 게시와 운영 schema 66 배포 완료. [다음 작업](docs/next-work.md), [운영 준비 보완](docs/production-readiness-2026-11-13.md), [배포 기록](docs/deployment-2026-11-13.md)을 따른다. 아래 미완료 표시는 날짜별 실행 당시의 이력이며 현재 열린 작업으로 합산하지 않는다. 운영 백업 생성/설정은 소유자 요청으로 제외했다. npm/pub.dev 공개는 별도 소유자 결정이다.
+
+## 2026-11-15 — 관리자 UI 개편(`feat/admin-ui-overhaul`)
+
+main `47e8d852`(schema 67)에서 분기해 `ui/admin`만 바꿨다. 서버 API·schema는 그대로다. 세부는 [현재 상태](docs/project-status.md) §13.
+
+- [x] 디자인 토큰 정비: 고정 간격 스케일·굵기·z-index 층·모션 시간/곡선·그림자 2단계. `tokens.css` 밖의 px 글꼴 크기와 색 리터럴 제거.
+- [x] 공용 컴포넌트: `QueryView`(로딩·오류·새로고침 실패), `Table`/`Row`, `Input`/`Select`/`Textarea`(폼 컨트롤 단일 구현), `Notice` 하나, 모달 셸 하나, `Unavailable`, `GroupCheckbox`, `WindowNotice`, `FileButton`. 화면별 클래스 변형 제거.
+- [x] 화면 간 동작 통일: 저장·삭제 버튼 위치, 확인 3단계(실행취소 토스트 / 일반 확인 / 이름 입력), 검색 입력, URL 상태, not-found 상태.
+- [x] 대규모 사용: 레코드 일괄 삭제·내보내기의 진행률·취소, 필터 결과 전체 선택(batch endpoint, 최대 20,000건), dead event 일괄 재시도, 목록 10페이지 창, 설정 구역 내비, 팔레트 사용자 검색, SQL 결과 가상화, 백업·복원 업로드 진행률.
+- [x] 꺼진 기능 안내: 백업·SQL console·저장소 화면이 route 미등록(404)을 `not_found` 오류 대신 "꺼져 있음"으로 표시.
+- [x] 시각 다듬기와 모션: guest 화면(login·reset·setup) 카드, 빈 상태·알림·chip, 화면 전환·pane·대화상자·토스트·탭 전환. reduced-motion 규칙 하나로 모두 꺼진다.
+- [x] 결함 수정: 전수 조사와 신규 코드 리뷰에서 나온 약 45건(대화상자 닫힘, polling 실패 시 데이터 소실, 파일 교체 후 거짓 412, drawer 포커스 복귀 등).
+- [x] 검증: UI unit 71파일/381 tests, 깨끗한 build와 dist 일치, 로컬 backend 대상 browser suite 23 통과·1 opt-in skip(시나리오 6개 추가), onboarding 1 통과, PR 필수 CI 5개 통과.
+- [x] main 병합과 운영 배포: 배포 `done`, 운영 `/admin/` 진입 JS·CSS가 병합된 dist와 SHA-256까지 일치.
+- [ ] 운영 사후 점검 중 생략한 것: 배포 전 서버 dump, 서버 `doctor`·binary 일치 job, 로그인 후 화면 확인.
+- [ ] browser에서 보지 못한 화면: 초기 setup, login OTP 단계, 다크 테마·좁은 폭의 일부 화면.
+- [ ] 릴리스 tag: v0.3.1 이후 main에만 있는 변경(백엔드 재작성·schema 67·이번 UI)이 tag 없이 쌓여 있다. 소유자 결정.
 
 ## 2026-11-13 후속 — 백엔드 수정(`backend-fixes`)
 
