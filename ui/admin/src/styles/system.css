@@ -168,8 +168,8 @@ fieldset.sys-scroll {
 }
 
 .sys-index-dirty {
-  width: 6px;
-  height: 6px;
+  width: var(--dot);
+  height: var(--dot);
   border-radius: 50%;
   background: var(--warning);
 }

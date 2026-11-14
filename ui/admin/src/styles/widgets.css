@@ -21,7 +21,7 @@
 
 .code-block pre {
   margin: 0;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   line-height: 1.6;
   white-space: pre;
 }
@@ -128,8 +128,8 @@
 }
 
 .progress-bar {
-  width: 160px;
-  height: 6px;
+  width: 180px;
+  height: var(--dot);
   border: 0;
   border-radius: var(--radius-pill);
   background: var(--surface-2);
@@ -158,7 +158,7 @@
 }
 
 .data-grid td {
-  max-width: 480px;
+  max-width: 520px;
   overflow: hidden;
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
@@ -196,8 +196,8 @@
   display: flex;
   align-items: center;
   gap: var(--sp-8);
-  min-height: 32px;
-  padding: 0 var(--sp-10);
+  min-height: var(--control-sm);
+  padding: 0 var(--sp-12);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
 }
@@ -208,7 +208,7 @@
 
 .schema-change-kind {
   flex: none;
-  width: 72px;
+  width: 84px;
   font-weight: var(--weight-bold);
 }
 
@@ -218,14 +218,14 @@
 
 .schema-change-target {
   flex: none;
-  width: 56px;
+  width: 64px;
   color: var(--text-hint);
 }
 
 .schema-change-detail {
   overflow: hidden;
   color: var(--text-hint);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

@@ -38,6 +38,23 @@ textarea {
   color: inherit;
 }
 
+/* Icon components take a numeric size prop (16 standard, 14 beside small text, 18/20 for the state family); the
+   rendered size comes from the tokens here, so one place scales every icon. Zero specificity: a context may override. */
+:where(svg.remixicon[width="16"]) {
+  width: var(--icon);
+  height: var(--icon);
+}
+
+:where(svg.remixicon[width="14"]) {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+}
+
+:where(svg.remixicon:is([width="18"], [width="20"])) {
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+}
+
 code,
 kbd,
 .mono {
@@ -47,15 +64,15 @@ kbd,
 /* A key cap: a hairline edge and a slightly heavier bottom, so it reads as a key and not a chip. */
 kbd {
   display: inline-block;
-  min-width: 20px;
-  padding: 1px var(--sp-4);
+  min-width: 22px;
+  padding: 1px var(--sp-6);
   border-radius: var(--radius-xs);
   background: var(--surface);
   color: var(--text-hint);
   font-family: var(--font);
   font-size: var(--font-size-xs);
   font-weight: var(--weight-medium);
-  line-height: 16px;
+  line-height: 18px;
   text-align: center;
   box-shadow: inset 0 0 0 1px var(--border-control), inset 0 -1px 0 var(--border-control);
 }
@@ -108,7 +125,8 @@ table,
   white-space: nowrap;
 }
 
-/* The one reduced-motion rule (tokens.css also zeroes travel distances): everything changes at once. */
+/* The one reduced-motion rule (tokens.css also zeroes travel distances; app/transitions.ts skips view transitions and
+   FLIP): everything changes at once, with no delay. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -117,7 +135,9 @@ table,
   ::view-transition-old(*),
   ::view-transition-new(*) {
     transition-duration: 0s !important;
+    transition-delay: 0s !important;
     animation-duration: 0s !important;
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
   }
 }
@@ -130,6 +150,72 @@ table,
 
 ::view-transition {
   pointer-events: none;
+}
+
+/* While a transition of a kind runs (app/transitions.ts sets data-vt for it), only its parts are named.
+   Route: the main area cross-fades (the old one leaves with a small lift, the new one fades in under the live
+   entrance of its body), and the page title morphs on its own so it reads as one heading that changed; the
+   navigation is never captured, so it stays put. Guest (signing in or out) and theme: the whole page cross-fades. */
+:root[data-vt="route"] .main {
+  view-transition-name: main;
+}
+
+:root[data-vt="route"] .page-title {
+  view-transition-name: page-title;
+}
+
+:root:is([data-vt="guest"], [data-vt="theme"]) {
+  view-transition-name: root;
+}
+
+::view-transition-old(main) {
+  animation: leave-up var(--dur-fast) var(--ease-in) both;
+}
+
+::view-transition-new(main) {
+  animation: fade-in var(--dur) var(--ease-out) both;
+}
+
+::view-transition-group(page-title) {
+  animation-duration: var(--dur-slow);
+  animation-timing-function: var(--ease-emph);
+}
+
+/* Titles of different widths keep their glyph size: no stretch, anchored at the start. */
+::view-transition-old(page-title),
+::view-transition-new(page-title) {
+  height: 100%;
+  object-fit: none;
+  object-position: left center;
+}
+
+::view-transition-old(page-title) {
+  animation: leave-up var(--dur-fast) var(--ease-in) both;
+}
+
+::view-transition-new(page-title) {
+  animation: enter var(--dur-slow) var(--ease-emph) both;
+}
+
+::view-transition-group(root) {
+  animation-duration: var(--dur-slow);
+  animation-timing-function: var(--ease-out);
+}
+
+/* Old and new snapshot of a cross-fade over the whole page: the new one fades in over the old (no double-exposure dip). */
+::view-transition-old(root) {
+  animation: none;
+}
+
+::view-transition-new(root) {
+  animation: fade-in var(--dur-slow) var(--ease-out) both;
+}
+
+@keyframes leave-up {
+  to {
+    opacity: 0;
+    translate: 0 calc(-1 * var(--rise));
+  }
 }
 
 /* Enter: a short fade with a small rise. One keyframe set, used by the page body, panes and overlays;
@@ -168,25 +254,45 @@ table,
   }
 }
 
-/* The page body's opacity-only cross-fade when a sibling tab or sub-path replaces its content (Page.tsx alternates
-   the two names so the animation restarts). Opacity only: a transform would re-anchor the fixed mobile pane. */
+/* The page body's cross-fade when a sibling tab or sub-path replaces its content (Page.tsx alternates the two names so
+   the animation restarts). The sideways shift is set only on wide screens (layout.css): a transform would re-anchor
+   the fixed mobile pane. */
 @keyframes swap-a {
   from {
     opacity: 0;
+    translate: var(--swap-shift, 0) 0;
   }
 }
 
 @keyframes swap-b {
   from {
     opacity: 0;
+    translate: var(--swap-shift, 0) 0;
   }
 }
 
-/* A small mark appearing in place: a copied check, a status dot turning on. */
+/* A small mark appearing in place: a copied check, a status dot turning on, a state icon (spring timing). */
 @keyframes pop {
   from {
     opacity: 0;
     scale: 0.6;
+  }
+}
+
+/* A floating surface arriving: fade, a small drop and a little growth from its transform-origin (toasts). */
+@keyframes float-in {
+  from {
+    opacity: 0;
+    translate: 0 var(--drop);
+    scale: var(--scale-from);
+  }
+}
+
+/* A message that appears under a field or in a notice: fades in as it settles down into place. */
+@keyframes reveal {
+  from {
+    opacity: 0;
+    translate: 0 calc(-1 * var(--rise));
   }
 }
 
@@ -200,7 +306,7 @@ table,
 
 /* A figure keyed by its value (realtime tiles, log totals) replays this whenever the value changes. */
 .tick {
-  animation: tick var(--dur) var(--ease-out);
+  animation: tick var(--dur-slow) var(--ease-spring);
 }
 
 /* A row that just arrived or changed: an accent wash that drains away. */
@@ -210,8 +316,10 @@ table,
   }
 }
 
-/* Staggered entrance: the children of .stagger (stat tiles) and of a settings or status scroll (its sections) arrive
-   one step apart, capped so a long list is never slow. Opacity only, so a pane inside one is never re-anchored. */
+/* Staggered entrance: the children of .stagger (stat tiles), of a settings or status scroll (its sections), and the
+   rows of a table as its first page or a new filter or sort arrives (Table.tsx and RecordsTable.tsx mark only those
+   rows, so rows mounting while scrolling a windowed grid never animate). One step apart, capped so a long list is
+   never slow. Opacity only: a pane inside one is never re-anchored and sticky cells keep their place. */
 :is(.stagger, .sys-scroll) > * {
   animation: fade-in var(--dur-slow) var(--ease-out) backwards;
   animation-delay: calc(var(--stagger) * 7);
@@ -224,6 +332,12 @@ table,
 :is(.stagger, .sys-scroll) > :nth-child(5) { animation-delay: calc(var(--stagger) * 4); }
 :is(.stagger, .sys-scroll) > :nth-child(6) { animation-delay: calc(var(--stagger) * 5); }
 :is(.stagger, .sys-scroll) > :nth-child(7) { animation-delay: calc(var(--stagger) * 6); }
+
+/* Table rows marked by enterRows (Table.tsx) carry their own step in --enter-i. */
+tr[data-enter] {
+  animation: fade-in var(--dur-slow) var(--ease-out) backwards;
+  animation-delay: calc(var(--stagger) * var(--enter-i, 0));
+}
 
 /* Disclosures open and close by height instead of snapping (engines without ::details-content just snap). */
 details {

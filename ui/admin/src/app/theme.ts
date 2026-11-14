@@ -1,4 +1,5 @@
 import { createStore, readStorage, writeStorage } from "./store";
+import { withTransition } from "./transitions";
 
 type ThemeMode = "light" | "dark" | "auto";
 export const themeModes: ThemeMode[] = ["light", "dark", "auto"];
@@ -23,12 +24,13 @@ let switching: ReturnType<typeof setTimeout> | undefined;
 
 export function setTheme(mode: ThemeMode): void {
   writeStorage(storageKey, mode);
-  // Colours swap at once instead of every control fading on its own; a timer (not a frame) clears it, so a hidden tab clears it too.
+  // Colours swap at once instead of every control fading on its own, and the page cross-fades from the old theme
+  // to the new one where view transitions run (base.css); a timer (not a frame) clears the flag, so a hidden tab clears it too.
   const root = document.documentElement;
   root.dataset.themeSwitching = "";
   clearTimeout(switching);
   switching = setTimeout(() => delete root.dataset.themeSwitching, 100);
-  apply(mode);
+  withTransition("theme", () => apply(mode));
   store.set(mode);
 }
 

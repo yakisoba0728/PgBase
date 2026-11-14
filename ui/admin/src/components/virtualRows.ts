@@ -1,5 +1,11 @@
 import { useEffect, useState, type RefObject } from "react";
 
+/** A px size token from :root (tokens.css), so a grid's row arithmetic follows the CSS; `fallback` where no styles load (tests). */
+export function tokenPx(name: string, fallback: number): number {
+  const value = typeof document === "undefined" ? NaN : parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
+  return value > 0 ? value : fallback;
+}
+
 /** The slice of fixed-height rows a scroll position shows, padded by `overscan` rows each side. */
 export function visibleRange(scrollTop: number, viewport: number, rowHeight: number, count: number, overscan = 10): { start: number; end: number } {
   if (count === 0 || rowHeight <= 0) return { start: 0, end: 0 };

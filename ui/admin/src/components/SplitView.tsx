@@ -8,8 +8,9 @@ import { IconButton } from "./Button";
 import { CopyButton } from "./CopyButton";
 
 const storageKey = "pgbase.split";
-const minPane = 340;
-const minList = 280;
+// Kept in step with .split-pane's max-width (layout.css), which leaves the list at least minList.
+const minPane = 380;
+const minList = 320;
 
 interface SplitViewProps {
   list: ReactNode;

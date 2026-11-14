@@ -7,7 +7,7 @@
   height: 100dvh;
   background: var(--bg);
   animation: fade-in var(--dur-slow) var(--ease-out);
-  transition: grid-template-columns var(--dur-slow) var(--ease-out);
+  transition: grid-template-columns var(--dur-slow) var(--ease-emph);
 }
 
 @media (min-width: 900px) {
@@ -45,6 +45,7 @@
 }
 
 .nav-scroll {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -58,7 +59,7 @@
 .nav-group-title {
   display: flex;
   align-items: center;
-  height: 26px;
+  height: var(--control-xs);
   padding: 0 var(--sp-2) 0 var(--sp-12);
 }
 
@@ -74,8 +75,8 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--sp-10);
-  height: var(--control-sm);
+  gap: var(--sp-12);
+  height: var(--nav-item);
   padding: 0 var(--sp-12);
   border-radius: var(--radius);
   color: var(--text);
@@ -121,6 +122,31 @@
 
 .nav-link.active::before {
   scale: 1 1;
+}
+
+/* With the moving indicator (AppNav measures the current link into --tab-y/--tab-h), the current item's tint and
+   edge are one shape that glides between items, springing a little as it lands; the links keep only their text. */
+.nav-scroll[data-indicator]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--sp-10);
+  right: var(--sp-10);
+  height: var(--tab-h);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent), var(--bg) 86%);
+  box-shadow: inset 2px 0 0 var(--accent);
+  translate: 0 var(--tab-y);
+  transition: translate var(--dur-slow) var(--ease-spring);
+  pointer-events: none;
+}
+
+.nav-scroll[data-indicator] .nav-link.active {
+  background: transparent;
+}
+
+.nav-scroll[data-indicator] .nav-link::before {
+  display: none;
 }
 
 .nav-link svg {
@@ -175,8 +201,8 @@ a.nav-op:focus-visible {
 }
 
 .nav-op .loader {
-  width: 12px;
-  height: 12px;
+  width: var(--sp-12);
+  height: var(--sp-12);
 }
 
 .nav-op-progress {
@@ -198,10 +224,10 @@ a.nav-op:focus-visible {
 .dropdown-btn {
   display: flex;
   align-items: center;
-  gap: var(--sp-10);
+  gap: var(--sp-12);
   flex: 1;
   min-width: 0;
-  height: var(--control-sm);
+  height: var(--nav-item);
   padding: 0 var(--sp-12);
   border: 0;
   border-radius: var(--radius);
@@ -275,7 +301,7 @@ a.nav-op:focus-visible {
   .app[data-rail] .dropdown-btn {
     flex: none;
     justify-content: center;
-    width: var(--control-sm);
+    width: var(--nav-item);
     padding: 0;
   }
 
@@ -350,12 +376,20 @@ a.nav-op:focus-visible {
   animation: enter var(--dur-slow) var(--ease-out);
 }
 
+/* A sibling tab slides in from its side (Page.tsx sets --swap-dir: 1 for a tab to the right, -1 to the left);
+   only on wide screens, where no full-screen pane can be re-anchored by the transform. */
 .page-body[data-swap="a"] {
-  animation: swap-a var(--dur) var(--ease-out);
+  animation: swap-a var(--dur-slow) var(--ease-emph);
 }
 
 .page-body[data-swap="b"] {
-  animation: swap-b var(--dur) var(--ease-out);
+  animation: swap-b var(--dur-slow) var(--ease-emph);
+}
+
+@media (min-width: 900px) {
+  .page-body[data-swap] {
+    --swap-shift: calc(var(--swap-dir, 0) * var(--slide));
+  }
 }
 
 .page-body {
@@ -437,12 +471,12 @@ a.nav-op:focus-visible {
   position: relative;
   z-index: var(--z-raised);
   box-shadow: var(--shadow-1);
-  animation: enter-side var(--dur-slow) var(--ease-out);
+  animation: enter-side var(--dur-slow) var(--ease-emph);
   display: flex;
   flex-direction: column;
   flex: none;
   min-width: 0;
-  max-width: calc(100% - 280px);
+  max-width: calc(100% - 320px);
   min-height: 0;
   overflow: hidden;
   background: var(--surface);
@@ -455,11 +489,16 @@ a.nav-op:focus-visible {
   animation: leave-side var(--dur) var(--ease-in) forwards;
 }
 
+/* The pane's content follows its slide a beat later, so the surface arrives first and the content settles into it. */
+.split-pane:not(.split-pane-leaving) > * {
+  animation: fade-in var(--dur-slow) var(--ease-out) calc(var(--dur-fast) / 2) backwards;
+}
+
 .pane-header {
   display: flex;
   align-items: center;
   gap: var(--sp-6);
-  height: 52px;
+  height: var(--pane-header);
   padding: 0 var(--space-xs) 0 var(--space);
   flex: none;
 }
@@ -467,7 +506,8 @@ a.nav-op:focus-visible {
 .pane-title {
   min-width: 0;
   overflow: hidden;
-  font-size: var(--font-size);
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
   font-weight: var(--weight-bold);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -524,13 +564,14 @@ a.nav-op:focus-visible {
     width: min(var(--nav), 85vw);
     translate: -100% 0;
     visibility: hidden;
-    transition: translate var(--dur-slow) var(--ease-out), visibility var(--dur-slow);
+    transition: translate var(--dur) var(--ease-in), visibility var(--dur);
   }
 
   .app[data-drawer] .nav {
     translate: 0 0;
     visibility: visible;
     box-shadow: var(--shadow-2);
+    transition: translate var(--dur-slow) var(--ease-emph), visibility var(--dur-slow);
   }
 
   .app[data-drawer] .nav-scrim {
@@ -617,12 +658,12 @@ a.nav-op:focus-visible {
   display: grid;
   align-content: start;
   gap: var(--space);
-  width: min(100%, 400px);
-  padding: var(--sp-20) var(--sp-32) var(--sp-24);
+  width: min(100%, 440px);
+  padding: var(--sp-24) var(--sp-40) var(--sp-32);
   border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow-2);
-  animation: enter var(--dur-slow) var(--ease-out);
+  animation: float-in calc(var(--dur-slow) * 1.5) var(--ease-spring);
 }
 
 /* Wordmark at the start, language and theme at the end, one hairline under them. */
@@ -643,13 +684,13 @@ a.nav-op:focus-visible {
 .guest-heading {
   display: grid;
   gap: var(--sp-6);
-  animation: enter var(--dur-slow) var(--ease-out);
+  animation: enter var(--dur-slow) var(--ease-emph) var(--dur-fast) backwards;
 }
 
 .guest-title {
   font-size: var(--font-size-display);
   font-weight: var(--weight-bold);
-  line-height: 28px;
+  line-height: var(--line-height-display);
   letter-spacing: -0.01em;
 }
 
@@ -675,7 +716,7 @@ a.nav-op:focus-visible {
 
 .guest-host {
   color: var(--text-hint);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   animation: fade-in calc(var(--dur-slow) * 2) var(--ease-out);
 }
 
@@ -691,8 +732,8 @@ a.nav-op:focus-visible {
 
 .loader {
   display: inline-block;
-  width: 16px;
-  height: 16px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
   border: 2px solid currentcolor;
   border-right-color: transparent;
   border-radius: 50%;
@@ -708,6 +749,16 @@ a.nav-op:focus-visible {
 
 /* The state family (EmptyState, ErrorState, Unavailable) shares one icon size, one hint colour and one measure.
    Empty and error: centred in what they replace, a muted icon over one line and the screen's action. */
+/* The state family arrives softly; its icon pops in once, after the text, and then stays still. */
+.empty,
+.unavailable {
+  animation: enter var(--dur-slow) var(--ease-emph) backwards;
+}
+
+:is(.empty-icon, .unavailable-icon) {
+  animation: pop var(--dur-slow) var(--ease-spring) var(--dur-fast) backwards;
+}
+
 .empty {
   display: grid;
   flex: 1;
@@ -829,29 +880,29 @@ a.nav-op:focus-visible {
 .skeleton { width: 100%; min-width: 0; }
 .skeleton-content span {
   display: block;
-  height: 12px;
+  height: var(--sp-12);
   border-radius: var(--radius-xs);
   /* One sweep across the whole viewport (fixed attachment), so every bar shimmers in step. */
-  background: linear-gradient(90deg, var(--surface-2) 40%, var(--surface-1) 50%, var(--surface-2) 60%) 0 0 / 300vw 100% fixed;
-  animation: shimmer calc(var(--dur-slow) * 7) linear infinite;
+  background: linear-gradient(90deg, var(--surface-2) 35%, var(--surface-1) 50%, var(--surface-2) 65%) 0 0 / 300vw 100% fixed;
+  animation: shimmer calc(var(--dur-slow) * 6) cubic-bezier(0.45, 0, 0.55, 1) infinite, fade-in var(--dur-slow) var(--ease-out);
 }
 .skeleton-toolbar { display: flex; justify-content: space-between; gap: var(--sp-24); padding: var(--sp-12) 0 var(--sp-20); }
-.skeleton-toolbar span:first-child { width: 38%; height: 32px; }
-.skeleton-toolbar span:last-child { width: 88px; height: 32px; }
-.skeleton-row { display: grid; grid-template-columns: 1.3fr 1.5fr .7fr 1fr 1fr; gap: var(--sp-24); align-items: center; min-height: 44px; padding: 0 var(--sp-12); border-bottom: 1px solid var(--line); }
+.skeleton-toolbar span:first-child { width: 38%; height: var(--control); }
+.skeleton-toolbar span:last-child { width: 96px; height: var(--control); }
+.skeleton-row { display: grid; grid-template-columns: 1.3fr 1.5fr .7fr 1fr 1fr; gap: var(--sp-24); align-items: center; min-height: var(--row); padding: 0 var(--sp-16); border-bottom: 1px solid var(--line); }
 .skeleton-row span { width: 75%; }
 .skeleton-row span:nth-child(2) { width: 92%; }
 .skeleton-row:nth-child(even) span { width: 62%; }
-.skeleton-head { min-height: 36px; background: var(--surface-1); }
-.skeleton-head span { height: 9px; width: 48%; }
+.skeleton-head { min-height: var(--row-head); background: var(--surface-1); }
+.skeleton-head span { height: var(--sp-10); width: 48%; }
 .skeleton-form .skeleton-content { display: grid; gap: var(--sp-24); max-width: 640px; padding: var(--sp-20) 0; }
 .skeleton-field { display: grid; gap: var(--sp-10); }
-.skeleton-field span:first-child { width: 25%; height: 11px; }
-.skeleton-field span:last-child { height: 36px; }
+.skeleton-field span:first-child { width: 25%; height: var(--sp-12); }
+.skeleton-field span:last-child { height: var(--control); }
 .skeleton-cards .skeleton-content { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-12); }
-.skeleton-card { display: grid; align-content: center; gap: var(--sp-12); min-height: 76px; padding: var(--sp-16); border: 1px solid var(--line); border-radius: var(--radius-sm); }
-.skeleton-card span:first-child { width: 55%; height: 10px; }
-.skeleton-card span:last-child { width: 35%; height: 20px; }
+.skeleton-card { display: grid; align-content: center; gap: var(--sp-12); min-height: 84px; padding: var(--sp-16); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.skeleton-card span:first-child { width: 55%; height: var(--sp-12); }
+.skeleton-card span:last-child { width: 35%; height: var(--sp-24); }
 .skeleton-editor .skeleton-content { padding: var(--sp-16); border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .skeleton-line { padding: var(--sp-6) 0; }
 .skeleton-line span { width: 80%; }

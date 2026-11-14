@@ -2,9 +2,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--sp-6);
+  gap: var(--sp-8);
   height: var(--control);
-  padding: 0 var(--sp-16);
+  padding: 0 var(--sp-20);
   border: 0;
   border-radius: var(--radius);
   background: var(--accent);
@@ -13,7 +13,7 @@
   white-space: nowrap;
   cursor: pointer;
   box-shadow: 0 1px 1px var(--shadow-near);
-  transition: background var(--dur), color var(--dur), opacity var(--dur), box-shadow var(--dur), scale var(--dur) var(--ease-out);
+  transition: background var(--dur) var(--ease-out), color var(--dur), opacity var(--dur), box-shadow var(--dur) var(--ease-out), scale var(--dur-slow) var(--ease-spring);
 }
 
 a.btn {
@@ -22,11 +22,20 @@ a.btn {
 
 .btn:has(> svg:first-child),
 .btn:has(> .loader:first-child) {
-  padding-left: var(--sp-12);
+  padding-left: var(--sp-16);
 }
 
 .btn:hover {
   background: var(--accent-hover);
+}
+
+/* A filled button (primary, danger) lifts its shadow a little under the pointer; flat ones only shade. */
+.btn:not(.btn-secondary, .btn-transparent, .txt-danger, :disabled):hover {
+  box-shadow: 0 1px 2px var(--shadow-near), 0 4px 10px -4px color-mix(in srgb, var(--accent), transparent 55%);
+}
+
+.btn-danger:not(:disabled):hover {
+  box-shadow: 0 1px 2px var(--shadow-near), 0 4px 10px -4px color-mix(in srgb, var(--danger), transparent 55%);
 }
 
 /* Pressed: one step deeper than hover and a little smaller, at once; released, it springs back. */
@@ -38,6 +47,7 @@ a.btn {
   background: var(--accent-active);
   box-shadow: none;
   transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-out);
 }
 
 .btn:disabled {
@@ -52,8 +62,9 @@ a.btn {
   cursor: progress;
 }
 
+/* Loading: the spinner pops in where the icon was, so the button reads as working without changing size. */
 .btn .loader {
-  animation: spin calc(var(--dur-slow) * 3) linear infinite, enter var(--dur) var(--ease-out);
+  animation: spin calc(var(--dur-slow) * 3) linear infinite, pop var(--dur-slow) var(--ease-spring);
 }
 
 .btn-secondary {
@@ -103,6 +114,7 @@ a.btn {
   padding: 0 var(--sp-12);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
+  gap: var(--sp-6);
 }
 
 .btn-sm:has(> svg:first-child),
@@ -115,8 +127,8 @@ a.btn {
 }
 
 .btn .loader {
-  width: 14px;
-  height: 14px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 .icon-btn {
@@ -131,12 +143,12 @@ a.btn {
   background: transparent;
   color: var(--text-hint);
   cursor: pointer;
-  transition: background var(--dur), color var(--dur), scale var(--dur) var(--ease-out);
+  transition: background var(--dur) var(--ease-out), color var(--dur), scale var(--dur-slow) var(--ease-spring);
 }
 
 .icon-btn-xs {
-  width: 24px;
-  height: 24px;
+  width: var(--control-xs);
+  height: var(--control-xs);
   border-radius: var(--radius-sm);
 }
 
@@ -159,6 +171,7 @@ a.btn {
 .icon-btn:active:not(:disabled) {
   background: var(--surface-3);
   transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-out);
 }
 
 .icon-btn:disabled {
@@ -184,7 +197,7 @@ a.btn {
   width: 100%;
   min-width: 0;
   min-height: var(--row);
-  padding: var(--sp-8) var(--sp-12);
+  padding: var(--sp-8) var(--sp-16);
   border: 0;
   border-radius: var(--radius);
   background: transparent;
@@ -192,7 +205,7 @@ a.btn {
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background var(--dur);
+  transition: background var(--dur) var(--ease-out);
 }
 
 .row-btn:hover:not(:disabled) {
@@ -237,5 +250,5 @@ a.btn {
 /* CopyButton's moment of success: the check pops in, in the success tone, then the copy icon returns. */
 [data-copied] > svg {
   color: var(--success);
-  animation: pop var(--dur-slow) var(--ease-out);
+  animation: pop var(--dur-slow) var(--ease-spring);
 }

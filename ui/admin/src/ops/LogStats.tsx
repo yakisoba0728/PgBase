@@ -11,9 +11,11 @@ import { useTimeFormat } from "../app/format";
 
 const classes = ["1", "2", "3", "4", "5"] as const;
 const tone: Record<string, string | undefined> = { "4": "warning", "5": "danger" };
-const barWidth = 28;
-const gap = 10;
-const height = 44;
+const barWidth = 32;
+const gap = 12;
+const height = 48;
+// Room under the bars for the class labels (--font-size-sm).
+const labels = 20;
 
 /** Totals for the list's time window (other filters do not narrow them). Bars are status classes; a click filters the list. */
 export function LogStats({ range, active, onPick }: { range: Pick<RequestLogFilter, "from" | "to">; active: string; onPick: (statusClass: string) => void }) {
@@ -33,7 +35,7 @@ export function LogStats({ range, active, onPick }: { range: Pick<RequestLogFilt
   const shownCount = shown ? String(data.statusClasses[`${shown}xx`] ?? 0) : null;
   return (
     <section className="ops-stats" aria-label={t("ops.logs.stats")}>
-      <svg className="ops-bars" width={classes.length * (barWidth + gap) - gap} height={height + 16} role="group" aria-label={t("ops.logs.byStatus")}>
+      <svg className="ops-bars" width={classes.length * (barWidth + gap) - gap} height={height + labels} role="group" aria-label={t("ops.logs.byStatus")}>
         {classes.map((c, index) => {
           const count = counts[index];
           const value = Number(count ?? 0);
@@ -61,9 +63,9 @@ export function LogStats({ range, active, onPick }: { range: Pick<RequestLogFilt
               onFocus={() => setHover(c)}
               onBlur={() => setHover(null)}
             >
-              <rect className="ops-bar-hit" x={x - gap / 2} y={0} width={barWidth + gap} height={height + 16} />
+              <rect className="ops-bar-hit" x={x - gap / 2} y={0} width={barWidth + gap} height={height + labels} />
               <rect className="ops-bar-fill" x={x} y={height - barHeight} width={barWidth} height={barHeight} rx={4} />
-              <text x={x + barWidth / 2} y={height + 13} textAnchor="middle">{c}xx</text>
+              <text x={x + barWidth / 2} y={height + labels - 3} textAnchor="middle">{c}xx</text>
             </g>
           );
         })}

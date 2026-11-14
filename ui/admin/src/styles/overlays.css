@@ -7,11 +7,12 @@ dialog::backdrop {
   background: var(--backdrop);
 }
 
-/* Modals open with a backdrop fade and a slight scale, and close quicker the same way (the dialog stays mounted,
-   so display/overlay transition discretely and the exit is pure CSS). */
+/* Modals open with a backdrop fade while the dialog grows from a little below and smaller on a spring, and close
+   quicker by fading and sinking back (the dialog stays mounted, so display/overlay transition discretely and the
+   exit is pure CSS). The backdrop only fades: no blur. */
 .modal,
 .modal::backdrop {
-  transition: opacity var(--dur-fast) var(--ease-in), scale var(--dur-fast) var(--ease-in), display var(--dur-fast) allow-discrete, overlay var(--dur-fast) allow-discrete;
+  transition: opacity var(--dur-fast) var(--ease-in), scale var(--dur-fast) var(--ease-in), translate var(--dur-fast) var(--ease-in), display var(--dur-fast) allow-discrete, overlay var(--dur-fast) allow-discrete;
 }
 
 .modal:not([open]),
@@ -21,6 +22,7 @@ dialog::backdrop {
 
 .modal:not([open]) {
   scale: var(--scale-from);
+  translate: 0 calc(var(--drop) / 2);
 }
 
 /* A dialog whose content unmounts with `open` (TaskDialog) would fade an empty shell: it closes at once. */
@@ -34,6 +36,12 @@ dialog::backdrop {
   transition-timing-function: var(--ease-out);
 }
 
+.modal[open] {
+  transition-property: opacity, scale, translate, display, overlay;
+  transition-duration: var(--dur), var(--dur-slow), var(--dur-slow), var(--dur-slow), var(--dur-slow);
+  transition-timing-function: var(--ease-out), var(--ease-spring), var(--ease-emph), linear, linear;
+}
+
 @starting-style {
   .modal[open],
   .modal[open]::backdrop {
@@ -42,13 +50,14 @@ dialog::backdrop {
 
   .modal[open] {
     scale: var(--scale-from);
+    translate: 0 var(--drop);
   }
 }
 
 /* The one modal shell (useModal): confirmations, task dialogs, the command palette and file preview share the
    surface, radius, shadow and the head/body/actions padding; each keeps its own width and content layout. */
 .modal {
-  width: min(100vw - 32px, 420px);
+  width: min(100vw - 32px, var(--modal-w));
   max-height: calc(100dvh - 48px);
   padding: 0;
   border: 0;
@@ -62,18 +71,19 @@ dialog::backdrop {
   display: flex;
   align-items: center;
   gap: var(--sp-8);
-  min-height: 48px;
-  padding: var(--sp-8) var(--sp-8) var(--sp-8) var(--sp-16);
+  min-height: var(--pane-header);
+  padding: var(--sp-8) var(--sp-10) var(--sp-8) var(--sp-20);
   box-shadow: 0 1px 0 var(--line);
 }
 
 .modal-body {
-  padding: var(--sp-20);
+  padding: var(--sp-24);
 }
 
 .modal-title {
-  margin-bottom: var(--sp-6);
-  font-size: var(--font-size);
+  margin-bottom: var(--sp-8);
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
   font-weight: var(--weight-bold);
 }
 
@@ -85,14 +95,14 @@ dialog::backdrop {
   display: flex;
   justify-content: flex-end;
   gap: var(--sp-8);
-  margin-top: var(--sp-20);
+  margin-top: var(--sp-24);
 }
 
 .dropdown {
   inset: auto;
   overflow-y: auto;
   overscroll-behavior: contain;
-  min-width: 190px;
+  min-width: var(--menu-w);
   margin: 0;
   padding: var(--sp-4);
   border: 0;
@@ -102,20 +112,22 @@ dialog::backdrop {
   box-shadow: var(--shadow-2);
 }
 
-/* Menus and popovers: a fade with a 4px shift from the anchor's side (placeNear sets data-side), out quicker. */
+/* Menus and popovers grow out of their anchor: a fade, a small shift from the anchor's side and a scale from the
+   corner nearest it (placeNear sets data-side and transform-origin), landing on a spring; out quicker, no spring. */
 :is(.dropdown, .popover) {
   --shift: calc(-1 * var(--rise));
-  transition: opacity var(--dur-fast) var(--ease-in), translate var(--dur-fast) var(--ease-in), display var(--dur-fast) allow-discrete, overlay var(--dur-fast) allow-discrete;
+  transition: opacity var(--dur-fast) var(--ease-in), translate var(--dur-fast) var(--ease-in), scale var(--dur-fast) var(--ease-in), display var(--dur-fast) allow-discrete, overlay var(--dur-fast) allow-discrete;
 }
 
 :is(.dropdown, .popover):popover-open {
-  transition-duration: var(--dur);
-  transition-timing-function: var(--ease-out);
+  transition-duration: var(--dur), var(--dur-slow), var(--dur-slow), var(--dur), var(--dur);
+  transition-timing-function: var(--ease-out), var(--ease-spring), var(--ease-spring), linear, linear;
 }
 
 :is(.dropdown, .popover):not(:popover-open) {
   opacity: 0;
   translate: 0 var(--shift);
+  scale: var(--scale-from);
 }
 
 :is(.dropdown, .popover)[data-side="above"] {
@@ -126,8 +138,22 @@ dialog::backdrop {
   :is(.dropdown, .popover):popover-open {
     opacity: 0;
     translate: 0 var(--shift);
+    scale: var(--scale-from);
   }
 }
+
+/* Menu rows follow the panel in, one step apart (capped), so a menu reads top to bottom as it opens. */
+.dropdown:popover-open > * {
+  animation: fade-in var(--dur) var(--ease-out) backwards;
+  animation-delay: calc(var(--stagger) / 2 * 6);
+}
+
+.dropdown:popover-open > :nth-child(1) { animation-delay: 0ms; }
+.dropdown:popover-open > :nth-child(2) { animation-delay: calc(var(--stagger) / 2); }
+.dropdown:popover-open > :nth-child(3) { animation-delay: var(--stagger); }
+.dropdown:popover-open > :nth-child(4) { animation-delay: calc(var(--stagger) / 2 * 3); }
+.dropdown:popover-open > :nth-child(5) { animation-delay: calc(var(--stagger) * 2); }
+.dropdown:popover-open > :nth-child(6) { animation-delay: calc(var(--stagger) / 2 * 5); }
 
 .dropdown-label {
   padding: var(--sp-6) var(--sp-10) var(--sp-4);
@@ -139,10 +165,10 @@ dialog::backdrop {
 .dropdown-item {
   display: flex;
   align-items: center;
-  gap: var(--sp-8);
+  gap: var(--sp-10);
   width: 100%;
   min-height: var(--control);
-  padding: 0 var(--sp-10);
+  padding: 0 var(--sp-12);
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -173,6 +199,7 @@ dialog::backdrop {
 .dropdown-item .check {
   margin-left: auto;
   color: var(--accent);
+  animation: pop var(--dur-slow) var(--ease-spring);
 }
 
 .toasts {
@@ -184,26 +211,27 @@ dialog::backdrop {
   z-index: var(--z-toast);
   display: grid;
   gap: var(--sp-8);
-  max-width: min(420px, calc(100vw - 32px));
+  max-width: min(var(--toast-w), calc(100vw - 32px));
 }
 
 .toast {
   display: flex;
   align-items: flex-start;
-  gap: var(--sp-8);
-  padding: var(--sp-6) var(--sp-6) var(--sp-6) var(--sp-12);
-  border-radius: var(--radius);
+  gap: var(--sp-10);
+  padding: var(--sp-6) var(--sp-6) var(--sp-6) var(--sp-16);
+  border-radius: var(--radius-lg);
   background: var(--text);
   color: var(--surface);
   box-shadow: var(--shadow-2);
-  animation: enter-down var(--dur) var(--ease-out);
+  animation: enter-down var(--dur-slow) var(--ease-spring);
 }
 
 /* Guest screens show toasts at the top, so they come down from it. */
 @keyframes enter-down {
   from {
     opacity: 0;
-    translate: 0 calc(-1 * var(--rise));
+    translate: 0 calc(-1 * var(--drop));
+    scale: var(--scale-from);
   }
 }
 
@@ -245,7 +273,7 @@ dialog::backdrop {
 }
 
 .peek {
-  width: min(480px, calc(100vw - 16px));
+  width: min(var(--peek-w), calc(100vw - 16px));
   padding: 0;
 }
 
@@ -351,12 +379,40 @@ dialog::backdrop {
 }
 
 #root > .app ~ .toasts .toast {
+  position: relative;
+  overflow: hidden;
+  transform-origin: right bottom;
   align-items: center;
   min-width: 0;
-  max-width: min(560px, calc(100vw - 32px));
-  min-height: var(--control);
-  padding: var(--sp-4) var(--sp-4) var(--sp-4) var(--sp-12);
-  animation-name: enter;
+  max-width: min(var(--toast-w), calc(100vw - 32px));
+  min-height: calc(var(--control) + var(--sp-8));
+  padding: var(--sp-6) var(--sp-6) var(--sp-6) var(--sp-16);
+  animation-name: float-in;
+}
+
+/* Time left before the toast leaves on its own (Toast.tsx sets --toast-life): a hairline draining along the
+   bottom edge. Hover or focus holds the toast and its timer restarts in full on leave, so the line goes and
+   comes back full with it. */
+#root > .app ~ .toasts .toast::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  background: currentcolor;
+  opacity: 0.35;
+  transform-origin: left;
+  animation: drain var(--toast-life, 5s) linear forwards;
+}
+
+#root > .app ~ .toasts .toast:is(:hover, :focus-within)::after {
+  opacity: 0;
+  animation: none;
+}
+
+@keyframes drain {
+  to {
+    scale: 0 1;
+  }
 }
 
 #root > .app ~ .toasts .toast p {
@@ -369,6 +425,10 @@ dialog::backdrop {
 
 /* Phones and the drawer layout: centred, raised above a full-screen pane's footer. */
 @media (max-width: 899px) {
+  #root > .app ~ .toasts .toast {
+    transform-origin: center bottom;
+  }
+
   #root > .app ~ .toasts {
     right: auto;
     bottom: calc(var(--control) + var(--space-sm) * 2 + var(--sp-8));
@@ -383,15 +443,16 @@ dialog::backdrop {
 }
 
 ::view-transition-old(toast) {
-  animation: leave var(--dur-fast) var(--ease-in) both;
+  animation: leave var(--dur) var(--ease-in) both;
 }
 
 ::view-transition-new(toast) {
-  animation: enter var(--dur) var(--ease-out) both;
+  animation: float-in var(--dur-slow) var(--ease-spring) both;
 }
 
 ::view-transition-group(toast) {
-  animation-duration: var(--dur);
+  animation-duration: var(--dur-slow);
+  animation-timing-function: var(--ease-emph);
 }
 
 .toast-action {

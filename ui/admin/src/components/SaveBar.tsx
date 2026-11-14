@@ -44,7 +44,10 @@ export function SaveBar({ dirty, busy = false, onDiscard, form, onSave, saveLabe
   const id = useSaveShortcut();
   return (
     <>
-      <span className="save-state" data-dirty={dirty ? "" : undefined}>{dirty ? t("common.unsaved") : (clean ?? t("common.saved"))}</span>
+      <span className="save-state" data-dirty={dirty ? "" : undefined}>
+        {/* Keyed by the state, so "Unsaved" and "Saved" settle in as the dot changes colour. */}
+        <span key={dirty ? "dirty" : "clean"} className="save-state-text">{dirty ? t("common.unsaved") : (clean ?? t("common.saved"))}</span>
+      </span>
       {children}
       <Button variant="secondary" size="sm" disabled={!dirty || busy} onClick={onDiscard}>{t("common.discard")}</Button>
       <Button id={id} aria-keyshortcuts="Meta+S Control+S" type={form || !onSave ? "submit" : "button"} size="sm" form={form} loading={busy} disabled={saveDisabled ?? !dirty} onClick={onSave}>{saveLabel ?? t("common.save")}</Button>

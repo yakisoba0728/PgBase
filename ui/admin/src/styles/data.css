@@ -18,7 +18,7 @@
   border-radius: var(--radius-xs) var(--radius-xs) 0 0;
   background: var(--accent);
   translate: var(--tab-x) 0;
-  transition: translate var(--dur-slow) var(--ease-out), width var(--dur-slow) var(--ease-out);
+  transition: translate var(--dur-slow) var(--ease-spring), width var(--dur-slow) var(--ease-out);
   pointer-events: none;
 }
 
@@ -28,13 +28,13 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  height: var(--control-sm);
-  padding: 0 var(--sp-8);
+  height: var(--tab);
+  padding: 0 var(--sp-12);
   border: 0;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   background: transparent;
   color: var(--text-hint);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size);
   font-weight: var(--weight-medium);
   text-decoration: none;
   white-space: nowrap;
@@ -84,7 +84,7 @@
 
 .toolbar form {
   flex: 1;
-  max-width: 560px;
+  max-width: 600px;
 }
 
 /* Editing state at the start of a toolbar: a quiet dot, amber while there are unsaved changes. */
@@ -102,8 +102,8 @@
 /* The dot changes colour and gains a soft ring when edits are pending; the label swap is instant. */
 .save-state::before {
   content: "";
-  width: 7px;
-  height: 7px;
+  width: var(--dot);
+  height: var(--dot);
   border-radius: var(--radius-pill);
   background: var(--border-control);
   box-shadow: 0 0 0 0 transparent;
@@ -114,9 +114,13 @@
   color: var(--text);
 }
 
+.save-state-text {
+  animation: reveal var(--dur) var(--ease-out);
+}
+
 .save-state[data-dirty]::before {
   background: var(--warning);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning), transparent 78%);
+  box-shadow: 0 0 0 var(--dot-ring) color-mix(in srgb, var(--warning), transparent 78%);
 }
 
 .toolbar-count {
@@ -157,8 +161,8 @@
   position: sticky;
   top: 0;
   z-index: var(--z-raised);
-  height: 36px;
-  padding: 0 var(--sp-12);
+  height: var(--row-head);
+  padding: 0 var(--sp-16);
   background: var(--surface);
   color: var(--text-hint);
   font-size: var(--font-size-sm);
@@ -178,17 +182,17 @@
 .grid tbody::before {
   content: "";
   display: block;
-  height: 4px;
+  height: var(--sp-4);
 }
 
 .grid td {
-  max-width: 280px;
+  max-width: 320px;
   height: var(--row);
-  padding: 0 var(--sp-12);
+  padding: 0 var(--sp-16);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: background var(--dur);
+  transition: background var(--dur) var(--ease-out), box-shadow var(--dur-slow) var(--ease-out);
 }
 
 .grid td:first-child {
@@ -201,7 +205,7 @@
 
 .grid .col-check {
   width: 1px;
-  padding: 0 var(--sp-4) 0 var(--sp-12);
+  padding: 0 var(--sp-4) 0 var(--sp-16);
   line-height: 0;
 }
 
@@ -282,7 +286,7 @@
 .th-type {
   color: var(--text-hint);
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   font-weight: var(--weight-regular);
 }
 
@@ -324,15 +328,15 @@
 .chip {
   display: inline-block;
   font-variant-numeric: tabular-nums;
-  max-width: 180px;
-  height: 22px;
+  max-width: 200px;
+  height: var(--chip);
   margin-right: var(--sp-4);
   padding: 0 var(--sp-8);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   font-size: var(--font-size-sm);
   font-weight: var(--weight-medium);
-  line-height: 22px;
+  line-height: var(--chip);
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: middle;
@@ -340,7 +344,7 @@
 }
 
 .chip.mono {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
 }
 
 /* State tones, shared by chips, dots and figures. */
@@ -367,9 +371,15 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone), transparent 76%);
 }
 
+/* A chip or dot whose state changes in place (a job finishing, a token revoked) eases into its new tone. */
+.chip,
+.dot::before {
+  transition: background-color var(--dur-slow) var(--ease-out), color var(--dur-slow) var(--ease-out), box-shadow var(--dur-slow) var(--ease-out);
+}
+
 .chip .loader {
-  width: 10px;
-  height: 10px;
+  width: var(--sp-12);
+  height: var(--sp-12);
   margin-right: var(--sp-6);
   vertical-align: -1px;
 }
@@ -386,11 +396,11 @@
 .dot::before {
   content: "";
   flex: none;
-  width: 7px;
-  height: 7px;
+  width: var(--dot);
+  height: var(--dot);
   border-radius: 50%;
   background: var(--tone, var(--text-hint));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone, var(--text-hint)), transparent 82%);
+  box-shadow: 0 0 0 var(--dot-ring) color-mix(in srgb, var(--tone, var(--text-hint)), transparent 82%);
 }
 
 .dot[data-tone="accent"]::before {
@@ -399,7 +409,7 @@
 
 @keyframes breathe {
   50% {
-    box-shadow: 0 0 0 5px color-mix(in srgb, var(--tone), transparent 90%);
+    box-shadow: 0 0 0 calc(var(--dot-ring) + var(--sp-2)) color-mix(in srgb, var(--tone), transparent 90%);
   }
 }
 

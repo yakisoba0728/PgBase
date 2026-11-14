@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router";
 import { RiMenuLine } from "@remixicon/react";
 import { setDrawer } from "../app/shell";
@@ -24,6 +24,16 @@ export function Page({ title, crumb, actions, tabs, children }: PageProps) {
   const { pathname } = useLocation();
   const [swap, setSwap] = useState({ pathname, parity: 0 });
   if (swap.pathname !== pathname) setSwap({ pathname, parity: swap.parity + 1 });
+  // Which way the body slides in: from the right for a tab to the right of the last one, from the left otherwise.
+  const body = useRef<HTMLDivElement>(null);
+  const lastTab = useRef(-1);
+  useLayoutEffect(() => {
+    const links = [...(row.current?.querySelectorAll(".page-tab") ?? [])];
+    const index = links.findIndex((link) => link.getAttribute("aria-current") === "page");
+    const from = lastTab.current;
+    lastTab.current = index;
+    body.current?.style.setProperty("--swap-dir", from < 0 || index < 0 ? "0" : String(Math.sign(index - from)));
+  }, [pathname]);
   return (
     <>
       <header className="page-header">
@@ -43,7 +53,7 @@ export function Page({ title, crumb, actions, tabs, children }: PageProps) {
           ))}
         </nav>
       )}
-      <div className="page-body" data-swap={swap.parity ? (swap.parity % 2 ? "a" : "b") : undefined}>{children}</div>
+      <div ref={body} className="page-body" data-swap={swap.parity ? (swap.parity % 2 ? "a" : "b") : undefined}>{children}</div>
     </>
   );
 }
