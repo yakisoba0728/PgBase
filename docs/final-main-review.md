@@ -35,6 +35,8 @@ Verified ARM64 candidate: **rc.9**, schema **67**, digest:
 bbb9706400e2ee7fdd6e22ae0321f860e7bd160e7574de7aca93f8dca0ef1ddc
 ```
 
+The first full CI run caught two test-harness follow-through issues. The intentional native-delete pause hit the unchanged 5-second production statement limit, and its lock observer could compete with the blocker/deleter/creator for the small request pool. That fixture now uses a separate coordination connection for observation, explicitly tests a four-connection request pool, and has a test-only 30-second statement timeout with a 45-second outer limit. The real physical-row lock-wait and rollback assertions remain. The cascade query-count tracer also now classifies the single auth metadata gate and requires exactly one such query for both 8-record and 64-record closures; its bounded-count and affected-row assertions remain. Focused HTTP race tests pass (18.564s), and the query-budget test passes three race-enabled repetitions (6.794s). No production source changed for these harness corrections. Original CI failures remain in local evidence.
+
 Merge also requires the final commit's required CI, full manual Backend matrix (including native Windows/macOS) and AMD64 stock-image backup/TLS/upgrade workflows. Local logs, disposable data and candidate archives are excluded from Git.
 
 ## Bounds

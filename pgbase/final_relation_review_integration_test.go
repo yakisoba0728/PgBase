@@ -4,6 +4,7 @@ package pgbase
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -130,10 +131,20 @@ func TestNativeDeleteEnforcesAuthProfileRelations(t *testing.T) {
 }
 
 func TestAuthRelationPublicationWaitsForNativeDelete(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	fixture := newPublicUsersApp(t, true)
+	fixture := newPublicUsersAppOptions(t, true, func(options *Options) {
+		// The intentional lock pause must outlive password hashing on race-enabled CI.
+		options.StatementTimeout = 30 * time.Second
+		options.DatabaseURL += "&pool_max_conns=4"
+	})
 	cookie, csrf := setupPublicUsersAdministrator(t, fixture)
+	// Observe locks outside the pool occupied by the blocker, deletion and creator.
+	observer, err := fixture.app.pool.OpenCoordinationSession(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer observer.Close(context.Background())
 	headers := map[string]string{"X-PgBase-CSRF": csrf}
 	createPublicUsersCollection(t, fixture, cookie, csrf, "review_native_race")
 	response := publicUsersRequest(t, fixture, http.MethodPost, "/api/v1/collections/review_native_race/records", map[string]any{"title": "target"}, "", cookie, headers)
@@ -175,11 +186,21 @@ func TestAuthRelationPublicationWaitsForNativeDelete(t *testing.T) {
 		for {
 			select {
 			case response := <-completed:
-				t.Fatalf("request escaped target lock: status=%d body=%s", response.Code, response.Body.String())
+				deleteStatus := "still running"
+				if completed == deleted {
+					deleteStatus = fmt.Sprintf("completed HTTP %d", response.Code)
+				} else {
+					select {
+					case deletion := <-deleted:
+						deleteStatus = fmt.Sprintf("completed HTTP %d: %s", deletion.Code, deletion.Body.String())
+					default:
+					}
+				}
+				t.Fatalf("request escaped target lock: status=%d body=%s; native delete %s", response.Code, response.Body.String(), deleteStatus)
 			default:
 			}
 			var waiting bool
-			if err := fixture.app.pool.QueryRow(ctx, query).Scan(&waiting); err != nil {
+			if err := observer.QueryRow(ctx, query).Scan(&waiting); err != nil {
 				t.Fatal(err)
 			}
 			if waiting {

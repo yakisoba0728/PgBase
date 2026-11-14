@@ -34,6 +34,7 @@ const (
 	cascadeDeleteMemberTables   = "membership_tables"
 	cascadeDeleteMemberBaseRead = "membership_base_read"
 	cascadeDeleteMemberDelete   = "membership_ordinal_delete"
+	cascadeDeleteAuthMetadata   = "auth_relation_metadata"
 )
 
 type cascadeDeleteTraceContextKey struct{}
@@ -119,6 +120,8 @@ func cascadeDeleteStatementCategory(statement string) string {
 		return cascadeDeleteMemberBaseRead
 	case strings.HasPrefix(statement, "delete from pgbase_meta.record_creation_ordinals"):
 		return cascadeDeleteMemberDelete
+	case strings.HasPrefix(statement, "select exists(select 1 from jsonb_array_elements(c.fields_json) field") && strings.HasSuffix(statement, "from pgbase_meta.auth_collections c order by c.id for share of c"):
+		return cascadeDeleteAuthMetadata
 	default:
 		return ""
 	}
@@ -153,6 +156,8 @@ func TestCascadeDeleteStatementCountIsBoundedByTheClosureShape(t *testing.T) {
 		cascadeDeleteMemberTables:   1,
 		cascadeDeleteMemberBaseRead: 1,
 		cascadeDeleteMemberDelete:   1,
+		// One metadata gate covers the whole closure, independent of its size.
+		cascadeDeleteAuthMetadata: 1,
 	}
 	wantTotal := 0
 	for _, count := range wantStatements {
