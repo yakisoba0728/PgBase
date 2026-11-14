@@ -1,6 +1,7 @@
 import type { MouseEvent, ReactNode } from "react";
 import { Link, NavLink, useNavigate } from "react-router";
 import type { RemixiconComponentType } from "@remixicon/react";
+import { preloadRoute } from "../app/routeModules";
 
 export function NavGroup({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
@@ -28,13 +29,14 @@ interface NavItemProps {
 /** The label doubles as the tooltip so the icon rail stays readable. */
 export function NavItem({ to, icon: Icon, className, target, label, children }: NavItemProps) {
   const navigate = useNavigate();
+  const preload = () => { void preloadRoute(target ? target() : to); };
   const onClick = (event: MouseEvent) => {
     if (!target || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     void navigate(target());
   };
   return (
-    <NavLink to={to} onClick={onClick} aria-label={label} className={className ? `nav-link ${className}` : "nav-link"} title={typeof children === "string" ? children : undefined}>
+    <NavLink to={to} onClick={onClick} onPointerEnter={preload} onFocus={preload} aria-label={label} className={className ? `nav-link ${className}` : "nav-link"} title={typeof children === "string" ? children : undefined}>
       <Icon size={16} aria-hidden />
       <span className="nav-label">{children}</span>
     </NavLink>

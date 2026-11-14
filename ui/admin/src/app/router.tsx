@@ -7,27 +7,28 @@ import { NotFoundPage } from "../pages/NotFoundPage";
 import { AppShell } from "./AppShell";
 import { ExtensionScreenPage } from "./extensions";
 import { RequireAuth } from "./guard";
+import { routeModules } from "./routeModules";
 
 // Each screen is its own chunk, loaded on first visit; the shell's Suspense shows the loader meanwhile.
 const page = <M,>(load: () => Promise<M>, name: keyof M) => lazy(() => load().then((module) => ({ default: module[name] as ComponentType })));
 
-const CollectionPage = page(() => import("../pages/CollectionPage"), "CollectionPage");
-const CollectionsIndexPage = page(() => import("../pages/CollectionPage"), "CollectionsIndexPage");
-const NewCollectionPage = page(() => import("../pages/NewCollectionPage"), "NewCollectionPage");
-const LogsPage = page(() => import("../pages/LogsPage"), "LogsPage");
-const JobsPage = page(() => import("../pages/JobsPage"), "JobsPage");
-const RealtimePage = page(() => import("../pages/RealtimePage"), "RealtimePage");
-const AuthCollectionsPage = page(() => import("../pages/AuthCollectionsPage"), "AuthCollectionsPage");
-const AuthUsersPage = page(() => import("../pages/AuthUsersPage"), "AuthUsersPage");
-const BackupsPage = page(() => import("../pages/BackupsPage"), "BackupsPage");
-const StoragePage = page(() => import("../pages/StoragePage"), "StoragePage");
-const SettingsPage = page(() => import("../pages/SettingsPage"), "SettingsPage");
-const ServiceTokensPage = page(() => import("../pages/ServiceTokensPage"), "ServiceTokensPage");
-const AdministratorsPage = page(() => import("../pages/AdministratorsPage"), "AdministratorsPage");
-const ProfilePage = page(() => import("../pages/ProfilePage"), "ProfilePage");
-const SchemaTransferPage = page(() => import("../pages/SchemaTransferPage"), "SchemaTransferPage");
-const SchemaOperationsPage = page(() => import("../pages/SchemaOperationsPage"), "SchemaOperationsPage");
-const SqlConsolePage = page(() => import("../pages/SqlConsolePage"), "SqlConsolePage");
+const CollectionPage = page(routeModules["/collections"], "CollectionPage");
+const CollectionsIndexPage = page(routeModules["/collections"], "CollectionsIndexPage");
+const NewCollectionPage = page(routeModules["/new-collection"], "NewCollectionPage");
+const LogsPage = page(routeModules["/logs"], "LogsPage");
+const JobsPage = page(routeModules["/jobs"], "JobsPage");
+const RealtimePage = page(routeModules["/realtime"], "RealtimePage");
+const AuthCollectionsPage = page(routeModules["/auth/collections"], "AuthCollectionsPage");
+const AuthUsersPage = page(routeModules["/auth/users"], "AuthUsersPage");
+const BackupsPage = page(routeModules["/backups"], "BackupsPage");
+const StoragePage = page(routeModules["/storage"], "StoragePage");
+const SettingsPage = page(routeModules["/settings"], "SettingsPage");
+const ServiceTokensPage = page(routeModules["/service-tokens"], "ServiceTokensPage");
+const AdministratorsPage = page(routeModules["/administrators"], "AdministratorsPage");
+const ProfilePage = page(routeModules["/profile"], "ProfilePage");
+const SchemaTransferPage = page(routeModules["/schema-transfer"], "SchemaTransferPage");
+const SchemaOperationsPage = page(routeModules["/schema-operations"], "SchemaOperationsPage");
+const SqlConsolePage = page(routeModules["/sql"], "SqlConsolePage");
 
 export const router = createBrowserRouter(
   [
