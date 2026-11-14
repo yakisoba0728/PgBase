@@ -80,21 +80,37 @@ function mark(row: HTMLElement) {
 }
 
 /**
- * Row's arrival wash: a row that mounts into a table body already on screen, alone or with one other (a created
- * item, a retried event), is marked; the first render of a body, and pages or filter results arriving together, are not.
+ * Staggered entrance (base.css): each row fades in one step after the one above it, capped at 8 steps. Only rows
+ * that just mounted are marked, so rows already on screen never replay it; cleared once played (a timer, for hidden tabs).
+ */
+export function enterRows(rows: HTMLElement[]) {
+  rows.forEach((row, index) => {
+    row.style.setProperty("--enter-i", String(Math.min(index, 8)));
+    row.setAttribute("data-enter", "");
+    setTimeout(() => row.removeAttribute("data-enter"), 1000);
+  });
+}
+
+/**
+ * Row's arrival: a row that mounts into a table body already on screen, alone or with one other (a created item, a
+ * retried event), gets the wash; the body's first rows, and a page or filter result arriving together, enter staggered.
  */
 function arrive(row: HTMLTableRowElement | null) {
   const body = row?.parentElement;
   if (!row || !body) return;
-  const seen = bodies.get(body);
-  if (!seen) return void bodies.set(body, { since: performance.now(), batch: [] });
-  // Rows of the body's own first render (and its StrictMode replay) mount within the same moment.
-  if (performance.now() - seen.since < 300) return;
+  let seen = bodies.get(body);
+  if (!seen) bodies.set(body, (seen = { since: performance.now(), batch: [] }));
+  // StrictMode attaches each ref twice; a row counts once.
+  if (seen.batch.includes(row)) return;
   seen.batch.push(row);
   if (seen.batch.length > 1) return;
+  const batch = seen;
   queueMicrotask(() => {
-    if (seen.batch.length <= fewArrivals) seen.batch.forEach(mark);
-    seen.batch = [];
+    // Rows of the body's own first render (and its StrictMode replay) mount within the same moment.
+    const initial = performance.now() - batch.since < 300;
+    if (!initial && batch.batch.length <= fewArrivals) batch.batch.forEach(mark);
+    else enterRows(batch.batch);
+    batch.batch = [];
   });
 }
 

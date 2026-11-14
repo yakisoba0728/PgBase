@@ -6,13 +6,18 @@
   --font-system: system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", Roboto, "Helvetica Neue", sans-serif;
   --font: "Pretendard Variable", var(--font-system);
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "D2Coding", monospace;
-  --font-size: 13px;
-  --line-height: 20px;
-  --font-size-sm: 12px;
-  --line-height-sm: 16px;
-  --font-size-xs: 11px;
-  --font-size-title: 16px;
-  --font-size-display: 20px;
+  /* Type scale, sized against PocketBase's admin (14/22 body, 13 small, 18 page title): 12 / 13 / 14 / 18 / 24.
+     --font-size-xs is for marks that are not read as text (uppercase group eyebrows, key caps, editor tool labels);
+     everything informative is --font-size-sm or larger. */
+  --font-size: 14px;
+  --line-height: 22px;
+  --font-size-sm: 13px;
+  --line-height-sm: 18px;
+  --font-size-xs: 12px;
+  --font-size-title: 18px;
+  --line-height-title: 26px;
+  --font-size-display: 24px;
+  --line-height-display: 32px;
 
   /* Weights: body, labels, headings and emphasis. */
   --weight-regular: 400;
@@ -28,9 +33,9 @@
   --radius-pill: 999px;
 
   /* Spacing on a 4px rhythm. */
-  --space-xs: 8px;
-  --space-sm: 12px;
-  --space: 20px;
+  --space-xs: 10px;
+  --space-sm: 14px;
+  --space: 24px;
 
   /* Fixed spacing named by pixel value; unlike --space it never changes with the viewport. */
   --sp-2: 2px;
@@ -53,26 +58,57 @@
   --z-drawer: 30;
   --z-toast: 100;
 
-  --control: 36px;
-  --control-sm: 30px;
-  --row: 40px;
+  /* Sizes. Controls: default (forms, page actions), small (toolbars, dense rows), xs (icon buttons inside a
+     control, cell, list row or heading). --row is read by the virtualised grids (rowHeight in virtualRows.ts):
+     keep it a whole px value. */
+  --control: 40px;
+  --control-sm: 34px;
+  --control-xs: 28px;
+  --row: 48px;
+  --row-head: 40px;
   --nav: 240px;
-  --rail: 60px;
-  --header: 56px;
-  /* Motion: three durations, an ease-out for what appears and a quicker ease-in for what leaves.
-     --dur-fast: presses and exits; --dur: colour changes, menus, toasts; --dur-slow: panes, dialogs, page entrance, drawer.
-     Distances are tokens too, so reduced motion can zero them in one place. */
-  --dur-fast: 90ms;
-  --dur: 150ms;
-  --dur-slow: 220ms;
-  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --ease-in: cubic-bezier(0.4, 0, 1, 1);
-  --rise: 4px;
-  --slide: 16px;
-  --scale-from: 0.98;
+  --nav-item: 38px;
+  --rail: 64px;
+  --header: 64px;
+  --pane-header: 56px;
+  --tab: 40px;
+  /* The records grid's selection column, which the sticky id column sits beside (RecordsTable.tsx reads it). */
+  --grid-check: 44px;
+  --chip: 26px;
+  --check: 18px;
+  /* Status dots (state, save state, schema state) and their soft ring. */
+  --dot: 8px;
+  --dot-ring: 3px;
+  /* Icons: --icon beside body text and in controls, --icon-sm beside small text, --icon-lg for the state family. */
+  --icon: 18px;
+  --icon-sm: 16px;
+  --icon-lg: 24px;
+  /* Overlay widths: confirm and task dialogs, value peek, toasts, menus. */
+  --modal-w: 480px;
+  --peek-w: 540px;
+  --toast-w: 600px;
+  --menu-w: 220px;
+  /* Motion. Three durations: --dur-fast for presses and exits, --dur for state changes (hover, colour, menus,
+     toasts, ticks), --dur-slow for surfaces (panes, dialogs, page and tab changes, drawer).
+     Curves: --ease-out for what appears or changes, --ease-in for what leaves (quicker), --ease-emph (an
+     emphasised decelerate, no overshoot) for edge-attached surfaces (pane, drawer, page), --ease-spring (a damped
+     spring, ~6% overshoot) only for free-floating things (dialog, toast, popover, tick, indicators).
+     Distances are tokens too, so reduced motion zeroes them in one place: --rise for small things, --slide for
+     panes and tab changes, --drop for dialogs and toasts. */
+  --dur-fast: 120ms;
+  --dur: 180ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.5, 0, 0.75, 0);
+  --ease-emph: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ease-spring: cubic-bezier(0.34, 1.32, 0.64, 1);
+  --rise: 6px;
+  --drop: 12px;
+  --slide: 32px;
+  --scale-from: 0.96;
   /* A pressed button or toggle gives a little; staggered groups start one step apart, capped at 8 steps. */
-  --press: 0.97;
-  --stagger: 30ms;
+  --press: 0.96;
+  --stagger: 32ms;
   /* Every disabled control: buttons, icon buttons, row buttons, checkboxes, editor tools. */
   --disabled-opacity: 0.45;
 
@@ -121,6 +157,13 @@
   --chevron-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239da2aa' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
+/* The spring as a sampled curve where linear() is supported (custom properties do not validate, hence @supports). */
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    --ease-spring: linear(0, 0.033, 0.115, 0.227, 0.353, 0.481, 0.602, 0.711, 0.805, 0.883, 0.945, 0.991, 1.024, 1.046, 1.058, 1.063, 1.063, 1.058, 1.052, 1.044, 1.036, 1.028, 1.021, 1.015, 1.009, 1.005, 1.002, 1);
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --chevron: var(--chevron-dark);
@@ -135,10 +178,11 @@
 @media (prefers-reduced-motion: reduce) {
   :root {
     --rise: 0px;
+    --drop: 0px;
     --slide: 0px;
     --scale-from: 1;
     --press: 1;
-    /* Delays are not durations: the global rule cannot zero them, so the step itself goes. */
+    /* The global rule zeroes delays too; the step goes as well, for anything computing with it. */
     --stagger: 0ms;
   }
 }

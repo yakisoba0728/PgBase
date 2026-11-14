@@ -4,7 +4,7 @@
   display: flex;
   align-items: flex-end;
   gap: var(--space);
-  min-height: 76px;
+  min-height: 84px;
   padding: var(--space-sm) var(--space) 0;
   flex: none;
 }
@@ -37,7 +37,7 @@
 .ops-bar text {
   fill: var(--text-hint);
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
 }
 
 .ops-bar[data-active] text {
@@ -83,23 +83,27 @@
   flex: 1 1 260px;
 }
 
-/* From and to wrap together, never one per line. */
+/* From and to wrap together onto their own line; only where even that line cannot hold both do they stack. */
 .ops-range-pair {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: var(--sp-8);
+  max-width: 100%;
 }
 
 .ops-range {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-6);
+  min-width: 0;
   color: var(--text-hint);
   font-size: var(--font-size-sm);
+  white-space: nowrap;
 }
 
 .ops-method {
   display: inline-block;
-  min-width: 56px;
+  min-width: 64px;
   margin-right: var(--sp-8);
   color: var(--text-hint);
   font-family: var(--font-mono);

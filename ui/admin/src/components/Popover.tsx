@@ -13,6 +13,8 @@ export function placeNear(panel: HTMLElement, anchor: DOMRect, align: "start" | 
   style.bottom = below ? "" : `${window.innerHeight - anchor.top + 4}px`;
   // The open/close shift moves away from the anchor (overlays.css).
   panel.dataset.side = below ? "below" : "above";
+  // Scales open from the corner nearest the anchor.
+  style.transformOrigin = `${align === "end" ? "right" : "left"} ${below ? "top" : "bottom"}`;
   // Never past the viewport edge: the panel scrolls instead.
   style.maxHeight = `${Math.max(120, below ? room.below : room.above)}px`;
   style.right = align === "end" ? `${Math.max(8, window.innerWidth - anchor.right)}px` : "";

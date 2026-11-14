@@ -7,7 +7,7 @@ import { Button } from "../components/Button";
 import { DataGrid, type GridCell } from "../components/DataGrid";
 import { Notice } from "../components/Feedback";
 import { QueryView } from "../components/QueryView";
-import { useVirtualRows } from "../components/virtualRows";
+import { tokenPx, useVirtualRows } from "../components/virtualRows";
 import { toast } from "../components/Toast";
 import { en } from "../i18n/en";
 import { useT, type MessageKey } from "../i18n";
@@ -31,7 +31,7 @@ const gridCell = (cell: SqlCell): GridCell => ({ text: cell.kind === "null" ? nu
 
 // The server returns up to 1000 rows; past this many only the rows in view are rendered.
 const windowFrom = 500;
-const rowHeight = 40;
+const rowHeight = tokenPx("--row", 48);
 
 function StatementTable({ result, index }: { result: SqlStatementResult; index: number }) {
   const t = useT();
@@ -55,7 +55,7 @@ function WindowedGrid({ label, columns, rows }: { label: string; columns: { name
     () =>
       columns.map((column, at) => {
         const chars = Math.max(column.name.length + (column.type?.length ?? 0) + 1, ...rows.map((row) => row[at]?.text?.length ?? 4));
-        return `min(${(chars * 0.62).toFixed(1)}em + 24px, 480px)`;
+        return `min(${(chars * 0.62).toFixed(1)}em + 32px, 520px)`;
       }),
     [columns, rows],
   );

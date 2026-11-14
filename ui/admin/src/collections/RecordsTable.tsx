@@ -1,11 +1,11 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { RiArrowDownLine, RiArrowUpLine } from "@remixicon/react";
 import type { Collection, CollectionField } from "../api/collections";
 import type { RecordData } from "../api/records";
 import { CopyButton } from "../components/CopyButton";
 import { Checkbox, GroupCheckbox } from "../components/Field";
-import { opensRow, Table, useArrivals } from "../components/Table";
-import { useVirtualRows, visibleRange } from "../components/virtualRows";
+import { enterRows, opensRow, Table, useArrivals } from "../components/Table";
+import { tokenPx, useVirtualRows, visibleRange } from "../components/virtualRows";
 import { useT } from "../i18n";
 import { fieldKind } from "./fields";
 import { columnWidth, RecordCell, type OnPeek } from "./RecordCell";
@@ -31,9 +31,11 @@ interface RecordsTableProps {
 // in SQL views, and never on json, file or password fields; of the system columns, id and created_at.
 const sortableType = (field: CollectionField) => !["file", "relations", "json", "geo", "multiselect", "password"].includes(fieldKind(field));
 const sortableSystem = ["id", "created_at"];
-const rowHeight = 40;
-const checkWidth = 40;
-const idWidth = 290;
+// Read once per chunk load, after the stylesheets: --row is each row's height, the head adds the 4px gap above the first row.
+const rowHeight = tokenPx("--row", 48);
+const headHeight = tokenPx("--row-head", 40) + tokenPx("--sp-4", 4);
+const checkWidth = tokenPx("--grid-check", 44);
+const idWidth = 316;
 
 /** The records grid: fixed layout, sticky header and id column, only the visible rows in the DOM. */
 export function RecordsTable({ collection, catalog, columns, records, sort, onSort, openId, onOpen, selected, onSelect, scroller, onPeek }: RecordsTableProps) {
@@ -47,7 +49,17 @@ export function RecordsTable({ collection, catalog, columns, records, sort, onSo
   const anchor = useRef<string | null>(null);
   const focusPending = useRef(false);
   const tbody = useRef<HTMLTableSectionElement>(null);
-  const arrived = useArrivals(useMemo(() => records.map((record) => record.id), [records]));
+  const ids = useMemo(() => records.map((record) => record.id), [records]);
+  const arrived = useArrivals(ids);
+  // A new list (the first page, a filter or a sort) enters staggered; a prepended record or a further page does not,
+  // and nothing replays while scrolling, since that changes which rows are rendered, not the list.
+  const firstIds = useRef<string[] | null>(null);
+  useLayoutEffect(() => {
+    const previous = firstIds.current;
+    firstIds.current = ids.slice(0, 3);
+    if (!ids.length || previous?.some((id) => firstIds.current?.includes(id))) return;
+    enterRows([...(tbody.current?.querySelectorAll<HTMLElement>("tr[data-index]") ?? [])]);
+  }, [ids]);
   const width = checkWidth + idWidth + columns.reduce((sum, name) => sum + columnWidth(byName.get(name)), 0);
 
   // Moves keyboard focus to row `index`, scrolling it into the rendered window first.
@@ -56,9 +68,8 @@ export function RecordsTable({ collection, catalog, columns, records, sort, onSo
     const element = scroller.current;
     if (element) {
       const top = next * rowHeight;
-      const header = 40;
       if (top < element.scrollTop) element.scrollTop = top;
-      else if (top + rowHeight + header > element.scrollTop + element.clientHeight) element.scrollTop = top + rowHeight + header - element.clientHeight;
+      else if (top + rowHeight + headHeight > element.scrollTop + element.clientHeight) element.scrollTop = top + rowHeight + headHeight - element.clientHeight;
     }
     focusPending.current = true;
     setFocus(next);

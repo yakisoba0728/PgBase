@@ -1,5 +1,5 @@
 import { lazy, type ComponentType } from "react";
-import { createBrowserRouter, Navigate } from "react-router";
+import { createBrowserRouter, Navigate, type RouterNavigateOptions, type To } from "react-router";
 import { LoginScreen } from "../guest/LoginScreen";
 import { ResetPasswordScreen } from "../guest/ResetPasswordScreen";
 import { SetupScreen } from "../guest/SetupScreen";
@@ -7,6 +7,7 @@ import { NotFoundPage } from "../pages/NotFoundPage";
 import { AppShell } from "./AppShell";
 import { ExtensionScreenPage } from "./extensions";
 import { RequireAuth } from "./guard";
+import { markTransition, navigationTransition, routeTransition } from "./transitions";
 
 // Each screen is its own chunk, loaded on first visit; the shell's Suspense shows the loader meanwhile.
 const page = <M,>(load: () => Promise<M>, name: keyof M) => lazy(() => load().then((module) => ({ default: module[name] as ComponentType })));
@@ -66,3 +67,16 @@ export const router = createBrowserRouter(
   ],
   { basename: "/admin" },
 );
+
+// Path changes play a view transition (base.css names what they snapshot); search-only changes (filters, the open
+// record) and sibling tabs (Page.tsx slides those) do not. Every link and navigate() call goes through here.
+const navigate = router.navigate.bind(router) as (to: To | number | null, options?: RouterNavigateOptions) => Promise<void>;
+router.navigate = ((to: To | number | null, options?: RouterNavigateOptions) => {
+  if (typeof to === "number" || to === null) return navigate(to, options);
+  const kind = navigationTransition(router.state.location.pathname, typeof to === "string" ? to : (to.pathname ?? ""), router.basename ?? "");
+  return navigate(to, kind ? { ...options, viewTransition: options?.viewTransition ?? true } : options);
+}) as typeof router.navigate;
+router.subscribe((_state, { viewTransitionOpts }) => {
+  const kind = viewTransitionOpts && routeTransition(viewTransitionOpts.currentLocation.pathname, viewTransitionOpts.nextLocation.pathname, router.basename === "/" ? "" : router.basename);
+  if (kind) markTransition(kind);
+});

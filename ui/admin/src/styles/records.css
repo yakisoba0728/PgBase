@@ -23,7 +23,7 @@
 }
 
 .records-grid .sticky-id {
-  left: 40px;
+  left: var(--grid-check);
   box-shadow: inset -1px 0 0 var(--line);
 }
 
@@ -115,8 +115,8 @@
   display: inline-grid;
   flex: none;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: var(--chip);
+  height: var(--chip);
   overflow: hidden;
   border-radius: var(--radius-xs);
   background: var(--surface-2);
@@ -188,15 +188,15 @@
   position: absolute;
   top: var(--sp-6);
   right: var(--sp-6);
-  width: 6px;
-  height: 6px;
+  width: var(--dot);
+  height: var(--dot);
   border-radius: var(--radius-pill);
   background: var(--accent);
   content: "";
 }
 
 .columns-panel {
-  width: 300px;
+  width: 340px;
 }
 
 .columns-head {
@@ -220,7 +220,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  min-height: 32px;
+  min-height: var(--control-sm);
   padding: 0 var(--sp-2) 0 var(--sp-8);
   border-radius: var(--radius-sm);
 }
@@ -241,8 +241,8 @@
 }
 
 .filter-help {
-  width: 360px;
-  padding: var(--sp-12);
+  width: 400px;
+  padding: var(--sp-16);
   font-size: var(--font-size-sm);
 }
 
@@ -295,8 +295,8 @@
   display: inline-flex;
   align-items: center;
   max-width: 100%;
-  height: 26px;
-  padding: 0 var(--sp-2) 0 var(--sp-8);
+  height: var(--control-xs);
+  padding: 0 var(--sp-2) 0 var(--sp-10);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   font-size: var(--font-size-sm);
@@ -311,15 +311,15 @@
 }
 
 .relation-chip .mono {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
 }
 
 .relation-chip-btn {
   display: inline-grid;
   flex: none;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: var(--chip);
+  height: calc(var(--control-xs) - var(--sp-4));
   border: 0;
   border-radius: var(--radius-xs);
   background: none;
@@ -353,7 +353,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-8);
-  min-height: 32px;
+  min-height: var(--control-sm);
   padding: 0 var(--sp-8);
   border-radius: var(--radius-xs);
   font-size: var(--font-size-sm);
@@ -372,7 +372,7 @@
   flex: none;
   max-width: 45%;
   overflow: hidden;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -410,7 +410,7 @@
   display: grid;
   flex: 1;
   gap: var(--sp-2);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
 }
 
 /* Files in the form. */

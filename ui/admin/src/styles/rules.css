@@ -44,7 +44,7 @@
 }
 
 .rule-action {
-  min-width: 52px;
+  min-width: 60px;
   font-weight: var(--weight-bold);
 }
 
@@ -63,8 +63,8 @@
 }
 
 .rule-mode {
-  height: 26px;
-  padding: 0 var(--sp-10);
+  height: var(--control-xs);
+  padding: 0 var(--sp-12);
   border: 0;
   border-radius: var(--radius-xs);
   background: transparent;
@@ -107,7 +107,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-10);
-  min-height: 24px;
+  min-height: var(--control-xs);
 }
 
 .rule-test:empty {

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import {
   RiAddLine,
   RiArrowDownSLine,
@@ -22,6 +22,7 @@ import {
 import type { CollectionField, FieldType, IndexKey } from "../api/collections";
 import { IconButton } from "../components/Button";
 import { Dropdown, DropdownItem } from "../components/Popover";
+import { useFlip } from "../components/useFlip";
 import { ApiError } from "../api/http";
 import { en } from "../i18n/en";
 import { useT, type MessageKey, type Translate } from "../i18n";
@@ -117,6 +118,9 @@ function LockedRow({ name, type }: { name: string; type: FieldType }) {
 export function FieldRows({ editor }: { editor: SchemaEditor }) {
   const t = useT();
   const { draft, base, errors } = editor;
+  // A moved field glides to its new place.
+  const list = useRef<HTMLUListElement>(null);
+  useFlip(list, draft.fields.map((field) => field.key).join("\n"));
   const add = (
     <Dropdown label={t("schema.addField")} text={t("schema.addField")} icon={RiAddLine} heading={t("schema.fieldType")}>
       {fieldTypes.map((type) => (
@@ -126,7 +130,7 @@ export function FieldRows({ editor }: { editor: SchemaEditor }) {
   );
   return (
     <Section title={t("schema.fields")} count={draft.fields.length} action={add}>
-      <ul className="schema-rows">
+      <ul ref={list} className="schema-rows">
         <LockedRow name="id" type={draft.recordId.kind === "text" ? "text" : "uuid"} />
         {draft.fields.map((field, position) => {
           const Icon = typeIcons[field.type];
@@ -134,7 +138,7 @@ export function FieldRows({ editor }: { editor: SchemaEditor }) {
           const state = rowState(field, base.fields);
           const locked = Boolean(field.system);
           return (
-            <li key={field.key} className="schema-row" data-state={state} data-invalid={fieldErrors ? "" : undefined} aria-current={editor.openField?.key === field.key || undefined} data-locked={locked ? "" : undefined}>
+            <li key={field.key} data-flip={field.key} className="schema-row" data-state={state} data-invalid={fieldErrors ? "" : undefined} aria-current={editor.openField?.key === field.key || undefined} data-locked={locked ? "" : undefined}>
               <button
                 type="button"
                 className="row-btn schema-row-main"

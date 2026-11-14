@@ -3,16 +3,23 @@ import { useLayoutEffect, useRef, type KeyboardEvent, type RefObject } from "rea
 /**
  * The tab rows' moving underline: measures the current tab (aria-selected or aria-current) into --tab-x/--tab-w on
  * the row, which draws one indicator that slides between tabs. Without it (no observers) each tab keeps its own underline.
+ * The navigation uses the same along the other axis ("y": --tab-y/--tab-h) for its current-item highlight.
  */
-export function useTabIndicator(ref: RefObject<HTMLElement | null>, shown = true) {
+export function useTabIndicator(ref: RefObject<HTMLElement | null>, shown = true, axis: "x" | "y" = "x") {
   useLayoutEffect(() => {
     const row = ref.current;
     if (!row || typeof ResizeObserver === "undefined") return;
     const measure = () => {
-      const current = row.querySelector<HTMLElement>('[aria-selected="true"], [aria-current="page"]');
+      // The first current item that is laid out (the navigation hides rail-only twins).
+      const current = [...row.querySelectorAll<HTMLElement>('[aria-selected="true"], [aria-current="page"]')].find((item) => item.offsetWidth > 0);
       if (!current) return row.removeAttribute("data-indicator");
-      row.style.setProperty("--tab-x", `${current.offsetLeft}px`);
-      row.style.setProperty("--tab-w", `${current.offsetWidth}px`);
+      if (axis === "x") {
+        row.style.setProperty("--tab-x", `${current.offsetLeft}px`);
+        row.style.setProperty("--tab-w", `${current.offsetWidth}px`);
+      } else {
+        row.style.setProperty("--tab-y", `${current.offsetTop}px`);
+        row.style.setProperty("--tab-h", `${current.offsetHeight}px`);
+      }
       row.setAttribute("data-indicator", "");
       // The current tab's own width changes too (language switch, webfont arriving).
       resized.observe(current);
@@ -26,7 +33,7 @@ export function useTabIndicator(ref: RefObject<HTMLElement | null>, shown = true
       resized.disconnect();
       changed.disconnect();
     };
-  }, [ref, shown]);
+  }, [ref, shown, axis]);
 }
 
 interface TabsProps<T extends string> {

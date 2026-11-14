@@ -41,7 +41,7 @@
 .palette-group {
   padding: var(--sp-10) var(--sp-10) var(--sp-4);
   color: var(--text-hint);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   font-weight: var(--weight-bold);
 }
 

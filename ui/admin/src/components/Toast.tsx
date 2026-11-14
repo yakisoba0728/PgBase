@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type CSSProperties } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { RiCloseLine } from "@remixicon/react";
 import { createStore } from "../app/store";
@@ -54,9 +54,11 @@ function leave(update: () => void) {
   transition.ready.catch(() => {});
 }
 
+const life = (item: ToastItem) => (item.action ? 8000 : 5000);
+
 function schedule(item: ToastItem) {
   hold(item.id);
-  timers.set(item.id, setTimeout(() => dismiss(item.id), item.action ? 8000 : 5000));
+  timers.set(item.id, setTimeout(() => dismiss(item.id), life(item)));
 }
 
 /**
@@ -88,6 +90,8 @@ export function ToastHost() {
     <div
       key={item.id}
       className={item.tone === "danger" ? "toast toast-danger" : "toast"}
+      // The draining line under the message (overlays.css) runs as long as the timer.
+      style={{ "--toast-life": `${life(item)}ms` } as CSSProperties}
       onMouseEnter={() => hold(item.id)}
       onFocus={() => hold(item.id)}
       onMouseLeave={(event) => !event.currentTarget.matches(":focus-within") && schedule(item)}

@@ -82,7 +82,7 @@
 /* Columns of a field or index row; the clickable rows are .row-btn, the static header row matches their box. */
 .schema-row-main {
   display: grid;
-  grid-template-columns: 16px minmax(120px, 1.1fr) minmax(90px, 1fr) minmax(0, 1.6fr) 72px 14px;
+  grid-template-columns: var(--icon) minmax(130px, 1.1fr) minmax(100px, 1fr) minmax(0, 1.6fr) 84px var(--icon-sm);
   align-items: center;
   gap: var(--sp-12);
   min-width: 0;
@@ -107,7 +107,7 @@
   overflow: hidden;
   color: var(--text-hint);
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -121,14 +121,14 @@
 
 .schema-flag {
   flex: none;
-  height: 20px;
+  height: calc(var(--chip) - var(--sp-4));
   padding: 0 var(--sp-8);
   border-radius: var(--radius-xs);
   background: var(--surface-2);
   color: var(--text-hint);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   font-weight: var(--weight-medium);
-  line-height: 20px;
+  line-height: calc(var(--chip) - var(--sp-4));
 }
 
 .schema-state {
@@ -137,13 +137,13 @@
   align-items: center;
   gap: var(--sp-4);
   color: var(--text-hint);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
 }
 
 .schema-state::before {
   content: "";
-  width: 6px;
-  height: 6px;
+  width: var(--dot);
+  height: var(--dot);
   border-radius: var(--radius-pill);
   background: var(--warning);
 }
@@ -159,7 +159,7 @@
 
 .schema-row-tools {
   display: flex;
-  min-width: 60px;
+  min-width: calc(var(--control-xs) * 2 + var(--sp-4));
   padding-right: var(--sp-4);
   opacity: 0;
   transition: opacity var(--dur);
@@ -254,10 +254,10 @@
 
 .schema-choice {
   display: grid;
-  grid-template-columns: 20px 90px minmax(0, 1fr);
+  grid-template-columns: var(--icon-lg) 100px minmax(0, 1fr);
   align-items: center;
   gap: var(--sp-12);
-  min-height: 56px;
+  min-height: calc(var(--row) + var(--sp-12));
   padding: 0 var(--sp-16);
   border-radius: var(--radius);
   color: inherit;
@@ -279,7 +279,7 @@
 
 @media (max-width: 899px) {
   .schema-row-main {
-    grid-template-columns: 16px minmax(0, 1fr) 0 0 auto 14px;
+    grid-template-columns: var(--icon) minmax(0, 1fr) 0 0 auto var(--icon-sm);
   }
 
   .schema-row-main .schema-type,
@@ -335,7 +335,7 @@
 }
 
 .schema-columns-pick .txt-hint {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
 }
 
 .schema-filter {

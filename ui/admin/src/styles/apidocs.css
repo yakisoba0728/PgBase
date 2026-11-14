@@ -47,7 +47,7 @@
 
 .api-method {
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   font-weight: var(--weight-bold);
   color: var(--text-hint);
 }

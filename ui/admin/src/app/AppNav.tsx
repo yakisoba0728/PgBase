@@ -1,10 +1,11 @@
-import type { KeyboardEvent, MouseEvent } from "react";
+import { useRef, type KeyboardEvent, type MouseEvent } from "react";
 import { Link } from "react-router";
 import { RiPuzzle2Line, RiSearchLine, RiSidebarFoldLine, RiSidebarUnfoldLine } from "@remixicon/react";
 import { keyLabel } from "./keys";
 import { CollectionNav } from "../collections/CollectionNav";
 import { IconButton } from "../components/Button";
 import { NavGroup, NavItem } from "../components/Nav";
+import { useTabIndicator } from "../components/Tabs";
 import { useT } from "../i18n";
 import { useExtensionScreens } from "./extensions";
 import { AccountMenu, LanguageMenu, ThemeMenu } from "./menus";
@@ -24,6 +25,9 @@ export function AppNav() {
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") setDrawer(false);
   };
+  // The current item's highlight glides between items (layout.css).
+  const scroll = useRef<HTMLDivElement>(null);
+  useTabIndicator(scroll, true, "y");
   return (
     <aside className="nav" aria-label={t("nav.main")} onClick={onClick} onKeyDown={onKeyDown}>
       <div className="nav-top">
@@ -33,7 +37,7 @@ export function AppNav() {
         <IconButton className="nav-search" label={`${t("palette.open")} (${keyLabel("mod+k").join("")})`} icon={RiSearchLine} onClick={() => setPalette(true)} />
         <IconButton className="nav-collapse" label={rail ? t("nav.expand") : t("nav.collapse")} icon={rail ? RiSidebarUnfoldLine : RiSidebarFoldLine} onClick={toggleRail} />
       </div>
-      <div className="nav-scroll">
+      <div ref={scroll} className="nav-scroll">
         <CollectionNav />
         {navGroups.map((group) => (
           <NavGroup key={group.label} title={t(group.label)}>

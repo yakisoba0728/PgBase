@@ -13,27 +13,27 @@ import { IconButton } from "../components/Button";
 
 /** Fixed column widths: the grid uses table-layout: fixed so rows can be windowed without reflow. */
 export function columnWidth(field: CollectionField | undefined): number {
-  if (!field) return 176;
+  if (!field) return 192;
   switch (fieldKind(field)) {
     case "bool":
-      return 96;
+      return 104;
     case "number":
-      return field.type === "integer" ? 112 : 150;
+      return field.type === "integer" ? 120 : 164;
     case "date":
     case "autodate":
-      return 176;
+      return 192;
     case "geo":
     case "select":
     case "file":
-      return 150;
+      return 164;
     case "editor":
     case "json":
-      return 260;
+      return 280;
     case "relations":
     case "multiselect":
-      return 240;
+      return 260;
     default:
-      return 220;
+      return 240;
   }
 }
 
