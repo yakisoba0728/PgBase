@@ -3,7 +3,7 @@ import { RiCheckboxCircleLine, RiReplyLine } from "@remixicon/react";
 import { retryRealtimeEvent } from "../api/realtime";
 import { errorText } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
-import { EmptyState, ErrorState, Loader, LoadMore } from "../components/Feedback";
+import { EmptyState, ErrorState, Skeleton, LoadMore } from "../components/Feedback";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { formatDuration } from "../app/format";
@@ -21,7 +21,7 @@ export function RealtimeView() {
   const time = useTimeFormat();
   const status = useQuery(realtimeQuery);
 
-  if (status.isPending) return <Loader />;
+  if (status.isPending) return <Skeleton variant="cards" />;
   if (status.isError) return <ErrorState error={status.error} onRetry={status.refetch} />;
   const data = status.data;
   const dead = String(data.dead) !== "0";
@@ -76,7 +76,7 @@ function DeadEvents() {
       <h2 id="ops-dead-title" className="subtitle">{t("ops.realtime.deadTitle")}</h2>
       <p className="txt-hint">{t("ops.realtime.deadText")}</p>
       {dead.isPending ? (
-        <Loader />
+        <Skeleton />
       ) : dead.isError ? (
         <ErrorState error={dead.error} onRetry={dead.refetch} />
       ) : items.length === 0 ? (

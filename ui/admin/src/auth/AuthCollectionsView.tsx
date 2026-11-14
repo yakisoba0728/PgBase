@@ -8,8 +8,9 @@ import { collectionsQuery } from "../collections/queries";
 import { Button } from "../components/Button";
 import { ErrorState } from "../components/Feedback";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, Loader } from "../components/Feedback";
+import { EmptyState, Skeleton } from "../components/Feedback";
 import { Page } from "../components/Page";
+import { PageSkeleton } from "../components/PageSkeleton";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { deleteCollection, deleteRefusal } from "../schema/apply";
@@ -36,7 +37,7 @@ export function AuthCollectionsIndex() {
     <Page title={t("nav.authCollections")} actions={actions}>
       <div className="page-content">
         {query.isPending ? (
-          <Loader />
+          <Skeleton />
         ) : query.isError ? (
           <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />
         ) : query.data.length === 0 ? (
@@ -76,7 +77,7 @@ export function AuthCollectionView({ name, tab }: { name: string; tab?: string }
   const query = useQuery(authCollectionsQuery);
   const collection = query.data?.find((candidate) => candidate.name === name);
   if (tab && !tabs.includes(tab as Tab)) return <Navigate to={`${root}/${encodeURIComponent(name)}`} replace />;
-  if (query.isPending) return <Loader />;
+  if (query.isPending) return <PageSkeleton />;
   const crumb = <Link to={root}>{t("nav.authCollections")}</Link>;
   if (!collection) {
     return (
@@ -98,7 +99,7 @@ function TabBody({ collection, tab }: { collection: AuthCollection; tab: Tab }) 
   const administration = useQuery(administrationQuery(collection.id));
   const tokens = useQuery({ ...tokenPoliciesQuery(collection.id), enabled: tab === "tokens" });
   const pending = tab === "tokens" ? tokens : administration;
-  if (pending.isPending) return <Loader />;
+  if (pending.isPending) return <Skeleton variant="form" />;
   if (pending.isError) return <ErrorState error={pending.error} busy={pending.isFetching} onRetry={() => void pending.refetch()} />;
   // Forms are keyed by the loaded data so a save or reload starts them from the stored state.
   if (tab === "tokens") return <TokensTab collection={collection} policies={tokens.data ?? []} />;

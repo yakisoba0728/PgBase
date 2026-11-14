@@ -4,7 +4,7 @@ import { Facts } from "../components/Facts";
 import { cancelStorageMigration, previewStorageMigration, resumeStorageMigration, startStorageMigration, type FileStorageSettings, type StorageMigrationStatus } from "../api/storage";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { ErrorState, Loader, Notice } from "../components/Feedback";
+import { ErrorState, Skeleton, Notice } from "../components/Feedback";
 import { toast } from "../components/Toast";
 import { ApiError } from "../api/http";
 import { trackOperation, untrackOperation, useOperations, watchOperation } from "../app/operations";
@@ -32,7 +32,7 @@ export function MigrationView() {
   const startedAt = migrationStartedAt(useOperations(), id);
   // Starting writes the new id to the URL first; the previous answer stays so the form (and its pending start) stays mounted.
   const migration = useQuery({ ...migrationQuery(id), placeholderData: keepPreviousData });
-  if (files.isPending || migration.isPending) return <Loader />;
+  if (files.isPending || migration.isPending) return <Skeleton variant="form" />;
   if (files.isError || migration.isError) return <ErrorState error={files.error ?? migration.error} onRetry={() => Promise.all([files.refetch(), migration.refetch()])} />;
   // Judged at each answer's time (dataUpdatedAt also re-renders on unchanged polls), so the lock ends with the start window.
   const starting = awaitingStart(id, migration.data, startedAt, migration.dataUpdatedAt);

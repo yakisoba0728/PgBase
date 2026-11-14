@@ -8,7 +8,7 @@ import type { Collection } from "../api/collections";
 import type { OperationReceipt, OperationStatus } from "../api/schema";
 import { RefreshButton } from "../components/Button";
 import { CodeBlock } from "../components/CodeBlock";
-import { EmptyState, ErrorState, Loader, LoadMore } from "../components/Feedback";
+import { EmptyState, ErrorState, Skeleton, LoadMore } from "../components/Feedback";
 import { SplitView, PaneHeader } from "../components/SplitView";
 import { collectionsQuery } from "../collections/queries";
 import { useT } from "../i18n";
@@ -56,7 +56,7 @@ export function SchemaOperations() {
       </div>
       <div className="grid-scroll">
         {list.isPending ? (
-          <Loader />
+          <Skeleton />
         ) : list.isError ? (
           <ErrorState error={list.error} onRetry={list.refetch} />
         ) : items.length === 0 ? (
@@ -123,7 +123,7 @@ function OperationDetail({ id, catalog, onClose }: { id: string; catalog: Collec
       <PaneHeader title={id} mono copy={{ label: t("common.copyId"), value: id }} onClose={onClose} />
       <div className="pane-body">
         {query.isPending ? (
-          <Loader />
+          <Skeleton variant="form" />
         ) : query.isError ? (
           <ErrorState error={query.error} onRetry={query.refetch} />
         ) : (

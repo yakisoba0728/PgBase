@@ -2,7 +2,7 @@ import { RiCloseLine, RiDownload2Line, RiFileLine } from "@remixicon/react";
 import { useT } from "../i18n";
 import { IconButton } from "./Button";
 import { useModal } from "./Dialog";
-import { Loader } from "./Feedback";
+import { Skeleton } from "./Feedback";
 import { formatBytes } from "../app/format";
 
 interface PreviewFile {
@@ -43,7 +43,7 @@ export function FilePreview({ file, url, error, onClose }: FilePreviewProps) {
             {error ? (
               <p className="txt-danger">{error}</p>
             ) : !url ? (
-              <Loader />
+              <Skeleton variant="editor" />
             ) : image ? (
               <img src={url} alt={file.name} />
             ) : (

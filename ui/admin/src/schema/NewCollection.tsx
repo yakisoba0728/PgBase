@@ -4,7 +4,7 @@ import { RiErrorWarningLine, RiEyeLine, RiTableLine, RiUser3Line } from "@remixi
 import { getCollectionScaffolds, type CollectionType } from "../api/collections";
 import { errorText } from "../app/queries";
 import { collectionsQuery } from "../collections/queries";
-import { EmptyState, Loader } from "../components/Feedback";
+import { EmptyState, Skeleton } from "../components/Feedback";
 import { useT } from "../i18n";
 import { SchemaView } from "./SchemaView";
 import "../styles/schema.css";
@@ -44,6 +44,6 @@ export function NewCollectionEditor({ type }: { type: CollectionType }) {
   const scaffolds = useQuery({ queryKey: ["collection-scaffolds"], queryFn: ({ signal }) => getCollectionScaffolds(signal), staleTime: Infinity });
   const error = catalog.error ?? scaffolds.error;
   if (error) return <EmptyState icon={RiErrorWarningLine}>{errorText(t, error)}</EmptyState>;
-  if (!catalog.data || !scaffolds.data) return <Loader />;
+  if (!catalog.data || !scaffolds.data) return <Skeleton variant="form" />;
   return <SchemaView key={type} type={type} catalog={catalog.data} scaffolds={scaffolds.data} basePath={`/new-collection/${type}`} />;
 }

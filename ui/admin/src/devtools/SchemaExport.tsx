@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { RiDownloadLine } from "@remixicon/react";
 import { stringify } from "lossless-json";
 import { Button } from "../components/Button";
-import { ErrorState, Loader } from "../components/Feedback";
+import { ErrorState, Skeleton } from "../components/Feedback";
 import { Checkbox } from "../components/Field";
 import { useT } from "../i18n";
 import { useSearchState } from "../app/search";
@@ -16,7 +16,7 @@ export function SchemaExport() {
   const t = useT();
   const { params, update } = useSearchState();
   const query = useQuery(exportQuery);
-  if (query.isPending) return <Loader />;
+  if (query.isPending) return <Skeleton variant="editor" />;
   if (query.isError) return <ErrorState error={query.error} onRetry={query.refetch} />;
 
   // An empty project exports `collections: null`.

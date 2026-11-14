@@ -8,7 +8,7 @@ import type { BackupStorageSettings } from "../api/storage";
 import { errorText } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, ErrorState, Loader } from "../components/Feedback";
+import { EmptyState, ErrorState, Skeleton } from "../components/Feedback";
 import { Checkbox } from "../components/Field";
 import { SplitView, PaneHeader } from "../components/SplitView";
 import { toast } from "../components/Toast";
@@ -93,7 +93,7 @@ export function BackupsView() {
       <BackupSchedule />
       {jobId &&<BackupJobStrip key={jobId} id={jobId} />}
       {backups.isPending ? (
-        <Loader />
+        <Skeleton />
       ) : backups.isError ? (
         <ErrorState error={backups.error} onRetry={backups.refetch} />
       ) : items.length === 0 ? (

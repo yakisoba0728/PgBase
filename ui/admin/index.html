@@ -7,7 +7,16 @@
     <title>PgBase</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="skeleton skeleton-form boot-skeleton" role="status" aria-busy="true">
+        <span class="visually-hidden">Loading</span>
+        <div class="skeleton-content" aria-hidden="true">
+          <div class="skeleton-field"><span></span><span></span></div>
+          <div class="skeleton-field"><span></span><span></span></div>
+          <div class="skeleton-field"><span></span><span></span></div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

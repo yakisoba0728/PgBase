@@ -31,8 +31,11 @@ func TestHandlerServesAdminRootAssetsAndSPAFallback(t *testing.T) {
 
 	for _, path := range []string{"/admin/", "/admin/collections", "/admin/collections/posts/records/record-id"} {
 		response := assertResponse(path)
-		if response.Code != http.StatusOK || !strings.HasPrefix(response.Header().Get("Content-Type"), "text/html") || !strings.Contains(response.Body.String(), `<div id="root"></div>`) {
+		if response.Code != http.StatusOK || !strings.HasPrefix(response.Header().Get("Content-Type"), "text/html") || !strings.Contains(response.Body.String(), `<div id="root">`) {
 			t.Fatalf("SPA %s status=%d content-type=%q body=%q", path, response.Code, response.Header().Get("Content-Type"), response.Body.String())
+		}
+		if !strings.Contains(response.Body.String(), "boot-skeleton") || !strings.Contains(response.Body.String(), `aria-busy="true"`) {
+			t.Fatalf("SPA %s did not reserve its loading layout before JavaScript", path)
 		}
 		if response.Header().Get("Cache-Control") != "no-cache" {
 			t.Fatalf("SPA %s Cache-Control=%q", path, response.Header().Get("Cache-Control"))
@@ -118,7 +121,7 @@ func TestHandlerFallsBackForNamesTheEmbeddedFilesystemRejects(t *testing.T) {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
-		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `<div id="root"></div>`) {
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `<div id="root">`) {
 			t.Fatalf("SPA %s status=%d body=%q", path, response.Code, response.Body.String())
 		}
 	}
@@ -176,7 +179,7 @@ func TestHandlerNeverFallsBackForRootAPIUnsafeMethodsOrTraversal(t *testing.T) {
 			request := httptest.NewRequest(test.method, test.path, nil)
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
-			if response.Code == http.StatusOK || strings.Contains(response.Body.String(), `<div id="root"></div>`) {
+			if response.Code == http.StatusOK || strings.Contains(response.Body.String(), `<div id="root">`) {
 				t.Fatalf("status=%d served SPA body=%q", response.Code, response.Body.String())
 			}
 		})

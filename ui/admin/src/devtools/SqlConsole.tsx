@@ -7,7 +7,7 @@ import { submitSql, type SqlExecutionPage, type SqlMode, type SqlSubmitInput } f
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, ErrorState, Loader, Notice } from "../components/Feedback";
+import { EmptyState, ErrorState, Skeleton, Notice } from "../components/Feedback";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { CodeArea } from "../components/CodeArea";
 import { Checkbox } from "../components/Field";
@@ -27,7 +27,7 @@ import "../styles/devtools.css";
 export function SqlConsole() {
   const t = useT();
   const history = useInfiniteQuery(sqlHistoryQuery);
-  if (history.isPending) return <Loader />;
+  if (history.isPending) return <Skeleton variant="editor" />;
   if (!history.data && history.error instanceof ApiError && history.error.status === 404) {
     return (
       <div className="page-content">

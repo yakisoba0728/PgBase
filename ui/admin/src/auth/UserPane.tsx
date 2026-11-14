@@ -18,7 +18,7 @@ import { useTimeFormat } from "../app/format";
 import { Button } from "../components/Button";
 import { Facts } from "../components/Facts";
 import { ConfirmDialog, SecretView, TaskDialog } from "../components/Dialog";
-import { Loader } from "../components/Feedback";
+import { Skeleton } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT, type MessageKey } from "../i18n";
@@ -149,7 +149,7 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
         <section className="auth-section">
           <header><h2>{t("auth.user.identities")}</h2></header>
           {identities.isPending ? (
-            <Loader />
+            <Skeleton />
           ) : identities.isError ? (
             <p className="txt-hint">{errorText(t, identities.error)}</p>
           ) : identities.data.length === 0 ? (
@@ -168,7 +168,7 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
         </section>
 
         {resolved.isPending ? (
-          <Loader />
+          <Skeleton variant="form" />
         ) : resolved.data ? (
           <ProfileForm key={`${resolved.data.record.id}:${resolved.data.record.updatedAt}`} userId={user.id} collection={resolved.data.collection} record={resolved.data.record} onDelete={() => ask({ kind: "delete" })} />
         ) : (

@@ -7,7 +7,7 @@ import { clearRequestLogs, deleteRequestLogsBefore } from "../api/logs";
 import { errorText } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, ErrorState, Loader, LoadMore } from "../components/Feedback";
+import { EmptyState, ErrorState, Skeleton, LoadMore } from "../components/Feedback";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
@@ -120,7 +120,7 @@ export function LogsView() {
       </div>
       <div className="grid-scroll">
         {logs.isPending ? (
-          <Loader />
+          <Skeleton />
         ) : logs.isError ? (
           <ErrorState error={logs.error} onRetry={logs.refetch} />
         ) : items.length === 0 ? (

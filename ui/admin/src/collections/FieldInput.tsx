@@ -2,7 +2,7 @@ import { lazy, Suspense, useId } from "react";
 import type { CollectionField } from "../api/collections";
 import type { RecordData } from "../api/records";
 import { Checkbox, Field } from "../components/Field";
-import { Loader } from "../components/Feedback";
+import { Skeleton } from "../components/Feedback";
 import { useT } from "../i18n";
 import { fieldKind, jsonError, type Draft } from "./fields";
 import { GeoPointInput } from "./GeoPointInput";
@@ -61,7 +61,7 @@ export function FieldInput({ field, value, onChange, error, readOnly, expand, on
               {field.required && <span className="field-required" aria-hidden>*</span>}
               <span className="mono">{field.type}</span>
             </label>
-            <Suspense fallback={<Loader />}>
+            <Suspense fallback={<Skeleton variant="editor" />}>
               <RichText id={id} label={field.name} value={text} onChange={onChange} readOnly={readOnly} invalid={Boolean(error)} convertURLs={field.options?.convertURLs} />
             </Suspense>
           </div>

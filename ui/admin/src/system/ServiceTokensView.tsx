@@ -8,7 +8,7 @@ import { errorText } from "../app/queries";
 import { collectionsQuery } from "../collections/queries";
 import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, Loader, Notice } from "../components/Feedback";
+import { EmptyState, Skeleton, Notice } from "../components/Feedback";
 import { Field } from "../components/Field";
 import { SplitView, PaneHeader } from "../components/SplitView";
 import { toast } from "../components/Toast";
@@ -57,7 +57,7 @@ export function ServiceTokensView() {
   const list = (
     <div className="grid-scroll">
       {query.isPending ? (
-        <Loader />
+        <Skeleton />
       ) : query.isError ? (
         <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />
       ) : items.length === 0 ? (
@@ -190,7 +190,7 @@ function IssueToken({ onClose, onIssued }: { onClose: () => void; onIssued: (id:
         <fieldset className="sys-scopes">
           <legend>{t("system.tokens.scopes")}</legend>
           {collections.isPending ? (
-            <Loader />
+            <Skeleton />
           ) : (collections.data ?? []).length === 0 ? (
             <p className="txt-hint">{t("system.tokens.noCollections")}</p>
           ) : (

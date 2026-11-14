@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useRef } from "react";
-import { Outlet } from "react-router";
-import { Loader } from "../components/Feedback";
+import { Outlet, useLocation } from "react-router";
+import { PageSkeleton } from "../components/PageSkeleton";
 import { useT } from "../i18n";
 import { AppNav } from "./AppNav";
 import { drawerOpener, setDrawer, useDrawer, useHelp, usePalette, useRail, useSmallScreen } from "./shell";
@@ -11,6 +11,7 @@ const Overlays = lazy(() => import("./CommandPalette").then((module) => ({ defau
 
 export function AppShell() {
   const t = useT();
+  const location = useLocation();
   const rail = useRail();
   const drawer = useDrawer();
   const palette = usePalette();
@@ -48,7 +49,7 @@ export function AppShell() {
       <AppNav />
       <button type="button" className="nav-scrim" aria-label={t("common.close")} onClick={() => setDrawer(false)} />
       <main className="main" inert={drawer && small}>
-        <Suspense fallback={<Loader />}>
+        <Suspense key={location.pathname} fallback={<PageSkeleton />}>
           <Outlet />
         </Suspense>
       </main>
