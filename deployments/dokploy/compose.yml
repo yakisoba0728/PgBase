@@ -22,7 +22,7 @@ x-pgbase: &pgbase
 
 services:
   postgres:
-    image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+    image: postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
     environment:
       POSTGRES_DB: pgbase
       POSTGRES_USER: pgbase
@@ -41,7 +41,7 @@ services:
     restart: unless-stopped
 
   files-init:
-    image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+    image: postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
     user: "0:0"
     entrypoint: ["/bin/sh", "-ec"]
     # Docker creates named-volume roots as root; the app runs as uid 65532.
