@@ -107,8 +107,9 @@ DB 스키마가 바뀐 릴리스에서 이전 이미지로만 되돌리는 것�
 
 ## 5. 백업과 복구
 
-현재 distroless 앱 이미지에는 `pg_dump`/`pg_restore`가 없다.
-이 프로필은 웹 관리형 백업을 활성화하지 않는다. 외부에서 백업을 수행한다.
+현재 앱 이미지에는 PostgreSQL 16/17/18용 `pg_dump`/`pg_restore`와 필요한 라이브러리가 포함되어 있다.
+이 Dokploy 프로필은 백업 볼륨과 `PGBASE_BACKUPS_DIRECTORY`를 설정하지 않으므로 웹 관리형 백업은 활성화되지 않는다.
+관리형 백업을 사용하려면 UID/GID `65532`가 쓸 수 있는 별도의 영구 백업 볼륨을 구성한다. 아래 외부 백업 절차도 사용할 수 있다.
 실행 중인 PostgreSQL 데이터 volume을 단순 파일 복사한 결과를 일관된 DB 백업으로 취급하지 않는다.
 
 Dokploy 서버의 checkout 루트에서, 실제 서비스의 **Compose project 이름과 Environment 파일 경로**를 사용한다.
