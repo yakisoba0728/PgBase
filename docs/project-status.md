@@ -1,6 +1,6 @@
 # PgBase 구현 이력과 현재 상태
 
-2026-11-15 최신 기준: 관리자 UI 개편을 [PR #142](https://github.com/yakisoba0728/PgBase/pull/142)로 main `588e14a93e828345c2edda760cd4c90381211328`에 병합하고 운영에 배포했다. `ui/admin`만 바뀌었고 서버 API와 schema 67은 그대로다. 범위·검증·남은 일은 §13을 따른다. 2026-11-14의 백엔드 재작성과 후속 수정(PR #135–#141, schema 67)은 [재작성 검증](backend-rewrite-validation.md)·[main 독립 검토](final-main-review.md)에 기록돼 있고 이 문서에는 절이 없다. 아래 문단은 그 이전 기록이다.
+2026-11-15 최신 기준: 관리자 UI 개편을 [PR #142](https://github.com/yakisoba0728/PgBase/pull/142)로 main `588e14a93e828345c2edda760cd4c90381211328`에 병합하고 운영에 배포했다. 같은 날 크기 확대·모션 강화를 [PR #144](https://github.com/yakisoba0728/PgBase/pull/144)로 main `5cb9ea0d`에 병합해 배포했다(§13의 마지막 절). `ui/admin`만 바뀌었고 서버 API와 schema 67은 그대로다. 범위·검증·남은 일은 §13을 따른다. 2026-11-14의 백엔드 재작성과 후속 수정(PR #135–#141, schema 67)은 [재작성 검증](backend-rewrite-validation.md)·[main 독립 검토](final-main-review.md)에 기록돼 있고 이 문서에는 절이 없다. 아래 문단은 그 이전 기록이다.
 
 2026-11-13 최신 기준: PR #124에 이어 [#125](https://github.com/yakisoba0728/PgBase/pull/125)·[#133](https://github.com/yakisoba0728/PgBase/pull/133)을 병합했다. 제품 source `043dc2b3`의 main CI와 전체 signed release gate가 통과했고 [v0.3.1](https://github.com/yakisoba0728/PgBase/releases/tag/v0.3.1)을 게시했다. 같은 source를 운영에 배포해 schema 66/66·health 정상·schema finding 0과 기존 레코드 표시를 확인했다. [구현·검증](production-readiness-2026-11-13.md), [배포](deployment-2026-11-13.md), [남은 결정](next-work.md)을 따른다. 아래 날짜별 문단·§11–§12는 당시 상태의 이력이며 현재 열린 작업 목록이 아니다. 운영 백업은 소유자 요청으로 생성·설정하지 않았다.
 
@@ -400,3 +400,15 @@ UI를 다시 만들며 서버 응답과 코드에서 관찰한 사항이다. `fr
 - 작업 실행 이력은 서버 endpoint가 없어 건너뛰었다.
 - 서비스 토큰의 64는 발급 한도가 아니라 목록 조회 limit이어서 생성 버튼을 막지 않았다.
 - `QueryView`로 옮기지 않은 화면: 레코드 편집기, API 탭, 컬렉션 nav, 관계 선택기, plan 검토, 로그 통계 띠.
+
+### 후속: 크기 확대와 모션 강화([PR #144](https://github.com/yakisoba0728/PgBase/pull/144))
+
+기록일: 2026-11-15 KST. 소유자가 배포된 화면을 보고 글자와 표시 요소가 전반적으로 작다고 했고, 애니메이션을 더 많이·부드럽게 넣어 달라고 했다. `feat/admin-ui-scale-motion`을 squash 병합했다(main `5cb9ea0d`). `ui/admin`만 바뀌었다.
+
+- **크기 기준**: PocketBase v0.40.6의 stylesheet(`ui/src/css/vars.css` 등)에서 값을 확인했다. 본문 14/22px, 작은 글자 13px, 버튼 45/35px, 표 셀 45px, nav 항목 45px. 크기만 참고했고 배치·색·글꼴은 PgBase 것을 유지한다.
+- **토큰 변경**: 본문 13/20→14/22px, 작은 글자 12→13px, 가장 작은 글자 11→12px, 제목 16→18px, 컨트롤 36/30→40/34px, 표 행 40→48px(헤더 36→40px), nav 항목 30→38px, 페이지 헤더 56→64px, 탭 30→40px, 아이콘 16/14→18/16px, chip 22→26px, 체크박스 16→18px. 정보를 담은 가장 작은 글자 사용처 약 20곳은 13px로 올렸다.
+- **JS 상수**: `RecordsTable`·`SqlResult`의 행·헤더·체크 열 크기를 토큰에서 읽는다. 고정 id 열의 offset도 체크 열 폭을 따른다.
+- **모션**: 시간 120/180/320ms, 감속 곡선과 spring 곡선(`linear()`, cubic-bezier 대체). 화면 간 View Transition(본문·제목만), 탭 방향 전환, 테마·guest→app 교차 페이드, 행 순차 등장, 스키마 필드 재배치(FLIP), nav 현재 항목 이동, 메뉴의 기준점 확대, 대화상자 spring, 토스트 남은 시간, 체크 표시 그리기. reduced-motion 규칙이 지연·View Transition·FLIP까지 끈다.
+- **검증**: `npm run typecheck`, `npm test`(72파일/386 tests), 깨끗한 build, `go test ./ui/admin/ ./internal/repositorypolicy/`, 로컬 backend 대상 browser suite 23 통과·1 opt-in skip. 첫 browser 실행에서 고정 id 열이 옆 셀 클릭을 가리는 회귀 1건을 찾아 고쳤다. 20개 route를 1440·900·600px에서 넘침 검사했다. PR 필수 CI 5개 통과. 운영 배포 `done`, 운영 `/admin/` 진입 JS·CSS가 병합된 dist와 SHA-256까지 일치.
+- **검증하지 않은 것**: 운영 로그인 후 화면, 새 컬렉션 화면과 600px 다크의 browser 확인.
+- **넣지 않은 것**: 삭제된 행 접힘, 숫자 rolling, skeleton→내용 교차 페이드, 토스트 swipe, 화면 안쪽 `Tabs` 슬라이드.

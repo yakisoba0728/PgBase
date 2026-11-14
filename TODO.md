@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-2026-11-15 최신 결과: 관리자 UI 개편을 [PR #142](https://github.com/yakisoba0728/PgBase/pull/142)로 main `588e14a9`에 병합하고 운영에 배포했다(schema 67 그대로, migration 없음). 세부·검증 범위·남은 일은 [현재 상태](docs/project-status.md) §13과 [다음 작업](docs/next-work.md)을 따른다. 아래 문단과 미완료 표시는 당시 이력이다.
+2026-11-15 최신 결과: 관리자 UI 개편을 [PR #142](https://github.com/yakisoba0728/PgBase/pull/142)로, 이어서 크기 확대·모션 강화를 [PR #144](https://github.com/yakisoba0728/PgBase/pull/144)로 병합해 main `5cb9ea0d`를 운영에 배포했다(schema 67 그대로, migration 없음). 세부·검증 범위·남은 일은 [현재 상태](docs/project-status.md) §13과 [다음 작업](docs/next-work.md)을 따른다. 아래 문단과 미완료 표시는 당시 이력이다.
 
 2026-11-13 최신 결과: PR #124·#125·#133 병합, main CI·전체 릴리스 gate 통과, v0.3.1 게시와 운영 schema 66 배포 완료. [다음 작업](docs/next-work.md), [운영 준비 보완](docs/production-readiness-2026-11-13.md), [배포 기록](docs/deployment-2026-11-13.md)을 따른다. 아래 미완료 표시는 날짜별 실행 당시의 이력이며 현재 열린 작업으로 합산하지 않는다. 운영 백업 생성/설정은 소유자 요청으로 제외했다. npm/pub.dev 공개는 별도 소유자 결정이다.
 
@@ -17,6 +17,7 @@ main `47e8d852`(schema 67)에서 분기해 `ui/admin`만 바꿨다. 서버 API·
 - [x] 결함 수정: 전수 조사와 신규 코드 리뷰에서 나온 약 45건(대화상자 닫힘, polling 실패 시 데이터 소실, 파일 교체 후 거짓 412, drawer 포커스 복귀 등).
 - [x] 검증: UI unit 71파일/381 tests, 깨끗한 build와 dist 일치, 로컬 backend 대상 browser suite 23 통과·1 opt-in skip(시나리오 6개 추가), onboarding 1 통과, PR 필수 CI 5개 통과.
 - [x] main 병합과 운영 배포: 배포 `done`, 운영 `/admin/` 진입 JS·CSS가 병합된 dist와 SHA-256까지 일치.
+- [x] 후속 [PR #144](https://github.com/yakisoba0728/PgBase/pull/144)(main `5cb9ea0d`): 글자·컨트롤 크기를 PocketBase v0.40.6 수준으로 확대(본문 13/20→14/22px, 컨트롤 36/30→40/34px, 표 행 40→48px, nav 항목 30→38px), 가상화 표가 행 크기를 토큰에서 읽도록 변경, 모션 시간·곡선 재조정과 화면 전환·행 순차 등장·필드 재배치 전환 추가. unit 72파일/386, browser 23 통과, 필수 CI 5개 통과, 운영 배포 `done`과 자산 SHA-256 일치.
 - [ ] 운영 사후 점검 중 생략한 것: 배포 전 서버 dump, 서버 `doctor`·binary 일치 job, 로그인 후 화면 확인.
 - [ ] browser에서 보지 못한 화면: 초기 setup, login OTP 단계, 다크 테마·좁은 폭의 일부 화면.
 - [ ] 릴리스 tag: v0.3.1 이후 main에만 있는 변경(백엔드 재작성·schema 67·이번 UI)이 tag 없이 쌓여 있다. 소유자 결정.
