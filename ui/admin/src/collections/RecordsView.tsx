@@ -17,7 +17,7 @@ import { errorText } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { Dropdown, DropdownItem } from "../components/Popover";
-import { EmptyState, Loader, LoadMore, ErrorState } from "../components/Feedback";
+import { EmptyState, Skeleton, LoadMore, ErrorState } from "../components/Feedback";
 import { Popover } from "../components/Popover";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
@@ -232,7 +232,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
       <div className="records-body">
       <div className="grid-scroll records-scroll" ref={scroller}>
         {records.isPending ? (
-          <Loader />
+          <Skeleton />
         ) : records.isError && !records.data ? (
           problem ? (
             <EmptyState icon={RiFilterLine}>{t("records.fixFilter")}</EmptyState>

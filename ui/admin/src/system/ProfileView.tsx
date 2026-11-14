@@ -7,7 +7,7 @@ import { errorText, sessionQuery } from "../app/queries";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { ErrorState } from "../components/Feedback";
-import { Loader } from "../components/Feedback";
+import { Skeleton } from "../components/Feedback";
 import { Field } from "../components/Field";
 import { FormSection } from "../components/FormSection";
 import { toast } from "../components/Toast";
@@ -20,7 +20,7 @@ import "../styles/system.css";
 /** The signed-in administrator: email, password and the network allowlist. */
 export function ProfileView() {
   const profile = useQuery(profileQuery);
-  if (profile.isPending) return <Loader />;
+  if (profile.isPending) return <Skeleton variant="form" />;
   if (profile.isError) return <ErrorState error={profile.error} busy={profile.isFetching} onRetry={() => void profile.refetch()} />;
   return (
     <div className="sys-scroll">
@@ -93,7 +93,7 @@ function AllowlistSection({ profile }: { profile: Administrator }) {
   return (
     <FormSection title={t("system.profile.allowlist")} hint={t("system.profile.allowlistHint")}>
       {query.isPending ? (
-        <Loader />
+        <Skeleton variant="form" />
       ) : query.isError ? (
         <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />
       ) : (

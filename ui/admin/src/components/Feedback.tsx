@@ -4,12 +4,32 @@ import { errorText } from "../app/queries";
 import { useT } from "../i18n";
 import { Button } from "./Button";
 
-export function Loader() {
+export type SkeletonVariant = "table" | "form" | "cards" | "editor" | "list";
+
+/** Reserve the content's shape while its first response or screen code loads. */
+export function Skeleton({ variant = "table" }: { variant?: SkeletonVariant }) {
   const t = useT();
   return (
-    <div className="loader-center" role="status">
-      <span className="loader" aria-hidden />
+    <div className={`skeleton skeleton-${variant}`} role="status" aria-busy="true">
       <span className="visually-hidden">{t("common.loading")}</span>
+      <div className="skeleton-content" aria-hidden="true">
+        {variant === "table" ? (
+          <>
+            <div className="skeleton-toolbar"><span /><span /></div>
+            {Array.from({ length: 7 }, (_, row) => (
+              <div key={row} className={`skeleton-row${row === 0 ? " skeleton-head" : ""}`}>
+                {Array.from({ length: 5 }, (_, column) => <span key={column} />)}
+              </div>
+            ))}
+          </>
+        ) : variant === "form" ? (
+          Array.from({ length: 4 }, (_, row) => <div key={row} className="skeleton-field"><span /><span /></div>)
+        ) : variant === "cards" ? (
+          Array.from({ length: 3 }, (_, row) => <div key={row} className="skeleton-card"><span /><span /></div>)
+        ) : (
+          Array.from({ length: variant === "editor" ? 9 : 5 }, (_, row) => <div key={row} className="skeleton-line"><span /></div>)
+        )}
+      </div>
     </div>
   );
 }

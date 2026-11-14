@@ -1,3 +1,4 @@
+import { Skeleton } from "../components/Feedback";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -228,7 +229,7 @@ export function RelationPicker({ field, value, onChange, known = [], error, read
             {filter === null ? (
               <p className="relation-note">{t("relation.needId")}</p>
             ) : stale || results.isPending ? (
-              <p className="relation-note">{t("common.loading")}</p>
+              <Skeleton variant="list" />
             ) : results.isError ? (
               <p className="relation-note txt-danger">{errorText(t, results.error)}</p>
             ) : options.length === 0 && !canCreate ? (

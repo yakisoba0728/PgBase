@@ -6,8 +6,9 @@ import { RulesView } from "../rules/RulesView";
 import { useCollection } from "../collections/queries";
 import { SchemaView } from "../schema/SchemaView";
 import { SchemaDraftGuard } from "../schema/DraftGuard";
-import { EmptyState, ErrorState, Loader } from "../components/Feedback";
+import { EmptyState, ErrorState } from "../components/Feedback";
 import { Page } from "../components/Page";
+import { PageSkeleton } from "../components/PageSkeleton";
 import { useT } from "../i18n";
 import { useCollectionVisit, useRecentCollections } from "../app/recent";
 
@@ -20,7 +21,7 @@ export function CollectionPage() {
   const { collection, data, isPending, error, refetch } = useCollection(name);
   useCollectionVisit(collection ? collection.name : "", tab);
   if (tab && !subTabs.includes(tab as (typeof subTabs)[number])) return <Navigate to={`/collections/${encodeURIComponent(name)}`} replace />;
-  if (isPending) return <Loader />;
+  if (isPending) return <PageSkeleton />;
   if (!collection) {
     return (
       <Page title={name}>
@@ -56,7 +57,7 @@ export function CollectionsIndexPage() {
   const t = useT();
   const { data, isPending, error, refetch } = useCollection("");
   const recent = useRecentCollections(data?.map((collection) => collection.name));
-  if (isPending) return <Loader />;
+  if (isPending) return <PageSkeleton />;
   // The most recently opened collection, else the first one.
   const first = recent[0] ? { name: recent[0] } : data?.[0];
   if (first) return <Navigate to={`/collections/${encodeURIComponent(first.name)}`} replace />;

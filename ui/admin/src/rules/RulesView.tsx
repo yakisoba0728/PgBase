@@ -8,7 +8,7 @@ import { stringifyJson } from "../api/http";
 import type { Collection } from "../api/collections";
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
-import { EmptyState, Loader } from "../components/Feedback";
+import { EmptyState, Skeleton } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { SaveBar } from "../components/SaveBar";
 import { SplitView } from "../components/SplitView";
@@ -139,7 +139,7 @@ export function RulesView({ collection, basePath }: { collection: Collection; ba
   const t = useT();
   const source = collection.type === "view" && !collection.view?.sql ? collection.view?.source : undefined;
   const editor = useRulesEditor(source ? { ...collection, name: source, type: "base" } : collection, basePath);
-  if (editor.loading) return <Loader />;
+  if (editor.loading) return <Skeleton variant="form" />;
   if (editor.loadError || !editor.drafts) return <div className="page-content"><EmptyState icon={RiErrorWarningLine}>{errorText(t, editor.loadError)}</EmptyState><UnsavedGuard {...editor.guard} /></div>;
   const isView = collection.type === "view";
   const list = (

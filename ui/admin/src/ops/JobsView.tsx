@@ -9,7 +9,7 @@ import { ApiError } from "../api/http";
 import { runJob, updateJob, type ManagedJob } from "../api/jobs";
 import { errorText } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
-import { EmptyState, ErrorState, Loader, Notice } from "../components/Feedback";
+import { EmptyState, ErrorState, Skeleton, Notice } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { SaveBar } from "../components/SaveBar";
 import { SplitView, PaneHeader } from "../components/SplitView";
@@ -66,7 +66,7 @@ export function JobsView() {
   const list = (
     <div className="grid-scroll ops-top">
       {jobs.isPending ? (
-        <Loader />
+        <Skeleton />
       ) : jobs.isError ? (
         <ErrorState error={jobs.error} onRetry={jobs.refetch} />
       ) : items.length === 0 ? (

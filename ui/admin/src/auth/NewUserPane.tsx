@@ -2,7 +2,7 @@ import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createAuthRecord, type AuthCollection } from "../api/authCollections";
 import { ApiError } from "../api/http";
-import { ErrorState, Loader } from "../components/Feedback";
+import { ErrorState, Skeleton } from "../components/Feedback";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
@@ -21,7 +21,7 @@ export function NewUserPane({ onClose, onCreated }: { onClose: () => void; onCre
   return (
     <>
       <PaneHeader title={t("auth.users.new")} onClose={onClose} />
-      {collections.data ? <NewUserForm collections={collections.data} onClose={onClose} onCreated={onCreated} /> : collections.isError ? <ErrorState error={collections.error} onRetry={collections.refetch} /> : <Loader />}
+      {collections.data ? <NewUserForm collections={collections.data} onClose={onClose} onCreated={onCreated} /> : collections.isError ? <ErrorState error={collections.error} onRetry={collections.refetch} /> : <Skeleton variant="form" />}
     </>
   );
 }

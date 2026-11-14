@@ -47,3 +47,22 @@ it("retries focus after the drawer visibility transition and cancels work on clo
   fireEvent.transitionEnd(document.querySelector(".nav")!, { propertyName: "visibility" });
   expect(trigger).toHaveFocus();
 });
+
+it("shows the destination skeleton during lazy navigation and removes it when ready", async () => {
+  const { lazy } = await import("react");
+  let finish!: (module: { default: () => React.ReactNode }) => void;
+  const Pending = lazy(() => new Promise<{ default: () => React.ReactNode }>((resolve) => { finish = resolve; }));
+  const router = createMemoryRouter([{ element: <AppShell />, children: [
+    { path: "/collections", element: <Page title="Collections">Loaded list</Page> },
+    { path: "/settings", element: <Pending /> },
+  ] }], { initialEntries: ["/collections"] });
+  render(<RouterProvider router={router} />);
+  await act(async () => { await router.navigate("/settings"); });
+  expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "true");
+  expect(screen.getByRole("link", { name: "Navigation link" })).toBeInTheDocument();
+  expect(screen.queryByText("Loaded list")).not.toBeInTheDocument();
+  await act(async () => { finish({ default: () => <Page title="Settings">Settings loaded</Page> }); });
+  expect(screen.getByText("Settings loaded")).toBeInTheDocument();
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+});

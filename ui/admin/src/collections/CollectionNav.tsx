@@ -1,3 +1,4 @@
+import { Skeleton } from "../components/Feedback";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -47,7 +48,7 @@ export function CollectionNav() {
             {collection.name}
           </NavItem>
         ))}
-        {isPending && <div className="nav-empty">{t("common.loading")}</div>}
+        {isPending && <Skeleton variant="list" />}
         {isError && <div className="nav-empty">{t("collections.loadFailed")}</div>}
         {data && items.length === 0 && <div className="nav-empty">{t(needle ? "collections.noMatch" : "collections.empty")}</div>}
       </div>

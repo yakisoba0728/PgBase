@@ -11,7 +11,7 @@ import { UnsavedGuard } from "../components/UnsavedGuard";
 import { ChangeList } from "../components/ChangeList";
 import { CodeArea } from "../components/CodeArea";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, Loader, Notice } from "../components/Feedback";
+import { EmptyState, Skeleton, Notice } from "../components/Feedback";
 import { Checkbox } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT, type MessageKey, type Translate } from "../i18n";
@@ -141,7 +141,7 @@ export function SchemaImport() {
       </div>
     );
   } else if (preview.isPending) {
-    body = <Loader />;
+    body = <Skeleton variant="form" />;
   } else if (preview.error) {
     const problems = preview.error instanceof ApiError ? problemList(preview.error.details) : [];
     body = (

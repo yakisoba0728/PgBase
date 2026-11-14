@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { settingsQuery } from "../system/queries";
 import { errorText } from "../app/queries";
+import { Skeleton } from "../components/Feedback";
 import { useT } from "../i18n";
 import { logStatsQuery } from "./queries";
 import type { RequestLogFilter } from "../api/logs";
@@ -24,7 +25,7 @@ export function LogStats({ range, active, onPick }: { range: Pick<RequestLogFilt
   const [hover, setHover] = useState<string | null>(null);
   if (stats.isError) return <p className="ops-stats txt-hint">{errorText(t, stats.error)}</p>;
   const data = stats.data;
-  if (!data) return <div className="ops-stats" aria-hidden />;
+  if (!data) return <div className="ops-stats"><Skeleton variant="cards" /></div>;
   const counts = classes.map((c) => data.statusClasses[`${c}xx`]);
   // Heights only; the shown numbers stay exactly as received.
   const max = Math.max(1, ...counts.map((count) => Number(count ?? 0)));

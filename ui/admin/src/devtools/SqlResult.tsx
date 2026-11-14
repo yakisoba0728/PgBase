@@ -5,7 +5,7 @@ import { cancelSqlExecution, type SqlCell, type SqlExecution, type SqlStatementR
 import { errorText } from "../app/queries";
 import { Button } from "../components/Button";
 import { DataGrid, type GridCell } from "../components/DataGrid";
-import { ErrorState, Loader, Notice } from "../components/Feedback";
+import { ErrorState, Skeleton, Notice } from "../components/Feedback";
 import { toast } from "../components/Toast";
 import { en } from "../i18n/en";
 import { useT, type MessageKey } from "../i18n";
@@ -59,7 +59,7 @@ export function SqlResult({ id, sql }: { id: string; sql: string | undefined }) 
     if (settled) void queryClient.invalidateQueries({ queryKey: sqlHistoryKey });
   }, [settled, queryClient]);
 
-  if (query.isPending) return <Loader />;
+  if (query.isPending) return <Skeleton />;
   if (query.isError) return <ErrorState error={query.error} onRetry={query.refetch} />;
   const execution = query.data;
   const { result, failure } = execution;

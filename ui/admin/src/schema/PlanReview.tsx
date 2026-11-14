@@ -6,7 +6,7 @@ import { Button } from "../components/Button";
 import { untrackOperation } from "../app/operations";
 import { ChangeList } from "../components/ChangeList";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, Loader, Notice } from "../components/Feedback";
+import { EmptyState, Skeleton, Notice } from "../components/Feedback";
 import { useT } from "../i18n";
 import { Undecided } from "./apply";
 import { dangerousStatement, DraftDrifted } from "./draft";
@@ -41,7 +41,7 @@ export function PlanReview({ editor }: { editor: SchemaEditor }) {
       </Notice>
     );
   } else if (planQuery.error instanceof DraftDrifted) {
-    body = <Loader />;
+    body = <Skeleton variant="form" />;
   } else if (rowErrors || errors.other.length) {
     body = (
       <div className="pane-notice" data-tone="danger" role="alert">
@@ -58,7 +58,7 @@ export function PlanReview({ editor }: { editor: SchemaEditor }) {
       </Notice>
     );
   } else if (!planQuery.data) {
-    body = <Loader />;
+    body = <Skeleton variant="form" />;
   } else {
     body = (
       <>

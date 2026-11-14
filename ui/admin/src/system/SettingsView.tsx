@@ -7,7 +7,7 @@ import { errorText } from "../app/queries";
 import { Button, IconButton } from "../components/Button";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
-import { Loader, Notice } from "../components/Feedback";
+import { Skeleton, Notice } from "../components/Feedback";
 import { ErrorState } from "../components/Feedback";
 import { FormSection } from "../components/FormSection";
 import { Checkbox, Field } from "../components/Field";
@@ -25,7 +25,7 @@ const hints = new Set(["batch.maxBodyBytes", "backups.schedule", "backups.timezo
 /** Every runtime setting the server exposes, saved as one revisioned document. */
 export function SettingsView() {
   const query = useQuery({ ...settingsQuery, refetchOnReconnect: false });
-  if (query.isPending) return <Loader />;
+  if (query.isPending) return <Skeleton variant="form" />;
   if (query.isError) return <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />;
   // A new revision (save, reload, refresh) starts a fresh draft.
   return <SettingsForm key={query.data.revision} settings={query.data} />;

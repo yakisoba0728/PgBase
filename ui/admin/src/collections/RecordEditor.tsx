@@ -9,7 +9,7 @@ import { Button } from "../components/Button";
 import { copyText } from "../components/CopyButton";
 import { ConfirmDialog } from "../components/Dialog";
 import { Dropdown, DropdownItem } from "../components/Popover";
-import { ErrorState, Loader, Notice } from "../components/Feedback";
+import { ErrorState, Skeleton, Notice } from "../components/Feedback";
 import { SaveBar } from "../components/SaveBar";
 import { PaneHeader } from "../components/SplitView";
 import { UnsavedGuard } from "../components/UnsavedGuard";
@@ -45,7 +45,7 @@ export function RecordEditor({ collection, recordId, onClose, onCreated, onCreat
       {query.isError ? (
         <ErrorState error={query.error} busy={query.isFetching} onRetry={query.refetch} />
       ) : (
-        <Loader />
+        <Skeleton variant="form" />
       )}
     </>
   );

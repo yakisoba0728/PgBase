@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { SystemStatusProbe } from "../api/system";
 import { errorText } from "../app/queries";
-import { Loader } from "../components/Feedback";
+import { Skeleton } from "../components/Feedback";
 import { ErrorState } from "../components/Feedback";
 import { Facts } from "../components/Facts";
 import { FormSection } from "../components/FormSection";
@@ -37,7 +37,7 @@ export function StatusView() {
   const time = useTimeFormat();
   const status = useQuery(systemStatusQuery);
   const health = useQuery(schemaHealthQuery);
-  if (status.isPending || health.isPending) return <Loader />;
+  if (status.isPending || health.isPending) return <Skeleton variant="cards" />;
   if (status.isError) return <ErrorState error={status.error} busy={status.isFetching} onRetry={() => void status.refetch()} />;
   const s = status.data;
   const migrationTone: Tone = s.migrationDirty ? "danger" : s.migrationCurrent < s.migrationLatest ? "warning" : "success";

@@ -9,7 +9,7 @@ import { createAdministrator, resetAdministratorPassword, revokeAdministratorSes
 import { errorText, sessionQuery } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { Loader, LoadMore, Notice } from "../components/Feedback";
+import { Skeleton, LoadMore, Notice } from "../components/Feedback";
 import { ErrorState } from "../components/Feedback";
 import { Field } from "../components/Field";
 import { SplitView, PaneHeader } from "../components/SplitView";
@@ -56,7 +56,7 @@ export function AdministratorsView() {
   const list = (
     <div className="grid-scroll">
       {query.isPending ? (
-        <Loader />
+        <Skeleton />
       ) : query.isError && !query.data ? (
         <ErrorState error={query.error} busy={query.isFetching} onRetry={() => void query.refetch()} />
       ) : (

@@ -6,7 +6,7 @@ import type { ManagedUser } from "../api/users";
 import { useTimeFormat } from "../app/format";
 import { Button, RefreshButton } from "../components/Button";
 import { ErrorState, LoadMore } from "../components/Feedback";
-import { EmptyState, Loader } from "../components/Feedback";
+import { EmptyState, Skeleton } from "../components/Feedback";
 import { Field, Searchbar } from "../components/Field";
 import { openRow } from "../components/DataGrid";
 import { SplitView } from "../components/SplitView";
@@ -79,7 +79,7 @@ export function UsersView() {
   );
 
   let body;
-  if (users.isPending) body = <Loader />;
+  if (users.isPending) body = <Skeleton />;
   else if (users.isError && !users.data) body = <ErrorState error={users.error} busy={users.isFetching} onRetry={() => void users.refetch()} />;
   else if (rows.length === 0) body = filtered ? <EmptyState icon={RiSearchLine}>{t("auth.users.noMatch")}</EmptyState> : <EmptyState icon={RiUser3Line}>{t("auth.users.empty")}</EmptyState>;
   else {
@@ -100,7 +100,7 @@ export function UsersView() {
   else if (openUser) pane = <UserPane key={openUser.id} user={openUser} onClose={url.close} />;
   else if (openId && fresh.isError) pane = <ErrorState error={fresh.error} busy={fresh.isFetching} onRetry={() => void fresh.refetch()} />;
   else if (openId && fresh.data === null) pane = <EmptyState icon={RiErrorWarningLine}>{t("auth.users.missing")}</EmptyState>;
-  else if (openId) pane = <Loader />;
+  else if (openId) pane = <Skeleton variant="form" />;
   return (
     <SplitView
       list={

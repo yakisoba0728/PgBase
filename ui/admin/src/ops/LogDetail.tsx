@@ -6,7 +6,7 @@ import { RiFilterLine } from "@remixicon/react";
 import { stringify } from "lossless-json";
 import { Button } from "../components/Button";
 import { CodeBlock } from "../components/CodeBlock";
-import { ErrorState, Loader } from "../components/Feedback";
+import { ErrorState, Skeleton } from "../components/Feedback";
 import { useT } from "../i18n";
 import { statusTone } from "./format";
 import { logQuery } from "./queries";
@@ -41,7 +41,7 @@ export function LogDetail({ id, onClose, onFilterRoute }: LogDetailProps) {
       <PaneHeader title={`#${id}`} mono onClose={onClose} />
       <div className="pane-body">
         {query.isPending ? (
-          <Loader />
+          <Skeleton variant="form" />
         ) : query.isError ? (
           <ErrorState error={query.error} onRetry={query.refetch} />
         ) : (
