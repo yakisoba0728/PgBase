@@ -1,15 +1,25 @@
-# pgBase
+# PgBase
 
-pgBase is a PostgreSQL-backed application backend with an embedded administrator UI. It provides schema planning, typed records and relations, authentication and record rules, local/S3 files, realtime events, TypeScript and Dart SDKs, trusted JavaScript extensions, an opt-in SQL console, self-update tooling, and administrator tools for data, logs, jobs, and backups. Current development remains early v0.x with evolving contracts; the initial v0.1.0 release and the current source have different feature sets.
+PgBase is an independent PostgreSQL application backend with an embedded administrator UI. Build applications with typed collections and relations, authentication and action-level authorization, file storage, realtime events, background jobs and programmable extensions—without assembling a separate service for every feature.
 
-PgBase is an independent project inspired by PocketBase. Its PostgreSQL data model, authentication, APIs, and operational contracts guide development. See the [2026-09-22 implementation and next steps](docs/workstreams/independent-product-2026-09-22/README.md); the PocketBase comparison is reference material, not a requirement for identical behavior.
+Start with one application instance and one PostgreSQL database. Run additional PgBase instances for the same project when the workload calls for it. PostgreSQL owns durable application state; transaction, authorization and failure-recovery contracts take priority over compatibility with other backends.
 
-The latest release is [v0.3.1](https://github.com/yakisoba0728/PgBase/releases/tag/v0.3.1); its source is deployed to production with schema 66. Current main requires schema 67, which aligns file metadata field-name limits with the supported schema fields. It also includes SQL view reference validation (including persisted views), authentication-safe migration replay, service-token request-log identities, indexed log/email search, and administrator record-page file metadata. Administrator security writes require `currentPassword`. See [current status](docs/project-status.md), [readiness changes and verification](docs/production-readiness-2026-11-13.md), and [remaining work](docs/next-work.md). Historical implementation and deployment records are retained in those documents.
+**Status:** early v0.x. Interfaces and database contracts may change. The latest published release is [v0.3.1](https://github.com/yakisoba0728/PgBase/releases/tag/v0.3.1), based on schema 66; current source uses schema 67. Source changes, release artifacts and production deployments are separate states. The [independent-platform workstream](docs/workstreams/independent-platform-2026-11-16/README.md) records the current redesign scope and verification gaps. It is not a completed production-readiness certification.
+
+## Capabilities
+
+- **Data:** schema planning, typed records, relations, compound indexes, read-only SQL views, cursor pagination and transactional record operations.
+- **Identity and authorization:** administrator sessions, named user realms, OAuth, MFA, email OTP, service tokens and typed action rules, including supported relation paths.
+- **Files and events:** local or S3 storage, file authorization, image variants, realtime subscriptions and durable background work.
+- **Development:** TypeScript and Dart SDK source, an OpenAPI route manifest, trusted JavaScript extensions, custom routes, CLI tools and an opt-in SQL console.
+- **Administration:** an embedded Korean/English UI for schema, records, users, settings, logs, jobs and configured backup/restore facilities; self-update tooling and observability integrations.
+
+Availability depends on configuration. In particular, SQL console activation is opt-in and managed backups require configuration. SDK source availability does not imply publication to npm or pub.dev.
 
 ## Quick start
 
 1. Copy `deployments/.env.example` to `deployments/.env` and generate all three required secrets as described in [the quickstart](docs/quickstart.md#1-create-the-local-environment-file).
-2. Start PostgreSQL 16.16 and pgBase:
+2. Start PostgreSQL and PgBase:
 
    ```console
    docker compose --env-file deployments/.env -f deployments/docker-compose.yml up -d --build --wait
@@ -17,56 +27,28 @@ The latest release is [v0.3.1](https://github.com/yakisoba0728/PgBase/releases/t
 
 3. Open <http://127.0.0.1:8090/admin>, enter the setup token from `deployments/.env`, and create the first administrator.
 
-The bundled Compose file is a development convenience and sets `PGBASE_AUTO_MIGRATE=true`. Production deployments must apply migrations explicitly before starting or rolling out servers; see [Deployment](docs/deployment.md).
+The bundled Compose stack is for development and sets `PGBASE_AUTO_MIGRATE=true`. Production deployments must apply migrations explicitly before starting or rolling out servers; see [Deployment](docs/deployment.md). Never reuse development secrets in production.
+
+For a local mail inbox and development workflow, use `scripts/dev-local.sh` and [local development](docs/local-development.md).
+
+## Architecture and operating boundaries
+
+One PgBase project owns one PostgreSQL database. Instances for that project must share compatible secrets and configuration, and use an appropriate shared file-storage arrangement. Do not point unrelated projects at one PgBase database.
+
+Use the record APIs or Record Operations kernel for mutations. Direct writes to PgBase-owned PostgreSQL objects bypass revision/ETag, audit, outbox, logical delete actions and relation-locking contracts and are outside the supported mutation boundary.
+
+The v0.x HTTP, administrator, CLI, configuration, database and backup contracts can change without backwards compatibility. The `/api/v1` prefix does not promise v1 stability. Cross-project relations, relation edge attributes, automatic single/multiple relation conversion, online DDL, read-replica routing and sharding are not provided.
+
+Large-scale use must be qualified against a concrete workload, deployment topology and failure model. There is no blanket throughput, production SLO or zero-downtime upgrade guarantee. Functional tests, performance measurements, recovery drills and operational acceptance are separate evidence.
 
 ## Documentation
 
-- [PostgreSQL 기반 백엔드 재설계와 적용 범위](docs/backend-redesign.md)
-- [백엔드 재작성 구현과 통합 검증](docs/backend-rewrite-validation.md)
-- [현재 런타임·백업·플랫폼 검증](docs/runtime-verification.md)
-- [병합된 main 독립 검토와 후속 수정](docs/final-main-review.md)
-- [한국어 지원과 PocketBase 스타일 화면 개선](docs/admin-korean-ui.md)
-- [2026-11-13 새 관리자 UI 병합과 운영 배포](docs/deployment-2026-11-13.md)
-- [2026-11-12 서버 배포 기록](docs/deployment-2026-11-12.md)
-- [PocketBase-inspired administrator UI rebuild and verification](docs/admin-ui-rebuild.md)
-- [Dokploy 배포: Compose, HTTPS, 영구 저장소와 백업](docs/dokploy.md)
-- [Implementation history, current status, and verification evidence](docs/project-status.md)
-- [Next work: priorities, dependencies, and completion criteria](docs/next-work.md)
-- [PocketBase comparison reference (dated evidence)](docs/pocketbase-current-reassessment.md)
-- [Public user management and password changes](docs/user-management.md)
-- [Historical Production Kernel handoff](docs/production-kernel-handoff.md)
-- [Production Kernel tradeoffs and decision triggers](docs/production-kernel-tradeoffs.md)
-- [Codebase audit findings and remediation evidence](docs/codebase-audit-2026-08-28.md)
-- [Round 4-5 codebase audit and remediation evidence](docs/codebase-audit-2026-09-01.md)
-- [Implementation TODO and live work log](TODO.md)
-- [Public user authentication and owner access](docs/user-access.md)
-- [10-minute quickstart](docs/quickstart.md)
-- [Deployment and configuration](docs/deployment.md)
-- [Backup and restore](docs/backup-restore.md)
-- [Upgrades](docs/upgrades.md)
-- [Security policy](SECURITY.md)
-- [Approved Production Kernel design](docs/superpowers/specs/2026-08-28-production-kernel-design.md)
-- [Approved Production Kernel implementation plan](docs/superpowers/plans/2026-08-28-production-kernel.md)
-- [PocketBase reference research and large-scale roadmap](docs/pocketbase-reference-research-2026-08-31.md)
-- [Record Operations atomicity design](docs/superpowers/specs/2026-08-31-record-operations-design.md)
-- [Record Operations implementation plan](docs/superpowers/plans/2026-08-31-record-operations.md)
-- [Relation and schema lifecycle design](docs/superpowers/specs/2026-08-31-relation-schema-lifecycle-design.md)
-- [Relation and schema lifecycle implementation plan](docs/superpowers/plans/2026-08-31-relation-schema-lifecycle.md)
+| Area | References |
+| --- | --- |
+| Getting started | [Quickstart](docs/quickstart.md), [local development](docs/local-development.md), [user access](docs/user-access.md) |
+| Data and architecture | [Backend design](docs/backend-redesign.md), [rewrite verification](docs/backend-rewrite-validation.md), [record operations](docs/superpowers/specs/2026-08-31-record-operations-design.md) |
+| Application development | [User management](docs/user-management.md), [realtime](docs/realtime.md), [extensions and clients](docs/extensions-and-client-scope.md) |
+| Operations | [Deployment](docs/deployment.md), [Dokploy](docs/dokploy.md), [backup/restore](docs/backup-restore.md), [upgrades](docs/upgrades.md), [security policy](SECURITY.md) |
+| Evidence and work | [Current workstream](docs/workstreams/independent-platform-2026-11-16/README.md), [implementation history](docs/project-status.md), [runtime verification](docs/runtime-verification.md), [remaining work](docs/next-work.md) |
 
-## Scope and stability
-
-One pgBase project owns one PostgreSQL database. Multiple pgBase instances for that same project may share that database and must share configuration secrets. Do not point unrelated projects at one pgBase database.
-
-The v0.x HTTP, administrator, command-line, configuration, database, and backup contracts may change without backwards compatibility. The `/api/v1` path is not a promise of v1 stability during v0.x.
-
-Public access uses collection opt-in and typed action rules, including authorization through supported relation paths. Named auth realms, OAuth/MFA/email OTP, files, realtime, TypeScript clients, an OpenAPI route manifest, data-preserving field rename, compound indexes, and read-only SQL views are implemented. PocketBase wire formats, filter syntax, SDKs, and extension APIs are not drop-in compatible.
-
-Relation mutations use the record API/Record Operations kernel. Direct writes to pgBase-owned PostgreSQL objects can bypass ETag/revision, audit, outbox, logical delete actions, and relation locking and are outside that mutation contract. Cross-project relations, relation edge attributes, automatic single/multiple relation conversion, online DDL, read-replica routing, and sharding are not provided. JSVM, the Dart SDK, SQL console and self-update are implemented; SQL console activation remains opt-in. There is no throughput, production SLO, or zero-downtime upgrade guarantee.
-
-## Local development features
-
-The administrator UI, schema and record services, TypeScript/Dart clients, authentication settings, mail templates, file storage, jobs, backup/restore and extension APIs are implemented. Source, production deployment and tagged image releases are tracked separately in [project status](docs/project-status.md). Production backup configuration is intentionally deferred at the owner's request on 2026-11-13.
-
-Start PostgreSQL, PgBase and the local mail inbox with `scripts/dev-local.sh`. See [local development](docs/local-development.md), [local verification](docs/local-verification.md), [realtime](docs/realtime.md), and [extension/client scope](docs/extensions-and-client-scope.md).
-
-현재 상태는 [구현 이력](docs/project-status.md), [후속 작업](docs/next-work.md), [PocketBase 재평가](docs/pocketbase-current-reassessment.md)를 참고하세요. 과거 실행별 수치는 [로컬 검증 기록](docs/local-verification.md)에 보존합니다.
+Historical research and deployment records are retained as dated evidence, not as the current product definition or a guarantee of compatibility. Required third-party copyright and license notices remain applicable.
