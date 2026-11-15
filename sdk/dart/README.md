@@ -18,6 +18,30 @@ Mutating admin helpers retain the login cookie and CSRF token. A restore starts
 the server's native restore job and does not invent an approval or idempotency
 contract; inspect it with `backupJob`.
 
+## User session lifetime
+
+User JSON, record, batch, file-upload and download operations belong to the
+`AuthStore` generation in which they started, including when clients share a
+store. Replacing, restoring, importing or clearing auth state, or successfully
+refreshing a token, makes a pending older success/HTTP/transport result reject
+with `PgBaseError(403, 'session_changed')`. File hashing belongs to the same
+scope: a prepared file cannot start its upload using a replacement user's token.
+Existing Realtime streams already stop on auth changes.
+
+Current login/refresh operations still adopt their own guarded response, and
+refresh-before-logout still revokes the rotated token. A stale login/refresh now
+rejects instead of returning an unadopted session, and preserves an explicit
+newer login. Refresh also invalidates concurrent old-generation reads when the
+user is unchanged. Use separate stores for deliberately independent identities.
+
+Migration: discard `session_changed`, clear session-specific caches, and issue a
+fresh read when appropriate. Never automatically retry a write: it may already
+have committed under the original identity. The guard does not cancel remote
+work, revoke previously issued download URIs, or cover caller-owned direct
+`transport` requests.
+
+## Administrator session lifetime
+
 Administrator requests, including backup uploads/downloads, are bound to their
 client's local session generation through complete response-body collection.
 After a new login/resume, logout, or current-session 401 invalidates that

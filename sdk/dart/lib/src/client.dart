@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'auth.dart';
+import 'auth_scope.dart';
 import 'errors.dart';
 import 'exact_json.dart';
 import 'files.dart';
@@ -519,6 +520,7 @@ final class PgBaseClient {
     String? requestKey,
     bool autoCancel = true,
   }) async {
+    final scope = AuthScope(auth);
     final effectiveCancellation = _requestCancellation(
       method,
       path,
@@ -528,13 +530,15 @@ final class PgBaseClient {
       autoCancel,
     );
     try {
-      final response = await transport.json(
-        method,
-        path,
-        headers: headersFor(headers),
-        body: body,
-        query: query,
-        cancellation: effectiveCancellation.token,
+      final response = await scope.run(
+        () => transport.json(
+          method,
+          path,
+          headers: headersFor(headers),
+          body: body,
+          query: query,
+          cancellation: effectiveCancellation.token,
+        ),
       );
       if (response.status < 200 || response.status >= 300)
         throw pgBaseError(response);
@@ -591,6 +595,7 @@ final class PgBaseClient {
     String? requestKey,
     bool autoCancel = true,
   }) async {
+    final scope = AuthScope(auth);
     final effective = _requestCancellation(
       method,
       path,
@@ -600,13 +605,15 @@ final class PgBaseClient {
       autoCancel,
     );
     try {
-      final response = await transport.json(
-        method,
-        path,
-        headers: headersFor(headers),
-        body: body,
-        query: query,
-        cancellation: effective.token,
+      final response = await scope.run(
+        () => transport.json(
+          method,
+          path,
+          headers: headersFor(headers),
+          body: body,
+          query: query,
+          cancellation: effective.token,
+        ),
       );
       if (response.status < 200 || response.status >= 300)
         throw pgBaseError(response);
@@ -626,13 +633,15 @@ final class PgBaseClient {
   }) async {
     if (files.keys.any((key) => key.isEmpty || key == 'requests'))
       throw const PgBaseProtocolError('invalid_batch_file');
-    final response = await transport.multipart(
-      'POST',
-      '/api/v1/user/collections/batch',
-      fields: {'requests': utf8.decode(encodeExactJson(requests))},
-      files: files,
-      headers: headersFor(null),
-      cancellation: cancellation,
+    final response = await AuthScope(auth).run(
+      () => transport.multipart(
+        'POST',
+        '/api/v1/user/collections/batch',
+        fields: {'requests': utf8.decode(encodeExactJson(requests))},
+        files: files,
+        headers: headersFor(null),
+        cancellation: cancellation,
+      ),
     );
     if (response.status < 200 || response.status >= 300)
       throw pgBaseError(response);

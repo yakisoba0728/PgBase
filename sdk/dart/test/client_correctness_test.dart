@@ -64,9 +64,19 @@ void main() {
           auth: AuthStore(initialToken: 'old-login'),
         );
         final pending = operation(client);
+        final settled = changed
+            ? expectLater(
+                pending,
+                throwsA(
+                  isA<PgBaseError>()
+                      .having((error) => error.status, 'status', 403)
+                      .having((error) => error.code, 'code', 'session_changed'),
+                ),
+              )
+            : pending;
         if (changed) await client.auth.save('new-login');
         transport.calls.single.complete();
-        await pending;
+        await settled;
         expect(client.auth.token, changed ? 'new-login' : isNull);
       }
     }

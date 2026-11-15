@@ -5,6 +5,7 @@ import 'package:convert/convert.dart';
 import 'package:crypto/crypto.dart';
 
 import 'client.dart';
+import 'auth_scope.dart';
 import 'errors.dart';
 import 'exact_json.dart';
 import 'transport.dart';
@@ -62,17 +63,20 @@ final class Files {
   }) async {
     if (source.length < 0 || source.filename.isEmpty)
       throw const PgBaseProtocolError('invalid_file_input');
-    final digest = await _sha256(source, cancellation);
-    final response = await _client.transport.multipart(
-      'POST',
-      '$_base/${Uri.encodeComponent(field)}',
-      fields: const {},
-      files: {'file': source},
-      headers: _client.headersFor({
-        'x-pgbase-file-size': '${source.length}',
-        'x-pgbase-file-sha256': digest,
-      }),
-      cancellation: cancellation,
+    final scope = AuthScope(_client.auth);
+    final digest = await scope.run(() => _sha256(source, cancellation));
+    final response = await scope.run(
+      () => _client.transport.multipart(
+        'POST',
+        '$_base/${Uri.encodeComponent(field)}',
+        fields: const {},
+        files: {'file': source},
+        headers: _client.headersFor({
+          'x-pgbase-file-size': '${source.length}',
+          'x-pgbase-file-sha256': digest,
+        }),
+        cancellation: cancellation,
+      ),
     );
     if (response.status < 200 || response.status >= 300)
       throw pgBaseError(response);
@@ -116,11 +120,13 @@ final class Files {
     String variant = 'original',
     CancellationToken? cancellation,
   }) async {
-    final response = await _client.transport.download(
-      '/api/v1/user/files/${Uri.encodeComponent(fileId)}',
-      query: {'token': token, if (variant != 'original') 'variant': variant},
-      headers: _client.headersFor(null),
-      cancellation: cancellation,
+    final response = await AuthScope(_client.auth).run(
+      () => _client.transport.download(
+        '/api/v1/user/files/${Uri.encodeComponent(fileId)}',
+        query: {'token': token, if (variant != 'original') 'variant': variant},
+        headers: _client.headersFor(null),
+        cancellation: cancellation,
+      ),
     );
     if (response.status < 200 || response.status >= 300)
       throw pgBaseError(response);
