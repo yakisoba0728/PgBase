@@ -34,22 +34,62 @@ func compressionMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// acceptsGzip follows RFC 9110 section 12.5.3: an explicit coding takes
+// precedence over '*' across the entire field, not just the first matching
+// member. Conflicting duplicate members are resolved conservatively: a
+// refusal or malformed weight is never turned into consent by list order.
 func acceptsGzip(values []string) bool {
+	type preference struct{ listed, allowed bool }
+	var explicit, wildcard preference
 	for _, value := range values {
 		for _, part := range strings.Split(value, ",") {
-			coding, params, _ := strings.Cut(strings.TrimSpace(part), ";")
-			if coding = strings.TrimSpace(coding); !strings.EqualFold(coding, "gzip") && coding != "*" {
+			coding, params, weighted := strings.Cut(strings.TrimSpace(part), ";")
+			var target *preference
+			switch coding = strings.TrimSpace(coding); {
+			case strings.EqualFold(coding, "gzip"):
+				target = &explicit
+			case coding == "*":
+				target = &wildcard
+			default:
 				continue
 			}
-			if name, q, found := strings.Cut(strings.TrimSpace(params), "="); found && strings.EqualFold(strings.TrimSpace(name), "q") {
-				if weight, err := strconv.ParseFloat(strings.TrimSpace(q), 64); err != nil || weight == 0 {
-					return false
-				}
+			allowed := !weighted || positiveEncodingQuality(params)
+			if target.listed {
+				target.allowed = target.allowed && allowed
+			} else {
+				target.listed, target.allowed = true, allowed
 			}
-			return true
 		}
 	}
-	return false
+	if explicit.listed {
+		return explicit.allowed
+	}
+	return wildcard.listed && wildcard.allowed
+}
+
+// positiveEncodingQuality accepts only the qvalue grammar in RFC 9110
+// section 12.4.2. General floating-point parsing also accepts negative values,
+// infinities, NaN and exponents, none of which express a valid preference.
+func positiveEncodingQuality(params string) bool {
+	name, value, ok := strings.Cut(strings.TrimSpace(params), "=")
+	if !ok || !strings.EqualFold(strings.TrimSpace(name), "q") {
+		return false
+	}
+	value = strings.TrimSpace(value)
+	if len(value) == 0 || (value[0] != '0' && value[0] != '1') {
+		return false
+	}
+	if len(value) > 1 && (value[1] != '.' || len(value) > 5) {
+		return false
+	}
+	positive := value[0] == '1'
+	for i := 2; i < len(value); i++ {
+		if value[i] < '0' || value[i] > '9' || (value[0] == '1' && value[i] != '0') {
+			return false
+		}
+		positive = positive || value[i] != '0'
+	}
+	return positive
 }
 
 func compressibleType(contentType string) bool {
