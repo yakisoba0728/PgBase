@@ -5,7 +5,9 @@ const routes = new Map([
   ["/", [new URL("./index.html", import.meta.url), "text/html"]],
   ["/app.js", [new URL("./app.js", import.meta.url), "text/javascript"]],
 ]);
-for (const module of ["admin", "auth-store", "index", "realtime", "response", "sse", "state-storage", "types"])
+// Keep a closed allowlist: only the browser SDK's built runtime modules are
+// exposed. server.test.mjs traverses imports to detect missing dependencies.
+for (const module of ["admin", "auth-cookie", "auth-store", "index", "realtime", "response", "sse", "state-storage", "types"])
   routes.set(`/sdk/${module}.js`, [new URL(`../../sdk/typescript/dist/${module}.js`, import.meta.url), "text/javascript"]);
 const server = createServer(async (request, response) => {
   const route = routes.get(request.url);
