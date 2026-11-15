@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
 // BenchmarkConcurrentRecordReads is a bounded, closed-loop query-service
@@ -61,14 +62,25 @@ func BenchmarkConcurrentRecordReads(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+	// Direct synthetic inserts bypass Record Operations. Rebuild their cursor
+	// sidecars with the existing fixture helper before measuring native reads.
+	// Never use this helper as an application or production import path.
+	testutil.RetireRecordMembershipV4(b, ctx, records.pool)
 	var actual int
 	if err := records.pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&actual); err != nil || actual != rows {
 		b.Fatalf("fixture rows=%d want=%d err=%v", actual, rows, err)
+	}
+	var ordinals int
+	if err := records.pool.QueryRow(ctx, "SELECT count(*) FROM pgbase_meta.record_creation_ordinals WHERE collection_id=$1", collection.ID).Scan(&ordinals); err != nil || ordinals != rows {
+		b.Fatalf("fixture cursor ordinals=%d want=%d err=%v", ordinals, rows, err)
 	}
 	if _, err := records.pool.Exec(ctx, "ANALYZE "+table); err != nil {
 		b.Fatal(err)
 	}
 	base := ListRequest{Principal: testReadPrincipal, Collection: "benchmark_records", Limit: 50}
+	if count, err := records.Count(ctx, base); err != nil || count != int64(rows) {
+		b.Fatalf("native visible rows=%d want=%d err=%v", count, rows, err)
+	}
 	deep := base
 	// Walk at most ten thousand rows and no more than half a small fixture,
 	// using native cursors rather than an offset adapter.
