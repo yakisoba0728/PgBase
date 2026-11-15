@@ -24,6 +24,7 @@ import (
 // workload, not an HTTP or production-capacity claim. Fixtures live in a new
 // disposable database and use direct SQL only for synthetic seed generation.
 // Run with -benchtime=1000x or more for useful tail-latency samples.
+// Add PGBASE_BENCH_EXPLAIN=1 and -v to print native SQL execution plans.
 func BenchmarkConcurrentRecordReads(b *testing.B) {
 	rows := 100_000
 	if raw := os.Getenv("PGBASE_BENCH_ROWS"); raw != "" {
@@ -105,6 +106,10 @@ func BenchmarkConcurrentRecordReads(b *testing.B) {
 	}
 	filtered := base
 	filtered.Filter = "priority = 42"
+	if os.Getenv("PGBASE_BENCH_EXPLAIN") == "1" {
+		benchmarkReadPlan(b, records, base, "list_50")
+		benchmarkReadPlan(b, records, filtered, "filtered_50")
+	}
 	workloads := []struct {
 		name string
 		run  func(context.Context) error
@@ -155,12 +160,17 @@ func BenchmarkConcurrentRecordReads(b *testing.B) {
 					}()
 				}
 				b.ReportAllocs()
+				poolBefore := records.pool.Stats()
+				var memoryBefore, memoryAfter runtime.MemStats
+				runtime.ReadMemStats(&memoryBefore)
 				b.StartTimer()
 				began := time.Now()
 				close(start)
 				workers.Wait()
 				elapsed := time.Since(began)
 				b.StopTimer()
+				poolAfter := records.pool.Stats()
+				runtime.ReadMemStats(&memoryAfter)
 				close(failures)
 				for err := range failures {
 					b.Errorf("request failed: %v", err)
@@ -175,7 +185,60 @@ func BenchmarkConcurrentRecordReads(b *testing.B) {
 				}
 				b.ReportMetric(float64(b.N)/elapsed.Seconds(), "queries/s")
 				b.ReportMetric(0, "errors")
+				b.ReportMetric(float64(poolAfter.EmptyAcquireCount-poolBefore.EmptyAcquireCount)/float64(b.N), "pool-waits/op")
+				b.ReportMetric(float64(poolAfter.EmptyAcquireWaitTime-poolBefore.EmptyAcquireWaitTime)/float64(b.N), "pool-wait-ns/op")
+				b.ReportMetric(float64(poolAfter.CanceledAcquireCount-poolBefore.CanceledAcquireCount), "pool-canceled")
+				b.ReportMetric(float64(memoryAfter.NumGC-memoryBefore.NumGC), "gc-cycles")
+				b.ReportMetric(float64(memoryAfter.PauseTotalNs-memoryBefore.PauseTotalNs)/float64(time.Millisecond), "gc-pause-ms")
 			})
 		}
+	}
+}
+
+// Explain the actual first-page statement, including native membership and
+// authorization bindings, outside the timed workload. This is opt-in because
+// ANALYZE executes the query and warms PostgreSQL's caches.
+func benchmarkReadPlan(b *testing.B, records *Service, request ListRequest, name string) {
+	b.Helper()
+	ctx := context.Background()
+	err := records.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+		catalog, err := records.schemas.EnsureCurrent(ctx, tx)
+		if err != nil {
+			return err
+		}
+		collection := catalog.Collections[request.Collection]
+		filter, err := parseListFilter(request)
+		if err != nil {
+			return err
+		}
+		sort, err := parseSort(request.Sort)
+		if err != nil {
+			return err
+		}
+		plan, err := records.planNativeRead(ctx, tx, catalog, collection, request, filter, sort)
+		if err != nil {
+			return err
+		}
+		traversal, err := records.resolveReadTraversal(ctx, tx, collection)
+		if err != nil {
+			return err
+		}
+		descriptor, err := records.newCursorV5Descriptor(plan, traversal)
+		if err != nil {
+			return err
+		}
+		statement, err := plan.pageStatement(&pageBoundary{membership: &descriptor.HighWater, membershipOnly: true}, normalizedFetchLimit(request.Limit), 0)
+		if err != nil {
+			return err
+		}
+		var explain []byte
+		if err := tx.QueryRow(ctx, "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+statement.SQL, statement.Args...).Scan(&explain); err != nil {
+			return err
+		}
+		b.Logf("explain workload=%s plan=%s", name, explain)
+		return nil
+	})
+	if err != nil {
+		b.Fatalf("explain %s: %v", name, err)
 	}
 }
