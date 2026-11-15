@@ -412,3 +412,48 @@ UI를 다시 만들며 서버 응답과 코드에서 관찰한 사항이다. `fr
 - **검증**: `npm run typecheck`, `npm test`(72파일/386 tests), 깨끗한 build, `go test ./ui/admin/ ./internal/repositorypolicy/`, 로컬 backend 대상 browser suite 23 통과·1 opt-in skip. 첫 browser 실행에서 고정 id 열이 옆 셀 클릭을 가리는 회귀 1건을 찾아 고쳤다. 20개 route를 1440·900·600px에서 넘침 검사했다. PR 필수 CI 5개 통과. 운영 배포 `done`, 운영 `/admin/` 진입 JS·CSS가 병합된 dist와 SHA-256까지 일치.
 - **검증하지 않은 것**: 운영 로그인 후 화면, 새 컬렉션 화면과 600px 다크의 browser 확인.
 - **넣지 않은 것**: 삭제된 행 접힘, 숫자 rolling, skeleton→내용 교차 페이드, 토스트 swipe, 화면 안쪽 `Tabs` 슬라이드.
+
+## 14. 2026-11-15 로딩·토스트 통일과 조회 최적화(`ui-loading-toast`)
+
+기록일: 2026-11-15 KST. 소유자가 스켈레톤과 로딩 중 끊김, 토스트 통일(중앙 하단), 그리고 검색·불러오기가 전반적으로 느리다는 점을 지적했다. [PR #146](https://github.com/yakisoba0728/PgBase/pull/146)을 squash 병합했다(main `cd244c33`). `ui/admin`과 `internal/query`, `internal/api`가 바뀌었고 schema는 67 그대로다.
+
+### 측정한 것
+
+- **운영 요청 지연**: 서버 안에서는 `/health/live`가 1ms 미만인데, 한국에서 운영 주소로는 연결이 열린 상태에서 0.47~0.49초, 첫 연결은 1.4초 이상이었다. Cloudflare가 한국 접속을 LAX 지점으로 받고 서버 쪽은 HKG 지점이 잡힌다. 요청 하나의 지연은 코드로 줄일 수 없어 요청 횟수를 줄이는 쪽으로 대응했다.
+- **대량 데이터(일회용 PostgreSQL 17, 50만 행)**: 기본 첫 페이지 약 20ms, cursor 깊은 페이지 17~26ms, 로그·사용자 검색 1ms 미만으로 문제없었다. 느린 것은 레코드 텍스트 검색 1.3초(페이지 650ms + count 650ms)와 요청당 DB 왕복 수(레코드 첫 화면 약 19, 다중 관계 필드가 있으면 약 41)였다.
+
+### 바뀐 것
+
+- **토스트**: guest 화면·앱·modal 안 모두 화면 하단 중앙. `success`·`info`·`danger` 세 tone과 아이콘, 3줄까지 줄바꿈. `toast()`의 기본 tone이 `success`가 됐다. 문구를 "…을 저장했습니다" / "…하지 못했습니다" 형태로 맞추고 중복 i18n key를 합쳤다.
+- **로딩**: `useHeld`와 `QueryView`가 같은 대상을 다시 불러올 때 이전 내용을 흐리게 유지하고 진행 줄을 보인다(key 변경·reset·새로 고침 모두). 대상이 바뀌면 이전 내용을 버린다. `MigrationView`의 `keepPreviousData`가 다른 이전 작업의 상태를 보여 주던 결함도 이것으로 고쳤다. 스켈레톤은 150ms 뒤에 나타나고 실제 화면 크기에 맞췄다(`sections`·`facts`·`pane` variant 추가). 화면 chunk는 nav hover/focus와 idle에 미리 받는다(`app/screens.ts`).
+- **요청 횟수**: cache 정책을 `app/queries.ts` 한 곳에 뒀다(목록 30초, catalog 5분, 모든 쓰기 뒤 `markStale`). cold load는 session·catalog·chunk가 동시에 출발한다(`app/prefetch.ts`). `files=true`는 file 필드가 있는 컬렉션에서만 보낸다. 레코드 수정 응답을 필터·정렬 없는 목록에 제자리 반영한다. 썸네일 token은 만료 30초 전까지 재사용한다.
+- **조회**: 첫 페이지에 결과가 다 들어오면 total count를 생략한다(`offset + len(items)`, 같은 snapshot). 목록 total의 `COUNT(DISTINCT id)`는 relation 정렬 join이 없으면 `DISTINCT`를 뺐다. hydration은 16행 probe 뒤 byte 예산 안에서 나머지를 한 번에 가져온다(다중 관계 200행: root·hydration 26개 이상 → read kernel 5개). 리터럴이 오른쪽인 `~`/`!~`는 `col [NOT] LIKE $n ESCAPE '\'`로 컴파일한다.
+- **응답 압축**: `internal/api/compression.go`. JSON·text·JS·SVG, 1KB 이상, gzip 수용 client만. HEAD, Range/206, 204/304, `Content-Encoding`·`Content-Disposition`이 있는 응답, `text/event-stream`은 건드리지 않는다. ETag는 바꾸지 않는다.
+
+### 사용자가 알아야 할 동작 변화
+
+- 다른 탭이나 다른 client가 바꾼 내용은 목록 최대 30초, 컬렉션 catalog 최대 5분 늦게 보일 수 있다. 새로 고침 버튼은 즉시 다시 받고, 없는 컬렉션 이름은 "없음"을 보이기 전에 catalog를 한 번 더 받는다.
+- PocketBase 호환 목록은 이제 페이지를 먼저 읽고 필요할 때만 count한다. 첫 페이지에서 count 오류보다 읽기 오류가 먼저 나올 수 있다.
+- 압축 대상 응답에는 `Vary: Accept-Encoding`이 붙는다(wire golden 2개 갱신).
+
+### 검증한 것과 방법
+
+- UI unit 74파일/403 tests, 깨끗한 build와 dist 일치, `go test ./...`, 로컬 backend 대상 browser suite 23 통과·1 opt-in skip.
+- 요청마다 500ms 지연을 건 Playwright 캡처로 성공 토스트, 필터 변경, 로그 새로 고침, 컬렉션 전환을 확인했다.
+- 로컬 통합 suite는 query·api·recordops·filestore가 통과했고, backup·복원 테스트는 로컬에 `pg_dump`가 없어 실패, S3 테스트는 skip됐다. PR의 필수 CI 5개(PostgreSQL integration 17.9 포함)는 통과했다.
+- 운영 배포 `done`, 운영 `/admin/` 진입 자산 7개가 병합된 dist와 SHA-256까지 일치, `/health/ready` 200.
+
+### 검증하지 않은 것
+
+- 운영 로그인 후 화면, 운영 응답의 gzip 적용(1KB 미만 응답으로만 확인), 배포 전 서버 dump.
+- danger 토스트, pane·대화상자 위 토스트, 모바일 토스트의 실제 모습. onboarding browser suite.
+- 스켈레톤과 실제 화면의 pixel 단위 일치(CSS 계산으로만 맞춤).
+
+### 하지 않은 것과 남은 결정
+
+- **Cloudflare 경로**: proxy를 끄고 DNS만 쓰거나, 유료 plan 또는 서버 이전. 운영 설정이라 소유자 결정. 고치기 전에는 요청 하나가 약 0.5초다.
+- **컬렉션 텍스트 필드 trigram index**: `LIKE` 컴파일로 index가 쓰일 수 있게만 했고 index는 없다. 대량 검색은 아직 빨라지지 않았다. migration, 쓰기 비용, disk(50만 행 기준 필드당 50~100MB)가 따른다. generic plan에서 index 사용 여부는 측정 두 건의 결과가 달라 index를 넣을 때 다시 확인한다.
+- **schema 고정의 `FOR SHARE`**: 읽기 transaction마다 XID와 WAL을 만든다. advisory lock으로 바꾸는 것은 설계 결정이 필요해 손대지 않았다.
+- **PocketBase 호환 offset 목록의 전체 count**, **썸네일 token 일괄 발급 endpoint**, **`files=true`의 서버 쪽 단축**(결과가 달라질 수 있어 UI 쪽만 처리).
+- **UI 배치**: 손보지 않았다. 후보는 모바일에서 저장 버튼 줄의 줄바꿈, session 확인 전 boot 스켈레톤이 shell 모양이 아닌 것.
+

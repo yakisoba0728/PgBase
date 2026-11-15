@@ -18,6 +18,10 @@ main `47e8d852`(schema 67)에서 분기해 `ui/admin`만 바꿨다. 서버 API·
 - [x] 검증: UI unit 71파일/381 tests, 깨끗한 build와 dist 일치, 로컬 backend 대상 browser suite 23 통과·1 opt-in skip(시나리오 6개 추가), onboarding 1 통과, PR 필수 CI 5개 통과.
 - [x] main 병합과 운영 배포: 배포 `done`, 운영 `/admin/` 진입 JS·CSS가 병합된 dist와 SHA-256까지 일치.
 - [x] 후속 [PR #144](https://github.com/yakisoba0728/PgBase/pull/144)(main `5cb9ea0d`): 글자·컨트롤 크기를 PocketBase v0.40.6 수준으로 확대(본문 13/20→14/22px, 컨트롤 36/30→40/34px, 표 행 40→48px, nav 항목 30→38px), 가상화 표가 행 크기를 토큰에서 읽도록 변경, 모션 시간·곡선 재조정과 화면 전환·행 순차 등장·필드 재배치 전환 추가. unit 72파일/386, browser 23 통과, 필수 CI 5개 통과, 운영 배포 `done`과 자산 SHA-256 일치.
+- [x] 후속 [PR #146](https://github.com/yakisoba0728/PgBase/pull/146)(main `cd244c33`): 토스트를 하단 중앙·3 tone으로 통일, 재조회 시 스켈레톤 대신 이전 내용 유지, cache 정책·prefetch로 요청 횟수 축소, 목록 count 생략·hydration 배치·`~`의 `LIKE` 컴파일·gzip 응답. unit 74파일/403, browser 23 통과, 필수 CI 5개 통과, 운영 배포 `done`과 자산 SHA-256 일치.
+- [ ] 운영 요청 지연: 한국 접속이 Cloudflare LAX를 거쳐 요청당 약 0.5초. 경로 변경은 소유자 결정.
+- [ ] 대량 텍스트 검색용 trigram index, schema 고정 `FOR SHARE` 대체, 썸네일 token 일괄 발급: 설계 결정 필요.
+- [ ] UI 배치 손보기(모바일 저장 버튼 줄, boot 스켈레톤)는 이번에 하지 않았다.
 - [ ] 운영 사후 점검 중 생략한 것: 배포 전 서버 dump, 서버 `doctor`·binary 일치 job, 로그인 후 화면 확인.
 - [ ] browser에서 보지 못한 화면: 초기 setup, login OTP 단계, 다크 테마·좁은 폭의 일부 화면.
 - [ ] 릴리스 tag: v0.3.1 이후 main에만 있는 변경(백엔드 재작성·schema 67·이번 UI)이 tag 없이 쌓여 있다. 소유자 결정.
