@@ -38,6 +38,8 @@
   align-items: center;
   gap: var(--sp-4) var(--sp-12);
   margin: var(--space-sm) var(--space-sm) 0;
+  /* Its line is kept while the settings load (BackupSchedule renders it empty), so the list never drops under it. */
+  min-height: var(--line-height);
   font-size: var(--font-size-sm);
 }
 

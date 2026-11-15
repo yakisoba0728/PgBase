@@ -34,7 +34,7 @@ export function PolicyTab({ collection, administration, children }: { collection
       // The server normalises some values (e.g. identity field spacing); start again from what it stored.
       form.patch(policyDraft(policy, draft.registrationEnabled));
       await queryClient.invalidateQueries({ queryKey: ["auth", "collections"] });
-      toast(t("auth.savedToast"));
+      toast(t("common.savedToast"));
     },
     onError: (failure) => reportFailure(t, failure),
   });

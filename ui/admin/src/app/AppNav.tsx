@@ -1,5 +1,5 @@
-import { useRef, type KeyboardEvent, type MouseEvent } from "react";
-import { Link } from "react-router";
+import { useRef, type KeyboardEvent, type MouseEvent, type SyntheticEvent } from "react";
+import { Link, useHref } from "react-router";
 import { RiPuzzle2Line, RiSearchLine, RiSidebarFoldLine, RiSidebarUnfoldLine } from "@remixicon/react";
 import { keyLabel } from "./keys";
 import { CollectionNav } from "../collections/CollectionNav";
@@ -11,6 +11,7 @@ import { useExtensionScreens } from "./extensions";
 import { AccountMenu, LanguageMenu, ThemeMenu } from "./menus";
 import { navGroups } from "./navigation";
 import { RunningFeed } from "./RunningFeed";
+import { navTarget, warmPath } from "./prefetch";
 import { setDrawer, setPalette, toggleRail, useRail } from "./shell";
 
 /** The single navigation column: wordmark, Data / Auth / Operations / System, then account controls. */
@@ -25,11 +26,17 @@ export function AppNav() {
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") setDrawer(false);
   };
+  // A link about to be followed starts loading its screen and first list, so the visit rarely waits on either.
+  const base = useHref("/").replace(/\/$/, "");
+  const warm = (event: SyntheticEvent) => {
+    const link = (event.target as HTMLElement).closest("a");
+    if (link?.pathname.startsWith(base)) warmPath(navTarget(link.pathname.slice(base.length)), link.search);
+  };
   // The current item's highlight glides between items (layout.css).
   const scroll = useRef<HTMLDivElement>(null);
   useTabIndicator(scroll, true, "y");
   return (
-    <aside className="nav" aria-label={t("nav.main")} onClick={onClick} onKeyDown={onKeyDown}>
+    <aside className="nav" aria-label={t("nav.main")} onClick={onClick} onKeyDown={onKeyDown} onPointerOver={warm} onFocus={warm}>
       <div className="nav-top">
         <Link to="/" className="wordmark">
           <b>Pg</b>Base

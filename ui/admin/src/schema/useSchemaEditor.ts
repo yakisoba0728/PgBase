@@ -11,7 +11,7 @@ import { isWatched, operations, trackOperation, untrackOperation, useOperations,
 import { errorText } from "../app/queries";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { collectionsQuery } from "../collections/queries";
+import { catalogChanged, collectionsQuery } from "../collections/queries";
 import { drafts, dropDraft, isDirty } from "./drafts";
 import { applyCollection, applyImport, newIdentity, Undecided } from "./apply";
 import {
@@ -183,7 +183,7 @@ export function useSchemaEditor({ collection, type, catalog, scaffolds, basePath
     },
     onSuccess: async (name) => {
       finished.current = true;
-      await queryClient.invalidateQueries({ queryKey: ["collections"] });
+      await catalogChanged(queryClient);
       // Cached records carry the old fields; a long list would otherwise skip its refetch on mount.
       await queryClient.resetQueries({ queryKey: ["records", name] });
       toast(t("schema.applied"));

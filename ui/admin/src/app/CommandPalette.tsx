@@ -31,6 +31,7 @@ import { collectionPath, useRecentCollections } from "./recent";
 import { setHelp, setPalette, useHelp, usePalette } from "./shell";
 import { useSignOut } from "./signout";
 import { errorText } from "./queries";
+import { useDebounced } from "./search";
 import { setTheme, themeModes } from "./theme";
 
 const languageNames = { ko: "한국어", en: "English" };
@@ -98,11 +99,7 @@ function useUserItems(query: string) {
   const navigate = useNavigate();
   const collections = useQuery(collectionsQuery).data;
   const text = query.trim();
-  const [debounced, setDebounced] = useState(text);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(text), 250);
-    return () => clearTimeout(timer);
-  }, [text]);
+  const debounced = useDebounced(text);
   const enabled = debounced.length >= 2 && debounced === text;
   // A changed query cancels the request in flight (the signal), and results never outlive their query.
   const users = useQuery({ queryKey: ["palette", "users", debounced], queryFn: ({ signal }) => listUsers({ q: debounced, limit: 5, signal }), enabled, staleTime: 30_000, retry: false });

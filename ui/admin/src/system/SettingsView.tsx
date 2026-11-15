@@ -26,7 +26,7 @@ const hints = new Set(["batch.maxBodyBytes", "backups.schedule", "backups.timezo
 export function SettingsView() {
   const query = useQuery({ ...settingsQuery, refetchOnReconnect: false });
   // A new revision (save, reload, refresh) starts a fresh draft.
-  return <QueryView query={query} skeleton="form">{(settings) => <SettingsForm key={settings.revision} settings={settings} />}</QueryView>;
+  return <QueryView query={query} skeleton="sections">{(settings) => <SettingsForm key={settings.revision} settings={settings} />}</QueryView>;
 }
 
 function SettingsForm({ settings }: { settings: RuntimeSettings }) {

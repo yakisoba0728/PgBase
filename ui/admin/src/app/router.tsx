@@ -1,4 +1,3 @@
-import { lazy, type ComponentType } from "react";
 import { createBrowserRouter, Navigate, type RouterNavigateOptions, type To } from "react-router";
 import { LoginScreen } from "../guest/LoginScreen";
 import { ResetPasswordScreen } from "../guest/ResetPasswordScreen";
@@ -7,28 +6,27 @@ import { NotFoundPage } from "../pages/NotFoundPage";
 import { AppShell } from "./AppShell";
 import { ExtensionScreenPage } from "./extensions";
 import { RequireAuth } from "./guard";
+import { screen } from "./screens";
 import { markTransition, navigationTransition, routeTransition } from "./transitions";
 
-// Each screen is its own chunk, loaded on first visit; the shell's Suspense shows the loader meanwhile.
-const page = <M,>(load: () => Promise<M>, name: keyof M) => lazy(() => load().then((module) => ({ default: module[name] as ComponentType })));
-
-const CollectionPage = page(() => import("../pages/CollectionPage"), "CollectionPage");
-const CollectionsIndexPage = page(() => import("../pages/CollectionPage"), "CollectionsIndexPage");
-const NewCollectionPage = page(() => import("../pages/NewCollectionPage"), "NewCollectionPage");
-const LogsPage = page(() => import("../pages/LogsPage"), "LogsPage");
-const JobsPage = page(() => import("../pages/JobsPage"), "JobsPage");
-const RealtimePage = page(() => import("../pages/RealtimePage"), "RealtimePage");
-const AuthCollectionsPage = page(() => import("../pages/AuthCollectionsPage"), "AuthCollectionsPage");
-const AuthUsersPage = page(() => import("../pages/AuthUsersPage"), "AuthUsersPage");
-const BackupsPage = page(() => import("../pages/BackupsPage"), "BackupsPage");
-const StoragePage = page(() => import("../pages/StoragePage"), "StoragePage");
-const SettingsPage = page(() => import("../pages/SettingsPage"), "SettingsPage");
-const ServiceTokensPage = page(() => import("../pages/ServiceTokensPage"), "ServiceTokensPage");
-const AdministratorsPage = page(() => import("../pages/AdministratorsPage"), "AdministratorsPage");
-const ProfilePage = page(() => import("../pages/ProfilePage"), "ProfilePage");
-const SchemaTransferPage = page(() => import("../pages/SchemaTransferPage"), "SchemaTransferPage");
-const SchemaOperationsPage = page(() => import("../pages/SchemaOperationsPage"), "SchemaOperationsPage");
-const SqlConsolePage = page(() => import("../pages/SqlConsolePage"), "SqlConsolePage");
+// Each screen is its own chunk, loaded on first visit (or ahead, see screens.ts); the shell's Suspense shows the loader meanwhile.
+const CollectionPage = screen("collections", () => import("../pages/CollectionPage"), "CollectionPage");
+const CollectionsIndexPage = screen("collections", () => import("../pages/CollectionPage"), "CollectionsIndexPage");
+const NewCollectionPage = screen("new-collection", () => import("../pages/NewCollectionPage"), "NewCollectionPage");
+const LogsPage = screen("logs", () => import("../pages/LogsPage"), "LogsPage");
+const JobsPage = screen("jobs", () => import("../pages/JobsPage"), "JobsPage");
+const RealtimePage = screen("realtime", () => import("../pages/RealtimePage"), "RealtimePage");
+const AuthCollectionsPage = screen("auth/collections", () => import("../pages/AuthCollectionsPage"), "AuthCollectionsPage");
+const AuthUsersPage = screen("auth/users", () => import("../pages/AuthUsersPage"), "AuthUsersPage");
+const BackupsPage = screen("backups", () => import("../pages/BackupsPage"), "BackupsPage");
+const StoragePage = screen("storage", () => import("../pages/StoragePage"), "StoragePage");
+const SettingsPage = screen("settings", () => import("../pages/SettingsPage"), "SettingsPage");
+const ServiceTokensPage = screen("service-tokens", () => import("../pages/ServiceTokensPage"), "ServiceTokensPage");
+const AdministratorsPage = screen("administrators", () => import("../pages/AdministratorsPage"), "AdministratorsPage");
+const ProfilePage = screen("profile", () => import("../pages/ProfilePage"), "ProfilePage");
+const SchemaTransferPage = screen("schema-transfer", () => import("../pages/SchemaTransferPage"), "SchemaTransferPage");
+const SchemaOperationsPage = screen("schema-operations", () => import("../pages/SchemaOperationsPage"), "SchemaOperationsPage");
+const SqlConsolePage = screen("sql", () => import("../pages/SqlConsolePage"), "SqlConsolePage");
 
 export const router = createBrowserRouter(
   [

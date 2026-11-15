@@ -67,7 +67,7 @@ export function BackupsActions() {
       toast(t("storage.backups.uploaded"));
       update({ backup: entry.id });
     },
-    onError: (error) => (abort.current?.signal.aborted ? toast(t("storage.backups.uploadCanceled")) : toast(errorText(t, error), "danger")),
+    onError: (error) => (abort.current?.signal.aborted ? toast(t("storage.backups.uploadCanceled"), "info") : toast(errorText(t, error), "danger")),
     // A cancel or failure after the body was sent may still have stored the archive: list what the server has.
     onSettled: () => void queryClient.invalidateQueries({ queryKey: backupsQuery.queryKey }),
   });
@@ -174,7 +174,7 @@ export function BackupsView() {
   if (open) pane = <BackupPane key={open.id} backup={open} location={location} jobRunning={busy} onClose={close} />;
   // The full list is loaded, so an archive missing from it once it settles does not exist (an upload arrives with the refetch).
   else if (openId && backups.data && !backups.isFetching) pane = <EmptyState icon={RiErrorWarningLine}>{t("common.notFound")}</EmptyState>;
-  else if (openId && !backups.isError) pane = <Skeleton variant="form" />;
+  else if (openId && !backups.isError) pane = <Skeleton variant="pane" />;
   return <SplitView list={list} paneLabel={t("storage.backups.detail")} onClose={close} pane={pane} />;
 }
 
@@ -183,7 +183,7 @@ function BackupSchedule() {
   const t = useT();
   const settings = useQuery({ ...settingsQuery, refetchOnMount: true, staleTime: 60_000 });
   const backups = settings.data?.backups;
-  if (!backups) return null;
+  if (!backups) return <p className="storage-schedule" aria-hidden />;
   const keep = backups.keep === 0 ? t("storage.backups.keepStorage") : backups.keep;
   return (
     <p className="storage-schedule">

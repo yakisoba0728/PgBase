@@ -64,11 +64,30 @@ function onError(error: unknown) {
   }
 }
 
-export const queryClient = new QueryClient({
+/**
+ * How long an answer is shown again without asking the server: a revisit inside the window renders from cache, a later
+ * one renders the cached data and refetches behind it. Lists are the default; schema-like data opts into `catalog`.
+ */
+export const freshFor = { list: 30_000, catalog: 5 * 60_000 };
+
+// Never marked stale by a write: the session check, file URLs (a re-mint discards the browser's image cache), the open
+// record form (keyed by ETag) and per-row file lists (each would refetch on scroll; their list page reseeds them).
+const unaffected = (key: readonly unknown[]) =>
+  ["session", "setup-status", "file-url"].includes(String(key[0])) || (key[0] === "records" && (key[2] === "one" || key[2] === "files"));
+
+/**
+ * After a write: every cached screen is marked stale without fetching, so the next visit refetches behind the data it
+ * shows. A safety net for what a write touched elsewhere (views, relations, users ↔ auth records); a mutation's own
+ * onSuccess runs after this, so its setQueryData stays fresh.
+ */
+export const markStale = (client: QueryClient = queryClient) => client.invalidateQueries({ refetchType: "none", predicate: (query) => !unaffected(query.queryKey) });
+
+export const queryClient: QueryClient = new QueryClient({
   queryCache: new QueryCache({ onError }),
-  mutationCache: new MutationCache({ onError }),
+  mutationCache: new MutationCache({ onError, onSuccess: () => void markStale() }),
   defaultOptions: {
     queries: {
+      staleTime: freshFor.list,
       refetchOnWindowFocus: false,
       retry: (count, error) => !(error instanceof ApiError && error.status >= 400 && error.status < 500) && count < 2,
     },

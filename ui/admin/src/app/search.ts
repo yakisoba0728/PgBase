@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams, type NavigateOptions } from "react-router";
 
 /** Query-string state for a screen; empty values are removed. */
@@ -17,4 +17,17 @@ export function useSearchState() {
     [setParams],
   );
   return { params, update };
+}
+
+/**
+ * `value` once it has stopped changing for `delay` ms. A search keyed on it asks once per pause, and the query it
+ * replaces is aborted (TanStack aborts a fetch whose `signal` was passed on once nothing observes it), so the latest wins.
+ */
+export function useDebounced<T>(value: T, delay = 250): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return settled;
 }

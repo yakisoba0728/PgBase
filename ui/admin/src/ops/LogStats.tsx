@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { settingsQuery } from "../system/queries";
 import { errorText } from "../app/queries";
 import { Skeleton } from "../components/Feedback";
+import { useHeld } from "../components/QueryView";
 import { useT } from "../i18n";
 import { logStatsQuery } from "./queries";
 import type { RequestLogFilter } from "../api/logs";
@@ -21,7 +22,7 @@ const labels = 20;
 export function LogStats({ range, active, onPick }: { range: Pick<RequestLogFilter, "from" | "to">; active: string; onPick: (statusClass: string) => void }) {
   const t = useT();
   const time = useTimeFormat();
-  const stats = useQuery(logStatsQuery(range));
+  const stats = useHeld(useQuery(logStatsQuery(range)));
   const settings = useQuery({ ...settingsQuery, refetchOnMount: true, staleTime: 60_000 });
   const retention = settings.data?.logs.retentionDays;
   const [hover, setHover] = useState<string | null>(null);
@@ -34,7 +35,7 @@ export function LogStats({ range, active, onPick }: { range: Pick<RequestLogFilt
   const shown = hover ?? active;
   const shownCount = shown ? String(data.statusClasses[`${shown}xx`] ?? 0) : null;
   return (
-    <section className="ops-stats" aria-label={t("ops.logs.stats")}>
+    <section className="ops-stats" aria-label={t("ops.logs.stats")} aria-busy={stats.isHeld || undefined}>
       <svg className="ops-bars" width={classes.length * (barWidth + gap) - gap} height={height + labels} role="group" aria-label={t("ops.logs.byStatus")}>
         {classes.map((c, index) => {
           const count = counts[index];

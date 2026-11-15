@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router";
 import { RiMenuLine } from "@remixicon/react";
 import { setDrawer } from "../app/shell";
@@ -16,8 +16,16 @@ interface PageProps {
   children: ReactNode;
 }
 
+/** Per screen (AppShell): set once a page of it has shown, so the page replacing its skeleton fades in without the entrance. */
+export const ScreenEntrance = createContext<{ current: boolean } | null>(null);
+
 export function Page({ title, crumb, actions, tabs, children }: PageProps) {
   const t = useT();
+  const entrance = useContext(ScreenEntrance);
+  const [handoff] = useState(() => entrance?.current ?? false);
+  useLayoutEffect(() => {
+    if (entrance) entrance.current = true;
+  }, [entrance]);
   const row = useRef<HTMLElement>(null);
   useTabIndicator(row, Boolean(tabs));
   // A sibling tab (or sub-path) replacing the body cross-fades it: the attribute alternates so the animation restarts.
@@ -36,7 +44,7 @@ export function Page({ title, crumb, actions, tabs, children }: PageProps) {
   }, [pathname]);
   return (
     <>
-      <header className="page-header">
+      <header className="page-header" data-handoff={handoff ? "" : undefined}>
         <IconButton className="nav-open" label={t("nav.open")} icon={RiMenuLine} onClick={(event) => setDrawer(true, event.currentTarget)} />
         <h1 className="page-title">
           {crumb && <span className="crumb">{crumb} /</span>}

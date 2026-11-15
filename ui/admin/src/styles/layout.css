@@ -376,6 +376,15 @@ a.nav-op:focus-visible {
   animation: enter var(--dur-slow) var(--ease-out);
 }
 
+/* The page replacing this screen's loading skeleton (same header and tabs) only fades its body in: the entrance played once. */
+.page-header[data-handoff] ~ .page-tabs {
+  animation: none;
+}
+
+.page-header[data-handoff] ~ .page-body:not([data-swap]) {
+  animation: fade-in var(--dur) var(--ease-out);
+}
+
 /* A sibling tab slides in from its side (Page.tsx sets --swap-dir: 1 for a tab to the right, -1 to the left);
    only on wide screens, where no full-screen pane can be re-anchored by the transform. */
 .page-body[data-swap="a"] {
@@ -878,29 +887,55 @@ a.nav-op:focus-visible {
 /* Initial loads keep the destination's layout; action progress uses the button spinner. */
 .boot-skeleton { max-width: 800px; margin: var(--sp-40) auto; padding: var(--sp-24); }
 .skeleton { width: 100%; min-width: 0; }
+/* Hidden for --reveal-delay, its space kept; --skeleton-since (Skeleton) is how long the skeleton it replaces has
+   shown (negative), so a handoff continues that reveal and shimmer instead of blanking and restarting. */
+.skeleton-content { animation: fade-in var(--dur-slow) var(--ease-out) calc(var(--reveal-delay) + var(--skeleton-since, 0ms)) backwards; }
 .skeleton-content span {
   display: block;
   height: var(--sp-12);
   border-radius: var(--radius-xs);
   /* One sweep across the whole viewport (fixed attachment), so every bar shimmers in step. */
   background: linear-gradient(90deg, var(--surface-2) 35%, var(--surface-1) 50%, var(--surface-2) 65%) 0 0 / 300vw 100% fixed;
-  animation: shimmer calc(var(--dur-slow) * 6) cubic-bezier(0.45, 0, 0.55, 1) infinite, fade-in var(--dur-slow) var(--ease-out);
+  animation: shimmer calc(var(--dur-slow) * 6) cubic-bezier(0.45, 0, 0.55, 1) var(--skeleton-since, 0ms) infinite;
 }
-.skeleton-toolbar { display: flex; justify-content: space-between; gap: var(--sp-24); padding: var(--sp-12) 0 var(--sp-20); }
-.skeleton-toolbar span:first-child { width: 38%; height: var(--control); }
-.skeleton-toolbar span:last-child { width: 96px; height: var(--control); }
-.skeleton-row { display: grid; grid-template-columns: 1.3fr 1.5fr .7fr 1fr 1fr; gap: var(--sp-24); align-items: center; min-height: var(--row); padding: 0 var(--sp-16); border-bottom: 1px solid var(--line); }
+/* A list loading again keeps its rows (QueryView, useHeld): dimmed and inert under a thin line at the top, past the same delay. */
+.query-busy {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-raised-over);
+  height: 2px;
+  margin-bottom: -2px;
+  background: linear-gradient(90deg, transparent 35%, var(--accent) 50%, transparent 65%) 0 0 / 300vw 100% fixed;
+  animation: shimmer calc(var(--dur-slow) * 4) linear infinite, fade-in var(--dur) var(--ease-out) var(--reveal-delay) backwards;
+}
+.query-busy ~ *, .ops-stats[aria-busy] { opacity: 0.55; pointer-events: none; transition: opacity var(--dur) var(--ease-out) var(--reveal-delay); }
+/* Each shape mirrors the content it stands for, so nothing moves when that arrives. A list: .toolbar's paddings and
+   small controls, then .grid's head, its 4px spacer and its rows. Only PageSkeleton draws the toolbar: once the
+   screen renders, the real one (if any) is already above the list. */
+.skeleton-toolbar { display: none; justify-content: space-between; gap: var(--space-xs); padding: var(--space-sm) var(--space) var(--space-xs); }
+.skeleton-toolbar span:first-child { width: 38%; max-width: 600px; height: var(--control-sm); }
+.skeleton-toolbar span:last-child { width: 96px; height: var(--control-sm); }
+.page-skeleton > .skeleton-table:not(.skeleton-bare) .skeleton-toolbar { display: flex; }
+.skeleton-row { display: grid; grid-template-columns: 1.3fr 1.5fr .7fr 1fr 1fr; gap: var(--sp-24); align-items: center; min-height: var(--row); padding: 0 var(--sp-16); }
 .skeleton-row span { width: 75%; }
 .skeleton-row span:nth-child(2) { width: 92%; }
 .skeleton-row:nth-child(even) span { width: 62%; }
-.skeleton-head { min-height: var(--row-head); background: var(--surface-1); }
+.skeleton-head { min-height: var(--row-head); margin-bottom: var(--sp-4); box-shadow: inset 0 -1px 0 var(--line); }
 .skeleton-head span { height: var(--sp-10); width: 48%; }
-.skeleton-form .skeleton-content { display: grid; gap: var(--sp-24); max-width: 640px; padding: var(--sp-20) 0; }
-.skeleton-field { display: grid; gap: var(--sp-10); }
-.skeleton-field span:first-child { width: 25%; height: var(--sp-12); }
+/* A field: an 18px label line, the field's 6px gap, a control; fields sit in .form's gap. */
+.skeleton-form .form { max-width: 640px; }
+.skeleton-field { display: grid; gap: var(--sp-6); }
+.skeleton-field span:first-child { width: 25%; margin-block: 3px; }
 .skeleton-field span:last-child { height: var(--control); }
-.skeleton-cards .skeleton-content { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-12); }
-.skeleton-card { display: grid; align-content: center; gap: var(--sp-12); min-height: 84px; padding: var(--sp-16); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.skeleton-heading { display: grid; align-content: start; gap: var(--sp-10); padding-top: var(--sp-6); }
+.skeleton-heading span:first-child { width: 50%; height: var(--space-sm); }
+.skeleton-heading span:last-child { width: 80%; height: var(--sp-10); }
+.skeleton-content .facts > div { min-height: calc(var(--line-height) + 2 * var(--sp-8)); align-items: center; }
+.skeleton-content .facts span:last-child { width: 70%; }
+.skeleton-pane .pane-header span { width: 40%; height: var(--sp-16); }
+/* Stat tiles (.ops-tiles): the same grid, padding and height as a label over a display figure. */
+.skeleton-cards .skeleton-content { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--space-xs); }
+.skeleton-card { display: grid; align-content: center; gap: var(--sp-12); min-height: calc(var(--line-height-sm) + var(--line-height-display) + var(--sp-4) + 2 * var(--sp-12)); padding: var(--sp-12) var(--sp-16); border-radius: var(--radius); background: var(--surface-1); }
 .skeleton-card span:first-child { width: 55%; height: var(--sp-12); }
 .skeleton-card span:last-child { width: 35%; height: var(--sp-24); }
 .skeleton-editor .skeleton-content { padding: var(--sp-16); border: 1px solid var(--line); border-radius: var(--radius-sm); }
@@ -908,9 +943,20 @@ a.nav-op:focus-visible {
 .skeleton-line span { width: 80%; }
 .skeleton-line:nth-child(2n) span { width: 60%; }
 .skeleton-line:nth-child(3n) span { width: 90%; }
-.skeleton-list .skeleton-line { padding: var(--sp-8) var(--sp-12); }
-.page-skeleton { display: grid; align-content: start; flex: 1; min-width: 0; gap: var(--sp-24); padding: var(--space); overflow: auto; }
-.ops-stats .skeleton-card { min-height: 64px; padding: var(--sp-12); border: 0; }
+/* Nav items (and picker rows close to them). */
+.skeleton-list .skeleton-line { display: flex; align-items: center; min-height: var(--nav-item); padding: 0 var(--sp-12); }
+/* Straight in a page body (PageSkeleton's included) or a detail pane, a skeleton takes the padding of what it stands
+   for: .page-content, .sys-scroll for sections, .toolbar and .grid-scroll for a list, .pane-body. */
+.page-skeleton { display: grid; align-content: start; flex: 1; min-width: 0; overflow: auto; }
+:is(.page-body, .page-skeleton) > .skeleton { padding: var(--space); }
+:is(.page-body, .page-skeleton) > .skeleton-sections { padding: var(--sp-4) var(--space) var(--space); }
+:is(.page-body, .page-skeleton) > .skeleton-table { padding: 0; }
+:is(.page-body, .page-skeleton) > .skeleton-table .skeleton-row { margin-inline: calc(var(--space) - 8px); }
+.split-pane > .skeleton:not(.skeleton-pane) { padding: var(--sp-2) var(--space-sm) var(--space); }
+/* LogStats' strip keeps one row: three cards, as before. */
+.ops-stats .skeleton-cards .skeleton-content { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ops-stats .skeleton-card { min-height: 64px; padding: var(--sp-12); background: none; }
+.ops-stats .skeleton-card:nth-child(n + 4) { display: none; }
 @keyframes shimmer { from { background-position: -200vw 0; } to { background-position: 100vw 0; } }
 @media (width < 600px) {
   .skeleton-row { grid-template-columns: 1fr 1.5fr .5fr; gap: var(--sp-12); }

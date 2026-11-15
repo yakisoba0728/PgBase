@@ -89,7 +89,7 @@ export const recordsKo: Record<keyof typeof recordsEn, string> = {
   "records.exportSelected": "선택한 행 ({count})",
   "records.exportLoaded": "불러온 행 ({count})",
   "records.exportAll": "조건에 맞는 전체",
-  "records.exported": "{count}개를 내보냈습니다.",
+  "records.exported": "레코드 {count}개를 내보냈습니다.",
   "records.exportedPartial": "앞쪽 {count}개만 내보냈습니다. 나머지는 필터를 좁혀 내보내세요.",
   "records.filterHelp": "필터 문법",
   "records.filterHelpText": "단어만 쓰면 텍스트 필드에서 찾고, 식을 쓰면 정확히 거릅니다. 예:",

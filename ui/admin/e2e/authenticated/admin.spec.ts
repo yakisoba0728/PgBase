@@ -317,7 +317,7 @@ test.describe.serial("bulk record delete", () => {
     await expect(confirm).toBeDisabled();
     await dialog.getByRole("textbox", { name: `Type ${bulk} to confirm` }).fill(bulk);
     await confirm.click();
-    await expect(page.getByText(`Deleted ${dropCount}.`, { exact: true })).toBeVisible();
+    await expect(page.getByText(`${dropCount} records deleted.`, { exact: true })).toBeVisible();
 
     await filter.fill("");
     await filter.press("Enter");
@@ -338,7 +338,7 @@ test.describe.serial("bulk record delete", () => {
     await expect(confirm).toBeDisabled();
     await dialog.getByRole("textbox", { name: `Type ${bulk} to confirm` }).fill(bulk);
     await confirm.click();
-    await expect(page.getByText("Deleted 2.", { exact: true })).toBeVisible();
+    await expect(page.getByText("2 records deleted.", { exact: true })).toBeVisible();
     await page.reload();
     await expect(page.getByText("1 record", { exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: keep[2], exact: true })).toBeVisible();

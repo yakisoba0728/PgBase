@@ -80,7 +80,7 @@ function TemplateForm({ collection, administration, purpose, initial, configured
     onSuccess: (saved) => {
       const others = (administration.templates ?? []).filter((candidate) => candidate.purpose !== purpose);
       queryClient.setQueryData(administrationQuery(collection.id).queryKey, { ...administration, templates: [...others, saved] });
-      toast(t("auth.savedToast"));
+      toast(t("common.savedToast"));
     },
     onError: (failure) => reportFailure(t, failure),
   });
@@ -169,7 +169,7 @@ function SmtpForm({ collection, administration, views }: { collection: AuthColle
     mutationFn: (force: boolean) => putSMTPConfig(collection.id, { ...draft, password: draft.password || undefined }, force ? undefined : (administration.smtp?.etag ?? null)),
     onSuccess: (saved) => {
       queryClient.setQueryData(administrationQuery(collection.id).queryKey, { ...administration, smtp: saved });
-      toast(t("auth.savedToast"));
+      toast(t("common.savedToast"));
     },
     onError: (failure) => reportFailure(t, failure),
   });

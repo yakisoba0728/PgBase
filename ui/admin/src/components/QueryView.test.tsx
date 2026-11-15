@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider, useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { combineQueries, QueryView, type ViewQuery } from "./QueryView";
+import { combineQueries, QueryView, useHeld, type ViewQuery } from "./QueryView";
 
 afterEach(cleanup);
 
@@ -81,4 +81,57 @@ it("combines two queries: pending until both load, null counts as loaded, the em
   expect(stale).toMatchObject({ data: [["a"], null], error: refresh });
   void stale.refetch();
   expect(b).toHaveBeenCalledOnce();
+});
+
+it("holds the shown rows, marked busy, while the same entity loads again; another entity starts blank", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const answers = new Map<string, (rows: string[]) => void>();
+  function List({ entity, filter }: { entity: string; filter: string }) {
+    const query = useHeld(useQuery({ queryKey: [entity, filter], queryFn: () => new Promise<string[]>((resolve) => answers.set(`${entity}:${filter}`, resolve)) }), entity);
+    return <QueryView query={query}>{(rows) => <p>rows {rows.join(",")}</p>}</QueryView>;
+  }
+  const at = (entity: string, filter: string) => <QueryClientProvider client={client}><List entity={entity} filter={filter} /></QueryClientProvider>;
+  const { rerender } = render(at("a", "1"));
+  expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "true");
+  await waitFor(() => expect(answers.has("a:1")).toBe(true));
+  act(() => answers.get("a:1")!(["x"]));
+  expect(await screen.findByText("rows x")).toBeInTheDocument();
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  // New parameters: the rows stay under the busy line, no skeleton.
+  rerender(at("a", "2"));
+  expect(screen.getByText("rows x")).toBeInTheDocument();
+  expect(screen.getByRole("progressbar")).toHaveAttribute("aria-busy", "true");
+  expect(screen.queryByRole("status")).toBeNull();
+  await waitFor(() => expect(answers.has("a:2")).toBe(true));
+  act(() => answers.get("a:2")!(["y"]));
+  expect(await screen.findByText("rows y")).toBeInTheDocument();
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  // A reset after a change holds them too.
+  act(() => void client.resetQueries({ queryKey: ["a"] }));
+  expect(await screen.findByRole("progressbar")).toBeInTheDocument();
+  expect(screen.getByText("rows y")).toBeInTheDocument();
+  expect(screen.queryByRole("status")).toBeNull();
+  act(() => answers.get("a:2")!(["z"]));
+  expect(await screen.findByText("rows z")).toBeInTheDocument();
+  // Another entity never shows the previous one's rows.
+  rerender(at("b", "2"));
+  expect(screen.queryByText(/rows/)).toBeNull();
+  expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "true");
+});
+
+it("drops held rows when the load fails", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  let fail!: (error: Error) => void;
+  function List({ filter }: { filter: string }) {
+    const query = useHeld(useQuery({ queryKey: ["held", filter], queryFn: () => (filter === "1" ? Promise.resolve(["x"]) : new Promise<string[]>((_, reject) => { fail = reject; })) }));
+    return <QueryView query={query}>{(rows) => <p>rows {rows.join(",")}</p>}</QueryView>;
+  }
+  const { rerender } = render(<QueryClientProvider client={client}><List filter="1" /></QueryClientProvider>);
+  expect(await screen.findByText("rows x")).toBeInTheDocument();
+  rerender(<QueryClientProvider client={client}><List filter="2" /></QueryClientProvider>);
+  expect(screen.getByText("rows x")).toBeInTheDocument();
+  await waitFor(() => expect(fail).toBeDefined());
+  act(() => fail(new Error("boom")));
+  expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
+  expect(screen.queryByText(/rows/)).toBeNull();
 });

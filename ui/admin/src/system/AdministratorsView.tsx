@@ -9,7 +9,7 @@ import { errorText, sessionQuery, windowOpen, windowShifted } from "../app/queri
 import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState, LoadMore, Notice, WindowNotice } from "../components/Feedback";
-import { QueryView } from "../components/QueryView";
+import { QueryView, useHeld } from "../components/QueryView";
 import { Row, Table, TableScroll } from "../components/Table";
 import { Field } from "../components/Field";
 import { SplitView, PaneHeader } from "../components/SplitView";
@@ -46,7 +46,7 @@ export function AdministratorsView() {
   const time = useTimeFormat();
   const { params, update } = useSearchState();
   const session = useQuery(sessionQuery);
-  const query = useInfiniteQuery(administratorsQuery);
+  const query = useHeld(useInfiniteQuery(administratorsQuery));
   const queryClient = useQueryClient();
   const items = query.data?.pages.flatMap((page) => page.items) ?? [];
   const selfId = session.data?.administrator.id;
@@ -107,7 +107,7 @@ export function AdministratorsView() {
   if (openId === "new") pane = <NewAdministrator onClose={close} onCreated={(id) => update({ admin: id })} />;
   else if (open) pane = <AdministratorPane key={open.id} admin={open} self={open.id === selfId} onClose={close} />;
   // Not in the loaded list: the single lookup decides (null is "no such administrator").
-  else if (openId) pane = <QueryView query={single} skeleton="form" empty={<EmptyState icon={RiErrorWarningLine}>{t("common.notFound")}</EmptyState>} isEmpty={(data) => data === null}>{() => null}</QueryView>;
+  else if (openId) pane = <QueryView query={single} skeleton="pane" empty={<EmptyState icon={RiErrorWarningLine}>{t("common.notFound")}</EmptyState>} isEmpty={(data) => data === null}>{() => null}</QueryView>;
   return <SplitView list={list} pane={pane} paneLabel={t("system.admins.detail")} onClose={close} />;
 }
 

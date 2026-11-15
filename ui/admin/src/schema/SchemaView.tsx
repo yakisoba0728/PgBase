@@ -11,6 +11,7 @@ import { FormSection } from "../components/FormSection";
 import { SaveBar } from "../components/SaveBar";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
+import { catalogChanged } from "../collections/queries";
 import { useT } from "../i18n";
 import { deleteCollection, deleteRefusal } from "./apply";
 import { FieldPane } from "./FieldPane";
@@ -72,7 +73,7 @@ function DangerZone({ collection, editor }: { collection: Collection; editor: Sc
     mutationFn: async (kind: "truncate" | "delete") => {
       if (kind === "truncate") {
         const result = await truncateCollection(collection.name);
-        return t("schema.truncated", { count: result.recordsDeleted });
+        return t("records.deleted", { count: result.recordsDeleted });
       }
       await deleteCollection(collection);
       return t("schema.deleted", { name: collection.name });
@@ -82,7 +83,7 @@ function DangerZone({ collection, editor }: { collection: Collection; editor: Sc
       toast(message);
       if (kind === "delete") {
         editor.release();
-        await queryClient.invalidateQueries({ queryKey: ["collections"] });
+        await catalogChanged(queryClient);
         navigate("/collections", { replace: true });
       } else {
         // Reset, not invalidate: a list with many loaded pages skips refetch on mount and would show deleted rows.

@@ -7,7 +7,7 @@ import { errorText, windowOpen, windowShifted } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState, LoadMore, WindowNotice } from "../components/Feedback";
-import { QueryView } from "../components/QueryView";
+import { QueryView, useHeld } from "../components/QueryView";
 import { Row, Table, TableScroll } from "../components/Table";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
@@ -73,7 +73,7 @@ export function LogsView() {
   const time = useTimeFormat();
   const { params, update } = useSearchState();
   const filter = logFilterFrom(params);
-  const logs = useInfiniteQuery(logsQuery(filter));
+  const logs = useHeld(useInfiniteQuery(logsQuery(filter)));
   const queryClient = useQueryClient();
   const items = logs.data?.pages.flatMap((page) => page.items) ?? [];
   const shifted = windowShifted(logs.data);
@@ -110,7 +110,8 @@ export function LogsView() {
         </label>
         </div>
         {filtered && <Button size="sm" variant="transparent" onClick={() => update(Object.fromEntries(filterKeys.map((key) => [key, null])))}>{t("ops.clearFilters")}</Button>}
-        {logs.data && <span className="toolbar-count">{logs.hasNextPage || shifted ? t("ops.logs.window", { count: items.length }) : t("ops.logs.count", { count: items.length })}</span>}
+        {/* Always there, so the count arriving never rewraps the toolbar. */}
+        <span className="toolbar-count">{logs.data && (logs.hasNextPage || shifted ? t("ops.logs.window", { count: items.length }) : t("ops.logs.count", { count: items.length }))}</span>
       </div>
       <TableScroll>
         <QueryView query={logs} isEmpty={(data) => data.pages.every((page) => page.items.length === 0)}

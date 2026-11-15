@@ -1,8 +1,10 @@
-import { lazy, Suspense, useState, useEffect, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
 import { Outlet, useLocation, useMatches } from "react-router";
+import { ScreenEntrance } from "../components/Page";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { useT } from "../i18n";
 import { AppNav } from "./AppNav";
+import { preloadScreensWhenIdle } from "./screens";
 import { drawerOpener, setDrawer, useDrawer, useHelp, usePalette, useRail, useSmallScreen } from "./shell";
 import { useShellShortcuts } from "./shortcuts";
 
@@ -24,6 +26,9 @@ export function AppShell() {
   const match = useMatches().at(-1);
   const { tab: _tab, "*": _rest, ...params } = match?.params ?? {};
   const screenKey = `${match?.id}:${JSON.stringify(params)}`;
+  // Whether a page of this screen (its loading skeleton included) has shown: a later one swaps in without the entrance.
+  const entrance = useMemo(() => ({ current: false }), [screenKey]);
+  useEffect(preloadScreensWhenIdle, []);
   useEffect(() => {
     if (!drawer || !small) return;
     // The opener can be the loading skeleton's menu button, replaced once the screen mounts; then the live one gets focus back.
@@ -56,9 +61,11 @@ export function AppShell() {
       <AppNav />
       <button type="button" className="nav-scrim" aria-label={t("common.close")} onClick={() => setDrawer(false)} />
       <main className="main" inert={drawer && small}>
-        <Suspense key={screenKey} fallback={<PageSkeleton />}>
-          <Outlet />
-        </Suspense>
+        <ScreenEntrance value={entrance}>
+          <Suspense key={screenKey} fallback={<PageSkeleton />}>
+            <Outlet />
+          </Suspense>
+        </ScreenEntrance>
       </main>
       {used && (
         <Suspense>

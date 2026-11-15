@@ -1,34 +1,58 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { RiAlertLine, RiErrorWarningLine, RiInformationLine, RiRefreshLine, type RemixiconComponentType } from "@remixicon/react";
 import { errorText } from "../app/queries";
 import { useT } from "../i18n";
 import { Button } from "./Button";
 import { CopyButton } from "./CopyButton";
 
-export type SkeletonVariant = "table" | "form" | "cards" | "editor" | "list";
+/**
+ * The shape a skeleton reserves: "table" a list (its toolbar too, outside a TableScroll), "form" stacked fields,
+ * "sections" FormSections (title column and fields), "facts" Facts rows, "pane" a detail pane (header and fields),
+ * "cards" stat cards, "editor" a code or text area, "list" short lines (a nav or picker list).
+ */
+export type SkeletonVariant = "table" | "form" | "sections" | "facts" | "pane" | "cards" | "editor" | "list";
 
-/** Reserve the content's shape while its first response or screen code loads. */
-export function Skeleton({ variant = "table" }: { variant?: SkeletonVariant }) {
+const repeat = (count: number, make: (index: number) => ReactNode) => Array.from({ length: count }, (_, index) => make(index));
+// Label and control, in the field's own grid gap.
+const fields = (count: number) => <div className="form">{repeat(count, (row) => <div key={row} className="skeleton-field"><span /><span /></div>)}</div>;
+
+// When the skeleton now on screen first showed (index.html's boot skeleton counts from page start).
+let shownSince = 0;
+
+/** Reserve the content's shape while its first response or screen code loads; `className` places it (the boot skeleton). */
+export function Skeleton({ variant = "table", className }: { variant?: SkeletonVariant; className?: string }) {
   const t = useT();
+  // Read before this one commits: a skeleton still on screen is being replaced, so this one carries on its reveal.
+  const [since] = useState(() => {
+    const now = performance.now();
+    if (!document.querySelector(".skeleton")) shownSince = now;
+    return shownSince - now;
+  });
   return (
-    <div className={`skeleton skeleton-${variant}`} role="status" aria-busy="true">
+    <div className={`skeleton skeleton-${variant}${className ? ` ${className}` : ""}`} role="status" aria-busy="true" style={{ "--skeleton-since": `${since}ms` } as CSSProperties}>
       <span className="visually-hidden">{t("common.loading")}</span>
       <div className="skeleton-content" aria-hidden="true">
         {variant === "table" ? (
           <>
             <div className="skeleton-toolbar"><span /><span /></div>
-            {Array.from({ length: 7 }, (_, row) => (
-              <div key={row} className={`skeleton-row${row === 0 ? " skeleton-head" : ""}`}>
-                {Array.from({ length: 5 }, (_, column) => <span key={column} />)}
-              </div>
-            ))}
+            {repeat(7, (row) => <div key={row} className={`skeleton-row${row === 0 ? " skeleton-head" : ""}`}>{repeat(5, (column) => <span key={column} />)}</div>)}
           </>
         ) : variant === "form" ? (
-          Array.from({ length: 4 }, (_, row) => <div key={row} className="skeleton-field"><span /><span /></div>)
+          fields(4)
+        ) : variant === "sections" ? (
+          // The real FormSection grid (and its narrow-screen stacking), so titles and fields land where they will be.
+          repeat(2, (row) => <div key={row} className="form-section"><header className="skeleton-heading"><span /><span /></header>{fields(3)}</div>)
+        ) : variant === "facts" ? (
+          <div className="facts">{repeat(7, (row) => <div key={row}><span /><span /></div>)}</div>
+        ) : variant === "pane" ? (
+          <>
+            <div className="pane-header"><span /></div>
+            <div className="pane-body">{fields(4)}</div>
+          </>
         ) : variant === "cards" ? (
-          Array.from({ length: 3 }, (_, row) => <div key={row} className="skeleton-card"><span /><span /></div>)
+          repeat(5, (row) => <div key={row} className="skeleton-card"><span /><span /></div>)
         ) : (
-          Array.from({ length: variant === "editor" ? 9 : 5 }, (_, row) => <div key={row} className="skeleton-line"><span /></div>)
+          repeat(variant === "editor" ? 9 : 5, (row) => <div key={row} className="skeleton-line"><span /></div>)
         )}
       </div>
     </div>

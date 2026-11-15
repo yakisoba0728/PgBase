@@ -66,6 +66,10 @@ it("shows the destination skeleton during lazy navigation and removes it when re
   await act(async () => { finish({ default: () => <Page title="Settings">Settings loaded</Page> }); });
   expect(screen.getByText("Settings loaded")).toBeInTheDocument();
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  // The entrance played with the skeleton; the page replacing it only fades in.
+  expect(document.querySelector(".page-header")).toHaveAttribute("data-handoff");
+  await act(async () => { await router.navigate("/collections"); });
+  expect(document.querySelector(".page-header")).not.toHaveAttribute("data-handoff");
 });
 
 it("closes the mobile drawer on any navigation, not only nav link clicks", async () => {

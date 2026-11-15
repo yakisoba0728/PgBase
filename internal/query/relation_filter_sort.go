@@ -694,9 +694,21 @@ func compileQualifiedComparison(field schema.Field, comparison filterComparison,
 			}
 			return "(" + column + " " + op + " " + placeholder + ` ESCAPE '\')`, nil
 		}
-		if comparison.literalLeft {
-			column, placeholder = placeholder, column
+		if !comparison.literalLeft {
+			// Same substring semantics as strpos, but as one fully escaped LIKE
+			// pattern so a trigram index on the column can serve it.
+			needle, ok := value.(string)
+			if !ok {
+				return "", validation("filter", "type_mismatch")
+			}
+			builder.args[len(builder.args)-1] = "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(needle) + "%"
+			op := "LIKE"
+			if comparison.operator == "!~" {
+				op = "NOT LIKE"
+			}
+			return "(" + column + " " + op + " " + placeholder + ` ESCAPE '\')`, nil
 		}
+		column, placeholder = placeholder, column
 		comparisonSQL := "strpos(" + column + ", " + placeholder + ") > 0"
 		if comparison.operator == "!~" {
 			comparisonSQL = "NOT (" + comparisonSQL + ")"

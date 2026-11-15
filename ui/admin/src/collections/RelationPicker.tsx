@@ -11,6 +11,7 @@ import { Button } from "../components/Button";
 import { Searchbar } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
+import { useDebounced } from "../app/search";
 import { collectionsQuery } from "./queries";
 import { idsFilter, labelField, recordLabel, relationSearchFilter } from "./relation";
 import { randomKey } from "./useRecordForm";
@@ -28,15 +29,6 @@ interface RelationPickerProps {
 }
 
 const pageSize = 20;
-
-function useDebounced<T>(value: T, delay: number): T {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setSettled(value), delay);
-    return () => window.clearTimeout(timer);
-  }, [value, delay]);
-  return settled;
-}
 
 /** Picks related records by searching the target collection; selections show as labelled chips. */
 export function RelationPicker({ field, value, onChange, known = [], error, readOnly, onPendingChange }: RelationPickerProps) {

@@ -1,7 +1,7 @@
 import { infiniteQueryOptions, queryOptions, type InfiniteData, type QueryClient } from "@tanstack/react-query";
-import { pageWindow } from "../app/queries";
+import { markStale, pageWindow } from "../app/queries";
 import { applySchemaImport, exportSchema, getSchemaImportOperation, getSchemaOperation, listSchemaOperations, type SchemaImportResult } from "../api/schema";
-import { getSqlExecution, listSqlExecutions } from "../api/sql";
+import { getSqlExecution, listSqlExecutions, type SqlExecution } from "../api/sql";
 import { ApiError } from "../api/http";
 import { Undecided } from "../schema/apply";
 import { sqlActive, type PendingImport } from "./model";
@@ -65,7 +65,13 @@ export async function refreshSqlHistory(queryClient: QueryClient, toNewest: bool
 export const sqlExecutionQuery = (id: string) =>
   queryOptions({
     queryKey: ["sql", "execution", id],
-    queryFn: ({ signal }) => getSqlExecution(id, signal),
+    queryFn: async ({ signal, client, queryKey }) => {
+      const before = client.getQueryData<SqlExecution>(queryKey);
+      const execution = await getSqlExecution(id, signal);
+      // A write finishes after its start request: what it changed is fetched again on the next visit.
+      if (before && sqlActive(before.status) && !sqlActive(execution.status) && execution.mode !== "read") void markStale(client);
+      return execution;
+    },
     refetchInterval: (query) => (query.state.data && sqlActive(query.state.data.status) ? 400 : false),
   });
 

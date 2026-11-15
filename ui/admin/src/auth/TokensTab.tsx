@@ -40,13 +40,13 @@ export function TokensTab({ collection, policies }: { collection: AuthCollection
         } catch (failure) {
           // The failed row and the unsent ones keep what was typed.
           form.setProblems({ [`${purpose}.ttlSeconds`]: "rowRejected" });
-          if (stored.length > 0) toast(t("auth.tokens.partial", { purposes: stored.join(", ") }));
+          if (stored.length > 0) toast(t("auth.tokens.partial", { purposes: stored.join(", ") }), "info");
           throw failure;
         }
       }
     },
     onSuccess: () => {
-      toast(t("auth.savedToast"));
+      toast(t("common.savedToast"));
       // Reloads (and remounts) only after every row saved; a failure must not drop the draft.
       void queryClient.invalidateQueries({ queryKey: tokenPoliciesQuery(collection.id).queryKey });
     },

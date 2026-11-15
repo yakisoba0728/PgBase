@@ -9,7 +9,7 @@ import type { OperationReceipt, OperationStatus } from "../api/schema";
 import { Button, RefreshButton } from "../components/Button";
 import { CodeBlock } from "../components/CodeBlock";
 import { EmptyState, LoadMore, Notice, WindowNotice } from "../components/Feedback";
-import { QueryView } from "../components/QueryView";
+import { QueryView, useHeld } from "../components/QueryView";
 import { Row, Table, TableScroll } from "../components/Table";
 import { SplitView, PaneHeader } from "../components/SplitView";
 import { collectionsQuery } from "../collections/queries";
@@ -45,7 +45,7 @@ export function SchemaOperations() {
   const t = useT();
   const time = useTimeFormat();
   const { params, update } = useSearchState();
-  const list = useInfiniteQuery(schemaOperationsQuery);
+  const list = useHeld(useInfiniteQuery(schemaOperationsQuery));
   const queryClient = useQueryClient();
   const shifted = windowShifted(list.data);
   const catalog = useQuery(collectionsQuery).data;
@@ -56,7 +56,8 @@ export function SchemaOperations() {
   const table = (
     <>
       <div className="toolbar">
-        {list.data && <span className="toolbar-count">{shifted ? t("ops.logs.window", { count: items.length }) : list.hasNextPage ? t("ops.logs.loadedMore", { count: items.length }) : t("ops.logs.count", { count: items.length })}</span>}
+        {/* Always there (its line sets the toolbar's height), so the count arriving moves nothing. */}
+        <span className="toolbar-count">{list.data && (shifted ? t("ops.logs.window", { count: items.length }) : list.hasNextPage ? t("ops.logs.loadedMore", { count: items.length }) : t("ops.logs.count", { count: items.length }))}</span>
       </div>
       <TableScroll>
         <QueryView query={list} empty={<EmptyState icon={RiHistoryLine}>{t("devtools.ops.empty")}</EmptyState>} isEmpty={(data) => data.pages.every((page) => page.items.length === 0)}>
@@ -130,7 +131,7 @@ function OperationDetail({ id, catalog, onClose }: { id: string; catalog: Collec
     <>
       <PaneHeader title={id} mono copy={{ label: t("common.copyId"), value: id }} onClose={onClose} />
       <div className="pane-body">
-        <QueryView query={query} skeleton="form">
+        <QueryView query={query} skeleton="facts">
           {(data) => (
             <>
               <Facts items={rows.map(([label, value]) => ({ label, value }))} />

@@ -8,7 +8,7 @@ import { EmptyState, LoadMore, WindowNotice } from "../components/Feedback";
 import { Checkbox, GroupCheckbox } from "../components/Field";
 import { settleLimited } from "../app/limit";
 import { JobProgress } from "../components/JobProgress";
-import { QueryView } from "../components/QueryView";
+import { QueryView, useHeld } from "../components/QueryView";
 import { Table } from "../components/Table";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
@@ -77,7 +77,7 @@ function DeadEvents() {
   const t = useT();
   const time = useTimeFormat();
   const queryClient = useQueryClient();
-  const dead = useInfiniteQuery(deadEventsQuery);
+  const dead = useHeld(useInfiniteQuery(deadEventsQuery));
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [inFlight, setInFlight] = useState<Set<string>>(new Set());
   const [run, setRun] = useState<RetryRun | null>(null);
@@ -108,7 +108,7 @@ function DeadEvents() {
       setRun((current) => current && { ...current, running: false, error: firstError });
       // Failed ones stay selected for another try.
       setSelected(new Set(failed));
-    } else if (firstError === undefined) toast(t("ops.realtime.retried"));
+    } else if (firstError === undefined) toast(t("ops.realtime.retried"), "info");
     else toast(errorText(t, firstError), "danger");
   };
   const toggle = (id: string, on: boolean) =>

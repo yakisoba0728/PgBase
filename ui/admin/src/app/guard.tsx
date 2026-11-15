@@ -35,7 +35,8 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       // Keyed on the administrator: another one taking over this tab's cookie remounts every screen, so no form keeps their edits.
       return <Fragment key={session.data?.administrator.id}>{children}</Fragment>;
     case "loading":
-      return <Skeleton variant="form" />;
+      // The same place and shape as index.html's boot skeleton, which it replaces.
+      return <Skeleton variant="form" className="boot-skeleton" />;
     case "redirect":
       return <Navigate to={decision.to} replace state={{ from: location.pathname + location.search + location.hash }} />;
     case "error":

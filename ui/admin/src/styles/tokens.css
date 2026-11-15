@@ -109,6 +109,8 @@
   /* A pressed button or toggle gives a little; staggered groups start one step apart, capped at 8 steps. */
   --press: 0.96;
   --stagger: 32ms;
+  /* Loading indicators (skeletons, the busy line) wait this long: a faster answer never shows them, so nothing flickers. */
+  --reveal-delay: 150ms;
   /* Every disabled control: buttons, icon buttons, row buttons, checkboxes, editor tools. */
   --disabled-opacity: 0.45;
 

@@ -2,7 +2,6 @@ export const authEn = {
   "auth.user.fileReferences": "Existing file reference IDs as a JSON array.",
   "auth.on": "On",
   "auth.off": "Off",
-  "auth.savedToast": "Saved.",
   "auth.rejected": "The server rejected these settings. Check the values.",
   "auth.rejectedFields": "The server rejected: {fields}. Check these values.",
   "auth.secretStored": "A secret is stored. Leave empty to keep it.",

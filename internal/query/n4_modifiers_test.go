@@ -55,7 +55,7 @@ func TestContainsCompilesAtRootAndRelationTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	statement, err := CompileList(root, ListQuery{Filter: parsed})
-	if err != nil || !strings.Contains(statement.SQL, `strpos(lower("title"), $1) > 0`) {
+	if err != nil || !strings.Contains(statement.SQL, `(lower("title") LIKE $1 ESCAPE '\')`) {
 		t.Fatalf("root SQL=%q args=%v err=%v", statement.SQL, statement.Args, err)
 	}
 	catalog, relationRoot := relationFilterSortCatalog()
@@ -68,7 +68,7 @@ func TestContainsCompilesAtRootAndRelationTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	statement, err = plan.pageStatementWithPolicy(nil, 10, nil, ruleBinding{})
-	if err != nil || !strings.Contains(statement.SQL, "strpos(") || len(statement.Args) != 2 {
+	if err != nil || !strings.Contains(statement.SQL, `LIKE $1 ESCAPE '\'`) || len(statement.Args) != 2 {
 		t.Fatalf("relation SQL=%q args=%v err=%v", statement.SQL, statement.Args, err)
 	}
 }
@@ -78,7 +78,7 @@ func TestNotContainsSymmetricContainsAndLengthCompile(t *testing.T) {
 		{ID: uuid.New(), Name: "title", ColumnName: "title", Type: schema.TypeText},
 	}}
 	for _, test := range []struct{ filter, sql string }{
-		{"title !~ 'draft'", `NOT (strpos("title", $1) > 0)`},
+		{"title !~ 'draft'", `("title" NOT LIKE $1 ESCAPE '\')`},
 		{"'alphabet' ~ title", `strpos($1, "title") > 0`},
 		{"title:length >= 5", `char_length("title") >= $1`},
 	} {
