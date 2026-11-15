@@ -18,6 +18,20 @@ Mutating admin helpers retain the login cookie and CSRF token. A restore starts
 the server's native restore job and does not invent an approval or idempotency
 contract; inspect it with `backupJob`.
 
+Administrator requests, including backup uploads/downloads, are bound to their
+client's local session generation through complete response-body collection.
+After a new login/resume, logout, or current-session 401 invalidates that
+generation, older success responses and HTTP/transport failures reject with
+`PgBaseError(403, 'session_changed')`. An older concurrent login also rejects
+instead of returning an identity that no longer owns the client's cookie/CSRF.
+Current-session errors retain their original status and details.
+
+Migration: discard `session_changed` and clear session-specific caches in your
+application. Reissue a read under the new identity if needed; do not automatically
+retry writes, which may already have committed. This local lifetime check cannot
+detect a cookie changed outside this client without a new `resume`/`login`, or
+control an external cookie-capable transport's own cookie updates.
+
 `confirmTotpEnrollment` always returns the server-authored recovery-code
 object. Its older named `fields` parameter is deprecated and ignored for source
 compatibility because the native confirmation route does not support response
