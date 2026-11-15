@@ -197,8 +197,8 @@ function uploadOnce<T>(path: string, body: FormData | Blob, options: UploadOptio
       xhr.open("POST", path);
       xhr.withCredentials = true;
       const headers = new Headers(options.headers);
-      if (csrfToken && !headers.has(csrfHeader)) headers.set(csrfHeader, csrfToken);
-      headers.forEach((value, key) => xhr.setRequestHeader(key, value));
+      for (const [key, value] of Object.entries(options.headers ?? {})) xhr.setRequestHeader(key, value);
+      if (csrfToken && !headers.has(csrfHeader)) xhr.setRequestHeader(csrfHeader, csrfToken);
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable && event.total > 0) options.onProgress?.(Math.min(1, Math.max(0, event.loaded / event.total)));
       };

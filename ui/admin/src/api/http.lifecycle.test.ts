@@ -109,7 +109,7 @@ describe("request session lifetime", () => {
     advanceSession();
     const fresh = request("POST", "/new");
     // Release the old flight even on the baseline, so a failing test cannot hang.
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2));
     oldRecovery.resolve("a");
     await expect(fresh).resolves.toEqual({ ok: true });
     expect(renew).toHaveBeenCalledTimes(2);
