@@ -23,10 +23,15 @@ export class AuthStore {
     this.#record = state?.record ?? null;
   }
 
-  get token(): string | null { return this.#token; }
+  get token(): string | null {
+    return this.#token;
+  }
   get record(): RecordData | null { return this.#record; }
   get isValid(): boolean { return this.#token !== null && this.#token.length > 0; }
-  get generation(): number { return this.#generation; }
+
+  get generation(): number {
+    return this.#generation;
+  }
 
   save(token: string, record: RecordData | null = null): void {
     this.#token = token;
@@ -55,7 +60,7 @@ export class AuthStore {
   loadFromCookie(cookie: string, key = "pgbase_auth"): void {
     validateAuthCookieName(key);
     const encoded = cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${key}=`))?.slice(key.length + 1);
-    if (!encoded) return;
+    if (encoded === undefined) return;
     try {
       const state = authState(JSON.parse(decodeURIComponent(encoded)));
       if (!state) throw new Error("invalid auth cookie");
@@ -72,11 +77,17 @@ export class AuthStore {
   }
 
   private notify(): void {
-    for (const listener of this.#listeners) listener(this.#generation);
+    for (const listener of this.#listeners) {
+      listener(this.#generation);
+    }
   }
 }
 
-/** Persistence remains opt-in and the caller selects its storage lifecycle. */
+/**
+ * Wrap browser storage only when the caller deliberately supplies it. This
+ * keeps token persistence opt-in and makes the storage lifecycle visible at
+ * client construction.
+ */
 export function browserTokenStorage(storage: Storage, key = "pgbase.user.token"): TokenStorage {
   return {
     get: () => storage.getItem(key),

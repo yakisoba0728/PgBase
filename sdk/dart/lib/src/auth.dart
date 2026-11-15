@@ -112,23 +112,30 @@ final class AuthStore {
     String sameSite = 'Lax',
   }) {
     final record = _record;
-    return serializeAuthCookie({
-      'token': _token,
-      'record': record == null
-          ? null
-          : {
-              'id': record.id,
-              'email': record.email,
-              'createdAt': record.createdAt,
-              if (record.verified != null) 'verified': record.verified,
-              if (record.emailVisibility != null)
-                'emailVisibility': record.emailVisibility,
-              if (record.authCollection != null)
-                'authCollection': record.authCollection,
-              if (record.authCollectionId != null)
-                'authCollectionId': record.authCollectionId,
-            },
-    }, key: key, path: path, httpOnly: httpOnly, secure: secure, sameSite: sameSite);
+    return serializeAuthCookie(
+      {
+        'token': _token,
+        'record': record == null
+            ? null
+            : {
+                'id': record.id,
+                'email': record.email,
+                'createdAt': record.createdAt,
+                if (record.verified != null) 'verified': record.verified,
+                if (record.emailVisibility != null)
+                  'emailVisibility': record.emailVisibility,
+                if (record.authCollection != null)
+                  'authCollection': record.authCollection,
+                if (record.authCollectionId != null)
+                  'authCollectionId': record.authCollectionId,
+              },
+      },
+      key: key,
+      path: path,
+      httpOnly: httpOnly,
+      secure: secure,
+      sameSite: sameSite,
+    );
   }
 
   /// Loads untrusted cached state. The server must still validate its token.
@@ -167,7 +174,8 @@ final class AuthStore {
           authCollectionId: rawRecord['authCollectionId'] as String?,
         );
       }
-      _replace(value['token'] as String?, record: record);
+      final token = value['token'] as String?;
+      _replace(token == null || token.isEmpty ? null : token, record: record);
     } catch (_) {
       _replace(null);
     }

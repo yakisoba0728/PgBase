@@ -1,46 +1,52 @@
 # Independent PostgreSQL platform workstream
 
-Status: implementation in progress, not release-ready. Baseline: `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a` (schema 67). This record supersedes earlier owner decisions only for this workstream; historical deployment records remain historical evidence.
+Baseline: `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`, schema 67. Work is isolated in PR [#148](https://github.com/yakisoba0728/PgBase/pull/148). Status: implemented hardening batches with final validation in progress; **not a completed exhaustive audit or unrestricted large-scale readiness certification**. No production access, deployment, release publication or schema migration has been performed.
 
 ## Owner-approved scope
 
-- PgBase is an independent PostgreSQL application backend. Product positioning must describe its own contracts and capabilities, not another product's compatibility or inspiration.
-- Breaking API, SDK, schema and configuration changes are permitted when justified. Existing production data does not need preserving. This is not permission to access or erase production data during development.
-- Features may be added, removed or replaced when they improve correctness, security, performance, operational reliability or developer experience.
-- Preserve the current administrator UI's visual identity. Improve behavior, accessibility, latency and internal implementation rather than replacing its design.
-- Work on the isolated refactor branch. Production deployment is excluded and remains the owner's responsibility. Do not publish a release or claim production readiness without the corresponding evidence.
-- Preserve required third-party copyright/license notices. Historical research is not a current product contract.
+Breaking API, SDK, schema and configuration changes are allowed when justified. Existing production data need not be preserved, but this does not authorize accessing or erasing production data during development. Features may be replaced when correctness, security, performance, reliability or developer experience improve. Preserve the administrator UI's visual identity. PgBase is an independent PostgreSQL application backend; historical research is not a compatibility promise. Required third-party notices remain intact. Production deployment remains the owner's responsibility.
 
 ## Architecture decisions
 
-Retain a PostgreSQL-owned durable state model and explicit transaction ownership. The initial supported scaling boundary is multiple application instances for one project sharing one database and consistent secrets/storage configuration. Do not introduce sharding, read replicas, distributed caches or compatibility layers merely to claim scale. Each such change needs a workload, a failure model, and measured benefit.
+1. PostgreSQL remains the owner of durable state. The supported scaling boundary is multiple instances of one project sharing one database, consistent secrets and suitable shared file storage. Do not add sharding, replicas or a distributed cache merely to claim scalability.
+2. Keep authentication, authorization, query planning, transaction execution and response projection separate. Preserve atomic record/revision/audit/outbox changes and the tested transaction ownership rules.
+3. Compile immutable configuration at publication boundaries. Request handling should not repeatedly parse settings or retain unrelated configuration.
+4. Bind frontend requests and recovery to a session lifetime. Neither a delayed successful result nor a late 401 may publish into a new login; a rejected old mutation must not be retried under a new session.
+5. Put image format, encoded-byte and decoded-pixel limits in explicit shared boundaries. Borrow already-owned input bytes instead of duplicating them; retain image orientation, transparency and output contracts.
+6. Preserve the existing UI layout and styling. Changes in this workstream concern transport behavior and product terminology, not a visual redesign.
 
-Keep request admission, authentication, authorization, query planning, transaction execution, projection and delivery as separate responsibilities. Mutations must preserve the atomic relation between data, revisions, audit and outbox entries. Realtime, jobs and file work must remain bounded and cancellation-aware. Network/CDN latency is separate from server/database latency.
+The existing core was recently rewritten and contains substantial transaction, auth, migration and recovery coverage. Rewriting these kernels again without demonstrated benefit would discard useful evidence. This workstream therefore makes targeted structural changes rather than equating changed-line count with quality. In particular, replacing the schema `FOR SHARE` pin with advisory locking is deferred: snapshot timing and DDL/catalog consistency need a dedicated design and regression proof.
 
-The frontend transport must not replay or publish work across a session boundary. Cache, request and upload lifetimes must be explicit. Existing styling remains the baseline.
+## Implemented batches
 
-## Execution and gates
+| Area | Change | Evidence and boundary |
+| --- | --- | --- |
+| HTTP | Explicit gzip preferences override wildcards across header lines; validate qvalue grammar; conflicting duplicates deny conservatively | Baseline reproduced 11/18 new failures; corrected 22 cases and completed bounded fuzzing. No blanket HTTP parser audit claim |
+| Administrator transport | Session-bound success/error/body decoding and CSRF recovery; abort cleanup, preserved abort reason, upload timeout handling and bounded progress | 17 new lifecycle cases plus existing transport/session tests; no layout or CSS change |
+| PostgreSQL driver | pgx 5.11.0 to 5.13.0 with verified module lockfile | Includes upstream security/correctness fixes; do not claim every upstream issue was exploitable in PgBase |
+| API quotas | Immutable compiled exclusion policies; distinguish database failure from genuine quota exhaustion | Fault-injected baseline reproduction, five corrected race/integration runs; paired microbenchmarks |
+| Images | Shared bounded decoder, zero extra encoded-input copy on byte entry points, WebP fallback reuses input | Existing GIF/WebP/orientation/transparency tests plus byte/reader parity, bounds and input immutability; paired benchmarks |
+| SDKs | Native `pgbase_auth` cookie namespace, TypeScript/Dart attribute parity and validation, explicit empty/missing-state semantics | Breaking contract and deployment guidance in [SDK cookies](../../sdk-auth-cookies.md); SDK validation must pass on the final revision |
+| Product identity | Independent README and English/Korean administrator wording | Legacy mode remains labelled legacy, not falsely native. Historical documents and license notices are preserved |
+| Test reliability | Backup test waits for actual operation drain and owns cleanup immediately; crash E2E resolves recreated container identities | Fixes observed fixture failures without removing durability assertions; crash test now forces container replacement |
+| Qualification | Bounded concurrent query-service profile with dataset, concurrency, tails and error reporting | Synthetic disposable database only; [performance evidence](performance.md) states limitations |
 
-1. Inventory runtime modules, public surfaces and current evidence; classify confirmed defects separately from hypotheses.
-2. Record architecture decisions and behavioral contracts before changing shared boundaries.
-3. Reproduce confirmed defects with tests; capture comparative benchmarks before performance changes.
-4. Implement backend, frontend, SDK and documentation changes in coherent batches.
-5. Run formatting, static checks, unit/race, PostgreSQL integration, SDK conformance and browser tests against the same revision.
-6. Exercise concurrency, bounded resource use, failure/recovery and multi-instance behavior using disposable fixtures only.
-7. Re-review changed boundaries, record remaining risks and produce a candidate only if the gates pass.
+## Verification policy
 
-Passing existing unit tests does not prove absence of vulnerabilities or readiness for arbitrary large-scale services. Report tested workloads, environment, latency percentiles, throughput, errors and limitations. Unexecuted checks remain explicitly unverified.
+Preserve the repository's formatting/static/unit/integration/SDK/browser/security gates. Full manual Backend covers PostgreSQL 16/17/18, 17 race shards, multiprocess durability, live SDKs, Windows self-update, macOS terminal and release-phase tests. Full Security additionally scans the produced image. E2E includes browser scenarios and process/database failure recovery. These are distinct from release publication, and no release workflow has been dispatched.
 
-## Evidence ledger
+The earlier full candidate `5d378046` passed PostgreSQL 16/18, the 17 application shard, Windows/macOS and full security, but failed a backup test's three-second polling assumption and crash-test cleanup of stale container IDs. Those failures are retained as evidence and corrected in source; they are not silently rerun until green or presented as product data-loss fixes. Initial frontend tests also showed intermittent one-second view-assertion failures; five focused repetitions and later full runs passed, but the original timing cause was not conclusively established.
 
-### HTTP compression negotiation
+The current final run results will be recorded separately by exact revision. Unexecuted, cancelled, failed or older-revision checks are not a pass for the final candidate. Focused benchmark results are retained in [performance.md](performance.md), including the small-image case that did not improve.
 
-The baseline chose the first `gzip` or wildcard member and accepted non-HTTP floating-point weights. Eighteen new table cases reproduced eleven failures against the unchanged implementation. The correction gives explicit gzip preferences precedence across all header lines, validates the RFC 9110 qvalue grammar and treats conflicting duplicates conservatively.
+## Scope still requiring qualification
 
-The corrected standard-library-only source passed 22 table cases and six fuzz seeds with the Go 1.23.2 race detector in an isolated local harness. This is not the repository's Go 1.26.11 integration result. A short fuzz execution was interrupted by the execution limit and is not counted as a completed fuzz run. Full repository validation is pending CI.
+- End-to-end HTTP saturation and sustained mixed read/write workloads, realistic relation graphs, realtime fan-out, slow clients, storage/network failures and large backup/restore timings.
+- Independent security/code review. A GitHub Codex review was requested; a request is not a completed review. This chat environment has no separate coding-agent spawn facility, and parallel CI jobs are not independent AI agents.
+- Browser coverage beyond the existing Chromium suite, actual assistive-technology use, external OAuth/SMTP vendors and a full manual visual audit.
+- The repository About description remains an administrative setting outside this code PR. Proposed wording: “Independent PostgreSQL application backend with typed data, authentication, realtime, file storage and an embedded administrator UI.”
+- Legacy wire adapters and dated research remain where removal would be a separate contract change. A positioning change does not justify deleting third-party notices or pretending historical work never existed.
 
-### Execution environment
+## Execution record
 
-The connected GitHub tools can read and write the isolated branch and retrieve Actions evidence. The initial local environment could not resolve external hosts. Source and pinned tools were obtained through short-retention, read-only Actions artifacts. A subsequent local execution environment error prevents treating the transported tools as a successfully initialized test environment. Use CI results, not downloaded binaries, as evidence of executed checks.
-
-No separate coding-agent spawn facility is available in this session; parallel CI jobs are not independent AI reviews. No production access or deployment has been performed.
+The initial local environment could not resolve external hosts. Source and pinned toolchains were transported through short-retention, read-only Actions artifacts, but a subsequent local execution error prevented initialization of the full local toolchain. CI is the evidence for executed repository checks. The temporary toolchain/source transport and generated-output writer have been removed; remaining workstream-only validation helpers must be removed or converted to read-only manual qualification before merge.

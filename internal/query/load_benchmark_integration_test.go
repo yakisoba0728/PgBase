@@ -70,8 +70,9 @@ func BenchmarkConcurrentRecordReads(b *testing.B) {
 	}
 	base := ListRequest{Principal: testReadPrincipal, Collection: "benchmark_records", Limit: 50}
 	deep := base
-	// Walk ten thousand rows using native cursors, never an offset adapter.
-	for range 200 {
+	// Walk at most ten thousand rows and no more than half a small fixture,
+	// using native cursors rather than an offset adapter.
+	for range min(200, rows/100) {
 		page, err := records.List(ctx, deep)
 		if err != nil || len(page.Items) != 50 || page.NextCursor == "" {
 			b.Fatalf("prepare deep cursor: rows=%d err=%v", len(page.Items), err)

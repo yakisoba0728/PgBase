@@ -59,13 +59,16 @@ test("protected cookie prefixes require their associated attributes", () => {
   invalid(() => store.exportToCookie({ key: "__Host-Http-session", secure: true, httpOnly: false }));
 });
 
-test("malformed cached state is cleared and a null token cannot retain an identity", () => {
+test("missing, empty, malformed and null-token cookies have explicit behavior", () => {
   const store = new AuthStore();
   store.save("before", { id: "old" });
-  store.loadFromCookie(`pgbase_auth=${encodeURIComponent(JSON.stringify({ token: null, record: { id: "untrusted" } }))}`);
-  assert.equal(store.token, null);
-  assert.equal(store.record, null);
-  store.save("before");
-  store.loadFromCookie("pgbase_auth=%invalid");
-  assert.equal(store.isValid, false);
+  store.loadFromCookie("unrelated=value");
+  assert.equal(store.token, "before");
+  for (const cookie of ["pgbase_auth=", "pgbase_auth=%invalid", ...[null, ""].map((token) => `pgbase_auth=${encodeURIComponent(JSON.stringify({ token, record: { id: "untrusted" } }))}`)]) {
+    store.save("before", { id: "old" });
+    store.loadFromCookie(cookie);
+    assert.equal(store.token, null);
+    assert.equal(store.record, null);
+    assert.equal(store.isValid, false);
+  }
 });
