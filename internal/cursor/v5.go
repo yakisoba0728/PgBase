@@ -81,7 +81,7 @@ func (c *Codec) Encode(page Page) (string, error) {
 	if err != nil {
 		return "", invalid()
 	}
-	if hasValues && (page.PrivateValues || len(payload)+sha256.Size > maxDecodedSize) {
+	if hasValues && (page.PrivateValues || len(payload) > maxDecodedSize-sha256.Size) {
 		if page.AnchorID == uuid.Nil {
 			return "", invalid()
 		}
