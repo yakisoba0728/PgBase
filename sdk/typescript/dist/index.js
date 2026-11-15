@@ -265,9 +265,7 @@ export class PgBaseClient {
         const key = requestKey === undefined && (method === "GET" || method === "HEAD") ? `${method} ${path}` : requestKey;
         // RequestInit.signal is part of send's public fetch-compatible contract.
         // Both sources stay active when the caller also supplies RequestOptions.
-        const callerSignal = signal && init.signal && signal !== init.signal
-            ? AbortSignal.any([signal, init.signal]) : signal ?? init.signal ?? undefined;
-        const keyed = this.keyedSignal(key, callerSignal);
+        const keyed = this.keyedSignal(key, signal, init.signal);
         try {
             const response = await this.fetchResponse(path, init, keyed.signal);
             return { body: await read(response), etag: response.headers.get("ETag") ?? undefined };
@@ -327,22 +325,31 @@ export class PgBaseClient {
         }
         return response;
     }
-    keyedSignal(key, signal) {
-        if (!key || !this.autoCancellation)
-            return { signal, cleanup: () => { } };
-        if (this.autoCancellation)
-            this.cancelRequest(key);
+    keyedSignal(key, ...signals) {
+        const sources = [...new Set(signals.filter((signal) => !!signal))];
+        const requestKey = key && this.autoCancellation ? key : undefined;
+        if (!requestKey && sources.length < 2)
+            return { signal: sources[0], cleanup: () => { } };
+        if (requestKey)
+            this.cancelRequest(requestKey);
         const controller = new AbortController();
-        this.requestControllers.set(key, controller);
-        const abort = () => controller.abort(signal?.reason);
-        if (signal?.aborted)
-            abort();
-        else
-            signal?.addEventListener("abort", abort, { once: true });
+        if (requestKey)
+            this.requestControllers.set(requestKey, controller);
+        const removeListeners = [];
+        for (const signal of sources) {
+            const abort = () => controller.abort(signal.reason);
+            if (signal.aborted) {
+                abort();
+                break;
+            }
+            signal.addEventListener("abort", abort, { once: true });
+            removeListeners.push(() => signal.removeEventListener("abort", abort));
+        }
         return { signal: controller.signal, cleanup: () => {
-                signal?.removeEventListener("abort", abort);
-                if (this.requestControllers.get(key) === controller)
-                    this.requestControllers.delete(key);
+                for (const remove of removeListeners)
+                    remove();
+                if (requestKey && this.requestControllers.get(requestKey) === controller)
+                    this.requestControllers.delete(requestKey);
             } };
     }
 }

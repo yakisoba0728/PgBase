@@ -42,6 +42,38 @@ test("either low-level cancellation signal remains effective through body reads"
   }
 });
 
+test("two cancellation sources work without AbortSignal.any and release forwarding listeners", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, "any");
+  Object.defineProperty(AbortSignal, "any", { configurable: true, value: undefined });
+  try {
+    for (const requestKey of [null, "combined"]) {
+      for (const fail of [false, true]) {
+        const sources = [new AbortController(), new AbortController()];
+        const active = sources.map(({ signal }) => {
+          const listeners = new Set();
+          const add = signal.addEventListener.bind(signal);
+          const remove = signal.removeEventListener.bind(signal);
+          signal.addEventListener = (type, listener, options) => { if (type === "abort") listeners.add(listener); add(type, listener, options); };
+          signal.removeEventListener = (type, listener, options) => { if (type === "abort") listeners.delete(listener); remove(type, listener, options); };
+          return listeners;
+        });
+        const failure = new Error("transport failed");
+        const client = new PgBaseClient("http://pgbase.test", { fetch: async () => {
+          if (fail) throw failure;
+          return Response.json({ ok: true });
+        } });
+        const pending = client.send("/status", { signal: sources[0].signal }, { signal: sources[1].signal, requestKey });
+        if (fail) await assert.rejects(pending, (error) => error === failure);
+        else assert.deepEqual(await pending, { ok: true });
+        assert.deepEqual(active.map((listeners) => listeners.size), [0, 0]);
+      }
+    }
+  } finally {
+    if (descriptor) Object.defineProperty(AbortSignal, "any", descriptor);
+    else delete AbortSignal.any;
+  }
+});
+
 test("auto cancellation retains body reads, leaves mutations independent and respects the global switch", async () => {
   const calls = [];
   const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, init) => new Response(new ReadableStream({
