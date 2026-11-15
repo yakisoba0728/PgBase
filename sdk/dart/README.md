@@ -34,6 +34,13 @@ rejects instead of returning an unadopted session, and preserves an explicit
 newer login. Refresh also invalidates concurrent old-generation reads when the
 user is unchanged. Use separate stores for deliberately independent identities.
 
+Auth completion checks again at adoption and accounts for exactly its own
+generation increment while awaiting persistence. If another save or clear occurs
+during that wait, the older completion rejects; a persistence failure for the
+still-current self-adopted identity keeps its original error. Once a Future has
+completed, later auth changes cannot retract its value or stop a delayed consumer
+callback. Applications must clear their own caches/subscriptions on auth change.
+
 Migration: discard `session_changed`, clear session-specific caches, and issue a
 fresh read when appropriate. Never automatically retry a write: it may already
 have committed under the original identity. The guard does not cancel remote

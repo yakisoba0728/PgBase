@@ -200,16 +200,17 @@ final class PgBaseClient {
       if (auth.token == null)
         throw const PgBaseProtocolError('authentication_required');
       final generation = auth.generation;
-      final session = _decodeRefreshSession(
-        await request('POST', path, cancellation: cancellation),
-      );
-      if (generation == auth.generation) {
+      final scope = AuthScope(auth);
+      return scope.run(() async {
+        final session = _decodeRefreshSession(
+          await request('POST', path, cancellation: cancellation),
+        );
+        scope.check();
         if (_refreshGeneration != generation) _refreshOrigin = generation;
         _refreshGeneration = generation + 1;
-        final saving = auth.save(session.token!, record: session.user);
-        await saving;
-      }
-      return session;
+        await scope.adopt(session.token!, record: session.user);
+        return session;
+      });
     }();
     _pendingRefresh = operation;
     void clear() {
@@ -682,37 +683,40 @@ final class PgBaseClient {
     CancellationToken? cancellation, {
     bool mfa = false,
     String? fields,
-  }) async {
-    final generation = auth.generation;
-    try {
-      final session = _decodeSession(
-        await request(
-          'POST',
-          path,
-          body: JsonObject(body),
-          query: {if (fields != null) 'fields': fields},
-          cancellation: cancellation,
-        ),
-      );
-      if (session.token != null && generation == auth.generation)
-        await auth.save(session.token!, record: session.user);
-      return session;
-    } on PgBaseError catch (error) {
-      if (mfa && error.code == 'mfa_required') {
-        final token = error.details['challengeToken']?.firstOrNull;
-        final expiresAt = error.details['expiresAt']?.firstOrNull;
-        if (token != null && expiresAt != null)
-          throw MfaChallengeError(
-            error.status,
-            error.code,
-            MfaChallenge(token: token, expiresAt: expiresAt),
-            details: error.details,
-            etag: error.etag,
-            requestId: error.requestId,
-          );
+  }) {
+    final scope = AuthScope(auth);
+    return scope.run(() async {
+      try {
+        final session = _decodeSession(
+          await request(
+            'POST',
+            path,
+            body: JsonObject(body),
+            query: {if (fields != null) 'fields': fields},
+            cancellation: cancellation,
+          ),
+        );
+        scope.check();
+        if (session.token != null)
+          await scope.adopt(session.token!, record: session.user);
+        return session;
+      } on PgBaseError catch (error) {
+        if (mfa && error.code == 'mfa_required') {
+          final token = error.details['challengeToken']?.firstOrNull;
+          final expiresAt = error.details['expiresAt']?.firstOrNull;
+          if (token != null && expiresAt != null)
+            throw MfaChallengeError(
+              error.status,
+              error.code,
+              MfaChallenge(token: token, expiresAt: expiresAt),
+              details: error.details,
+              etag: error.etag,
+              requestId: error.requestId,
+            );
+        }
+        rethrow;
       }
-      rethrow;
-    }
+    });
   }
 
   Future<void> _voidPost(
