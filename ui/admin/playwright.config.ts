@@ -12,6 +12,11 @@ if (authenticatedBaseURL !== undefined && new URL(authenticatedBaseURL).origin =
 
 const projects: Project[] = [
   {
+    name: "browser-contracts-chromium",
+    testDir: "./e2e/contracts",
+    use: { ...devices["Desktop Chrome"] },
+  },
+  {
     name: "onboarding-chromium",
     testDir: "./e2e/onboarding",
     use: { ...devices["Desktop Chrome"], baseURL: onboardingBaseURL },
