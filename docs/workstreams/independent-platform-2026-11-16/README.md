@@ -34,7 +34,7 @@ The core was recently rewritten and contains substantial transaction, auth, migr
 | Test reliability | Deterministic backup completion/cleanup, recreated-container recovery checks, exact classification of intentionally injected history drift |
 | Qualification | Paired benchmarks, 500000-row concurrent query profile, extended Go/JS/TS CodeQL analysis and read-only manual qualification workflows |
 
-The full runtime candidate passed PostgreSQL 16/17/18, race, live SDK, bounded multiprocess, native Windows/macOS, security/image and browser/crash E2E validation. Frontend verification passed 422 tests and exact clean-build reproduction. Extended CodeQL reported zero Go and zero JavaScript/TypeScript findings. See [validation.md](validation.md) for precise commits, run IDs, initial failures, corrective changes and scope limits; passing these checks is not a vulnerability-free or unlimited-scale guarantee.
+The full runtime candidate passed PostgreSQL 16/17/18, race, live SDK, bounded multiprocess, native Windows/macOS, security/image and browser/crash E2E validation. Frontend verification passed 422 tests and exact clean-build reproduction. The earlier CodeQL zero-finding claim was incorrect: independently verified artifacts contain **27 Go and 3 JavaScript/TypeScript findings**. Counts, severity metadata and query totals have been corrected in the verification record; finding classification is being completed against the actual source. See [validation.md](validation.md) for precise commits, run IDs, initial failures, corrective changes and scope limits; passing these checks is not a vulnerability-free or unlimited-scale guarantee.
 
 ## Remaining qualification
 

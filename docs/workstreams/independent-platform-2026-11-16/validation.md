@@ -21,12 +21,23 @@ PR [#148](https://github.com/yakisoba0728/PgBase/pull/148) contains an implement
 | Frontend | `cf50eed3` PR, [43751630180](https://github.com/yakisoba0728/PgBase/actions/runs/43751630180) | Typecheck, **76 files / 422 tests**, clean build and exact committed-dist reproduction passed |
 | Routine Security | `cf50eed3` PR, [43751630222](https://github.com/yakisoba0728/PgBase/actions/runs/43751630222) | Passed |
 | History-drift regression | `cf50eed3`, [43751630186](https://github.com/yakisoba0728/PgBase/actions/runs/43751630186) | 30 race repetitions of the error classifier and 30 race/integration repetitions of the intentionally damaged-history fixture passed |
-| CodeQL extended Go | `cf50eed3`, [43751625628](https://github.com/yakisoba0728/PgBase/actions/runs/43751625628), job `132926640587` | Build/extraction and 147 queries completed; **0 reported results** |
-| CodeQL extended JavaScript/TypeScript | Same run, job `132926640381` | 984 files extracted and 220 queries completed; **0 reported results** |
+| CodeQL extended Go | `cf50eed3`, [43751625628](https://github.com/yakisoba0728/PgBase/actions/runs/43751625628), job `132926640587` | **Corrected:** 37 queries loaded; 27 SARIF results (15 error / 12 warning), requiring classification |
+| CodeQL extended JavaScript/TypeScript | Same run, job `132926640381` | **Corrected:** 105 queries loaded; 3 SARIF results (2 error / 1 warning), requiring classification |
 
 The full Backend job `132925952438` additionally completed the final benchmark-baseline recording/upload after its integration and SDK checks. S3 and database fixtures were isolated CI resources. Successful release-phase artifact *tests* do not mean a release was published.
 
-CodeQL used action v4.39.3 at pinned commit `33d7b85da1a04171e211befe2c739303b9a4c066` and linked CLI 2.27.4. Go SARIF/findings artifact: `14177882774`, SHA-256 `855de166c1929fcac6a98ecf9dd781c51f4a82d088fff734c63e1dc6e7e63711`. JavaScript/TypeScript artifact: `14177840847`, SHA-256 `b0b135e2b57f0d5065d454ca56b9f9ac0ea2ec5501bb41f2ffcd7120f496f822`. A clean static report is not a proof that vulnerabilities are absent and does not cover Dart source analysis or replace authorization/threat-model review.
+**Evidence correction (independent recheck, 2026-11-16):** the previous zero-finding claim, query counts, extraction count and artifact identifiers in this document were incorrect. Both job logs explicitly print 27 Go and 3 JavaScript/TypeScript findings. The successful workflow only meant that analysis/artifact creation completed; its reporting step did not gate on findings. No evidence establishes why the earlier report substituted different numbers.
+
+CodeQL used action v4.39.3 at pinned commit `33d7b85da1a04171e211befe2c739303b9a4c066` and CLI 2.27.4. Independently downloaded artifacts match the GitHub API digests:
+
+| Language | Actual artifact | ZIP SHA-256 |
+| --- | --- | --- |
+| Go | `14176194587` | `d325c391955a94a1646d3055046e40d277738f0c9b433be48c083054c89a5092` |
+| JavaScript/TypeScript | `14176811964` | `a77a9ff60abfd21cc128dfdae50fb208b36116e4a553a7c0d594e7b0b10a188a` |
+
+The query logs end at `[37/37] Loaded` for Go and `[105/105] Loaded` for JavaScript. SARIF has 35/103 rule descriptors (including 1/2 metric rules); diagnostic descriptors explain the distinct counts. SARIF successfully-extracted-file notifications identify 483 Go and 323 JavaScript/TypeScript file URIs. These are exact source-specific observations, not interchangeable counts of security checks.
+
+The old workflow looked up descriptors only in `tool.driver.rules`, which is empty in both artifacts. CodeQL stores these descriptors in `tool.extensions` and references them through `result.rule.toolComponent`; consequently all old `findings.json` severity fields were null. The new tested parser resolves the actual component, preserves every result and fingerprint, rejects incomplete analysis/unresolvable metadata, and records counts with file digests and source/run binding in `summary.json`. This parser defect explains the missing severity metadata, **not** the inaccurate zero-result prose. Static findings still require reachability and trust-boundary review; they are not automatically proven exploits.
 
 ## Reproductions and failures were retained
 
