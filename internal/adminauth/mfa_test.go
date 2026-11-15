@@ -52,6 +52,23 @@ func TestTOTPValidationAndCIDRNormalization(t *testing.T) {
 	}
 }
 
+func TestTOTPRequiresExactlySixASCIIDigits(t *testing.T) {
+	secret, err := decodeTOTPSecret("JBSWY3DPEHPK3PXP")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_270, 0)
+	code := testTOTP(secret, now)
+	if code != "070624" || !validTOTP(secret, code, now) {
+		t.Fatalf("leading-zero fixture is not valid: %q", code)
+	}
+	for _, invalid := range []string{"+70624", "-70624", "70624", "0070624", " 70624", "０70624", "07\x00624", "4295037920", "999999999999999999999"} {
+		if validTOTP(secret, invalid, now) {
+			t.Errorf("noncanonical OTP %q accepted", invalid)
+		}
+	}
+}
+
 func TestAddressAllowedMatchesTheSessionCheck(t *testing.T) {
 	for _, tc := range []struct {
 		prefixes []string
