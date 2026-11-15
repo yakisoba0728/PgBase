@@ -1,0 +1,103 @@
+name: Refactor regression evidence
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refactor-regressions-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  quota:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'refactor/independent-platform-20261116'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.11
+          cache: true
+      - name: Select disposable database
+        env:
+          PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: echo "PGBASE_TEST_ADMIN_URL=postgres://postgres:postgres@127.0.0.1:$PORT/postgres?sslmode=disable" >> "$GITHUB_ENV"
+      - name: Reproduce the failure against the unchanged baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/quota-baseline" 8f551de4423a6b64d9c0ac94fff9b9bd07264f2a
+          cp internal/apiratelimit/failure_integration_test.go "$RUNNER_TEMP/quota-baseline/internal/apiratelimit/"
+          set +e
+          (cd "$RUNNER_TEMP/quota-baseline" && go test -tags=integration ./internal/apiratelimit -run '^TestQuotaDatabaseFailureIsNotReportedAsExhaustion$' -count=1 -v) > quota-baseline.log 2>&1
+          status=$?
+          set -e
+          cat quota-baseline.log
+          test "$status" -ne 0
+          grep -F 'database failure was masked' quota-baseline.log
+      - name: Verify the correction and concurrent policy publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -race -tags=integration ./internal/apiratelimit -count=5 -v | tee quota-corrected.log
+      - name: Measure baseline and compiled policy in the same process
+        shell: bash
+        run: |
+          set -euo pipefail
+          go version > quota-environment.txt
+          lscpu >> quota-environment.txt
+          go test ./internal/apiratelimit -run '^$' -bench '^BenchmarkExcludedIPPolicy$' -benchmem -benchtime=300ms -count=5 | tee quota-benchmark.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: quota-regression-evidence-${{ github.event.pull_request.head.sha }}
+          path: |
+            quota-baseline.log
+            quota-corrected.log
+            quota-benchmark.txt
+            quota-environment.txt
+          retention-days: 14
+
+  ui-repeat:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'refactor/independent-platform-20261116'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: ui/admin/package-lock.json
+      - name: Repeat the intermittent view tests without increasing their deadlines
+        working-directory: ui/admin
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts
+          for attempt in 1 2 3 4 5; do
+            echo "Focused UI repetition $attempt"
+            npm test -- src/auth/UsersView.test.tsx src/apidocs/ApiView.test.tsx
+          done
