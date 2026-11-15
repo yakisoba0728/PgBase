@@ -66,6 +66,7 @@ func TestMixedHTTPPoolQualification(t *testing.T) {
 	const recordsPerOwner = 128
 	type ownerFixture struct {
 		token, prefix, group, seededID string
+		titles                         []string
 	}
 	owners := make([]ownerFixture, 2)
 	for index := range owners {
@@ -76,10 +77,11 @@ func TestMixedHTTPPoolQualification(t *testing.T) {
 		assertPublicUsersStatus(t, group, http.StatusCreated)
 		var created map[string]any
 		decodePublicUsersJSON(t, group, &created)
-		owners[index] = ownerFixture{token: user.Token, prefix: prefix, group: created["id"].(string)}
+		owners[index] = ownerFixture{token: user.Token, prefix: prefix, group: created["id"].(string), titles: make([]string, recordsPerOwner)}
 		for ordinal := range recordsPerOwner {
+			owners[index].titles[ordinal] = fmt.Sprintf("%snote-%03d", prefix, ordinal)
 			record := publicUsersRequest(t, fixture, http.MethodPost, "/api/v1/user/collections/mixed_notes/records",
-				map[string]any{"title": fmt.Sprintf("%snote-%03d", prefix, ordinal), "rank": ordinal,
+				map[string]any{"title": owners[index].titles[ordinal], "rank": ordinal,
 					"group": owners[index].group}, user.Token, nil, nil)
 			assertPublicUsersStatus(t, record, http.StatusCreated)
 			if ordinal == 0 {
@@ -203,16 +205,23 @@ func TestMixedHTTPPoolQualification(t *testing.T) {
 											err = fmt.Errorf("page length=%d want=50", len(items))
 											break
 										}
-										for _, value := range items {
+										pageIDs := make(map[string]bool, len(items))
+										for itemIndex, value := range items {
 											item, _ := value.(map[string]any)
 											id, _ := item["id"].(string)
 											title, _ := item["title"].(string)
+											rank, numericRank := item["rank"].(float64)
+											wantRank := itemIndex
+											if kind == "cursor" {
+												wantRank += 50
+											}
 											expand, _ := item["expand"].(map[string]any)
 											group, _ := expand["group"].(map[string]any)
-											if id == "" || !strings.HasPrefix(title, owner.prefix) || group["id"] != owner.group || (kind == "cursor" && seen[id]) {
-												err = fmt.Errorf("page violated owner/relation/continuation contract")
+											if id == "" || pageIDs[id] || !numericRank || rank != float64(wantRank) || title != owner.titles[wantRank] || group["id"] != owner.group || (kind == "cursor" && seen[id]) {
+												err = fmt.Errorf("page violated owner/relation/filter/order/identity/continuation contract at rank %d", wantRank)
 												break
 											}
+											pageIDs[id] = true
 											if operation == 4 {
 												seen[id] = true
 											}
