@@ -1,19 +1,15 @@
 name: Refactor candidate preparation
 
-# Temporary and restricted to the owner-authorized workstream. Builds execute
-# with read-only permission; a separate job can commit only the allowlisted
-# generated outputs to this exact branch, with a compare-before-push check.
+# Temporary, exact-branch-only build transport. The build has read-only
+# permission. The separate writer only applies allowlisted non-executable files.
 on:
   pull_request:
     branches: [main]
-
 permissions:
   contents: read
-
 concurrency:
   group: refactor-preparation-${{ github.event.pull_request.number }}
   cancel-in-progress: true
-
 jobs:
   prepare:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'refactor/independent-platform-20261116'
@@ -24,58 +20,58 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: 1.26.11
-          cache: true
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.22.2
           cache: npm
           cache-dependency-path: ui/admin/package-lock.json
-      - name: Apply reviewed transport follow-ups
+      - name: Apply reviewed independent-product wording
         shell: python
         run: |
           from pathlib import Path
-          def replace_once(path, old, new):
-              file = Path(path)
-              text = file.read_text()
-              if new in text:
-                  return
-              if text.count(old) != 1:
-                  raise SystemExit(f"Unexpected source for {path}")
-              file.write_text(text.replace(old, new))
-          replace_once('ui/admin/src/api/http.ts',
-              '      if (csrfToken && !headers.has(csrfHeader)) headers.set(csrfHeader, csrfToken);\n      headers.forEach((value, key) => xhr.setRequestHeader(key, value));',
-              '      for (const [key, value] of Object.entries(options.headers ?? {})) xhr.setRequestHeader(key, value);\n      if (csrfToken && !headers.has(csrfHeader)) xhr.setRequestHeader(csrfHeader, csrfToken);')
-          replace_once('ui/admin/src/api/http.lifecycle.test.ts',
-              'await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));',
-              'await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2));')
-      - name: Apply the reviewed PostgreSQL driver security upgrade
-        run: |
-          go get github.com/jackc/pgx/v5@v5.13.0
-          go mod tidy
-          go mod verify
-          git diff -- go.mod go.sum
-      - name: Typecheck and run transport regressions
+          replacements = {
+              'en': {
+                  '"schema.compatibilityName": "Compatibility name"': '"schema.compatibilityName": "API alias"',
+                  '"schema.compatibilityHint": "Optional PocketBase-style alias for the API."': '"schema.compatibilityHint": "Optional legacy alias for the collection API."',
+                  '"schema.mode.pocketbase": "PocketBase compatible"': '"schema.mode.pocketbase": "Legacy compatibility"',
+                  '"schema.recordId.text": "Text (PocketBase style)"': '"schema.recordId.text": "Text identifier"',
+              },
+              'ko': {
+                  '"schema.compatibilityName": "호환 이름"': '"schema.compatibilityName": "API 별칭"',
+                  '"schema.compatibilityHint": "API용 PocketBase 방식 별칭 (선택)"': '"schema.compatibilityHint": "컬렉션 API용 레거시 별칭 (선택)"',
+                  '"schema.mode.pocketbase": "PocketBase 호환"': '"schema.mode.pocketbase": "레거시 호환"',
+                  '"schema.recordId.text": "텍스트 (PocketBase 방식)"': '"schema.recordId.text": "텍스트 식별자"',
+              },
+          }
+          for language, edits in replacements.items():
+              path = Path(f'ui/admin/src/i18n/{language}.ts')
+              text = path.read_text()
+              for old, new in edits.items():
+                  if new in text:
+                      continue
+                  if text.count(old) != 1:
+                      raise SystemExit(f'Unexpected source: {language}: {old}')
+                  text = text.replace(old, new)
+              path.write_text(text)
+      - name: Verify transport and product wording
         working-directory: ui/admin
         run: |
           npm ci --ignore-scripts
           npm run typecheck
-          npm test -- src/api/http.test.ts src/api/http.lifecycle.test.ts src/api/session.test.ts
-      - name: Generate embedded administrator output
+          npm test -- src/api/http.test.ts src/api/http.lifecycle.test.ts src/api/session.test.ts src/i18n/identity.test.ts
+      - name: Build embedded administrator assets
         working-directory: ui/admin
         run: |
           rm -rf dist
           npm run build
-      - name: Package only reviewed changes and generated output
+      - name: Package the bounded candidate patch
         shell: bash
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/pgbase-candidate"
           mkdir -p "$out"
           git rev-parse HEAD > "$out/source-commit.txt"
-          git add -- go.mod go.sum ui/admin/src/api/http.ts ui/admin/src/api/http.lifecycle.test.ts ui/admin/dist
+          git add -- ui/admin/src/i18n/en.ts ui/admin/src/i18n/ko.ts ui/admin/dist
           git diff --cached --no-renames --binary > "$out/candidate.patch"
           git diff --cached --stat
           cd "$out"
@@ -86,7 +82,6 @@ jobs:
           path: ${{ runner.temp }}/pgbase-candidate/
           retention-days: 3
           if-no-files-found: error
-
   commit-generated:
     needs: prepare
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'refactor/independent-platform-20261116'
@@ -105,7 +100,7 @@ jobs:
         with:
           name: refactor-candidate-${{ github.event.pull_request.head.sha }}
           path: ${{ runner.temp }}/pgbase-candidate
-      - name: Verify and stage the bounded patch without executing its contents
+      - name: Validate and stage without executing patch contents
         shell: bash
         run: |
           set -euo pipefail
@@ -120,15 +115,14 @@ jobs:
               raise SystemExit('Candidate patch exceeds transport budget')
           if not patch.stat().st_size:
               raise SystemExit(0)
-          allowed = {'go.mod', 'go.sum', 'ui/admin/src/api/http.ts', 'ui/admin/src/api/http.lifecycle.test.ts'}
+          allowed = {'ui/admin/src/i18n/en.ts', 'ui/admin/src/i18n/ko.ts'}
           stats = subprocess.check_output(['git', 'apply', '--numstat', '-z', str(patch)]).decode()
           paths = []
           for entry in stats.split('\0'):
               if not entry:
                   continue
               path = entry.split('\t', 2)[2]
-              parts = pathlib.PurePosixPath(path).parts
-              if '..' in parts or path.startswith('/') or not (path in allowed or path.startswith('ui/admin/dist/')):
+              if '..' in pathlib.PurePosixPath(path).parts or path.startswith('/') or not (path in allowed or path.startswith('ui/admin/dist/')):
                   raise SystemExit(f'Unapproved generated path: {path}')
               paths.append(path)
           if len(paths) > 1000:
@@ -136,16 +130,15 @@ jobs:
           subprocess.run(['git', 'apply', '--index', str(patch)], check=True)
           for entry in subprocess.check_output(['git', 'ls-files', '--stage', '-z', '--', *paths]).decode().split('\0'):
               if entry and not entry.startswith('100644 '):
-                  raise SystemExit('Generated symlinks or executable files are not permitted')
+                  raise SystemExit('Generated symlinks or executable files are forbidden')
           PY
-      - name: Commit to the isolated branch only when its head is unchanged
+      - name: Commit only if this isolated branch has not moved
         shell: bash
         run: |
           set -euo pipefail
           if git diff --cached --quiet; then exit 0; fi
-          remote="$(git ls-remote origin "refs/heads/$WORK_BRANCH" | cut -f1)"
-          test "$remote" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$WORK_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git -c core.hooksPath=/dev/null commit -m 'build: apply verified driver lockfile and regenerate administrator assets'
+          git -c core.hooksPath=/dev/null commit -m 'refactor(admin): use independent product terminology and regenerate assets'
           git -c core.hooksPath=/dev/null push origin "HEAD:refs/heads/$WORK_BRANCH"
