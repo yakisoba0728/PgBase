@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'auth_cookie.dart';
 import 'types.dart';
-import 'errors.dart';
 
 abstract interface class AuthStorage {
   Future<String?> read();
@@ -60,8 +60,9 @@ final class AuthStore {
           ? await stateStorage!.read()
           : AuthState(token: await storage!.read()),
     );
-    if (generation == _generation)
+    if (generation == _generation) {
       _replace(value?.token, record: value?.record);
+    }
   }
 
   Future<void> save(String token, {User? record}) async {
@@ -102,15 +103,16 @@ final class AuthStore {
 
   Future<void> close() => _changes.close();
 
-  /// Cookie helpers use JSON URI encoding so SSR can hand an auth state to a
-  /// browser without relying on a platform-specific storage implementation.
-  String exportToCookie({String key = 'pb_auth', String path = '/'}) {
-    if (!RegExp(r"^[!#\$%&'*+.^_`|~0-9A-Za-z-]+$").hasMatch(key) ||
-        RegExp(r'[;\r\n]').hasMatch(path)) {
-      throw const PgBaseProtocolError('invalid_cookie_option');
-    }
+  /// Encodes cached state, not proof of authentication. Set secure for HTTPS.
+  String exportToCookie({
+    String key = 'pgbase_auth',
+    String path = '/',
+    bool httpOnly = true,
+    bool secure = false,
+    String sameSite = 'Lax',
+  }) {
     final record = _record;
-    final payload = jsonEncode({
+    return serializeAuthCookie({
       'token': _token,
       'record': record == null
           ? null
@@ -126,11 +128,12 @@ final class AuthStore {
               if (record.authCollectionId != null)
                 'authCollectionId': record.authCollectionId,
             },
-    });
-    return '$key=${Uri.encodeComponent(payload)}; Path=$path; HttpOnly';
+    }, key: key, path: path, httpOnly: httpOnly, secure: secure, sameSite: sameSite);
   }
 
-  Future<void> loadFromCookie(String cookie, {String key = 'pb_auth'}) async {
+  /// Loads untrusted cached state. The server must still validate its token.
+  Future<void> loadFromCookie(String cookie, {String key = 'pgbase_auth'}) async {
+    validateAuthCookieName(key);
     final encoded = cookie
         .split(';')
         .map((part) => part.trim())
@@ -142,16 +145,18 @@ final class AuthStore {
         Uri.decodeComponent(encoded.substring(key.length + 1)),
       );
       if (value is! Map ||
-          (value['token'] != null && value['token'] is! String))
+          (value['token'] != null && value['token'] is! String)) {
         throw const FormatException();
+      }
       User? record;
       final rawRecord = value['record'];
       if (rawRecord != null) {
         if (rawRecord is! Map ||
             rawRecord['id'] is! String ||
             rawRecord['email'] is! String ||
-            rawRecord['createdAt'] is! String)
+            rawRecord['createdAt'] is! String) {
           throw const FormatException();
+        }
         record = User(
           id: rawRecord['id'] as String,
           email: rawRecord['email'] as String,

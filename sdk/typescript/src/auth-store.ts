@@ -1,7 +1,9 @@
-import { PgBaseError } from "./types.js";
 import type { RecordData } from "./types.js";
 import { authState } from "./state-storage.js";
-import type { AuthState, AuthStateStorage } from "./state-storage.js";
+import type { AuthStateStorage } from "./state-storage.js";
+import { serializeAuthCookie, validateAuthCookieName } from "./auth-cookie.js";
+import type { AuthCookieOptions } from "./auth-cookie.js";
+export type { AuthCookieOptions } from "./auth-cookie.js";
 
 export interface TokenStorage {
   get(): string | null;
@@ -21,15 +23,10 @@ export class AuthStore {
     this.#record = state?.record ?? null;
   }
 
-  get token(): string | null {
-    return this.#token;
-  }
+  get token(): string | null { return this.#token; }
   get record(): RecordData | null { return this.#record; }
   get isValid(): boolean { return this.#token !== null && this.#token.length > 0; }
-
-  get generation(): number {
-    return this.#generation;
-  }
+  get generation(): number { return this.#generation; }
 
   save(token: string, record: RecordData | null = null): void {
     this.#token = token;
@@ -49,24 +46,21 @@ export class AuthStore {
     finally { this.notify(); }
   }
 
-  /** Encodes token and cached auth record for a server-rendered response cookie. */
-  exportToCookie(options: { key?: string; httpOnly?: boolean; secure?: boolean; sameSite?: "Lax" | "Strict" | "None"; path?: string } = {}): string {
-    const key = options.key ?? "pb_auth";
-    const path = options.path ?? "/";
-    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(key) || /[;\r\n]/.test(path)) throw new PgBaseError(0, "invalid_cookie_option");
-    const payload = encodeURIComponent(JSON.stringify({ token: this.#token, record: this.#record }));
-    return [`${key}=${payload}`, `Path=${path}`, options.httpOnly === false ? "" : "HttpOnly", options.secure ? "Secure" : "", options.sameSite ? `SameSite=${options.sameSite}` : ""].filter(Boolean).join("; ");
+  /** Encodes cached state, not proof of authentication. Set secure for HTTPS. */
+  exportToCookie(options: AuthCookieOptions = {}): string {
+    return serializeAuthCookie({ token: this.#token, record: this.#record }, options);
   }
 
-  /** Loads a state exported by [exportToCookie]; malformed cookies clear state. */
-  loadFromCookie(cookie: string, key = "pb_auth"): void {
+  /** Loads untrusted cached state. The server must still validate its token. */
+  loadFromCookie(cookie: string, key = "pgbase_auth"): void {
+    validateAuthCookieName(key);
     const encoded = cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${key}=`))?.slice(key.length + 1);
     if (!encoded) return;
     try {
-      const value = JSON.parse(decodeURIComponent(encoded)) as Partial<AuthState>;
-      if ((value.token !== null && typeof value.token !== "string") || (value.record !== null && (typeof value.record !== "object" || Array.isArray(value.record)))) throw new Error("invalid auth cookie");
-      this.#token = value.token ?? null;
-      this.#record = (value.record ?? null) as RecordData | null;
+      const state = authState(JSON.parse(decodeURIComponent(encoded)));
+      if (!state) throw new Error("invalid auth cookie");
+      this.#token = state.token;
+      this.#record = state.record;
       this.#generation += 1;
       this.notify();
     } catch { this.clear(); }
@@ -78,17 +72,11 @@ export class AuthStore {
   }
 
   private notify(): void {
-    for (const listener of this.#listeners) {
-      listener(this.#generation);
-    }
+    for (const listener of this.#listeners) listener(this.#generation);
   }
 }
 
-/**
- * Wrap browser storage only when the caller deliberately supplies it. This
- * keeps token persistence opt-in and makes the storage lifecycle visible at
- * client construction.
- */
+/** Persistence remains opt-in and the caller selects its storage lifecycle. */
 export function browserTokenStorage(storage: Storage, key = "pgbase.user.token"): TokenStorage {
   return {
     get: () => storage.getItem(key),
