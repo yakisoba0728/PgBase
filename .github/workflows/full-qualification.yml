@@ -1,0 +1,82 @@
+name: Full source qualification
+
+# Maintainers opt a PR into the existing complete suites with one label.
+# No release, publication, deployment, production endpoint or secret is used.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: full-qualification-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-qualification')
+    uses: ./.github/workflows/backend.yml
+    with:
+      full_validation: true
+  security:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-qualification')
+    uses: ./.github/workflows/security.yml
+    with:
+      full_validation: true
+  frontend:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-qualification')
+    uses: ./.github/workflows/frontend.yml
+  browser-and-recovery:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-qualification')
+    uses: ./.github/workflows/e2e.yml
+  source-analysis:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-qualification')
+    uses: ./.github/workflows/source-security.yml
+  mixed-http:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-qualification')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Measure mixed HTTP load and pool recovery
+        env:
+          POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
+          PGBASE_MIXED_CYCLES: '100'
+          GOMAXPROCS: '4'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PGBASE_TEST_ADMIN_URL="postgres://postgres:postgres@127.0.0.1:${POSTGRES_HOST_PORT:?}/postgres?sslmode=disable"
+          git rev-parse HEAD > mixed-environment.txt
+          go version >> mixed-environment.txt
+          lscpu >> mixed-environment.txt
+          go test -tags=integration,load ./pgbase -run '^TestMixedHTTPPoolQualification$' -count=1 -v -timeout=10m | tee mixed-http.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mixed-http-${{ github.sha }}
+          path: |
+            mixed-environment.txt
+            mixed-http.txt
+          retention-days: 14
+          if-no-files-found: error

@@ -4,6 +4,7 @@ name: Source security qualification
 # this does not modify Security settings, deployment or release state.
 on:
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 concurrency:

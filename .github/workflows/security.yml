@@ -7,6 +7,11 @@ on:
   workflow_dispatch:
   workflow_call:
     inputs:
+      full_validation:
+        description: Include a disposable runtime image scan on hosted runners
+        required: false
+        default: false
+        type: boolean
       candidate_image:
         description: Optional digest-pinned release candidate; empty keeps local CI mode
         required: false
@@ -30,12 +35,12 @@ permissions:
   packages: read
 
 concurrency:
-  group: security-${{ github.event.pull_request.number || github.run_id }}
+  group: security-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   audit:
-    runs-on: ${{ (((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
+    runs-on: ${{ inputs.full_validation && 'ubuntu-24.04' || (((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
     timeout-minutes: 40
     env:
       PGBASE_SECURITY_CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
@@ -82,7 +87,7 @@ jobs:
 
       - name: Select the image under test
         id: image
-        if: inputs.candidate_image != '' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        if: inputs.candidate_image != '' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || inputs.full_validation
         shell: bash
         run: |
           set -euo pipefail

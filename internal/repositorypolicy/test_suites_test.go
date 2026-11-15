@@ -128,7 +128,7 @@ func TestBackendWorkflowKeepsLeanAndReleasePostgresMatrices(t *testing.T) {
 		"PGBASE_FULL_UNIT_RACE",
 		"scripts/test-go-unit.sh \"${test_arguments[@]}\"",
 		"name: PostgreSQL integration / ${{ matrix.postgres.version }}",
-		"fromJSON((inputs.candidate_image != '' || github.event_name == 'workflow_dispatch')",
+		"fromJSON((inputs.candidate_image != '' || github.event_name == 'workflow_dispatch' || inputs.full_validation)",
 		`{"version":"16.13"`,
 		`{"version":"17.9"`,
 		`{"version":"18.3"`,
