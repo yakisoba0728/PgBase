@@ -42,6 +42,8 @@ JSON/exact-text requests and file uploads belong to the `AuthStore` generation i
 
 A current login or refresh can still adopt its own replacement token after its guarded response is read. A stale login/refresh now rejects instead of returning a session it did not adopt; refresh-before-logout ordering still revokes the rotated token, and an explicit newer login is preserved. A generation change can therefore discard a concurrent read even when refresh keeps the same user. Use separate stores for deliberately independent identities.
 
+Authentication completion checks the generation again immediately before adoption and after its own save. Concurrent completions that already read their bodies cannot both return conflicting sessions: one adoption invalidates the other. Reentrant persistence/listener changes also invalidate the old result; a persistence failure under the still-current self-adopted session keeps its original error. SDK response mapping and upload helpers check through their final asynchronous work. Once a Promise has fulfilled, later auth changes cannot retract that value or prevent a delayed consumer callback; applications must clear their own caches/subscriptions on auth change.
+
 Migration: handle `session_changed` as an obsolete result, discard session-specific UI/cache state, and issue a fresh read if appropriate. No mutation is retried automatically: it may already have committed under the original identity. This check does not cancel server-side work, revoke previously returned download URLs, or control requests the application sends directly with `fetch`.
 
 ## Administrator session lifetime

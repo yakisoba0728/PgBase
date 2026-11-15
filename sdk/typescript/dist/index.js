@@ -62,13 +62,11 @@ export class PgBaseClient {
                 throw new PgBaseError(0, "authentication_required");
             const generation = this.auth.generation;
             const session = refreshSession(await this._request(path, { method: "POST" }, signal));
-            if (generation === this.auth.generation) {
-                if (this.refreshGeneration !== generation)
-                    this.refreshOrigin = generation;
-                this.refreshGeneration = generation + 1;
-                this.auth.save(session.token, session.user);
-            }
-            return session;
+            assertAuthGeneration(this.auth, generation);
+            if (this.refreshGeneration !== generation)
+                this.refreshOrigin = generation;
+            this.refreshGeneration = generation + 1;
+            return acceptAuthSession(this.auth, generation, session, true);
         })();
         this.pendingRefresh = operation;
         const clear = () => { if (this.pendingRefresh === operation)
@@ -128,9 +126,7 @@ export class PgBaseClient {
         const generation = this.auth.generation;
         try {
             const session = await this.request(authFieldsPath("/api/v1/auth/otp/complete", query), { method: "POST", body: JSON.stringify({ otpId, code }) }, requestSignal, query?.requestKey);
-            if (session.token && session.user && generation === this.auth.generation)
-                this.auth.save(session.token, session.user);
-            return session;
+            return acceptAuthSession(this.auth, generation, session, !!(session.token && session.user));
         }
         catch (error) {
             if (error instanceof PgBaseError && error.code === "mfa_required") {
@@ -218,9 +214,7 @@ export class PgBaseClient {
         const [query, requestSignal] = recordGetArguments(options, signal);
         const generation = this.auth.generation;
         const session = await this.request(authFieldsPath("/api/v1/auth/mfa/complete", query), { method: "POST", body: JSON.stringify({ challengeToken, code }) }, requestSignal, query?.requestKey);
-        if (session.token && session.user && generation === this.auth.generation)
-            this.auth.save(session.token, session.user);
-        return session;
+        return acceptAuthSession(this.auth, generation, session, !!(session.token && session.user));
     }
     beginTOTPEnrollment(currentPassword, signal) {
         return this.request("/api/v1/auth/totp/enroll", { method: "POST", body: JSON.stringify({ currentPassword }) }, signal);
@@ -251,8 +245,8 @@ export class PgBaseClient {
     cancelAllRequests() { for (const controller of this.requestControllers.values())
         controller.abort(); this.requestControllers.clear(); }
     /** Low-level request; null disables cancellation and a string supplies an explicit key. */
-    async send(path, init = {}, options = {}) {
-        return (await this.readResponse(path, init, options.signal, options.requestKey, (response) => responseJSON(response, () => { throw new PgBaseError(response.status, "invalid_response_body"); }))).body;
+    send(path, init = {}, options = {}) {
+        return inAuthScope(this.auth, async () => (await this.readResponse(path, init, options.signal, options.requestKey, (response) => responseJSON(response, () => { throw new PgBaseError(response.status, "invalid_response_body"); }))).body);
     }
     async _response(path, init = {}, signal, requestKey) {
         return this.readResponse(path, init, signal, requestKey, async (response) => await responseJSON(response, () => { throw new PgBaseError(response.status, "invalid_response_body"); }));
@@ -309,13 +303,10 @@ export class PgBaseClient {
             method: "POST",
             body: JSON.stringify({ email, password, ...(path.endsWith("/register") && query?.profile !== undefined ? { fields: query.profile } : {}) }),
         }, requestSignal, query?.requestKey);
-        if (session.token && generation === this.auth.generation) {
-            this.auth.save(session.token, session.user);
-        }
-        return session;
+        return acceptAuthSession(this.auth, generation, session, !!session.token);
     }
-    async request(path, init = {}, signal, requestKey) {
-        return (await this._response(path, init, signal, requestKey)).body;
+    request(path, init = {}, signal, requestKey) {
+        return inAuthScope(this.auth, async () => (await this._response(path, init, signal, requestKey)).body);
     }
     async fetchResponse(path, init = {}, signal) {
         const headers = new Headers(init.headers);
@@ -366,6 +357,36 @@ function assertAuthGeneration(auth, generation) {
     if (generation !== auth.generation)
         throw new PgBaseError(403, "session_changed");
 }
+/** Check the final auth continuation and account for exactly our own save. */
+function acceptAuthSession(auth, generation, session, adopt) {
+    assertAuthGeneration(auth, generation);
+    if (adopt) {
+        const expected = generation + 1;
+        try {
+            auth.save(session.token, session.user);
+        }
+        catch (error) {
+            assertAuthGeneration(auth, expected);
+            throw error;
+        }
+        // Storage/listeners are caller-owned and may synchronously change auth.
+        assertAuthGeneration(auth, expected);
+    }
+    return session;
+}
+/** Includes a wrapper's asynchronous mapping, not only its HTTP body read. */
+async function inAuthScope(auth, action) {
+    const generation = auth.generation;
+    try {
+        const result = await action();
+        assertAuthGeneration(auth, generation);
+        return result;
+    }
+    catch (error) {
+        assertAuthGeneration(auth, generation);
+        throw error;
+    }
+}
 export class AuthRealm {
     client;
     name;
@@ -379,9 +400,7 @@ export class AuthRealm {
         const generation = this.client.auth.generation;
         try {
             const session = await this.client._request(`${this.path(action)}${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ email, password, ...(action === "register" && query?.profile !== undefined ? { fields: query.profile } : {}) }) }, requestSignal, query?.requestKey);
-            if (session.token && generation === this.client.auth.generation)
-                this.client.auth.save(session.token, session.user);
-            return session;
+            return acceptAuthSession(this.client.auth, generation, session, !!session.token);
         }
         catch (error) {
             if (error instanceof PgBaseError && error.code === "mfa_required") {
@@ -396,9 +415,11 @@ export class AuthRealm {
     register(email, password, options, signal) { return this.authenticate("register", email, password, options, signal); }
     login(email, password, options, signal) { return this.authenticate("login", email, password, options, signal); }
     /** Returns the sign-in methods enabled for this auth collection. */
-    async methods(signal) {
-        const methods = await this.client._request(this.path("methods"), {}, signal);
-        return { ...methods, oauth2: methods.oauth2 ?? { enabled: false, providers: [] } };
+    methods(signal) {
+        return inAuthScope(this.client.auth, async () => {
+            const methods = await this.client._request(this.path("methods"), {}, signal);
+            return { ...methods, oauth2: methods.oauth2 ?? { enabled: false, providers: [] } };
+        });
     }
     /** Rotates the current bearer token after validating its replacement session. */
     refresh(signal) { return this.client._refresh(this.path("refresh"), signal); }
@@ -410,9 +431,7 @@ export class AuthRealm {
         const generation = this.client.auth.generation;
         try {
             const session = await this.client._request(this.path("otp/complete"), { method: "POST", body: JSON.stringify({ otpId, code }) }, signal);
-            if (session.token && generation === this.client.auth.generation)
-                this.client.auth.save(session.token, session.user);
-            return session;
+            return acceptAuthSession(this.client.auth, generation, session, !!session.token);
         }
         catch (error) {
             if (error instanceof PgBaseError && error.code === "mfa_required") {
@@ -424,19 +443,19 @@ export class AuthRealm {
             throw error;
         }
     }
-    async profile(options, signal) {
+    profile(options, signal) {
         const [query, requestSignal] = recordGetArguments(options, signal);
         const parameters = new URLSearchParams();
         if (query?.expand !== undefined)
             parameters.set("expand", query.expand);
         if (query?.fields !== undefined)
             parameters.set("fields", query.fields);
-        return (await this.client._request(`${this.path("profile")}${parameters.size ? `?${parameters}` : ""}`, {}, requestSignal, query?.requestKey)).attributes;
+        return inAuthScope(this.client.auth, async () => (await this.client._request(`${this.path("profile")}${parameters.size ? `?${parameters}` : ""}`, {}, requestSignal, query?.requestKey)).attributes);
     }
-    async updateProfile(profile, options, signal) {
+    updateProfile(profile, options, signal) {
         const [query, requestSignal] = recordGetArguments(options, signal);
         const suffix = query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`;
-        return (await this.client._request(`${this.path("profile")}${suffix}`, { method: "PATCH", body: JSON.stringify(profile) }, requestSignal, query?.requestKey)).attributes;
+        return inAuthScope(this.client.auth, async () => (await this.client._request(`${this.path("profile")}${suffix}`, { method: "PATCH", body: JSON.stringify(profile) }, requestSignal, query?.requestKey)).attributes);
     }
     oauthStart(provider, redirectUri, signal) { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
     /** Starts OAuth and delegates browser/popup/deep-link navigation to the host. */
@@ -472,8 +491,7 @@ export class AuthRealm {
         }
     }
     oauthLink(currentPassword, provider, redirectUri, signal) { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
-    async oauthComplete(provider, state, code, options, signal) { const [query, requestSignal] = recordGetArguments(options, signal); const generation = this.client.auth.generation; const session = await this.client._request(authFieldsPath("/api/v1/auth/oauth/complete", query), { method: "POST", body: JSON.stringify({ provider, state, code, ...(query?.profile === undefined ? {} : { fields: query.profile }) }) }, requestSignal, query?.requestKey); if (session.token && session.user && generation === this.client.auth.generation)
-        this.client.auth.save(session.token, session.user); return session; }
+    async oauthComplete(provider, state, code, options, signal) { const [query, requestSignal] = recordGetArguments(options, signal); const generation = this.client.auth.generation; const session = await this.client._request(authFieldsPath("/api/v1/auth/oauth/complete", query), { method: "POST", body: JSON.stringify({ provider, state, code, ...(query?.profile === undefined ? {} : { fields: query.profile }) }) }, requestSignal, query?.requestKey); return acceptAuthSession(this.client.auth, generation, session, !!(session.token && session.user)); }
     oauthCompleteFromURL(provider, callbackURL, options, signal) {
         const url = typeof callbackURL === "string" ? new URL(callbackURL) : callbackURL;
         const providerError = url.searchParams.get("error");
@@ -545,8 +563,8 @@ export class Records {
         return this.client._request(this.listPath(query), {}, signal, query.requestKey);
     }
     /** Returns the complete { items, nextCursor? } JSON envelope without parsing numbers. */
-    async listJSON(query = {}, signal) {
-        return (await this.client._responseText(this.listPath(query), {}, signal, query.requestKey)).body;
+    listJSON(query = {}, signal) {
+        return inAuthScope(this.client.auth, async () => (await this.client._responseText(this.listPath(query), {}, signal, query.requestKey)).body);
     }
     /**
      * Lists a numbered PocketBase-compatible page. This is intentionally
@@ -559,9 +577,9 @@ export class Records {
                 parameters.set(key, String(value));
         return this.client._request(`${this.path()}?${parameters}`, {}, signal, options.requestKey);
     }
-    async get(id, optionsOrSignal, signal) {
+    get(id, optionsOrSignal, signal) {
         const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
-        return (await this.getWithETag(id, options, requestSignal)).record;
+        return inAuthScope(this.client.auth, async () => (await this.getWithETag(id, options, requestSignal)).record);
     }
     getWithETag(id, optionsOrSignal, signal) {
         const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
@@ -571,8 +589,8 @@ export class Records {
         const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
         return this.recordJSONResponse(this.path(id, options), {}, requestSignal, options?.requestKey);
     }
-    async create(data, idempotencyKey, options, signal) {
-        return (await this.createWithETag(data, idempotencyKey, options, signal)).record;
+    create(data, idempotencyKey, options, signal) {
+        return inAuthScope(this.client.auth, async () => (await this.createWithETag(data, idempotencyKey, options, signal)).record);
     }
     createWithETag(data, idempotencyKey, options, signal) {
         const [query, requestSignal] = recordGetArguments(options, signal);
@@ -591,8 +609,8 @@ export class Records {
             body: recordJSON,
         }, requestSignal, query?.requestKey);
     }
-    async update(id, data, etag, options, signal) {
-        return (await this.updateWithETag(id, data, etag, options, signal)).record;
+    update(id, data, etag, options, signal) {
+        return inAuthScope(this.client.auth, async () => (await this.updateWithETag(id, data, etag, options, signal)).record);
     }
     updateWithETag(id, data, etag, options, signal) {
         const [query, requestSignal] = recordGetArguments(options, signal);
@@ -720,13 +738,17 @@ export class Records {
     eventsPath() {
         return `/api/v1/user/collections/${encodeURIComponent(this.collection)}/events`;
     }
-    async recordResponse(path, init, signal, requestKey) {
-        const response = await this.client._response(path, init, signal, requestKey);
-        return { record: response.body, etag: response.etag };
+    recordResponse(path, init, signal, requestKey) {
+        return inAuthScope(this.client.auth, async () => {
+            const response = await this.client._response(path, init, signal, requestKey);
+            return { record: response.body, etag: response.etag };
+        });
     }
-    async recordJSONResponse(path, init, signal, requestKey) {
-        const response = await this.client._responseText(path, init, signal, requestKey);
-        return { recordJSON: response.body, etag: response.etag };
+    recordJSONResponse(path, init, signal, requestKey) {
+        return inAuthScope(this.client.auth, async () => {
+            const response = await this.client._responseText(path, init, signal, requestKey);
+            return { recordJSON: response.body, etag: response.etag };
+        });
     }
 }
 function recordGetArguments(optionsOrSignal, signal) {
@@ -758,7 +780,7 @@ export class Files {
             assertAuthGeneration(this.client.auth, generation);
             const body = new FormData();
             body.append("file", file, filename);
-            return await this.client._request(this.fieldPath(field), {
+            const result = await this.client._request(this.fieldPath(field), {
                 method: "POST",
                 headers: {
                     "X-PgBase-File-Size": String(file.size),
@@ -766,6 +788,8 @@ export class Files {
                 },
                 body,
             }, signal);
+            assertAuthGeneration(this.client.auth, generation);
+            return result;
         }
         catch (error) {
             assertAuthGeneration(this.client.auth, generation);
