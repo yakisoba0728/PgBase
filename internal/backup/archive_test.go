@@ -86,7 +86,7 @@ func TestPackRejectsManifestBeyondRestoreLimit(t *testing.T) {
 	}
 	var packed bytes.Buffer
 	if err := Pack(context.Background(), directory, &packed); err == nil || packed.Len() != 0 {
-		t.Fatalf("unrestorable backup emitted: bytes=%d err=%v", packed.Len(), err)
+		t.Fatal("unrestorable backup emitted")
 	}
 }
 func TestArchiveRejectsTraversalLinksAndDuplicate(t *testing.T) {
@@ -112,6 +112,8 @@ func TestArchiveRejectsTraversalLinksAndDuplicate(t *testing.T) {
 }
 func TestManagerSerializesPersistsAndRecoversJobs(t *testing.T) {
 	root := t.TempDir()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	manager, err := NewManager(ManagerOptions{Directory: root, Retention: 1, Create: func(ctx context.Context, path string) error {
@@ -127,37 +129,50 @@ func TestManagerSerializesPersistsAndRecoversJobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	job, err := manager.Create(context.Background())
+	// Register ownership immediately, before any assertion can fail. Workers
+	// must be stopped before TempDir cleanup, including on the timeout path.
+	own := func(owned *Manager) {
+		t.Cleanup(func() {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cleanupCancel()
+			if err := owned.Shutdown(cleanupCtx); err != nil {
+				t.Errorf("backup manager cleanup: %v", err)
+			}
+		})
+	}
+	own(manager)
+	job, err := manager.Create(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	<-entered
-	if _, err = manager.Create(context.Background()); !errors.Is(err, ErrBusy) {
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("backup callback was not entered")
+	}
+	if _, err = manager.Create(ctx); !errors.Is(err, ErrBusy) {
 		t.Fatal(err)
 	}
+	manager.mu.Lock()
+	drained := manager.drained
+	manager.mu.Unlock()
 	close(release)
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		job, err = manager.Job(context.Background(), job.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if job.Status != "running" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("job never finished")
-		}
-		time.Sleep(time.Millisecond)
+	// This is a serialization/durability contract, not a three-second storage
+	// benchmark. Wait for the actual release boundary with a deadlock watchdog.
+	select {
+	case <-drained:
+	case <-ctx.Done():
+		t.Fatal("backup operation did not release its ownership")
 	}
-	if job.Status != "completed" {
-		t.Fatal(job)
+	job, err = manager.Job(ctx, job.ID)
+	if err != nil || job.Status != "completed" {
+		t.Fatalf("job=%+v err=%v", job, err)
 	}
-	list, err := manager.List(context.Background())
+	list, err := manager.List(ctx)
 	if err != nil || len(list) != 1 {
 		t.Fatalf("entries=%v err=%v", list, err)
 	}
-	if err = manager.Shutdown(context.Background()); err != nil {
+	if err = manager.Shutdown(ctx); err != nil {
 		t.Fatal(err)
 	}
 	options := manager.options
@@ -165,12 +180,12 @@ func TestManagerSerializesPersistsAndRecoversJobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer manager.Shutdown(context.Background())
-	recovered, err := manager.Job(context.Background(), job.ID)
+	own(manager)
+	recovered, err := manager.Job(ctx, job.ID)
 	if err != nil || recovered.Status != "completed" {
 		t.Fatalf("recovered=%v err=%v", recovered, err)
 	}
-	stream, err := manager.Open(context.Background(), list[0].ID)
+	stream, err := manager.Open(ctx, list[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,17 +196,17 @@ func TestManagerSerializesPersistsAndRecoversJobs(t *testing.T) {
 	}
 	// Retention may remove the original archive during Upload. Release its
 	// read handle first so the fixture is valid on Windows as well as Unix.
-	uploaded, err := manager.Upload(context.Background(), bytes.NewReader(archive))
+	uploaded, err := manager.Upload(ctx, bytes.NewReader(archive))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if uploaded.ID == list[0].ID {
 		t.Fatal("upload reused archive identity")
 	}
-	if retained, listErr := manager.List(context.Background()); listErr != nil || len(retained) != 1 || retained[0].ID != uploaded.ID {
+	if retained, listErr := manager.List(ctx); listErr != nil || len(retained) != 1 || retained[0].ID != uploaded.ID {
 		t.Fatalf("retention entries=%+v err=%v", retained, listErr)
 	}
-	if err = manager.Delete(context.Background(), uploaded.ID); err != nil {
+	if err = manager.Delete(ctx, uploaded.ID); err != nil {
 		t.Fatal(err)
 	}
 }
