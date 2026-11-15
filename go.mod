@@ -21,6 +21,7 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/zkrebbekx/pgparse v1.3.0
 	golang.org/x/image v0.48.0
+	golang.org/x/net v0.62.0
 	golang.org/x/sys v0.50.0
 	golang.org/x/term v0.48.0
 )
@@ -47,7 +48,6 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pandatix/go-abnf v0.5.3 // indirect
 	github.com/prometheus/procfs v0.22.0 // indirect
-	golang.org/x/net v0.62.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
