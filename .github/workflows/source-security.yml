@@ -1,21 +1,9 @@
 name: Source security qualification
 
-# Push analysis is intentional: this qualification scans the selected source
-# tree rather than relying on pull-request diff-informed alert filtering.
-# Reports stay in artifacts; no Security settings, production or release writes.
+# Explicit, read-only whole-source qualification. Reports stay in artifacts;
+# this does not modify Security settings, deployment or release state.
 on:
   workflow_dispatch:
-  push:
-    branches: [refactor/independent-platform-20261116]
-    paths:
-      - '**.go'
-      - '**.ts'
-      - '**.tsx'
-      - '**.js'
-      - '**.mjs'
-      - go.mod
-      - go.sum
-      - .github/workflows/source-security.yml
 permissions:
   contents: read
 concurrency:

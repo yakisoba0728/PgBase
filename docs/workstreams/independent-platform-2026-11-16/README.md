@@ -1,6 +1,8 @@
 # Independent PostgreSQL platform workstream
 
-Baseline: `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`, schema 67. Work is isolated in PR [#148](https://github.com/yakisoba0728/PgBase/pull/148). Status: implemented hardening batches with final validation in progress; **not a completed exhaustive audit or unrestricted large-scale readiness certification**. No production access, deployment, release publication or schema migration has been performed.
+Baseline: `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`, schema 67. Changes are isolated in draft PR [#148](https://github.com/yakisoba0728/PgBase/pull/148). An implemented hardening batch and its automated qualification are delivered; **the broader whole-platform redesign and independent large-scale production qualification are not complete**. No main merge, production access/deployment, schema migration, tag or package/release publication was performed.
+
+Start with the [verification and handoff record](validation.md), [measured performance](performance.md) and [breaking SDK cookie contract](../../sdk-auth-cookies.md). These distinguish completed work from the original nine-phase program rather than claiming all phases are finished.
 
 ## Owner-approved scope
 
@@ -9,44 +11,40 @@ Breaking API, SDK, schema and configuration changes are allowed when justified. 
 ## Architecture decisions
 
 1. PostgreSQL remains the owner of durable state. The supported scaling boundary is multiple instances of one project sharing one database, consistent secrets and suitable shared file storage. Do not add sharding, replicas or a distributed cache merely to claim scalability.
-2. Keep authentication, authorization, query planning, transaction execution and response projection separate. Preserve atomic record/revision/audit/outbox changes and the tested transaction ownership rules.
-3. Compile immutable configuration at publication boundaries. Request handling should not repeatedly parse settings or retain unrelated configuration.
-4. Bind frontend requests and recovery to a session lifetime. Neither a delayed successful result nor a late 401 may publish into a new login; a rejected old mutation must not be retried under a new session.
-5. Put image format, encoded-byte and decoded-pixel limits in explicit shared boundaries. Borrow already-owned input bytes instead of duplicating them; retain image orientation, transparency and output contracts.
-6. Preserve the existing UI layout and styling. Changes in this workstream concern transport behavior and product terminology, not a visual redesign.
+2. Keep authentication, authorization, query planning, transaction execution and response projection separate. Preserve atomic record/revision/audit/outbox changes and tested transaction ownership rules.
+3. Compile immutable configuration at publication boundaries. Requests should not repeatedly parse settings or retain unrelated configuration.
+4. Bind frontend requests and recovery to a session lifetime. Neither a delayed successful result nor a late 401 may publish into a new login; an old rejected mutation must not be retried under a new session.
+5. Put image format, encoded-byte and decoded-pixel limits in shared explicit boundaries. Borrow already-owned input bytes instead of duplicating them; retain orientation, transparency and output contracts.
+6. Preserve existing UI layout and styling. This batch changes transport behavior and product terminology, not the visual design.
 
-The existing core was recently rewritten and contains substantial transaction, auth, migration and recovery coverage. Rewriting these kernels again without demonstrated benefit would discard useful evidence. This workstream therefore makes targeted structural changes rather than equating changed-line count with quality. In particular, replacing the schema `FOR SHARE` pin with advisory locking is deferred: snapshot timing and DDL/catalog consistency need a dedicated design and regression proof.
+The core was recently rewritten and contains substantial transaction, auth, migration and recovery coverage. This work preserves those boundaries and makes targeted structural changes instead of treating changed-line count as quality. Replacing the schema `FOR SHARE` pin with advisory locks remains a separate design: snapshot timing and DDL/catalog consistency need dedicated regression proof.
 
 ## Implemented batches
 
-| Area | Change | Evidence and boundary |
-| --- | --- | --- |
-| HTTP | Explicit gzip preferences override wildcards across header lines; validate qvalue grammar; conflicting duplicates deny conservatively | Baseline reproduced 11/18 new failures; corrected 22 cases and completed bounded fuzzing. No blanket HTTP parser audit claim |
-| Administrator transport | Session-bound success/error/body decoding and CSRF recovery; abort cleanup, preserved abort reason, upload timeout handling and bounded progress | 17 new lifecycle cases plus existing transport/session tests; no layout or CSS change |
-| PostgreSQL driver | pgx 5.11.0 to 5.13.0 with verified module lockfile | Includes upstream security/correctness fixes; do not claim every upstream issue was exploitable in PgBase |
-| API quotas | Immutable compiled exclusion policies; distinguish database failure from genuine quota exhaustion | Fault-injected baseline reproduction, five corrected race/integration runs; paired microbenchmarks |
-| Images | Shared bounded decoder, zero extra encoded-input copy on byte entry points, WebP fallback reuses input | Existing GIF/WebP/orientation/transparency tests plus byte/reader parity, bounds and input immutability; paired benchmarks |
-| SDKs | Native `pgbase_auth` cookie namespace, TypeScript/Dart attribute parity and validation, explicit empty/missing-state semantics | Breaking contract and deployment guidance in [SDK cookies](../../sdk-auth-cookies.md); SDK validation must pass on the final revision |
-| Product identity | Independent README and English/Korean administrator wording | Legacy mode remains labelled legacy, not falsely native. Historical documents and license notices are preserved |
-| Test reliability | Backup test waits for actual operation drain and owns cleanup immediately; crash E2E resolves recreated container identities | Fixes observed fixture failures without removing durability assertions; crash test now forces container replacement |
-| Qualification | Bounded concurrent query-service profile with dataset, concurrency, tails and error reporting | Synthetic disposable database only; [performance evidence](performance.md) states limitations |
+| Area | Change |
+| --- | --- |
+| HTTP | Explicit gzip preferences override wildcards across header lines; validate qvalue grammar; conservatively handle conflicting duplicates |
+| Administrator transport | Session-bound success/error/body decoding and CSRF recovery; abort cleanup/reason preservation, upload timeout handling and bounded progress |
+| PostgreSQL driver | pgx 5.11.0 to 5.13.0 with verified module lockfile and real database/SDK validation |
+| API quotas | Immutable compiled IP/CIDR policies; distinguish database failure from genuine quota exhaustion |
+| Images | Shared bounded decoder; no additional encoded-input copy on byte paths; reuse WebP fallback input |
+| SDKs | Native `pgbase_auth` namespace, TS/Dart cookie-attribute parity/validation, explicit missing/empty/malformed-state semantics |
+| Browser example | Explicitly serve the SDK's new transitive module without widening its closed file allowlist |
+| Product identity | Independent README and English/Korean administrator terminology; legacy mode remains honestly labelled legacy |
+| Test reliability | Deterministic backup completion/cleanup, recreated-container recovery checks, exact classification of intentionally injected history drift |
+| Qualification | Paired benchmarks, 500000-row concurrent query profile, extended Go/JS/TS CodeQL analysis and read-only manual qualification workflows |
 
-## Verification policy
+The full runtime candidate passed PostgreSQL 16/17/18, race, live SDK, bounded multiprocess, native Windows/macOS, security/image and browser/crash E2E validation. Frontend verification passed 422 tests and exact clean-build reproduction. Extended CodeQL reported zero Go and zero JavaScript/TypeScript findings. See [validation.md](validation.md) for precise commits, run IDs, initial failures, corrective changes and scope limits; passing these checks is not a vulnerability-free or unlimited-scale guarantee.
 
-Preserve the repository's formatting/static/unit/integration/SDK/browser/security gates. Full manual Backend covers PostgreSQL 16/17/18, 17 race shards, multiprocess durability, live SDKs, Windows self-update, macOS terminal and release-phase tests. Full Security additionally scans the produced image. E2E includes browser scenarios and process/database failure recovery. These are distinct from release publication, and no release workflow has been dispatched.
+## Remaining qualification
 
-The earlier full candidate `5d378046` passed PostgreSQL 16/18, the 17 application shard, Windows/macOS and full security, but failed a backup test's three-second polling assumption and crash-test cleanup of stale container IDs. Those failures are retained as evidence and corrected in source; they are not silently rerun until green or presented as product data-loss fixes. Initial frontend tests also showed intermittent one-second view-assertion failures; five focused repetitions and later full runs passed, but the original timing cause was not conclusively established.
+- Attribute page-hydration allocations and validate realistic relation-heavy, sustained mixed HTTP workloads, saturation, realtime fan-out and slow clients. Current query results are not HTTP capacity numbers.
+- Complete independent security/code review and a module-by-module audit. The review request has not yielded a completed response; parallel CI is not independent AI review.
+- Complete broad UX/accessibility/browser assessment, external OAuth/SMTP verification, storage/network fault and large restore timing qualification. Existing Chromium and isolated fixtures cover only their stated scenarios.
+- Resolve existing intermittent UI test timing and non-fatal `act(...)`/jsdom warnings rather than interpreting later passes as proven root-cause fixes.
+- Update repository About metadata using an authorized settings capability. Proposed description: “Independent PostgreSQL application backend with typed data, authentication, realtime, file storage and an embedded administrator UI.” This code PR does not change that metadata.
+- Decide separately whether to retire legacy wire adapters. Historical research and required attribution remain; removing product positioning does not justify erasing legal notices or pretending history never existed.
 
-The current final run results will be recorded separately by exact revision. Unexecuted, cancelled, failed or older-revision checks are not a pass for the final candidate. Focused benchmark results are retained in [performance.md](performance.md), including the small-image case that did not improve.
+## Execution and delivery boundaries
 
-## Scope still requiring qualification
-
-- End-to-end HTTP saturation and sustained mixed read/write workloads, realistic relation graphs, realtime fan-out, slow clients, storage/network failures and large backup/restore timings.
-- Independent security/code review. A GitHub Codex review was requested; a request is not a completed review. This chat environment has no separate coding-agent spawn facility, and parallel CI jobs are not independent AI agents.
-- Browser coverage beyond the existing Chromium suite, actual assistive-technology use, external OAuth/SMTP vendors and a full manual visual audit.
-- The repository About description remains an administrative setting outside this code PR. Proposed wording: “Independent PostgreSQL application backend with typed data, authentication, realtime, file storage and an embedded administrator UI.”
-- Legacy wire adapters and dated research remain where removal would be a separate contract change. A positioning change does not justify deleting third-party notices or pretending historical work never existed.
-
-## Execution record
-
-The initial local environment could not resolve external hosts. Source and pinned toolchains were transported through short-retention, read-only Actions artifacts, but a subsequent local execution error prevented initialization of the full local toolchain. CI is the evidence for executed repository checks. The temporary toolchain/source transport and generated-output writer have been removed; remaining workstream-only validation helpers must be removed or converted to read-only manual qualification before merge.
+The local full toolchain could not be initialized after environment failures; executed repository checks are backed by GitHub Actions. No independent coding-agent spawn facility was available. Temporary source transport, automatic source-writing, dispatch and branch-only diagnostic workflows are removed. The reusable `query-load.yml` and `source-security.yml` are manual and read-only. Original quality gates remain intact. Draft status reflects the open broader scope, not a claim that an unspecified future background process will finish it.
