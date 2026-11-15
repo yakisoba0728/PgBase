@@ -20,12 +20,16 @@ go run . serve --js-dir "$PGBASE_JS_DIR"
 
 Replace the placeholder service subject with the UUID created for this application. The migration creates `app.n6_delivery_receipts` and its Down removes that table. The durable job intentionally throws after its first committed record create; its retry uses the same `occurrenceKey` and requires a replay before it succeeds. The next schedule receives a new key and creates a new delivery record. This demonstrates database idempotency, not exactly-once external delivery.
 
-Serve `public/` from the configured PgBase public directory, or from a separate development origin listed in `PGBASE_CORS_ALLOWED_ORIGINS`. For a separate origin, pass the API base in the page URL:
+Serve `public/` from the configured PgBase public directory, or from a separate development origin listed in `PGBASE_CORS_ALLOWED_ORIGINS`. Same-origin requests are the default. For a separate origin, set the deployment-owned `apiBase` constant near the top of `public/app.js` to your disposable server's origin, without a trailing slash:
 
-```text
-http://127.0.0.1:58106/?api=http%3A%2F%2F127.0.0.1%3A8090
+```js
+const apiBase = "http://127.0.0.1:8090";
 ```
 
+Migration: the previous `?api=...` page URL parameter is intentionally ignored. A shared link must not select the destination for entered passwords or bearer tokens. Configure the trusted destination in the served asset instead; use HTTPS when the page and API are not on loopback development hosts.
+
 Enter an existing disposable user's credentials. Shared record/file IDs are optional; when present, the page first verifies state created by another SDK before running its own route, file, and SSE flow. Use only isolated development credentials in this page.
+
+Run the browser script's destination and realtime cleanup regressions from the repository root with `node --test examples/javascript/test/browser-security.test.mjs`.
 
 `routes.js` conditionally omits the optional upload checksum when absent. The native bridge uses a strict JSON codec, so an explicitly assigned `undefined` property is invalid; see [JavaScript extensions](../../docs/javascript.md) for the complete runtime, authority, migration, cancellation, and resource contract.
