@@ -393,7 +393,9 @@ func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 					}
 					time.Sleep(10 * time.Millisecond)
 				}
-				if closeErr := app.Close(context.Background()); closeErr != nil {
+				// A heartbeat may independently detect the deliberately removed
+				// history. Accept only that exact failure, never other joined errors.
+				if closeErr := app.Close(context.Background()); !onlyInjectedMembershipDrift(closeErr) {
 					t.Fatal(closeErr)
 				}
 				return
