@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -286,6 +287,33 @@ func TestUnpackRejectsOversizedHeaderBeforeWritingPayload(t *testing.T) {
 				t.Fatalf("retained rejected destination: %v", err)
 			}
 		})
+	}
+}
+
+func TestUnpackRejectsCumulativeSizeOverflowBeforeReadingPayload(t *testing.T) {
+	var encoded bytes.Buffer
+	gz := gzip.NewWriter(&encoded)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "files/first", Typeflag: tar.TypeReg, Mode: 0600, Size: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: "database.dump", Typeflag: tar.TypeReg, Mode: 0600, Size: math.MaxInt64, Format: tar.FormatGNU}); err != nil {
+		t.Fatal(err)
+	}
+	// There is intentionally no huge payload. Rejecting the header must happen
+	// before reading it, rather than wrapping the cumulative byte count.
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "overflow")
+	if err := Unpack(t.Context(), &encoded, destination); err == nil || !strings.Contains(err.Error(), "exceeds limit") {
+		t.Fatalf("overflowing header limit: %v", err)
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("retained rejected destination: %v", err)
 	}
 }
 

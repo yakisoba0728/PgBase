@@ -108,10 +108,12 @@ func Unpack(ctx context.Context, source io.Reader, directory string) (resultErr 
 		if name != "manifest.json" && name != "database.dump" && !strings.HasPrefix(header.Name, "files/") {
 			return errors.New("unexpected backup archive entry")
 		}
-		total += header.Size
-		if total > maximumUnpackedBytes || (name == "manifest.json" && header.Size > 16<<20) {
+		// Compare before adding: an attacker-controlled tar size can be close
+		// to MaxInt64 and wrap a cumulative total past the extraction budget.
+		if header.Size > maximumUnpackedBytes-total || (name == "manifest.json" && header.Size > 16<<20) {
 			return errors.New("backup archive exceeds limit")
 		}
+		total += header.Size
 		path := filepath.Join(directory, name)
 		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			return err
