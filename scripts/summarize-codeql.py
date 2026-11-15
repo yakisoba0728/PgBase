@@ -39,6 +39,9 @@ def resolve_rule(run, result):
             component.get("name") != component_reference["name"]):
         raise ValueError("Conflicting SARIF tool component identifiers")
     rules = component.get("rules", [])
+    if ("index" in reference and "ruleIndex" in result and
+            reference["index"] != result["ruleIndex"]):
+        raise ValueError("Conflicting SARIF rule indices")
     index = reference.get("index", result.get("ruleIndex"))
     if index is not None:
         if type(index) is not int or not 0 <= index < len(rules):

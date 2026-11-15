@@ -75,6 +75,11 @@ class SummarizeCodeQLTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.summarize([])
 
+    def test_conflicting_rule_indices_are_rejected(self):
+        self.run["results"][0]["ruleIndex"] = 1
+        with self.assertRaisesRegex(ValueError, "Conflicting SARIF rule indices"):
+            self.summarize([self.run])
+
     def test_empty_completed_report_is_counted_without_a_security_verdict(self):
         self.run["results"] = []
         findings, summary = self.summarize([self.run])
