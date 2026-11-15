@@ -28,11 +28,7 @@ func (s *Service) buildThumbnail(ctx context.Context, file File) ([]byte, error)
 	if err != nil || int64(len(data)) > s.options.MaximumBytes {
 		return nil, ErrInvalid
 	}
-	config, format, err := decodeImageConfig(bytes.NewReader(data), file.ContentType)
-	if err != nil || config.Width < 1 || config.Height < 1 || int64(config.Width) > s.options.MaximumImagePixels/int64(config.Height) || !matchesImageFormat(file.ContentType, format) {
-		return nil, ErrInvalid
-	}
-	source, format, err := decodeImage(bytes.NewReader(data), file.ContentType, s.options.MaximumImagePixels)
+	source, format, err := decodeImage(data, file.ContentType, s.options.MaximumImagePixels)
 	if err != nil {
 		return nil, ErrInvalid
 	}
@@ -65,10 +61,6 @@ func thumbnailImageType(contentType string) bool {
 	return contentType == "image/jpeg" || contentType == "image/png" || contentType == "image/gif" || contentType == "image/webp"
 }
 
-// decodeImageConfig and decodeImage select decoders by the already validated
-// declared type. image.Decode alone does not register WebP, and accepting a
-// mismatched decoder would let a claimed image type choose an unintended output
-// format.
 func decodeImageConfig(r io.Reader, contentType string) (image.Config, string, error) {
 	switch contentType {
 	case "image/jpeg", "image/png":
@@ -95,27 +87,38 @@ func encodeThumbnail(output io.Writer, thumbnail image.Image, sourceFormat strin
 	}
 }
 
-func decodeImage(r io.Reader, contentType string, maximumImagePixels int64) (image.Image, string, error) {
+// decodeImage owns the format and pixel-budget checks for every thumbnail
+// entry point. Callers bound encoded byte length before entering this function.
+// The input is borrowed read-only: WebP fallback can inspect the original RIFF
+// bytes without allocating another full-size io.ReadAll buffer.
+func decodeImage(data []byte, contentType string, maximumImagePixels int64) (image.Image, string, error) {
+	config, format, err := decodeImageConfig(bytes.NewReader(data), contentType)
+	if err != nil || config.Width < 1 || config.Height < 1 || int64(config.Width) > maximumImagePixels/int64(config.Height) || !matchesImageFormat(contentType, format) {
+		return nil, format, ErrInvalid
+	}
+	reader := bytes.NewReader(data)
+	var decoded image.Image
 	switch contentType {
 	case "image/jpeg", "image/png":
-		return image.Decode(r)
+		decoded, format, err = image.Decode(reader)
 	case "image/gif":
-		decoded, err := gif.Decode(r)
-		return decoded, "gif", err
+		decoded, err = gif.Decode(reader)
 	case "image/webp":
-		data, err := io.ReadAll(r)
+		decoded, err = webp.Decode(reader)
 		if err != nil {
-			return nil, "webp", err
+			decoded, err = decodeAnimatedWebPFirstFrame(data, maximumImagePixels)
 		}
-		decoded, err := webp.Decode(bytes.NewReader(data))
-		if err == nil {
-			return decoded, "webp", nil
-		}
-		decoded, err = decodeAnimatedWebPFirstFrame(data, maximumImagePixels)
-		return decoded, "webp", err
 	default:
 		return nil, "", ErrInvalid
 	}
+	if err != nil || decoded == nil || !matchesImageFormat(contentType, format) {
+		return nil, format, ErrInvalid
+	}
+	bounds := decoded.Bounds()
+	if bounds.Dx() < 1 || bounds.Dy() < 1 || int64(bounds.Dx()) > maximumImagePixels/int64(bounds.Dy()) {
+		return nil, format, ErrInvalid
+	}
+	return decoded, format, nil
 }
 
 func matchesImageFormat(contentType, format string) bool {

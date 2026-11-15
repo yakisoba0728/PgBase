@@ -122,11 +122,10 @@ func (s *Service) renderVariant(ctx context.Context, file File, variant string) 
 	return s.renderThumbnailData(data, file.ContentType, variant)
 }
 
-// RenderThumbnailData applies the bounded thumbnail pipeline to caller-owned
-// bytes. It is used by rooted extension files, whose paths are deliberately
-// not valid object-store keys.
+// RenderThumbnailData borrows caller-owned bytes read-only for the bounded
+// thumbnail pipeline. It does not copy the encoded input into another buffer.
 func (s *Service) RenderThumbnailData(data []byte, contentType, size string) ([]byte, error) {
-	return s.RenderThumbnailReader(bytes.NewReader(data), contentType, size)
+	return s.renderThumbnailData(data, contentType, size)
 }
 
 // RenderThumbnailReader applies the bounded thumbnail pipeline to a reader
@@ -143,23 +142,19 @@ func (s *Service) RenderThumbnailReader(reader io.Reader, contentType, size stri
 }
 
 func (s *Service) renderThumbnailData(data []byte, contentType, variant string) ([]byte, error) {
-	if !thumbnailImageType(contentType) {
+	if s == nil || int64(len(data)) > s.options.MaximumBytes || !validVariant(Variant(variant)) || !thumbnailImageType(contentType) {
 		return nil, ErrInvalid
 	}
-	config, format, err := decodeImageConfig(bytes.NewReader(data), contentType)
-	if err != nil || config.Width < 1 || config.Height < 1 || int64(config.Width) > s.options.MaximumImagePixels/int64(config.Height) || !matchesImageFormat(contentType, format) {
+	m := variantPattern.FindStringSubmatch(variant)
+	if m == nil {
 		return nil, ErrInvalid
 	}
-	source, format, err := decodeImage(bytes.NewReader(data), contentType, s.options.MaximumImagePixels)
+	source, format, err := decodeImage(data, contentType, s.options.MaximumImagePixels)
 	if err != nil {
 		return nil, ErrInvalid
 	}
 	if format == "jpeg" {
 		source = orientImage(source, jpegEXIFOrientation(data))
-	}
-	m := variantPattern.FindStringSubmatch(variant)
-	if m == nil {
-		return nil, ErrInvalid
 	}
 	w, _ := strconv.Atoi(m[1])
 	h, _ := strconv.Atoi(m[2])
