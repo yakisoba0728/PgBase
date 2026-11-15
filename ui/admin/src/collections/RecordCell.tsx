@@ -122,7 +122,8 @@ export const RecordCell = memo(function RecordCell({ field, name, record, collec
 });
 
 function FileCell({ collection, record, field, settled }: { collection: string; record: string; field: string; settled: boolean }) {
-  const files = useQuery({ ...recordFilesQuery(collection, record, field), enabled: settled });
+  // Kept fresh by the list page that carried it (a refetch reseeds it), so scrolling back never asks per row.
+  const files = useQuery({ ...recordFilesQuery(collection, record, field), enabled: settled, staleTime: Infinity });
   const items = files.data ?? [];
   return (
     <td>

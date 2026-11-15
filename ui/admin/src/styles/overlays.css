@@ -202,55 +202,122 @@ dialog::backdrop {
   animation: pop var(--dur-slow) var(--ease-spring);
 }
 
+/* Every toast, in the app, on guest screens and inside an open modal (Toast.tsx): fixed at the bottom centre of the
+   viewport, above the home indicator on phones. The host spans the width and lets clicks through. With a detail pane
+   footer open it sits above it (the pane is resizable, so a centred toast can reach its Delete or Save at any width). */
 .toasts {
-  /* Guest screens: floating at the top centre. In the app they take a band above it (below). */
   position: fixed;
-  top: var(--sp-8);
-  left: 50%;
-  translate: -50% 0;
+  inset: auto var(--sp-16) calc(var(--space) + env(safe-area-inset-bottom, 0px));
   z-index: var(--z-toast);
   display: grid;
-  gap: var(--sp-8);
-  max-width: min(var(--toast-w), calc(100vw - 32px));
+  justify-items: center;
+  pointer-events: none;
+  transition: bottom var(--dur-slow) var(--ease-out);
 }
 
+#root:has(.split-pane .pane-footer) > .app ~ .toasts {
+  bottom: calc(var(--control) + var(--space-sm) * 2 + var(--sp-8));
+}
+
+/* A raised card: a tone icon, the message wrapping up to three lines, then any action and the dismiss button. It rises
+   in from below with a spring and leaves downward with a quicker fade (a view transition, Toast.tsx). */
 .toast {
+  --toast-tone: var(--accent);
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: var(--sp-10);
-  padding: var(--sp-6) var(--sp-6) var(--sp-6) var(--sp-16);
+  max-width: min(var(--toast-w), 100%);
+  padding: var(--sp-10) var(--sp-10) var(--sp-10) var(--sp-16);
+  overflow: hidden;
   border-radius: var(--radius-lg);
-  background: var(--text);
-  color: var(--surface);
+  background: var(--surface-raised);
+  color: var(--text);
   box-shadow: var(--shadow-2);
-  animation: enter-down var(--dur-slow) var(--ease-spring);
+  pointer-events: auto;
+  transform-origin: center bottom;
+  animation: float-in var(--dur-slow) var(--ease-spring);
+  view-transition-name: toast;
 }
 
-/* Guest screens show toasts at the top, so they come down from it. */
-@keyframes enter-down {
-  from {
-    opacity: 0;
-    translate: 0 calc(-1 * var(--drop));
-    scale: var(--scale-from);
-  }
+.toast-success {
+  --toast-tone: var(--success);
 }
 
 .toast-danger {
-  background: var(--danger);
-  color: var(--danger-text);
+  --toast-tone: var(--danger);
+  background: color-mix(in srgb, var(--danger), var(--surface-raised) 92%);
+}
+
+/* Icon, text and action line up with the first line against the dismiss button's height. */
+.toast-icon {
+  flex: none;
+  width: var(--icon);
+  height: var(--icon);
+  margin-block: calc((var(--control-xs) - var(--icon)) / 2);
+  color: var(--toast-tone);
 }
 
 .toast p {
+  display: -webkit-box;
   flex: 1;
-  padding-top: var(--sp-4);
+  min-width: 0;
+  padding-block: calc((var(--control-xs) - var(--line-height)) / 2);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
-.toast .icon-btn {
-  color: inherit;
+.toast-action {
+  flex: none;
+  padding-block: calc((var(--control-xs) - var(--line-height)) / 2);
+  color: var(--accent);
+  font-size: var(--font-size);
+  font-weight: var(--weight-bold);
 }
 
-.toast .icon-btn:hover {
-  background: color-mix(in srgb, currentcolor, transparent 85%);
+.toast-action:hover {
+  color: var(--accent-hover);
+}
+
+/* Time left before the toast leaves on its own (Toast.tsx sets --toast-life): a line in the tone draining along the
+   bottom edge. Hover or focus holds the toast and its timer restarts in full on leave, so the line goes and
+   comes back full with it. */
+.toast::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  background: var(--toast-tone);
+  opacity: 0.6;
+  transform-origin: left;
+  animation: drain var(--toast-life, 5s) linear forwards;
+}
+
+.toast:is(:hover, :focus-within)::after {
+  opacity: 0;
+  animation: none;
+}
+
+@keyframes drain {
+  to {
+    scale: 0 1;
+  }
+}
+
+::view-transition-old(toast) {
+  animation: leave var(--dur) var(--ease-in) both;
+}
+
+::view-transition-new(toast) {
+  animation: float-in var(--dur-slow) var(--ease-spring) both;
+}
+
+::view-transition-group(toast) {
+  animation-duration: var(--dur-slow);
+  animation-timing-function: var(--ease-emph);
 }
 
 
@@ -356,107 +423,3 @@ dialog::backdrop {
   color: var(--text-hint);
 }
 
-/* In the app, toasts float at the bottom-right of the main area (an empty host takes no space and lets clicks
-   through). With a detail pane open they sit above its footer, so Save and Create are never covered. They rise from
-   that edge and leave with a quicker fade down (a view transition, Toast.tsx). */
-#root > .app ~ .toasts {
-  top: auto;
-  right: var(--space);
-  bottom: var(--space);
-  left: auto;
-  translate: none;
-  justify-items: end;
-  pointer-events: none;
-  transition: bottom var(--dur-slow) var(--ease-out);
-}
-
-#root:has(.split-pane) > .app ~ .toasts {
-  bottom: calc(var(--control) + var(--space-sm) * 2 + var(--sp-8));
-}
-
-.toasts .toast {
-  pointer-events: auto;
-}
-
-#root > .app ~ .toasts .toast {
-  position: relative;
-  overflow: hidden;
-  transform-origin: right bottom;
-  align-items: center;
-  min-width: 0;
-  max-width: min(var(--toast-w), calc(100vw - 32px));
-  min-height: calc(var(--control) + var(--sp-8));
-  padding: var(--sp-6) var(--sp-6) var(--sp-6) var(--sp-16);
-  animation-name: float-in;
-}
-
-/* Time left before the toast leaves on its own (Toast.tsx sets --toast-life): a hairline draining along the
-   bottom edge. Hover or focus holds the toast and its timer restarts in full on leave, so the line goes and
-   comes back full with it. */
-#root > .app ~ .toasts .toast::after {
-  content: "";
-  position: absolute;
-  inset: auto 0 0;
-  height: 2px;
-  background: currentcolor;
-  opacity: 0.35;
-  transform-origin: left;
-  animation: drain var(--toast-life, 5s) linear forwards;
-}
-
-#root > .app ~ .toasts .toast:is(:hover, :focus-within)::after {
-  opacity: 0;
-  animation: none;
-}
-
-@keyframes drain {
-  to {
-    scale: 0 1;
-  }
-}
-
-#root > .app ~ .toasts .toast p {
-  display: -webkit-box;
-  padding: 0;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
-
-/* Phones and the drawer layout: centred, raised above a full-screen pane's footer. */
-@media (max-width: 899px) {
-  #root > .app ~ .toasts .toast {
-    transform-origin: center bottom;
-  }
-
-  #root > .app ~ .toasts {
-    right: auto;
-    bottom: calc(var(--control) + var(--space-sm) * 2 + var(--sp-8));
-    left: 50%;
-    translate: -50% 0;
-    justify-items: center;
-  }
-}
-
-.toast {
-  view-transition-name: toast;
-}
-
-::view-transition-old(toast) {
-  animation: leave var(--dur) var(--ease-in) both;
-}
-
-::view-transition-new(toast) {
-  animation: float-in var(--dur-slow) var(--ease-spring) both;
-}
-
-::view-transition-group(toast) {
-  animation-duration: var(--dur-slow);
-  animation-timing-function: var(--ease-emph);
-}
-
-.toast-action {
-  flex: none;
-  align-self: center;
-  font-weight: var(--weight-bold);
-}

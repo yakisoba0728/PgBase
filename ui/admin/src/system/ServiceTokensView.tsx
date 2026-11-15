@@ -96,7 +96,7 @@ export function ServiceTokensView() {
   else if (open) pane = <TokenPane key={open.id} token={open} names={names} onClose={close} />;
   // The full list is loaded, so a token missing from it once it settles does not exist (a just-issued one arrives with the refetch).
   else if (openId && query.data && !query.isFetching) pane = <EmptyState icon={RiErrorWarningLine}>{t("common.notFound")}</EmptyState>;
-  else if (openId && !query.isError) pane = <Skeleton variant="form" />;
+  else if (openId && !query.isError) pane = <Skeleton variant="pane" />;
   return <SplitView list={list} pane={pane} paneLabel={t("system.tokens.detail")} onClose={close} />;
 }
 function TokenPane({ token, names, onClose }: { token: ServiceToken; names: Map<string, string>; onClose: () => void }) {

@@ -125,7 +125,7 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
       if (isNew) addToLists(queryClient, collection.name, result.record);
       else replaceInLists(queryClient, collection.name, result.record);
       queryClient.setQueryData(recordQuery(collection.name, result.record.id).queryKey, result);
-      toast(t("records.saved"));
+      toast(t("common.savedToast"));
       if (isNew) onCreated(result.record.id);
     },
     onError: onFailure,

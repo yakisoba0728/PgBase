@@ -51,7 +51,7 @@ func TestCountStatementDropsPageOrderAndLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	statement, err := plannedRootPlan(nil, plan).countStatement()
-	if err != nil || strings.Contains(statement.SQL, " ORDER BY ") || strings.Contains(statement.SQL, " LIMIT ") || !strings.HasPrefix(statement.SQL, `SELECT COUNT(DISTINCT "records"."id")`) {
+	if err != nil || strings.Contains(statement.SQL, " ORDER BY ") || strings.Contains(statement.SQL, " LIMIT ") || !strings.HasPrefix(statement.SQL, `SELECT COUNT(*) FROM "app"."records"`) {
 		t.Fatalf("count SQL=%q args=%v err=%v", statement.SQL, statement.Args, err)
 	}
 }
@@ -65,7 +65,7 @@ func TestCountDoesNotDeriveRowsFromProjectedSQL(t *testing.T) {
 		t.Fatal(err)
 	}
 	statement, err := plannedRootPlan(nil, plan).countStatement()
-	if err != nil || statement.SQL != `SELECT COUNT(DISTINCT "records"."id") FROM "app"."records"` || len(statement.Args) != 0 {
+	if err != nil || statement.SQL != `SELECT COUNT(*) FROM "app"."records"` || len(statement.Args) != 0 {
 		t.Fatalf("count used projected identifiers as SQL structure: %#v, %v", statement, err)
 	}
 	catalog, posts := relationFilterSortCatalog()

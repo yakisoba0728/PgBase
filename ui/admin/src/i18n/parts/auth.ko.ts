@@ -4,7 +4,6 @@ export const authKo: Record<keyof typeof authEn, string> = {
   "auth.user.fileReferences": "기존 파일 참조 ID를 JSON 배열로 입력하세요.",
   "auth.on": "켜짐",
   "auth.off": "꺼짐",
-  "auth.savedToast": "저장했습니다.",
   "auth.rejected": "서버가 설정을 거부했습니다. 값을 확인하세요.",
   "auth.rejectedFields": "서버가 거부한 항목: {fields}. 값을 확인하세요.",
   "auth.secretStored": "저장된 비밀값이 있습니다. 비워 두면 유지됩니다.",

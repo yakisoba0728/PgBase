@@ -130,7 +130,7 @@ function ProviderForm({ collection, administration, existing, preset, initial, o
     onSuccess: (saved) => {
       const others = (administration.providers ?? []).filter((provider) => provider.name !== saved.name);
       queryClient.setQueryData(key, { ...administration, providers: [...others, saved].sort((a, b) => a.name.localeCompare(b.name)) });
-      toast(t("auth.savedToast"));
+      toast(t("common.savedToast"));
       form.release.current = true;
       onSaved(saved.name);
     },
@@ -176,7 +176,7 @@ function ProviderForm({ collection, administration, existing, preset, initial, o
           // Outside the form: the generator is a form of its own.
           <div className="auth-apple">
             <p className="txt-hint">{t("auth.providers.appleHint")}</p>
-            <AppleSecretButton clientId={draft.clientId} onGenerated={(secret) => { patch({ clientSecret: secret }); toast(t("auth.providers.appleGenerated")); }} />
+            <AppleSecretButton clientId={draft.clientId} onGenerated={(secret) => { patch({ clientSecret: secret }); toast(t("auth.providers.appleGenerated"), "info"); }} />
           </div>
         )}
         <form id={formId} className="form" onSubmit={onSubmit} noValidate><fieldset disabled={save.isPending} className="form">

@@ -75,7 +75,7 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
         case "verify":
         case "unverify":
           await setUserVerified(user.id, current.kind === "verify");
-          return t("auth.savedToast");
+          return t("common.savedToast");
         case "sendVerification":
           await sendUserVerification(user.id);
           return t("auth.user.sent", { email: user.email });
@@ -100,7 +100,7 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
     },
     onSuccess: (message, current) => {
       const undo = undoable[current.kind];
-      toast(message, "info", undo && { label: t("common.undo"), run: () => void undo(user.id).then(refreshUsers, (failure) => reportFailure(t, failure)) });
+      toast(message, "success", undo && { label: t("common.undo"), run: () => void undo(user.id).then(refreshUsers, (failure) => reportFailure(t, failure)) });
       setAction(null);
       // A delete changes the total; other actions keep the list where it is.
       if (current.kind === "delete") void refreshUserLists(queryClient);
@@ -218,7 +218,7 @@ function ProfileForm({ userId, collection, record, release, onDelete, children }
         ...(Object.keys(changes).length ? { fields: changes } : {}),
       }),
     onSuccess: async () => {
-      toast(t("auth.savedToast"));
+      toast(t("common.savedToast"));
       await queryClient.invalidateQueries({ queryKey: ["auth", "users"] });
       await queryClient.invalidateQueries({ queryKey: ["auth", "user-record"] });
     },

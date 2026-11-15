@@ -423,11 +423,11 @@ func TestCompileListContainsBindsLiteralSubstring(t *testing.T) {
 		t.Fatalf("CompileList() error = %v", err)
 	}
 	wantSQL := `SELECT "id", "created_at", "updated_at", "title", "large_count", "metadata", "optional_note" FROM "app"."physical_records" ` +
-		`WHERE (strpos("title", $1) > 0) ORDER BY "created_at" ASC NULLS LAST, "id" ASC NULLS LAST LIMIT $2`
+		`WHERE ("title" LIKE $1 ESCAPE '\') ORDER BY "created_at" ASC NULLS LAST, "id" ASC NULLS LAST LIMIT $2`
 	if statement.SQL != wantSQL {
 		t.Fatalf("SQL =\n%q\nwant\n%q", statement.SQL, wantSQL)
 	}
-	if !reflect.DeepEqual(statement.Args, []any{needle, 51}) {
+	if !reflect.DeepEqual(statement.Args, []any{`%\%\_'); DROP TABLE app.physical\_records; --%`, 51}) {
 		t.Fatalf("Args = %#v", statement.Args)
 	}
 	if strings.Contains(statement.SQL, needle) {

@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import * as api from "../api/records";
 import { translate, type MessageKey } from "../i18n";
-import { countText, addToLists, replaceInLists, pooled, recordsQuery, recordFilesQuery } from "./queries";
+import type { Collection, CollectionField } from "../api/collections";
+import { countText, addToLists, replaceInLists, pooled, recordsListQuery, recordsQuery, recordFilesQuery, thumbnailLifetime, tokenExpiry } from "./queries";
 
 describe("pooled", () => {
   it("runs at most four tasks at once and skips tasks cancelled while queued", async () => {
@@ -48,7 +49,7 @@ describe("countText", () => {
 it("seeds per-field file caches from the record page, including empty fields", async () => {
  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
  const spy = vi.spyOn(api, "listRecords").mockResolvedValue({ items: [{ id: "row" }], fileMetadata: { row: { attachment: [] } } });
- await client.fetchInfiniteQuery(recordsQuery("notes", "", "", ""));
+ await client.fetchInfiniteQuery(recordsQuery("notes", "", "", "", true));
  expect(client.getQueryData(recordFilesQuery("notes", "row", "attachment").queryKey)).toEqual([]);
  expect(spy).toHaveBeenCalledWith("notes", expect.objectContaining({ files: true }));
  spy.mockRestore();
@@ -65,4 +66,50 @@ it("resets filtered lists instead of inserting a row outside their predicate", a
   replaceInLists(client, "notes", { id: "old", published: false });
   expect(client.getQueryData(key)).toBeUndefined();
   client.clear();
+});
+
+const field = (name: string, type: CollectionField["type"]) => ({ id: name, name, columnName: name, type, required: false, unique: false, indexed: false, ordinal: 0, hidden: false }) as CollectionField;
+const collection = (fields: CollectionField[]): Collection => ({ id: "c1", name: "notes", tableName: "notes", fields, createdAt: "" });
+
+it("asks for file metadata only when the collection has a file field", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const spy = vi.spyOn(api, "listRecords").mockResolvedValue({ items: [] });
+  await client.fetchInfiniteQuery(recordsListQuery(collection([field("title", "text")]), "", ""));
+  expect(spy.mock.calls[0][1]?.files).toBeUndefined();
+  await client.fetchInfiniteQuery(recordsListQuery(collection([field("title", "text"), field("cover", "file")]), "ada", ""));
+  expect(spy.mock.calls[1][1]).toMatchObject({ files: true, filter: "title:lower ~ 'ada'" });
+  spy.mockRestore();
+  client.clear();
+});
+
+it("patches a saved row into unfiltered lists, keeping its labels, and resets when a relation changed", () => {
+  const client = new QueryClient();
+  const key = recordsQuery("notes", "", "", "author").queryKey;
+  const page = { items: [{ id: "a", title: "old", author: "u1", expand: { author: { id: "u1", name: "Ada" } } }, { id: "b" }] };
+  client.setQueryData(key, { pages: [page], pageParams: [undefined] });
+  replaceInLists(client, "notes", { id: "a", title: "new", author: "u1" });
+  expect(client.getQueryData<{ pages: typeof page[] }>(key)?.pages[0].items[0]).toEqual({ id: "a", title: "new", author: "u1", expand: { author: { id: "u1", name: "Ada" } } });
+  replaceInLists(client, "notes", { id: "a", title: "new", author: "u2" });
+  expect(client.getQueryData(key)).toBeUndefined();
+  client.clear();
+});
+
+describe("file tokens", () => {
+  // The server's layout: principal(16) file(16) variant length(1) variant expiry(8, big-endian seconds) mac(32).
+  const token = (expiresSeconds: number) => {
+    const variant = new TextEncoder().encode("thumbnail");
+    const bytes = new Uint8Array(33 + variant.length + 8 + 32);
+    bytes[32] = variant.length;
+    bytes.set(variant, 33);
+    new DataView(bytes.buffer).setBigUint64(33 + variant.length, BigInt(expiresSeconds));
+    return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  };
+  it("reads the expiry and keeps the URL until shortly before it", () => {
+    const now = 1_800_000_000_000;
+    expect(tokenExpiry(token(now / 1000 + 600))).toBe(now + 600_000);
+    expect(thumbnailLifetime(`/api/admin/files/f?token=${token(now / 1000 + 600)}&variant=thumbnail`, now)).toBe(570_000);
+    expect(thumbnailLifetime("/api/files/f?variant=thumbnail", now)).toBe(Infinity);
+    expect(thumbnailLifetime("/api/admin/files/f?token=garbage", now)).toBe(60_000);
+    expect(thumbnailLifetime(`/api/admin/files/f?token=${token(now / 1000 - 5)}`, now)).toBe(0);
+  });
 });

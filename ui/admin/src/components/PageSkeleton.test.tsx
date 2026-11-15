@@ -11,8 +11,8 @@ it.each([
   ["/logs", "table"], ["/jobs", "table"], ["/realtime", "cards"],
   ["/auth/collections", "table"], ["/auth/collections/users", "form"], ["/auth/users", "table"],
   ["/backups", "table"], ["/storage", "form"], ["/storage/migration", "form"],
-  ["/settings", "form"], ["/settings/status", "cards"], ["/service-tokens", "table"],
-  ["/administrators", "table"], ["/profile", "form"], ["/schema-transfer", "form"],
+  ["/storage/backups", "form"], ["/settings", "sections"], ["/settings/status", "sections"], ["/service-tokens", "table"],
+  ["/administrators", "table"], ["/profile", "sections"], ["/schema-transfer", "editor"],
   ["/schema-operations", "table"], ["/sql", "editor"],
 ])("keeps the destination heading and %s loading layout", (path, variant) => {
   const { container } = render(<MemoryRouter initialEntries={[path]}><PageSkeleton /></MemoryRouter>);
@@ -29,7 +29,7 @@ it("keeps collection tabs and decoded names while loading", () => {
   expect(screen.getByRole("link", { name: "Schema" })).toHaveAttribute("aria-current", "page");
 });
 
-it.each(["table", "form", "cards", "editor", "list"] as const)("announces %s loading without fake focusable controls", (variant) => {
+it.each(["table", "form", "sections", "facts", "pane", "cards", "editor", "list"] as const)("announces %s loading without fake focusable controls", (variant) => {
   const { container } = render(<Skeleton variant={variant} />);
   expect(screen.getByRole("status")).toHaveTextContent("Loading");
   expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "true");

@@ -5,7 +5,9 @@ import { listSchemaOperations } from "../api/schema";
 import { RunningOperations } from "../components/Nav";
 import { toast } from "../components/Toast";
 import type { ManagedJobList } from "../api/jobs";
+import { catalogChanged } from "../collections/queries";
 import { importOperationQuery, schemaOperationQuery } from "../devtools/queries";
+import { markStale } from "./queries";
 import { jobsQuery } from "../ops/queries";
 import { useT, type MessageKey } from "../i18n";
 import { backupJobQuery, migrationQuery, migrationRunning } from "../storage/queries";
@@ -94,13 +96,15 @@ export function RunningFeed() {
       const name = (kind === "schema" || kind === "job") && operation.subject ? ` · ${operation.subject}` : "";
       if (state === "done") toast(t(`ops.running.done.${kind}` as MessageKey) + name);
       else toast(t(`ops.running.failed.${kind}` as MessageKey) + name, "danger");
+      // Whatever the operation wrote is fetched again on the next visit (as after a mutation in this tab).
+      void markStale(queryClient);
       // A restore swaps the whole project: every cached screen is stale.
       if (kind === "restore" && state === "done") void queryClient.invalidateQueries();
       else if (kind === "backup" || kind === "restore") void queryClient.invalidateQueries({ queryKey: ["backups"] });
       else if (kind === "migration") void queryClient.invalidateQueries({ queryKey: ["storage"] });
       else if (kind === "job") void queryClient.invalidateQueries({ queryKey: jobsQuery.queryKey });
       else {
-        void queryClient.invalidateQueries({ queryKey: ["collections"] });
+        void catalogChanged(queryClient);
         void queryClient.invalidateQueries({ queryKey: ["schema-operations"] });
       }
     });

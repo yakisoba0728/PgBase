@@ -26,6 +26,9 @@ export function pushRecent(list: string[], name: string, max = maxRecent): strin
 const recent = createStore<string[]>(readJson(recentKey, [], (value) => Array.isArray(value) && value.every((item) => typeof item === "string")));
 let tabs = readJson<Record<string, string>>(tabsKey, {}, (value) => typeof value === "object" && value !== null && !Array.isArray(value));
 
+/** Recently opened collection names, most recent first (outside React). */
+export const recentCollections = () => recent.get();
+
 /** Recently opened collection names, limited to those that still exist. */
 export function useRecentCollections(existing: string[] | undefined): string[] {
   const names = recent.use();

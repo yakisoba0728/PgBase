@@ -13,7 +13,7 @@ export const devtoolsEn = {
   "devtools.import.document": "Document to import",
   "devtools.import.placeholder": "Paste a pgbase.schema/v1 document or load a file.",
   "devtools.import.load": "Load file",
-  "devtools.import.readFailed": "The file could not be read.",
+  "devtools.import.readFailed": "Could not read the file.",
   "devtools.import.deleteMissing": "Delete collections missing from the document",
   "devtools.import.preview": "Preview",
   "devtools.import.plan": "Plan",

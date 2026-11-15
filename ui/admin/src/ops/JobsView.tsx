@@ -136,7 +136,7 @@ export function JobsView() {
   if (open) pane = <JobPane key={open.id} job={open} workerEnabled={jobs.data?.workerEnabled ?? false} onClose={close} />;
   // The full list is loaded (and polled, and jobs are not created here), so a job missing from it does not exist.
   else if (openId && jobs.data) pane = <EmptyState icon={RiErrorWarningLine}>{t("common.notFound")}</EmptyState>;
-  else if (openId && !jobs.isError) pane = <Skeleton variant="form" />;
+  else if (openId && !jobs.isError) pane = <Skeleton variant="pane" />;
   return <SplitView list={list} paneLabel={t("ops.jobs.detail")} onClose={close} pane={pane} />;
 }
 
@@ -157,7 +157,7 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
   const run = useMutation({
     mutationFn: () => runJob(job.id),
     onSuccess: () => {
-      toast(t("ops.jobs.runRequested", { name: job.name }));
+      toast(t("ops.jobs.runRequested", { name: job.name }), "info");
       trackOperation({ kind: "job", id: job.id, subject: job.name, since: job.lastStartedAt });
     },
     onError: (error) => toast(errorText(t, error), "danger"),

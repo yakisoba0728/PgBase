@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Facts } from "../components/Facts";
 import { cancelStorageMigration, previewStorageMigration, resumeStorageMigration, startStorageMigration, type FileStorageSettings, type StorageMigrationStatus } from "../api/storage";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { Notice } from "../components/Feedback";
-import { combineQueries, QueryView } from "../components/QueryView";
+import { Notice, Skeleton } from "../components/Feedback";
+import { combineQueries, QueryView, useHeld } from "../components/QueryView";
 import { toast } from "../components/Toast";
 import { ApiError, isNotFound } from "../api/http";
 import { trackOperation, untrackOperation, useOperations, watchOperation } from "../app/operations";
@@ -32,7 +32,7 @@ export function MigrationView() {
   const id = params.get("migration");
   const startedAt = migrationStartedAt(useOperations(), id);
   // Starting writes the new id to the URL first; the previous answer stays so the form (and its pending start) stays mounted.
-  const migration = useQuery({ ...migrationQuery(id), placeholderData: keepPreviousData });
+  const migration = useHeld(useQuery(migrationQuery(id)));
   if (files.data === undefined && isNotFound(files.error)) return <StorageOff kind="files" />;
   // null is a real answer (no migration yet); only a missing one replaces the screen.
   return (
@@ -51,6 +51,9 @@ export function MigrationView() {
                 <h2 className="subtitle">{t("storage.migration.latest")}</h2>
                 <JobProgress title={t("storage.migration.starting")} state="running" detail={t("storage.migration.startingText")} meta={<span className="mono">{id}</span>} />
               </section>
+            ) : migration.isHeld ? (
+              // The held answer is another id's: never shown as this one's status.
+              <Skeleton variant="list" />
             ) : (
               <MigrationStatus migration={latest} />
             )}

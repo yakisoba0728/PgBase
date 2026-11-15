@@ -44,11 +44,22 @@ func (p rootPlan) countStatement(memberships ...*int64) (Statement, error) {
 	if err != nil {
 		return Statement{}, err
 	}
-	identity := qualified(alias, systemFieldID)
+	// Without relation sort joins the rows are the root table (id is its primary
+	// key, or a view identity validated unique in this transaction) filtered by
+	// EXISTS predicates, so they cannot repeat an id and need no DISTINCT. A
+	// relation sort may LEFT JOIN a target whose id is not guaranteed unique.
 	rows := statement.SQL
-	statement.SQL = "SELECT COUNT(DISTINCT " + identity + ")" + rows
+	selected, counted := "1", "*"
+	for _, term := range p.order().terms {
+		if term.relationPath != nil && len(term.relationPath.hops) > 0 {
+			identity := qualified(alias, systemFieldID)
+			selected, counted = "DISTINCT "+identity, "DISTINCT "+identity
+			break
+		}
+	}
+	statement.SQL = "SELECT COUNT(" + counted + ")" + rows
 	if p.countLimit > 0 {
-		statement.SQL = "SELECT COUNT(*) FROM (SELECT DISTINCT " + identity + rows + " LIMIT " + strconv.Itoa(p.countLimit) + ") bounded_count"
+		statement.SQL = "SELECT COUNT(*) FROM (SELECT " + selected + rows + " LIMIT " + strconv.Itoa(p.countLimit) + ") bounded_count"
 	}
 	return statement, nil
 }

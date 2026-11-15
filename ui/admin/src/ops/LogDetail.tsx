@@ -40,7 +40,7 @@ export function LogDetail({ id, onClose, onFilterRoute }: LogDetailProps) {
     <>
       <PaneHeader title={`#${id}`} mono onClose={onClose} />
       <div className="pane-body">
-        <QueryView query={query} skeleton="form">
+        <QueryView query={query} skeleton="facts">
           {() => (
             <>
               <Facts items={rows.map(([label, value]) => ({ label, value }))} />

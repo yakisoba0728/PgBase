@@ -51,7 +51,8 @@
         {
           "name": "Vary",
           "values": [
-            "Origin"
+            "Origin",
+            "Accept-Encoding"
           ]
         },
         {
@@ -166,7 +167,8 @@
         {
           "name": "Vary",
           "values": [
-            "Origin"
+            "Origin",
+            "Accept-Encoding"
           ]
         },
         {

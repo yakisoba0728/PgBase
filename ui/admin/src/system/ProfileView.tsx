@@ -25,7 +25,7 @@ import "../styles/system.css";
 export function ProfileView() {
   const profile = useQuery(profileQuery);
   return (
-    <QueryView query={profile} skeleton="form">
+    <QueryView query={profile} skeleton="sections">
       {(data) => (
         <div className="sys-scroll">
           <EmailSection key={data.email} profile={data} />

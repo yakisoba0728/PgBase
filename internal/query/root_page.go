@@ -178,6 +178,13 @@ func (s *Service) readSequentialRootPage(
 	for len(result.candidates) < pageLimit {
 		remaining := pageLimit - len(result.candidates)
 		batchLimit := min(rootHydrationBatchSize, remaining)
+		// The first small batch is a probe: a speculative batch fetches and
+		// transfers full rows past the lookahead, so take the rest in one round
+		// trip only when the measured average says it fits the byte budget left.
+		if measured := len(result.candidates); measured > 0 &&
+			(measuredBytes+measured-1)/measured*remaining <= assembler.maximumBytes-measuredBytes {
+			batchLimit = remaining
+		}
 		// Random orders select one bounded page; they cannot continue by keyset.
 		if assembler.order.random() {
 			batchLimit = remaining
@@ -189,8 +196,25 @@ func (s *Service) readSequentialRootPage(
 		// errors keep their historical order. Only compact identity/cursor stubs
 		// survive the callback; the full base map is immediately collectible.
 		batch := make([]rootStub, 0, batchLimit+1)
+		// A batch widened past the probe is bounded by bytes too: it ends with
+		// the first base row that overruns the budget left (the row the
+		// assembler will trim at) plus the usual one-row lookahead, so later
+		// large rows cannot make one speculative batch fetch and hydrate far
+		// past the page.
+		byteBound := batchLimit > rootHydrationBatchSize && !assembler.order.random()
+		scannedBytes := 0
 		err := scanRootRows(ctx, tx, request.plan, after, batchLimit+1, offset, func(candidate pageCandidate) (bool, error) {
 			noteRetainedRoots(&result, result.candidates, 1)
+			if byteBound && len(batch) < batchLimit {
+				encoded, err := json.Marshal(candidate.root)
+				if err != nil {
+					return false, fmt.Errorf("measure record page item: %w", err)
+				}
+				scannedBytes += len(encoded)
+				if scannedBytes > assembler.maximumBytes-measuredBytes {
+					batchLimit = len(batch) + 1
+				}
+			}
 			stub, err := compactRootCandidate(candidate)
 			candidate.root = nil
 			candidate.wire = nil
@@ -198,7 +222,7 @@ func (s *Service) readSequentialRootPage(
 				return false, err
 			}
 			batch = append(batch, stub)
-			return true, nil
+			return len(batch) <= batchLimit, nil
 		})
 		if err != nil {
 			return rootPageReadResult{}, err

@@ -4,7 +4,7 @@ import { RiFileUploadLine } from "@remixicon/react";
 import { ApiError, parseJson } from "../api/http";
 import { previewSchemaImport, type SchemaDocument } from "../api/schema";
 import { errorText } from "../app/queries";
-import { collectionsQuery } from "../collections/queries";
+import { catalogChanged, collectionsQuery } from "../collections/queries";
 import { trackOperation, untrackOperation, watchOperation } from "../app/operations";
 import { Button, FileButton } from "../components/Button";
 import { UnsavedGuard } from "../components/UnsavedGuard";
@@ -78,7 +78,7 @@ export function SchemaImport() {
       setPending(null);
       setAppliedText(text);
       preview.reset();
-      void queryClient.invalidateQueries({ queryKey: ["collections"] });
+      void catalogChanged(queryClient);
       void queryClient.invalidateQueries({ queryKey: ["schema-export"] });
       toast(result.version === undefined ? t("devtools.import.applied") : t("devtools.import.appliedVersion", { version: result.version }));
     },

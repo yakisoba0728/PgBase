@@ -8,7 +8,7 @@ import { useTimeFormat } from "../app/format";
 import { Button, RefreshButton } from "../components/Button";
 import { EmptyState, LoadMore, WindowNotice } from "../components/Feedback";
 import { Searchbar, Select } from "../components/Field";
-import { QueryView } from "../components/QueryView";
+import { QueryView, useHeld } from "../components/QueryView";
 import { SplitView } from "../components/SplitView";
 import { Row, Table, TableScroll } from "../components/Table";
 import { useT, type Translate } from "../i18n";
@@ -51,13 +51,13 @@ export function UsersView() {
   const [text, setText] = useState(url.query);
   useEffect(() => setText(url.query), [url.query]);
   const listQuery = usersQuery({ q: url.query.trim(), collection: url.collection });
-  const users = useInfiniteQuery(listQuery);
+  const users = useHeld(useInfiniteQuery(listQuery));
   const queryClient = useQueryClient();
   const collections = useQuery(authCollectionsQuery);
   const names = new Map((collections.data ?? []).map((collection) => [collection.id, collection.name]));
   const openId = url.user ?? null;
   // The open user is always read fresh, so actions show their effect on the listed row too.
-  const fresh = useQuery({ ...userQuery(openId ?? ""), enabled: Boolean(openId) });
+  const fresh = useQuery({ ...userQuery(openId ?? ""), enabled: Boolean(openId), staleTime: 0 });
   const rows = users.data?.pages.flatMap((page) => page.items) ?? [];
   // The window moved past the first page; its total is only sent with that page, so keep the last one seen.
   const shifted = windowShifted(users.data);
@@ -115,7 +115,7 @@ export function UsersView() {
   if (url.creating) pane = <NewUserPane onClose={url.close} onCreated={url.open} />;
   else if (openUser) pane = <UserPane key={openUser.id} user={openUser} onClose={url.close} />;
   // Not in the loaded rows: the single lookup decides (null is "no such user").
-  else if (openId) pane = <QueryView query={fresh} skeleton="form" empty={<EmptyState icon={RiErrorWarningLine}>{t("common.notFound")}</EmptyState>} isEmpty={(data) => data === null}>{() => null}</QueryView>;
+  else if (openId) pane = <QueryView query={fresh} skeleton="pane" empty={<EmptyState icon={RiErrorWarningLine}>{t("common.notFound")}</EmptyState>} isEmpty={(data) => data === null}>{() => null}</QueryView>;
   return (
     <SplitView
       list={

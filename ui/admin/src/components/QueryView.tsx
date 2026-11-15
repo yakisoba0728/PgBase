@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { Button } from "./Button";
 import { ErrorState, Notice, Skeleton, type SkeletonVariant } from "./Feedback";
@@ -13,6 +13,8 @@ export interface ViewQuery<T> {
   refetch: () => unknown;
   /** Infinite queries: a failed next page is reported by LoadMore, not here. */
   isFetchNextPageError?: boolean;
+  /** From useHeld: `data` is the previous answer, kept on screen while this one loads. */
+  isHeld?: boolean;
 }
 
 interface QueryViewProps<T> {
@@ -38,11 +40,30 @@ export function combineQueries<A, B>(a: ViewQuery<A>, b: ViewQuery<B>): ViewQuer
     isError: failed.length > 0,
     error: (failed.find((query) => query.data === undefined) ?? failed[0])?.error ?? null,
     isFetching: a.isFetching || b.isFetching,
+    isHeld: Boolean(a.isHeld || b.isHeld),
     refetch: () => Promise.all(failed.map((query) => query.refetch())),
   };
 }
 
-const emptyArray =(data: unknown) => Array.isArray(data) && data.length === 0;
+/**
+ * Keeps a query's last answer on screen while it loads again for the same `entity`: new parameters (filter, sort,
+ * range) or a reset after a change. The result then reads as loaded with `isHeld` set, and QueryView dims it under a
+ * progress line instead of showing the skeleton. Another entity (collection, user) starts blank, as does a failure.
+ *
+ *   const records = useHeld(useInfiniteQuery(recordsListQuery(collection, url.filter, url.sort, columns.visible)), collection.name);
+ */
+export function useHeld<R extends { data: unknown; isPending: boolean; isFetching: boolean }>(result: R, entity: unknown = null): R & { isHeld?: boolean } {
+  const [held, setHeld] = useState<{ data: R["data"]; entity: unknown }>();
+  if (result.data !== undefined && (held?.data !== result.data || !Object.is(held.entity, entity))) setHeld({ data: result.data, entity });
+  // Pending without fetching is a disabled query; a failure is pending no more.
+  if (!result.isPending || !result.isFetching || !held || !Object.is(held.entity, entity)) return result;
+  return { ...result, data: held.data, isPending: false, isHeld: true };
+}
+
+// Once per hold (a stable ref): a list loading anew starts at its top, as it did when the skeleton replaced it.
+const toTop = (element: HTMLElement | null) => element?.closest(".grid-scroll")?.scrollTo({ top: 0 });
+
+const emptyArray = (data: unknown) => Array.isArray(data) && data.length === 0;
 
 /**
  * The load lifecycle of one query: the skeleton until the first response, ErrorState when nothing has loaded,
@@ -64,9 +85,12 @@ export function QueryView<T>({ query, skeleton = "table", empty, isEmpty = empty
       <Button size="sm" variant="transparent" loading={query.isFetching} onClick={() => void query.refetch()}>{t("common.retry")}</Button>
     </Notice>
   );
+  // Out of flow and before the content, so the content keeps its place in the parent and CSS dims it as a sibling.
+  const busy = query.isHeld && <div className="query-busy" role="progressbar" aria-busy="true" aria-label={t("common.loading")} ref={toTop} />;
   return (
     <>
       {stale}
+      {busy}
       {empty !== undefined && isEmpty(data) ? empty : children(data)}
     </>
   );

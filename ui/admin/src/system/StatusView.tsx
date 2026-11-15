@@ -35,7 +35,7 @@ export function StatusView() {
   const status = useQuery(systemStatusQuery);
   // Both requests start together, but health is its own block: a failed health read must not hide the server status.
   const health = useQuery(schemaHealthQuery);
-  return <QueryView query={status} skeleton="cards">{(s) => <Status s={s} health={health} />}</QueryView>;
+  return <QueryView query={status} skeleton="sections">{(s) => <Status s={s} health={health} />}</QueryView>;
 }
 
 function Status({ s, health }: { s: SystemStatus; health: UseQueryResult<SchemaHealth> }) {

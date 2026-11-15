@@ -63,9 +63,14 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener);
 };
 
+const stored = (collectionId: string) => memory.get(key(collectionId)) ?? readStorage(key(collectionId));
+
+/** Visible columns outside React (a prefetch must ask for the same expand as the grid will). */
+export const storedVisibleColumns = (collection: Collection) => visibleColumns(availableColumns(collection), parse(stored(collection.id)));
+
 /** The collection's column layout, remembered in this browser. */
 export function useColumnPrefs(collection: Collection) {
-  const raw = useSyncExternalStore(subscribe, () => memory.get(key(collection.id)) ?? readStorage(key(collection.id)));
+  const raw = useSyncExternalStore(subscribe, () => stored(collection.id));
   const prefs = useMemo(() => parse(raw), [raw]);
   const available = useMemo(() => availableColumns(collection), [collection]);
   const save = useCallback(

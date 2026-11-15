@@ -191,6 +191,18 @@ type listResult struct {
 	page       RecordPage
 	expanded   []ExpandedRecord
 	querySteps int
+	// ordered is false for a random sort, whose page never carries a cursor.
+	ordered bool
+}
+
+// exactTotal is the total the page itself proves in the same snapshot: a first
+// read (no cursor) of an ordered result that needs no next cursor holds every
+// match from its offset on. An empty page past offset 0 proves nothing.
+func (r listResult) exactTotal(request ListRequest) (int64, bool) {
+	if !r.ordered || request.Cursor != "" || r.page.NextCursor != "" || request.Offset > 0 && len(r.page.Items) == 0 {
+		return 0, false
+	}
+	return int64(request.Offset + len(r.page.Items)), true
 }
 
 func (s *Service) readList(ctx context.Context, request ListRequest) (result listResult, err error) {
@@ -221,7 +233,11 @@ func (s *Service) readList(ctx context.Context, request ListRequest) (result lis
 		if readErr != nil || !request.Total {
 			return readErr
 		}
-		total, countErr := s.countListInTx(ctx, tx, catalog, collection, request, filterNode, maximumListTotal+1)
+		total, exact := result.exactTotal(request)
+		var countErr error
+		if !exact {
+			total, countErr = s.countListInTx(ctx, tx, catalog, collection, request, filterNode, maximumListTotal+1)
+		}
 		result.page.TotalCapped = total > maximumListTotal
 		total = min(total, maximumListTotal)
 		result.page.TotalItems = &total
@@ -303,7 +319,7 @@ func (s *Service) readNativeListInTx(
 		for _, item := range root.page.Items {
 			hideRecordFields(collection, request.Principal, item)
 		}
-		return listResult{page: projection.applyPage(root.page)}, relationOperation, nil
+		return listResult{page: projection.applyPage(root.page), ordered: !rootPlan.order().random()}, relationOperation, nil
 	}
 
 	expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, collection, root.page.Items, expansion, request.Principal, request.RuleContext, usage)
@@ -334,7 +350,7 @@ func (s *Service) readNativeListInTx(
 	}
 	return listResult{
 		page:     projection.applyPage(RecordPage{Items: items, NextCursor: cursor}),
-		expanded: expanded[:keep], querySteps: usage.querySteps,
+		expanded: expanded[:keep], querySteps: usage.querySteps, ordered: !rootPlan.order().random(),
 	}, relationOperation, nil
 }
 

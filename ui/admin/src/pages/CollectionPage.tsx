@@ -23,7 +23,7 @@ export function CollectionPage() {
   const { collection, data } = query;
   useCollectionVisit(collection ? collection.name : "", tab);
   if (tab && !subTabs.includes(tab as (typeof subTabs)[number])) return <Navigate to={`/collections/${encodeURIComponent(name)}`} replace />;
-  if (query.isPending) return <PageSkeleton />;
+  if (query.looking) return <PageSkeleton />;
   if (!collection) {
     return (
       <Page title={name}>

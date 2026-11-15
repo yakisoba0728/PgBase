@@ -55,20 +55,30 @@ func ListPocketBase(ctx context.Context, s *Service, request PocketBaseListReque
 	request.ListRequest.PocketBaseCompatibility = true
 	page = PocketBasePage{Page: request.Page, PerPage: request.PerPage, TotalItems: -1, TotalPages: -1, Items: []map[string]any{}}
 	err = s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
-		if !request.SkipTotal {
-			total, countErr := s.countListInTx(ctx, tx, catalog, collection, request.ListRequest, filterNode, 0)
-			if countErr != nil {
-				return countErr
-			}
-			page.TotalItems = total
-			page.TotalPages = (total + int64(request.PerPage) - 1) / int64(request.PerPage)
+		// Read first so a page that proves its own total skips the count; both
+		// statements share the repeatable-read snapshot either way.
+		result, _, readErr := s.readListInTx(ctx, tx, catalog, collection, request.ListRequest, filterNode, sortKeys)
+		if readErr != nil {
+			return readErr
+		}
+		page.Items = result.page.Items
+		if request.SkipTotal {
+			return nil
+		}
+		total, exact := result.exactTotal(request.ListRequest)
+		if !exact {
 			if s.countPageHook != nil {
 				s.countPageHook()
 			}
+			var countErr error
+			total, countErr = s.countListInTx(ctx, tx, catalog, collection, request.ListRequest, filterNode, 0)
+			if countErr != nil {
+				return countErr
+			}
 		}
-		result, _, readErr := s.readListInTx(ctx, tx, catalog, collection, request.ListRequest, filterNode, sortKeys)
-		page.Items = result.page.Items
-		return readErr
+		page.TotalItems = total
+		page.TotalPages = (total + int64(request.PerPage) - 1) / int64(request.PerPage)
+		return nil
 	}, request.Collection)
 	return page, err
 }

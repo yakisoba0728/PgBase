@@ -116,6 +116,29 @@ describe("Toast", () => {
       vi.useRealTimers();
     }
   });
+
+  it("marks a finished action as success by default and announces a failure as an alert inside the notifications region", () => {
+    vi.useFakeTimers();
+    try {
+      render(<ToastHost />);
+      act(() => toast("Saved."));
+      const region = screen.getByRole("status", { name: "Notifications" });
+      expect(screen.getByText("Saved.").closest(".toast")).toHaveClass("toast-success");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      act(() => toast("Could not copy.", "danger"));
+      expect(region).toContainElement(screen.getByRole("alert"));
+      expect(screen.getByRole("alert")).toHaveClass("toast-danger");
+      act(() => toast("Run requested.", "info"));
+      expect(screen.getByText("Run requested.").closest(".toast")).toHaveClass("toast-info");
+      // The note, then the error waiting under it, run out, so no toast is left for the next test.
+      act(() => vi.advanceTimersByTime(5_000));
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(screen.queryByText("Could not copy.")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows a toast raised under a modal dialog inside it, where it can be dismissed without closing the dialog", () => {
     const close = vi.fn();
     const { rerender } = render(<><ToastHost /><TaskDialog open title="Task" onClose={close}>body</TaskDialog></>);

@@ -1,6 +1,6 @@
 import { useEffect, type CSSProperties } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { RiCloseLine } from "@remixicon/react";
+import { RiCheckboxCircleFill, RiCloseLine, RiErrorWarningFill, RiInformationFill } from "@remixicon/react";
 import { createStore } from "../app/store";
 import { useT } from "../i18n";
 import { IconButton } from "./Button";
@@ -13,13 +13,15 @@ interface ToastAction {
 interface ToastItem {
   id: number;
   message: string;
-  tone: "info" | "danger";
+  tone: "success" | "info" | "danger";
   action?: ToastAction;
 }
 
+const icons = { success: RiCheckboxCircleFill, info: RiInformationFill, danger: RiErrorWarningFill };
+
 const store = createStore<ToastItem[]>([]);
 // Open modal dialogs, newest last. A modal makes everything outside it inert and covers it, top layer included,
-// so while one is open the toast is drawn inside it (fixed to the viewport) where it can be seen and dismissed.
+// so while one is open the toast is drawn inside it (fixed to the viewport's bottom centre) where it can be seen and dismissed.
 const layers = createStore<HTMLDialogElement[]>([]);
 
 /** Called by useModal when a modal dialog opens; the returned function is called when it closes. */
@@ -62,11 +64,12 @@ function schedule(item: ToastItem) {
 }
 
 /**
- * One short message; an action (e.g. Undo) keeps it up a little longer, and hover or focus keeps it up until left.
+ * One short message: `success` for a finished action (the default), `info` for a neutral note, `danger` for a failure.
+ * An action (e.g. Undo) keeps it up a little longer, and hover or focus keeps it up until left.
  * Only the newest shows: an error or an action underneath waits with its timer stopped, so it is never lost unseen;
  * a plain note underneath is replaced.
  */
-export function toast(message: string, tone: ToastItem["tone"] = "info", action?: ToastAction): void {
+export function toast(message: string, tone: ToastItem["tone"] = "success", action?: ToastAction): void {
   const waiting = store.get().filter((item) => {
     const keep = item.tone === "danger" || item.action !== undefined;
     hold(item.id);
@@ -86,33 +89,39 @@ export function ToastHost() {
     const top = store.get().at(-1);
     if (top && !timers.has(top.id)) schedule(top);
   }, [layer]);
-  const shown = items.slice(-1).map((item) => (
-    <div
-      key={item.id}
-      className={item.tone === "danger" ? "toast toast-danger" : "toast"}
-      // The draining line under the message (overlays.css) runs as long as the timer.
-      style={{ "--toast-life": `${life(item)}ms` } as CSSProperties}
-      onMouseEnter={() => hold(item.id)}
-      onFocus={() => hold(item.id)}
-      onMouseLeave={(event) => !event.currentTarget.matches(":focus-within") && schedule(item)}
-      onBlur={(event) => !event.currentTarget.matches(":hover") && schedule(item)}
-    >
-      <p title={item.message}>{item.message}</p>
-      {item.action && (
-        <button
-          type="button"
-          className="link toast-action"
-          onClick={() => {
-            dismiss(item.id);
-            item.action?.run();
-          }}
-        >
-          {item.action.label}
-        </button>
-      )}
-      <IconButton size="xs" label={t("common.dismiss")} icon={RiCloseLine} onClick={() => dismiss(item.id)} />
-    </div>
-  ));
+  const shown = items.slice(-1).map((item) => {
+    const Icon = icons[item.tone];
+    return (
+      <div
+        key={item.id}
+        className={`toast toast-${item.tone}`}
+        // A failure interrupts; the host region announces the rest politely.
+        role={item.tone === "danger" ? "alert" : undefined}
+        // The draining line under the message (overlays.css) runs as long as the timer.
+        style={{ "--toast-life": `${life(item)}ms` } as CSSProperties}
+        onMouseEnter={() => hold(item.id)}
+        onFocus={() => hold(item.id)}
+        onMouseLeave={(event) => !event.currentTarget.matches(":focus-within") && schedule(item)}
+        onBlur={(event) => !event.currentTarget.matches(":hover") && schedule(item)}
+      >
+        <Icon className="toast-icon" aria-hidden />
+        <p title={item.message}>{item.message}</p>
+        {item.action && (
+          <button
+            type="button"
+            className="link toast-action"
+            onClick={() => {
+              dismiss(item.id);
+              item.action?.run();
+            }}
+          >
+            {item.action.label}
+          </button>
+        )}
+        <IconButton size="xs" label={t("common.dismiss")} icon={RiCloseLine} onClick={() => dismiss(item.id)} />
+      </div>
+    );
+  });
   return (
     <>
       {/* The band keeps its place in the shell either way, so nothing moves when a dialog opens or closes. */}
