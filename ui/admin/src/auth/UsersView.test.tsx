@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { notifyManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as collections from "../api/authCollections";
@@ -74,6 +74,7 @@ it("keeps Delete on the left of the pane footer, beside Save", async () => {
 });
 
 it("keeps at most ten pages, offers a way back to the start and still shows a user opened from a dropped page", async () => {
+  const reset = vi.spyOn(QueryClient.prototype, "resetQueries");
   const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
   vi.spyOn(users, "listUsers").mockImplementation(async (options) => {
     const after = options?.after;
@@ -93,7 +94,17 @@ it("keeps at most ten pages, offers a way back to the start and still shows a us
   expect(screen.getAllByRole("row")).toHaveLength(101);
   expect(screen.getByText(/500 users/)).toBeInTheDocument();
   expect(within(screen.getByRole("region", { name: "User" })).getByRole("textbox", { name: /^Email/ })).toHaveValue(user.email);
-  fireEvent.click(screen.getByRole("button", { name: "Back to start" }));
-  expect(await screen.findByText("u1@example.test")).toBeInTheDocument();
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Back to start" })).not.toBeInTheDocument());
+  // Wait for the actual reset/refetch and React publication. Polling the held
+  // 100-row DOM against a one-second deadline races notification/render work
+  // under the full suite's CPU load, even when the mock fetch is immediate.
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Back to start" }));
+    expect(reset).toHaveBeenCalledTimes(1);
+    await reset.mock.results[0].value;
+    // Query's observer notifications use a scheduled batch after the refetch
+    // promise resolves; flush that batch before act commits the held list.
+    await new Promise<void>((resolve) => notifyManager.schedule(resolve));
+  });
+  expect(screen.getByText("u1@example.test")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Back to start" })).not.toBeInTheDocument();
 });
