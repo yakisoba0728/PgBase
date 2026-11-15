@@ -382,7 +382,8 @@ func EncodeRecord(collection schema.Collection, row RowScanner) (map[string]any,
 	fields := fieldsByOrdinal(collection)
 	var id pgtype.UUID
 	var createdAt, updatedAt time.Time
-	destinations := []any{&id, &createdAt, &updatedAt}
+	destinations := make([]any, 3, len(fields)+3)
+	destinations[0], destinations[1], destinations[2] = &id, &createdAt, &updatedAt
 	values := make([]any, len(fields))
 	for index, field := range fields {
 		if field.Type == schema.TypeFile {
@@ -551,7 +552,21 @@ func encodeScannedValue(field schema.Field, destination any) (any, error) {
 	}
 }
 
+// fieldsByOrdinal returns a read-only view when the catalog is already ordered.
+// Caller-owned, unordered definitions still get a sorted copy. No query caller
+// may mutate this slice or the fields it contains.
 func fieldsByOrdinal(collection schema.Collection) []schema.Field {
+	ordered := true
+	for index := 1; index < len(collection.Fields); index++ {
+		previous, current := &collection.Fields[index-1], &collection.Fields[index]
+		if previous.Ordinal > current.Ordinal || (previous.Ordinal == current.Ordinal && previous.Name > current.Name) {
+			ordered = false
+			break
+		}
+	}
+	if ordered {
+		return collection.Fields
+	}
 	fields := append([]schema.Field(nil), collection.Fields...)
 	sort.Slice(fields, func(left, right int) bool {
 		if fields[left].Ordinal == fields[right].Ordinal {
