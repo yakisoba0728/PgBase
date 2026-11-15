@@ -429,7 +429,17 @@ func validTemplate(t MailTemplate) bool {
 		return false
 	}
 	cleaned := strings.ReplaceAll(strings.ReplaceAll(t.Body+t.HTMLBody, placeholder, ""), "{{otp_id}}", "")
-	return !strings.Contains(cleaned, "{{") && !strings.Contains(cleaned, "}}")
+	if strings.Contains(cleaned, "{{") || strings.Contains(cleaned, "}}") {
+		return false
+	}
+	if t.HTMLBody != "" {
+		// Contextual escaping rejects incomplete attributes, scripts and other
+		// ambiguous contexts. Do so before persisting an unsendable template.
+		if _, err := mailer.RenderHTML(t.HTMLBody, mailer.HTMLVariables{}); err != nil {
+			return false
+		}
+	}
+	return true
 }
 func (s *Service) PutMailTemplate(ctx context.Context, collectionID uuid.UUID, t MailTemplate) (MailTemplate, error) {
 	if collectionID == uuid.Nil || !validTemplate(t) {
@@ -464,7 +474,12 @@ func (s *Service) PreviewMailTemplate(_ context.Context, t MailTemplate, actionU
 	message := mailer.Message{Subject: t.Subject, Text: replace(t.Body)}
 	if t.HTMLBody != "" {
 		var err error
-		message.HTML, err = mailer.WrapHTML(replace(t.HTMLBody))
+		message.HTML, err = mailer.RenderHTML(t.HTMLBody, mailer.HTMLVariables{
+			ActionURL: actionURL,
+			OTP:       "123456",
+			OTPID:     "00000000-0000-4000-8000-000000000000",
+			Alert:     "A sign-in occurred on your account.",
+		})
 		if err != nil {
 			return mailer.Message{}, ErrValidation
 		}

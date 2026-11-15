@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"errors"
 	"fmt"
-	"html"
 	"net/url"
 	"strings"
 	"time"
@@ -402,7 +401,7 @@ func (s *Service) sendAction(ctx context.Context, userID uuid.UUID, to, subject,
 	if err := s.pool.QueryRow(ctx, `select subject,body,html_body from pgbase_meta.auth_mail_templates where auth_collection_id=$1 and purpose=$2`, collectionID, templatePurpose).Scan(&configuredSubject, &configuredBody, &configuredHTML); err == nil {
 		subject, body = configuredSubject, strings.ReplaceAll(configuredBody, "{{action_url}}", actionURL)
 		if configuredHTML != "" {
-			htmlBody, err = mailer.WrapHTML(strings.ReplaceAll(configuredHTML, "{{action_url}}", actionURL))
+			htmlBody, err = mailer.RenderHTML(configuredHTML, mailer.HTMLVariables{ActionURL: actionURL})
 			if err != nil {
 				return errors.New("send user email action")
 			}
@@ -443,7 +442,7 @@ func (s *Service) sendAuthAlertMessage(ctx context.Context, user User, alert str
 	body = strings.ReplaceAll(body, "{{alert}}", alert)
 	if htmlBody != "" {
 		var wrapErr error
-		htmlBody, wrapErr = mailer.WrapHTML(strings.ReplaceAll(htmlBody, "{{alert}}", html.EscapeString(alert)))
+		htmlBody, wrapErr = mailer.RenderHTML(htmlBody, mailer.HTMLVariables{Alert: alert})
 		if wrapErr != nil {
 			return wrapErr
 		}
