@@ -36,6 +36,14 @@ Parsed and exact-text response methods reject interrupted body reads. Parsed met
 
 Low-level `send(path, init, options)` accepts cancellation in `init.signal` as well as `options.signal`. If both are present, aborting either cancels the full request, including response-body reads, with that signal's reason. It does not turn cancellation into a successful empty result.
 
+## User session lifetime
+
+JSON/exact-text requests and file uploads belong to the `AuthStore` generation in which they started. Replacing or clearing auth state (including cookie import or successful token refresh) makes a pending older success, HTTP failure or transport failure reject with `PgBaseError(403, "session_changed")`. This also applies when multiple clients share one store. File preparation is included: a file selected under one identity cannot finish hashing and then start its upload with a replacement identity's token. Existing Realtime streams already stop on auth changes.
+
+A current login or refresh can still adopt its own replacement token after its guarded response is read. A stale login/refresh now rejects instead of returning a session it did not adopt; refresh-before-logout ordering still revokes the rotated token, and an explicit newer login is preserved. A generation change can therefore discard a concurrent read even when refresh keeps the same user. Use separate stores for deliberately independent identities.
+
+Migration: handle `session_changed` as an obsolete result, discard session-specific UI/cache state, and issue a fresh read if appropriate. No mutation is retried automatically: it may already have committed under the original identity. This check does not cancel server-side work, revoke previously returned download URLs, or control requests the application sends directly with `fetch`.
+
 ## Administrator session lifetime
 
 Administrator JSON, exact-text and backup-download requests belong to the session generation in which they started. Starting a new `login`/`resume`, completing logout, or accepting a current-session 401 invalidates responses from the previous generation, including delayed bodies and HTTP/transport failures. Such requests reject with `AdminAPIError(403, "session_changed")`; old identity/data cannot be published into the new login by a late SDK result. A current-session error keeps its original status/details.

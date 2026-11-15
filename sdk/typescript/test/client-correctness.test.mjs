@@ -278,7 +278,8 @@ test("stale auth revocation responses preserve a newer saved session", async () 
         const client = new PgBaseClient("http://pgbase.test", { fetch: () => new Promise((resolve) => { finish = resolve; }) });
         client.auth.save("old", { id: "old" });
         const pending = action(client);
-        const settled = status === 500 ? assert.rejects(pending, { status }) : pending;
+        const settled = replace ? assert.rejects(pending, { status: 403, code: "session_changed" })
+          : status === 500 ? assert.rejects(pending, { status }) : pending;
         if (replace) client.auth.save("new", { id: "new" });
         finish(status === 204 ? new Response(null, { status }) : Response.json({ error: { code: "failed" } }, { status }));
         await settled;

@@ -261,14 +261,23 @@ export class PgBaseClient {
         return this.readResponse(path, init, signal, requestKey, (response) => response.text());
     }
     async readResponse(path, init, signal, requestKey, read) {
+        const generation = this.auth.generation;
         const method = (init.method ?? "GET").toUpperCase();
         const key = requestKey === undefined && (method === "GET" || method === "HEAD") ? `${method} ${path}` : requestKey;
         // RequestInit.signal is part of send's public fetch-compatible contract.
         // Both sources stay active when the caller also supplies RequestOptions.
         const keyed = this.keyedSignal(key, signal, init.signal);
         try {
+            assertAuthGeneration(this.auth, generation);
             const response = await this.fetchResponse(path, init, keyed.signal);
-            return { body: await read(response), etag: response.headers.get("ETag") ?? undefined };
+            assertAuthGeneration(this.auth, generation);
+            const body = await read(response);
+            assertAuthGeneration(this.auth, generation);
+            return { body, etag: response.headers.get("ETag") ?? undefined };
+        }
+        catch (error) {
+            assertAuthGeneration(this.auth, generation);
+            throw error;
         }
         finally {
             keyed.cleanup();
@@ -352,6 +361,10 @@ export class PgBaseClient {
                     this.requestControllers.delete(requestKey);
             } };
     }
+}
+function assertAuthGeneration(auth, generation) {
+    if (generation !== auth.generation)
+        throw new PgBaseError(403, "session_changed");
 }
 export class AuthRealm {
     client;
@@ -737,18 +750,27 @@ export class Files {
         return this.client._request(this.fieldPath(field), {}, signal);
     }
     async upload(field, file, filename, signal) {
-        const bytes = await file.arrayBuffer();
-        const digest = await crypto.subtle.digest("SHA-256", bytes);
-        const body = new FormData();
-        body.append("file", file, filename);
-        return this.client._request(this.fieldPath(field), {
-            method: "POST",
-            headers: {
-                "X-PgBase-File-Size": String(file.size),
-                "X-PgBase-File-SHA256": hex(new Uint8Array(digest)),
-            },
-            body,
-        }, signal);
+        const generation = this.client.auth.generation;
+        try {
+            const bytes = await file.arrayBuffer();
+            assertAuthGeneration(this.client.auth, generation);
+            const digest = await crypto.subtle.digest("SHA-256", bytes);
+            assertAuthGeneration(this.client.auth, generation);
+            const body = new FormData();
+            body.append("file", file, filename);
+            return await this.client._request(this.fieldPath(field), {
+                method: "POST",
+                headers: {
+                    "X-PgBase-File-Size": String(file.size),
+                    "X-PgBase-File-SHA256": hex(new Uint8Array(digest)),
+                },
+                body,
+            }, signal);
+        }
+        catch (error) {
+            assertAuthGeneration(this.client.auth, generation);
+            throw error;
+        }
     }
     delete(fileID, signal) {
         return this.client._request(this.filePath(fileID), { method: "DELETE" }, signal);
