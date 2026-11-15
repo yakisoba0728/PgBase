@@ -12,6 +12,9 @@
 | 완료 | 검증·문서·릴리스 | PostgreSQL matrix·race·Dart·E2E·restore·security·서명 gate 통과, v0.3.1 게시, 운영 schema 66/66·health 정상 |
 | 완료 | 관리자 UI 개편([PR #142](https://github.com/yakisoba0728/PgBase/pull/142)) | 공용 컴포넌트·디자인 토큰·모션·결함 수정, unit 381·browser 23·필수 CI 통과, main 병합과 운영 배포(schema 67 그대로) |
 | 완료 | UI 크기 확대·모션 강화([PR #144](https://github.com/yakisoba0728/PgBase/pull/144)) | PocketBase v0.40.6을 크기 기준으로만 참고해 글자·컨트롤·표 행 확대, 모션 재조정. unit 386·browser 23·필수 CI 통과, 운영 배포 |
+| 완료 | 로딩·토스트 통일과 조회 최적화([PR #146](https://github.com/yakisoba0728/PgBase/pull/146)) | 토스트 하단 중앙·3 tone, 재조회 시 이전 내용 유지, cache 정책과 prefetch, count 생략·hydration 배치·`LIKE` 컴파일·gzip. unit 403·browser 23·필수 CI 통과, 운영 배포(schema 67 그대로) |
+| 소유자 결정 | 운영 요청 지연 | 한국 접속이 Cloudflare LAX로 가서 요청당 약 0.5초. proxy 해제(DNS only)·유료 plan·서버 이전 중 선택. 코드로는 줄일 수 없다 |
+| 소유자 결정 | 대량 텍스트 검색 | 컬렉션 텍스트 필드 trigram index가 없어 50만 행 검색 1.3초. migration·쓰기 비용·disk 증가가 따른다 |
 | 남음 | UI 개편 사후 확인 | 운영 로그인 후 화면 확인, 서버 `doctor`·binary 일치 job, 초기 setup·login OTP·다크/좁은 폭 화면의 browser 확인. 배포 전 서버 dump는 뜨지 않았다(UI만 변경) |
 | 소유자 결정 | 다음 릴리스 tag | v0.3.1 이후 schema 67과 UI 개편이 tag 없이 main에 있다. 릴리스하려면 전체 release gate를 다시 통과해야 한다 |
 | 남음 | 관리자 UI 추가 항목 | 작업 실행 이력은 서버 endpoint가 없어 미구현. browser suite는 Chromium 전용이고 CI의 E2E workflow는 수동 실행만 가능 |
