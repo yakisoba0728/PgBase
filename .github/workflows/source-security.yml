@@ -1,0 +1,108 @@
+name: Source security qualification
+
+# Push analysis is intentional: this qualification scans the selected source
+# tree rather than relying on pull-request diff-informed alert filtering.
+# Reports stay in artifacts; no Security settings, production or release writes.
+on:
+  workflow_dispatch:
+  push:
+    branches: [refactor/independent-platform-20261116]
+    paths:
+      - '**.go'
+      - '**.ts'
+      - '**.tsx'
+      - '**.js'
+      - '**.mjs'
+      - go.mod
+      - go.sum
+      - .github/workflows/source-security.yml
+permissions:
+  contents: read
+concurrency:
+  group: source-security-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            mode: manual
+          - language: javascript-typescript
+            mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: matrix.language == 'go'
+        with:
+          go-version: 1.26.11
+          cache: true
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.mode }}
+          tools: linked
+          queries: security-extended
+          threads: 2
+          ram: 6000
+          config: |
+            name: PgBase source qualification
+            paths:
+              - cmd
+              - internal
+              - pgbase
+              - pgbasecli
+              - sdk
+              - ui/admin/src
+              - examples
+            paths-ignore:
+              - '**/node_modules/**'
+              - '**/dist/**'
+      - name: Build Go runtime packages for extraction
+        if: matrix.language == 'go'
+        run: go build ./...
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          output: source-sarif
+          upload: never
+          upload-database: false
+          category: source-security/${{ matrix.language }}
+      - name: Preserve all findings for review, without declaring them proven exploits
+        shell: python
+        run: |
+          import json, pathlib
+          files = list(pathlib.Path('source-sarif').glob('*.sarif'))
+          if not files:
+              raise SystemExit('No analysis report was produced')
+          findings = []
+          for file in files:
+              data = json.loads(file.read_text())
+              for run in data.get('runs', []):
+                  rules = {rule['id']: rule for rule in run.get('tool', {}).get('driver', {}).get('rules', [])}
+                  for result in run.get('results', []):
+                      rule = rules.get(result.get('ruleId'), {})
+                      findings.append({
+                          'rule': result.get('ruleId'),
+                          'level': result.get('level', rule.get('defaultConfiguration', {}).get('level')),
+                          'securitySeverity': rule.get('properties', {}).get('security-severity'),
+                          'message': result.get('message', {}).get('text'),
+                          'locations': [entry.get('physicalLocation') for entry in result.get('locations', [])],
+                      })
+          pathlib.Path('source-sarif/findings.json').write_text(json.dumps(findings, indent=2))
+          print(f'CodeQL findings requiring classification: {len(findings)}')
+          for finding in findings[:100]:
+              print(json.dumps(finding))
+          if len(findings) > 100:
+              print('Remaining findings are retained in the artifact.')
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: source-security-${{ matrix.language }}-${{ github.sha }}
+          path: source-sarif/
+          retention-days: 14
+          if-no-files-found: error
