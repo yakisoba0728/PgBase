@@ -34,6 +34,14 @@ Record `list`, `get`, `getWithETag`, their JSON variants, and projection-bearing
 
 Parsed and exact-text response methods reject interrupted body reads. Parsed methods reject malformed success JSON with `invalid_response_body`; status 204 is a valid empty success. HTTP errors retain structured server details when valid JSON is available, and body transport failures retain their original error instead of masquerading as success.
 
+Low-level `send(path, init, options)` accepts cancellation in `init.signal` as well as `options.signal`. If both are present, aborting either cancels the full request, including response-body reads, with that signal's reason. It does not turn cancellation into a successful empty result.
+
+## Administrator session lifetime
+
+Administrator JSON, exact-text and backup-download requests belong to the session generation in which they started. Starting a new `login`/`resume`, completing logout, or accepting a current-session 401 invalidates responses from the previous generation, including delayed bodies and HTTP/transport failures. Such requests reject with `AdminAPIError(403, "session_changed")`; old identity/data cannot be published into the new login by a late SDK result. A current-session error keeps its original status/details.
+
+Migration: callers that previously consumed a stale successful response or handled an old 401 after another login must now discard `session_changed`, clear their own session-scoped caches and issue a fresh read when appropriate. Do not automatically retry a mutation: the server may already have committed it. This guards one client instance's local lifetime; it does not detect a cookie changed by another browser tab without `resume`/`login` on that instance, or cancel an in-flight browser Set-Cookie update.
+
 ## Realtime status and recovery
 
 The existing `subscribe` callbacks keep receiving record/application events. Opt into shared-session status and asynchronous errors separately:

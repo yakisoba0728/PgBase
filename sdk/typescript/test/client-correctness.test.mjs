@@ -2,6 +2,46 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { PgBaseAdminClient, PgBaseClient, PgBaseError } from "../dist/index.js";
 
+test("low-level send preserves RequestInit cancellation with and without a request key", async () => {
+  for (const requestKey of [undefined, null, "read"]) {
+    const reason = new Error("caller cancelled");
+    const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, init) => {
+      init.signal?.throwIfAborted();
+      return Response.json({ ok: true });
+    } });
+    await assert.rejects(client.send("/status", { signal: AbortSignal.abort(reason) }, { requestKey }), (error) => error === reason);
+  }
+});
+
+test("either low-level cancellation signal remains effective through body reads", async () => {
+  for (const cancelled of ["init", "options"]) {
+    const init = new AbortController();
+    const options = new AbortController();
+    let entered;
+    const started = new Promise((resolve) => { entered = resolve; });
+    const reason = new Error(`${cancelled} cancelled`);
+    let effective;
+    let finish;
+    const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, request) => {
+      effective = request.signal;
+      return new Response(new ReadableStream({ start(controller) {
+        finish = () => { controller.enqueue(new TextEncoder().encode("{}")); controller.close(); };
+        request.signal?.addEventListener("abort", () => controller.error(request.signal.reason), { once: true });
+        entered();
+      } }));
+    } });
+    const pending = client.send("/status", { signal: init.signal }, { signal: options.signal });
+    const result = pending.catch((error) => error);
+    await started;
+    (cancelled === "init" ? init : options).abort(reason);
+    const aborted = effective.aborted;
+    if (!aborted) finish(); // A broken implementation must fail rather than hang.
+    const outcome = await result;
+    assert.equal(aborted, true);
+    assert.equal(outcome, reason);
+  }
+});
+
 test("auto cancellation retains body reads, leaves mutations independent and respects the global switch", async () => {
   const calls = [];
   const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, init) => new Response(new ReadableStream({

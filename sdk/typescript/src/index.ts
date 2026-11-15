@@ -279,7 +279,11 @@ export class PgBaseClient {
   private async readResponse<T>(path: string, init: RequestInit, signal: AbortSignal | undefined, requestKey: string | null | undefined, read: (response: Response) => Promise<T>): Promise<{ body: T; etag?: string }> {
     const method = (init.method ?? "GET").toUpperCase();
     const key = requestKey === undefined && (method === "GET" || method === "HEAD") ? `${method} ${path}` : requestKey;
-    const keyed = this.keyedSignal(key, signal);
+    // RequestInit.signal is part of send's public fetch-compatible contract.
+    // Both sources stay active when the caller also supplies RequestOptions.
+    const callerSignal = signal && init.signal && signal !== init.signal
+      ? AbortSignal.any([signal, init.signal]) : signal ?? init.signal ?? undefined;
+    const keyed = this.keyedSignal(key, callerSignal);
     try {
       const response = await this.fetchResponse(path, init, keyed.signal);
       return { body: await read(response), etag: response.headers.get("ETag") ?? undefined };

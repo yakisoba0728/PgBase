@@ -261,11 +261,77 @@ test('raw schema export preserves structured errors and clears only the expired 
     }});
     await client.resume();
     const exportRequest=client.exportSchemaJSON();
-    const rejected=assert.rejects(exportRequest,error=>error instanceof AdminAPIError&&error.code==='authentication_required'&&error.details.field[0]==='denied');
+    const rejected=assert.rejects(exportRequest,error=>error instanceof AdminAPIError&&
+      (replace ? error.code==='session_changed' : error.code==='authentication_required'&&error.details.field[0]==='denied'));
     if(replace) await client.resume();
     finish(Response.json({error:{code:'authentication_required',details:{field:['denied']}}},{status:401}));
     await rejected;
     await client.queueJob('job');
     assert.equal(calls.at(-1).init.headers.get('X-PgBase-CSRF'),replace?'csrf-2':'');
   }
+});
+
+for (const [kind, read] of [
+  ["JSON", (client) => client.catalog()],
+  ["text", (client) => client.exportSchemaJSON()],
+  ["download", (client) => client.downloadBackup("backup")],
+]) {
+  for (const delayed of ["headers", "body"]) {
+    test(`administrator ${kind} rejects stale ${delayed} after another login`, async () => {
+      let finish;
+      let entered;
+      const started = new Promise((resolve) => { entered = resolve; });
+      const answer = new Promise((resolve) => { finish = resolve; });
+      let sessions = 0;
+      const client = new PgBaseAdminClient("http://pgbase.test", { fetch: async (url) => {
+        if (new URL(url).pathname.endsWith("/session")) {
+          return Response.json({ administrator: { id: `admin-${++sessions}` }, csrfToken: `csrf-${sessions}` });
+        }
+        if (delayed === "headers") { entered(); return answer; }
+        const response = new Response();
+        response.text = () => { entered(); return answer; };
+        response.blob = () => { entered(); return answer; };
+        return response;
+      } });
+      await client.resume();
+      const pending = read(client);
+      const rejected = assert.rejects(pending, { code: "session_changed" });
+      await started;
+      await client.resume();
+      finish(delayed === "headers" ? Response.json({ private: "old administrator" })
+        : kind === "download" ? new Blob(["old backup"]) : '{"private":"old administrator"}');
+      await rejected;
+    });
+  }
+}
+
+test("administrator error-body failures cannot masquerade as a new session's failure", async () => {
+  let fail;
+  let entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  const client = new PgBaseAdminClient("http://pgbase.test", { fetch: async (url) => {
+    if (new URL(url).pathname.endsWith("/session")) return Response.json({ csrfToken: "current" });
+    const response = new Response("", { status: 401 });
+    response.text = () => { entered(); return new Promise((_resolve, reject) => { fail = reject; }); };
+    return response;
+  } });
+  await client.resume();
+  const rejected = assert.rejects(client.catalog(), { code: "session_changed" });
+  await started;
+  await client.resume();
+  fail(new TypeError("old connection lost"));
+  await rejected;
+});
+
+test("an older administrator login cannot publish its stale identity", async () => {
+  let finish;
+  let calls = 0;
+  const client = new PgBaseAdminClient("http://pgbase.test", { fetch: async () => {
+    if (++calls === 1) return new Promise((resolve) => { finish = resolve; });
+    return Response.json({ administrator: { id: "new" }, csrfToken: "new-csrf" });
+  } });
+  const rejected = assert.rejects(client.login("old@example.test", "password"), { code: "session_changed" });
+  assert.equal((await client.login("new@example.test", "password")).administrator.id, "new");
+  finish(Response.json({ administrator: { id: "old" }, csrfToken: "old-csrf" }));
+  await rejected;
 });
