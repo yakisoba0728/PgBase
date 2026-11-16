@@ -1,0 +1,3 @@
+docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/final-gate/mixed-http.txt: PASS stages=['http/c1', 'http/c8', 'http/c32', 'http/c4'] samples=[1000, 1000, 1000, 1000]
+docs/workstreams/independent-platform-2026-11-16/evidence/performance-2026-11-16/mixed-http-before.txt: PASS stages=['http/c1', 'http/c8', 'http/c32', 'http/c4'] samples=[1000, 1000, 1000, 1000]
+docs/workstreams/independent-platform-2026-11-16/evidence/performance-2026-11-16/mixed-http-after.txt: PASS stages=['http/c1', 'http/c8', 'http/c32', 'http/c4'] samples=[1000, 1000, 1000, 1000]

@@ -1,0 +1,58 @@
+{
+  "old_source": "242f80aea730ee483cc22798fb6450bdb3064081",
+  "candidate_source": "6add53b53b57e6fc3826820ac7b6580b493629cb",
+  "historical_logs_replayed_only": true,
+  "results": [
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/final-gate/mixed-http.txt",
+      "sha256": "ef27077b756f264276e784057b4ca1af366673930fc72cc555cb771bf5d28893",
+      "same_parsed_result": true,
+      "stages": [
+        "http/c1",
+        "http/c8",
+        "http/c32",
+        "http/c4"
+      ],
+      "samples": [
+        1000,
+        1000,
+        1000,
+        1000
+      ]
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/performance-2026-11-16/mixed-http-before.txt",
+      "sha256": "f8d4e68e30180c5e5bb606586fe73cc3607aaf1e95f37029a3e9bbf7a7d0ff86",
+      "same_parsed_result": true,
+      "stages": [
+        "http/c1",
+        "http/c8",
+        "http/c32",
+        "http/c4"
+      ],
+      "samples": [
+        1000,
+        1000,
+        1000,
+        1000
+      ]
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/performance-2026-11-16/mixed-http-after.txt",
+      "sha256": "dc47108e3473b95e07b97ca0ad7e41c80ac6d67f5285468c6465d657f22b1c94",
+      "same_parsed_result": true,
+      "stages": [
+        "http/c1",
+        "http/c8",
+        "http/c32",
+        "http/c4"
+      ],
+      "samples": [
+        1000,
+        1000,
+        1000,
+        1000
+      ]
+    }
+  ]
+}
