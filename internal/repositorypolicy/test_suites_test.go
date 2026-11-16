@@ -231,37 +231,96 @@ func withoutEnvironment(environment []string, name string) []string {
 	return result
 }
 
-// The onboarding specs need an instance that has no administrator yet, so they
-// can never share a backend with the authenticated ones. Playwright skips the
-// authenticated project entirely when the second origin is absent, which is a
-// silent loss of coverage rather than a failure, so the wiring is pinned here.
-func TestBrowserWorkflowRunsBothProjectsAgainstIsolatedBackends(t *testing.T) {
+// Onboarding requires no administrator; ordinary authenticated tests must not
+// share a database with a restore. Both optional Playwright projects disappear
+// when their URLs are absent, so pin all three backends and their full lifecycle.
+func TestBrowserWorkflowRunsAllProjectsAgainstIsolatedBackends(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "e2e.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	workflow := string(raw)
-
-	for _, required := range []string{
-		"PGBASE_ONBOARDING_BROWSER_BASE_URL: http://127.0.0.1:18090",
-		"PGBASE_AUTHENTICATED_BROWSER_BASE_URL: http://127.0.0.1:18091",
-		"PGBASE_AUTH_PROJECT_NAME=",
-		"Create the authenticated backend's administrator",
-	} {
-		if !strings.Contains(workflow, required) {
-			t.Errorf("e2e.yml is missing %q", required)
+	step := func(name string) string {
+		t.Helper()
+		start := strings.Index(workflow, "      - name: "+name+"\n")
+		if start < 0 {
+			t.Fatalf("e2e.yml is missing step %q", name)
+		}
+		text := workflow[start:]
+		if end := strings.Index(text, "\n      - name: "); end >= 0 {
+			text = text[:end]
+		}
+		return text
+	}
+	require := func(name, text string, markers ...string) {
+		t.Helper()
+		for _, marker := range markers {
+			if !strings.Contains(text, marker) {
+				t.Errorf("%s is missing %q", name, marker)
+			}
 		}
 	}
 
-	// Two Compose projects, or the second instance reuses the first one's
-	// volumes and arrives with an administrator already set up.
-	if strings.Count(workflow, "COMPOSE_PROJECT_NAME") < 2 {
-		t.Error("e2e.yml does not give the authenticated backend its own Compose project")
+	require("Compose configuration", step("Generate isolated Compose configuration"),
+		"COMPOSE_PROJECT_NAME=pgbase-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}",
+		"PGBASE_AUTH_PROJECT_NAME=pgbase-ci-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}",
+		"PGBASE_BACKUP_PROJECT_NAME=pgbase-ci-backup-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}",
+		"PGBASE_IMAGE=$selected_image", "PGBASE_HTTP_PORT=18090", "PGBASE_POSTGRES_PORT=15432", "PGBASE_PUBLIC_URL=http://127.0.0.1:18090")
+	require("onboarding backend", step("Start isolated PostgreSQL project"),
+		"docker compose -f deployments/docker-compose.yml up -d --wait --no-build")
+	for _, fixture := range []struct{ name, project, httpPort, dbPort, override string }{
+		{"authenticated", "PGBASE_AUTH_PROJECT_NAME", "18091", "15433", "browser-files"},
+		{"managed-backup", "PGBASE_BACKUP_PROJECT_NAME", "18092", "15434", "browser-backups"},
+	} {
+		require(fixture.name+" backend", step("Start the "+fixture.name+" browser backend"),
+			`COMPOSE_PROJECT_NAME="$`+fixture.project+`"`,
+			"PGBASE_HTTP_PORT="+fixture.httpPort, "PGBASE_POSTGRES_PORT="+fixture.dbPort,
+			"PGBASE_PUBLIC_URL=http://127.0.0.1:"+fixture.httpPort,
+			"-f deployments/docker-compose.yml", "-f tests/e2e/"+fixture.override+".compose.yaml",
+			"BUILD_FLAG: ${{ steps.mode.outputs.release == 'true' && '--no-build' || '' }}", "up -d --wait $BUILD_FLAG")
 	}
-	// Whatever the run does, both projects have to be torn down.
-	teardown := workflow[strings.LastIndex(workflow, "down --volumes"):]
-	if strings.Count(workflow, "down --volumes") < 2 {
-		t.Errorf("e2e.yml leaves a Compose project running: %q", teardown[:min(len(teardown), 120)])
+	require("administrator setup", step("Create the isolated browser administrators"),
+		"for fixture_port in 18091 18092; do",
+		`--request POST "http://127.0.0.1:$fixture_port/api/admin/setup"`,
+		`--header "Origin: http://127.0.0.1:$fixture_port"`,
+		`if [[ "$status" != "200" && "$status" != "201" ]]`, "exit 1")
+	require("browser execution", step("Verify browser onboarding and authenticated workflows"),
+		"PGBASE_ONBOARDING_BROWSER_BASE_URL: http://127.0.0.1:18090",
+		"PGBASE_AUTHENTICATED_BROWSER_BASE_URL: http://127.0.0.1:18091",
+		"PGBASE_MANAGED_BACKUP_BROWSER_BASE_URL: http://127.0.0.1:18092",
+		"run: npm run test:e2e")
+
+	// Check teardown within its always-run step; unrelated mentions of project
+	// names or down commands elsewhere cannot satisfy lifecycle coverage.
+	teardown := step("Remove isolated Compose resources")
+	require("Compose teardown", teardown, "if: always()",
+		`COMPOSE_PROJECT_NAME="$PGBASE_AUTH_PROJECT_NAME"`, "-f tests/e2e/browser-files.compose.yaml",
+		`COMPOSE_PROJECT_NAME="$PGBASE_BACKUP_PROJECT_NAME"`, "-f tests/e2e/browser-backups.compose.yaml",
+		"docker compose -f deployments/docker-compose.yml down --volumes --remove-orphans --rmi local")
+	if strings.Count(teardown, "down --volumes --remove-orphans") != 3 {
+		t.Error("e2e.yml must tear down all three isolated Compose projects and volumes")
+	}
+
+	config, err := os.ReadFile(filepath.Join("..", "..", "ui", "admin", "playwright.config.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	require("Playwright projects", string(config),
+		`name: "onboarding-chromium"`, `name: "authenticated-chromium"`, `name: "managed-backups-chromium"`,
+		"process.env.PGBASE_ONBOARDING_BROWSER_BASE_URL", "baseURL: onboardingBaseURL",
+		"process.env.PGBASE_AUTHENTICATED_BROWSER_BASE_URL", "baseURL: authenticatedBaseURL",
+		"process.env.PGBASE_MANAGED_BACKUP_BROWSER_BASE_URL", "baseURL: managedBackupBaseURL",
+		`testDir: "./e2e/managed-backups"`, "[onboardingBaseURL, authenticatedBaseURL].some",
+		"new URL(authenticatedBaseURL).origin === new URL(onboardingBaseURL).origin",
+		"new URL(base).origin === new URL(managedBackupBaseURL).origin")
+	backup, err := os.ReadFile(filepath.Join("..", "..", "tests", "e2e", "browser-backups.compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	require("backup fixture", string(backup), "PGBASE_FILES_DRIVER: local",
+		"PGBASE_BACKUPS_DIRECTORY: /backups/archives", "/backups:size=256m,mode=1777")
+	if strings.Contains(string(backup), "image:") || strings.Contains(string(backup), "build:") {
+		t.Error("backup fixture must use the workflow's selected image without replacing it")
 	}
 }
 
