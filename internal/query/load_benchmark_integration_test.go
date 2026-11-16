@@ -4,6 +4,7 @@ package query
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -128,6 +129,25 @@ func BenchmarkConcurrentRecordReads(b *testing.B) {
 	}
 	filtered := base
 	filtered.Filter = "priority = 42"
+	// Verify semantics outside the timer. An index experiment must preserve the
+	// actual filtered identities and default order, not merely return 50 rows.
+	expectedRows, err := records.pool.Query(ctx, "SELECT id::text FROM "+table+" WHERE priority=42 ORDER BY created_at,id LIMIT 51")
+	if err != nil {
+		b.Fatal(err)
+	}
+	expected, err := pgx.CollectRows(expectedRows, pgx.RowTo[string])
+	if err != nil || len(expected) != 51 {
+		b.Fatalf("filtered reference rows=%d err=%v", len(expected), err)
+	}
+	checked, err := records.List(ctx, filtered)
+	if err != nil || len(checked.Items) != 50 || checked.NextCursor == "" {
+		b.Fatalf("filtered semantic check: rows=%d cursor=%q err=%v", len(checked.Items), checked.NextCursor, err)
+	}
+	for index, item := range checked.Items {
+		if item["id"] != expected[index] || fmt.Sprint(item["priority"]) != "42" {
+			b.Fatalf("filtered semantic check at %d: id=%v priority=%v want=%s/42", index, item["id"], item["priority"], expected[index])
+		}
+	}
 	if os.Getenv("PGBASE_BENCH_EXPLAIN") == "1" {
 		benchmarkReadPlan(b, records, base, "list_50")
 		benchmarkReadPlan(b, records, filtered, "filtered_50")
@@ -214,6 +234,25 @@ func BenchmarkConcurrentRecordReads(b *testing.B) {
 				b.ReportMetric(float64(memoryAfter.PauseTotalNs-memoryBefore.PauseTotalNs)/float64(time.Millisecond), "gc-pause-ms")
 			})
 		}
+	}
+	if os.Getenv("PGBASE_BENCH_INDEX_WRITE") == "1" {
+		// Run only after every timed read. This synthetic SQL update measures
+		// index-maintenance buffers/WAL, not the Record Operations write API.
+		// Roll back the probe so the committed fixture remains unchanged.
+		rollback := errors.New("rollback diagnostic write probe")
+		var plan []byte
+		err := records.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			statement := "EXPLAIN (ANALYZE, BUFFERS, WAL, FORMAT JSON) UPDATE " + table +
+				" SET priority=(priority+1)%100 WHERE id IN (SELECT id FROM " + table + " ORDER BY created_at,id LIMIT 1000)"
+			if err := tx.QueryRow(ctx, statement).Scan(&plan); err != nil {
+				return err
+			}
+			return rollback
+		})
+		if !errors.Is(err, rollback) {
+			b.Fatalf("diagnostic write probe: %v", err)
+		}
+		b.Logf("diagnostic_write_update_rows=1000 rolled_back=true plan=%s", plan)
 	}
 }
 
