@@ -26,7 +26,9 @@
       "classification": "PRIMARY_EVIDENCE",
       "preservation": "Git-tracked final-master evidence",
       "expires_at": null,
-      "removal_allowed": false
+      "removal_allowed": false,
+      "execution_checkout_sha": "6add53b53b57e6fc3826820ac7b6580b493629cb",
+      "uncommitted_fixture_or_fix": false
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/performance/historical-http-replay.log",
@@ -41,7 +43,9 @@
       "classification": "PRIMARY_EVIDENCE",
       "preservation": "Git-tracked final-master evidence",
       "expires_at": null,
-      "removal_allowed": false
+      "removal_allowed": false,
+      "execution_checkout_sha": "6add53b53b57e6fc3826820ac7b6580b493629cb",
+      "uncommitted_fixture_or_fix": false
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/performance/http-validator-red.log",
@@ -56,7 +60,9 @@
       "classification": "HISTORICAL_RED",
       "preservation": "Git-tracked final-master evidence",
       "expires_at": null,
-      "removal_allowed": false
+      "removal_allowed": false,
+      "execution_checkout_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+      "uncommitted_fixture_or_fix": true
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/performance/infrastructure-policy.log",
@@ -71,7 +77,10 @@
       "classification": "PRIMARY_EVIDENCE",
       "preservation": "Git-tracked final-master evidence",
       "expires_at": null,
-      "removal_allowed": false
+      "removal_allowed": false,
+      "execution_checkout_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+      "uncommitted_fixture_or_fix": true,
+      "source_identity_note": "Executed before commit with analyzer/test bytes identical to correction_source_sha; execution checkout SHA is recorded separately."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/performance/observers-baseline.log",
@@ -86,7 +95,9 @@
       "classification": "PRIMARY_EVIDENCE",
       "preservation": "Git-tracked final-master evidence",
       "expires_at": null,
-      "removal_allowed": false
+      "removal_allowed": false,
+      "execution_checkout_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+      "uncommitted_fixture_or_fix": false
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/performance/python-baseline.log",
@@ -101,7 +112,9 @@
       "classification": "PRIMARY_EVIDENCE",
       "preservation": "Git-tracked final-master evidence",
       "expires_at": null,
-      "removal_allowed": false
+      "removal_allowed": false,
+      "execution_checkout_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+      "uncommitted_fixture_or_fix": false
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/performance/python-green-committed.log",
@@ -116,7 +129,9 @@
       "classification": "PRIMARY_EVIDENCE",
       "preservation": "Git-tracked final-master evidence",
       "expires_at": null,
-      "removal_allowed": false
+      "removal_allowed": false,
+      "execution_checkout_sha": "6add53b53b57e6fc3826820ac7b6580b493629cb",
+      "uncommitted_fixture_or_fix": false
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/performance/python-green.log",
@@ -131,7 +146,10 @@
       "classification": "PRIMARY_EVIDENCE",
       "preservation": "Git-tracked final-master evidence",
       "expires_at": null,
-      "removal_allowed": false
+      "removal_allowed": false,
+      "execution_checkout_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+      "uncommitted_fixture_or_fix": true,
+      "source_identity_note": "Executed before commit with analyzer/test bytes identical to correction_source_sha; execution checkout SHA is recorded separately."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/performance/query-microbench.log",
@@ -146,7 +164,9 @@
       "classification": "PRIMARY_EVIDENCE",
       "preservation": "Git-tracked final-master evidence",
       "expires_at": null,
-      "removal_allowed": false
+      "removal_allowed": false,
+      "execution_checkout_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+      "uncommitted_fixture_or_fix": false
     }
   ]
 }
