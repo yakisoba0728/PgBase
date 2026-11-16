@@ -103,7 +103,8 @@ func NewService(pool *database.Pool, registry *Registry, logger *slog.Logger) *S
 }
 
 // Schedule creates or enables a named durable job. Changing its schedule makes
-// it due immediately so a deployment does not wait for an obsolete interval.
+// an interval job due immediately; a calendar job uses its next occurrence.
+// An active claim must finish or expire before its configuration can change.
 func (s *Service) Schedule(ctx context.Context, name, schedule string) error {
 	return s.ScheduleInTimezone(ctx, name, schedule, "UTC")
 }
@@ -116,12 +117,20 @@ func (s *Service) ScheduleInTimezone(ctx context.Context, name, schedule, timezo
 	if err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO pgbase_meta.scheduled_jobs(id,name,schedule,timezone,next_run_at)
+	result, err := s.pool.Exec(ctx, `INSERT INTO pgbase_meta.scheduled_jobs(id,name,schedule,timezone,next_run_at)
 	 VALUES($1,$2,$3,$4,$5) ON CONFLICT (name) DO UPDATE SET
 	 enabled=true,next_run_at=CASE WHEN pgbase_meta.scheduled_jobs.schedule=excluded.schedule
 	 AND pgbase_meta.scheduled_jobs.timezone=$4 THEN pgbase_meta.scheduled_jobs.next_run_at ELSE $5 END,
-	 schedule=excluded.schedule,timezone=$4,updated_at=clock_timestamp()`, uuid.New(), name, schedule, timezone, next)
-	return err
+	 schedule=excluded.schedule,timezone=$4,lease_token=NULL,lease_until=NULL,
+	 fence_generation=pgbase_meta.scheduled_jobs.fence_generation+1,updated_at=clock_timestamp()
+	 WHERE pgbase_meta.scheduled_jobs.lease_until IS NULL OR pgbase_meta.scheduled_jobs.lease_until<clock_timestamp()`, uuid.New(), name, schedule, timezone, next)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return ErrNotManageable
+	}
+	return nil
 }
 
 // Run polls with a bounded cadence. Claims survive restarts because stale
@@ -227,7 +236,7 @@ func (s *Service) complete(ctx context.Context, claim claimedJob, runErr error) 
 		_, err = s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_token=NULL,lease_until=NULL,
 	 next_run_at=COALESCE($3::timestamptz,clock_timestamp()+make_interval(secs=>$4)),
 	 last_scheduled_at=$5,attempts=0,last_error=NULL,last_finished_at=clock_timestamp(),updated_at=clock_timestamp()
-	 WHERE id=$1 AND lease_token=$2 AND fence_generation=$6`, claim.ID, claim.token, next, schedule.interval.Seconds(), claim.ScheduledAt, claim.FenceGeneration)
+	 WHERE id=$1 AND lease_token=$2 AND fence_generation=$6 AND lease_until>clock_timestamp()`, claim.ID, claim.token, next, schedule.interval.Seconds(), claim.ScheduledAt, claim.FenceGeneration)
 		return err
 	}
 	// The SQL bounds retries at five minutes, keeps failure text bounded, and
@@ -235,7 +244,7 @@ func (s *Service) complete(ctx context.Context, claim claimedJob, runErr error) 
 	_, err = s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_token=NULL,lease_until=NULL,
  next_run_at=clock_timestamp()+make_interval(secs=>LEAST(300,power(2,LEAST(attempts,8))::integer)),
  last_error=left($3,1024),last_finished_at=clock_timestamp(),updated_at=clock_timestamp()
- WHERE id=$1 AND lease_token=$2 AND fence_generation=$4`, claim.ID, claim.token, runErr.Error(), claim.FenceGeneration)
+ WHERE id=$1 AND lease_token=$2 AND fence_generation=$4 AND lease_until>clock_timestamp()`, claim.ID, claim.token, runErr.Error(), claim.FenceGeneration)
 	return err
 }
 
