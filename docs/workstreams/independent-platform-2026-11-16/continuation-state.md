@@ -1,3 +1,21 @@
+# Current continuation — final master consolidation
+
+This is the current entry point for the new final round. **IN_PROGRESS; NOT_READY pending mandatory final CI.**
+
+- Main unchanged: `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`; NO_MAIN_ROLLBACK_NEEDED.
+- Sole integration PR148 remains Open/Draft/Unmerged.
+- Reviewed correction checkpoint published: `ebb3e10c9c8a19fc1825801ffc187c22e52131ea`.
+- Four P2 correction areas have original-source RED and corrected-source GREEN evidence from a separate QA agent. Author and independent execution identities are explicitly mapped.
+- Actual PostgreSQL17.9 namespace/publication and schema68→69 regression checks pass; real TS/Dart HTTP contracts pass.
+- Existing617 raw evidence files remain intact. Runtime optimization adoption is0; no new speed claim.
+- Next: freeze the final candidate, observe one complete Full source qualification including200RPS×600seconds, preserve and independently verify logs/artifacts/source-tree mapping, then update final documents and one representative PR handoff comment.
+- Do not rerun historical development phases, reimport branch-only diagnostics, alter main, merge, deploy, publish releases or weaken tests. Do not assume a background agent continues after the chat ends.
+
+Use [final-master/README.md](final-master/README.md), [final qualification](final-master/final-qualification.md), [evidence index](final-master/evidence-index.md), and [source publication mapping](evidence/final-master/publication-map.json). Final verdict must follow the new exact-source CI.
+
+<details>
+<summary>Preserved previous continuation history</summary>
+
 # PgBase — final closeout complete
 
 ## Current state — `READY_FOR_MANUAL_MERGE`
@@ -312,3 +330,5 @@ Do not run another broad audit, blindly ignore console errors or restart perform
 The historical 200 RPS/600s gate dropped 547 of 120,000 arrivals. No new performance
 measurement or pass exists. Original performance workflows/criteria/evidence and
 required-check settings were not modified. PR remains Draft and unmerged.
+
+</details>
