@@ -16,6 +16,9 @@ trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
 # Inspect the final filesystem without starting the application or a shell.
 # These paths contain public trust/timezone data and package metadata only.
 docker image inspect --format '{{.Id}}' "$image_ref" > "$output_directory/image-id.txt"
+docker image inspect --format '{{json .Config.Env}}' "$image_ref" \
+  | python3 -c 'import json,sys; print(json.dumps({k:v for entry in json.load(sys.stdin) or [] for k,_,v in [entry.partition("=")] if k in ("SSL_CERT_FILE", "SSL_CERT_DIR")}))' \
+  > "$output_directory/trust-environment.json"
 docker cp "$container_id:/etc/ssl/certs" "$output_directory/certs"
 docker cp "$container_id:/usr/share/zoneinfo/tzdata.zi" "$output_directory/tzdata.zi"
 docker cp "$container_id:/var/lib/dpkg/status.d" "$output_directory/package-status"
@@ -70,6 +73,7 @@ for path in sorted((root / "package-status").rglob("*")):
 timezone = (root / "tzdata.zi").read_bytes()
 summary = {
     "imageID": (root / "image-id.txt").read_text().strip(),
+    "trustEnvironment": json.loads((root / "trust-environment.json").read_text()),
     "certificateCount": len(certificates),
     "certificatesByDER_SHA256": certificates,
     "certificateFileSHA256": files,
