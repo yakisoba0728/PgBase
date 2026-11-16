@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiCloseLine, RiDeleteBinLine, RiUploadLine } from "@remixicon/react";
 import type { CollectionField } from "../api/collections";
 import { deleteFile, getRecord, replaceRecordFiles, uploadRecordFile, type StoredFile } from "../api/records";
+import { captureSessionScope } from "../api/http";
 import { errorText } from "../app/queries";
 import { FileButton, IconButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
@@ -64,16 +65,17 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
 
   const upload = useMutation({
     mutationFn: async (list: File[]) => {
+      const scope = captureSessionScope();
       if (replacing) {
-        const latest = await getRecord(collection, recordId!);
-        await replaceRecordFiles(collection, recordId!, latest.etag, field.name, list);
+        const latest = await scope.run(() => getRecord(collection, recordId!));
+        await scope.run(() => replaceRecordFiles(collection, recordId!, latest.etag, field.name, list));
         return;
       }
       setUploads(list.map((file) => ({ name: file.name, progress: 0 })));
       for (const [index, file] of list.entries()) {
-        await uploadRecordFile(collection, recordId!, field.name, file, {
+        await scope.run(() => uploadRecordFile(collection, recordId!, field.name, file, {
           onProgress: (progress) => setUploads((previous) => previous.map((item, at) => (at === index ? { ...item, progress } : item))),
-        });
+        }));
         setUploads((previous) => previous.map((item, at) => (at === index ? { ...item, progress: 1 } : item)));
       }
     },

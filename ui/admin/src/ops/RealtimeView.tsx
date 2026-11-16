@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiCheckboxCircleLine, RiReplyLine } from "@remixicon/react";
 import { retryRealtimeEvent, type RealtimeStatus } from "../api/realtime";
+import { captureSessionScope } from "../api/http";
 import { errorText, windowOpen, windowShifted } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
 import { EmptyState, LoadMore, WindowNotice } from "../components/Feedback";
@@ -89,6 +90,7 @@ function DeadEvents() {
   const idle = (ids: string[]) => ids.filter((id) => !inFlight.has(id));
 
   const retry = async (ids: string[], bulk: boolean) => {
+    const scope = captureSessionScope();
     setInFlight((current) => new Set([...current, ...ids]));
     if (bulk) setRun({ total: ids.length, done: 0, failed: 0, running: true });
     const settle = (id: string, result: PromiseSettledResult<unknown>) => {
@@ -99,7 +101,7 @@ function DeadEvents() {
       });
       if (bulk) setRun((current) => current && { ...current, done: current.done + 1, failed: current.failed + (result.status === "rejected" ? 1 : 0) });
     };
-    const results = await settleLimited(ids, retryConcurrency, retryRealtimeEvent, settle);
+    const results = await settleLimited(ids, retryConcurrency, (id) => scope.run(() => retryRealtimeEvent(id)), settle);
     const failed = ids.filter((_, index) => results[index].status === "rejected");
     const firstError = results.find((result) => result.status === "rejected")?.reason;
     // A retried event leaves the dead list; one refetch per run rather than one per event.

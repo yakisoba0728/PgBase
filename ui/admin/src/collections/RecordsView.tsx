@@ -12,7 +12,7 @@ import {
   RiQuestionLine,
 } from "@remixicon/react";
 import type { Collection } from "../api/collections";
-import { ApiError } from "../api/http";
+import { ApiError, captureSessionScope } from "../api/http";
 import { deleteRecord, deleteRecordsBatch, listRecords, type RecordData } from "../api/records";
 import { errorText } from "../app/queries";
 import { Button, IconButton, RefreshButton } from "../components/Button";
@@ -159,34 +159,38 @@ export function RecordsView({ collection }: { collection: Collection }) {
 
   /** Deletes the given ids, or every record matching `filter` (ids collected first: cursors expire, and deleting while paging would skip rows). */
   const runDelete = async (source: string[] | { filter: string }) => {
+    const scope = captureSessionScope();
     const abort = start("delete", t("records.deleteStarting"));
     const progress = (patch: Partial<BulkTask>) => setTask((current) => (current?.abort === abort ? { ...current, ...patch } : current));
     let ids: string[];
     let capped = false;
+    let batchSize: number;
     try {
       if (Array.isArray(source)) ids = source;
       else {
-        const found = await collectAll((cursor) => listRecords(collection.name, { filter: source.filter || undefined, fields: "id", cursor, limit: 200, signal: abort.signal }), maxPages, {
+        const found = await collectAll((cursor) => scope.run(() => listRecords(collection.name, { filter: source.filter || undefined, fields: "id", cursor, limit: 200, signal: abort.signal })), maxPages, {
           signal: abort.signal,
           onPage: (rows) => progress({ detail: t("records.deleteFinding", { count: rows.length }) }),
         });
         ids = found.items.map((record) => record.id);
         capped = !found.complete;
       }
+      batchSize = await scope.run(() => queryClient.fetchQuery(settingsQuery).then((settings) => (settings.batch.enabled ? settings.batch.maxRequests : 0), () => 0));
     } catch (error) {
       setTask(abort.signal.aborted ? null : { kind: "delete", state: "failed", detail: t("records.deleteNotStarted"), error: errorText(t, error), abort });
       return;
     }
-    const batchSize = await queryClient.fetchQuery(settingsQuery).then((settings) => (settings.batch.enabled ? settings.batch.maxRequests : 0), () => 0);
     const total = ids.length;
     progress({ detail: t("records.deleteProgress", { done: 0, total }), done: 0, total });
     const outcome = await deleteAll(ids, {
       batchSize,
-      batch: (chunk) => deleteRecordsBatch(collection.name, chunk),
-      one: (id) => deleteRecord(collection.name, id),
+      batch: (chunk) => scope.run(() => deleteRecordsBatch(collection.name, chunk)),
+      one: (id) => scope.run(() => deleteRecord(collection.name, id)),
       signal: abort.signal,
       onProgress: (done, failed) => progress({ done, detail: failed ? t("records.deleteProgressFailed", { done, total, failed }) : t("records.deleteProgress", { done, total }) }),
     });
+    // An old run must not edit a replacement session's list cache or navigate it.
+    try { scope.check(); } catch { setTask(null); return; }
     // One list update for the whole run.
     if (Array.isArray(source)) removeFromLists(queryClient, collection.name, outcome.deleted);
     else void queryClient.resetQueries({ queryKey: listKey(collection.name) });
@@ -231,11 +235,12 @@ export function RecordsView({ collection }: { collection: Collection }) {
   const problem = records.isError ? queryProblem(t, records.error) : null;
 
   const runExport = async () => {
+    const scope = captureSessionScope();
     const abort = start("export", t("records.exportProgress", { count: 0 }));
     let rows: RecordData[] = [];
     try {
       const { items: all, complete } = await collectAll(
-        (cursor) => listRecords(collection.name, { filter: scopeFilter || undefined, sort: url.sort || undefined, cursor, limit: 200, total: cursor ? undefined : true, signal: abort.signal }),
+        (cursor) => scope.run(() => listRecords(collection.name, { filter: scopeFilter || undefined, sort: url.sort || undefined, cursor, limit: 200, total: cursor ? undefined : true, signal: abort.signal })),
         maxPages,
         {
           signal: abort.signal,
@@ -250,12 +255,14 @@ export function RecordsView({ collection }: { collection: Collection }) {
           },
         },
       );
+      scope.check();
       downloadJson(`${collection.name}${complete ? "" : "-partial"}.json`, exportable(all));
       if (complete) {
         setTask(null);
         toast(t("records.exported", { count: all.length }));
       } else setTask({ kind: "export", state: "attention", detail: t("records.exportedPartial", { count: all.length }), abort });
     } catch (error) {
+      if (error instanceof ApiError && error.code === "session_changed") { setTask(null); return; }
       setTask(abort.signal.aborted ? null : { kind: "export", state: "failed", detail: t("records.exportStopped", { count: rows.length }), error: errorText(t, error), rows, abort });
     }
   };

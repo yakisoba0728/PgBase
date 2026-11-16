@@ -1,1 +1,0 @@
-import{ir as e}from"./Feedback-BrFuA_Yw.js";function t(t,n){let r=URL.createObjectURL(new Blob([e(n,null,2)??`null`],{type:`application/json`})),i=document.createElement(`a`);i.href=r,i.download=t,i.click(),setTimeout(()=>URL.revokeObjectURL(r),3e4)}export{t};

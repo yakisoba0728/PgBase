@@ -7,7 +7,7 @@ import {
   type CollectionChange,
   type CollectionPlan,
 } from "../api/collections";
-import { ApiError } from "../api/http";
+import { ApiError, captureSessionScope } from "../api/http";
 import { errorText } from "../app/queries";
 import type { Translate } from "../i18n";
 import { applySchemaImport, getSchemaImportOperation, getSchemaOperation, type SchemaImportPreview } from "../api/schema";
@@ -51,20 +51,26 @@ async function settle(operationId: string, initial: string, read: () => Promise<
 
 /** Resolves to the applied collection, or undefined when only a receipt came back. */
 export async function applyCollection(change: CollectionChange, plan: CollectionPlan, identity: ApplyIdentity): Promise<Collection | undefined> {
-  const result: CollectionApplyResult = await applyCollectionChange(change, plan, identity);
-  if ("statusUrl" in result) {
-    await settle(result.operationId, result.status, async () => {
-      const receipt = await getSchemaOperation(result.operationId);
-      return { status: receipt.status, failureCode: receipt.failureCode };
-    });
-    return undefined;
-  }
-  return "fields" in result ? result : undefined;
+  const scope = captureSessionScope();
+  return scope.run(async () => {
+    const result: CollectionApplyResult = await applyCollectionChange(change, plan, identity);
+    if ("statusUrl" in result) {
+      await settle(result.operationId, result.status, () => scope.run(async () => {
+        const receipt = await getSchemaOperation(result.operationId);
+        return { status: receipt.status, failureCode: receipt.failureCode };
+      }));
+      return undefined;
+    }
+    return "fields" in result ? result : undefined;
+  });
 }
 
 export async function applyImport(preview: SchemaImportPreview, identity: ApplyIdentity): Promise<void> {
-  const result = await applySchemaImport({ document: preview.document, baseVersion: preview.baseVersion, checksum: preview.checksum }, identity);
-  await settle(result.operationId, result.status, () => getSchemaImportOperation(result.operationId));
+  const scope = captureSessionScope();
+  return scope.run(async () => {
+    const result = await applySchemaImport({ document: preview.document, baseVersion: preview.baseVersion, checksum: preview.checksum }, identity);
+    await settle(result.operationId, result.status, () => scope.run(() => getSchemaImportOperation(result.operationId)));
+  });
 }
 
 /** A delete refused because the auth collection still has users: the schema delete reports
@@ -86,7 +92,8 @@ export function deleteRefusal(t: Translate, failure: unknown): string {
 /** Plans and applies a delete in one step (the confirm dialog is the review). The server removes an auth
  * collection's sign-in registration in the same transaction, and refuses while it still has users. */
 export async function deleteCollection(collection: Collection): Promise<void> {
+  const scope = captureSessionScope();
   const change: CollectionChange = { operation: "delete", name: collection.name };
-  const plan = await planCollectionChange(change);
-  await applyCollection(change, plan, newIdentity());
+  const plan = await scope.run(() => planCollectionChange(change));
+  await scope.run(() => applyCollection(change, plan, newIdentity()));
 }

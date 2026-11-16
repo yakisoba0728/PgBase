@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { infiniteQueryOptions, queryOptions, useQuery, type InfiniteData, type QueryClient } from "@tanstack/react-query";
 import { listCollections, type Collection } from "../api/collections";
+import { captureSessionScope } from "../api/http";
 import { fileURL, getRecord, listRecordFiles, listRecords, mintFileToken, publicFileURL, type RecordData, type RecordPage, type StoredFile } from "../api/records";
 import { freshFor } from "../app/queries";
 import type { Translate } from "../i18n";
@@ -134,6 +135,7 @@ const waiting: (() => void)[] = [];
 
 /** Runs `task` once one of the pool's slots is free; a query cancelled while queued never runs. */
 export async function pooled<T>(signal: AbortSignal | undefined, task: () => Promise<T>): Promise<T> {
+  const scope = captureSessionScope();
   signal?.throwIfAborted();
   if (free > 0) free--;
   else {
@@ -151,7 +153,10 @@ export async function pooled<T>(signal: AbortSignal | undefined, task: () => Pro
     });
   }
   try {
-    return await task();
+    // The slot can be granted just before cancellation/session invalidation,
+    // while this continuation is still queued. Recheck before any dispatch.
+    signal?.throwIfAborted();
+    return await scope.run(task);
   } finally {
     const next = waiting.shift();
     if (next) next();

@@ -1,4 +1,4 @@
-import { request, requestBlob, requestWithHeaders, stringifyJson, upload } from "./http";
+import { captureSessionScope, request, requestBlob, requestWithHeaders, stringifyJson, upload } from "./http";
 
 // Contracts mirror internal/api/record_handlers.go, batch_handlers.go and file_handlers.go.
 // An administrator cookie session uses /api/v1/collections/... for records (the
@@ -167,12 +167,14 @@ export async function uploadRecordFile(
   file: File,
   options: { onProgress?: (fraction: number) => void; signal?: AbortSignal } = {},
 ): Promise<StoredFile> {
+  const scope = captureSessionScope();
   const form = new FormData();
   form.append("file", file, file.name);
-  return upload(recordFilesPath(collection, id, field), form, {
-    headers: { "X-PgBase-File-Size": String(file.size), "X-PgBase-File-SHA256": await sha256Hex(file) },
+  const digest = await scope.run(() => sha256Hex(file));
+  return scope.run(() => upload(recordFilesPath(collection, id, field), form, {
+    headers: { "X-PgBase-File-Size": String(file.size), "X-PgBase-File-SHA256": digest },
     ...options,
-  });
+  }));
 }
 
 /** Creates a record and its attachments in one atomic multipart batch (required file fields need this).

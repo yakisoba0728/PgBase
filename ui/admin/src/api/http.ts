@@ -71,6 +71,15 @@ async function inScope<T>(scope: RequestScope, attempt: () => Promise<T>): Promi
   }
 }
 
+/** Keeps preparation, queued work and later requests in one administrator's session. */
+export function captureSessionScope() {
+  const scope: RequestScope = { generation, administrator: identity() };
+  return {
+    check: () => assertScope(scope),
+    run: <T>(attempt: () => Promise<T>) => inScope(scope, attempt),
+  };
+}
+
 // The scope includes body decoding, not just arrival of the response headers.
 // A CSRF rejection is safe to retry once, but only in the original session.
 async function withCsrfRecovery<T>(attempt: () => Promise<T>): Promise<T> {

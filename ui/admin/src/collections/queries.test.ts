@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import * as api from "../api/records";
+import { advanceSession } from "../api/http";
 import { translate, type MessageKey } from "../i18n";
 import type { Collection, CollectionField } from "../api/collections";
 import { countText, addToLists, replaceInLists, pooled, recordsListQuery, recordsQuery, recordFilesQuery, thumbnailLifetime, tokenExpiry } from "./queries";
@@ -34,6 +35,24 @@ describe("pooled", () => {
     expect(await Promise.all(results.filter((_, n) => n !== 5))).toEqual([0, 1, 2, 3, 4, 6, 7]);
     expect(peak).toBe(4);
     expect(ran).not.toContain(5);
+  });
+
+  it.each(["cancellation", "session change"])("does not dispatch a pooled request after %s while it waits for a slot", async (change) => {
+    const abort = new AbortController();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    // On the old implementation the first slot is granted before this queued
+    // microtask, but the waiting task resumes afterwards. Its abort listener
+    // has already been removed: checking only at queue entry is insufficient.
+    if (change === "cancellation") void gate.then(() => queueMicrotask(() => abort.abort()));
+    const occupied = Promise.allSettled(Array.from({ length: 4 }, () => pooled(undefined, () => gate)));
+    const task = vi.fn(async () => "unexpected");
+    const outcome = pooled(abort.signal, task).then((value) => ({ value }), (error: unknown) => ({ error }));
+    if (change === "session change") advanceSession();
+    release();
+    await occupied;
+    expect(await outcome).toHaveProperty("error");
+    expect(task).not.toHaveBeenCalled();
   });
 });
 
