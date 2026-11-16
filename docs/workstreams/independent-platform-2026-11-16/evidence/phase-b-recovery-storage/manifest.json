@@ -1,0 +1,140 @@
+{
+  "verified_source_sha": "4b49d7c0e7c07fc0b8c811e0265086bb56038d68",
+  "base_checkpoint_sha": "06938a41117072aa63b872b108652ea3a9e0cd94",
+  "runtime_changes_after_checkpoint": false,
+  "recovered_fault_tests_original_sha": "3500edf8",
+  "recovered_operator_guidance_original_sha": "1545b1a7",
+  "environment": {
+    "go": "go1.26.11 linux/amd64",
+    "postgres": "17.9",
+    "GOMAXPROCS": 2,
+    "go_package_parallelism": 1,
+    "database": "disposable loopback PG cluster, port56841, per-test temporary databases",
+    "test_admin_url": "postgres://postgres@127.0.0.1:56841/postgres?sslmode=disable",
+    "pg_fsync": "on (default)",
+    "minio_configured": false
+  },
+  "runs": [
+    {
+      "label": "unit-race",
+      "command": "GOMAXPROCS=2 go test -count=1 -race -p=1 -timeout=120s -json ./internal/filestore ./migrations/system",
+      "exit_code": 0,
+      "started_at": "2026-11-16T17:09:22.424060769+09:00",
+      "finished_at": "2026-11-16T17:09:25.476905695+09:00",
+      "raw_log": "unit-race.jsonl.gz",
+      "uncompressed_sha256": "08ee5367424e7737495e5dbd5f86e7169c3fc4933413d2875a2284f52bff94f6",
+      "packages": {
+        "github.com/yakisoba0728/PgBase/internal/filestore": {
+          "passed_top_level_tests": 37,
+          "skipped_top_level_tests": [],
+          "failures": [],
+          "elapsed_seconds": 1.343
+        },
+        "github.com/yakisoba0728/PgBase/migrations/system": {
+          "passed_top_level_tests": 1,
+          "skipped_top_level_tests": [],
+          "failures": [],
+          "elapsed_seconds": 1.015
+        }
+      },
+      "race_detector": true
+    },
+    {
+      "label": "focused-integration",
+      "command": "GOMAXPROCS=2 go test -count=1 -p=1 -timeout=180s -tags=integration -run 'Test(Variant|RestoredStorageDetachesRetainedSourceIntents)' -json ./internal/filestore ./internal/migrate",
+      "exit_code": 0,
+      "started_at": "2026-11-16T17:10:06.339170885+09:00",
+      "finished_at": "2026-11-16T17:10:15.77335137+09:00",
+      "raw_log": "focused-integration.jsonl.gz",
+      "uncompressed_sha256": "712f6e05aa6981dd678f5000ab0b0c92f50b3561530c94ef5c8abfe988765227",
+      "packages": {
+        "github.com/yakisoba0728/PgBase/internal/filestore": {
+          "passed_top_level_tests": 14,
+          "skipped_top_level_tests": [],
+          "failures": [],
+          "elapsed_seconds": 7.871
+        },
+        "github.com/yakisoba0728/PgBase/internal/migrate": {
+          "passed_top_level_tests": 1,
+          "skipped_top_level_tests": [],
+          "failures": [],
+          "elapsed_seconds": 0.371
+        }
+      },
+      "race_detector": false
+    },
+    {
+      "label": "affected-integration-race",
+      "command": "GOMAXPROCS=2 go test -count=1 -p=1 -timeout=180s -race -tags=integration -json ./internal/filestore ./internal/migrate ./migrations/system",
+      "exit_code": 0,
+      "started_at": "2026-11-16T17:10:36.042284844+09:00",
+      "finished_at": "2026-11-16T17:11:18.152636568+09:00",
+      "raw_log": "affected-integration-race.jsonl.gz",
+      "uncompressed_sha256": "ca9cd2df7fd184c60e47e122d50cb1ece5cfe12efc0d1c980d539f57426780e5",
+      "packages": {
+        "github.com/yakisoba0728/PgBase/internal/filestore": {
+          "passed_top_level_tests": 75,
+          "skipped_top_level_tests": [
+            "TestS3StoreAgainstLocalMinIO",
+            "TestObjectMigrationLocalToMinIOCutoverAndDelayedCleanup",
+            "TestObjectMigrationCancelKeepsCurrentDestination",
+            "TestStorageControllerMinIOSaveRotateRestartAndRollback"
+          ],
+          "failures": [],
+          "elapsed_seconds": 21.45
+        },
+        "github.com/yakisoba0728/PgBase/internal/migrate": {
+          "passed_top_level_tests": 31,
+          "skipped_top_level_tests": [],
+          "failures": [],
+          "elapsed_seconds": 8.4
+        },
+        "github.com/yakisoba0728/PgBase/migrations/system": {
+          "passed_top_level_tests": 38,
+          "skipped_top_level_tests": [],
+          "failures": [],
+          "elapsed_seconds": 9.834
+        }
+      },
+      "race_detector": true
+    }
+  ],
+  "source_sha256": {
+    "internal/filestore/variants.go": "45ff965a76e9d2518d4ada38c06359a5276008ecc5fdeca1d78a88ace8029781",
+    "internal/filestore/object_gc.go": "3bf4c9e582a54d452d13642a1604bd31048031ea870bdc58bf561eadc2a3c2d3",
+    "internal/filestore/staging.go": "c79299f57b3222293715ceb5e68c616392a27d40524c17e5eee3eeb02b906f09",
+    "internal/filestore/restore.go": "3f6ca0cb21b03137f58ef047107d55f749b29299bb729fb11072304faa17361c",
+    "internal/filestore/storage_migration.go": "30ddd01cbba3d243540f0ba895f0fd45ee3b14a04d29d8f6deafb76f33d1827f",
+    "internal/filestore/variant_cleanup_independent_integration_test.go": "f2cf64c519fbed0f4665f5d80ddf8a27fcb986809b52e5d96f2c1eb6b1ce8022",
+    "internal/filestore/variant_durable_integration_test.go": "13ba83f9734c13849a6be7e62517e37f89a62f8bbe4e846964d62d4c8364810b",
+    "internal/migrate/variant_cleanup_upgrade_integration_test.go": "31980eef8aeed17a2c3d05a93aa52baa92bd824d8b235b66d96d31f1cb3a1928",
+    "migrations/system/000069_durable_variant_cleanup.sql": "a69218f58c350a8f413fce7d94fe2fcf1e98965b5526af18cf963ee989c96355",
+    "migrations/system/embed.go": "814911ba6cce3a12dccdb68e9313c7201cb0e47ae418ef017cce4257df29b025",
+    "migrations/system/embed_test.go": "8f30c82416b5a1f8242454a14516897345cbc19490e6703c698bb83351123631"
+  },
+  "limitations": [
+    "Four pre-existing MinIO tests skipped because no MinIO fixture was configured; no skip logic changed.",
+    "Retained uncertainty tombstones are not automatically retired; successful remote Delete does not prove no late Put can follow.",
+    "Source storage migration activation remains blocked while retained uncertainty exists.",
+    "Old cleanup workers receive SQLSTATE55000 when attempting to retire an unreferenced retained intent; upgrade workers for normal liveness.",
+    "Delete timeout relies on ObjectStore cancellation cooperation; actual cloud-provider fault semantics remain unverified."
+  ],
+  "artifacts": {
+    "affected-integration-race-postgres-start.log": "66afd0411ccc09366e99fdd99b85f21899c8d2d064f5835126859618802153ad",
+    "affected-integration-race-postgres-stop.log": "ca19178a35ab4153b75b494963b66ce8243e1b94c173107c87b44d09db23652d",
+    "affected-integration-race.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "affected-integration-race.jsonl.gz": "62c7ec87b3c9bd13db6b80be4a2ec34fb6bba80f7e714696b5cfbe04169f3c98",
+    "affected-integration-race.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "focused-integration-postgres-start.log": "66afd0411ccc09366e99fdd99b85f21899c8d2d064f5835126859618802153ad",
+    "focused-integration-postgres-stop.log": "ca19178a35ab4153b75b494963b66ce8243e1b94c173107c87b44d09db23652d",
+    "focused-integration.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "focused-integration.jsonl.gz": "ecec3237808b55775f5d956fa13cf65e91004eb46a9e1b50b496289d27798b68",
+    "focused-integration.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "postgres-init.log": "ffe9c2f2770205125e3b074dede181e11caa62d7d83bba57104200074628937b",
+    "postgres.log.gz": "794e7cc81ee7ff24909ee767b38669648cde702854ad37d92209e8ea2157dd3c",
+    "run-storage-recovery-tests.sh": "d9d3803f1f8e7ee177c155f94a7e727ac5ecba120739f2eb384ab04cc7249d42",
+    "unit-race.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "unit-race.jsonl.gz": "fbf28ca5e824388b430d1f97497a80a787012703167ba4e14a1aadc41ac6433d",
+    "unit-race.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

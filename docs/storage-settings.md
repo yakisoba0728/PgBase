@@ -20,4 +20,48 @@ The migration copies one object at a time through a bounded temporary file. The 
 
 The connection test proves the permissions PgBase uses: put, get, and delete for a random bounded object. It does not require bucket listing. A successful local MinIO test does not validate production DNS, TLS trust, IAM policy, lifecycle, replication, or availability.
 
+## Variant cleanup and uncertain writes (schema 69)
+
+Before writing a generated image variant, PgBase commits a cleanup intent in
+`pgbase_meta.file_object_deletions`. Its staging session and publishing
+transaction use the same object locks as the existing cleanup worker. Publishing
+the variant reference and removing its intent happen in one transaction. A lost
+COMMIT response therefore does not require an unbounded synchronous cleanup
+query: the transaction's actual outcome determines which durable state survives.
+
+An interrupted storage request can finish remotely after its PostgreSQL
+connections disappear. Such an intent has `retain_on_success=true`: a successful
+physical deletion does **not** retire it. The worker keeps the intent and retries
+hourly so a later write is still tracked. When the live writer can establish that
+no Put started or that Put completed successfully, it can release this retention
+using a bounded cleanup query. Failed queries leave the retained intent intact.
+There is no time-based automatic pruning of uncertain intents.
+
+`attempts`, `last_attempt_at`, `next_attempt_at`, and sanitized `last_error`
+record cleanup state. Delete failures retain the row and use exponential retry
+delays from one second to 256 seconds. Due-time ordering lets ordinary deletions
+continue past entries waiting for a retry. Each Delete receives a ten-second
+context; this depends on the storage implementation honoring cancellation and
+is not a hard bound on a blocked filesystem syscall or a custom store.
+
+Retained uncertain intents intentionally block storage migration activation:
+switching namespaces could otherwise abandon a late write in the old backend.
+Operators can inspect their count and retry state without modifying them:
+
+```sql
+SELECT object_key, retain_on_success, attempts, queued_at,
+       last_attempt_at, next_attempt_at, last_error
+FROM pgbase_meta.file_object_deletions
+ORDER BY next_attempt_at, queued_at, object_key;
+```
+
+Do not remove an uncertain intent solely because one storage read or Delete
+reports that the key is absent. An unresolved tombstone can persist indefinitely;
+automated proof of remote-write quiescence and retirement is not implemented.
+Monitor accumulation and failed attempts. Keep all cleanup workers on the
+schema-69-capable binary: the database guard prevents an older worker from
+discarding an uncertain intent, but that worker can repeatedly encounter an
+error until upgraded. Restore to a separate local namespace explicitly detaches
+the source's pending intents and credentials; it does not modify the source.
+
 Backup archive storage is independent of uploaded-file storage. P8 adds a separate backup repository and administrator configuration; its current integration and acceptance status is tracked in [P8 local contracts](phase4-local-contracts.md). `BackupOptions.Directory` remains the local workspace for jobs, staging, and activation receipts even when archives use S3.
