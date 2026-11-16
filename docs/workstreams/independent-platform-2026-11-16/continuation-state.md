@@ -1,3 +1,67 @@
+# PgBase — functional correctness continuation
+
+## Latest scoped outcome — three defects fixed and independently accepted
+
+This section supersedes earlier next-action instructions preserved below.
+**This bounded task is complete. Overall product remains Not Ready.**
+
+- Live starting PR #148 HEAD: `55f539895f85ca3b7d8731ab8f4c3b8999ab92bb`.
+- Fixed exactly three reproduced root causes: missing transport context in
+  embedded record authorization, Jobs occurrence identity after rescheduling,
+  and TypeScript/Dart iterator ownership across session changes.
+- Independent reviewer verdict: **ACCEPT_SCOPED_CHANGES**. The reviewer separately
+  reproduced the authorization failure against the original compiler and then
+  restored the final source before GREEN checks.
+- PostgreSQL 16.13 / 17.9 / 18.3: each **169 top-level + 129 subtests passed**.
+  The same PG17.9 affected-package suite passed under **race**. Actual HTTP
+  contracts: **5 + 40**; TypeScript **119/119**; Dart **138/138**; related Go vet
+  and Dart analysis passed. All accepted executions have **0 failures / 0 skips**.
+- Tested local source: `ecff2d1ff1ddca96211832908b1cfb6c40faf8e3`.
+  Equivalent GitHub source: `5bdfc309d45808d56ef532ffad60dfa2acb48f28`.
+  Exact common tree: `fd5f4c233f621e35badd9a5e401f5e090ddf310b`.
+- Fix commits: authorization `2b44c141`, Jobs `e976b364`, SDK `67e5e314`.
+  Independent evidence commit: `e49e835f376960c75e343239887f93a8645e9768`.
+  The following final checkpoint changes documentation/provenance only.
+- Actual subagents: **4 created, 4 completed, maximum 3 concurrent** (4 including
+  coordinator). A/B/C and Independent QA used separate worktrees.
+- All assertion failures and initial fixture/bootstrap failures remain retained
+  and classified separately. PG16/18 initially lacked local `pg_trgm`; matching
+  extensions repaired only the disposable environment. No failing evidence or
+  existing test was removed or weakened.
+- **No new full CI pass is claimed.** The earlier 14/14 run applies only to its
+  prior source. No Firefox/browser analysis or run, performance investigation,
+  benchmark/load test or pool/WAL study occurred. Workflows and required-check
+  definitions are unchanged; publication uses `[skip ci]` to avoid excluded runs.
+- Schema remains **69**; UI design/layout are unchanged. PR #148 remains
+  **Open / Draft / Unmerged** and main remains
+  `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`. No force push, main write, production
+  access, deployment, release or package publication occurred.
+
+Canonical new report: [`functional-qa-handoff.md`](functional-qa-handoff.md).
+Durable evidence: [`evidence/functional-qa/`](evidence/functional-qa/).
+The GitHub/local commit mapping and exact source manifests distinguish tested
+runtime content from subsequent documentation commits.
+
+### Remaining and next starting point
+
+The selected defects have no outstanding reproduced failure within the scoped
+verification. This is not whole-product or repository-wide certification.
+Broader Storage/backup/Realtime and SDK/admin combinations remain outside this
+pass. Existing external-provider, ambiguous Storage writes and external Jobs
+side-effect idempotency/fencing limits remain documented.
+
+**NP-BROWSER-01 remains unresolved and excluded.** The historical sustained HTTP
+run lost **547 of 120,000 arrivals at 200 RPS / 600 seconds**; performance remains
+unresolved and assigned to the user. These gates were not passed, deleted or
+reclassified. Next work must first verify live PR HEAD and choose a bounded
+remaining functional contract; do not resume Firefox or performance without a
+new user instruction. This session stops after this handoff; no agent or test
+continues running.
+
+---
+
+## Historical checkpoints — original source scopes, preserved verbatim
+
 # PgBase — final nonperformance continuation
 
 ## Latest resumed outcome — CI completed, acceptance still Blocked

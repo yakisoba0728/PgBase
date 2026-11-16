@@ -1,0 +1,27 @@
+[
+  {
+    "version": "16.13",
+    "source_url": "https://ftp.postgresql.org/pub/source/v16.13/postgresql-16.13.tar.bz2",
+    "source_sha256": "dc2ddbbd245c0265a689408e3d2f2f3f9ba2da96bd19318214b313cdd9797287",
+    "prefix": "/tmp/pgbase-functional-postgres/installed-16.13",
+    "result": "postgres (PostgreSQL) 16.13",
+    "pg_trgm_sha256": "14145345c4abefa4aeed4420371d55278c2b5b6ca449940ca79a4a5bcadbb692",
+    "binary_sha256": "673c2b928a911daaecc92c08fcb13df1419042c1338ea1b82c57385996030186"
+  },
+  {
+    "version": "17.9",
+    "result": "postgres (PostgreSQL) 17.9",
+    "binary_sha256": "e036cd18b1e838d79af11f4392e938a56ed9e1a89ecbf35429c9a971570239f9",
+    "reused_toolchain": true,
+    "note": "Existing local binary, new disposable UTF-8 data fixtures only."
+  },
+  {
+    "version": "18.3",
+    "source_url": "https://ftp.postgresql.org/pub/source/v18.3/postgresql-18.3.tar.bz2",
+    "source_sha256": "d95663fbbf3a80f81a9d98d895266bdcb74ba274bcc04ef6d76630a72dee016f",
+    "prefix": "/tmp/pgbase-functional-postgres/installed-18.3",
+    "result": "postgres (PostgreSQL) 18.3",
+    "pg_trgm_sha256": "f8e7b124ad4f520d0eac48ab25ac2dbfb5b30285b09aec8d01a3076f4e954c62",
+    "binary_sha256": "eed6c981b833cc8f673203da46abc23b63f9ba07335688455be1cc25eee4767a"
+  }
+]
