@@ -66,6 +66,13 @@ func BenchmarkOutboxDeliveredHistory(b *testing.B) {
 				latency[index] = time.Since(started)
 			}
 			b.StopTimer()
+			if os.Getenv("PGBASE_BENCH_SAMPLES") == "1" {
+				samples := make([]int64, len(latency))
+				for index, elapsed := range latency {
+					samples[index] = elapsed.Nanoseconds()
+				}
+				b.Logf("latency_ns rows=%d samples=%v", count, samples)
+			}
 			slices.Sort(latency)
 			for _, percentile := range []int{50, 95, 99} {
 				b.ReportMetric(float64(latency[(len(latency)-1)*percentile/100].Nanoseconds())/1e6, fmt.Sprintf("p%d-ms", percentile))

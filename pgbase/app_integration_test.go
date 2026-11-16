@@ -231,7 +231,7 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 
 func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) < 20 || migrations[len(migrations)-1].Version != 67 {
+	if len(migrations) < 20 || migrations[len(migrations)-1].Version != 68 {
 		t.Fatalf("unexpected schema-compiler-generation manifest: %d migrations", len(migrations))
 	}
 	tests := []struct {
@@ -252,6 +252,8 @@ func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 		{name: "v9 rejected without auto-upgrade", through: 9, autoMigrate: true},
 		{name: "v10 rejected", through: 10},
 		{name: "v11 rejected", through: 11},
+		{name: "v67 rejected", through: len(migrations) - 1},
+		{name: "v67 rejected without auto-upgrade", through: len(migrations) - 1, autoMigrate: true},
 		{name: "latest accepted", through: len(migrations), wantAccept: true},
 		{name: "dirty latest rejected", through: len(migrations), dirty: true},
 		{name: "dirty v6 rejected", through: 6, dirty: true},
@@ -402,7 +404,7 @@ func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 			}
 			if err == nil {
 				_ = app.Close(context.Background())
-				t.Fatal("New accepted history outside the exact v8/v9 P0 boundary")
+				t.Fatal("New accepted history outside the current artifact's declared boundary")
 			}
 			if testCase.autoMigrate {
 				pool, openErr := database.Open(context.Background(), databaseURL, time.Second)
@@ -414,8 +416,8 @@ func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 				if statusErr != nil {
 					t.Fatal(statusErr)
 				}
-				if status.Current != int64(testCase.through) {
-					t.Fatalf("rejected P0 auto-migration changed history: %#v", status)
+				if status.Current != migrations[testCase.through-1].Version {
+					t.Fatalf("rejected auto-migration changed history: %#v", status)
 				}
 			}
 		})
