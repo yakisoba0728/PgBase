@@ -79,6 +79,9 @@ COPY --from=postgres18 /runtime/ /
 COPY --from=runtime-data /runtime/ /
 ENV LD_LIBRARY_PATH="/opt/pgbase/postgresql/lib"
 ENV PATH="/opt/pgbase/postgresql/18/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# Debian OpenSSL defaults to /usr/lib/ssl/cert.pem, whose symlink is absent in
+# distroless. Make libpq's sslrootcert=system use the same bundle as Go TLS.
+ENV SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
 
 ARG VERSION=dev
 LABEL org.opencontainers.image.source="https://github.com/yakisoba0728/PgBase" \
