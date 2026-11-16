@@ -1,0 +1,22 @@
+L166: 2026-11-16T09:04:10.7052460Z   PGBASE_FULL_INTEGRATION_RACE: false
+L167: 2026-11-16T09:04:10.7052728Z   PGBASE_INTEGRATION_PACKAGES: ./...
+L168: 2026-11-16T09:04:10.7053250Z   PGBASE_INTEGRATION_EXCLUDE_PACKAGES: 
+L249: 2026-11-16T09:04:11.9110607Z HEAD is now at 0a517ba Merge 56a881f47d0c27877b91959d7df641c2f603ef03 into 8f551de4423a6b64d9c0ac94fff9b9bd07264f2a
+L449: 2026-11-16T09:04:30.6333708Z [36;1mtest_arguments=(-count=1)[0m
+L453: 2026-11-16T09:04:30.6336788Z [36;1m  test_arguments=(-race -timeout 20m "${test_arguments[@]}")[0m
+L455: 2026-11-16T09:04:30.6338050Z [36;1mscripts/test-go-integration.sh "${test_arguments[@]}" 2>&1 | tee go-test.log[0m
+L468: 2026-11-16T09:04:30.6375563Z   PGBASE_TEST_S3_ENDPOINT: http://127.0.0.1:32769
+L533: 2026-11-16T09:05:57.3246394Z ok  	github.com/yakisoba0728/PgBase/internal/backup	23.476s
+L561: 2026-11-16T09:06:52.0555976Z ok  	github.com/yakisoba0728/PgBase/internal/filestore	31.846s
+L571: 2026-11-16T09:07:10.6329343Z ok  	github.com/yakisoba0728/PgBase/internal/migrate	17.116s
+L580: 2026-11-16T09:07:47.8265855Z ok  	github.com/yakisoba0728/PgBase/internal/doctor	103.837s
+L608: 2026-11-16T09:10:53.5769615Z ok  	github.com/yakisoba0728/PgBase/migrations/system	22.281s
+L630: 2026-11-16T09:15:15.6526292Z ok  	github.com/yakisoba0728/PgBase/pgbase	261.210s
+L727: 2026-11-16T09:15:22.1418157Z No issues found!
+L1028: 2026-11-16T09:15:43.3460190Z --- PASS: TestSDKPublicRecordHTTPConformance (2.98s)
+L1030: 2026-11-16T09:15:44.4538856Z --- PASS: TestSDKRelationFileNativeListRegression (1.11s)
+L1032: 2026-11-16T09:15:57.7067974Z --- PASS: TestSDKTextRecordIdentityHTTPConformance (13.25s)
+L1036: 2026-11-16T09:16:05.3146443Z --- PASS: TestSDKRealtimeHTTPConformance (7.61s)
+L1037: 2026-11-16T09:16:05.3147718Z     --- PASS: TestSDKRealtimeHTTPConformance/typescript (2.28s)
+L1038: 2026-11-16T09:16:05.3148852Z     --- PASS: TestSDKRealtimeHTTPConformance/dart (3.51s)
+L1040: 2026-11-16T09:16:05.3328773Z ok  	github.com/yakisoba0728/PgBase/pgbase	24.977s
