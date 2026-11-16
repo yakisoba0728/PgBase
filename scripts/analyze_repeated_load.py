@@ -54,12 +54,16 @@ def read_http(path, expected_samples=1000):
     for line in path.read_text().splitlines():
         if "kind=all " in line:
             values = dict(re.findall(r"(\w+)=([^\s]+)", line))
+            if int(values["requests"]) != expected_samples:
+                raise ValueError("incomplete HTTP latency samples")
             quantiles = {key + "-ms": duration_ms(values[key]) for key in ("p50", "p95", "p99")}
         if "workers=" not in line or "unexpected_errors=" not in line:
             continue
         values = dict(re.findall(r"(\w+)=([^\s]+)", line))
         if int(values["requests"]) != expected_samples or int(values["unexpected_errors"]) != 0:
             raise ValueError("incomplete or failed HTTP measurement")
+        if int(values["pool_max"]) != 4:
+            raise ValueError("HTTP pool budget differs from registered four-connection protocol")
         key = "http/c" + values["workers"]
         if key in result or not quantiles:
             raise ValueError("duplicate/missing HTTP stage")
@@ -75,8 +79,11 @@ def read_http(path, expected_samples=1000):
             "pool-canceled": float(values["pool_canceled"]), "errors": 0,
         })
         result[key], quantiles = metrics, {}
-    if len(result) != 4:
-        raise ValueError(f"{path}: expected 4 HTTP stages, found {len(result)}")
+    # Order matters: c4 measures recovery after c32, not a second warm baseline.
+    # Counting four arbitrary stages would silently accept a changed experiment.
+    expected_stages = ["http/c1", "http/c8", "http/c32", "http/c4"]
+    if list(result) != expected_stages:
+        raise ValueError(f"{path}: expected HTTP stages {expected_stages}, found {list(result)}")
     return result
 
 
