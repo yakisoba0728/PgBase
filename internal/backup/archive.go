@@ -127,8 +127,11 @@ func Unpack(ctx context.Context, source io.Reader, directory string) (resultErr 
 			return err
 		}
 	}
-	// Read through gzip trailer to validate CRC and bound concatenated junk.
-	n, err := io.Copy(io.Discard, gz)
+	// With no extra uncompressed byte, reading to EOF validates the gzip CRC.
+	// One extra byte already makes this archive invalid: draining a trailing
+	// compressed member would inflate attacker-controlled junk outside the
+	// per-entry expanded-size budget.
+	n, err := io.Copy(io.Discard, io.LimitReader(gz, 1))
 	if err != nil {
 		return err
 	}

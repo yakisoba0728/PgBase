@@ -338,3 +338,45 @@ func TestArchiveWriterEnforcesCompressedBudgetAndPropagatesCloseFailure(t *testi
 		t.Fatalf("compressed budget exceeded: %d", output.Len())
 	}
 }
+
+// A tar terminator followed by a gzip member is invalid immediately. Do not
+// inflate the remainder merely to discover its already-known invalidity.
+func TestUnpackRejectsTrailingContentWithoutDrainingIt(t *testing.T) {
+	source := t.TempDir()
+	makeArchiveFixture(t, source)
+	var archive bytes.Buffer
+	if err := Pack(t.Context(), source, &archive); err != nil {
+		t.Fatal(err)
+	}
+	var trailing bytes.Buffer
+	gz := gzip.NewWriter(&trailing)
+	chunk := make([]byte, 64<<10)
+	for i := range chunk {
+		chunk[i] = byte(i)
+	}
+	for range 32 {
+		if _, err := gz.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := errors.New("unpack drained beyond invalid trailing member")
+	sourceReader := io.MultiReader(bytes.NewReader(archive.Bytes()), bytes.NewReader(trailing.Bytes()), failingArchiveReader{sentinel})
+	destination := filepath.Join(t.TempDir(), "rejected")
+	err := Unpack(t.Context(), sourceReader, destination)
+	if err == nil {
+		t.Fatal("trailing gzip member accepted")
+	}
+	if errors.Is(err, sentinel) {
+		t.Fatal("invalid trailing payload was fully decompressed")
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatal("rejected extraction retained")
+	}
+}
+
+type failingArchiveReader struct{ err error }
+
+func (r failingArchiveReader) Read([]byte) (int, error) { return 0, r.err }
