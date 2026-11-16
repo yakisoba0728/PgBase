@@ -1,0 +1,6 @@
+00:00 +0: loading test/user_lifecycle_test.dart
+00:00 +0: queued refresh rejects replacement while waiting for refresh
+00:00 +1: queued refresh rejects replacement while waiting for logout
+00:00 +2: queued refreshes retain rotation lineage and logout revokes final token
+00:00 +3: refresh started after replacement can wait for obsolete work
+00:00 +4: All tests passed!

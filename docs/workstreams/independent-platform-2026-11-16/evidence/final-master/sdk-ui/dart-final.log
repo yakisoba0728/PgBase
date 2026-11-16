@@ -1,0 +1,144 @@
+00:00 +0: loading test/sdk_test.dart
+00:00 +0: test/sdk_test.dart: filter placeholder values are deterministic and never parsed twice
+00:00 +1: test/closure_test.dart: logout waits for replacement and sends it: realm=false
+00:00 +2: test/sdk_test.dart: application realtime topics preserve the raw name and payload
+00:00 +3: test/closure_test.dart: new explicit login survives pending refresh/logout: realm=false
+00:00 +4: test/sdk_test.dart: application realtime topics preserve every valid JSON payload shape
+00:00 +5: test/sdk_test.dart: application realtime topics preserve every valid JSON payload shape
+00:00 +6: test/sdk_test.dart: application realtime topics preserve every valid JSON payload shape
+00:00 +7: test/closure_test.dart: unsupported projections reject locally without token rotation and verification sends JSON
+00:00 +8: test/closure_test.dart: unsupported projections reject locally without token rotation and verification sends JSON
+00:00 +9: test/sdk_test.dart: malformed optional HTTP error fields retain stable error normalization
+00:00 +10: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +11: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +12: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +13: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +14: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +15: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +16: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +17: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +18: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +19: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +20: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +21: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +22: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +23: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +24: test/admin_lifecycle_test.dart: administrator json rejects stale 200 body
+00:00 +25: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +26: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +27: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +28: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +29: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +30: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +31: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +32: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +33: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +34: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +35: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +36: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +37: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +38: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +39: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +40: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +41: test/realtime_status_test.dart: auth changes stop shared delivery before queued old-account frames
+00:00 +42: test/sdk_test.dart: request keys cancel the prior Dart request and cancelAll cancels active keys
+00:00 +43: test/realtime_status_test.dart: auth changes before shared readiness reject the pending subscription
+00:00 +44: test/realtime_status_test.dart: auth changes before shared readiness reject the pending subscription
+00:00 +45: test/sdk_test.dart: storage clears after a delayed older token write
+00:00 +46: test/realtime_status_test.dart: reentrant transitions never deliver an older state after stopped
+00:00 +47: test/sdk_test.dart: auth store retains its record across an SSR cookie round trip
+00:00 +48: test/realtime_status_test.dart: reset from a reconnecting observer skips an already cancelled backoff
+00:00 +49: test/sdk_test.dart: OAuth launcher receives the provider URL before callback completion
+00:00 +50: test/sdk_test.dart: OAuth launcher receives the provider URL before callback completion
+00:00 +51: test/realtime_status_test.dart: repeated empty sessions exhaust the budget despite successful handshakes
+00:00 +52: test/sdk_test.dart: OAuth browser flow validates callback state and always closes its adapter
+00:00 +53: test/sdk_test.dart: OAuth browser flow validates callback state and always closes its adapter
+00:00 +54: test/realtime_status_test.dart: consumer and observer failures cannot poison delivery or reconnect
+00:00 +55: test/realtime_status_test.dart: consumer and observer failures cannot poison delivery or reconnect
+00:00 +56: test/realtime_status_test.dart: consumer and observer failures cannot poison delivery or reconnect
+00:00 +57: test/realtime_status_test.dart: consumer and observer failures cannot poison delivery or reconnect
+00:00 +58: test/sdk_test.dart: an old administrator 401 cannot clear a newer login
+00:00 +59: test/sdk_test.dart: an old administrator 401 cannot clear a newer login
+00:00 +60: test/sdk_test.dart: schema plans freeze their exact replay body and identities
+00:00 +61: test/sdk_test.dart: file upload streams a multipart part with its verified digest
+00:00 +62: test/sdk_test.dart: a stalled upload hash stops when cancellation fires
+00:00 +63: test/sdk_test.dart: SSE reconnects from an exact int64 cursor and de-duplicates event IDs
+00:00 +64: test/sdk_test.dart: terminal SSE auth and replay errors do not reconnect
+00:00 +65: test/sdk_test.dart: an SSE body network failure has the stable SDK error type
+00:00 +66: test/sdk_test.dart: realm profile returns the attributes object
+00:00 +67: test/sdk_test.dart: auth generation aborts an open SSE subscription
+00:01 +68: test/client_correctness_test.dart: malformed JSON strings and UTF-8 use the stable protocol error
+00:01 +69: test/signup_profile_test.dart: default and realm registration carry exact profile values independently from projection
+00:01 +70: test/signup_profile_test.dart: default and realm registration carry exact profile values independently from projection
+00:01 +71: test/signup_profile_test.dart: default and realm registration carry exact profile values independently from projection
+00:01 +72: test/client_correctness_test.dart: record reads cancel duplicates through body consumption, including query
+00:01 +73: test/signup_profile_test.dart: OAuth helpers send profile only on completion and preserve validation failures
+00:01 +74: test/signup_profile_test.dart: OAuth helpers send profile only on completion and preserve validation failures
+00:01 +75: test/signup_profile_test.dart: OAuth helpers send profile only on completion and preserve validation failures
+00:01 +76: test/signup_profile_test.dart: OAuth helpers send profile only on completion and preserve validation failures
+00:01 +77: test/realtime_protocol_test.dart: a pre-cancelled native record stream makes no request
+00:01 +78: test/realtime_protocol_test.dart: native record streams exhaust reconnects after clean EOF
+00:01 +79: test/realtime_protocol_test.dart: PB_ERROR preserves terminal cursor failure codes before readiness
+00:01 +80: test/realtime_protocol_test.dart: PB_ERROR after readiness ends retries, preserving repeated numeric checkpoint events
+00:01 +81: test/realtime_lifecycle_test.dart: a draining subscription cannot adopt another identity
+00:01 +82: test/realtime_lifecycle_test.dart: an old disposer cannot stop a replacement session listener
+00:01 +83: test/realtime_lifecycle_test.dart: an old collection listener error cannot enter a replacement session status
+00:01 +84: test/realtime_lifecycle_test.dart: an old application listener error cannot enter a replacement session status
+00:01 +85: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +86: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +87: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +88: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +89: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +90: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +91: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +92: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +93: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +94: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +95: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +96: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +97: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +98: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +99: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +100: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +101: test/native_policy_roundtrip_test.dart: schema roundtrip preserves native policy binding independently of source
+00:02 +102: test/auth_persistence_test.dart: opt-in state storage restores the token and record together
+00:02 +103: test/auth_persistence_test.dart: opt-in state storage restores the token and record together
+00:02 +104: test/auth_persistence_test.dart: opt-in state storage restores the token and record together
+00:02 +105: test/auth_adoption_test.dart: OAuth rejects replacement during persistence (failure=true)
+00:02 +106: test/auth_adoption_test.dart: refresh rejects replacement during persistence (failure=false)
+00:02 +107: test/auth_adoption_test.dart: refresh rejects replacement during persistence (failure=true)
+00:02 +108: test/auth_adoption_test.dart: public login retains current self-adopted persistence errors
+00:02 +109: test/auth_adoption_test.dart: refresh retains current self-adopted persistence errors
+00:02 +110: test/auth_cookie_empty_test.dart: missing cookies preserve state; empty credentials clear identity
+00:02 +111: test/auth_cookie_test.dart: native cookie namespace and defaults round-trip opaque credentials
+00:02 +112: test/auth_cookie_test.dart: legacy namespace requires an explicit key
+00:02 +113: test/auth_cookie_test.dart: control characters and attribute injection are rejected
+00:02 +114: test/user_lifecycle_test.dart: queued refresh rejects replacement while waiting for refresh
+00:02 +115: test/user_lifecycle_test.dart: queued refresh rejects replacement while waiting for refresh
+00:02 +116: test/user_lifecycle_test.dart: queued refresh rejects replacement while waiting for refresh
+00:02 +117: test/user_lifecycle_test.dart: queued refresh rejects replacement while waiting for logout
+00:02 +118: test/user_lifecycle_test.dart: queued refreshes retain rotation lineage and logout revokes final token
+00:02 +119: test/user_lifecycle_test.dart: refresh started after replacement can wait for obsolete work
+00:02 +120: test/user_lifecycle_test.dart: record iteration rejects buffered records after replacement
+00:02 +121: test/user_lifecycle_test.dart: record iteration rejects buffered records after logout
+00:02 +122: test/user_lifecycle_test.dart: record iteration rejects next page after replacement
+00:02 +123: test/user_lifecycle_test.dart: record iteration rejects next page after logout
+00:02 +124: test/user_lifecycle_test.dart: user json rejects an old success body after shared auth changes
+00:02 +125: test/user_lifecycle_test.dart: user json rejects an old HTTP error body after shared auth changes
+00:02 +126: test/user_lifecycle_test.dart: user json rejects an old transport error body after shared auth changes
+00:02 +127: test/user_lifecycle_test.dart: user record rejects an old success body after shared auth changes
+00:02 +128: test/user_lifecycle_test.dart: user record rejects an old HTTP error body after shared auth changes
+00:02 +129: test/user_lifecycle_test.dart: user record rejects an old transport error body after shared auth changes
+00:02 +130: test/user_lifecycle_test.dart: user multipart rejects an old success body after shared auth changes
+00:02 +131: test/user_lifecycle_test.dart: user multipart rejects an old HTTP error body after shared auth changes
+00:02 +132: test/user_lifecycle_test.dart: user multipart rejects an old transport error body after shared auth changes
+00:02 +133: test/user_lifecycle_test.dart: user upload rejects an old success body after shared auth changes
+00:02 +134: test/user_lifecycle_test.dart: user upload rejects an old HTTP error body after shared auth changes
+00:02 +135: test/user_lifecycle_test.dart: user upload rejects an old transport error body after shared auth changes
+00:02 +136: test/user_lifecycle_test.dart: user download rejects an old success body after shared auth changes
+00:02 +137: test/user_lifecycle_test.dart: user download rejects an old HTTP error body after shared auth changes
+00:02 +138: test/user_lifecycle_test.dart: user download rejects an old transport error body after shared auth changes
+00:02 +139: test/user_lifecycle_test.dart: file preparation cannot submit under a replacement user token
+00:02 +140: test/user_lifecycle_test.dart: stale login cannot return its obsolete session: realm=false
+00:02 +141: test/user_lifecycle_test.dart: stale login cannot return its obsolete session: realm=true
+00:02 +142: All tests passed!
