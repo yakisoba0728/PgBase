@@ -46,6 +46,8 @@ Recover selectively, freshly test and independently review. Existing raw evidenc
 
 ### Publication, persistence and next actions
 
+First integration batch recovers the aligned PostgreSQL observer and separate generator/worker/pool/host diagnostics from A (`c298a9f4`, `17203060`). B independently reviewed tree `e711982abeeb767bfcb88e1b321984e3e24142db`: all arrival, pool, zero-loss/error, latency and durable-count criteria remain unchanged. Its 100-arrival smoke **failed** p99 under concurrent compilation; it is preserved and is not a qualification. The 600-second instrumented local baseline is running while team builds pause. Hosted diagnosis will run against the original runtime plus instrumentation before the recovered runtime fixes are integrated.
+
 HTTPS Git reads work; nonmutating push/CLI probes found no shell write credential. Publish through the connected GitHub Git-data API, preserve logical commits, compare resulting trees with local trees, record local/published SHA mappings, and update only the work branch with exact expected HEAD and `force=false`. Do not request or borrow real credentials.
 
 No chat-independent autonomous coding runner was verified. GitHub Actions supports hosted validation after publication, independently of this chat; this does not imply that child implementation continues after the conversation ends.
