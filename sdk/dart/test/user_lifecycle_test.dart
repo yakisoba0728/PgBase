@@ -13,6 +13,130 @@ final _sessionChanged = throwsA(
 );
 
 void main() {
+  for (final waitingFor in ['refresh', 'logout']) {
+    test(
+      'queued refresh rejects replacement while waiting for $waitingFor',
+      () async {
+        final started = Completer<void>();
+        final response = Completer<http.Response>();
+        final calls = <String?>[];
+        final client = PgBaseClient(
+          Uri.parse('http://pgbase.test'),
+          auth: AuthStore(initialToken: 'old-user'),
+          httpClient: MockClient((request) async {
+            calls.add(request.headers['authorization']);
+            if (calls.length == 1) {
+              started.complete();
+              return response.future;
+            }
+            return refreshedSession('unexpected-new-user-rotation');
+          }),
+        );
+        final first = waitingFor == 'refresh'
+            ? client.realm('members').refresh()
+            : client.logout();
+        final firstRejected = expectLater(first, _sessionChanged);
+        final queuedRejected = expectLater(
+          client.realm('members').refresh(),
+          _sessionChanged,
+        );
+        await started.future;
+        await client.auth.save('new-user');
+        response.complete(
+          waitingFor == 'refresh'
+              ? refreshedSession('old-rotation')
+              : http.Response('', 204),
+        );
+        await Future.wait([firstRejected, queuedRejected]);
+        expect(calls, ['Bearer old-user']);
+        expect(client.auth.token, 'new-user');
+        client.close();
+        await client.auth.close();
+      },
+    );
+  }
+
+  test(
+    'queued refreshes retain rotation lineage and logout revokes final token',
+    () async {
+      final started = Completer<void>();
+      final response = Completer<http.Response>();
+      final calls = <String?>[];
+      final client = PgBaseClient(
+        Uri.parse('http://pgbase.test'),
+        auth: AuthStore(initialToken: 'old-user'),
+        httpClient: MockClient((request) async {
+          calls.add(request.headers['authorization']);
+          if (calls.length == 1) {
+            started.complete();
+            return response.future;
+          }
+          return request.url.path.endsWith('/refresh')
+              ? refreshedSession('rotation-${calls.length}')
+              : http.Response('', 204);
+        }),
+      );
+      final refreshes = List.generate(
+        3,
+        (_) => client.realm('members').refresh(),
+      );
+      final logout = client.logout();
+      await started.future;
+      response.complete(refreshedSession('rotation-1'));
+      final sessions = await Future.wait(refreshes);
+      await logout;
+      expect(sessions.map((session) => session.token), [
+        'rotation-1',
+        'rotation-2',
+        'rotation-3',
+      ]);
+      expect(calls, [
+        'Bearer old-user',
+        'Bearer rotation-1',
+        'Bearer rotation-2',
+        'Bearer rotation-3',
+      ]);
+      expect(client.auth.token, isNull);
+      client.close();
+      await client.auth.close();
+    },
+  );
+
+  test(
+    'refresh started after replacement can wait for obsolete work',
+    () async {
+      final started = Completer<void>();
+      final response = Completer<http.Response>();
+      final calls = <String?>[];
+      final client = PgBaseClient(
+        Uri.parse('http://pgbase.test'),
+        auth: AuthStore(initialToken: 'old-user'),
+        httpClient: MockClient((request) async {
+          calls.add(request.headers['authorization']);
+          if (calls.length == 1) {
+            started.complete();
+            return response.future;
+          }
+          return refreshedSession('new-user-rotation');
+        }),
+      );
+      final rejected = expectLater(
+        client.realm('members').refresh(),
+        _sessionChanged,
+      );
+      await started.future;
+      await client.auth.save('new-user');
+      final current = client.realm('members').refresh();
+      response.complete(refreshedSession('old-rotation'));
+      await rejected;
+      expect((await current).token, 'new-user-rotation');
+      expect(calls, ['Bearer old-user', 'Bearer new-user']);
+      expect(client.auth.token, 'new-user-rotation');
+      client.close();
+      await client.auth.close();
+    },
+  );
+
   for (final boundary in ['buffered records', 'next page']) {
     for (final transition in ['replacement', 'logout']) {
       test('record iteration rejects $boundary after $transition', () async {
@@ -213,6 +337,15 @@ void main() {
     );
   }
 }
+
+http.Response refreshedSession(String token) => http.Response(
+  jsonEncode({
+    'token': token,
+    'expiresAt': 'later',
+    'user': {'id': 'one', 'email': 'a@example.test', 'createdAt': 'then'},
+  }),
+  200,
+);
 
 final class DelayedUserClient extends http.BaseClient {
   DelayedUserClient(this.status) {

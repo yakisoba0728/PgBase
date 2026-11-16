@@ -62,11 +62,18 @@ export class PgBaseClient {
 
   /** Internal session rotation/logout ordering shared by public and realm auth. */
   _refresh(path: string, signal?: AbortSignal): Promise<UserSession> {
+    const queuedGeneration = this.auth.generation;
+    const queuedOrigin = this.refreshGeneration === queuedGeneration ? this.refreshOrigin : queuedGeneration;
     const previous = this.pendingRefresh;
     const logout = this.pendingLogout;
     const operation = (async () => {
       if (logout) await logout.catch(() => {});
       if (previous) await previous.catch(() => {});
+      // Earlier queued rotations may replace our token, but an explicit login
+      // or logout must not let old work act on another session.
+      if (queuedGeneration !== this.auth.generation && (this.refreshGeneration !== this.auth.generation || this.refreshOrigin !== queuedOrigin)) {
+        throw new PgBaseError(403, "session_changed");
+      }
       if (!this.auth.token) throw new PgBaseError(0, "authentication_required");
       const generation = this.auth.generation;
       const session = refreshSession(await this._request<unknown>(path, { method: "POST" }, signal));

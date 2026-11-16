@@ -184,6 +184,10 @@ final class PgBaseClient {
       _logout('/api/v1/auth/logout', cancellation);
 
   Future<UserSession> _refresh(String path, CancellationToken? cancellation) {
+    final queuedGeneration = auth.generation;
+    final queuedOrigin = _refreshGeneration == queuedGeneration
+        ? _refreshOrigin
+        : queuedGeneration;
     final previous = _pendingRefresh;
     final logout = _pendingLogout;
     final operation = () async {
@@ -196,6 +200,13 @@ final class PgBaseClient {
         try {
           await previous;
         } catch (_) {}
+      }
+      // Queued rotations may replace this session's token, but explicit auth
+      // changes must not let old work act on the replacement session.
+      if (queuedGeneration != auth.generation &&
+          (_refreshGeneration != auth.generation ||
+              _refreshOrigin != queuedOrigin)) {
+        throw const PgBaseError(403, 'session_changed');
       }
       if (auth.token == null)
         throw const PgBaseProtocolError('authentication_required');

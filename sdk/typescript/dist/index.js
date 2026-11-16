@@ -51,6 +51,8 @@ export class PgBaseClient {
     logout(signal) { return this._logout("/api/v1/auth/logout", signal); }
     /** Internal session rotation/logout ordering shared by public and realm auth. */
     _refresh(path, signal) {
+        const queuedGeneration = this.auth.generation;
+        const queuedOrigin = this.refreshGeneration === queuedGeneration ? this.refreshOrigin : queuedGeneration;
         const previous = this.pendingRefresh;
         const logout = this.pendingLogout;
         const operation = (async () => {
@@ -58,6 +60,11 @@ export class PgBaseClient {
                 await logout.catch(() => { });
             if (previous)
                 await previous.catch(() => { });
+            // Earlier queued rotations may replace our token, but an explicit login
+            // or logout must not let old work act on another session.
+            if (queuedGeneration !== this.auth.generation && (this.refreshGeneration !== this.auth.generation || this.refreshOrigin !== queuedOrigin)) {
+                throw new PgBaseError(403, "session_changed");
+            }
             if (!this.auth.token)
                 throw new PgBaseError(0, "authentication_required");
             const generation = this.auth.generation;

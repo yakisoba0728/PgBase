@@ -4,6 +4,69 @@ import { AuthStore, PgBaseClient, PgBaseError } from "../dist/index.js";
 
 const changed = (error) => error instanceof PgBaseError && error.status === 403 && error.code === "session_changed";
 
+const refreshedSession = (token) => ({ token, expiresAt: "later", user: { id: "one", email: "a@example.test", createdAt: "then" } });
+
+for (const waitingFor of ["refresh", "logout"]) {
+  test(`queued refresh cannot rotate a replacement session while waiting for ${waitingFor}`, async () => {
+    let release;
+    const calls = [];
+    const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, init) => {
+      calls.push(new Headers(init.headers).get("authorization"));
+      if (calls.length === 1) return new Promise((resolve) => { release = resolve; });
+      return Response.json(refreshedSession("unexpected-new-user-rotation"));
+    } });
+    client.auth.save("old-user");
+    const first = waitingFor === "refresh" ? client.realm("members").refresh() : client.logout();
+    const firstRejected = assert.rejects(first, changed);
+    const queuedRejected = assert.rejects(client.realm("members").refresh(), changed);
+    client.auth.save("new-user");
+    release(waitingFor === "refresh" ? Response.json(refreshedSession("old-rotation")) : new Response(null, { status: 204 }));
+    await Promise.all([firstRejected, queuedRejected]);
+    assert.deepEqual(calls, ["Bearer old-user"], "queued old-session work must never send a replacement token");
+    assert.equal(client.auth.token, "new-user");
+  });
+}
+
+test("queued refreshes retain their own rotation lineage and logout revokes the final token", async () => {
+  let release;
+  const calls = [];
+  const client = new PgBaseClient("http://pgbase.test", { fetch: async (url, init) => {
+    calls.push(new Headers(init.headers).get("authorization"));
+    if (calls.length === 1) return new Promise((resolve) => { release = resolve; });
+    return String(url).endsWith("/refresh")
+      ? Response.json(refreshedSession(`rotation-${calls.length}`))
+      : new Response(null, { status: 204 });
+  } });
+  client.auth.save("old-user");
+  const refreshes = Array.from({ length: 3 }, () => client.realm("members").refresh());
+  const logout = client.logout();
+  release(Response.json(refreshedSession("rotation-1")));
+  const sessions = await Promise.all(refreshes);
+  await logout;
+  assert.deepEqual(sessions.map((session) => session.token), ["rotation-1", "rotation-2", "rotation-3"]);
+  assert.deepEqual(calls, ["Bearer old-user", "Bearer rotation-1", "Bearer rotation-2", "Bearer rotation-3"]);
+  assert.equal(client.auth.token, null);
+});
+
+test("a refresh explicitly started after replacement can wait for obsolete work", async () => {
+  let release;
+  const calls = [];
+  const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, init) => {
+    calls.push(new Headers(init.headers).get("authorization"));
+    if (calls.length === 1) return new Promise((resolve) => { release = resolve; });
+    return Response.json(refreshedSession("new-user-rotation"));
+  } });
+  client.auth.save("old-user");
+  const rejected = assert.rejects(client.realm("members").refresh(), changed);
+  client.auth.save("new-user");
+  const current = client.realm("members").refresh();
+  release(Response.json(refreshedSession("old-rotation")));
+  await rejected;
+  assert.equal((await current).token, "new-user-rotation");
+  assert.deepEqual(calls, ["Bearer old-user", "Bearer new-user"]);
+  assert.equal(client.auth.token, "new-user-rotation");
+});
+
 for (const boundary of ["buffered records", "next page"]) {
   for (const transition of ["replacement", "logout"]) {
     test(`record iteration rejects ${boundary} after ${transition}`, async () => {
