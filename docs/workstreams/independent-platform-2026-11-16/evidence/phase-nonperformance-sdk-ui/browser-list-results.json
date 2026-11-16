@@ -1,0 +1,91 @@
+[
+  {
+    "name": "browser-default-list",
+    "command": [
+      "./node_modules/.bin/playwright",
+      "test",
+      "--list"
+    ],
+    "environment": {
+      "PGBASE_ONBOARDING_BROWSER_BASE_URL": "http://127.0.0.1:18090",
+      "PGBASE_AUTHENTICATED_BROWSER_BASE_URL": "http://127.0.0.1:18091",
+      "PGBASE_MANAGED_BACKUP_BROWSER_BASE_URL": "http://127.0.0.1:18092"
+    },
+    "exit": 0,
+    "expected_exit": 0,
+    "raw_sha256": "f0e8fa3eef33f3e896c882c45bcfb203886413e733a34aa40d409b15d54b842b",
+    "stored_sha256": "66b308fb4cd561301c4553ce62657a853caf8d86ad3f2e17f74df4616d9edb3d"
+  },
+  {
+    "name": "browser-smoke-list",
+    "command": [
+      "./node_modules/.bin/playwright",
+      "test",
+      "--list",
+      "--project=*-smoke-*"
+    ],
+    "environment": {
+      "PGBASE_ONBOARDING_BROWSER_BASE_URL": "http://127.0.0.1:18090",
+      "PGBASE_AUTHENTICATED_BROWSER_BASE_URL": "http://127.0.0.1:18091",
+      "PGBASE_MANAGED_BACKUP_BROWSER_BASE_URL": "http://127.0.0.1:18092",
+      "PGBASE_BROWSER_SMOKE_ENGINES": "firefox,webkit"
+    },
+    "exit": 0,
+    "expected_exit": 0,
+    "raw_sha256": "4e9d1f536795452db240131b3963627cb100737d32b331e0e2553cbb1c4a6a39",
+    "stored_sha256": "d73187e9c21da6480439511ad89b0d3cfd949275b77c1c77c65d5227be23dad0"
+  },
+  {
+    "name": "browser-invalid-engine",
+    "command": [
+      "./node_modules/.bin/playwright",
+      "test",
+      "--list"
+    ],
+    "environment": {
+      "PGBASE_ONBOARDING_BROWSER_BASE_URL": "http://127.0.0.1:18090",
+      "PGBASE_AUTHENTICATED_BROWSER_BASE_URL": "http://127.0.0.1:18091",
+      "PGBASE_MANAGED_BACKUP_BROWSER_BASE_URL": "http://127.0.0.1:18092",
+      "PGBASE_BROWSER_SMOKE_ENGINES": "unknown"
+    },
+    "exit": 1,
+    "expected_exit": 1,
+    "raw_sha256": "3eca1234b9866a00e2d95a599a4e97baececf27539b9d36e67f5757de0650968",
+    "stored_sha256": "29cddbd41a9f728000e53aa221c6b7e73cd826defa1bb3d615898e51cd6bd115"
+  },
+  {
+    "name": "browser-duplicate-engine",
+    "command": [
+      "./node_modules/.bin/playwright",
+      "test",
+      "--list"
+    ],
+    "environment": {
+      "PGBASE_ONBOARDING_BROWSER_BASE_URL": "http://127.0.0.1:18090",
+      "PGBASE_AUTHENTICATED_BROWSER_BASE_URL": "http://127.0.0.1:18091",
+      "PGBASE_MANAGED_BACKUP_BROWSER_BASE_URL": "http://127.0.0.1:18092",
+      "PGBASE_BROWSER_SMOKE_ENGINES": "firefox,firefox"
+    },
+    "exit": 1,
+    "expected_exit": 1,
+    "raw_sha256": "60f1d157a33c82f651d0b90322720a14d2262244469ef19b21a5c60da60748b9",
+    "stored_sha256": "da9ed974d8bfe4196c26fb3d7aa78c4f2c574db5f3bdda66916240878a86715a"
+  },
+  {
+    "name": "browser-missing-fixture",
+    "command": [
+      "./node_modules/.bin/playwright",
+      "test",
+      "--list"
+    ],
+    "environment": {
+      "PGBASE_ONBOARDING_BROWSER_BASE_URL": "http://127.0.0.1:18090",
+      "PGBASE_AUTHENTICATED_BROWSER_BASE_URL": "http://127.0.0.1:18091",
+      "PGBASE_BROWSER_SMOKE_ENGINES": "firefox"
+    },
+    "exit": 1,
+    "expected_exit": 1,
+    "raw_sha256": "530cfb131214f5603b177027d8765133f77d44a016dd984659df6f6a0d0237ba",
+    "stored_sha256": "590f946d3fcac1934107871764c7cdfc7c31dd48a58aeceec0acc0422669d9ae"
+  }
+]
