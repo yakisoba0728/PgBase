@@ -96,3 +96,47 @@ func TestScheduleCannotReplaceAnActiveClaim(t *testing.T) {
 		t.Fatalf("Schedule during claim = %v, want ErrNotManageable", err)
 	}
 }
+
+func TestExpiredCompletionWithoutManagementCannotRenewItsAuthority(t *testing.T) {
+	ctx := t.Context()
+	pool := jobsTestPool(t)
+	for _, outcome := range []struct {
+		name string
+		err  error
+	}{{"success", nil}, {"failure", errors.New("expired handler failure")}} {
+		t.Run(outcome.name, func(t *testing.T) {
+			registry := NewRegistry()
+			if err := registry.Register(outcome.name, func(context.Context, Job) error { return nil }); err != nil {
+				t.Fatal(err)
+			}
+			insertJob(t, pool, outcome.name, "@every 1h")
+			service := NewService(pool, registry, nil)
+			claims, err := service.claim(ctx)
+			if err != nil || len(claims) != 1 {
+				t.Fatalf("claim = %v, %v", claims, err)
+			}
+			if _, err := pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1`, claims[0].ID); err != nil {
+				t.Fatal(err)
+			}
+			read := func() []byte {
+				t.Helper()
+				var state []byte
+				if err := pool.QueryRow(ctx, `SELECT to_jsonb(j) FROM pgbase_meta.scheduled_jobs j WHERE id=$1`, claims[0].ID).Scan(&state); err != nil {
+					t.Fatal(err)
+				}
+				return state
+			}
+			before := read()
+			if err := service.complete(ctx, claims[0], outcome.err); err != nil {
+				t.Fatal(err)
+			}
+			if after := read(); !bytes.Equal(before, after) {
+				t.Fatalf("expired completion mutated the unclaimed occurrence:\nbefore: %s\nafter: %s", before, after)
+			}
+			retry, err := service.claim(ctx)
+			if err != nil || len(retry) != 1 || !retry[0].ScheduledAt.Equal(claims[0].ScheduledAt) || retry[0].FenceGeneration <= claims[0].FenceGeneration {
+				t.Fatalf("reclaimed occurrence = %v, %v; original = %v", retry, err, claims)
+			}
+		})
+	}
+}
