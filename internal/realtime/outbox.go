@@ -11,7 +11,11 @@ import (
 
 var errLeaseLost = errors.New("outbox lease lost")
 
-const deliveryLock int64 = 704712092
+const (
+	deliveryLock         int64 = 704712092
+	retentionBatchSize         = 1000
+	retentionPassTimeout       = time.Second
+)
 
 type claim struct{ id, token uuid.UUID }
 
@@ -22,20 +26,38 @@ func (s *Service) Run(ctx context.Context) error {
 	defer ticker.Stop()
 	maintenance := time.NewTicker(time.Minute)
 	defer maintenance.Stop()
+	prunePending := true
 	for {
-		if err := s.Deliver(ctx); err != nil && ctx.Err() == nil {
-			s.logger.WarnContext(ctx, "outbox delivery deferred")
-		}
+		prunePending = s.runPass(ctx, prunePending)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
 		case <-maintenance.C:
-			if err := s.Prune(ctx, 24*time.Hour); err != nil && ctx.Err() == nil {
-				s.logger.WarnContext(ctx, "realtime retention deferred")
-			}
+			prunePending = true
 		}
 	}
+}
+
+// A backlog gets one bounded cleanup transaction per delivery poll. This keeps
+// delivery moving during catch-up without limiting retention to one batch per
+// minute or creating an unbounded maintenance loop. Errors wait for the next
+// maintenance tick; a full batch continues on the next ordinary poll.
+func (s *Service) runPass(ctx context.Context, prunePending bool) bool {
+	if err := s.Deliver(ctx); err != nil && ctx.Err() == nil {
+		s.logger.WarnContext(ctx, "outbox delivery deferred")
+	}
+	if !prunePending || ctx.Err() != nil {
+		return false
+	}
+	deleted, err := s.pruneBatch(ctx, 24*time.Hour)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.logger.WarnContext(ctx, "realtime retention deferred")
+		}
+		return false
+	}
+	return deleted == retentionBatchSize
 }
 
 func (s *Service) Deliver(ctx context.Context) error {
@@ -124,18 +146,37 @@ func (s *Service) publish(ctx context.Context, item claim) error {
 
 // Prune removes a bounded committed prefix older than the retention window.
 func (s *Service) Prune(ctx context.Context, retention time.Duration) error {
+	_, err := s.pruneBatch(ctx, retention)
+	return err
+}
+
+func (s *Service) pruneBatch(ctx context.Context, retention time.Duration) (int64, error) {
 	if retention < time.Hour {
-		return ErrCursorInvalid
+		return 0, ErrCursorInvalid
 	}
-	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	ctx, cancel := context.WithTimeout(ctx, retentionPassTimeout)
+	defer cancel()
+	var count int64
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, deliveryLock); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `WITH doomed AS (
-   SELECT sequence FROM pgbase_meta.realtime_events WHERE delivered_at<clock_timestamp()-make_interval(secs=>$1)
-   ORDER BY sequence LIMIT 1000
-  ), deleted AS (DELETE FROM pgbase_meta.realtime_events WHERE sequence IN (SELECT sequence FROM doomed) RETURNING sequence)
-  UPDATE pgbase_meta.realtime_retention SET floor_sequence=GREATEST(floor_sequence,COALESCE((SELECT max(sequence) FROM deleted),0)) WHERE singleton`, retention.Seconds())
-		return err
+		// Inspect only the leading bounded sequence window, even when every
+		// retained event is fresh. A clock correction can make timestamps
+		// non-monotonic; stop at the first unexpired sequence so the global
+		// replay floor never crosses a retained event.
+		return tx.QueryRow(ctx, `WITH candidates AS MATERIALIZED (
+   SELECT sequence,delivered_at>=statement_timestamp()-make_interval(secs=>$1) AS keep
+   FROM pgbase_meta.realtime_events ORDER BY sequence LIMIT $2
+  ), boundary AS (SELECT min(sequence) FILTER (WHERE keep) AS first_retained FROM candidates),
+  deleted AS (
+   DELETE FROM pgbase_meta.realtime_events events USING candidates,boundary
+   WHERE events.sequence=candidates.sequence AND NOT candidates.keep
+   AND (boundary.first_retained IS NULL OR candidates.sequence<boundary.first_retained)
+   RETURNING events.sequence
+  ) UPDATE pgbase_meta.realtime_retention
+  SET floor_sequence=GREATEST(floor_sequence,COALESCE((SELECT max(sequence) FROM deleted),0))
+  WHERE singleton RETURNING (SELECT count(*) FROM deleted)`, retention.Seconds(), retentionBatchSize).Scan(&count)
 	})
+	return count, err
 }
