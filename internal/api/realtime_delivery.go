@@ -224,7 +224,7 @@ func (h *realtimeHub) realtimeMessageRecord(r *http.Request, principal identity.
 		record[key] = value
 	}
 	if sub.expand != "" && event.Operation != "delete" && h.dependencies.Records != nil {
-		current, err := h.dependencies.Records.Get(r.Context(), recordops.GetRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, PublicID: event.PublicID, Expand: sub.expand, Fields: sub.fields})
+		current, err := h.dependencies.Records.Get(r.Context(), recordops.GetRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, PublicID: event.PublicID, Expand: sub.expand, Fields: sub.fields, RuleContext: ruleRequestContext(r)})
 		if err == nil {
 			if expanded, ok := current.Data["expand"]; ok {
 				record["expand"] = expanded
