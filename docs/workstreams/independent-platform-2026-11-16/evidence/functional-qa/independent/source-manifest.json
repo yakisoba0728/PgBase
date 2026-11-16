@@ -1,0 +1,62 @@
+{
+  "tested_local_commit": "ecff2d1ff1ddca96211832908b1cfb6c40faf8e3",
+  "tested_local_tree": "fd5f4c233f621e35badd9a5e401f5e090ddf310b",
+  "base_commit": "55f539895f85ca3b7d8731ab8f4c3b8999ab92bb",
+  "non_document_changed_files": [
+    {
+      "path": "internal/jobs/management.go",
+      "sha256": "3b80027cf1a04b268d9eb01237d5eb56bae8a9055a5145b3222d020725adc417"
+    },
+    {
+      "path": "internal/jobs/management_occurrence_integration_test.go",
+      "sha256": "3a8291757a8c760626519737300539e87cf72afbb37c4c9df905b236fe8478f2"
+    },
+    {
+      "path": "internal/jobs/service.go",
+      "sha256": "ef80f32e7e4e2c223089412ca5d992b792137801f8d1f8d257ab869fc57d8a9a"
+    },
+    {
+      "path": "internal/recordaccess/rule_compile.go",
+      "sha256": "0db03aaf9eb571abb50dad73f98c628ceaedb5fbfb713f109c1a60e213743351"
+    },
+    {
+      "path": "internal/recordops/missing_transport_context_integration_test.go",
+      "sha256": "d25fc78d46397a3cd50588196ba6484b68be96f26979a13bacd113675f58da26"
+    },
+    {
+      "path": "pgbase/sdk_iterator_conformance_integration_test.go",
+      "sha256": "78bff135100bf3a57317e41fdac23cca4a241ed7966dd9e2c23fe56a77e97916"
+    },
+    {
+      "path": "sdk/dart/lib/src/records.dart",
+      "sha256": "6edb03b7fb0ad334366bbb1af029499457ffd7708eda4ce5b2c044d60cf9c6aa"
+    },
+    {
+      "path": "sdk/dart/test/user_lifecycle_test.dart",
+      "sha256": "3c7fd6eee044bc69968a12327e3a048d1433c3709a2db33fa53ab1e4bff80ef8"
+    },
+    {
+      "path": "sdk/dart/tool/iterator_http_conformance.dart",
+      "sha256": "737103027e927891c75f2126222ff7a3dc25066753c4d8b728cd32f691296912"
+    },
+    {
+      "path": "sdk/typescript/dist/index.js",
+      "sha256": "2ebd6c1f447e2a583ed14e6581e85ee0af500e2a7f39c45548b29550acd587d1"
+    },
+    {
+      "path": "sdk/typescript/src/index.ts",
+      "sha256": "d1ab51a4b7fe5bc5563534172b63dadf17f9abb800c146b0fa48579d35d3b118"
+    },
+    {
+      "path": "sdk/typescript/test/iterator-http-conformance.mjs",
+      "sha256": "f4856c0c9b6672839da2e4291a9546501ac1fa4c092d4e322ad1a9ae063cc497"
+    },
+    {
+      "path": "sdk/typescript/test/user-lifecycle.test.mjs",
+      "sha256": "cb4e6a177daeb2e4f109a9e0c9420fea67c24c206fcb060fbe143c8229bf5bfc"
+    }
+  ],
+  "workflow_paths_changed": [],
+  "ui_paths_changed": [],
+  "schema_paths_changed": []
+}
