@@ -179,6 +179,7 @@ func TestOpenLoopHTTPQualification(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	diagnostics := newOpenLoopDiagnostics(t, fixture)
 	type observation struct {
 		queue, service, total time.Duration
 		status                int
@@ -190,6 +191,7 @@ func TestOpenLoopHTTPQualification(t *testing.T) {
 	defer cancel()
 	var workers sync.WaitGroup
 	start := time.Now().Add(50 * time.Millisecond)
+	diagnostics.start(t, ctx, start)
 	interval := time.Second / time.Duration(rate)
 	for range 32 {
 		workers.Add(1)
@@ -256,6 +258,8 @@ schedule:
 	runtime.ReadMemStats(&after)
 	metrics.Read(cpu)
 	poolAfter := fixture.app.pool.Stats()
+	t.Logf("model=open-loop load_start_unix_ns=%d db_diagnostics=%t", start.UnixNano(), diagnostics != nil)
+	diagnostics.stop(t, elapsed)
 	latencies, services, waits := make([]time.Duration, 0, count), make([]time.Duration, 0, count), make([]time.Duration, 0, count)
 	failed, completed, attempted := 0, 0, 0
 	for i, result := range observations {
