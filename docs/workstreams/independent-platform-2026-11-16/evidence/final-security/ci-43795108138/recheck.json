@@ -1,0 +1,3683 @@
+{
+  "workflow_run": 43795108138,
+  "source_head": "9934a687f7f9ee093f45562d2f801dad2dbf5c65",
+  "analyzed_merge_commit": "69fa5e7707cdad8799ef82999b58a92772c75bca",
+  "local_equivalent_commit": "1e5e3d39cb890ed448fb4ef076a14822f0eb6122",
+  "verified_source_trees": {
+    "9934a687f7f9ee093f45562d2f801dad2dbf5c65": "0e4d7a35239bab166fabdb881f9ec3f5e12b01e7",
+    "69fa5e7707cdad8799ef82999b58a92772c75bca": "0e4d7a35239bab166fabdb881f9ec3f5e12b01e7",
+    "1e5e3d39cb890ed448fb4ef076a14822f0eb6122": "0e4d7a35239bab166fabdb881f9ec3f5e12b01e7"
+  },
+  "artifacts": [
+    {
+      "id": 14194490161,
+      "name": "runtime-assets-69fa5e7707cdad8799ef82999b58a92772c75bca",
+      "size": 206513,
+      "sha256": "7d82860c9dc17f96f496d4b02d254022d18c374b5bb90b1946af7bcce5086290",
+      "api_digest_matches": true,
+      "created_at": "2026-11-16T02:58:03Z",
+      "expires_at": "2026-11-30T02:58:02Z",
+      "workflow_run": {
+        "id": 43795108138,
+        "repository_id": 1348242873,
+        "head_repository_id": 1348242873,
+        "head_branch": "refactor/independent-platform-20261116",
+        "head_sha": "9934a687f7f9ee093f45562d2f801dad2dbf5c65"
+      },
+      "archive_download_url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14194490161/zip",
+      "retained_path": "../../final-qualification/attempt-1/runtime-assets-69fa5e7707cdad8799ef82999b58a92772c75bca.zip"
+    },
+    {
+      "id": 14194490151,
+      "name": "pgbase-sbom",
+      "size": 115347,
+      "sha256": "6e92c500de47685a09eb12d31e1d31619808632471ac010b497f3407ae6b994d",
+      "api_digest_matches": true,
+      "created_at": "2026-11-16T02:58:00Z",
+      "expires_at": "2027-02-14T02:56:07Z",
+      "workflow_run": {
+        "id": 43795108138,
+        "repository_id": 1348242873,
+        "head_repository_id": 1348242873,
+        "head_branch": "refactor/independent-platform-20261116",
+        "head_sha": "9934a687f7f9ee093f45562d2f801dad2dbf5c65"
+      },
+      "archive_download_url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14194490151/zip",
+      "retained_path": "../../final-qualification/attempt-1/pgbase-sbom.zip"
+    },
+    {
+      "id": 14194047017,
+      "name": "source-security-go-69fa5e7707cdad8799ef82999b58a92772c75bca",
+      "size": 91735,
+      "sha256": "166fbaa1de725a31755feadccddad131478c038d835cb21062ab6f2811c33fc6",
+      "api_digest_matches": true,
+      "created_at": "2026-11-16T02:58:28Z",
+      "expires_at": "2026-11-30T02:58:28Z",
+      "workflow_run": {
+        "id": 43795108138,
+        "repository_id": 1348242873,
+        "head_repository_id": 1348242873,
+        "head_branch": "refactor/independent-platform-20261116",
+        "head_sha": "9934a687f7f9ee093f45562d2f801dad2dbf5c65"
+      },
+      "archive_download_url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14194047017/zip",
+      "retained_path": "../../final-qualification/attempt-1/source-security-go-69fa5e7707cdad8799ef82999b58a92772c75bca.zip"
+    },
+    {
+      "id": 14193523064,
+      "name": "pgbase-image-scan-sarif",
+      "size": 15494,
+      "sha256": "01b89c8fcc574aed706ab06db4da0e1dd6a78c33de9c13a5b7cc0f7fc6aff5b9",
+      "api_digest_matches": true,
+      "created_at": "2026-11-16T02:58:11Z",
+      "expires_at": "2027-02-14T02:56:07Z",
+      "workflow_run": {
+        "id": 43795108138,
+        "repository_id": 1348242873,
+        "head_repository_id": 1348242873,
+        "head_branch": "refactor/independent-platform-20261116",
+        "head_sha": "9934a687f7f9ee093f45562d2f801dad2dbf5c65"
+      },
+      "archive_download_url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14193523064/zip",
+      "retained_path": "../../final-qualification/attempt-1/pgbase-image-scan-sarif.zip"
+    },
+    {
+      "id": 14193209576,
+      "name": "source-security-javascript-typescript-69fa5e7707cdad8799ef82999b58a92772c75bca",
+      "size": 121986,
+      "sha256": "defc45c1c10e23d26cc437803d5fc2a724bb439a6f0179ba05d2d11a89877c94",
+      "api_digest_matches": true,
+      "created_at": "2026-11-16T02:57:33Z",
+      "expires_at": "2026-11-30T02:57:32Z",
+      "workflow_run": {
+        "id": 43795108138,
+        "repository_id": 1348242873,
+        "head_repository_id": 1348242873,
+        "head_branch": "refactor/independent-platform-20261116",
+        "head_sha": "9934a687f7f9ee093f45562d2f801dad2dbf5c65"
+      },
+      "archive_download_url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14193209576/zip",
+      "retained_path": "../../final-qualification/attempt-1/source-security-javascript-typescript-69fa5e7707cdad8799ef82999b58a92772c75bca.zip"
+    }
+  ],
+  "source_scans": [
+    {
+      "language": "go",
+      "sarif_sha256": "6edf2456dc519a8cdc9665691f7d572da1bcc48758b6fab94fdb5bcb69ec6842",
+      "tool_version": "2.27.4",
+      "extension_versions": {
+        "codeql/go-queries": "1.6.14+1be292a1e54696ca543b4ad0f9b4537b9687caa7",
+        "codeql/go-all": "8.1.0+1be292a1e54696ca543b4ad0f9b4537b9687caa7",
+        "codeql/threat-models": "1.1.1+1be292a1e54696ca543b4ad0f9b4537b9687caa7"
+      },
+      "query_config": {
+        "disableDefaultQueries": false,
+        "queries": [
+          {
+            "type": "builtinSuite",
+            "uses": "security-extended"
+          }
+        ]
+      },
+      "execution_successful": true,
+      "incremental_mode": null,
+      "pr_diff_range_component_present": false,
+      "notification_counts": {
+        "go/diagnostics/successfully-extracted-files": 483,
+        "cli/expected-extracted-files/go": 1135,
+        "cli/expected-extracted-files/typescript": 282,
+        "cli/expected-extracted-files/javascript": 27,
+        "cli/expected-extracted-files/html": 3,
+        "cli/expected-extracted-files/python": 1,
+        "codeql-action/overlay-disabled": 1
+      },
+      "warning_or_error_notifications": [],
+      "successfully_extracted_files": [
+        "cmd/pgbase/main.go",
+        "examples/custom-routes/main.go",
+        "examples/javascript/main.go",
+        "examples/javascript/public/index.html",
+        "examples/jobs/main.go",
+        "examples/lifecycle/main.go",
+        "examples/user-migrations/main.go",
+        "examples/user-migrations/migrations/20260909000000_add_widgets.go",
+        "examples/user-notes/index.html",
+        "go.mod",
+        "internal/accessrule/catalog_resolver.go",
+        "internal/accessrule/expression.go",
+        "internal/accessrule/pocketbase.go",
+        "internal/accessrule/policy.go",
+        "internal/accessrule/rule.go",
+        "internal/adminauth/accounts.go",
+        "internal/adminauth/administrator_profile.go",
+        "internal/adminauth/cleaner.go",
+        "internal/adminauth/email_otp.go",
+        "internal/adminauth/mfa.go",
+        "internal/adminauth/password.go",
+        "internal/adminauth/password_recovery.go",
+        "internal/adminauth/service.go",
+        "internal/adminauth/store.go",
+        "internal/adminauth/token.go",
+        "internal/adminauth/types.go",
+        "internal/api/admin_accounts.go",
+        "internal/api/admin_capabilities.go",
+        "internal/api/admin_handlers.go",
+        "internal/api/admin_middleware.go",
+        "internal/api/admin_profile.go",
+        "internal/api/auth_admin.go",
+        "internal/api/auth_collections.go",
+        "internal/api/auth_factors.go",
+        "internal/api/auth_projection.go",
+        "internal/api/auth_records.go",
+        "internal/api/auth_registration.go",
+        "internal/api/backup_storage_settings.go",
+        "internal/api/batch_file_modifiers.go",
+        "internal/api/batch_handlers.go",
+        "internal/api/client_address.go",
+        "internal/api/compression.go",
+        "internal/api/custom_routes.go",
+        "internal/api/deadline.go",
+        "internal/api/email_actions.go",
+        "internal/api/errors.go",
+        "internal/api/file_handlers.go",
+        "internal/api/health.go",
+        "internal/api/json.go",
+        "internal/api/lifecycle.go",
+        "internal/api/middleware.go",
+        "internal/api/operations_console.go",
+        "internal/api/query_parameters.go",
+        "internal/api/realtime.go",
+        "internal/api/realtime_broker.go",
+        "internal/api/realtime_delivery.go",
+        "internal/api/realtime_sessions.go",
+        "internal/api/realtime_status.go",
+        "internal/api/record_handlers.go",
+        "internal/api/record_metadata.go",
+        "internal/api/route_registry.go",
+        "internal/api/router.go",
+        "internal/api/rules.go",
+        "internal/api/runtime_settings.go",
+        "internal/api/schema_document.go",
+        "internal/api/schema_handlers.go",
+        "internal/api/schema_operations.go",
+        "internal/api/service_records.go",
+        "internal/api/service_tokens.go",
+        "internal/api/setup_backups.go",
+        "internal/api/setup_status_cache.go",
+        "internal/api/sql_console.go",
+        "internal/api/storage_migrations.go",
+        "internal/api/storage_settings.go",
+        "internal/api/system_handler.go",
+        "internal/api/user_handlers.go",
+        "internal/api/user_management.go",
+        "internal/apiratelimit/service.go",
+        "internal/authpolicy/transition.go",
+        "internal/backup/archive.go",
+        "internal/backup/backup.go",
+        "internal/backup/durable_unix.go",
+        "internal/backup/local_repository.go",
+        "internal/backup/manager.go",
+        "internal/backup/online.go",
+        "internal/backup/progress.go",
+        "internal/backup/repository.go",
+        "internal/backup/repository_identity.go",
+        "internal/backup/s3_repository.go",
+        "internal/backup/storage_controller.go",
+        "internal/backup/target.go",
+        "internal/backup/target_cleanup.go",
+        "internal/backup/verified_reader.go",
+        "internal/buildinfo/buildinfo.go",
+        "internal/cli/backup.go",
+        "internal/cli/database.go",
+        "internal/cli/io.go",
+        "internal/cli/javascript.go",
+        "internal/cli/javascript_watch.go",
+        "internal/cli/membership.go",
+        "internal/cli/password.go",
+        "internal/cli/password_terminal_unix.go",
+        "internal/cli/password_termios_other_unix.go",
+        "internal/cli/run.go",
+        "internal/cli/schema_index.go",
+        "internal/cli/update.go",
+        "internal/cli/update_nonwindows.go",
+        "internal/cli/user_migration.go",
+        "internal/cli/version.go",
+        "internal/config/backups.go",
+        "internal/config/email.go",
+        "internal/config/env.go",
+        "internal/config/files.go",
+        "internal/config/javascript.go",
+        "internal/config/jobs.go",
+        "internal/config/oauth.go",
+        "internal/config/sql_console.go",
+        "internal/config/tls.go",
+        "internal/cursor/codec.go",
+        "internal/cursor/types.go",
+        "internal/cursor/v5.go",
+        "internal/database/backup_gate.go",
+        "internal/database/errors.go",
+        "internal/database/interfaces.go",
+        "internal/database/pool.go",
+        "internal/database/retry.go",
+        "internal/database/tx.go",
+        "internal/doctor/checks.go",
+        "internal/doctor/companion_index.go",
+        "internal/doctor/defaults.go",
+        "internal/doctor/external_migration.go",
+        "internal/doctor/membership.go",
+        "internal/doctor/membership_catalog.go",
+        "internal/doctor/membership_physical.go",
+        "internal/doctor/physical_compare.go",
+        "internal/doctor/physical_snapshot.go",
+        "internal/doctor/relations.go",
+        "internal/doctor/report.go",
+        "internal/durablefile/exclusive.go",
+        "internal/durablefile/rename_unix.go",
+        "internal/fieldvalue/options.go",
+        "internal/fieldvalue/random_pattern.go",
+        "internal/filestore/auth_records.go",
+        "internal/filestore/catalog.go",
+        "internal/filestore/image.go",
+        "internal/filestore/image_exif.go",
+        "internal/filestore/image_webp.go",
+        "internal/filestore/local.go",
+        "internal/filestore/object_gc.go",
+        "internal/filestore/public.go",
+        "internal/filestore/range.go",
+        "internal/filestore/read_lifecycle.go",
+        "internal/filestore/record_identity.go",
+        "internal/filestore/record_metadata.go",
+        "internal/filestore/restore.go",
+        "internal/filestore/s3.go",
+        "internal/filestore/service.go",
+        "internal/filestore/staging.go",
+        "internal/filestore/storage_gate.go",
+        "internal/filestore/storage_migration.go",
+        "internal/filestore/storage_settings.go",
+        "internal/filestore/store.go",
+        "internal/filestore/token_resolution.go",
+        "internal/filestore/upload_bytes.go",
+        "internal/filestore/variants.go",
+        "internal/identity/subject.go",
+        "internal/jobs/management.go",
+        "internal/jobs/service.go",
+        "internal/jsonvalue/json.go",
+        "internal/jsvm/bundle.go",
+        "internal/jsvm/native_host.go",
+        "internal/jsvm/pocketbase_filesystem_globals.go",
+        "internal/jsvm/pocketbase_globals.go",
+        "internal/jsvm/registration.go",
+        "internal/jsvm/runtime.go",
+        "internal/jsvm/runtime_values.go",
+        "internal/lifecycle/registry.go",
+        "internal/mailer/layout.go",
+        "internal/mailer/mailer.go",
+        "internal/mailer/smtp.go",
+        "internal/membership/backfill.go",
+        "internal/membership/bootstrap.go",
+        "internal/membership/fleet.go",
+        "internal/membership/installation.go",
+        "internal/membership/runtime.go",
+        "internal/membership/service.go",
+        "internal/membership/transitions.go",
+        "internal/membership/traversal.go",
+        "internal/membership/types.go",
+        "internal/membership/writer.go",
+        "internal/migrate/apply.go",
+        "internal/migrate/exact_target.go",
+        "internal/migrate/history.go",
+        "internal/migrate/runner.go",
+        "internal/migrate/status.go",
+        "internal/observability/logger.go",
+        "internal/observability/metrics.go",
+        "internal/observability/redact.go",
+        "internal/observability/request_log.go",
+        "internal/passwordfield/password.go",
+        "internal/publicsite/handler.go",
+        "internal/query/access_rule.go",
+        "internal/query/codec.go",
+        "internal/query/compatibility.go",
+        "internal/query/compiler.go",
+        "internal/query/cursor_v5_binding.go",
+        "internal/query/cursor_v5_fields.go",
+        "internal/query/cursor_v5_fingerprint.go",
+        "internal/query/cursor_v5_function.go",
+        "internal/query/cursor_v5_order.go",
+        "internal/query/expand.go",
+        "internal/query/expand_material.go",
+        "internal/query/expand_measure.go",
+        "internal/query/expand_plan.go",
+        "internal/query/expand_reverse.go",
+        "internal/query/expand_types.go",
+        "internal/query/field_comparison_plan.go",
+        "internal/query/field_visibility.go",
+        "internal/query/filter.go",
+        "internal/query/function_error.go",
+        "internal/query/function_plan.go",
+        "internal/query/order.go",
+        "internal/query/page_assembler.go",
+        "internal/query/predicate.go",
+        "internal/query/projection.go",
+        "internal/query/read_telemetry.go",
+        "internal/query/record_identity_sql.go",
+        "internal/query/relation_filter_sort.go",
+        "internal/query/relation_hydration.go",
+        "internal/query/relation_list.go",
+        "internal/query/relation_policy.go",
+        "internal/query/relation_sort_render.go",
+        "internal/query/root_hydration.go",
+        "internal/query/root_page.go",
+        "internal/query/root_plan.go",
+        "internal/query/scalar_predicate.go",
+        "internal/query/service.go",
+        "internal/query/sql_view.go",
+        "internal/query/types.go",
+        "internal/realtime/outbox.go",
+        "internal/realtime/service.go",
+        "internal/realtime/status.go",
+        "internal/recordaccess/access.go",
+        "internal/recordaccess/preview.go",
+        "internal/recordaccess/rule_check.go",
+        "internal/recordaccess/rule_compile.go",
+        "internal/recordaccess/rules.go",
+        "internal/recordaccess/subject.go",
+        "internal/recordartifact/artifact.go",
+        "internal/recordidentity/auth.go",
+        "internal/recordidentity/projection.go",
+        "internal/recordidentity/service.go",
+        "internal/recordops/access_context.go",
+        "internal/recordops/artifact.go",
+        "internal/recordops/batch.go",
+        "internal/recordops/cleaner.go",
+        "internal/recordops/collection_mutation_lock.go",
+        "internal/recordops/delete.go",
+        "internal/recordops/field_visibility.go",
+        "internal/recordops/generated_fields.go",
+        "internal/recordops/hooks.go",
+        "internal/recordops/idempotency.go",
+        "internal/recordops/membership.go",
+        "internal/recordops/modifiers.go",
+        "internal/recordops/outbox_owners.go",
+        "internal/recordops/read.go",
+        "internal/recordops/record_helpers.go",
+        "internal/recordops/record_identity.go",
+        "internal/recordops/relation.go",
+        "internal/recordops/relation_telemetry.go",
+        "internal/recordops/service.go",
+        "internal/recordops/transaction.go",
+        "internal/recordops/transaction_validation.go",
+        "internal/recordops/truncate.go",
+        "internal/recordops/types.go",
+        "internal/recordops/validate.go",
+        "internal/relation/binding.go",
+        "internal/relation/codec.go",
+        "internal/relation/delete.go",
+        "internal/relation/delete_execute.go",
+        "internal/relation/locks.go",
+        "internal/relation/storage.go",
+        "internal/relation/types.go",
+        "internal/relation/write.go",
+        "internal/releasephase/schema_compiler.go",
+        "internal/responseprojection/projection.go",
+        "internal/responseprojection/record.go",
+        "internal/runtimesettings/rate_labels.go",
+        "internal/runtimesettings/settings.go",
+        "internal/schema/advanced_fields.go",
+        "internal/schema/auth_document_record_id.go",
+        "internal/schema/auth_schema_document.go",
+        "internal/schema/cache.go",
+        "internal/schema/catalog.go",
+        "internal/schema/catalog_lock.go",
+        "internal/schema/collection_reference_rename.go",
+        "internal/schema/collection_rename.go",
+        "internal/schema/collection_sql_view_rename.go",
+        "internal/schema/companion_index.go",
+        "internal/schema/companion_index_build.go",
+        "internal/schema/defaults.go",
+        "internal/schema/external_migration.go",
+        "internal/schema/field_metadata.go",
+        "internal/schema/field_options.go",
+        "internal/schema/field_preflight.go",
+        "internal/schema/file_options.go",
+        "internal/schema/lifecycle.go",
+        "internal/schema/listener.go",
+        "internal/schema/migration_recording.go",
+        "internal/schema/migration_snapshot.go",
+        "internal/schema/migration_snapshot_metadata.go",
+        "internal/schema/migration_snapshot_views.go",
+        "internal/schema/names.go",
+        "internal/schema/operation_apply.go",
+        "internal/schema/operation_cursor.go",
+        "internal/schema/operation_hash.go",
+        "internal/schema/operation_history.go",
+        "internal/schema/operation_maintenance.go",
+        "internal/schema/operation_store.go",
+        "internal/schema/operation_types.go",
+        "internal/schema/physical_manifest.go",
+        "internal/schema/physical_manifest_builder.go",
+        "internal/schema/planner.go",
+        "internal/schema/planner_indexes.go",
+        "internal/schema/preflight.go",
+        "internal/schema/record_id.go",
+        "internal/schema/record_size.go",
+        "internal/schema/relation_ddl.go",
+        "internal/schema/relation_names.go",
+        "internal/schema/relation_types.go",
+        "internal/schema/scaffolds.go",
+        "internal/schema/schema_delete_missing.go",
+        "internal/schema/schema_document.go",
+        "internal/schema/schema_document_apply.go",
+        "internal/schema/schema_document_checksum.go",
+        "internal/schema/schema_document_ledger.go",
+        "internal/schema/schema_document_view.go",
+        "internal/schema/schema_policy_checksum.go",
+        "internal/schema/service.go",
+        "internal/schema/sql_view_inspect.go",
+        "internal/schema/store.go",
+        "internal/schema/type_changes.go",
+        "internal/schema/types.go",
+        "internal/schema/view.go",
+        "internal/schema/view_sample.go",
+        "internal/selfupdate/download.go",
+        "internal/selfupdate/executable_lock.go",
+        "internal/selfupdate/install.go",
+        "internal/selfupdate/journal.go",
+        "internal/selfupdate/manifest.go",
+        "internal/selfupdate/replace_unix.go",
+        "internal/selfupdate/select.go",
+        "internal/selfupdate/semver.go",
+        "internal/selfupdate/state_unix.go",
+        "internal/selfupdate/types.go",
+        "internal/selfupdate/windows_launcher_stub.go",
+        "internal/serviceauth/service.go",
+        "internal/sqlconsole/analyzer.go",
+        "internal/sqlconsole/dependency_guard.go",
+        "internal/sqlconsole/ledger.go",
+        "internal/sqlconsole/pools.go",
+        "internal/sqlconsole/read_guard.go",
+        "internal/sqlconsole/retention.go",
+        "internal/sqlconsole/runner.go",
+        "internal/sqlconsole/service.go",
+        "internal/sqlconsole/types.go",
+        "internal/testutil/membership.go",
+        "internal/testutil/migrations.go",
+        "internal/testutil/postgres.go",
+        "internal/userauth/apple_client_secret.go",
+        "internal/userauth/auth_admin.go",
+        "internal/userauth/auth_auxiliary.go",
+        "internal/userauth/auth_methods.go",
+        "internal/userauth/auth_policy_validator.go",
+        "internal/userauth/auth_profile_numbers.go",
+        "internal/userauth/auth_record_model.go",
+        "internal/userauth/auth_records.go",
+        "internal/userauth/auth_relations.go",
+        "internal/userauth/auth_response.go",
+        "internal/userauth/auth_rule_resolver.go",
+        "internal/userauth/auth_rules.go",
+        "internal/userauth/collections.go",
+        "internal/userauth/email_actions.go",
+        "internal/userauth/email_otp.go",
+        "internal/userauth/impersonation.go",
+        "internal/userauth/lifecycle.go",
+        "internal/userauth/managed_authorization.go",
+        "internal/userauth/mfa.go",
+        "internal/userauth/oauth.go",
+        "internal/userauth/oauth_apple.go",
+        "internal/userauth/oauth_avatar.go",
+        "internal/userauth/oauth_http.go",
+        "internal/userauth/oauth_oidc.go",
+        "internal/userauth/oauth_profiles.go",
+        "internal/userauth/record_identity.go",
+        "internal/userauth/record_identity_relations.go",
+        "internal/userauth/registration_policy.go",
+        "internal/userauth/registration_profile.go",
+        "internal/userauth/service.go",
+        "internal/userauth/session_refresh.go",
+        "internal/userauth/token_policy.go",
+        "internal/userauth/types.go",
+        "internal/usermigrate/generate.go",
+        "internal/usermigrate/recorder.go",
+        "internal/usermigrate/runner.go",
+        "internal/usermigrate/types.go",
+        "internal/validation/types.go",
+        "migrations/system/embed.go",
+        "pgbase/app.go",
+        "pgbase/app_construct.go",
+        "pgbase/app_lifecycle_hooks.go",
+        "pgbase/auth_lifecycle_hooks.go",
+        "pgbase/auth_oauth_lifecycle_hooks.go",
+        "pgbase/background.go",
+        "pgbase/backup_alert.go",
+        "pgbase/backup_lifecycle_hooks.go",
+        "pgbase/backup_options.go",
+        "pgbase/backup_schedule.go",
+        "pgbase/collection_operations.go",
+        "pgbase/custom_routes.go",
+        "pgbase/email_options.go",
+        "pgbase/extension_app_broker.go",
+        "pgbase/extension_app_catalog_authaux.go",
+        "pgbase/extension_app_control.go",
+        "pgbase/extension_app_metadata.go",
+        "pgbase/extension_app_query.go",
+        "pgbase/extension_app_schema.go",
+        "pgbase/extension_app_transaction.go",
+        "pgbase/extension_auth_api.go",
+        "pgbase/extension_bridge.go",
+        "pgbase/extension_bridge_errors.go",
+        "pgbase/extension_bridge_files.go",
+        "pgbase/extension_bridge_mail.go",
+        "pgbase/extension_database.go",
+        "pgbase/extension_file_handles.go",
+        "pgbase/extension_host_policy.go",
+        "pgbase/extension_object_handles.go",
+        "pgbase/extension_objects.go",
+        "pgbase/extensions.go",
+        "pgbase/file_options.go",
+        "pgbase/file_services.go",
+        "pgbase/hooks.go",
+        "pgbase/javascript_hook_data.go",
+        "pgbase/javascript_hooks.go",
+        "pgbase/javascript_jobs.go",
+        "pgbase/javascript_migrations.go",
+        "pgbase/javascript_options.go",
+        "pgbase/javascript_runtime.go",
+        "pgbase/javascript_types.go",
+        "pgbase/job_services.go",
+        "pgbase/jobs_options.go",
+        "pgbase/lifecycle_hooks.go",
+        "pgbase/managed.go",
+        "pgbase/model_lifecycle.go",
+        "pgbase/oauth_options.go",
+        "pgbase/operations_options.go",
+        "pgbase/operations_services.go",
+        "pgbase/options.go",
+        "pgbase/password_fields.go",
+        "pgbase/realtime_lifecycle_hooks.go",
+        "pgbase/runtime_settings_encryption.go",
+        "pgbase/runtime_settings_hooks.go",
+        "pgbase/schema_health.go",
+        "pgbase/settings_lifecycle_hooks.go",
+        "pgbase/sql_console.go",
+        "pgbase/sql_console_options.go",
+        "pgbase/storage_lifecycle_hooks.go",
+        "pgbase/system_status.go",
+        "pgbase/templates.go",
+        "pgbase/tls.go",
+        "pgbase/trusted_database.go",
+        "pgbase/ui_extension.go",
+        "pgbase/user_migrations.go",
+        "pgbase/user_services.go",
+        "pgbase/version.go",
+        "pgbasecli/cli.go",
+        "sdk/dart/tool/same_origin_admin_harness.html",
+        "tests/testsupport/poll.go",
+        "tools/devmail/main.go",
+        "tools/repostats/main.go",
+        "tools/testskip/main.go",
+        "ui/admin/embed.go",
+        "ui/admin/handler.go"
+      ],
+      "changed_runtime_files": [
+        "internal/backup/archive.go",
+        "internal/jobs/management.go",
+        "internal/jobs/service.go",
+        "internal/lifecycle/registry.go",
+        "internal/realtime/outbox.go",
+        "internal/realtime/status.go",
+        "internal/recordops/batch.go",
+        "internal/recordops/hooks.go",
+        "internal/recordops/service.go",
+        "internal/recordops/truncate.go",
+        "internal/userauth/oauth_oidc.go",
+        "migrations/system/embed.go",
+        "pgbase/extension_app_transaction.go",
+        "pgbase/trusted_database.go"
+      ],
+      "changed_runtime_files_not_extracted": [],
+      "findings": [
+        {
+          "index": 1,
+          "rule": "go/reflected-xss",
+          "level": "error",
+          "security_severity": "7.8",
+          "locations": [
+            {
+              "path": "internal/api/compression.go",
+              "region": {
+                "startLine": 176,
+                "startColumn": 33,
+                "endColumn": 37
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/api/compression.go",
+              "region": {
+                "startLine": 176,
+                "startColumn": 33,
+                "endColumn": 37
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "b870c7fa955a109f:1",
+            "primaryLocationStartColumnFingerprint": "30"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 113,
+          "flow_files": [
+            "internal/api/admin_handlers.go",
+            "internal/api/compression.go",
+            "internal/api/custom_routes.go",
+            "internal/api/record_handlers.go",
+            "internal/api/sql_console.go",
+            "internal/recordartifact/artifact.go",
+            "internal/recordops/service.go",
+            "internal/sqlconsole/service.go",
+            "internal/sqlconsole/types.go"
+          ],
+          "changed_flow_files": [
+            "internal/recordops/service.go"
+          ],
+          "flow_first": {
+            "path": "internal/api/admin_handlers.go",
+            "region": {
+              "startLine": 377,
+              "startColumn": 25,
+              "endColumn": 31
+            }
+          },
+          "flow_last": {
+            "path": "internal/api/compression.go",
+            "region": {
+              "startLine": 176,
+              "startColumn": 33,
+              "endColumn": 37
+            }
+          },
+          "independent_review": "Concrete digest callers use SHA-256/HMAC writers, not HTTP response writers. New recordops defer only records panic outcome; reviewed writer construction and response content type unchanged.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 2,
+          "rule": "go/reflected-xss",
+          "level": "error",
+          "security_severity": "7.8",
+          "locations": [
+            {
+              "path": "internal/api/custom_routes.go",
+              "region": {
+                "startLine": 228,
+                "startColumn": 32,
+                "endColumn": 36
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/api/custom_routes.go",
+              "region": {
+                "startLine": 228,
+                "startColumn": 32,
+                "endColumn": 36
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "f45ba5e4089f3ecf:1",
+            "primaryLocationStartColumnFingerprint": "30"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 113,
+          "flow_files": [
+            "internal/api/admin_handlers.go",
+            "internal/api/compression.go",
+            "internal/api/custom_routes.go",
+            "internal/api/record_handlers.go",
+            "internal/api/sql_console.go",
+            "internal/recordartifact/artifact.go",
+            "internal/recordops/service.go",
+            "internal/sqlconsole/service.go",
+            "internal/sqlconsole/types.go"
+          ],
+          "changed_flow_files": [
+            "internal/recordops/service.go"
+          ],
+          "flow_first": {
+            "path": "internal/api/admin_handlers.go",
+            "region": {
+              "startLine": 377,
+              "startColumn": 25,
+              "endColumn": 31
+            }
+          },
+          "flow_last": {
+            "path": "internal/api/custom_routes.go",
+            "region": {
+              "startLine": 228,
+              "startColumn": 32,
+              "endColumn": 36
+            }
+          },
+          "independent_review": "Concrete digest callers use SHA-256/HMAC writers, not HTTP response writers. New recordops defer only records panic outcome; reviewed writer construction and response content type unchanged.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 3,
+          "rule": "go/reflected-xss",
+          "level": "error",
+          "security_severity": "7.8",
+          "locations": [
+            {
+              "path": "internal/api/middleware.go",
+              "region": {
+                "startLine": 266,
+                "startColumn": 32,
+                "endColumn": 36
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/api/middleware.go",
+              "region": {
+                "startLine": 266,
+                "startColumn": 32,
+                "endColumn": 36
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "bb03acd1712d9d82:1",
+            "primaryLocationStartColumnFingerprint": "30"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 113,
+          "flow_files": [
+            "internal/api/admin_handlers.go",
+            "internal/api/compression.go",
+            "internal/api/middleware.go",
+            "internal/api/record_handlers.go",
+            "internal/api/sql_console.go",
+            "internal/recordartifact/artifact.go",
+            "internal/recordops/service.go",
+            "internal/sqlconsole/service.go",
+            "internal/sqlconsole/types.go"
+          ],
+          "changed_flow_files": [
+            "internal/recordops/service.go"
+          ],
+          "flow_first": {
+            "path": "internal/api/admin_handlers.go",
+            "region": {
+              "startLine": 377,
+              "startColumn": 25,
+              "endColumn": 31
+            }
+          },
+          "flow_last": {
+            "path": "internal/api/middleware.go",
+            "region": {
+              "startLine": 266,
+              "startColumn": 32,
+              "endColumn": 36
+            }
+          },
+          "independent_review": "Concrete digest callers use SHA-256/HMAC writers, not HTTP response writers. New recordops defer only records panic outcome; reviewed writer construction and response content type unchanged.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 4,
+          "rule": "go/reflected-xss",
+          "level": "error",
+          "security_severity": "7.8",
+          "locations": [
+            {
+              "path": "internal/api/schema_handlers.go",
+              "region": {
+                "startLine": 652,
+                "startColumn": 32,
+                "endColumn": 36
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/api/schema_handlers.go",
+              "region": {
+                "startLine": 652,
+                "startColumn": 32,
+                "endColumn": 36
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "75f18ad17970bdcd:1",
+            "primaryLocationStartColumnFingerprint": "30"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 113,
+          "flow_files": [
+            "internal/api/admin_handlers.go",
+            "internal/api/compression.go",
+            "internal/api/record_handlers.go",
+            "internal/api/schema_handlers.go",
+            "internal/api/sql_console.go",
+            "internal/recordartifact/artifact.go",
+            "internal/recordops/service.go",
+            "internal/sqlconsole/service.go",
+            "internal/sqlconsole/types.go"
+          ],
+          "changed_flow_files": [
+            "internal/recordops/service.go"
+          ],
+          "flow_first": {
+            "path": "internal/api/admin_handlers.go",
+            "region": {
+              "startLine": 377,
+              "startColumn": 25,
+              "endColumn": 31
+            }
+          },
+          "flow_last": {
+            "path": "internal/api/schema_handlers.go",
+            "region": {
+              "startLine": 652,
+              "startColumn": 32,
+              "endColumn": 36
+            }
+          },
+          "independent_review": "Concrete digest callers use SHA-256/HMAC writers, not HTTP response writers. New recordops defer only records panic outcome; reviewed writer construction and response content type unchanged.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 5,
+          "rule": "go/reflected-xss",
+          "level": "error",
+          "security_severity": "7.8",
+          "locations": [
+            {
+              "path": "internal/observability/metrics.go",
+              "region": {
+                "startLine": 468,
+                "startColumn": 32,
+                "endColumn": 36
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/observability/metrics.go",
+              "region": {
+                "startLine": 468,
+                "startColumn": 32,
+                "endColumn": 36
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "27d8588efd274075:1",
+            "primaryLocationStartColumnFingerprint": "30"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 113,
+          "flow_files": [
+            "internal/api/admin_handlers.go",
+            "internal/api/compression.go",
+            "internal/api/record_handlers.go",
+            "internal/api/sql_console.go",
+            "internal/observability/metrics.go",
+            "internal/recordartifact/artifact.go",
+            "internal/recordops/service.go",
+            "internal/sqlconsole/service.go",
+            "internal/sqlconsole/types.go"
+          ],
+          "changed_flow_files": [
+            "internal/recordops/service.go"
+          ],
+          "flow_first": {
+            "path": "internal/api/admin_handlers.go",
+            "region": {
+              "startLine": 377,
+              "startColumn": 25,
+              "endColumn": 31
+            }
+          },
+          "flow_last": {
+            "path": "internal/observability/metrics.go",
+            "region": {
+              "startLine": 468,
+              "startColumn": 32,
+              "endColumn": 36
+            }
+          },
+          "independent_review": "Concrete digest callers use SHA-256/HMAC writers, not HTTP response writers. New recordops defer only records panic outcome; reviewed writer construction and response content type unchanged.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 6,
+          "rule": "go/email-injection",
+          "level": "error",
+          "security_severity": "9.8",
+          "locations": [
+            {
+              "path": "internal/mailer/smtp.go",
+              "region": {
+                "startLine": 146,
+                "startColumn": 28,
+                "endColumn": 29
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/mailer/smtp.go",
+              "region": {
+                "startLine": 146,
+                "startColumn": 28,
+                "endColumn": 29
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "a2795f46ef94f1f7:1",
+            "primaryLocationStartColumnFingerprint": "26"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 135,
+          "flow_files": [
+            "internal/adminauth/password.go",
+            "internal/adminauth/password_recovery.go",
+            "internal/api/admin_handlers.go",
+            "internal/api/auth_admin.go",
+            "internal/api/auth_collections.go",
+            "internal/api/email_actions.go",
+            "internal/mailer/smtp.go",
+            "internal/userauth/auth_admin.go",
+            "internal/userauth/email_actions.go",
+            "internal/userauth/email_otp.go",
+            "internal/userauth/service.go"
+          ],
+          "changed_flow_files": [],
+          "flow_first": {
+            "path": "internal/api/admin_handlers.go",
+            "region": {
+              "startLine": 377,
+              "startColumn": 25,
+              "endColumn": 31
+            }
+          },
+          "flow_last": {
+            "path": "internal/mailer/smtp.go",
+            "region": {
+              "startLine": 146,
+              "startColumn": 28,
+              "endColumn": 29
+            }
+          },
+          "independent_review": "Mailbox/header CR/LF rejection and structured MIME/SMTP DATA construction unchanged. No injection path established in this flow.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 7,
+          "rule": "go/allocation-size-overflow",
+          "level": "warning",
+          "security_severity": "8.1",
+          "locations": [
+            {
+              "path": "internal/query/root_page.go",
+              "region": {
+                "startLine": 205,
+                "startColumn": 32,
+                "endColumn": 42
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/query/root_page.go",
+              "region": {
+                "startLine": 205,
+                "startColumn": 32,
+                "endColumn": 42
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "bb9d112b69c46f71:1",
+            "primaryLocationStartColumnFingerprint": "29"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 206,
+          "flow_files": [
+            "internal/jsvm/native_host.go",
+            "internal/query/compatibility.go",
+            "internal/query/compiler.go",
+            "internal/query/expand.go",
+            "internal/query/root_page.go",
+            "internal/query/service.go",
+            "internal/recordops/read.go",
+            "pgbase/extension_app_query.go",
+            "pgbase/extension_auth_api.go",
+            "pgbase/extension_bridge.go",
+            "pgbase/extension_bridge_errors.go"
+          ],
+          "changed_flow_files": [],
+          "flow_first": {
+            "path": "internal/jsvm/native_host.go",
+            "region": {
+              "startLine": 89,
+              "startColumn": 4,
+              "endColumn": 61
+            }
+          },
+          "flow_last": {
+            "path": "internal/query/root_page.go",
+            "region": {
+              "startLine": 205,
+              "startColumn": 32,
+              "endColumn": 42
+            }
+          },
+          "independent_review": "normalizedFetchLimit caps at 200; capacity derives from remaining bounded page slots. Compiler/root_page runtime bytes unchanged.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 8,
+          "rule": "go/allocation-size-overflow",
+          "level": "warning",
+          "security_severity": "8.1",
+          "locations": [
+            {
+              "path": "pgbase/extension_objects.go",
+              "region": {
+                "startLine": 482,
+                "startColumn": 69,
+                "endColumn": 74
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "pgbase/extension_objects.go",
+              "region": {
+                "startLine": 482,
+                "startColumn": 69,
+                "endColumn": 74
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "f6cde46d778497f7:1",
+            "primaryLocationStartColumnFingerprint": "67"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 72,
+          "flow_files": [
+            "internal/jsvm/native_host.go",
+            "pgbase/extension_bridge.go",
+            "pgbase/extension_bridge_errors.go",
+            "pgbase/extension_objects.go",
+            "pgbase/extensions.go"
+          ],
+          "changed_flow_files": [],
+          "flow_first": {
+            "path": "internal/jsvm/native_host.go",
+            "region": {
+              "startLine": 89,
+              "startColumn": 4,
+              "endColumn": 61
+            }
+          },
+          "flow_last": {
+            "path": "pgbase/extension_objects.go",
+            "region": {
+              "startLine": 482,
+              "startColumn": 69,
+              "endColumn": 74
+            }
+          },
+          "independent_review": "Extension object List rejects limits outside 1..1000 before adding one and binds SQL arguments. Runtime bytes unchanged.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 9,
+          "rule": "go/allocation-size-overflow",
+          "level": "warning",
+          "security_severity": "8.1",
+          "locations": [
+            {
+              "path": "internal/query/compiler.go",
+              "region": {
+                "startLine": 94,
+                "startColumn": 35,
+                "endColumn": 47
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/query/compiler.go",
+              "region": {
+                "startLine": 94,
+                "startColumn": 35,
+                "endColumn": 47
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "14aa6a267f4e5b03:1",
+            "primaryLocationStartColumnFingerprint": "33"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 140,
+          "flow_files": [
+            "internal/jsvm/native_host.go",
+            "internal/query/codec.go",
+            "internal/query/compiler.go",
+            "internal/recordops/generated_fields.go",
+            "internal/recordops/modifiers.go",
+            "internal/recordops/record_identity.go",
+            "internal/recordops/service.go",
+            "internal/recordops/validate.go",
+            "pgbase/extension_bridge.go",
+            "pgbase/extension_bridge_errors.go"
+          ],
+          "changed_flow_files": [
+            "internal/recordops/service.go"
+          ],
+          "flow_first": {
+            "path": "internal/jsvm/native_host.go",
+            "region": {
+              "startLine": 89,
+              "startColumn": 4,
+              "endColumn": 61
+            }
+          },
+          "flow_last": {
+            "path": "internal/query/compiler.go",
+            "region": {
+              "startLine": 94,
+              "startColumn": 35,
+              "endColumn": 47
+            }
+          },
+          "independent_review": "decodeInput rejects unknown fields before bounded-schema allocations; route body limits retained. Recordops changes only the panic outcome defer, not input validation or query construction.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 10,
+          "rule": "go/allocation-size-overflow",
+          "level": "warning",
+          "security_severity": "8.1",
+          "locations": [
+            {
+              "path": "internal/query/compiler.go",
+              "region": {
+                "startLine": 95,
+                "startColumn": 25,
+                "endColumn": 37
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/query/compiler.go",
+              "region": {
+                "startLine": 95,
+                "startColumn": 25,
+                "endColumn": 37
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "4b04bb9e9927e595:1",
+            "primaryLocationStartColumnFingerprint": "23"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 144,
+          "flow_files": [
+            "internal/jsvm/native_host.go",
+            "internal/query/codec.go",
+            "internal/query/compiler.go",
+            "internal/recordops/generated_fields.go",
+            "internal/recordops/modifiers.go",
+            "internal/recordops/record_identity.go",
+            "internal/recordops/service.go",
+            "internal/recordops/validate.go",
+            "pgbase/extension_bridge.go",
+            "pgbase/extension_bridge_errors.go"
+          ],
+          "changed_flow_files": [
+            "internal/recordops/service.go"
+          ],
+          "flow_first": {
+            "path": "internal/jsvm/native_host.go",
+            "region": {
+              "startLine": 89,
+              "startColumn": 4,
+              "endColumn": 61
+            }
+          },
+          "flow_last": {
+            "path": "internal/query/compiler.go",
+            "region": {
+              "startLine": 95,
+              "startColumn": 25,
+              "endColumn": 37
+            }
+          },
+          "independent_review": "decodeInput rejects unknown fields before bounded-schema allocations; route body limits retained. Recordops changes only the panic outcome defer, not input validation or query construction.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 11,
+          "rule": "go/allocation-size-overflow",
+          "level": "warning",
+          "security_severity": "8.1",
+          "locations": [
+            {
+              "path": "internal/schema/operation_cursor.go",
+              "region": {
+                "startLine": 75,
+                "startColumn": 25,
+                "endColumn": 37
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/schema/operation_cursor.go",
+              "region": {
+                "startLine": 75,
+                "startColumn": 25,
+                "endColumn": 37
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "d7bf17610f39c462:1",
+            "primaryLocationStartColumnFingerprint": "23"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 3,
+          "flow_files": [
+            "internal/schema/operation_cursor.go"
+          ],
+          "changed_flow_files": [],
+          "flow_first": {
+            "path": "internal/schema/operation_cursor.go",
+            "region": {
+              "startLine": 66,
+              "startColumn": 2,
+              "endLine": 70,
+              "endColumn": 4
+            }
+          },
+          "flow_last": {
+            "path": "internal/schema/operation_cursor.go",
+            "region": {
+              "startLine": 75,
+              "startColumn": 25,
+              "endColumn": 37
+            }
+          },
+          "independent_review": "Fixed UUIDs, canonical year-bounded timestamp and fixed SHA-256 signature frame the cursor; encode/decode authentication and size checks unchanged.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 12,
+          "rule": "go/allocation-size-overflow",
+          "level": "warning",
+          "security_severity": "8.1",
+          "locations": [
+            {
+              "path": "internal/schema/schema_document.go",
+              "region": {
+                "startLine": 320,
+                "startColumn": 31,
+                "endColumn": 56
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/schema/schema_document.go",
+              "region": {
+                "startLine": 320,
+                "startColumn": 31,
+                "endColumn": 56
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "e9fe07971b3dee43:1",
+            "primaryLocationStartColumnFingerprint": "29"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 124,
+          "flow_files": [
+            "internal/jsvm/native_host.go",
+            "internal/schema/schema_document.go",
+            "internal/schema/schema_document_checksum.go",
+            "pgbase/extension_app_control.go",
+            "pgbase/extension_app_schema.go",
+            "pgbase/extension_bridge.go",
+            "pgbase/extension_bridge_errors.go",
+            "pgbase/extensions.go"
+          ],
+          "changed_flow_files": [],
+          "flow_first": {
+            "path": "internal/jsvm/native_host.go",
+            "region": {
+              "startLine": 89,
+              "startColumn": 4,
+              "endColumn": 61
+            }
+          },
+          "flow_last": {
+            "path": "internal/schema/schema_document.go",
+            "region": {
+              "startLine": 320,
+              "startColumn": 31,
+              "endColumn": 56
+            }
+          },
+          "independent_review": "Materialized schema slices/maps and administrator document transport cap retain prior allocation bound; large catalog planning remains a resource concern.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 13,
+          "rule": "go/allocation-size-overflow",
+          "level": "warning",
+          "security_severity": "8.1",
+          "locations": [
+            {
+              "path": "internal/schema/schema_policy_checksum.go",
+              "region": {
+                "startLine": 21,
+                "startColumn": 29,
+                "endColumn": 54
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/schema/schema_policy_checksum.go",
+              "region": {
+                "startLine": 21,
+                "startColumn": 29,
+                "endColumn": 54
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "66c5c578440f0c74:1",
+            "primaryLocationStartColumnFingerprint": "27"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 113,
+          "flow_files": [
+            "internal/jsvm/native_host.go",
+            "internal/schema/schema_document.go",
+            "internal/schema/schema_document_checksum.go",
+            "internal/schema/schema_policy_checksum.go",
+            "pgbase/extension_app_control.go",
+            "pgbase/extension_app_schema.go",
+            "pgbase/extension_bridge.go",
+            "pgbase/extension_bridge_errors.go",
+            "pgbase/extensions.go"
+          ],
+          "changed_flow_files": [],
+          "flow_first": {
+            "path": "internal/jsvm/native_host.go",
+            "region": {
+              "startLine": 89,
+              "startColumn": 4,
+              "endColumn": 61
+            }
+          },
+          "flow_last": {
+            "path": "internal/schema/schema_policy_checksum.go",
+            "region": {
+              "startLine": 21,
+              "startColumn": 29,
+              "endColumn": 54
+            }
+          },
+          "independent_review": "Materialized schema slices/maps and administrator document transport cap retain prior allocation bound; large catalog planning remains a resource concern.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 14,
+          "rule": "go/zipslip",
+          "level": "error",
+          "security_severity": "7.5",
+          "locations": [
+            {
+              "path": "internal/backup/archive.go",
+              "region": {
+                "startLine": 109,
+                "startColumn": 3,
+                "endColumn": 27
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/backup/archive.go",
+              "region": {
+                "startLine": 93,
+                "startColumn": 3,
+                "endColumn": 27
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "d1453b40c9d51df8:1",
+            "primaryLocationStartColumnFingerprint": "0"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 23,
+          "flow_files": [
+            "internal/backup/archive.go",
+            "internal/backup/backup.go"
+          ],
+          "changed_flow_files": [
+            "internal/backup/archive.go"
+          ],
+          "flow_first": {
+            "path": "internal/backup/archive.go",
+            "region": {
+              "startLine": 109,
+              "startColumn": 3,
+              "endColumn": 27
+            }
+          },
+          "flow_last": {
+            "path": "internal/backup/archive.go",
+            "region": {
+              "startLine": 134,
+              "startColumn": 24,
+              "endColumn": 42
+            }
+          },
+          "independent_review": "Fresh private extraction directory, cleanRelative canonical-path checks, regular-only entries and exclusive creates retained. Full expanded-stream and trailing-member bounds are additional corrections, not traversal suppression.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 15,
+          "rule": "go/incorrect-integer-conversion",
+          "level": "warning",
+          "security_severity": "8.1",
+          "locations": [
+            {
+              "path": "internal/cursor/v5.go",
+              "region": {
+                "startLine": 199,
+                "startColumn": 35,
+                "endColumn": 67
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/cursor/v5.go",
+              "region": {
+                "startLine": 199,
+                "startColumn": 35,
+                "endColumn": 67
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "5a224c17a40f960a:1",
+            "primaryLocationStartColumnFingerprint": "33"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 16,
+          "flow_files": [
+            "internal/cursor/v5.go",
+            "internal/query/cursor_v5_binding.go",
+            "internal/query/root_page.go"
+          ],
+          "changed_flow_files": [],
+          "flow_first": {
+            "path": "internal/cursor/v5.go",
+            "region": {
+              "startLine": 377,
+              "startColumn": 2,
+              "endColumn": 48
+            }
+          },
+          "flow_last": {
+            "path": "internal/cursor/v5.go",
+            "region": {
+              "startLine": 199,
+              "startColumn": 41,
+              "endColumn": 66
+            }
+          },
+          "independent_review": "V5Descriptor.Matches checks both halves of the 64-bit catalog version; narrowing does not remove upper-half comparison.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 16,
+          "rule": "go/weak-sensitive-data-hashing",
+          "level": "warning",
+          "security_severity": "7.5",
+          "locations": [
+            {
+              "path": "internal/adminauth/service.go",
+              "region": {
+                "startLine": 649,
+                "startColumn": 30,
+                "endColumn": 44
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/adminauth/service.go",
+              "region": {
+                "startLine": 649,
+                "startColumn": 30,
+                "endColumn": 44
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "451c193172e88763:1",
+            "primaryLocationStartColumnFingerprint": "28"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 35,
+          "flow_files": [
+            "internal/adminauth/accounts.go",
+            "internal/adminauth/administrator_profile.go",
+            "internal/adminauth/service.go"
+          ],
+          "changed_flow_files": [],
+          "flow_first": {
+            "path": "internal/adminauth/accounts.go",
+            "region": {
+              "startLine": 61,
+              "startColumn": 22,
+              "endColumn": 84
+            }
+          },
+          "flow_last": {
+            "path": "internal/adminauth/service.go",
+            "region": {
+              "startLine": 649,
+              "startColumn": 30,
+              "endColumn": 44
+            }
+          },
+          "independent_review": "constantTimeStringEqual hashes operands to fixed width for constant-time comparison. Password storage/checks use unchanged Argon2id helpers.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 17,
+          "rule": "go/weak-sensitive-data-hashing",
+          "level": "warning",
+          "security_severity": "7.5",
+          "locations": [
+            {
+              "path": "migrations/system/embed.go",
+              "region": {
+                "startLine": 297,
+                "startColumn": 98,
+                "endColumn": 128
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "migrations/system/embed.go",
+              "region": {
+                "startLine": 294,
+                "startColumn": 98,
+                "endColumn": 128
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "f42284b82227874f:1",
+            "primaryLocationStartColumnFingerprint": "96"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 2,
+          "flow_files": [
+            "migrations/system/embed.go"
+          ],
+          "changed_flow_files": [
+            "migrations/system/embed.go"
+          ],
+          "flow_first": {
+            "path": "migrations/system/embed.go",
+            "region": {
+              "startLine": 297,
+              "startColumn": 105,
+              "endColumn": 127
+            }
+          },
+          "flow_last": {
+            "path": "migrations/system/embed.go",
+            "region": {
+              "startLine": 297,
+              "startColumn": 98,
+              "endColumn": 128
+            }
+          },
+          "independent_review": "SHA-256 checks embedded public migration SQL; adding version 68 changes line location but does not turn it into password hashing.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 18,
+          "rule": "go/log-injection",
+          "level": "error",
+          "security_severity": "6.1",
+          "locations": [
+            {
+              "path": "examples/custom-routes/main.go",
+              "region": {
+                "startLine": 37,
+                "startColumn": 13,
+                "endColumn": 16
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "examples/custom-routes/main.go",
+              "region": {
+                "startLine": 37,
+                "startColumn": 13,
+                "endColumn": 16
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "31db2fd0285f8d81:1",
+            "primaryLocationStartColumnFingerprint": "10"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 124,
+          "flow_files": [
+            "examples/custom-routes/main.go",
+            "internal/api/admin_handlers.go",
+            "internal/api/lifecycle.go",
+            "internal/api/schema_handlers.go",
+            "internal/lifecycle/registry.go",
+            "pgbase/app.go",
+            "pgbase/app_lifecycle_hooks.go",
+            "pgbase/managed.go"
+          ],
+          "changed_flow_files": [
+            "internal/lifecycle/registry.go"
+          ],
+          "flow_first": {
+            "path": "internal/api/admin_handlers.go",
+            "region": {
+              "startLine": 377,
+              "startColumn": 25,
+              "endColumn": 31
+            }
+          },
+          "flow_last": {
+            "path": "examples/custom-routes/main.go",
+            "region": {
+              "startLine": 37,
+              "startColumn": 13,
+              "endColumn": 16
+            }
+          },
+          "independent_review": "Startup/serve hook errors are not the generic request-lifecycle trace assumed by SARIF. Caller event kinds remain constants; new panic reporting is sanitized and rethrows the original.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 19,
+          "rule": "go/log-injection",
+          "level": "error",
+          "security_severity": "6.1",
+          "locations": [
+            {
+              "path": "examples/jobs/main.go",
+              "region": {
+                "startLine": 39,
+                "startColumn": 13,
+                "endColumn": 16
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "examples/jobs/main.go",
+              "region": {
+                "startLine": 39,
+                "startColumn": 13,
+                "endColumn": 16
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "31db2fd0285f8d81:1",
+            "primaryLocationStartColumnFingerprint": "10"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 80,
+          "flow_files": [
+            "examples/jobs/main.go",
+            "internal/api/admin_handlers.go",
+            "internal/api/lifecycle.go",
+            "internal/api/schema_handlers.go",
+            "internal/lifecycle/registry.go",
+            "pgbase/app.go",
+            "pgbase/app_lifecycle_hooks.go"
+          ],
+          "changed_flow_files": [
+            "internal/lifecycle/registry.go"
+          ],
+          "flow_first": {
+            "path": "internal/api/admin_handlers.go",
+            "region": {
+              "startLine": 377,
+              "startColumn": 25,
+              "endColumn": 31
+            }
+          },
+          "flow_last": {
+            "path": "examples/jobs/main.go",
+            "region": {
+              "startLine": 39,
+              "startColumn": 13,
+              "endColumn": 16
+            }
+          },
+          "independent_review": "Startup/serve hook errors are not the generic request-lifecycle trace assumed by SARIF. Caller event kinds remain constants; new panic reporting is sanitized and rethrows the original.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 20,
+          "rule": "go/log-injection",
+          "level": "error",
+          "security_severity": "6.1",
+          "locations": [
+            {
+              "path": "examples/lifecycle/main.go",
+              "region": {
+                "startLine": 43,
+                "startColumn": 13,
+                "endColumn": 16
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "examples/lifecycle/main.go",
+              "region": {
+                "startLine": 43,
+                "startColumn": 13,
+                "endColumn": 16
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "31db2fd0285f8d81:1",
+            "primaryLocationStartColumnFingerprint": "10"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 124,
+          "flow_files": [
+            "examples/lifecycle/main.go",
+            "internal/api/admin_handlers.go",
+            "internal/api/lifecycle.go",
+            "internal/api/schema_handlers.go",
+            "internal/lifecycle/registry.go",
+            "pgbase/app.go",
+            "pgbase/app_lifecycle_hooks.go",
+            "pgbase/managed.go"
+          ],
+          "changed_flow_files": [
+            "internal/lifecycle/registry.go"
+          ],
+          "flow_first": {
+            "path": "internal/api/admin_handlers.go",
+            "region": {
+              "startLine": 377,
+              "startColumn": 25,
+              "endColumn": 31
+            }
+          },
+          "flow_last": {
+            "path": "examples/lifecycle/main.go",
+            "region": {
+              "startLine": 43,
+              "startColumn": 13,
+              "endColumn": 16
+            }
+          },
+          "independent_review": "Startup/serve hook errors are not the generic request-lifecycle trace assumed by SARIF. Caller event kinds remain constants; new panic reporting is sanitized and rethrows the original.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 21,
+          "rule": "go/log-injection",
+          "level": "error",
+          "security_severity": "6.1",
+          "locations": [
+            {
+              "path": "internal/api/middleware.go",
+              "region": {
+                "startLine": 145,
+                "startColumn": 56,
+                "endColumn": 58
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/api/middleware.go",
+              "region": {
+                "startLine": 145,
+                "startColumn": 56,
+                "endColumn": 58
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "57165f9e90c7398c:1",
+            "primaryLocationStartColumnFingerprint": "52"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 3,
+          "flow_files": [
+            "internal/api/middleware.go"
+          ],
+          "changed_flow_files": [],
+          "flow_first": {
+            "path": "internal/api/middleware.go",
+            "region": {
+              "startLine": 135,
+              "startColumn": 10,
+              "endColumn": 18
+            }
+          },
+          "flow_last": {
+            "path": "internal/api/middleware.go",
+            "region": {
+              "startLine": 145,
+              "startColumn": 56,
+              "endColumn": 58
+            }
+          },
+          "independent_review": "Recovery logs validated/generated request ID, omits panic payload and uses structured JSON logger; source unchanged.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 22,
+          "rule": "go/log-injection",
+          "level": "error",
+          "security_severity": "6.1",
+          "locations": [
+            {
+              "path": "internal/cli/database.go",
+              "region": {
+                "startLine": 84,
+                "startColumn": 33,
+                "endColumn": 36
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/cli/database.go",
+              "region": {
+                "startLine": 84,
+                "startColumn": 33,
+                "endColumn": 36
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "dc7c46197ba12fc1:1",
+            "primaryLocationStartColumnFingerprint": "31"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 176,
+          "flow_files": [
+            "internal/adminauth/email_otp.go",
+            "internal/api/admin_handlers.go",
+            "internal/api/lifecycle.go",
+            "internal/api/schema_handlers.go",
+            "internal/cli/database.go",
+            "internal/cli/run.go",
+            "internal/lifecycle/registry.go",
+            "pgbase/lifecycle_hooks.go"
+          ],
+          "changed_flow_files": [
+            "internal/lifecycle/registry.go"
+          ],
+          "flow_first": {
+            "path": "internal/api/admin_handlers.go",
+            "region": {
+              "startLine": 377,
+              "startColumn": 25,
+              "endColumn": 31
+            }
+          },
+          "flow_last": {
+            "path": "internal/cli/database.go",
+            "region": {
+              "startLine": 84,
+              "startColumn": 33,
+              "endColumn": 36
+            }
+          },
+          "independent_review": "Concrete CLI/backup callers construct the JSON redacting logger; CR/LF are structured data. Lifecycle panic change supplies a sanitized constant-kind failure; custom caller-provided loggers remain outside this claim.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 23,
+          "rule": "go/log-injection",
+          "level": "error",
+          "security_severity": "6.1",
+          "locations": [
+            {
+              "path": "internal/cli/run.go",
+              "region": {
+                "startLine": 259,
+                "startColumn": 59,
+                "endColumn": 62
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "internal/cli/run.go",
+              "region": {
+                "startLine": 259,
+                "startColumn": 59,
+                "endColumn": 62
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "25c3446f1b34e99:1",
+            "primaryLocationStartColumnFingerprint": "56"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 80,
+          "flow_files": [
+            "internal/api/admin_handlers.go",
+            "internal/api/lifecycle.go",
+            "internal/api/schema_handlers.go",
+            "internal/cli/run.go",
+            "internal/lifecycle/registry.go",
+            "pgbase/app.go",
+            "pgbase/app_lifecycle_hooks.go"
+          ],
+          "changed_flow_files": [
+            "internal/lifecycle/registry.go"
+          ],
+          "flow_first": {
+            "path": "internal/api/admin_handlers.go",
+            "region": {
+              "startLine": 377,
+              "startColumn": 25,
+              "endColumn": 31
+            }
+          },
+          "flow_last": {
+            "path": "internal/cli/run.go",
+            "region": {
+              "startLine": 259,
+              "startColumn": 59,
+              "endColumn": 62
+            }
+          },
+          "independent_review": "Concrete CLI/backup callers construct the JSON redacting logger; CR/LF are structured data. Lifecycle panic change supplies a sanitized constant-kind failure; custom caller-provided loggers remain outside this claim.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        },
+        {
+          "index": 24,
+          "rule": "go/log-injection",
+          "level": "error",
+          "security_severity": "6.1",
+          "locations": [
+            {
+              "path": "pgbase/backup_alert.go",
+              "region": {
+                "startLine": 92,
+                "startColumn": 50,
+                "endColumn": 53
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "pgbase/backup_alert.go",
+              "region": {
+                "startLine": 92,
+                "startColumn": 50,
+                "endColumn": 53
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "c3ece702978c6e3f:1",
+            "primaryLocationStartColumnFingerprint": "47"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 172,
+          "flow_files": [
+            "internal/api/admin_handlers.go",
+            "internal/api/lifecycle.go",
+            "internal/api/schema_handlers.go",
+            "internal/lifecycle/registry.go",
+            "pgbase/backup_alert.go",
+            "pgbase/lifecycle_hooks.go"
+          ],
+          "changed_flow_files": [
+            "internal/lifecycle/registry.go"
+          ],
+          "flow_first": {
+            "path": "internal/api/admin_handlers.go",
+            "region": {
+              "startLine": 377,
+              "startColumn": 25,
+              "endColumn": 31
+            }
+          },
+          "flow_last": {
+            "path": "pgbase/backup_alert.go",
+            "region": {
+              "startLine": 92,
+              "startColumn": 50,
+              "endColumn": 53
+            }
+          },
+          "independent_review": "Concrete CLI/backup callers construct the JSON redacting logger; CR/LF are structured data. Lifecycle panic change supplies a sanitized constant-kind failure; custom caller-provided loggers remain outside this claim.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        }
+      ],
+      "scope_exclusions": {
+        "tracked_go_count": 1188,
+        "extracted_go_count": 479,
+        "test_files_not_extracted_count": 697,
+        "non_test_files_not_extracted": [
+          "internal/backup/durable_windows.go",
+          "internal/cli/password_terminal_unsupported.go",
+          "internal/cli/password_terminal_windows.go",
+          "internal/cli/password_termios_bsd.go",
+          "internal/cli/update_windows.go",
+          "internal/durablefile/rename_windows.go",
+          "internal/selfupdate/replace_windows.go",
+          "internal/selfupdate/state_windows.go",
+          "internal/selfupdate/testdata/fixture/main.go",
+          "internal/selfupdate/windows_helper.go",
+          "internal/selfupdate/windows_launcher.go",
+          "internal/testutil/pg_termination.go"
+        ],
+        "note": "Linux go build ./... extraction, not cross-platform/test-source extraction. Non-Go HTML/go.mod diagnostic locations are counted separately."
+      }
+    },
+    {
+      "language": "javascript-typescript",
+      "sarif_sha256": "34dd2513220117a838dc3a18d60b44e6d64cccb46915e5485bde5bde36f75b1b",
+      "tool_version": "2.27.4",
+      "extension_versions": {
+        "codeql/javascript-queries": "2.5.0+1be292a1e54696ca543b4ad0f9b4537b9687caa7",
+        "codeql/javascript-all": "3.0.0+1be292a1e54696ca543b4ad0f9b4537b9687caa7",
+        "codeql/threat-models": "1.1.1+1be292a1e54696ca543b4ad0f9b4537b9687caa7"
+      },
+      "query_config": {
+        "disableDefaultQueries": false,
+        "queries": [
+          {
+            "type": "builtinSuite",
+            "uses": "security-extended"
+          }
+        ]
+      },
+      "execution_successful": true,
+      "incremental_mode": null,
+      "pr_diff_range_component_present": false,
+      "notification_counts": {
+        "js/diagnostics/successfully-extracted-files": 330,
+        "cli/expected-extracted-files/go": 1135,
+        "cli/expected-extracted-files/typescript": 282,
+        "cli/expected-extracted-files/javascript": 27,
+        "cli/expected-extracted-files/html": 3,
+        "cli/expected-extracted-files/python": 1,
+        "codeql-action/overlay-disabled": 1
+      },
+      "warning_or_error_notifications": [],
+      "successfully_extracted_files": [
+        "examples/javascript/extension/hooks.js",
+        "examples/javascript/extension/job.js",
+        "examples/javascript/extension/migrations/delivery_receipts.js",
+        "examples/javascript/extension/pgbase.scripts.json",
+        "examples/javascript/extension/routes.js",
+        "examples/javascript/public/app.js",
+        "examples/javascript/public/index.html",
+        "examples/javascript/test/browser-security.test.mjs",
+        "examples/user-notes/app.js",
+        "examples/user-notes/app.test.mjs",
+        "examples/user-notes/index.html",
+        "examples/user-notes/package.json",
+        "examples/user-notes/server.js",
+        "examples/user-notes/server.test.mjs",
+        "internal/adminauth/testdata/login_sequence.golden.json",
+        "internal/api/testdata/http_wire.golden.json",
+        "internal/api/testdata/schema_operations_wire.golden.json",
+        "internal/cli/testdata/cli_output.golden.json",
+        "internal/observability/testdata/metrics_semantic.golden.json",
+        "internal/sqlconsole/testdata/docker-compose.n8.yml",
+        "sdk/dart/analysis_options.yaml",
+        "sdk/dart/example/dart_cli/pubspec.lock",
+        "sdk/dart/example/dart_cli/pubspec.yaml",
+        "sdk/dart/example/flutter_app/pubspec.lock",
+        "sdk/dart/example/flutter_app/pubspec.yaml",
+        "sdk/dart/pubspec.yaml",
+        "sdk/dart/tool/docker-compose.n7.yml",
+        "sdk/dart/tool/same_origin_admin_harness.html",
+        "sdk/javascript/pgbase-globals.types.ts",
+        "sdk/javascript/pgbase-legacy.d.ts",
+        "sdk/javascript/pgbase.d.ts",
+        "sdk/typescript/package-lock.json",
+        "sdk/typescript/package.json",
+        "sdk/typescript/src/admin.ts",
+        "sdk/typescript/src/auth-cookie.ts",
+        "sdk/typescript/src/auth-store.ts",
+        "sdk/typescript/src/index.ts",
+        "sdk/typescript/src/realtime.ts",
+        "sdk/typescript/src/response.ts",
+        "sdk/typescript/src/sse.ts",
+        "sdk/typescript/src/state-storage.ts",
+        "sdk/typescript/src/types.ts",
+        "sdk/typescript/test/admin.test.mjs",
+        "sdk/typescript/test/administrative-surfaces.test.mjs",
+        "sdk/typescript/test/auth-adoption.test.mjs",
+        "sdk/typescript/test/auth-cookie.test.mjs",
+        "sdk/typescript/test/auth-persistence.test.mjs",
+        "sdk/typescript/test/client-correctness.test.mjs",
+        "sdk/typescript/test/closure.test.mjs",
+        "sdk/typescript/test/public-api.test.ts",
+        "sdk/typescript/test/realtime-http-conformance.mjs",
+        "sdk/typescript/test/realtime-lifecycle.test.mjs",
+        "sdk/typescript/test/realtime-protocol.test.mjs",
+        "sdk/typescript/test/realtime-status.test.mjs",
+        "sdk/typescript/test/realtime-terminal.test.mjs",
+        "sdk/typescript/test/records-json.test.mjs",
+        "sdk/typescript/test/sdk.test.mjs",
+        "sdk/typescript/test/signup-profile.test.mjs",
+        "sdk/typescript/test/sse-lifecycle.test.mjs",
+        "sdk/typescript/test/user-lifecycle.test.mjs",
+        "sdk/typescript/tsconfig.json",
+        "ui/admin/src/api/authCollections.ts",
+        "ui/admin/src/api/backups.ts",
+        "ui/admin/src/api/collections.ts",
+        "ui/admin/src/api/http.lifecycle.test.ts",
+        "ui/admin/src/api/http.test.ts",
+        "ui/admin/src/api/http.ts",
+        "ui/admin/src/api/jobs.ts",
+        "ui/admin/src/api/logs.ts",
+        "ui/admin/src/api/ops.test.ts",
+        "ui/admin/src/api/realtime.ts",
+        "ui/admin/src/api/records.test.ts",
+        "ui/admin/src/api/records.ts",
+        "ui/admin/src/api/schema.ts",
+        "ui/admin/src/api/session.test.ts",
+        "ui/admin/src/api/session.ts",
+        "ui/admin/src/api/sql.ts",
+        "ui/admin/src/api/storage.ts",
+        "ui/admin/src/api/system.ts",
+        "ui/admin/src/api/users.ts",
+        "ui/admin/src/apidocs/ApiView.test.tsx",
+        "ui/admin/src/apidocs/ApiView.tsx",
+        "ui/admin/src/apidocs/apidocs.test.ts",
+        "ui/admin/src/apidocs/endpoints.ts",
+        "ui/admin/src/apidocs/samples.ts",
+        "ui/admin/src/app/AppNav.tsx",
+        "ui/admin/src/app/AppShell.test.tsx",
+        "ui/admin/src/app/AppShell.tsx",
+        "ui/admin/src/app/CommandPalette.test.tsx",
+        "ui/admin/src/app/CommandPalette.tsx",
+        "ui/admin/src/app/RunningFeed.test.tsx",
+        "ui/admin/src/app/RunningFeed.tsx",
+        "ui/admin/src/app/cache.test.tsx",
+        "ui/admin/src/app/download.ts",
+        "ui/admin/src/app/extensions.test.tsx",
+        "ui/admin/src/app/extensions.tsx",
+        "ui/admin/src/app/format.test.ts",
+        "ui/admin/src/app/format.ts",
+        "ui/admin/src/app/guard.test.ts",
+        "ui/admin/src/app/guard.tsx",
+        "ui/admin/src/app/keys.test.ts",
+        "ui/admin/src/app/keys.ts",
+        "ui/admin/src/app/limit.test.ts",
+        "ui/admin/src/app/limit.ts",
+        "ui/admin/src/app/menus.tsx",
+        "ui/admin/src/app/navigation.ts",
+        "ui/admin/src/app/operations.test.ts",
+        "ui/admin/src/app/operations.ts",
+        "ui/admin/src/app/palette.test.ts",
+        "ui/admin/src/app/palette.ts",
+        "ui/admin/src/app/prefetch.ts",
+        "ui/admin/src/app/queries.ts",
+        "ui/admin/src/app/recent.test.ts",
+        "ui/admin/src/app/recent.ts",
+        "ui/admin/src/app/router.tsx",
+        "ui/admin/src/app/screens.test.tsx",
+        "ui/admin/src/app/screens.ts",
+        "ui/admin/src/app/search.ts",
+        "ui/admin/src/app/shell.ts",
+        "ui/admin/src/app/shortcuts.ts",
+        "ui/admin/src/app/signout.test.ts",
+        "ui/admin/src/app/signout.ts",
+        "ui/admin/src/app/store.ts",
+        "ui/admin/src/app/theme.test.ts",
+        "ui/admin/src/app/theme.ts",
+        "ui/admin/src/app/transitions.test.ts",
+        "ui/admin/src/app/transitions.ts",
+        "ui/admin/src/auth/AuthCollectionsView.test.tsx",
+        "ui/admin/src/auth/AuthCollectionsView.tsx",
+        "ui/admin/src/auth/MailTab.tsx",
+        "ui/admin/src/auth/NewUserPane.test.tsx",
+        "ui/admin/src/auth/NewUserPane.tsx",
+        "ui/admin/src/auth/PolicyTab.test.tsx",
+        "ui/admin/src/auth/PolicyTab.tsx",
+        "ui/admin/src/auth/ProfileFields.tsx",
+        "ui/admin/src/auth/ProvidersTab.tsx",
+        "ui/admin/src/auth/TokensTab.tsx",
+        "ui/admin/src/auth/UserPane.tsx",
+        "ui/admin/src/auth/UsersView.test.tsx",
+        "ui/admin/src/auth/UsersView.tsx",
+        "ui/admin/src/auth/forms.test.ts",
+        "ui/admin/src/auth/forms.ts",
+        "ui/admin/src/auth/mailPreview.test.ts",
+        "ui/admin/src/auth/mailPreview.ts",
+        "ui/admin/src/auth/presets.ts",
+        "ui/admin/src/auth/queries.test.ts",
+        "ui/admin/src/auth/queries.ts",
+        "ui/admin/src/auth/useDraft.test.tsx",
+        "ui/admin/src/auth/useDraft.tsx",
+        "ui/admin/src/collections/CollectionNav.tsx",
+        "ui/admin/src/collections/ColumnSettings.tsx",
+        "ui/admin/src/collections/FieldInput.tsx",
+        "ui/admin/src/collections/FileField.test.tsx",
+        "ui/admin/src/collections/FileField.tsx",
+        "ui/admin/src/collections/FileThumb.tsx",
+        "ui/admin/src/collections/GeoPointInput.tsx",
+        "ui/admin/src/collections/RecordCell.tsx",
+        "ui/admin/src/collections/RecordEditor.tsx",
+        "ui/admin/src/collections/RecordsTable.tsx",
+        "ui/admin/src/collections/RecordsView.test.tsx",
+        "ui/admin/src/collections/RecordsView.tsx",
+        "ui/admin/src/collections/RelationPicker.tsx",
+        "ui/admin/src/collections/RichText.tsx",
+        "ui/admin/src/collections/bulk.ts",
+        "ui/admin/src/collections/columns.ts",
+        "ui/admin/src/collections/fields.test.ts",
+        "ui/admin/src/collections/fields.ts",
+        "ui/admin/src/collections/queries.test.ts",
+        "ui/admin/src/collections/queries.ts",
+        "ui/admin/src/collections/recordDraft.ts",
+        "ui/admin/src/collections/records.test.ts",
+        "ui/admin/src/collections/relation.ts",
+        "ui/admin/src/collections/relationPicker.test.tsx",
+        "ui/admin/src/collections/relationText.test.tsx",
+        "ui/admin/src/collections/richText.test.tsx",
+        "ui/admin/src/collections/useRecordForm.test.tsx",
+        "ui/admin/src/collections/useRecordForm.ts",
+        "ui/admin/src/collections/useRecordsUrl.test.tsx",
+        "ui/admin/src/collections/useRecordsUrl.ts",
+        "ui/admin/src/components/Button.tsx",
+        "ui/admin/src/components/ChangeList.tsx",
+        "ui/admin/src/components/CodeArea.tsx",
+        "ui/admin/src/components/CodeBlock.tsx",
+        "ui/admin/src/components/CopyButton.tsx",
+        "ui/admin/src/components/DataGrid.test.tsx",
+        "ui/admin/src/components/DataGrid.tsx",
+        "ui/admin/src/components/Dialog.tsx",
+        "ui/admin/src/components/Facts.tsx",
+        "ui/admin/src/components/Feedback.tsx",
+        "ui/admin/src/components/Field.tsx",
+        "ui/admin/src/components/FilePreview.tsx",
+        "ui/admin/src/components/FormSection.tsx",
+        "ui/admin/src/components/JobProgress.tsx",
+        "ui/admin/src/components/Nav.tsx",
+        "ui/admin/src/components/Page.tsx",
+        "ui/admin/src/components/PageSkeleton.test.tsx",
+        "ui/admin/src/components/PageSkeleton.tsx",
+        "ui/admin/src/components/Popover.tsx",
+        "ui/admin/src/components/QueryView.test.tsx",
+        "ui/admin/src/components/QueryView.tsx",
+        "ui/admin/src/components/SaveBar.tsx",
+        "ui/admin/src/components/SplitView.tsx",
+        "ui/admin/src/components/Table.test.tsx",
+        "ui/admin/src/components/Table.tsx",
+        "ui/admin/src/components/Tabs.tsx",
+        "ui/admin/src/components/Toast.tsx",
+        "ui/admin/src/components/UnsavedGuard.test.tsx",
+        "ui/admin/src/components/UnsavedGuard.tsx",
+        "ui/admin/src/components/ValuePeek.tsx",
+        "ui/admin/src/components/components.test.tsx",
+        "ui/admin/src/components/overlayRecovery.test.tsx",
+        "ui/admin/src/components/useFlip.ts",
+        "ui/admin/src/components/virtualRows.ts",
+        "ui/admin/src/devtools/SchemaExport.tsx",
+        "ui/admin/src/devtools/SchemaImport.tsx",
+        "ui/admin/src/devtools/SchemaOperations.test.tsx",
+        "ui/admin/src/devtools/SchemaOperations.tsx",
+        "ui/admin/src/devtools/SqlConsole.test.tsx",
+        "ui/admin/src/devtools/SqlConsole.tsx",
+        "ui/admin/src/devtools/SqlResult.tsx",
+        "ui/admin/src/devtools/importRecovery.test.tsx",
+        "ui/admin/src/devtools/model.test.ts",
+        "ui/admin/src/devtools/model.ts",
+        "ui/admin/src/devtools/queries.test.ts",
+        "ui/admin/src/devtools/queries.ts",
+        "ui/admin/src/guest/GuestLayout.tsx",
+        "ui/admin/src/guest/LoginScreen.tsx",
+        "ui/admin/src/guest/ResetPasswordScreen.tsx",
+        "ui/admin/src/guest/SetupScreen.test.tsx",
+        "ui/admin/src/guest/SetupScreen.tsx",
+        "ui/admin/src/i18n/en.ts",
+        "ui/admin/src/i18n/i18n.test.tsx",
+        "ui/admin/src/i18n/identity.test.ts",
+        "ui/admin/src/i18n/index.ts",
+        "ui/admin/src/i18n/ko.ts",
+        "ui/admin/src/i18n/parts/auth.en.ts",
+        "ui/admin/src/i18n/parts/auth.ko.ts",
+        "ui/admin/src/i18n/parts/devtools.en.ts",
+        "ui/admin/src/i18n/parts/devtools.ko.ts",
+        "ui/admin/src/i18n/parts/ops.en.ts",
+        "ui/admin/src/i18n/parts/ops.ko.ts",
+        "ui/admin/src/i18n/parts/records.en.ts",
+        "ui/admin/src/i18n/parts/records.ko.ts",
+        "ui/admin/src/i18n/parts/rules.en.ts",
+        "ui/admin/src/i18n/parts/rules.ko.ts",
+        "ui/admin/src/i18n/parts/shell.en.ts",
+        "ui/admin/src/i18n/parts/shell.ko.ts",
+        "ui/admin/src/i18n/parts/storage.en.ts",
+        "ui/admin/src/i18n/parts/storage.ko.ts",
+        "ui/admin/src/i18n/parts/system.en.ts",
+        "ui/admin/src/i18n/parts/system.ko.ts",
+        "ui/admin/src/main.tsx",
+        "ui/admin/src/ops/JobsView.test.tsx",
+        "ui/admin/src/ops/JobsView.tsx",
+        "ui/admin/src/ops/LogDetail.tsx",
+        "ui/admin/src/ops/LogStats.tsx",
+        "ui/admin/src/ops/LogsView.test.tsx",
+        "ui/admin/src/ops/LogsView.tsx",
+        "ui/admin/src/ops/RealtimeView.test.tsx",
+        "ui/admin/src/ops/RealtimeView.tsx",
+        "ui/admin/src/ops/format.test.ts",
+        "ui/admin/src/ops/format.ts",
+        "ui/admin/src/ops/queries.ts",
+        "ui/admin/src/pages/AdministratorsPage.tsx",
+        "ui/admin/src/pages/AuthCollectionsPage.tsx",
+        "ui/admin/src/pages/AuthUsersPage.tsx",
+        "ui/admin/src/pages/BackupsPage.tsx",
+        "ui/admin/src/pages/CollectionPage.tsx",
+        "ui/admin/src/pages/JobsPage.tsx",
+        "ui/admin/src/pages/LogsPage.tsx",
+        "ui/admin/src/pages/NewCollectionPage.tsx",
+        "ui/admin/src/pages/NotFoundPage.tsx",
+        "ui/admin/src/pages/ProfilePage.tsx",
+        "ui/admin/src/pages/RealtimePage.tsx",
+        "ui/admin/src/pages/SchemaOperationsPage.tsx",
+        "ui/admin/src/pages/SchemaTransferPage.tsx",
+        "ui/admin/src/pages/ServiceTokensPage.tsx",
+        "ui/admin/src/pages/SettingsPage.tsx",
+        "ui/admin/src/pages/SqlConsolePage.tsx",
+        "ui/admin/src/pages/StoragePage.tsx",
+        "ui/admin/src/rules/RulesView.test.tsx",
+        "ui/admin/src/rules/RulesView.tsx",
+        "ui/admin/src/rules/model.test.ts",
+        "ui/admin/src/rules/model.ts",
+        "ui/admin/src/rules/useRulesEditor.test.tsx",
+        "ui/admin/src/rules/useRulesEditor.ts",
+        "ui/admin/src/schema/DraftGuard.tsx",
+        "ui/admin/src/schema/FieldPane.test.tsx",
+        "ui/admin/src/schema/FieldPane.tsx",
+        "ui/admin/src/schema/IndexPane.tsx",
+        "ui/admin/src/schema/NewCollection.tsx",
+        "ui/admin/src/schema/PlanReview.tsx",
+        "ui/admin/src/schema/SchemaRows.test.tsx",
+        "ui/admin/src/schema/SchemaRows.tsx",
+        "ui/admin/src/schema/SchemaView.tsx",
+        "ui/admin/src/schema/ViewEditor.tsx",
+        "ui/admin/src/schema/apply.lifecycle.test.ts",
+        "ui/admin/src/schema/apply.ts",
+        "ui/admin/src/schema/draft.test.ts",
+        "ui/admin/src/schema/draft.ts",
+        "ui/admin/src/schema/drafts.ts",
+        "ui/admin/src/schema/useSchemaEditor.test.tsx",
+        "ui/admin/src/schema/useSchemaEditor.ts",
+        "ui/admin/src/schema/viewSql.test.ts",
+        "ui/admin/src/storage/BackupJob.tsx",
+        "ui/admin/src/storage/BackupsView.test.tsx",
+        "ui/admin/src/storage/BackupsView.tsx",
+        "ui/admin/src/storage/MigrationView.test.tsx",
+        "ui/admin/src/storage/MigrationView.tsx",
+        "ui/admin/src/storage/StorageForm.tsx",
+        "ui/admin/src/storage/StorageView.tsx",
+        "ui/admin/src/storage/model.test.ts",
+        "ui/admin/src/storage/model.ts",
+        "ui/admin/src/storage/queries.ts",
+        "ui/admin/src/system/AdministratorsView.tsx",
+        "ui/admin/src/system/AppleSecret.test.tsx",
+        "ui/admin/src/system/AppleSecret.tsx",
+        "ui/admin/src/system/ProfileView.tsx",
+        "ui/admin/src/system/ServiceTokensView.test.tsx",
+        "ui/admin/src/system/ServiceTokensView.tsx",
+        "ui/admin/src/system/SettingsView.tsx",
+        "ui/admin/src/system/StatusView.test.tsx",
+        "ui/admin/src/system/StatusView.tsx",
+        "ui/admin/src/system/administrators.test.tsx",
+        "ui/admin/src/system/net.ts",
+        "ui/admin/src/system/profile.test.tsx",
+        "ui/admin/src/system/queries.ts",
+        "ui/admin/src/system/settingsForm.ts",
+        "ui/admin/src/system/system.test.ts",
+        "ui/admin/src/test/setup.ts"
+      ],
+      "changed_runtime_files": [
+        "sdk/typescript/src/realtime.ts",
+        "sdk/typescript/src/sse.ts",
+        "ui/admin/src/api/http.ts",
+        "ui/admin/src/api/records.ts",
+        "ui/admin/src/collections/FileField.tsx",
+        "ui/admin/src/collections/RecordsView.tsx",
+        "ui/admin/src/collections/queries.ts",
+        "ui/admin/src/ops/RealtimeView.tsx",
+        "ui/admin/src/schema/apply.ts"
+      ],
+      "changed_runtime_files_not_extracted": [],
+      "findings": [
+        {
+          "index": 1,
+          "rule": "js/incomplete-multi-character-sanitization",
+          "level": "warning",
+          "security_severity": "7.8",
+          "locations": [
+            {
+              "path": "ui/admin/src/collections/relation.ts",
+              "region": {
+                "startLine": 58,
+                "startColumn": 10,
+                "endLine": 63,
+                "endColumn": 29
+              }
+            }
+          ],
+          "prior_locations": [
+            {
+              "path": "ui/admin/src/collections/relation.ts",
+              "region": {
+                "startLine": 58,
+                "startColumn": 10,
+                "endLine": 63,
+                "endColumn": 29
+              }
+            }
+          ],
+          "partial_fingerprints": {
+            "primaryLocationLineHash": "9eb29abddab35ef7:1",
+            "primaryLocationStartColumnFingerprint": "7"
+          },
+          "same_prior_fingerprints": true,
+          "same_prior_message": true,
+          "flow_step_count": 0,
+          "flow_files": [],
+          "changed_flow_files": [],
+          "flow_first": null,
+          "flow_last": null,
+          "independent_review": "htmlText remains a display-summary helper rendered through React text/attributes; concrete consumers unchanged and no innerHTML sink introduced.",
+          "classification": "no-exploitable-path-established-in-reviewed-boundary",
+          "suppressed": false
+        }
+      ],
+      "scope_exclusions": {
+        "note": "Configured JS/TS source, SDK and examples; dist/node_modules excluded; no Dart-language or SQL-language analysis."
+      }
+    }
+  ],
+  "reported_flow_file_blobs": {
+    "internal/api/admin_handlers.go": {
+      "previous_blob": "5a950d8d610456f16fef0fc5efa5a15eb54888e3",
+      "candidate_blob": "5a950d8d610456f16fef0fc5efa5a15eb54888e3",
+      "changed": false
+    },
+    "internal/api/compression.go": {
+      "previous_blob": "3d19f1c07a82a654896d3c928899d0af4fac6814",
+      "candidate_blob": "3d19f1c07a82a654896d3c928899d0af4fac6814",
+      "changed": false
+    },
+    "internal/api/custom_routes.go": {
+      "previous_blob": "325010325fedb5f3d5502b5fdddbb3c3d66bb6ee",
+      "candidate_blob": "325010325fedb5f3d5502b5fdddbb3c3d66bb6ee",
+      "changed": false
+    },
+    "internal/api/record_handlers.go": {
+      "previous_blob": "0f15c7f41374a0678357e412fc252457bbcef28b",
+      "candidate_blob": "0f15c7f41374a0678357e412fc252457bbcef28b",
+      "changed": false
+    },
+    "internal/api/sql_console.go": {
+      "previous_blob": "58b273800b074e9f66c57eda17bad1c558bb8513",
+      "candidate_blob": "58b273800b074e9f66c57eda17bad1c558bb8513",
+      "changed": false
+    },
+    "internal/recordartifact/artifact.go": {
+      "previous_blob": "9b418f3c9da8c45a42a3f14b3730b13484a1112d",
+      "candidate_blob": "9b418f3c9da8c45a42a3f14b3730b13484a1112d",
+      "changed": false
+    },
+    "internal/recordops/service.go": {
+      "previous_blob": "a4ccafb9aec87b38ddebe19b5b6e9f7388c32a4a",
+      "candidate_blob": "4571635c78b7517ae8f2bb86908d6b063e6fddd8",
+      "changed": true
+    },
+    "internal/sqlconsole/service.go": {
+      "previous_blob": "c5de93dc1f4808fb55bae11679ee4269f1500b93",
+      "candidate_blob": "c5de93dc1f4808fb55bae11679ee4269f1500b93",
+      "changed": false
+    },
+    "internal/sqlconsole/types.go": {
+      "previous_blob": "7b2fc9c942fa32057458441946d86bea33444d51",
+      "candidate_blob": "7b2fc9c942fa32057458441946d86bea33444d51",
+      "changed": false
+    },
+    "internal/api/middleware.go": {
+      "previous_blob": "88ca5af0d97613e0f493a6e848217c469cf1ed00",
+      "candidate_blob": "88ca5af0d97613e0f493a6e848217c469cf1ed00",
+      "changed": false
+    },
+    "internal/api/schema_handlers.go": {
+      "previous_blob": "a7279b2a7dfa6001c30cde3f91fac84bbe9e5890",
+      "candidate_blob": "a7279b2a7dfa6001c30cde3f91fac84bbe9e5890",
+      "changed": false
+    },
+    "internal/observability/metrics.go": {
+      "previous_blob": "b3eaa6c9e9e6a533ceb6fd67f5fc39a64fcfb938",
+      "candidate_blob": "b3eaa6c9e9e6a533ceb6fd67f5fc39a64fcfb938",
+      "changed": false
+    },
+    "internal/adminauth/password.go": {
+      "previous_blob": "564440e0794b2aa242c4d5629353a88bb65907ce",
+      "candidate_blob": "564440e0794b2aa242c4d5629353a88bb65907ce",
+      "changed": false
+    },
+    "internal/adminauth/password_recovery.go": {
+      "previous_blob": "560aeb3f03d4c245d1777435cdcbf49c39e43e70",
+      "candidate_blob": "560aeb3f03d4c245d1777435cdcbf49c39e43e70",
+      "changed": false
+    },
+    "internal/api/auth_admin.go": {
+      "previous_blob": "c94ae8e0d19a561ca85b64fecb9a991eb71d4a48",
+      "candidate_blob": "c94ae8e0d19a561ca85b64fecb9a991eb71d4a48",
+      "changed": false
+    },
+    "internal/api/auth_collections.go": {
+      "previous_blob": "3d0cee16dffe6cf123d90f87e700fa5b0a5b8677",
+      "candidate_blob": "3d0cee16dffe6cf123d90f87e700fa5b0a5b8677",
+      "changed": false
+    },
+    "internal/api/email_actions.go": {
+      "previous_blob": "bce3177d6131dd7bb31be36b6d0143c10cd63e65",
+      "candidate_blob": "bce3177d6131dd7bb31be36b6d0143c10cd63e65",
+      "changed": false
+    },
+    "internal/mailer/smtp.go": {
+      "previous_blob": "70e5c5b1cb63deb0e99359f8d91ba46da7391781",
+      "candidate_blob": "70e5c5b1cb63deb0e99359f8d91ba46da7391781",
+      "changed": false
+    },
+    "internal/userauth/auth_admin.go": {
+      "previous_blob": "ed2a68c0845fb298a9ab016a457c7e2bf2a5ec2a",
+      "candidate_blob": "ed2a68c0845fb298a9ab016a457c7e2bf2a5ec2a",
+      "changed": false
+    },
+    "internal/userauth/email_actions.go": {
+      "previous_blob": "f6e62485b1d8bbae7735e55b7ba4dc79c951f613",
+      "candidate_blob": "f6e62485b1d8bbae7735e55b7ba4dc79c951f613",
+      "changed": false
+    },
+    "internal/userauth/email_otp.go": {
+      "previous_blob": "1ca606b46df391a9f4d96b76cdcf88a342aeeea3",
+      "candidate_blob": "1ca606b46df391a9f4d96b76cdcf88a342aeeea3",
+      "changed": false
+    },
+    "internal/userauth/service.go": {
+      "previous_blob": "8c234db55c01b86adacdab8b982a596f7832957c",
+      "candidate_blob": "8c234db55c01b86adacdab8b982a596f7832957c",
+      "changed": false
+    },
+    "internal/jsvm/native_host.go": {
+      "previous_blob": "d355084d6984c8006de76af1d7d74cf92a8b7232",
+      "candidate_blob": "d355084d6984c8006de76af1d7d74cf92a8b7232",
+      "changed": false
+    },
+    "internal/query/compatibility.go": {
+      "previous_blob": "e83800205aec0d17180ca5ff3d2440753f49b275",
+      "candidate_blob": "e83800205aec0d17180ca5ff3d2440753f49b275",
+      "changed": false
+    },
+    "internal/query/compiler.go": {
+      "previous_blob": "57ba4f1ee4fa6e3cf2a1198e4ecbd2feca919210",
+      "candidate_blob": "57ba4f1ee4fa6e3cf2a1198e4ecbd2feca919210",
+      "changed": false
+    },
+    "internal/query/expand.go": {
+      "previous_blob": "02cd713f439b0e938ef57717915cb99fe00bb5fe",
+      "candidate_blob": "02cd713f439b0e938ef57717915cb99fe00bb5fe",
+      "changed": false
+    },
+    "internal/query/root_page.go": {
+      "previous_blob": "74817f41b232d78a6531a3f34122e009ffebad9a",
+      "candidate_blob": "74817f41b232d78a6531a3f34122e009ffebad9a",
+      "changed": false
+    },
+    "internal/query/service.go": {
+      "previous_blob": "fc12dfc39173f387d71a8e6294d9b329abe74eb7",
+      "candidate_blob": "fc12dfc39173f387d71a8e6294d9b329abe74eb7",
+      "changed": false
+    },
+    "internal/recordops/read.go": {
+      "previous_blob": "026deeace5cd860216a30f7b4468ea518a5bc36d",
+      "candidate_blob": "026deeace5cd860216a30f7b4468ea518a5bc36d",
+      "changed": false
+    },
+    "pgbase/extension_app_query.go": {
+      "previous_blob": "a177c526d9d0b3fd4dc3c6118f5a224d7aa894ad",
+      "candidate_blob": "a177c526d9d0b3fd4dc3c6118f5a224d7aa894ad",
+      "changed": false
+    },
+    "pgbase/extension_auth_api.go": {
+      "previous_blob": "e6406f6199a2f88164b818cd8a2b8125884a41e2",
+      "candidate_blob": "e6406f6199a2f88164b818cd8a2b8125884a41e2",
+      "changed": false
+    },
+    "pgbase/extension_bridge.go": {
+      "previous_blob": "e646dfc7c49fb2b9526d706717b266916461fe25",
+      "candidate_blob": "e646dfc7c49fb2b9526d706717b266916461fe25",
+      "changed": false
+    },
+    "pgbase/extension_bridge_errors.go": {
+      "previous_blob": "69706c43e55dd492ae190df92522579b89703f67",
+      "candidate_blob": "69706c43e55dd492ae190df92522579b89703f67",
+      "changed": false
+    },
+    "pgbase/extension_objects.go": {
+      "previous_blob": "05b32914251c098854ebd55f4561541a70f1a4d5",
+      "candidate_blob": "05b32914251c098854ebd55f4561541a70f1a4d5",
+      "changed": false
+    },
+    "pgbase/extensions.go": {
+      "previous_blob": "3ee67625b22ba5aec1756879fe876633981c2348",
+      "candidate_blob": "3ee67625b22ba5aec1756879fe876633981c2348",
+      "changed": false
+    },
+    "internal/query/codec.go": {
+      "previous_blob": "1629625e06705257914503a9373d73395bc33bc3",
+      "candidate_blob": "1629625e06705257914503a9373d73395bc33bc3",
+      "changed": false
+    },
+    "internal/recordops/generated_fields.go": {
+      "previous_blob": "89a5b84b4fdcb5465173817234a9d4327765f4e8",
+      "candidate_blob": "89a5b84b4fdcb5465173817234a9d4327765f4e8",
+      "changed": false
+    },
+    "internal/recordops/modifiers.go": {
+      "previous_blob": "c5d8e837e2cc8ea4cddcaa0521be47880739fef2",
+      "candidate_blob": "c5d8e837e2cc8ea4cddcaa0521be47880739fef2",
+      "changed": false
+    },
+    "internal/recordops/record_identity.go": {
+      "previous_blob": "c589e2740ea63412845752ab9bec642b07d264ea",
+      "candidate_blob": "c589e2740ea63412845752ab9bec642b07d264ea",
+      "changed": false
+    },
+    "internal/recordops/validate.go": {
+      "previous_blob": "dde962af0cef87eb7ce7c8d0e2054f8839d855a8",
+      "candidate_blob": "dde962af0cef87eb7ce7c8d0e2054f8839d855a8",
+      "changed": false
+    },
+    "internal/schema/operation_cursor.go": {
+      "previous_blob": "6b696221a1e7bb1d0e4789f4f45921405e0a81e4",
+      "candidate_blob": "6b696221a1e7bb1d0e4789f4f45921405e0a81e4",
+      "changed": false
+    },
+    "internal/schema/schema_document.go": {
+      "previous_blob": "f685cf3ecf1c3e07c2fb281b17cd7008fd855426",
+      "candidate_blob": "f685cf3ecf1c3e07c2fb281b17cd7008fd855426",
+      "changed": false
+    },
+    "internal/schema/schema_document_checksum.go": {
+      "previous_blob": "b2645ae19a01be694595c6cda9c09f5922869d15",
+      "candidate_blob": "b2645ae19a01be694595c6cda9c09f5922869d15",
+      "changed": false
+    },
+    "pgbase/extension_app_control.go": {
+      "previous_blob": "0fbe3c72b49d35a84e4fc86c8191f0a56abcef60",
+      "candidate_blob": "0fbe3c72b49d35a84e4fc86c8191f0a56abcef60",
+      "changed": false
+    },
+    "pgbase/extension_app_schema.go": {
+      "previous_blob": "8cd1420715ae65377fc9c8b76b967c8cd8313bed",
+      "candidate_blob": "8cd1420715ae65377fc9c8b76b967c8cd8313bed",
+      "changed": false
+    },
+    "internal/schema/schema_policy_checksum.go": {
+      "previous_blob": "a553b76140fbb13b698e12788e04266ba8f3b052",
+      "candidate_blob": "a553b76140fbb13b698e12788e04266ba8f3b052",
+      "changed": false
+    },
+    "internal/backup/archive.go": {
+      "previous_blob": "a53f8f5a1d948c3bf0ef0d9557a0f7b8def1b6e5",
+      "candidate_blob": "12c3b594af07ec9d2b60e224f9fcbf6d63533646",
+      "changed": true
+    },
+    "internal/backup/backup.go": {
+      "previous_blob": "25301e81d6ca7174956dac2cc403b82a36bb6fb0",
+      "candidate_blob": "25301e81d6ca7174956dac2cc403b82a36bb6fb0",
+      "changed": false
+    },
+    "internal/cursor/v5.go": {
+      "previous_blob": "73e184efb7e4df359852be08411b7598fded9f32",
+      "candidate_blob": "73e184efb7e4df359852be08411b7598fded9f32",
+      "changed": false
+    },
+    "internal/query/cursor_v5_binding.go": {
+      "previous_blob": "32d52f64ae63158678a0b3bb7d940757dfd89c66",
+      "candidate_blob": "32d52f64ae63158678a0b3bb7d940757dfd89c66",
+      "changed": false
+    },
+    "internal/adminauth/accounts.go": {
+      "previous_blob": "8eaedce122a1a4e8dede9af69edbf8dde583f626",
+      "candidate_blob": "8eaedce122a1a4e8dede9af69edbf8dde583f626",
+      "changed": false
+    },
+    "internal/adminauth/administrator_profile.go": {
+      "previous_blob": "3145852b2366465a002f94e666dc242340c94fdb",
+      "candidate_blob": "3145852b2366465a002f94e666dc242340c94fdb",
+      "changed": false
+    },
+    "internal/adminauth/service.go": {
+      "previous_blob": "13ded71b8e47bd5eb391cc50ebcb0b04817dbb12",
+      "candidate_blob": "13ded71b8e47bd5eb391cc50ebcb0b04817dbb12",
+      "changed": false
+    },
+    "migrations/system/embed.go": {
+      "previous_blob": "ee921ea4fe0a0b2403881f7f2e3de47d1ef89e64",
+      "candidate_blob": "7c51eb1b3e0bda11d2431b6dfb71b7d99d5d99c5",
+      "changed": true
+    },
+    "examples/custom-routes/main.go": {
+      "previous_blob": "cdaf51fda91d27e722673241c5b4d89e9f42dfd1",
+      "candidate_blob": "cdaf51fda91d27e722673241c5b4d89e9f42dfd1",
+      "changed": false
+    },
+    "internal/api/lifecycle.go": {
+      "previous_blob": "8ce26c523019c4b0224dcb445a9ddbd336866367",
+      "candidate_blob": "8ce26c523019c4b0224dcb445a9ddbd336866367",
+      "changed": false
+    },
+    "internal/lifecycle/registry.go": {
+      "previous_blob": "a4b9154f5198dae620830334a417464f6b592068",
+      "candidate_blob": "7209d5100b6bb81d8daf5f694d6f7a33e2e82109",
+      "changed": true
+    },
+    "pgbase/app.go": {
+      "previous_blob": "59c09d05773dab69a081b7a28826abb85c223100",
+      "candidate_blob": "59c09d05773dab69a081b7a28826abb85c223100",
+      "changed": false
+    },
+    "pgbase/app_lifecycle_hooks.go": {
+      "previous_blob": "45ff60230f6366a2cd652a99bdeedc40b08067bd",
+      "candidate_blob": "45ff60230f6366a2cd652a99bdeedc40b08067bd",
+      "changed": false
+    },
+    "pgbase/managed.go": {
+      "previous_blob": "07c1288d8ae93bbf7d5b5df6b81f14ccda190115",
+      "candidate_blob": "07c1288d8ae93bbf7d5b5df6b81f14ccda190115",
+      "changed": false
+    },
+    "examples/jobs/main.go": {
+      "previous_blob": "2ed161ca31d689bb939385de8f778dc7d85f5696",
+      "candidate_blob": "2ed161ca31d689bb939385de8f778dc7d85f5696",
+      "changed": false
+    },
+    "examples/lifecycle/main.go": {
+      "previous_blob": "e4c0488d56f5954d7bf5eb02a4bb63cd13035fe2",
+      "candidate_blob": "e4c0488d56f5954d7bf5eb02a4bb63cd13035fe2",
+      "changed": false
+    },
+    "internal/adminauth/email_otp.go": {
+      "previous_blob": "9512a25610487a526daeb58d1394fad0a409a456",
+      "candidate_blob": "9512a25610487a526daeb58d1394fad0a409a456",
+      "changed": false
+    },
+    "internal/cli/database.go": {
+      "previous_blob": "471c0cc38e42c52b5e6ee80913b36b8d373c319f",
+      "candidate_blob": "471c0cc38e42c52b5e6ee80913b36b8d373c319f",
+      "changed": false
+    },
+    "internal/cli/run.go": {
+      "previous_blob": "dfcfc75b1642b2c59f62e95f8c34b309c67a8e66",
+      "candidate_blob": "dfcfc75b1642b2c59f62e95f8c34b309c67a8e66",
+      "changed": false
+    },
+    "pgbase/lifecycle_hooks.go": {
+      "previous_blob": "2bfd1d0dc90b267a44f9147cc96cb49cce3f6694",
+      "candidate_blob": "2bfd1d0dc90b267a44f9147cc96cb49cce3f6694",
+      "changed": false
+    },
+    "pgbase/backup_alert.go": {
+      "previous_blob": "8ea2bcdfcb878e419e00b8fd9f2135a0212d8401",
+      "candidate_blob": "8ea2bcdfcb878e419e00b8fd9f2135a0212d8401",
+      "changed": false
+    }
+  },
+  "image": {
+    "driver_version": "0.70.0",
+    "id": "sha256:3333e8b9ebe00f1e3d34429adf244b48d23d662d306c7facf3c56514d701534f",
+    "all_severities_count": 32,
+    "high_critical_gate_count": 0,
+    "by_severity": {
+      "MEDIUM": 21,
+      "LOW": 9,
+      "UNKNOWN": 2
+    },
+    "allowlist": "vulnerabilities: []",
+    "all_records_and_rules_equal_previous": true,
+    "findings": [
+      {
+        "id": "CVE-2026-18374",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: glibc: Heap buffer overflow via attacker-controlled fopen mode string",
+        "description": "Passing an effectively empty string to the `,ccs=` syntax extension of the mode argument in the `fopen` function in the GNU C Library version 2.45 or earlier may result in a heap buffer overflow when the mode string input to the function is attacker controlled.\n\n\n\nThis usage pattern is not seen in applications in common GNU/Linux distributions and applications that process user-supplied values for `ccs` should not pass them through without validation.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-19499",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: Buffer Overflow in strfmon right-justification padding",
+        "description": "Calling strfmon and strfmon_l in the GNU C Library version 2.38 to 2.44 can write past the end of the caller-supplied output buffer when a conversion uses right-justified width padding.\n\nExploitation requires an application code path that calls strfmon or strfmon_l with right-justified width padding into a destination buffer that is large enough for the padding to succeed but too small for the internal memmove call. The field width or format may be attacker-influenced or a fixed susceptible pattern in the caller.\n\nAt the time of publication, no network-facing application impact is known.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-19542",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: Fix out-of-bounds array write in tdelete",
+        "description": "Calling tdelete on a sufficiently deep tree in the GNU C Library version 2.1 to 2.44 may write one pointer past the end of an alloca-allocated array on the stack, which may crash the application.\n\nThe tdelete implementation keeps an explicit stack of parent nodes for rebalancing, which is grown as needed while descending the tree.  Two rebalancing branches push an additional entry without checking the capacity, and write past the array when the stack is exactly full. Triggering this requires a node at a depth of exactly 40 (or 40 plus a multiple of 20), which implies a tree with at least a million nodes, so an attacker must drive a large number of insertions and deletions through an application that uses tsearch and tdelete.  The written value is a pointer into a tree node and is not directly attacker controlled.  No affected application in common distributions has been identified.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-5435",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: glibc: Out-of-bounds write via TSIG record processing",
+        "description": "The deprecated functions ns_printrrf, ns_printrr and fp_nquery in the GNU C Library version 2.2 and newer fail to enforce the caller-supplied buffer length, and can result in an out-of-bounds write when printing TSIG records.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-5450",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: glibc: Heap Buffer Overflow in `scanf` with `%mc` format specifier and large width",
+        "description": "Calling the scanf family of functions with a %mc (malloc'd character match) in the GNU C Library version 2.7 to version 2.43 with a format width specifier with an explicit width greater than 1024 could result in a one byte heap buffer overflow.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-5928",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: glibc: Information disclosure or denial of service via ungetwc function with specific wide character encodings",
+        "description": "Calling the ungetwc function on a FILE stream with wide characters encoded in a character set that has overlaps between its single byte and multi-byte character encodings, in the GNU C Library version 2.43 or earlier, may result in an attempt to read bytes before an allocated buffer, potentially resulting in unintentional disclosure of neighboring data in the heap, or a program crash.\n\nA bug in the wide character pushback implementation (_IO_wdefault_pbackfail in libio/wgenops.c) causes ungetwc() to operate on the regular character buffer (fp->_IO_read_ptr) instead of the actual wide-stream read pointer (fp->_wide_data->_IO_read_ptr). The program crash may happen in cases where fp->_IO_read_ptr is not initialized and hence points to NULL. The buffer under-read requires a special situation where the input character encoding is such that there are overlaps between single byte representations and multibyte representations in that encoding, resulting in spurious matches. The spurious match case is not possible in the standard Unicode character sets.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-6238",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: glibc: Application crash or uninitialized memory read via crafted DNS response",
+        "description": "The deprecated functions ns_printrrf, ns_printrr and fp_nquery in the GNU C Library version 2.0.1 to version 2.43 fail to validate the RDATA content against the RDATA length in a DNS response when processing A6, CERT, LOC, TKEY or TSIG records, which may allow an attacker to craft a DNS response, causing a target application to crash or read uninitialized memory.\n\nThese functions are for application debugging only and hence not in the path of code executed by the DNS resolver.  Further, they have been deprecated since version 2.34 and should not be used by any new applications.  Applications should consider porting away from these interfaces since they may be removed in future versions.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-6368",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: glibc: Process abort due to invalid memory in wordexp",
+        "description": "Calling wordexp with WRDE_APPEND in the GNU C Library version 2.0 to version 2.43\u00a0can cause the interface to return invalid memory in the we_wordv member, which on subsequent calls to wordfree may abort the process.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-6791",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: Glibc: Denial of Service via stack exhaustion during tilde expansion",
+        "description": "When expanding paths that begin with a tilde (~) followed by a username, the internal parse_tilde function extracts the username to determine the user's home directory.  The implementation allocates memory for this username directly on the stack using the strndupa macro. Because the size of this allocation was determined by the length of the user-supplied input without any bounds checks, passing an excessively long username e.g. thousands of characters, forces the thread to exhaust its stack space. Thus if an application passes untrusted, attacker-controlled input to the wordexp function, an attacker can trigger a stack clash.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-77117",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: Non-progress DoS in SHIFT_JISX0213 -&gt",
+        "description": "Converting crafted SHIFT_JISX0213 input to UCS-4 or the internal wide character encoding, for example with iconv, in the GNU C Library version 2.3 to 2.44 may result in the converter making no progress, causing the calling application to hang.\n\nSome SHIFT_JISX0213 sequences decode to two code points.  If the output buffer has room for only the first one, the converter stores the second in the conversion state and returns E2BIG, but it never clears that pending character after emitting it on the next call.  The converter then keeps emitting the pending character without consuming further input, so an application that retries the conversion loops forever. The input must be attacker controlled and the application must convert it with an output buffer small enough to split the two code points. Only the SHIFT_JISX0213 character set is affected, which is not commonly used.  The related defect in the EUC_JISX0213 converter is tracked separately as CVE-2026-80489.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-80489",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: Non-progress DoS in EUC_JISX0213 -> UCS-4 conversion state",
+        "description": "Converting crafted EUC_JISX0213 input to UCS-4 or the internal wide character encoding, for example with iconv, in the GNU C Library version 2.3 to 2.44 may result in the converter making no progress, causing the calling application to hang.\n\nSome EUC_JISX0213 sequences decode to two code points.  If the output buffer has room for only the first one, the converter stores the second in the conversion state and returns E2BIG, but it never clears that pending character after emitting it on the next call.  The converter then keeps emitting the pending character without consuming further input, so an application that retries the conversion loops forever. The input must be attacker controlled and the application must convert it with an output buffer small enough to split the two code points. Only the EUC_JISX0213 character set is affected, which is not commonly used.  The related defect in SHIFT_JISX0213 converter is tracked separately as CVE-2026-77117.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-84243",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: glibc: Arbitrary code execution via directory traversal in LANGUAGE environment variable",
+        "description": "The gettext family of functions in the GNU C Library version 2.0 and later accept LANGUAGE environment variable entries that contain '/' or that are equal to \"..\", unless the program is setuid or setgid (AT_SECURE).  An attacker who can set LANGUAGE in the environment of a program that uses gettext can make it load a message catalog (.mo file) from an arbitrary location in the file system.  A crafted .mo file can crash the program through out-of-range offsets, or supply translations whose format directives do not match the arguments passed by the program.  That causes undefined behaviour in the printf family of functions and may allow arbitrary code execution with the privileges of the program.  The safety of message catalogs relies on them being installed in trusted, read-only locations, and the directory traversal bypasses this.\n\nThe fix for CVE-2014-0475 rejects \"..\" path components in locale names passed to setlocale or taken from the LC_ALL, LC_* and LANG environment variables.  gettext reads LANGUAGE directly and appends each colon-separated entry to the message catalog directory, so that fix did not cover LANGUAGE.\n\nLANGUAGE is only used when the LC_MESSAGES locale is not \"C\", \"C.<encoding>\" or \"POSIX\", so the attacker must also be able to select another installed locale, for example through LANG or LC_ALL.  Exploitation also requires that the attacker can place the crafted file in a location readable by the target program, and that the environment crosses a trust boundary without the program running as AT_SECURE.  An example is an SSH server that accepts LANGUAGE and LANG from clients through the AcceptEnv directive and restricts an account to a forced command; the attacker may use this to escape the restriction.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-8674",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: glibc DNS stub resolver: Denial of Service via long search domain in configuration",
+        "description": "Initializing the DNS stub resolver from an /etc/resolv.conf file, or a LOCALDOMAIN environment variable, whose search list contains a domain of roughly 200 characters or more in the GNU C Library version 2.26 to 2.44 results in an assertion failure which aborts the process.\n\nThe resolver truncates the search list when copying it into the fixed-size _res.defdname buffer, then asserts that the copy is consistent with the full configuration.  The consistency check compared against the wrong size and did not handle a first entry that does not fit, so a correctly truncated list failed the assertion.  Any process that resolves names through the library is affected, including long-running processes that reload /etc/resolv.conf on the next query after it changes.  Search domains are commonly written to /etc/resolv.conf from data received over DHCP or from a VPN server, so an attacker on the local network may be able to trigger this without privileges on the target system, subject to validation by the network configuration software.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-86805",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: glibc: Privilege escalation and arbitrary code execution via TOCTOU race condition in dynamic loader",
+        "description": "A time-of-check to time-of-use (TOCTOU) race condition in the dynamic loader (ld.so) of the GNU C Library (glibc) versions 2.14 through 2.44 allows a local attacker to escalate privileges. When expanding $ORIGIN in DT_RPATH for setuid/setgid (AT_SECURE) programs, glibc validates the lexically normalized search path against the trusted directories but then opens the raw, un-normalized path. On systems where the Linux fs.protected_hardlinks sysctl is disabled, a local attacker who hard-links such a program into an attacker-controlled directory and wins a race to replace an intermediate path component with a symbolic link can direct the loader outside the trusted directory, causing it to load an attacker-controlled shared object and execute arbitrary code with the elevated privileges of the program.\n\nExploitation requires an installed setuid or setgid binary whose DT_RPATH uses $ORIGIN followed by \"..\" traversal that normalizes into a trusted directory, and the ability to hard-link that binary and win the race by swapping a path component for a symbolic link. Major Linux-based OS distributions ship with fs.protected_hardlinks enabled by default and mitigate the vulnerability.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-89092",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: nscd stack overflow leads to degraded DNS resolution",
+        "description": "The nscd service in the GNU C Library 2.3.4 onwards may crash due to a \nstack overflow when a malicious DNS server returns too large a response \nfor a DNS query, resulting in degraded DNS resolution for the system.\n\n\n\nExploitation of this bug needs a system that has nscd enabled and using \nan untrusted DNS server for name resolution, with the compromised DNS \nserver being capable of processing records large enough to result in a \nstack overflow in an nscd thread stack.\u00a0 During experimentation, bind 9 \nwas unable to handle large records, but that could change in future or \nwith a different name server.\u00a0 In typical installations, nscd is \nexecuted in an isolated context as its own user without a shell, due to \nwhich any compromise of that service is isolated.\n\n\n\nThere is a remote possibility of nscd cache corruption if an attacker \nmanages to get the stack pointer into a desired point in the heap, \npotentially resulting in other caches in nscd being overwritten with \ncorrupt data through the stack overflow, until the buggy code path \neventually results in a crash.\n\n\n\nFinally, a crash in nscd may result in performance degradation when \nresolving names, but it does not result in a denial of service.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-95818",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "glibc: glibc: Local attacker can cause denial of service and information disclosure via stack-based buffer overflow.",
+        "description": "A stack-based buffer overflow in the dynamic loader (ld.so) of the GNU C Library (glibc) versions 2.14 through 2.44 allows a local attacker to crash or corrupt the memory of setuid/setgid (AT_SECURE) programs.\n\nWhen such a program's DT_RPATH or DT_RUNPATH begins with $ORIGIN and is followed by NUL or '/' the loader both reads past the end of the path buffer and writes past the end of a stack-allocated internal buffer. The corrupted loader stack can lead to a loader crash (denial of service) and limited disclosure of process memory.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2010-4756",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "LOW",
+        "fixed_version": "",
+        "sarif_level": "note",
+        "title": "glibc: glob implementation can cause excessive CPU and memory consumption due to crafted glob expressions",
+        "description": "The glob implementation in the GNU C Library (aka glibc or libc6) allows remote authenticated users to cause a denial of service (CPU and memory consumption) via crafted glob expressions that do not match any pathnames, as demonstrated by glob expressions in STAT commands to an FTP daemon, a different vulnerability than CVE-2010-2632.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2018-20796",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "LOW",
+        "fixed_version": "",
+        "sarif_level": "note",
+        "title": "glibc: uncontrolled recursion in function check_dst_limits_calc_pos_1 in posix/regexec.c",
+        "description": "In the GNU C Library (aka glibc or libc6) through 2.29, check_dst_limits_calc_pos_1 in posix/regexec.c has Uncontrolled Recursion, as demonstrated by '(\\227|)(\\\\1\\\\1|t1|\\\\\\2537)+' in grep.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2019-1010022",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "LOW",
+        "fixed_version": "",
+        "sarif_level": "note",
+        "title": "glibc: stack guard protection bypass",
+        "description": "GNU Libc current is affected by: Mitigation bypass. The impact is: Attacker may bypass stack guard protection. The component is: nptl. The attack vector is: Exploit stack buffer overflow vulnerability and use this bypass vulnerability to bypass stack guard. NOTE: Upstream comments indicate \"this is being treated as a non-security bug and no real threat.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2019-1010023",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "LOW",
+        "fixed_version": "",
+        "sarif_level": "note",
+        "title": "glibc: running ldd on malicious ELF leads to code execution because of wrong size computation",
+        "description": "GNU Libc current is affected by: Re-mapping current loaded library with malicious ELF file. The impact is: In worst case attacker may evaluate privileges. The component is: libld. The attack vector is: Attacker sends 2 ELF files to victim and asks to run ldd on it. ldd execute code. NOTE: Upstream comments indicate \"this is being treated as a non-security bug and no real threat.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2019-1010024",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "LOW",
+        "fixed_version": "",
+        "sarif_level": "note",
+        "title": "glibc: ASLR bypass using cache of thread stack and heap",
+        "description": "GNU Libc current is affected by: Mitigation bypass. The impact is: Attacker may bypass ASLR using cache of thread stack and heap. The component is: glibc. NOTE: Upstream comments indicate \"this is being treated as a non-security bug and no real threat.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2019-1010025",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "LOW",
+        "fixed_version": "",
+        "sarif_level": "note",
+        "title": "glibc: information disclosure of heap addresses of pthread_created thread",
+        "description": "GNU Libc current is affected by: Mitigation bypass. The impact is: Attacker may guess the heap addresses of pthread_created thread. The component is: glibc. NOTE: the vendor's position is \"ASLR bypass itself is not a vulnerability.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2019-9192",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "LOW",
+        "fixed_version": "",
+        "sarif_level": "note",
+        "title": "glibc: uncontrolled recursion in function check_dst_limits_calc_pos_1 in posix/regexec.c",
+        "description": "In the GNU C Library (aka glibc or libc6) through 2.29, check_dst_limits_calc_pos_1 in posix/regexec.c has Uncontrolled Recursion, as demonstrated by '(|)(\\\\1\\\\1)*' in grep, a different issue than CVE-2018-20796. NOTE: the software maintainer disputes that this is a vulnerability because the behavior occurs only with a crafted pattern",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-97399",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "LOW",
+        "fixed_version": "",
+        "sarif_level": "note",
+        "title": "glibc: glibc: Denial of Service via out-of-bounds read in strncasecmp",
+        "description": "The strncasecmp function in the GNU C Library 2.24 and later optimized for the Power8 architecture may read one byte beyond the input size limit, which may crash a program when that byte is not readable.\n\nThis condition may happen when the input strings to the strncasecmp function are attacker controlled in an application and they match all the way up to the edge of their page and the neighbouring page is either not mapped or is not readable.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "architecture-not-applicable-to-verified-amd64-artifact",
+        "boundary": "Primary Debian description limits this issue to Power8/PowerPC. Both SBOM PURL and captured package status confirm amd64. Record retained; other architectures are unassessed.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-100290",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "UNKNOWN",
+        "fixed_version": "",
+        "sarif_level": "note",
+        "title": "The regcomp and regexec functions in the GNU C Library version 2.3 to  ...",
+        "description": "The regcomp and regexec functions in the GNU C Library version 2.3 to version 2.44 may read freed memory and free the same heap block twice when a memory allocation fails while a regular expression is compiled or matched.  The re_dfa_add_node (the NFA node table) and build_range_exp (bracket ranges) grow several arrays with consecutive realloc calls and store the new pointers only after all of them succeed.  When a later call fails, the pattern buffer keeps pointers to blocks that were already freed, and the error cleanup frees them again.  In regexec, the back-reference cache (match_ctx_add_entry) frees its array when a realloc fails but keeps the pointer, which is freed again on the error path.\n\nAn attacker does not need to supply a crafted regular expression: patterns large enough to grow these arrays are common.  The failure has to hit a specific allocation, though, so the issue can only be reached when the system is already under memory pressure.  An attacker who supplies the pattern or the subject string has little control over which allocation fails, so the expected impact is a crash of the process.  This issue affects all architectures and ABIs supported by the GNU C Library.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-115819",
+        "package": "libc6",
+        "installed_version": "2.36-9+deb12u14",
+        "severity": "UNKNOWN",
+        "fixed_version": "",
+        "sarif_level": "note",
+        "title": "Calling the wide scanf family of functions (swscanf, fwscanf, wscanf,  ...",
+        "description": "Calling the wide scanf family of functions (swscanf, fwscanf, wscanf, vswscanf, vfwscanf and vwscanf) with a %s or %[ conversion without the 'l' length modifier in the GNU C Library version 2.2 to version 2.44 writes an extra null byte one past the end of the destination array when the converted multibyte string and its terminating null byte exactly fill that array.\n\nThese conversions store each wide input character into the caller's char array as a multibyte sequence.  The conversion ends with the sequence that returns to the initial shift state, which also stores the terminating null byte, and the functions then append a second null byte.  A destination sized for the converted string and one terminator, as the C standard requires the caller to provide, is therefore written one byte past its end.  The out-of-bounds byte is always a null byte, which may corrupt adjacent data or crash the process.  An attacker who supplies the input can trigger the overflow with a string whose converted length exactly fills the destination.\n\nThe narrow scanf functions, the %ls and %l[ conversions into a wchar_t array, and the 'a' and 'm' allocation modifiers are not affected, and storing a wide scanf conversion into a narrow char array is uncommon.  This issue affects all architectures and ABIs supported by the GNU C Library.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-native-helper-dependency-risk",
+        "boundary": "Dynamic PostgreSQL backup/restore helpers retain libc exposure although main server is built with CGO_ENABLED=0. No fixed version in this scan. Complete vulnerable-function reachability and exploitability are not established; UNKNOWN is not harmless.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-107496",
+        "package": "libssl3",
+        "installed_version": "3.0.22-1~deb12u2",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "Issue summary: Encrypting a CMS message to an EC certificate whose gro ...",
+        "description": "Issue summary: Encrypting a CMS message to an EC certificate whose group order\nis 1 may cause CMS_encrypt() or CMS_encrypt_ex() to loop indefinitely.\n\nImpact summary: An attacker able to supply the recipient certificate to an\napplication performing CMS encryption can cause that application to loop\nindefinitely, consuming CPU and resulting in Denial of Service.\n\nCWE: CWE-835: Loop with Unreachable Exit Condition ('Infinite Loop')\n\nDescription: CMS_encrypt() and CMS_encrypt_ex() encrypt a message to one or\nmore recipient certificates and, for an EC recipient, generate an ephemeral\nkey in the recipient's group. If the certificate declares a group order of 1,\nrandom scalar generation can only produce zero. The key generation routine\nthen retries without limit while waiting for a nonzero private scalar, so the\ncall never returns.\n\nThe OpenSSL TLS and QUIC implementations do not use this path. An application\nis exposed only if it calls CMS_encrypt() or CMS_encrypt_ex() with a recipient\ncertificate whose EC parameters are attacker-controlled. Certificates with\nnormal EC group orders do not trigger the loop.\n\nOpenSSL 4.0 and later reject unknown explicit EC groups in default builds.\nThese versions are affected only when configured with the\nenable-ec_explicit_curves option.\n\nThe result is a hang that consumes a CPU core until the process is\ninterrupted, a Denial of Service. The severity is Low because the attacker\nmust supply the recipient certificate and the application must choose to\nencrypt to it; ordinary CMS encryption to trusted recipients is unaffected.\n\nThe fix makes EC key generation fail when the group has no valid nonzero\nprivate scalar, instead of retrying indefinitely.\n\nFIPS impact: no\nThe FIPS modules in 4.1, 4.0, 3.5 and 3.0 are not affected. The FIPS provider\ndoes not support arbitrary explicit EC domain parameters, so an order-1 group\nis rejected during key import before the vulnerable key generation path is\nreached.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-affected-library-no-reviewed-CMS-entrypoint",
+        "boundary": "OpenSSL confirms affected CMS encryption, excluding normal TLS/QUIC paths. Reviewed PgBase native use is libpq TLS; complete native-helper reachability remains unproven.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-88822",
+        "package": "libssl3",
+        "installed_version": "3.0.22-1~deb12u2",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "Issue summary: QUIC, when performing automated peer detection, may all ...",
+        "description": "Issue summary: QUIC, when performing automated peer detection, may allow\nuninitialized stack data to leak into the received address which is then used\nas the destination for outgoing packets.\n\nImpact summary: Applications using QUIC's automated peer detection mechanism\nmay receive an invalid address, leading to connection loss and disclosure of\nuninitialized stack data to an attacker observing the outgoing network traffic.\n\nCWE: CWE-457 (Use of Uninitialized Variable)\n\nDescription: The OpenSSL QUIC stack contains a feature in which, when using an\nalready connected socket, it will auto-detect the peer address during the SSL\nhandshake.  This feature uses the getpeername() function, passing a buffer of\nsufficient length to hold any supported address family, but passes a buffer\nlength that is only sized such that larger addresses, such as IPv6, cannot be\nretrieved. The getpeername() function however, still returns the full address\nlength, which is accepted as the valid input buffer length, leading to the\naddress buffer containing uninitialized stack data instead of the actual peer\naddress. The invalid peer address is then used as destination for the outgoing\npackets which leads to a connectivity breakage and a leakage of the\nuninitialized stack data to passive network observers.\n\nFIPS impact: no\nThe FIPS modules in 4.0, 3.6, 3.5, 3.4, and 3.0 are not affected by this CVE as\nthe affected protocol is not implemented in the FIPS module.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-upstream-distribution-applicability-conflict",
+        "boundary": "OpenSSL 2026-11-10 advisory excludes 3.0; current Debian-derived Trivy result still flags installed 3.0.22. No suppression or blanket dismissal.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-88823",
+        "package": "libssl3",
+        "installed_version": "3.0.22-1~deb12u2",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "Issue summary: The AES-GCM-SIV implementation treats a zero-length Add ...",
+        "description": "Issue summary: The AES-GCM-SIV implementation treats a zero-length Additional\nAuthenticated Data (AAD) update as a reset of all the AAD supplied so far,\ninstead of leaving the AAD unchanged. An application that supplies its AAD in\nseveral fragments, one of which is empty, therefore produces or verifies\nmessages whose authentication tag does not cover the AAD supplied before\nthe empty fragment.\n\nImpact summary: Data an application intended to authenticate alongside a\nmessage is silently left unauthenticated. An attacker can forge the AAD of such\na message.\n\nCWE: CWE-325: Missing Cryptographic Step\n\nDescription: An application passing AAD in multiple chunks of which some have\nzero length will have the previous AAD chunks effectively unauthenticated. Also,\non context re-initialisation, the AAD was not reset, which meant that any AAD\naccumulated from the previous context usage were also included in the AAD of the\nnew message.\n\nThe fix makes a zero-length AAD update a no-op and clears any accumulated AAD\nwhenever the context is re-initialised with a key or a nonce.\nA re-initialisation that only changes parameters keeps the AAD.\n\nFIPS impact: no\nThe FIPS modules are not affected, as AES-GCM-SIV is not a FIPS approved\nalgorithm and is implemented only in the default provider, outside the\nOpenSSL FIPS module boundary.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-upstream-distribution-applicability-conflict",
+        "boundary": "OpenSSL 2026-11-10 advisory excludes 3.0; current Debian-derived Trivy result still flags installed 3.0.22. No suppression or blanket dismissal.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-95691",
+        "package": "libssl3",
+        "installed_version": "3.0.22-1~deb12u2",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "Issue summary: A retransmitted QUIC CRYPTO frame can release packet st ...",
+        "description": "Issue summary: A retransmitted QUIC CRYPTO frame can release packet storage\nwhile the TLS record layer retains a direct pointer into that storage causing\nuse after free.\n\nImpact summary: A malicious QUIC server can cause a heap-use-after-free read\nin the OpenSSL QUIC client. The server can also identify one allocator-adjacent\nbyte through the client's protected Handshake response.\n\nCWE: CWE-416: Use After Free\n\nDescription: During CRYPTO stream processing, a pointer into the first frame's\nmemory on the stream is lent to the TLS handshake processing. The memory\nmust remain stable until it is processed and released. However the processing\nof retransmitted CRYPTO frames could release the memory if the retransmitted\nframe fully overlapped the existing frame. This then causes use-after-free read\nwhen the TLS handshake processing continues.\n\nThe use-after-free read can lead to a Denial-of-Service of the client\napplication or a minor leak of information about the heap memory contents\nthat might be overwritten with other data, subsequently allocated by\nthe application, to the peer.\n\nFIPS impact: no\nThe FIPS module is not affected as the QUIC implementation is outside of\nthe OpenSSL FIPS module boundary.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-upstream-distribution-applicability-conflict",
+        "boundary": "OpenSSL 2026-11-10 advisory excludes 3.0; current Debian-derived Trivy result still flags installed 3.0.22. No suppression or blanket dismissal.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2026-95692",
+        "package": "libssl3",
+        "installed_version": "3.0.22-1~deb12u2",
+        "severity": "MEDIUM",
+        "fixed_version": "",
+        "sarif_level": "warning",
+        "title": "Issue summary: Setting an AES-GCM-SIV IV shorter than the expected non ...",
+        "description": "Issue summary: Setting an AES-GCM-SIV IV shorter than the expected nonce\nlength via EVP_CipherInit_ex() may trigger a heap out-of-bounds read.\nSupplying a longer IV is silently truncated instead of rejected.\n\nImpact summary: An application passing a caller-supplied IV of the wrong\nlength may crash or read beyond its buffer. Because trailing IV bytes are\nignored, an attacker who knows one message and tag may forge messages under a\ndifferent IV.\n\nCWE: CWE-125: Out-of-bounds Read\n\nDescription: AES-GCM-SIV copies the caller-supplied IV or nonce into its\ninternal state using a copy whose length is taken from the expected nonce size\nrather than from the length the caller actually provided. When the caller\npasses a shorter IV, the copy reads past the end of the caller's buffer;\nAddressSanitizer confirms a heap out-of-bounds read reached through\nEVP_CipherInit_ex() into ossl_aes_gcm_siv_init(). When the caller passes a\nlonger IV, the implementation silently discards the trailing bytes instead of\nrejecting the length.\n\nThe truncation breaks the binding between the IV and the computed\nauthentication tag. An attacker who has observed a message and its tag under\none IV can produce a message and tag that verify under a different IV whose\nfirst bytes match, since the surplus bytes never influence the computation.\nThe message itself is unchanged, so this is a failure of IV commitment rather\nthan a classic existential forgery.\n\nOnly applications that call EVP_CipherInit_ex() (or the equivalent provider\ncipher initialization) with an IV length other than the standard 12 bytes for\nAES-GCM-SIV are affected. The severity is limited because the out-of-bounds\nread is small and attacker-controlled only in length, and the forgery requires\nan unusual IV length choice by the application.\n\nFIPS impact: no\nThe FIPS modules are not affected by this issue, as AES-GCM-SIV is not an\napproved algorithm.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "retained-upstream-distribution-applicability-conflict",
+        "boundary": "OpenSSL 2026-11-10 advisory excludes 3.0; current Debian-derived Trivy result still flags installed 3.0.22. No suppression or blanket dismissal.",
+        "suppressed": false
+      },
+      {
+        "id": "CVE-2025-27587",
+        "package": "libssl3",
+        "installed_version": "3.0.22-1~deb12u2",
+        "severity": "LOW",
+        "fixed_version": "",
+        "sarif_level": "note",
+        "title": "OpenSSL 3.0.0 through 3.3.2 on the PowerPC architecture is vulnerable  ...",
+        "description": "OpenSSL 3.0.0 through 3.3.2 on the PowerPC architecture is vulnerable to a Minerva attack, exploitable by measuring the time of signing of random messages using the EVP_DigestSign API, and then using the private key to extract the K value (nonce) from the signatures. Next, based on the bit size of the extracted nonce, one can compare the signing time of full-sized nonces to signatures that used smaller nonces, via statistical tests. There is a side-channel in the P-364 curve that allows private key extraction (also, there is a dependency between the bit size of K and the size of the side channel). NOTE: This CVE is disputed because the OpenSSL security policy explicitly notes that any side channels which require same physical system to be detected are outside of the threat model for the software. The timing signal is so small that it is infeasible to be detected without having the attacking process running on the same physical system.",
+        "same_prior_record": true,
+        "same_prior_rule": true,
+        "decision": "architecture-not-applicable-to-verified-amd64-artifact",
+        "boundary": "Primary Debian description limits this issue to Power8/PowerPC. Both SBOM PURL and captured package status confirm amd64. Record retained; other architectures are unassessed.",
+        "suppressed": false
+      }
+    ]
+  },
+  "runtime_assets": {
+    "image_id": "sha256:3333e8b9ebe00f1e3d34429adf244b48d23d662d306c7facf3c56514d701534f",
+    "image_id_file_matches": true,
+    "trust_environment": {
+      "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt"
+    },
+    "trust_environment_matches_capture": true,
+    "certificate_count": 148,
+    "unique_der_count": 148,
+    "all_der_fingerprints_match_manifest": true,
+    "bundle_sha256": "e9c7b63ee2623386e9b0a3ee32f499d01a8ea23dc83b8383ddff9f8e749543b7",
+    "bundle_bytes_match_previous_qualification": true,
+    "previously_removed_roots_absent": {
+      "d7a7a0fb5d7e2731d771e9484ebcdef71d5f0c3e0a2948782bc83ee0ea699ef4": true,
+      "86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b": true
+    },
+    "expired_certificates_on_2026_11_16": [
+      {
+        "sha256": "16af57a9f676b0ab126095aa5ebadef22ab31119d644ac95cd4b93dbf3f26aeb",
+        "subject": "CN=Baltimore CyberTrust Root,OU=CyberTrust,O=Baltimore,C=IE",
+        "not_after": "2025-05-12T23:59:00+00:00"
+      }
+    ],
+    "legacy_nonpositive_serial_certificates": [
+      {
+        "sha256": "c3846bf24b9e93ca64274c0ec67c1ecc5e024ffcacd2d74019350e81fe546ae4",
+        "subject": "OU=Go Daddy Class 2 Certification Authority,O=The Go Daddy Group\\, Inc.,C=US"
+      },
+      {
+        "sha256": "45140b3247eb9cc8c5b4f0d7b53091f73292089e6e5a63e2749dd3aca9198eda",
+        "subject": "CN=Go Daddy Root Certificate Authority - G2,O=GoDaddy.com\\, Inc.,L=Scottsdale,ST=Arizona,C=US"
+      },
+      {
+        "sha256": "44b545aa8a25e65a73ca15dc27fc36d24c1cb9953a066539b11582dc487b4833",
+        "subject": "CN=Hellenic Academic and Research Institutions ECC RootCA 2015,O=Hellenic Academic and Research Institutions Cert. Authority,L=Athens,C=GR"
+      },
+      {
+        "sha256": "a040929a02ce53b4acf4f2ffc6981ce4496f755e6d45fe0b2a692bcd52523f36",
+        "subject": "CN=Hellenic Academic and Research Institutions RootCA 2015,O=Hellenic Academic and Research Institutions Cert. Authority,L=Athens,C=GR"
+      },
+      {
+        "sha256": "513b2cecb810d4cde5dd85391adfc6c2dd60d87bb736d2b521484aa47a0ebef6",
+        "subject": "OU=Security Communication RootCA2,O=SECOM Trust Systems CO.\\,LTD.,C=JP"
+      },
+      {
+        "sha256": "1465fa205397b876faa6f0a9958e5590e40fcc7faa4fb7c2c8677521fb5fb658",
+        "subject": "OU=Starfield Class 2 Certification Authority,O=Starfield Technologies\\, Inc.,C=US"
+      },
+      {
+        "sha256": "2ce1cb0bf9d2f9e102993fbe215152c3b2dd0cabde1c68e5319b839154dbb7f5",
+        "subject": "CN=Starfield Root Certificate Authority - G2,O=Starfield Technologies\\, Inc.,L=Scottsdale,ST=Arizona,C=US"
+      },
+      {
+        "sha256": "568d6905a2c88708a4b3025190edcfedb1974a606a13c6e5290fcb2ae63edab5",
+        "subject": "CN=Starfield Services Root Certificate Authority - G2,O=Starfield Technologies\\, Inc.,L=Scottsdale,ST=Arizona,C=US"
+      }
+    ],
+    "timezone_header": "# version 2026f",
+    "timezone_sha256": "1708f2c388c5b602defbc56eba3237a9615f8cd28dbbf2f58d7534ff434af5a6",
+    "timezone_bytes_match_previous_qualification": true,
+    "package_metadata": {
+      "base-files": {
+        "version": "12.4+deb12u15",
+        "architecture": "amd64"
+      },
+      "ca-certificates": {
+        "version": "20250419~deb12u2",
+        "architecture": "all"
+      },
+      "libc6": {
+        "version": "2.36-9+deb12u14",
+        "architecture": "amd64"
+      },
+      "liblz4-1": {
+        "version": "1.9.4-1",
+        "architecture": "amd64"
+      },
+      "libssl3": {
+        "version": "3.0.22-1~deb12u2",
+        "architecture": "amd64"
+      },
+      "libzstd1": {
+        "version": "1.5.4+dfsg2-5",
+        "architecture": "amd64"
+      },
+      "media-types": {
+        "version": "10.0.0",
+        "architecture": "all"
+      },
+      "netbase": {
+        "version": "6.4",
+        "architecture": "all"
+      },
+      "postgresql-client-16": {
+        "version": "16.16-1.pgdg12+1",
+        "architecture": "amd64"
+      },
+      "postgresql-client-17": {
+        "version": "17.12-1.pgdg12+1",
+        "architecture": "amd64"
+      },
+      "postgresql-client-18": {
+        "version": "18.7-1.pgdg12+2",
+        "architecture": "amd64"
+      },
+      "tzdata": {
+        "version": "2026f-0+deb12u1",
+        "architecture": "all"
+      }
+    },
+    "package_versions_match_previous_qualification": true,
+    "package_versions_match_sbom": true,
+    "limitation": "Raw copied trust bundle and tzdata.zi were checked; this is not a fresh TLS handshake test, compiled-zone behavior test, full SBOM file-content proof or proof of native-library CVE nonreachability."
+  },
+  "sbom": {
+    "version": "SPDX-2.3",
+    "created": "2026-11-16T02:57:59Z",
+    "creators": [
+      "Organization: Anchore, Inc",
+      "Tool: syft-1.54.0"
+    ],
+    "package_count": 62,
+    "file_count": 972,
+    "relationship_count": 1135,
+    "sha256": "d5fd5403e6c2c3eafd0049f20a7e6e9129b6d39792ee4bd9f1ced8243cc76bfc"
+  },
+  "primary_advisories_rechecked": [
+    "https://openssl-library.org/news/secadv/20261110.txt",
+    "https://security-tracker.debian.org/tracker/CVE-2026-97399",
+    "https://security-tracker.debian.org/tracker/CVE-2025-27587",
+    "https://security-tracker.debian.org/tracker/CVE-2026-100290",
+    "https://security-tracker.debian.org/tracker/CVE-2026-115819"
+  ],
+  "gate_limitations": [
+    "Source analysis is configured-language/runtime scope, not every platform or repository file.",
+    "Source scan success means analysis completed, not that 25 findings are vulnerabilities or that code is vulnerability-free.",
+    "Image gate judges HIGH/CRITICAL only; all 32 lower/unknown records remain.",
+    "Other full-CI jobs failed on this attempt; a clean integrated qualification is not established by these security jobs.",
+    "Later test-only corrections require their own CI evidence; a runtime change invalidates equivalence and requires fresh scan review."
+  ],
+  "classification_guard_file_blobs": {
+    "internal/adminauth/password.go": {
+      "previous_blob": "564440e0794b2aa242c4d5629353a88bb65907ce",
+      "candidate_blob": "564440e0794b2aa242c4d5629353a88bb65907ce",
+      "unchanged": true
+    },
+    "internal/backup/backup.go": {
+      "previous_blob": "25301e81d6ca7174956dac2cc403b82a36bb6fb0",
+      "candidate_blob": "25301e81d6ca7174956dac2cc403b82a36bb6fb0",
+      "unchanged": true
+    },
+    "internal/query/compiler.go": {
+      "previous_blob": "57ba4f1ee4fa6e3cf2a1198e4ecbd2feca919210",
+      "candidate_blob": "57ba4f1ee4fa6e3cf2a1198e4ecbd2feca919210",
+      "unchanged": true
+    },
+    "internal/query/root_page.go": {
+      "previous_blob": "74817f41b232d78a6531a3f34122e009ffebad9a",
+      "candidate_blob": "74817f41b232d78a6531a3f34122e009ffebad9a",
+      "unchanged": true
+    },
+    "pgbase/extension_objects.go": {
+      "previous_blob": "05b32914251c098854ebd55f4561541a70f1a4d5",
+      "candidate_blob": "05b32914251c098854ebd55f4561541a70f1a4d5",
+      "unchanged": true
+    },
+    "internal/mailer/smtp.go": {
+      "previous_blob": "70e5c5b1cb63deb0e99359f8d91ba46da7391781",
+      "candidate_blob": "70e5c5b1cb63deb0e99359f8d91ba46da7391781",
+      "unchanged": true
+    },
+    "internal/recordartifact/artifact.go": {
+      "previous_blob": "9b418f3c9da8c45a42a3f14b3730b13484a1112d",
+      "candidate_blob": "9b418f3c9da8c45a42a3f14b3730b13484a1112d",
+      "unchanged": true
+    },
+    "internal/sqlconsole/types.go": {
+      "previous_blob": "7b2fc9c942fa32057458441946d86bea33444d51",
+      "candidate_blob": "7b2fc9c942fa32057458441946d86bea33444d51",
+      "unchanged": true
+    },
+    "internal/observability/logger.go": {
+      "previous_blob": "4071a11050f50e351636ed1016a4c3a0c672609d",
+      "candidate_blob": "4071a11050f50e351636ed1016a4c3a0c672609d",
+      "unchanged": true
+    },
+    "internal/schema/operation_cursor.go": {
+      "previous_blob": "6b696221a1e7bb1d0e4789f4f45921405e0a81e4",
+      "candidate_blob": "6b696221a1e7bb1d0e4789f4f45921405e0a81e4",
+      "unchanged": true
+    },
+    "internal/schema/schema_document.go": {
+      "previous_blob": "f685cf3ecf1c3e07c2fb281b17cd7008fd855426",
+      "candidate_blob": "f685cf3ecf1c3e07c2fb281b17cd7008fd855426",
+      "unchanged": true
+    },
+    "internal/schema/schema_policy_checksum.go": {
+      "previous_blob": "a553b76140fbb13b698e12788e04266ba8f3b052",
+      "candidate_blob": "a553b76140fbb13b698e12788e04266ba8f3b052",
+      "unchanged": true
+    },
+    "internal/cursor/v5.go": {
+      "previous_blob": "73e184efb7e4df359852be08411b7598fded9f32",
+      "candidate_blob": "73e184efb7e4df359852be08411b7598fded9f32",
+      "unchanged": true
+    },
+    "ui/admin/src/collections/RecordCell.tsx": {
+      "previous_blob": "892dda3022215455ea78594216647ceb12525323",
+      "candidate_blob": "892dda3022215455ea78594216647ceb12525323",
+      "unchanged": true
+    },
+    "ui/admin/src/collections/RelationPicker.tsx": {
+      "previous_blob": "94fc0804b37815ca13d5e8909f22670717e2b3c8",
+      "candidate_blob": "94fc0804b37815ca13d5e8909f22670717e2b3c8",
+      "unchanged": true
+    },
+    "ui/admin/src/collections/fields.ts": {
+      "previous_blob": "48f5502a2a18ceb91546c3728e430af95615d155",
+      "candidate_blob": "48f5502a2a18ceb91546c3728e430af95615d155",
+      "unchanged": true
+    },
+    "ui/admin/src/collections/relation.ts": {
+      "previous_blob": "7159a7aa9239cf0fbf74fd0f813d8dfd2b3105d1",
+      "candidate_blob": "7159a7aa9239cf0fbf74fd0f813d8dfd2b3105d1",
+      "unchanged": true
+    },
+    "deployments/Dockerfile": {
+      "previous_blob": "621843cff733d09744d1a11273a6c8c55c2f8ce2",
+      "candidate_blob": "621843cff733d09744d1a11273a6c8c55c2f8ce2",
+      "unchanged": true
+    },
+    "deployments/runtime-data.sh": {
+      "previous_blob": "c6d2ff0f7b8eb75fc2eee9c28258b577422b7df2",
+      "candidate_blob": "c6d2ff0f7b8eb75fc2eee9c28258b577422b7df2",
+      "unchanged": true
+    },
+    "deployments/postgres-client-runtime.sh": {
+      "previous_blob": "544857b2cbb277bea0b5791d726635b255088c4a",
+      "candidate_blob": "544857b2cbb277bea0b5791d726635b255088c4a",
+      "unchanged": true
+    },
+    "deployments/build-postgres-client-libraries.sh": {
+      "previous_blob": "8c9fc90eea2e4c143cdf3a0750c11447654ca1f7",
+      "candidate_blob": "8c9fc90eea2e4c143cdf3a0750c11447654ca1f7",
+      "unchanged": true
+    },
+    "deployments/security/trivy-allowlist.yaml": {
+      "previous_blob": "e3e1799ff02827cc116ad5c0bbd18edfa15e0055",
+      "candidate_blob": "e3e1799ff02827cc116ad5c0bbd18edfa15e0055",
+      "unchanged": true
+    }
+  }
+}

@@ -33,6 +33,12 @@ Go was 1.26.11, linux/amd64, `GOMAXPROCS=2`. PostgreSQL cross-review fixtures us
 
 These targeted independent executions complement the implementation agents' broader runs. They do not represent PostgreSQL 16/18 integration, external OAuth providers, all native-library call paths, whole-repository tests, or browser E2E. No test was added as a skip or relaxed to obtain success. The first two PostgreSQL startup attempts failed before tests because of the Unix-socket restriction; the TCP-only isolated execution succeeded without changing test assertions.
 
+## Fresh candidate scanner reconciliation
+
+[ci-43795108138](ci-43795108138/README.md) records the subsequent independent reconciliation of all 24 Go / one JS finding and 32 image records on published candidate `9934a687`, checked-out merge `69fa5e77`. Both Git objects and equivalent local `1e5e3d39` have tree `0e4d7a35239bab166fabdb881f9ec3f5e12b01e7`. Original ZIPs and GitHub API metadata are retained by the integration workstream in [final-qualification/attempt-1](../final-qualification/attempt-1/); their size/API SHA-256 comparisons are included in the recheck JSON.
+
+The follow-up includes raw independently fetched job logs compressed without changing their decoded UTF-8 text, exact executed-query counts and skipped-step facts, per-location source classifications, changed-flow/guard-file Git blobs, actual certificate/timezone byte checks and all remaining native dependency risks. It is neither an all-platform source analysis nor an overall Ready judgment. Full CI on this attempt had other failing gates; subsequent test-only corrections require their own CI evidence.
+
 The pinned backend cross-review used the following exact selection, with `PGBASE_TEST_ADMIN_URL` pointing to the disposable TCP-only PostgreSQL 17.9 cluster:
 
 ```sh
