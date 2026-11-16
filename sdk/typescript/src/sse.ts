@@ -36,6 +36,9 @@ export async function* parseEventStream(
       }
     }
   } finally {
+    // A consumer may stop on a malformed frame while the server is still
+    // streaming. Releasing the lock alone leaves that HTTP response alive.
+    try { await reader.cancel(); } catch { /* Preserve the consumer/transport error. */ }
     reader.releaseLock();
   }
 }

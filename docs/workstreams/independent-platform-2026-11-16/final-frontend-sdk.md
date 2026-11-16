@@ -43,6 +43,21 @@ Tests use Node 24 and Dart 3.13.3, disposable in-memory HTTP streams and synthet
 tokens, without network servers or production credentials. These are client
 lifetime regressions, not server authorization bypass demonstrations.
 
+## Reproduced and corrected: abandoned TypeScript SSE responses
+
+The SSE iterator released its reader lock when its consumer exited, but did not
+cancel the unread body. A malformed Realtime frame triggered reconnect while the
+previous response remained open. Repeated failures could retain extra server
+subscriptions and transport resources until the whole Realtime service stopped.
+
+Two deterministic tests failed before the fix: explicitly leaving a consumer
+called the stream's cancellation hook zero times; reconnecting after malformed
+JSON opened a second connection while the first was still uncancelled. The
+iterator now cancels the body in its cleanup, preserves the original error if
+cancellation itself fails, then releases the reader. This does not change replay
+or authorization semantics. Full TypeScript build, public type contract and test
+command now pass **113 Node tests** plus the existing standalone SDK checks.
+
 ## Coverage and remaining work
 
 Directly traced in this pass: shared Realtime subscribe/start/readiness/topic
