@@ -63,11 +63,15 @@ test("creates, downloads, uploads and restores an archive with exact record and 
   const snapshotEtag = snapshotRecord.headers().etag;
 
   await page.goto("/admin/backups");
-  const createResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/admin/backups");
-  await page.getByRole("button", { name: "Create backup" }).click();
-  const creation = await createResponse;
-  expect(creation.status()).toBe(202);
-  const job = await creation.json() as { backupId: string };
+  // Read mutation bodies as soon as their response arrives. UI actions update
+  // the URL; awaiting the action first can let Chromium evict that response.
+  const [job] = await Promise.all([
+    page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/admin/backups").then(async (response) => {
+      expect(response.status()).toBe(202);
+      return await response.json() as { backupId: string };
+    }),
+    page.getByRole("button", { name: "Create backup" }).click(),
+  ]);
   await expect(page.getByText("Completed", { exact: true }).first()).toBeVisible({ timeout: 90_000 });
   await page.getByRole("cell", { name: job.backupId, exact: true }).click();
   const pane = page.getByRole("region", { name: "Backup", exact: true });
@@ -89,11 +93,13 @@ test("creates, downloads, uploads and restores an archive with exact record and 
 
   // A separately uploaded archive must restore actual contents, not merely list
   // metadata. Mutations after the snapshot must disappear from the active app.
-  const uploadResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/admin/backups/upload");
-  await page.getByLabel("Upload archive", { exact: true }).setInputFiles(archivePath);
-  const upload = await uploadResponse;
-  expect(upload.status()).toBe(201);
-  const uploaded = await upload.json() as { id: string };
+  const [uploaded] = await Promise.all([
+    page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/admin/backups/upload").then(async (response) => {
+      expect(response.status()).toBe(201);
+      return await response.json() as { id: string };
+    }),
+    page.getByLabel("Upload archive", { exact: true }).setInputFiles(archivePath),
+  ]);
   expect(uploaded.id).not.toBe(job.backupId);
   await expect(page.getByRole("status").getByText("Archive uploaded.")).toBeVisible();
   const changed = await page.request.patch(recordPath, { headers, data: { title: "After snapshot" } });
@@ -111,11 +117,13 @@ test("creates, downloads, uploads and restores an archive with exact record and 
   await expect(confirm).toBeDisabled();
   await dialog.getByRole("textbox", { name: /to confirm/ }).fill(`pgbase-${uploaded.id}.tar.gz`);
   await expect(confirm).toBeEnabled();
-  const restoreResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/admin/backups/${uploaded.id}/restore`);
-  await confirm.click();
-  const restoration = await restoreResponse;
-  expect(restoration.status()).toBe(202);
-  const restoredJob = await restoration.json() as { id: string };
+  const [restoredJob] = await Promise.all([
+    page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/admin/backups/${uploaded.id}/restore`).then(async (response) => {
+      expect(response.status()).toBe(202);
+      return await response.json() as { id: string };
+    }),
+    confirm.click(),
+  ]);
   await expect(page).toHaveURL(new RegExp(`[?&]job=${restoredJob.id}(?:&|$)`));
   await expect(page.locator(".storage-job")).toContainText(uploaded.id);
   await expect(page.locator(".storage-job").getByText("Completed", { exact: true })).toBeVisible({ timeout: 90_000 });
