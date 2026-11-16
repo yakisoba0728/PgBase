@@ -93,6 +93,31 @@ class SummarizeCodeQLTest(unittest.TestCase):
         self.assertEqual(summary["resultCount"], 2)
         self.assertEqual(len(summary["reports"]), 2)
 
+    def test_incremental_scope_is_preserved_and_rejected_for_full_qualification(self):
+        for mode in ["diff-informed", "overlay", "overlay,diff-informed"]:
+            with self.subTest(mode=mode):
+                self.run["properties"] = {"incrementalMode": mode}
+                _, summary = self.summarize([self.run])
+                self.assertEqual(summary["reports"][0]["incrementalMode"], mode)
+                with self.assertRaisesRegex(ValueError, "Expected full configured analysis"):
+                    module.require_full_scope(summary)
+
+    def test_diff_range_pack_cannot_hide_behind_missing_scope_property(self):
+        self.run["tool"]["extensions"].append({"name": "codeql-action/pr-diff-range", "rules": []})
+        _, summary = self.summarize([self.run])
+        with self.assertRaisesRegex(ValueError, "Expected full configured analysis"):
+            module.require_full_scope(summary)
+
+    def test_full_scope_check_retains_extracted_file_evidence(self):
+        self.run["invocations"][0]["toolExecutionNotifications"] = [{
+            "descriptor": {"id": "go/diagnostics/successfully-extracted-files"},
+            "locations": [{"physicalLocation": {"artifactLocation": {"uri": "internal/example.go"}}}],
+        }]
+        _, summary = self.summarize([self.run])
+        module.require_full_scope(summary)
+        self.assertIsNone(summary["reports"][0]["incrementalMode"])
+        self.assertEqual(summary["reports"][0]["successfullyExtractedFileCount"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

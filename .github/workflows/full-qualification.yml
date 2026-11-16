@@ -33,7 +33,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-qualification')
     uses: ./.github/workflows/e2e.yml
   source-analysis:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-qualification')
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-qualification') || contains(github.event.pull_request.labels.*.name, 'source-qualification')
     uses: ./.github/workflows/source-security.yml
   mixed-http:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-qualification')

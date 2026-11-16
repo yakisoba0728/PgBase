@@ -74,6 +74,16 @@ def summarize(paths):
             if not isinstance(results, list):
                 raise ValueError(f"Missing SARIF results array in {path}")
             driver = run["tool"]["driver"]
+            components = [driver, *run["tool"].get("extensions", [])]
+            extracted_files = {
+                (location.get("physicalLocation", {}).get("artifactLocation", {}).get("uriBaseId"),
+                 location.get("physicalLocation", {}).get("artifactLocation", {}).get("uri"))
+                for invocation in invocations
+                for notification in invocation.get("toolExecutionNotifications", [])
+                if notification.get("descriptor", {}).get("id", "").endswith("/successfully-extracted-files")
+                for location in notification.get("locations", [])
+                if location.get("physicalLocation", {}).get("artifactLocation", {}).get("uri")
+            }
             reports.append({
                 "file": path.name,
                 "sha256": hashlib.sha256(raw).hexdigest(),
@@ -81,10 +91,12 @@ def summarize(paths):
                 "version": driver.get("semanticVersion", driver.get("version")),
                 "automationId": run.get("automationDetails", {}).get("id"),
                 "resultCount": len(results),
+                "incrementalMode": run.get("properties", {}).get("incrementalMode"),
+                "diffRangeRestricted": any(c.get("name") == "codeql-action/pr-diff-range" for c in components),
+                "successfullyExtractedFileCount": len(extracted_files),
                 # Descriptors include diagnostic/metric rules. This is NOT
                 # the number of queries evaluated; use the execution log.
-                "ruleDescriptorCount": sum(len(c.get("rules", [])) for c in
-                                           [driver, *run["tool"].get("extensions", [])]),
+                "ruleDescriptorCount": sum(len(c.get("rules", [])) for c in components),
             })
             for result in results:
                 component, rule = resolve_rule(run, result)
@@ -110,9 +122,18 @@ def summarize(paths):
     return findings, summary
 
 
+def require_full_scope(summary):
+    """Reject incremental results when the workflow promises configured-source review."""
+    for report in summary["reports"]:
+        if report["incrementalMode"] not in (None, "", "none") or report["diffRangeRestricted"]:
+            raise ValueError(f"Expected full configured analysis; report is incremental or diff-restricted: {report['file']}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
+    parser.add_argument("--require-full-scope", action="store_true",
+                        help="Fail if SARIF declares incremental analysis or includes a PR diff-range pack")
     args = parser.parse_args()
     paths = sorted(args.directory.glob("*.sarif"))
     if not paths:
@@ -122,6 +143,7 @@ def main():
     (args.directory / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     message = (f"CodeQL findings requiring classification: {len(findings)}\n"
                f"Levels: {json.dumps(summary['byLevel'], sort_keys=True)}\n"
+               f"Analysis scope: {json.dumps([{key: report[key] for key in ('file', 'incrementalMode', 'diffRangeRestricted', 'successfullyExtractedFileCount')} for report in summary['reports']])}\n"
                "Analysis completed; findings require review. CI success is not a security verdict.\n")
     print(message, end="")
     for finding in findings[:100]:
@@ -131,6 +153,13 @@ def main():
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
             output.write("## CodeQL analysis evidence\n\n" + message.replace("\n", "\n\n"))
+    # Preserve both the raw report and normalized evidence even when the
+    # configured-source gate fails; never turn partial analysis into a clean scan.
+    if args.require_full_scope:
+        try:
+            require_full_scope(summary)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
 
 
 if __name__ == "__main__":
