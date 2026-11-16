@@ -31,6 +31,7 @@ def main():
     temporary = Path(tempfile.mkdtemp(prefix="pgbase-native-abba-"))
     harness_path = "internal/query/load_benchmark_integration_test.go"
     harness = (repo / harness_path).read_bytes()
+    (output / "common-query-harness.go").write_bytes(harness)
     env = dict(os.environ, GOMAXPROCS="4", PGBASE_BENCH_ROWS="500000", PGBASE_BENCH_WARMUP="100",
                PGBASE_BENCH_EXPLAIN="1", PGBASE_BENCH_SAMPLES="1", PGBASE_BENCH_FILTER_INDEX="0", PGBASE_BENCH_INDEX_WRITE="0")
 

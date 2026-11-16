@@ -42,6 +42,7 @@ def main():
     def git(*command, cwd=repo):
         return subprocess.check_output(["git",*command],cwd=cwd)
     harness = git("show",HARNESS+":"+PATH)
+    (output/"common-mixed-harness.go").write_bytes(harness)
     metadata = {"platform":platform.platform(),"go":subprocess.check_output(["go","version"],text=True).strip(),
                 "cpu_count":os.cpu_count(),"gomaxprocs":4,"cycles":args.cycles,"order":["before","after","after","before"]*3,
                 "baseline":BASE,"candidate":args.candidate or {"base":BASE,"patches":PATCHES},
