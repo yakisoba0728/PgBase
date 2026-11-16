@@ -1,0 +1,46 @@
+✖ leaving an SSE consumer cancels its unread body and releases the reader (4.745295ms)
+✖ a malformed realtime frame closes its old response before reconnecting (10.891042ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 129.097332
+
+✖ failing tests:
+
+test at test/sse-lifecycle.test.mjs:6:1
+✖ leaving an SSE consumer cancels its unread body and releases the reader (4.745295ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///workspace/scratch/8e510e1cc176/PgBase-frontend/sdk/typescript/test/sse-lifecycle.test.mjs:16:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/sse-lifecycle.test.mjs:20:1
+✖ a malformed realtime frame closes its old response before reconnecting (10.891042ms)
+  AssertionError [ERR_ASSERTION]: releasing a reader alone leaves the server stream open
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///workspace/scratch/8e510e1cc176/PgBase-frontend/sdk/typescript/test/sse-lifecycle.test.mjs:50:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

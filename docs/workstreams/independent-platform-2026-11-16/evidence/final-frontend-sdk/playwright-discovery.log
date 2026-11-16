@@ -1,0 +1,33 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> pgbase-admin@0.0.0 test:e2e
+> playwright test --list
+
+Listing tests:
+  [browser-contracts-chromium] › contracts/javascript-example.spec.ts:8:1 › a shared example link cannot choose where entered credentials are sent
+  [onboarding-chromium] › onboarding/onboarding.spec.ts:23:1 › an empty backend reaches browser setup and persists the administrator session
+  [authenticated-chromium] › authenticated/admin.spec.ts:98:3 › session › rejects bad credentials, restores the session after a reload, and signs out
+  [authenticated-chromium] › authenticated/admin.spec.ts:122:3 › collection workflow › creates a base collection through the schema designer plan and apply
+  [authenticated-chromium] › authenticated/admin.spec.ts:134:3 › collection workflow › creates, edits, filters and deletes records
+  [authenticated-chromium] › authenticated/admin.spec.ts:168:3 › collection workflow › saves an access rule
+  [authenticated-chromium] › authenticated/admin.spec.ts:180:3 › collection workflow › picks a related record in the record editor
+  [authenticated-chromium] › authenticated/admin.spec.ts:200:3 › collection workflow › a data-losing schema change needs the collection name typed
+  [authenticated-chromium] › authenticated/admin.spec.ts:228:3 › auth workflow › creates an auth collection and saves its password policy
+  [authenticated-chromium] › authenticated/admin.spec.ts:243:3 › auth workflow › creates a user in the auth collection
+  [authenticated-chromium] › authenticated/admin.spec.ts:261:3 › auth workflow › the command palette finds a user by email
+  [authenticated-chromium] › authenticated/admin.spec.ts:284:3 › bulk record delete › deleting all records matching a filter leaves the rest
+  [authenticated-chromium] › authenticated/admin.spec.ts:329:3 › bulk record delete › deleting ticked rows deletes only those rows
+  [authenticated-chromium] › authenticated/admin.spec.ts:348:1 › uploads, replaces a record file and saves the record afterwards
+  [authenticated-chromium] › authenticated/admin.spec.ts:396:1 › closing the API endpoint pane drops it from the URL
+  [authenticated-chromium] › authenticated/admin.spec.ts:420:3 › administrator security › creating an administrator requires the current password
+  [authenticated-chromium] › authenticated/admin.spec.ts:438:3 › administrator security › changing the profile password requires the current password
+  [authenticated-chromium] › authenticated/admin.spec.ts:456:3 › administrator security › the IP allowlist refuses a list that excludes the caller
+  [authenticated-chromium] › authenticated/admin.spec.ts:479:1 › shows request log entries
+  [authenticated-chromium] › authenticated/admin.spec.ts:486:1 › deleting all request logs needs the screen name typed
+  [authenticated-chromium] › authenticated/admin.spec.ts:498:1 › saves application settings
+  [authenticated-chromium] › authenticated/admin.spec.ts:510:1 › switches the interface to Korean
+  [authenticated-chromium] › authenticated/admin.spec.ts:525:1 › the command palette jumps to a screen
+  [authenticated-chromium] › authenticated/admin.spec.ts:537:1 › every navigation entry opens its screen
+  [authenticated-chromium] › authenticated/admin.spec.ts:553:1 › mobile drawer moves, contains and restores keyboard focus
+  [managed-backups-chromium] › managed-backups/backup.spec.ts:20:1 › creates, downloads, uploads and restores an archive with exact record and file content
+Total: 26 tests in 4 files

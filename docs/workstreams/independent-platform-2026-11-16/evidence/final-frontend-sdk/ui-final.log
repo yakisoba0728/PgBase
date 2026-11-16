@@ -1,0 +1,19 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> pgbase-admin@0.0.0 test
+> vitest run --maxWorkers=2
+
+
+ RUN  v5.0.5 /workspace/scratch/8e510e1cc176/PgBase-frontend/ui/admin
+
+Not implemented: navigation to another Document
+
+ Test Files  78 passed (78)
+      Tests  440 passed (440)
+   Start at  11:27:44
+   Duration  51.54s (environment 53%, tests 26%, import 12%, setup 7%, transform 2%, worker 1%)
+
+Environment  jsdom was created 78 times · 48.33s total, 53% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments
+

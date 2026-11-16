@@ -88,12 +88,77 @@ dedicated project URL; it is optional only for local developers who do not start
 that third backend. Existing authenticated tests no longer contain the old
 `PGBASE_BROWSER_MANAGED_BACKUPS` skip.
 
-## Coverage and remaining work
+## Reproduced and corrected: administrator workflow ownership
 
-Directly traced in this pass: shared Realtime subscribe/start/readiness/topic
-sync/event dispatch/stop/disposer boundaries in both SDKs, their authentication
-stores and cancellation/transport callers; administrator session transport and
-query-cache recovery; managed-backup browser exclusion and its console/API/job
-callers. This does not yet constitute a complete screen-by-screen, cross-browser,
-accessibility, entire SDK or server security audit. Further work is recorded in
-subsequent sections when implemented and executed.
+Per-request session checks did not cover work performed before a request or
+between requests. Twelve added failure schedules reproduced dispatch under a
+replacement session or after cancellation:
+
+- File hashing continued into upload after either the local session generation
+  or the administrator identity changed.
+- File replacement fetched an ETag in one session and sent its PATCH in another;
+  selecting multiple files could send the second file after a session change.
+- Bulk record deletion could start after its settings read finished in another
+  session, or dispatch the queued records after the first six finished.
+- Realtime administration could retry the two queued events after the first four
+  finished across a session change.
+- Schema delete could apply an old plan; schema apply/import could poll an old
+  operation with the replacement session's credentials.
+- The file query pool could dispatch after an account change while queued, or
+  after cancellation in the interval between slot grant and continuation.
+
+`captureSessionScope` reuses the existing transport's generation and administrator
+identity checks. Multi-step callers retain that scope through hashing, queued
+tasks, later requests and final publication. Record exports use the same boundary
+before each page and before download; obsolete deletes do not modify a new
+session's cache or navigate it. The file pool checks cancellation again after
+its wait and always returns its slot. An already dispatched server mutation may
+have committed; this client change does not promise to undo it. It prevents
+further dispatch and obsolete publication.
+
+The first ten new schedules failed against the prior code while fourteen
+existing controls passed. Both pooled-task cases also failed before their fix.
+After all changes, the complete UI suite passed **440 tests in 78 files**, with
+TypeScript checking, production build and a subsequent `verify:dist` rebuild.
+The added successful-upload control also verifies the file digest, metadata and
+path remain intact. Authored markup, styles, labels and the current design were
+preserved. The React review covered event-handler ownership, functional state
+updates and hook ordering; no additional state subscription or library was added.
+
+## Source and validation trace
+
+Latest workstream runtime commit: `dcbfd4a2` (UI), following SDK commits
+`97e7f7e8` and `440466b2`. The browser fixture is `737742c8`. Later changes to
+this report and its logs are evidence/documentation only. These are local
+workstream results, not certification of a subsequently integrated server HEAD.
+
+Raw logs and command/environment metadata are in
+[`evidence/final-frontend-sdk`](evidence/final-frontend-sdk/README.md).
+
+| Boundary | Directly reviewed source | Verification in this pass |
+|---|---|---|
+| SDK Realtime auth, subscribe, drain, sync, stop and dispose | `sdk/typescript/src/realtime.ts`, `sse.ts`, relevant `index.ts` event/auth/file callers; Dart `realtime.dart`, `auth.dart`, `auth_scope.dart`, `client.dart`, `transport.dart`, `files.dart` | Controlled transport failures before fixes; TS113 / Dart132 complete suites; Dart analyze; public TS types; independent Security source review of lifetime fix |
+| Admin request, recovery, identity and cache lifetime | `api/http.ts`, `api/session.ts`, `app/signout.ts`, `app/queries.ts`, `app/guard.tsx` | Existing transport/session tests plus explicit generation and identity-change upload cases |
+| File upload/replacement and pooled token reads | `api/records.ts`, `collections/FileField.tsx`, `collections/queries.ts` and their tests | Hash/preparation, ETag-to-PATCH, multiple upload, slot grant/cancel and queued identity schedules |
+| Record paging, bulk delete and export | `collections/RecordsView.tsx`, `collections/bulk.ts`, `collections/queries.ts`, `components/virtualRows.ts`, table/feedback primitives | Existing pagination/window/bulk/partial failure suite; replacement-session settings and queued-delete cases |
+| Schema plans, apply and outcome polling | `schema/apply.ts`, related `api/collections.ts` and `api/schema.ts` contracts | Delayed plan and fake-clock collection/import outcome polling cases |
+| Realtime administration retry queue | `ops/RealtimeView.tsx`, `ops/queries.ts`, `app/limit.ts`, `api/realtime.ts` | Four-running/two-queued failure schedule; existing partial retry/window tests |
+| Managed backup UI and restore boundary | `storage/BackupsView.tsx`, `storage/BackupJob.tsx`, `storage/queries.ts`, `api/backups.ts`, related `pgbase/managed.go` and managed integration test; E2E workflow/config/spec | Typecheck, project discovery and source review of separate database/storage; actual browser restore pending hosted E2E |
+| Keyboard and accessibility primitives | `components/Dialog.tsx`, `Popover.tsx`, `Tabs.tsx`, `Button.tsx`, `Field.tsx`, `Table.tsx`, `DataGrid.tsx`; existing keyboard tests | Existing jsdom tests included in440; no new browser/a11y-engine execution claimed |
+
+### Compatibility and remaining qualification
+
+No public API shape, DB schema or migration changes were required. Calls that
+outlive their session now fail with existing session/cancellation errors.
+Applications must explicitly subscribe after changing identities. The shared
+Realtime delivery cursor remains global; applications starting a fresh snapshot
+workflow can explicitly call `resetCursor()` before resubscribing. This work does
+not change the server's replay, ordering or authorization guarantees.
+
+The direct review above is **not a full screen-by-screen or cross-browser audit**.
+Not directly completed here: every SQL-console/auth-settings form and translation,
+Firefox/WebKit or mobile-device browser runs, automated axe scans, long-duration
+browser heap/resource stress, and server-backed TS/Dart contracts on the final
+integrated HEAD. The root qualification workflow and independent QA reviewer must
+record their actual outcomes. SDK/UI unit success and Playwright discovery alone
+do not establish large-service or complete release readiness.

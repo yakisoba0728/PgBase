@@ -1,0 +1,248 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> pgbase-admin@0.0.0 test
+> vitest run --maxWorkers=2 src/api/records.test.ts src/schema/apply.lifecycle.test.ts src/ops/RealtimeView.test.tsx src/collections/FileField.test.tsx src/collections/RecordsView.test.tsx
+
+
+ RUN  v5.0.5 /workspace/scratch/8e510e1cc176/PgBase-frontend/ui/admin
+
+ ❯ src/ops/RealtimeView.test.tsx (4 tests | 1 failed) 1009ms
+   × does not dispatch queued retries under a replacement administrator session 65ms
+ ❯ src/collections/RecordsView.test.tsx (9 tests | 2 failed) 1237ms
+   × does not start a bulk delete after its administrator changes while settings load 89ms
+   × does not dispatch remaining bulk deletes after its administrator changes 107ms
+ ❯ src/collections/FileField.test.tsx (4 tests | 2 failed) 285ms
+   × does not replace a file when the session changes while fetching its ETag 19ms
+   × does not dispatch the next selected file after the administrator session changes 8ms
+ ❯ src/api/records.test.ts (4 tests | 2 failed) 15ms
+   × does not upload after the local session changes during file hashing 7ms
+   × does not upload after the administrator identity changes during file hashing 1ms
+(node:85) PromiseRejectionHandledWarning: Promise rejection was handled asynchronously (rejection id: 4)
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:85) PromiseRejectionHandledWarning: Promise rejection was handled asynchronously (rejection id: 7)
+ ❯ src/schema/apply.lifecycle.test.ts (3 tests | 3 failed) 20ms
+   × does not apply a delete planned in an earlier administrator session 10ms
+   × stops collection outcome polling before it can use a replacement session 5ms
+   × stops import outcome polling before it can use a replacement session 3ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/api/records.test.ts > does not upload after the local session changes during file hashing
+ FAIL  src/api/records.test.ts > does not upload after the administrator identity changes during file hashing
+AssertionError: promise resolved "{ id: 'unexpected' }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "id": "unexpected",
+  }
+
+ ❯ src/api/records.test.ts:36:24
+     34|   else administrator = "account-B";
+     35|   finishHash(new ArrayBuffer(32));
+     36|   await expect(pending).rejects.toMatchObject({ code: "session_changed…
+       |                        ^
+     37|   expect(upload).not.toHaveBeenCalled();
+     38| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  src/collections/FileField.test.tsx > does not replace a file when the session changes while fetching its ETag
+AssertionError: expected "replaceRecordFiles" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st replaceRecordFiles call:
+
+    Array [
+      "notes",
+      "r",
+      ""old-session"",
+      "cover",
+      Array [
+        File {},
+      ],
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/collections/FileField.test.tsx:74:23
+     72|   finish({ record: { id: "r" }, etag: '"old-session"' });
+     73|   await waitFor(() => expect(settled).toHaveBeenCalled());
+     74|   expect(replace).not.toHaveBeenCalled();
+       |                       ^
+     75|   cleanup(); client.clear();
+     76| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  src/collections/FileField.test.tsx > does not dispatch the next selected file after the administrator session changes
+AssertionError: expected "uploadRecordFile" to be called 1 times, but got 2 times
+ ❯ src/collections/FileField.test.tsx:93:18
+     91|   finish({ id: "one" } as api.StoredFile);
+     92|   await waitFor(() => expect(settled).toHaveBeenCalled());
+     93|   expect(upload).toHaveBeenCalledTimes(1);
+       |                  ^
+     94|   cleanup(); client.clear();
+     95| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  src/collections/RecordsView.test.tsx > does not start a bulk delete after its administrator changes while settings load
+AssertionError: expected "deleteRecord" to not be called at all, but actually been called 2 times
+
+Received:
+
+  1st deleteRecord call:
+
+    Array [
+      "posts",
+      "r1",
+    ]
+
+  2nd deleteRecord call:
+
+    Array [
+      "posts",
+      "r2",
+    ]
+
+
+Number of calls: 2
+
+ ❯ src/collections/RecordsView.test.tsx:162:22
+    160|   http.advanceSession();
+    161|   await act(async () => { finish({ batch: { enabled: false, maxRequest…
+    162|   expect(remove).not.toHaveBeenCalled();
+       |                      ^
+    163| });
+    164|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  src/collections/RecordsView.test.tsx > does not dispatch remaining bulk deletes after its administrator changes
+AssertionError: expected "deleteRecord" to be called 6 times, but got 8 times
+ ❯ src/collections/RecordsView.test.tsx:176:18
+    174|   remove.mockResolvedValue();
+    175|   await act(async () => { finish.forEach((resolve) => resolve()); });
+    176|   expect(remove).toHaveBeenCalledTimes(6);
+       |                  ^
+    177| });
+    178|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+ FAIL  src/ops/RealtimeView.test.tsx > does not dispatch queued retries under a replacement administrator session
+AssertionError: expected "retryRealtimeEvent" to be called 4 times, but got 6 times
+ ❯ src/ops/RealtimeView.test.tsx:69:17
+     67|   release.forEach((resolve) => resolve());
+     68|   await screen.findByText(/of 6 requested;.*failed/);
+     69|   expect(retry).toHaveBeenCalledTimes(4);
+       |                 ^
+     70| });
+     71|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯
+
+ FAIL  src/schema/apply.lifecycle.test.ts > does not apply a delete planned in an earlier administrator session
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+undefined
+
+ ❯ src/schema/apply.lifecycle.test.ts:16:24
+     14|   advanceSession();
+     15|   finish({ baseVersion: 1, checksum: "checksum" } as collections.Colle…
+     16|   await expect(pending).rejects.toMatchObject({ code: "session_changed…
+       |                        ^
+     17|   expect(apply).not.toHaveBeenCalled();
+     18| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/10]⎯
+
+ FAIL  src/schema/apply.lifecycle.test.ts > stops collection outcome polling before it can use a replacement session
+ FAIL  src/schema/apply.lifecycle.test.ts > stops import outcome polling before it can use a replacement session
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+undefined
+
+ ❯ src/schema/apply.lifecycle.test.ts:33:35
+     31|   expect(vi.getTimerCount()).toBeGreaterThan(0);
+     32|   advanceSession();
+     33|   const rejected = expect(pending).rejects.toMatchObject({ code: "sess…
+       |                                   ^
+     34|   await vi.advanceTimersByTimeAsync(1000);
+     35|   await rejected;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/10]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 2 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+AssertionError: promise resolved "undefined" instead of rejecting
+ ❯ _Assertion.__VITEST_REJECTS__ node_modules/vitest/dist/chunks/index.aTZaPVhf.js:2480:33
+ ❯ _Assertion.propertyGetter node_modules/chai/index.js:1607:27
+ ❯ Object.proxyGetter [as get] node_modules/chai/index.js:1696:22
+ ❯ src/schema/apply.lifecycle.test.ts:33:35
+     31|   expect(vi.getTimerCount()).toBeGreaterThan(0);
+     32|   advanceSession();
+     33|   const rejected = expect(pending).rejects.toMatchObject({ code: "sess…
+       |                                   ^
+     34|   await vi.advanceTimersByTimeAsync(1000);
+     35|   await rejected;
+ ❯ node_modules/vitest/dist/chunks/run.BPv-BBRv.js:2801:20
+
+This error originated in "src/schema/apply.lifecycle.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The last test to run before this error was "stops collection outcome polling before it can use a replacement session". This means either:
+- the error was thrown while Vitest was running this test, or
+- the error was thrown after the test completed, and this was the most recent test at that point.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+AssertionError: promise resolved "undefined" instead of rejecting
+ ❯ _Assertion.__VITEST_REJECTS__ node_modules/vitest/dist/chunks/index.aTZaPVhf.js:2480:33
+ ❯ _Assertion.propertyGetter node_modules/chai/index.js:1607:27
+ ❯ Object.proxyGetter [as get] node_modules/chai/index.js:1696:22
+ ❯ src/schema/apply.lifecycle.test.ts:33:35
+     31|   expect(vi.getTimerCount()).toBeGreaterThan(0);
+     32|   advanceSession();
+     33|   const rejected = expect(pending).rejects.toMatchObject({ code: "sess…
+       |                                   ^
+     34|   await vi.advanceTimersByTimeAsync(1000);
+     35|   await rejected;
+ ❯ node_modules/vitest/dist/chunks/run.BPv-BBRv.js:2801:20
+
+This error originated in "src/schema/apply.lifecycle.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The last test to run before this error was "stops import outcome polling before it can use a replacement session". This means either:
+- the error was thrown while Vitest was running this test, or
+- the error was thrown after the test completed, and this was the most recent test at that point.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  5 failed (5)
+      Tests  10 failed | 14 passed (24)
+     Errors  2 errors
+   Start at  11:24:01
+   Duration  4.89s (environment 34%, tests 31%, transform 18%, import 11%, setup 6%)
+
+Environment  jsdom was created 5 times · 2.81s total, 34% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments
+
