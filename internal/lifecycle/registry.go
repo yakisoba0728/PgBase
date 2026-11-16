@@ -123,7 +123,13 @@ func (r *Registry) Begin(ctx context.Context, event *Event) (finish func(error),
 
 func (r *Registry) Run(ctx context.Context, event *Event, operation func() error) (err error) {
 	finish, err := r.Begin(ctx, event)
-	defer func() { finish(err) }()
+	defer func() {
+		if cause := recover(); cause != nil {
+			finish(fmt.Errorf("%s operation panicked", event.Kind))
+			panic(cause)
+		}
+		finish(err)
+	}()
 	if err != nil {
 		return err
 	}

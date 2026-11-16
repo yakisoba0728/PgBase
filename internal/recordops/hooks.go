@@ -150,6 +150,24 @@ func callBeforeHook(ctx context.Context, hook MutationHook, event Mutation) (err
 	return hook.BeforeMutation(ctx, event)
 }
 
+// finishOperation must be deferred directly by the mutation entry point so it
+// observes panics after the transaction/savepoint has rolled back. A borrowed
+// owner's later successful commit cannot turn this failed operation into a
+// success. Keep panic details out of observers and preserve the caller's panic.
+func (run *mutationHookRun) finishOperation(ctx context.Context, operationErr *error, compound bool) {
+	cause := recover()
+	if cause != nil {
+		*operationErr = errors.New("record operation panicked")
+	}
+	if compound && run != nil {
+		run.deferAfter--
+	}
+	run.after(ctx, operationErr)
+	if cause != nil {
+		panic(cause)
+	}
+}
+
 func (run *mutationHookRun) after(ctx context.Context, operationErr *error) {
 	if run != nil && *operationErr != nil {
 		run.failure = *operationErr

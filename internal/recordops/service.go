@@ -80,7 +80,7 @@ func NewService(
 
 func (s *Service) Create(ctx context.Context, request CreateRequest) (result MutationResult, err error) {
 	ctx, hooks := s.hookContext(ctx)
-	defer hooks.after(ctx, &err)
+	defer hooks.finishOperation(ctx, &err, false)
 	operationStarted := time.Now()
 	relationOperation := false
 	defer s.finishRelationRecordOperation(ctx, observability.OperationRelationWrite, operationStarted, &err, &relationOperation)
@@ -317,7 +317,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 
 func (s *Service) Update(ctx context.Context, request UpdateRequest) (result MutationResult, err error) {
 	ctx, hooks := s.hookContext(ctx)
-	defer hooks.after(ctx, &err)
+	defer hooks.finishOperation(ctx, &err, false)
 	operationStarted := time.Now()
 	relationOperation := false
 	defer s.finishRelationRecordOperation(ctx, observability.OperationRelationWrite, operationStarted, &err, &relationOperation)
@@ -527,7 +527,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 
 func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result MutationResult, err error) {
 	ctx, hooks := s.hookContext(ctx)
-	defer hooks.after(ctx, &err)
+	defer hooks.finishOperation(ctx, &err, false)
 	operationStarted := time.Now()
 	relationOperation := false
 	defer s.finishRelationRecordOperation(ctx, observability.OperationRelationDelete, operationStarted, &err, &relationOperation)
