@@ -1,0 +1,42 @@
+{
+  "runtime_fix": "34be2bbe008059ff0e247cc3e328ecfae63d3516",
+  "after_tree": "5a34cc682db5f04cc8a642558939ac31a7743b51",
+  "before_runtime_commit": "992f7d536ace594c9edb00b368d4c94cab7871b6",
+  "before_fixture": "pgbase/extension_database_serialization_integration_test.go",
+  "before_fixture_sha256": "c0e87d3a13f164999638760347b4d9afd9c8be8529a6aeb4a2a47ee75431b2fc",
+  "before_tree_with_new_test": "5859df86202b81954cab182315c4b01491d6cf37",
+  "before_command": "GOMAXPROCS=2 go test -tags=integration ./pgbase -run '^TestExtensionDatabaseSerializationFailureRollsBack$' -count=1 -json",
+  "after_command": "GOMAXPROCS=2 go test -race -tags=integration ./pgbase -run '^(TestExtensionDatabaseSerializationFailureRollsBack|TestJavaScriptTrustedDatabaseRollbackAndLogicalObjectIsolation|TestPocketBaseRunInTransactionUsesInvocationBoundPostgresTransaction|TestTrustedSavepointRollbackFailurePreventsOuterCommit|TestExtensionHostCloseBoundsRollbackWhenDatabaseRepliesStop|TestRecordHooksFollowExternalTransactionOutcomeExactlyOnce)$' -count=3 -json",
+  "environment": {
+    "go": "go1.26.11 linux/amd64",
+    "postgres": "17.9",
+    "database": "Fresh loopback-only disposable cluster for each before/after command, stopped by shell EXIT trap.",
+    "database_url": "PGBASE_TEST_ADMIN_URL points to that disposable cluster"
+  },
+  "reports": {
+    "serialization-before.jsonl": {
+      "sha256": "fd0642db4e2266864013e79a4091b7a3e23f4deecfeaecf79be10958487aec56",
+      "top_level_pass_executions": 0,
+      "test_pass_events": 0,
+      "test_failure_events": 9,
+      "skips": 0,
+      "package_elapsed_seconds": 1.341,
+      "conclusion": "fail"
+    },
+    "serialization-and-transactions-after-race.jsonl": {
+      "sha256": "dbdcd7f1d296aa5f30e14fde3470cc4eb49094587221399caf7113f9f1dae04d",
+      "top_level_pass_executions": 18,
+      "test_pass_events": 42,
+      "test_failure_events": 0,
+      "skips": 0,
+      "package_elapsed_seconds": 17.456,
+      "conclusion": "pass"
+    }
+  },
+  "independent_review": "Pending; author tests and recovery of prior tests do not count as independent review.",
+  "remaining_scope": [
+    "No output-size/depth admission change is claimed. VM output checks may still fail after a batch commits.",
+    "No PostgreSQL16/18 run or full final integrated CI performed by this agent.",
+    "Extension object-store cancellation/drain and full schema compiler audit remain separate work."
+  ]
+}
