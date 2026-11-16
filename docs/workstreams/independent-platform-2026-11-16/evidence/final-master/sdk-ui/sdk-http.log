@@ -1,0 +1,26 @@
+go: downloading github.com/dop251/goja v0.0.0-20260906210903-70ad66ec7ce4
+go: downloading github.com/evanw/esbuild v0.28.2
+go: downloading github.com/dop251/goja_nodejs v0.0.0-20260212111938-1f56ff5bcf14
+go: downloading github.com/dlclark/regexp2/v2 v2.5.2
+go: downloading github.com/google/pprof v0.0.0-20240727154555-813a5fbdbec8
+go: downloading github.com/go-sourcemap/sourcemap v2.1.4+incompatible
+=== RUN   TestSDKPublicRecordHTTPConformance
+--- PASS: TestSDKPublicRecordHTTPConformance (4.74s)
+=== RUN   TestSDKRelationFileNativeListRegression
+--- PASS: TestSDKRelationFileNativeListRegression (2.48s)
+=== RUN   TestSDKTextRecordIdentityHTTPConformance
+--- PASS: TestSDKTextRecordIdentityHTTPConformance (15.40s)
+=== RUN   TestSDKIteratorSessionHTTPConformance
+=== RUN   TestSDKIteratorSessionHTTPConformance/typescript
+=== RUN   TestSDKIteratorSessionHTTPConformance/dart
+--- PASS: TestSDKIteratorSessionHTTPConformance (27.75s)
+    --- PASS: TestSDKIteratorSessionHTTPConformance/typescript (0.18s)
+    --- PASS: TestSDKIteratorSessionHTTPConformance/dart (25.78s)
+=== RUN   TestSDKRealtimeHTTPConformance
+=== RUN   TestSDKRealtimeHTTPConformance/typescript
+=== RUN   TestSDKRealtimeHTTPConformance/dart
+--- PASS: TestSDKRealtimeHTTPConformance (15.34s)
+    --- PASS: TestSDKRealtimeHTTPConformance/typescript (2.35s)
+    --- PASS: TestSDKRealtimeHTTPConformance/dart (4.38s)
+PASS
+ok  	github.com/yakisoba0728/PgBase/pgbase	65.765s

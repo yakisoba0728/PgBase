@@ -493,6 +493,111 @@
       "retention_location": "repository commit, to be integrated by coordinator into PR #148",
       "expires_at": null,
       "removable": false
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/sdk-ui/sdk-http.log",
+      "classification": "PRIMARY_EVIDENCE",
+      "source_sha": "3dee5ed6680625c5e3e9014ed677cd42c5d1be80",
+      "source_git_tree": "495b410e8c6484c30d77cfedb540f9bfb0c25e27",
+      "source_scope_note": "Exact tracked source checkout; no code changes during this run. New local evidence is documentation only.",
+      "run_id": null,
+      "job_id": null,
+      "sha256": "f2725ee4dcae98ec5eefe5231c0d0525fb7ee04e926a54a8e3b4d01253e39003",
+      "bytes": 1440,
+      "recorded_at_utc": "2026-11-16T23:40:26.423762+00:00",
+      "command": "PGBASE_FIXTURE_PORT=56849 PGBASE_FIXTURE_LOG=<evidence>/sdk-http-postgres.log PGBASE_FIXTURE_ENVIRONMENT=<evidence>/sdk-http-environment.txt GOMAXPROCS=2 /workspace/scratch/27f5e00d0baa/qa/with-postgres17.sh go test -tags='integration sdkconformance' ./pgbase -run '^TestSDK' -count=1 -v -timeout 8m",
+      "result": "PASS",
+      "reason": "Real SDK HTTP/PG conformance and fixture durability/teardown evidence.",
+      "retention_location": "repository commit, integrated by coordinator into PR #148",
+      "expires_at": null,
+      "removable": false
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/sdk-ui/sdk-http-postgres.log",
+      "classification": "PRIMARY_EVIDENCE",
+      "source_sha": "3dee5ed6680625c5e3e9014ed677cd42c5d1be80",
+      "source_git_tree": "495b410e8c6484c30d77cfedb540f9bfb0c25e27",
+      "source_scope_note": "Exact tracked source checkout; no code changes during this run. New local evidence is documentation only.",
+      "run_id": null,
+      "job_id": null,
+      "sha256": "3a2684a4046e401a9575735134ad6e21f0d05df39e9e08e60962ffa47eea6d6d",
+      "bytes": 4085,
+      "recorded_at_utc": "2026-11-16T23:40:26.567760+00:00",
+      "command": "PGBASE_FIXTURE_PORT=56849 PGBASE_FIXTURE_LOG=<evidence>/sdk-http-postgres.log PGBASE_FIXTURE_ENVIRONMENT=<evidence>/sdk-http-environment.txt GOMAXPROCS=2 /workspace/scratch/27f5e00d0baa/qa/with-postgres17.sh go test -tags='integration sdkconformance' ./pgbase -run '^TestSDK' -count=1 -v -timeout 8m",
+      "result": "PASS",
+      "reason": "Real SDK HTTP/PG conformance and fixture durability/teardown evidence.",
+      "retention_location": "repository commit, integrated by coordinator into PR #148",
+      "expires_at": null,
+      "removable": false
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/sdk-ui/sdk-http-environment.txt",
+      "classification": "PRIMARY_EVIDENCE",
+      "source_sha": "3dee5ed6680625c5e3e9014ed677cd42c5d1be80",
+      "source_git_tree": "495b410e8c6484c30d77cfedb540f9bfb0c25e27",
+      "source_scope_note": "Exact tracked source checkout; no code changes during this run. New local evidence is documentation only.",
+      "run_id": null,
+      "job_id": null,
+      "sha256": "d5e863a823c6f852fed7e39fead018df1af5bfeb186d86573d4385b9eb308c94",
+      "bytes": 112,
+      "recorded_at_utc": "2026-11-16T23:38:39.999501+00:00",
+      "command": "PGBASE_FIXTURE_PORT=56849 PGBASE_FIXTURE_LOG=<evidence>/sdk-http-postgres.log PGBASE_FIXTURE_ENVIRONMENT=<evidence>/sdk-http-environment.txt GOMAXPROCS=2 /workspace/scratch/27f5e00d0baa/qa/with-postgres17.sh go test -tags='integration sdkconformance' ./pgbase -run '^TestSDK' -count=1 -v -timeout 8m",
+      "result": "PASS",
+      "reason": "Real SDK HTTP/PG conformance and fixture durability/teardown evidence.",
+      "retention_location": "repository commit, integrated by coordinator into PR #148",
+      "expires_at": null,
+      "removable": false
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/sdk-ui/sdk-http-qualification.json",
+      "classification": "PRIMARY_EVIDENCE",
+      "source_sha": "3dee5ed6680625c5e3e9014ed677cd42c5d1be80",
+      "source_git_tree": "495b410e8c6484c30d77cfedb540f9bfb0c25e27",
+      "source_scope_note": "Exact tracked source checkout; no code changes during this run. New local evidence is documentation only.",
+      "run_id": null,
+      "job_id": null,
+      "sha256": "c65150ebc7123ae8166b821dd3811898dc2b4ec9decd9e07aa2cbc46eb968dc3",
+      "bytes": 1457,
+      "recorded_at_utc": "2026-11-16T23:40:58.813309+00:00",
+      "command": "PGBASE_FIXTURE_PORT=56849 PGBASE_FIXTURE_LOG=<evidence>/sdk-http-postgres.log PGBASE_FIXTURE_ENVIRONMENT=<evidence>/sdk-http-environment.txt GOMAXPROCS=2 /workspace/scratch/27f5e00d0baa/qa/with-postgres17.sh go test -tags='integration sdkconformance' ./pgbase -run '^TestSDK' -count=1 -v -timeout 8m",
+      "result": "PASS",
+      "reason": "Real SDK HTTP/PG conformance and fixture durability/teardown evidence.",
+      "retention_location": "repository commit, integrated by coordinator into PR #148",
+      "expires_at": null,
+      "removable": false
     }
-  ]
+  ],
+  "real_http_qualification": {
+    "source_sha": "3dee5ed6680625c5e3e9014ed677cd42c5d1be80",
+    "source_git_tree": "495b410e8c6484c30d77cfedb540f9bfb0c25e27",
+    "source_status": "tracked runtime files unchanged; generated SDK dist reproduced exactly",
+    "command": "PGBASE_FIXTURE_PORT=56849 PGBASE_FIXTURE_LOG=<evidence>/sdk-http-postgres.log PGBASE_FIXTURE_ENVIRONMENT=<evidence>/sdk-http-environment.txt GOMAXPROCS=2 /workspace/scratch/27f5e00d0baa/qa/with-postgres17.sh go test -tags='integration sdkconformance' ./pgbase -run '^TestSDK' -count=1 -v -timeout 8m",
+    "postgresql": "17.9",
+    "top_level_passed": 5,
+    "subtests_passed": 4,
+    "failed": 0,
+    "skipped": 0,
+    "elapsed_test_seconds": 65.765,
+    "test_names": [
+      "TestSDKPublicRecordHTTPConformance ",
+      "TestSDKRelationFileNativeListRegression ",
+      "TestSDKTextRecordIdentityHTTPConformance ",
+      "TestSDKIteratorSessionHTTPConformance ",
+      "TestSDKRealtimeHTTPConformance "
+    ],
+    "fixture_shutdown_verified": true,
+    "durability": {
+      "fsync": "on",
+      "full_page_writes": "on",
+      "max_connections": "100",
+      "server_version": "17.9",
+      "shared_buffers": "16384",
+      "synchronous_commit": "on"
+    },
+    "notes": [
+      "Executed once; no missing-extension failure or rerun occurred.",
+      "This is real HTTP/server/database conformance, not reproduction of every unit-tested asynchronous race.",
+      "Administrator multiprocess, browser and final integrated source CI gates remain coordinator-owned."
+    ]
+  }
 }

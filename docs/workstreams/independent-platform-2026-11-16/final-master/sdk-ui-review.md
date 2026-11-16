@@ -1,6 +1,6 @@
 # SDK and administrator UI final review
 
-Status: **LOCAL_FIXES_VERIFIED_FULL_UI_CI_REQUIRED**. Implementer validation is complete. The coordinator owns independent review, real-server conformance and final integrated CI qualification.
+Status: **LOCAL_FIXES_VERIFIED_FULL_UI_CI_REQUIRED**. Implementer validation is complete. The coordinator owns independent review and final integrated CI qualification. Real-server SDK conformance has also passed locally.
 
 ## Scope and source
 
@@ -57,10 +57,25 @@ All local logs are under [`../evidence/final-master/sdk-ui/`](../evidence/final-
 
 To reproduce SDK RED on the base, create a detached worktree at the base SHA, copy only `sdk/typescript/test/user-lifecycle.test.mjs` and `sdk/dart/test/user_lifecycle_test.dart` from the SDK correction commit, install dependencies, then run `node --test --test-name-pattern='queued refresh' sdk/typescript/test/user-lifecycle.test.mjs` and `dart test test/user_lifecycle_test.dart --name 'queued refresh' --reporter expanded`. The old production code must reject neither stale queue case; the two tests fail. Do not copy corrected production files into the RED worktree.
 
+## Real HTTP follow-up on PostgreSQL 17.9
+
+Executed the existing workflow SDK conformance selection **once** on exact checkout `3dee5ed6680625c5e3e9014ed677cd42c5d1be80`, tracked Git tree `495b410e8c6484c30d77cfedb540f9bfb0c25e27`. No production or test code changed after the implementation commits.
+
+```sh
+PGBASE_FIXTURE_PORT=56849 GOMAXPROCS=2 /workspace/scratch/27f5e00d0baa/qa/with-postgres17.sh \
+  go test -tags='integration sdkconformance' ./pgbase -run '^TestSDK' -count=1 -v -timeout 8m
+```
+
+Fixture log/environment destinations were set to the evidence directory (exact command in the manifest). Results: **5 top-level tests + 4 nested TS/Dart cases PASS; 0 failed, 0 skipped; 65.765 seconds**. Public record/pagination, native relation/file list, text identity, iterator session isolation, and realtime contracts ran against a real Go HTTP server with a disposable PostgreSQL 17.9 database. Both iterator and realtime contracts explicitly ran TypeScript and Dart subtests. `fsync`, `full_page_writes`, `synchronous_commit` were ON. PostgreSQL shutdown is verified in the fixture log; the runner removes its temporary data directory.
+
+Generated TypeScript output remained byte-for-byte identical to committed output after the harness rebuild. The root installed missing `pg_trgm` while this run was compiling; SDK tests had not yet started, so no extension-setup failure or retry occurred in this run. The previous full UI failure and isolated pass remain unchanged and require the final full CI gate.
+
+Evidence: `sdk-http.log`, `sdk-http-postgres.log`, `sdk-http-environment.txt`, `sdk-http-qualification.json` in the indexed evidence directory.
+
 ## Independent review handoff
 
 Cherry-pick the SDK and UI commits in that order, then the evidence commit. Reproduce the two RED queue cases on the base production sources with the new tests, run both SDK suites and the two changed UI test files, and inspect that captured scopes begin at event invocation. The coordinator must retain the failed full local UI run until the final exact-source CI supplies a complete passing gate. No additional local broad rerun was attempted.
 
 ## Limits
 
-This report records implementer validation, not independent QA. Real PostgreSQL HTTP conformance, packaged binary and Chromium/Firefox/WebKit checks remain the coordinator's integrated gates. Local SDK transport tests use disposable in-memory fixtures; third-party OAuth/OIDC/SMTP interoperability is not established here. Historical Firefox font-cancellation causality is not changed by this work.
+This report records implementer validation, not independent QA. The five existing PostgreSQL HTTP SDK contracts passed as recorded above. Packaged binary, administrator multiprocess and Chromium/Firefox/WebKit checks remain coordinator-owned integrated gates. Unit race tests use disposable in-memory transports, distinct from the real-server contract runs; third-party OAuth/OIDC/SMTP interoperability is not established here. Historical Firefox font-cancellation causality is not changed by this work.
