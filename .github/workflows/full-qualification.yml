@@ -76,13 +76,24 @@ jobs:
           POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
           PGBASE_OPEN_LOOP_RPS: '200'
           PGBASE_OPEN_LOOP_SECONDS: '600'
-          PGBASE_LOAD_EVIDENCE_DIR: load-evidence
+          # go test runs the package binary from pgbase/, not the checkout root.
+          PGBASE_LOAD_EVIDENCE_DIR: ${{ github.workspace }}/load-evidence
           GOMAXPROCS: '4'
         shell: bash
         run: |
           set -euo pipefail
           export PGBASE_TEST_ADMIN_URL="postgres://postgres:postgres@127.0.0.1:${POSTGRES_HOST_PORT:?}/postgres?sslmode=disable"
           go test -tags=integration,load ./pgbase -run '^TestOpenLoopHTTPQualification$' -count=1 -v -timeout=15m | tee open-loop-http.txt
+          python3 - <<'PY'
+          import csv
+          from pathlib import Path
+          samples = Path('load-evidence/open-loop-samples.csv')
+          with samples.open(newline='') as stream:
+              rows = list(csv.DictReader(stream))
+          assert len(rows) == 120000, f'incomplete raw load evidence: {len(rows)} rows'
+          assert all(not row['error'] for row in rows), 'raw load evidence contains request errors'
+          print(f'preserved {len(rows)} raw scheduled arrivals in {samples}')
+          PY
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
