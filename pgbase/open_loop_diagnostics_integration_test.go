@@ -116,7 +116,7 @@ func (s *openLoopDiagnostics) snapshot(ctx context.Context) (openLoopDBSnapshot,
 	 (SELECT to_jsonb(w) FROM pg_stat_wal w),
 	 (SELECT jsonb_object_agg(name,setting) FROM pg_settings WHERE name IN
 	 ('server_version','shared_buffers','max_connections','work_mem','maintenance_work_mem',
-	 'effective_cache_size','max_parallel_workers_per_gather','fsync','synchronous_commit',
+	 'effective_cache_size','max_parallel_workers_per_gather','fsync','synchronous_commit','full_page_writes',
 	 'track_io_timing','track_wal_io_timing','wal_sync_method','checkpoint_timeout',
 	 'checkpoint_completion_target','max_wal_size','autovacuum_naptime','stats_fetch_consistency'))
 	 FROM pg_stat_database d WHERE datname=current_database()`).Scan(

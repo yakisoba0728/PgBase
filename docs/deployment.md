@@ -224,7 +224,7 @@ The bundled cookie-authenticated administrator UI must share the API origin. Adm
 - Grant the role permission to create and modify objects in `pgbase_meta`, `app`, and `pgbase_relation`; migrations and collection/relation DDL require it.
 - Require encrypted, verified transport for non-local PostgreSQL.
 - Pooled sessions pin `search_path` to `pg_catalog`; application relations are schema-qualified so caller- or role-controlled schemas cannot capture unqualified object resolution.
-- Configure at least four connections per pgBase pool (`pool_max_conns=4` or higher): one listener, one schema/apply path, and background/request headroom. Size the database limit for all instances plus migration, backup, and operator connections.
+- Configure at least four connections per pgBase request/background pool (`pool_max_conns=4` or higher), including schema/apply headroom. The schema catalog listener uses one additional dedicated connection after acquiring the same secure session configuration and backup-writer gate. Budget at least `pool_max_conns + 1` database connections per instance for these paths, plus the existing coordination, migration, backup, monitoring, and operator connections. Listener reconnect briefly acquires a pool slot before detaching it; the pool maximum itself is unchanged.
 - Back up all three pgBase schemas together. See [Backup and restore](backup-restore.md).
 
 ## Health, rollout, and shutdown
