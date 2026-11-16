@@ -1,0 +1,49 @@
+diff --git a/internal/migrate/variant_restore_legacy_qa_integration_test.go b/internal/migrate/variant_restore_legacy_qa_integration_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/migrate/variant_restore_legacy_qa_integration_test.go
+@@ -0,0 +1,44 @@
++//go:build integration
++
++package migrate
++
++import (
++	"testing"
++	"time"
++
++	"github.com/google/uuid"
++	"github.com/yakisoba0728/PgBase/internal/database"
++	"github.com/yakisoba0728/PgBase/internal/filestore"
++	"github.com/yakisoba0728/PgBase/internal/testutil"
++)
++
++// Managed restore resets inherited storage before New applies newer migrations.
++// A schema-68 backup therefore reaches this boundary with no retention column.
++func TestVariantCleanupLegacyRestoreResetBeforeUpgradeQA(t *testing.T) {
++	pool, err := database.Open(t.Context(), testutil.NewDatabase(t), 10*time.Second)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(pool.Close)
++	legacy := New(pool, nil)
++	legacy.migrations = legacy.migrations[:len(legacy.migrations)-1]
++	if legacy.migrations[len(legacy.migrations)-1].Version != 68 {
++		t.Fatal("fixture must start at schema68")
++	}
++	if err := legacy.Up(t.Context()); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := pool.Exec(t.Context(), `insert into pgbase_meta.file_object_deletions(object_key,queued_at) values($1,current_timestamp)`, "thumbnails/"+uuid.NewString()); err != nil {
++		t.Fatal(err)
++	}
++	if err := filestore.ResetRestoredStorage(t.Context(), pool); err != nil {
++		t.Fatalf("schema68 restore reset before migration: %v", err)
++	}
++	if err := New(pool, nil).Up(t.Context()); err != nil {
++		t.Fatal(err)
++	}
++	var remaining int
++	if err := pool.QueryRow(t.Context(), `select count(*) from pgbase_meta.file_object_deletions`).Scan(&remaining); err != nil || remaining != 0 {
++		t.Fatalf("inherited cleanup intents=%d err=%v", remaining, err)
++	}
++}
