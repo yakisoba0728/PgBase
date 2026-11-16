@@ -2,6 +2,10 @@
 
 PgBase can keep uploaded record files in its configured local directory or an S3-compatible bucket. Administrators can read, save, and test the active uploaded-file storage from the Storage page. These settings do not change where managed backup archives are stored.
 
+The native protected-file HTTP routes evaluate regular-record view/update rules with the originating request's method, query, headers and authenticated-user metadata. Listing, upload, token minting, download and deletion retain their normal ownership and field checks. A download token does not bypass a later policy change or a denied request context. Embedded service calls without HTTP metadata do not acquire it from an earlier request. This transport binding does not synthesize multipart body fields or per-operation batch bodies.
+
+Configured local and S3 backends retain single-byte-range downloads through the storage controller. A range response holds the same destination lease as a complete download until its body closes; an unsatisfiable range releases the lease and retains the object size for the HTTP 416 response.
+
 S3 settings include bucket, region, endpoint, access key, secret key, and path-style addressing. PgBase encrypts the secret key with the project token secret and never returns it. A blank secret field preserves the configured secret. Saving uses a revision check, validates the candidate with a small upload/read/delete probe, and applies the committed generation to subsequent file operations without restarting the process. Every process checks the database generation before object access, so other PgBase processes converge on the saved credentials.
 
 HTTPS endpoints are required by default. Local MinIO development can opt into an HTTP loopback endpoint with `PGBASE_FILES_S3_ALLOW_INSECURE_LOOPBACK=true`. This flag does not permit plaintext remote endpoints.

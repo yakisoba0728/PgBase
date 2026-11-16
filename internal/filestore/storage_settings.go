@@ -231,6 +231,30 @@ func (c *StorageController) Open(ctx context.Context, key string) (io.ReadCloser
 	}
 	return &leasedReader{ReadCloser: reader, release: release}, nil
 }
+
+// OpenRange preserves both the backend's range capability and the storage
+// lease until the response body is closed, just like a complete object read.
+func (c *StorageController) OpenRange(ctx context.Context, key string, requested ByteRange) (RangeRead, error) {
+	if lease, ok := ctx.Value(storageLeaseContextKey{}).(storageLease); ok && lease.controller == c {
+		store, ok := lease.store.(ObjectRangeStore)
+		if !ok {
+			return RangeRead{}, ErrInvalid
+		}
+		return store.OpenRange(ctx, key, requested)
+	}
+	leased, release, err := c.BeginStorageOperation(ctx)
+	if err != nil {
+		return RangeRead{}, err
+	}
+	result, err := c.OpenRange(leased, key, requested)
+	if err != nil {
+		release()
+		return result, err
+	}
+	result.Body = &leasedReader{ReadCloser: result.Body, release: release}
+	return result, nil
+}
+
 func (c *StorageController) Delete(ctx context.Context, key string) error {
 	if lease, ok := ctx.Value(storageLeaseContextKey{}).(storageLease); ok {
 		return lease.store.Delete(ctx, key)
