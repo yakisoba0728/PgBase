@@ -1,4 +1,65 @@
-# Phase 2 recovery and continuation
+# PgBase — subagent-first continuation
+
+## Active checkpoint — 2026-11-16
+
+This section supersedes the historical checkpoint below. Actual remote refs, source trees and CI evidence take precedence; a running task is not a passed gate.
+
+- Observed published HEAD: `d77fd45de6975f55b047a3de9c4099e1805162ce`, branch `refactor/independent-platform-20261116`.
+- Source tree: `81f741069604ef08c3d1339c800139d896fc60a9`. Fetched Actions merge commit `f763e5016bcdecf939cb307bd4c1b292a0306529` has this same tree.
+- Main remains `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`; schema **68**; PR #148 open, Draft, unmerged.
+- Latest observed full qualification [43804114855](https://github.com/yakisoba0728/PgBase/actions/runs/43804114855): **14 successful jobs; mixed-http job 133090810046 failed**.
+- Browser/recovery job 133090810491 **passed**, including the 26-test flow. Its corrected managed-backup locator is not a new repair target.
+- Release decision: **Not Ready**. Current-source load failure, integrated qualification of recovered fixes and incomplete audit boundaries remain open. Historical all-green runtime below does not qualify this source.
+
+### Failed load and evidence
+
+The unchanged gate requires **200 RPS for 600 seconds, pool 4, zero errors/drops/incomplete requests and end-to-end p99 <=250ms**. Observed: 120,000 scheduled, 119,822 completed, 178 dropped; end-to-end p99 1.209s, service p99 370ms, generator/queue p99 1.036s. Percentiles are not additive and are not a causal diagnosis. An earlier passing run with identical source/harness/workflow bytes on another host does not explain or erase this failure. Instrumented observer runs remain a separate diagnostic stratum.
+
+- Failed-load artifact `14198176815`, source merge SHA `f763e5016bcdecf939cb307bd4c1b292a0306529`.
+- Go source artifact `14197358999`; JS/TS `14196994897`; image SARIF `14196759277`; runtime assets `14196998628`; SBOM `14196973700`.
+- Preserve raw bytes and digest/source identity before artifact expiry. Workflow success alone is not finding classification.
+
+### Actual agents and ownership
+
+The tool limit is four concurrent agents including the coordinator. **Three child agents were actually created and started in parallel**. Later roles are queued, not yet created.
+
+| Agent | State | Scope |
+| --- | --- | --- |
+| A `performance` | Running | Load diagnostics, performance evidence; separate server/DB/pool/producer/queue/host/GC |
+| B `backend` | Running | Realtime delivery cursor/context/retries; extension transaction boundaries |
+| C `security` | Running | Auth request context, avatar redirects, file policy/ranges/cleanup, scan evidence |
+| D Frontend/SDK | Queued | Delayed listener and backup callback ownership; contracts and unchanged visual design |
+| E Reliability/QA | Queued | Independent review, load/data-integrity accounting, exact-source CI and coverage gaps |
+
+Main checkout: `/workspace/scratch/79c920ff2ec3/PgBase`, branch `coordinator/subagent-first-20261116`. Child worktrees are sibling `PgBase-performance`, `PgBase-backend`, `PgBase-security`, each on its own `agent/*-20261116` branch. Coordinator owns shared-branch publication. Agents commit changes/evidence and report briefly; CI jobs are not AI reviewers.
+
+### Unpublished recovery inventory
+
+Old worktrees remain intact under `/workspace/scratch/a440b0968ef6/`. Old coordinator HEAD `93272446eb7b9b37868f83300f37dbb231724ff2` contains **24 unpublished commits after d77fd45d**, plus dirty workflow/root evidence. Do not reset them or count them as accepted.
+
+- Realtime: `564d1919`, `1e005485`, `b17f83e2`, formatting and historical review evidence.
+- SDK listener ownership `01dae8a4`; administrator backup callbacks `bad579f9`.
+- Files/request policy/ranges `28a0ae8b`; avatar redirects `a52d57c2`; upload/variant cleanup `64b1940f`.
+- Aligned DB load diagnostics `93272446`; preregistered performance evidence, QA outcome tooling, browser configuration and operations documentation.
+
+Recover selectively, freshly test and independently review. Existing raw evidence remains historical with its original source identity.
+
+### Publication, persistence and next actions
+
+HTTPS Git reads work; nonmutating push/CLI probes found no shell write credential. Publish through the connected GitHub Git-data API, preserve logical commits, compare resulting trees with local trees, record local/published SHA mappings, and update only the work branch with exact expected HEAD and `force=false`. Do not request or borrow real credentials.
+
+No chat-independent autonomous coding runner was verified. GitHub Actions supports hosted validation after publication, independently of this chat; this does not imply that child implementation continues after the conversation ends.
+
+1. Collect A/B/C commits and evidence, cross-review, then integrate; create D/E when slots free.
+2. Recover remaining verified evidence/operations docs without rerunning completed work gratuitously.
+3. Publish and qualify the exact integrated source; retain run/job IDs, tested merge SHA/tree and artifacts. Diagnose new failures before rerunning.
+4. Update this file at every significant integration/review/CI boundary. Keep **Not Ready** while important failures or mandatory unverified gates remain.
+
+No main push, automatic merge, force push, production access/deployment, release/tag or SDK package publication is authorized.
+
+---
+
+## Historical Phase 2 recovery (superseded by active checkpoint above)
 
 This is the restart entry point for PR [#148](https://github.com/yakisoba0728/PgBase/pull/148). Read this document together with the actual branch HEAD and Actions results. Historical green runs do not qualify later source changes.
 
