@@ -1,0 +1,256 @@
+{
+  "scope": "Nonperformance Storage completion; no performance commands or measurements",
+  "runtime_commit": "a594ee953075e429286764d689411b0e6ba99cd9",
+  "base_pr_commit": "a1a652289f0bc817f18db257282c758e66b4a672",
+  "recovered_commits": {
+    "a426766a": "098ddd7f",
+    "06938a41": "02b1cadf",
+    "67866b9d": "d5d1855f",
+    "71dc5815": "97cf7f30"
+  },
+  "toolchains": {
+    "go": "1.26.11",
+    "postgresql": "17.9",
+    "platform": "linux/amd64",
+    "postgresql_final_encoding": "UTF8",
+    "resource_limits": "GOMAXPROCS=2, -p=1; final runs GOMEMLIMIT=512MiB, -ldflags=-w"
+  },
+  "commands": {
+    "affected_final": "go test -ldflags=-w -count=1 -p=1 -timeout=180s -race -tags=integration ./internal/filestore ./internal/migrate ./migrations/system -json",
+    "regression_before": "go test -ldflags=-w -count=1 -p=1 -timeout=180s -race -tags=integration ./internal/migrate -run ^TestVariantCleanupRestoresSchema68BeforeUpgrade$ -json",
+    "focused_after": "go test -ldflags=-w -count=1 -p=1 -timeout=180s -race -tags=integration ./internal/filestore ./internal/migrate -run ^(TestVariantCleanupRestoresSchema68BeforeUpgrade|TestVariantCleanupUpgradePreservesQueueAndReapplies|TestResetRestoredStorageDetachesSourceNamespaceAndWork|TestRestoredStorageDetachesRetainedSourceIntents)$ -json"
+  },
+  "runs": [
+    {
+      "label": "affected-integration-race",
+      "classification": "fixture_error_sql_ascii",
+      "exit_code": 1,
+      "source_commit": "97cf7f305a5f3af6058d30e78c7f201d324ec51c",
+      "additional_uncommitted_test_on_before_runs": null,
+      "passed_top_level_by_package": {
+        "github.com/yakisoba0728/PgBase/internal/filestore": 75,
+        "github.com/yakisoba0728/PgBase/internal/migrate": 30,
+        "github.com/yakisoba0728/PgBase/migrations/system": 38
+      },
+      "package_results": [
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/filestore",
+          "action": "pass"
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/migrate",
+          "action": "fail"
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/migrations/system",
+          "action": "pass"
+        }
+      ],
+      "failed_tests": [
+        "TestPublicIdentityUpgradePreservesPopulatedV9DatabaseAndIsIdempotent"
+      ],
+      "skipped_tests": [
+        "TestS3StoreAgainstLocalMinIO",
+        "TestObjectMigrationLocalToMinIOCutoverAndDelayedCleanup",
+        "TestObjectMigrationCancelKeepsCurrentDestination",
+        "TestStorageControllerMinIOSaveRotateRestartAndRollback"
+      ],
+      "raw_sha256": "cc93c4029936bbe5bbd4d5c83e11bf7e673e8e0a8910b1ee76652cd9044404c7",
+      "log": "affected-integration-race.jsonl.gz"
+    },
+    {
+      "label": "schema68-restore-before",
+      "classification": "fixture_unavailable_after_earlier_runner_shutdown",
+      "exit_code": 1,
+      "source_commit": "97cf7f305a5f3af6058d30e78c7f201d324ec51c",
+      "additional_uncommitted_test_on_before_runs": "internal/migrate/variant_cleanup_restore_integration_test.go",
+      "passed_top_level_by_package": {},
+      "package_results": [
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/migrate",
+          "action": "fail"
+        }
+      ],
+      "failed_tests": [
+        "TestVariantCleanupRestoresSchema68BeforeUpgrade"
+      ],
+      "skipped_tests": [],
+      "raw_sha256": "8ec29c3d6661ffc08a548ef19087f084069b0fc84a51f58a6e394e6a8351da6b",
+      "log": "schema68-restore-before.jsonl.gz"
+    },
+    {
+      "label": "schema68-restore-repro",
+      "classification": "blocked_home_tmpfs_enospc_no_test_executed",
+      "exit_code": 1,
+      "source_commit": "97cf7f305a5f3af6058d30e78c7f201d324ec51c",
+      "additional_uncommitted_test_on_before_runs": "internal/migrate/variant_cleanup_restore_integration_test.go",
+      "passed_top_level_by_package": {},
+      "package_results": [
+        {
+          "package": "./internal/migrate",
+          "action": "fail"
+        }
+      ],
+      "failed_tests": [],
+      "skipped_tests": [],
+      "raw_sha256": "31c387f0f640de724448e50805f54679766a8c2a5480a1b0a5e9260a391e8c1b",
+      "log": "schema68-restore-repro.jsonl.gz"
+    },
+    {
+      "label": "schema68-restore-before-utf8",
+      "classification": "blocked_home_tmpfs_enospc_no_test_executed",
+      "exit_code": 1,
+      "source_commit": "97cf7f305a5f3af6058d30e78c7f201d324ec51c",
+      "additional_uncommitted_test_on_before_runs": "internal/migrate/variant_cleanup_restore_integration_test.go",
+      "passed_top_level_by_package": {},
+      "package_results": [
+        {
+          "package": "./internal/migrate",
+          "action": "fail"
+        }
+      ],
+      "failed_tests": [],
+      "skipped_tests": [],
+      "raw_sha256": "1d58cfd2bf19b7ec497ed0bf0c79f1c92e43b5772ac95f0de7039e5ca6f89375",
+      "log": "schema68-restore-before-utf8.jsonl.gz"
+    },
+    {
+      "label": "schema68-restore-before-valid",
+      "classification": "blocked_home_tmpfs_enospc_no_test_executed",
+      "exit_code": 1,
+      "source_commit": "97cf7f305a5f3af6058d30e78c7f201d324ec51c",
+      "additional_uncommitted_test_on_before_runs": "internal/migrate/variant_cleanup_restore_integration_test.go",
+      "passed_top_level_by_package": {},
+      "package_results": [
+        {
+          "package": "./internal/migrate",
+          "action": "fail"
+        }
+      ],
+      "failed_tests": [],
+      "skipped_tests": [],
+      "raw_sha256": "1f10c63578758942c2ac0a0f012f6870220b0e3f41ad44fdfd4091bc4969ca0e",
+      "log": "schema68-restore-before-valid.jsonl.gz"
+    },
+    {
+      "label": "schema68-restore-before-fix",
+      "classification": "confirmed_schema68_restore_bug",
+      "exit_code": 1,
+      "source_commit": "97cf7f305a5f3af6058d30e78c7f201d324ec51c",
+      "additional_uncommitted_test_on_before_runs": "internal/migrate/variant_cleanup_restore_integration_test.go",
+      "passed_top_level_by_package": {},
+      "package_results": [
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/migrate",
+          "action": "fail"
+        }
+      ],
+      "failed_tests": [
+        "TestVariantCleanupRestoresSchema68BeforeUpgrade"
+      ],
+      "skipped_tests": [],
+      "raw_sha256": "5e489097b02a5a43713d3b9e23eed74c75f8ff8feacd7dfe81500c385d52e055",
+      "log": "schema68-restore-before-fix.jsonl.gz"
+    },
+    {
+      "label": "schema68-restore-after",
+      "classification": "passed",
+      "exit_code": 0,
+      "source_commit": "a594ee953075e429286764d689411b0e6ba99cd9",
+      "additional_uncommitted_test_on_before_runs": null,
+      "passed_top_level_by_package": {
+        "github.com/yakisoba0728/PgBase/internal/filestore": 2,
+        "github.com/yakisoba0728/PgBase/internal/migrate": 2
+      },
+      "package_results": [
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/filestore",
+          "action": "pass"
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/migrate",
+          "action": "pass"
+        }
+      ],
+      "failed_tests": [],
+      "skipped_tests": [],
+      "raw_sha256": "cab3b3ca1bf247584eb624b9361abc4887bc8939f402d01c421507db8381495e",
+      "log": "schema68-restore-after.jsonl.gz"
+    },
+    {
+      "label": "affected-integration-race-utf8",
+      "classification": "passed_with_four_existing_optional_minio_skips",
+      "exit_code": 0,
+      "source_commit": "a594ee953075e429286764d689411b0e6ba99cd9",
+      "additional_uncommitted_test_on_before_runs": null,
+      "passed_top_level_by_package": {
+        "github.com/yakisoba0728/PgBase/internal/filestore": 75,
+        "github.com/yakisoba0728/PgBase/internal/migrate": 32,
+        "github.com/yakisoba0728/PgBase/migrations/system": 38
+      },
+      "package_results": [
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/filestore",
+          "action": "pass"
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/migrate",
+          "action": "pass"
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/migrations/system",
+          "action": "pass"
+        }
+      ],
+      "failed_tests": [],
+      "skipped_tests": [
+        "TestS3StoreAgainstLocalMinIO",
+        "TestObjectMigrationLocalToMinIOCutoverAndDelayedCleanup",
+        "TestObjectMigrationCancelKeepsCurrentDestination",
+        "TestStorageControllerMinIOSaveRotateRestartAndRollback"
+      ],
+      "raw_sha256": "f07dd8ede5f0d50c4b6e93abfe9f1dd2803ade55f07aaf06e954bb6d9de7339f",
+      "log": "affected-integration-race-utf8.jsonl.gz"
+    }
+  ],
+  "source_file_sha256": {
+    "internal/filestore/object_gc.go": "3bf4c9e582a54d452d13642a1604bd31048031ea870bdc58bf561eadc2a3c2d3",
+    "internal/filestore/restore.go": "cd75db07610d8fd730e0e49799eabce39776b864d339f6d405ce100da958e388",
+    "internal/filestore/staging.go": "c79299f57b3222293715ceb5e68c616392a27d40524c17e5eee3eeb02b906f09",
+    "internal/filestore/storage_migration.go": "30ddd01cbba3d243540f0ba895f0fd45ee3b14a04d29d8f6deafb76f33d1827f",
+    "internal/filestore/variant_cleanup_independent_integration_test.go": "f2cf64c519fbed0f4665f5d80ddf8a27fcb986809b52e5d96f2c1eb6b1ce8022",
+    "internal/filestore/variant_durable_integration_test.go": "13ba83f9734c13849a6be7e62517e37f89a62f8bbe4e846964d62d4c8364810b",
+    "internal/filestore/variants.go": "45ff965a76e9d2518d4ada38c06359a5276008ecc5fdeca1d78a88ace8029781",
+    "internal/migrate/variant_cleanup_restore_integration_test.go": "710c082b1d502b4860fc4abeb52bc251dd987f3ca442fa20be42857f66cd03f1",
+    "internal/migrate/variant_cleanup_upgrade_integration_test.go": "31980eef8aeed17a2c3d05a93aa52baa92bd824d8b235b66d96d31f1cb3a1928",
+    "migrations/system/000069_durable_variant_cleanup.sql": "a69218f58c350a8f413fce7d94fe2fcf1e98965b5526af18cf963ee989c96355",
+    "migrations/system/embed.go": "814911ba6cce3a12dccdb68e9313c7201cb0e47ae418ef017cce4257df29b025",
+    "migrations/system/embed_test.go": "8f30c82416b5a1f8242454a14516897345cbc19490e6703c698bb83351123631",
+    "pgbase/app_integration_test.go": "f19a84dbfb1be434521e76860292d9d1fde6106ceda1db8e2d148d48bb56a9bc"
+  },
+  "independent_review": {
+    "agent": "recon",
+    "reported_result": "Accepted a594ee95; 17 focused PostgreSQL/race top-level tests pass; canonical evidence maintained in phase-nonperformance-security report"
+  },
+  "minio": {
+    "local_result": "Not executed; pinned build cancelled with exit130 due resource pressure; four existing optional tests skipped without fixture",
+    "pinned_module": "github.com/minio/minio@v0.0.0-20250723155402-7ced9663e6a7",
+    "follow_up": "Coordinator nonperformance hosted CI provides isolated MinIO; local results do not certify actual S3 fault behavior"
+  },
+  "evidence_sha256": {
+    "affected-integration-race-utf8.jsonl.gz": "f0fd0920f71c49c943648f8c29db365cae216e6188d0d938e95d381f3757c7da",
+    "affected-integration-race.jsonl.gz": "a6ffa8c0ed883bcb8bc018500597848680fb05f562bf199b3430ca647d210ff5",
+    "fixture-lifecycle.log.gz": "6fcf9dbda5ddbe6e289a8b041a78b5a82e400f1a9e1520342e54991a1e4414dd",
+    "minio-build-cancelled.log.gz": "a53efef0c77fda83152c73138e76e4a0cf0e46aeeff88de71c3beea823573a34",
+    "postgres-init-sql-ascii.log": "41aaafc53e4eb78b42758ac41a8236b24624a31cd4ec3979337e89668babbe5e",
+    "postgres-init.log": "fc18b870537476a0ae6d6adf980be5f22fe2b2fc520a68a3ef98b2ce4b623938",
+    "postgres.log.gz": "fa040c7de07f79ed646167d614c0e92f4c4147c30190cf9ad0cb5a8a8b1ba43a",
+    "run-nonperformance-storage.sh": "3194bfb441d0515086af95724342f3106f99b7c8664e21b7435dfd432f272505",
+    "schema68-restore-after.jsonl.gz": "34d62b6f12aa6867e00aeb12f45ed93ddf156e03bb0b9690147e018e7f32b30e",
+    "schema68-restore-before-fix.jsonl.gz": "6dee3c4c6427c63968a0f33b372b281baf4ecdb9d321628ad47a6d83128af57f",
+    "schema68-restore-before-utf8.jsonl.gz": "39e4718352cb57a4b2ab4e1e39dcecc9b712d2fdfec2ac761b367ae2603e3285",
+    "schema68-restore-before-valid.jsonl.gz": "d42b5891c3103fff476719ad3e6d3472967fe3d9612183ed2029aeefb9f45de5",
+    "schema68-restore-before.jsonl.gz": "c040b9664b0fb2c4e66b498559e1f3058a1d1d80c82f8cb751d6d6034b9f6e08",
+    "schema68-restore-repro.jsonl.gz": "7f3d0c4f4af6b93a8a4cd5e6a99d49921c06284839d57547fa28b37112a6fc95"
+  }
+}

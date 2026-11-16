@@ -63,5 +63,27 @@ schema-69-capable binary: the database guard prevents an older worker from
 discarding an uncertain intent, but that worker can repeatedly encounter an
 error until upgraded. Restore to a separate local namespace explicitly detaches
 the source's pending intents and credentials; it does not modify the source.
+Managed restore performs this detachment before applying the restored
+application's migrations. Both schema-68 backups without retention metadata and
+schema-69 backups with retained intents are supported; the restored application
+then applies schema 69 normally.
+
+If retained intents block migration activation, keep the source namespace active
+and use this recovery procedure:
+
+1. Stop new variant writes and upgrade or stop every older cleanup worker.
+2. Establish that all writers and remote Put requests for the reviewed keys have
+   actually finished. A process exit, cancellation, successful Delete, or absent
+   read alone is insufficient proof of remote completion.
+3. If that proof is unavailable, retain the intents and defer migration activation.
+   Copy progress does not justify abandoning the source namespace.
+4. After independently confirming quiescence, an operator can clear
+   `retain_on_success` for those exact reviewed keys in a maintenance transaction.
+   Leave the rows for the current cleanup worker, which checks live references
+   before deletion and records any retryable deletion error. Do not bulk-delete
+   the queue or infer a safe retirement time from its age.
+5. Confirm the relevant intents have drained, then resume migration activation.
+   If writes resume before this process completes, re-establish quiescence before
+   retiring any remaining retained intent.
 
 Backup archive storage is independent of uploaded-file storage. P8 adds a separate backup repository and administrator configuration; its current integration and acceptance status is tracked in [P8 local contracts](phase4-local-contracts.md). `BackupOptions.Directory` remains the local workspace for jobs, staging, and activation receipts even when archives use S3.
