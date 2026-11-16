@@ -49,23 +49,29 @@ retry, timeout, or test selection is weakened.
 ## Coordinated trigger and source freeze
 
 1. Integrate only independently accepted narrow changes and record candidate
-   SHA/tree. Publish with CI deliberately suppressed while preparing the final
-   candidate, so unfinished sources do not consume the one final load attempt.
-2. Remove the old `nonperformance-qualification` opt-in label before the single
+   SHA/tree. Keep the `full-qualification` label absent while preparing the
+   final candidate, so unfinished sources do not consume the final load attempt.
+2. Remove the old `nonperformance-qualification` opt-in label before publishing
+   the final candidate, then publish with a normal commit message without a
+   skip-CI marker. No workflow listens to the `unlabeled` event. The subsequent
+   `synchronize` event starts only routine Backend/Frontend/Security jobs: both
+   qualification opt-in labels are absent. This avoids reliance on skip-CI
+   behavior for a later labeled event.
+3. Keep the old nonperformance label absent before the single
    full trigger. It would otherwise run duplicate complete functional jobs and
    collide with the shared `source-security-${github.ref}` concurrency group.
    The full run retains every required functional job and the broader browser
    workflow; no required-check configuration is changed.
-3. Add `full-qualification` exactly once through the GitHub connector. Existing
+4. Add `full-qualification` exactly once through the GitHub connector. Existing
    `performance-qualification` and `final-performance-qualification` labels must
    not be removed/re-added: their explicit labeled events run repeated ABBA.
    The repeated workflow listens only to `labeled`, and its job checks the exact
    newly added label, so a `full-qualification` event skips its compare job.
-4. Hold PR runtime HEAD fixed throughout the complete run. Record run/job IDs,
+5. Hold PR runtime HEAD fixed throughout the complete run. Record run/job IDs,
    actual checkout SHA from logs, checkout tree and comparison to the candidate.
-5. Preserve logs/artifact URLs and SHA-256 digests. Scanner execution success is
+6. Preserve logs/artifact URLs and SHA-256 digests. Scanner execution success is
    not a claim of zero findings. Diagnose only actual failing gates.
-6. Do not use a blind workflow rerun. A second final load run requires newly
+7. Do not use a blind workflow rerun. A second final load run requires newly
    validated code plus independent QA approval under the user's bounded policy.
 
 The `gh` CLI is present but has no authenticated host. Available connectors
