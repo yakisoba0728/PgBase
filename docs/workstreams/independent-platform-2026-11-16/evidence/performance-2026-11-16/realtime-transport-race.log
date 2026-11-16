@@ -1,0 +1,48 @@
+=== RUN   TestRealtimeRefreshesVerifiedRequestContext
+--- PASS: TestRealtimeRefreshesVerifiedRequestContext (0.00s)
+=== RUN   TestRealtimeDeliveryUsesCurrentVerifiedPolicyContext
+--- PASS: TestRealtimeDeliveryUsesCurrentVerifiedPolicyContext (0.00s)
+=== RUN   TestRealtimeDiscardsBatchWhenVerifiedChangesDuringRead
+--- PASS: TestRealtimeDiscardsBatchWhenVerifiedChangesDuringRead (0.00s)
+=== RUN   TestRealtimeInvalidUserBearerWithoutServiceAuthIsUnauthorized
+--- PASS: TestRealtimeInvalidUserBearerWithoutServiceAuthIsUnauthorized (0.00s)
+=== RUN   TestRealtimeQueuedApplicationMessagesRespectUnsubscribeAndRevocation
+=== RUN   TestRealtimeQueuedApplicationMessagesRespectUnsubscribeAndRevocation/unsubscribe
+=== RUN   TestRealtimeQueuedApplicationMessagesRespectUnsubscribeAndRevocation/revoke
+--- PASS: TestRealtimeQueuedApplicationMessagesRespectUnsubscribeAndRevocation (0.00s)
+    --- PASS: TestRealtimeQueuedApplicationMessagesRespectUnsubscribeAndRevocation/unsubscribe (0.00s)
+    --- PASS: TestRealtimeQueuedApplicationMessagesRespectUnsubscribeAndRevocation/revoke (0.00s)
+=== RUN   TestRealtimeMultiplexReauthenticationPreservesReplayAndUsesNewCredential
+--- PASS: TestRealtimeMultiplexReauthenticationPreservesReplayAndUsesNewCredential (0.00s)
+=== RUN   TestRealtimeApplicationTopicSurvivesCollectionPolling
+--- PASS: TestRealtimeApplicationTopicSurvivesCollectionPolling (1.21s)
+=== RUN   TestRealtimeMultiplexOutlivesHTTPServerWriteTimeout
+--- PASS: TestRealtimeMultiplexOutlivesHTTPServerWriteTimeout (0.11s)
+=== RUN   TestRealtimeMultiplexReconnectBeforeFirstRecord
+--- PASS: TestRealtimeMultiplexReconnectBeforeFirstRecord (0.00s)
+=== RUN   TestRealtimeMultiplexOrdersTopicsBeforeAdvancingResumeCursor
+--- PASS: TestRealtimeMultiplexOrdersTopicsBeforeAdvancingResumeCursor (2.01s)
+=== RUN   TestRealtimeMultiplexInterruptedOverlappingTopicsReplayUndeliveredMatch
+--- PASS: TestRealtimeMultiplexInterruptedOverlappingTopicsReplayUndeliveredMatch (2.01s)
+=== RUN   TestRealtimeMultiplexDoesNotAdvancePastAnotherTopicsFullPage
+--- PASS: TestRealtimeMultiplexDoesNotAdvancePastAnotherTopicsFullPage (2.00s)
+=== RUN   TestRealtimeMultiplexRejectsExpiredResumeBeforeReplacingSubscriptions
+--- PASS: TestRealtimeMultiplexRejectsExpiredResumeBeforeReplacingSubscriptions (0.00s)
+=== RUN   TestRealtimeMultiplexSlowConsumerReleasesAdmission
+--- PASS: TestRealtimeMultiplexSlowConsumerReleasesAdmission (10.27s)
+=== RUN   TestRealtimeApplicationTopicDeliversOverHTTPExactly
+--- PASS: TestRealtimeApplicationTopicDeliversOverHTTPExactly (0.00s)
+=== RUN   TestRealtimeApplicationNamespaceCannotBypassCollectionAuthorization
+--- PASS: TestRealtimeApplicationNamespaceCannotBypassCollectionAuthorization (0.00s)
+=== RUN   TestRealtimeReplaceWaitsForDeliveryAndPreservesUnchangedCursor
+--- PASS: TestRealtimeReplaceWaitsForDeliveryAndPreservesUnchangedCursor (0.05s)
+=== RUN   TestRealtimeLifecycleVetoesBeforeRead
+--- PASS: TestRealtimeLifecycleVetoesBeforeRead (0.00s)
+=== RUN   TestRealtimeLifecycleObservesMessageAndDisconnect
+--- PASS: TestRealtimeLifecycleObservesMessageAndDisconnect (0.00s)
+=== RUN   TestRealtimeAdmissionIsBoundedAndReleasedOnDisconnect
+--- PASS: TestRealtimeAdmissionIsBoundedAndReleasedOnDisconnect (0.00s)
+=== RUN   TestRealtimeFlushDisconnectStopsBeforePollingAgain
+--- PASS: TestRealtimeFlushDisconnectStopsBeforePollingAgain (0.00s)
+PASS
+ok  	github.com/yakisoba0728/PgBase/internal/api	18.755s

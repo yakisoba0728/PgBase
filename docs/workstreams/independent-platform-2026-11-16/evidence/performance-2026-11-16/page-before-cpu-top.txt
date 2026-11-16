@@ -1,0 +1,29 @@
+File: query-before.test
+Build ID: 11cf57de589d38bc5780074fad9c5d41ef1cc27c
+Type: cpu
+Time: 2026-11-16 08:46:53 KST
+Duration: 49.32s, Total samples = 31130ms (63.12%)
+Showing nodes accounting for 14060ms, 45.17% of 31130ms total
+Dropped 675 nodes (cum <= 155.65ms)
+Showing top 20 nodes out of 299
+      flat  flat%   sum%        cum   cum%
+    1650ms  5.30%  5.30%     2320ms  7.45%  runtime.tryDeferToSpanScan
+    1400ms  4.50%  9.80%     1400ms  4.50%  internal/runtime/syscall/linux.Syscall6
+     990ms  3.18% 12.98%     1820ms  5.85%  slices.insertionSortCmpFunc[go.shape.struct { encoding/json.v reflect.Value; encoding/json.ks string }]
+     860ms  2.76% 15.74%      860ms  2.76%  runtime.memclrNoHeapPointers
+     850ms  2.73% 18.47%      850ms  2.73%  runtime.futex
+     700ms  2.25% 20.72%      780ms  2.51%  encoding/json.appendString[go.shape.string]
+     690ms  2.22% 22.94%      690ms  2.22%  runtime.memmove
+     680ms  2.18% 25.12%     8410ms 27.02%  github.com/yakisoba0728/PgBase/internal/query.EncodeRecord
+     680ms  2.18% 27.30%     2280ms  7.32%  runtime.scanObject
+     680ms  2.18% 29.49%     1130ms  3.63%  slices.partitionCmpFunc[go.shape.struct { encoding/json.v reflect.Value; encoding/json.ks string }]
+     630ms  2.02% 31.51%     3200ms 10.28%  runtime.mallocgcSmallScanNoHeader
+     610ms  1.96% 33.47%      610ms  1.96%  runtime.madvise
+     600ms  1.93% 35.40%      600ms  1.93%  runtime.nextFreeFast (inline)
+     590ms  1.90% 37.30%      670ms  2.15%  runtime.typePointers.next
+     510ms  1.64% 38.93%      510ms  1.64%  runtime.heapSetTypeSmallHeader (inline)
+     430ms  1.38% 40.31%      430ms  1.38%  runtime.osyield
+     410ms  1.32% 41.63%      780ms  2.51%  encoding/json.appendCompact
+     400ms  1.28% 42.92%      400ms  1.28%  runtime.tgkill
+     370ms  1.19% 44.11%      370ms  1.19%  runtime.(*mspan).base (inline)
+     330ms  1.06% 45.17%      330ms  1.06%  cmpbody

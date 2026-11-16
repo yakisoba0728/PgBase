@@ -1,0 +1,15 @@
+goos: linux
+goarch: amd64
+pkg: github.com/yakisoba0728/PgBase/internal/api
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkApplicationRealtimeFanout/clients=1-4         	  922316	       432.9 ns/op	  87.78 MB/s	         1.000 delivered/op	         0 full-queues/op	      48 B/op	       1 allocs/op
+BenchmarkApplicationRealtimeFanout/clients=1-4         	 1000000	       464.1 ns/op	  81.88 MB/s	         1.000 delivered/op	         0 full-queues/op	      48 B/op	       1 allocs/op
+BenchmarkApplicationRealtimeFanout/clients=1-4         	 1000000	       399.5 ns/op	  95.11 MB/s	         1.000 delivered/op	         0 full-queues/op	      48 B/op	       1 allocs/op
+BenchmarkApplicationRealtimeFanout/clients=32-4        	   79996	      4223 ns/op	 251.93 MB/s	        28.00 delivered/op	         4.000 full-queues/op	    1880 B/op	       4 allocs/op
+BenchmarkApplicationRealtimeFanout/clients=32-4        	   83880	      6867 ns/op	 154.94 MB/s	        28.00 delivered/op	         4.000 full-queues/op	    1880 B/op	       4 allocs/op
+BenchmarkApplicationRealtimeFanout/clients=32-4        	   64296	      5068 ns/op	 209.96 MB/s	        28.00 delivered/op	         4.000 full-queues/op	    1880 B/op	       4 allocs/op
+BenchmarkApplicationRealtimeFanout/clients=256-4       	   10004	     34574 ns/op	 246.20 MB/s	       224.0 delivered/op	        32.00 full-queues/op	   13658 B/op	       4 allocs/op
+BenchmarkApplicationRealtimeFanout/clients=256-4       	   10000	     30993 ns/op	 274.64 MB/s	       224.0 delivered/op	        32.00 full-queues/op	   13658 B/op	       4 allocs/op
+BenchmarkApplicationRealtimeFanout/clients=256-4       	   10000	     38203 ns/op	 222.81 MB/s	       224.0 delivered/op	        32.00 full-queues/op	   13658 B/op	       4 allocs/op
+PASS
+ok  	github.com/yakisoba0728/PgBase/internal/api	3.582s

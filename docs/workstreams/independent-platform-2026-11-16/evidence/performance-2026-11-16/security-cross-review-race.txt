@@ -1,0 +1,4 @@
+ok  	github.com/yakisoba0728/PgBase/internal/adminauth	1.036s
+ok  	github.com/yakisoba0728/PgBase/internal/backup	1.327s
+ok  	github.com/yakisoba0728/PgBase/internal/mailer	1.036s
+ok  	github.com/yakisoba0728/PgBase/internal/userauth	1.324s

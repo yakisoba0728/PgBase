@@ -1,0 +1,56 @@
+{
+  "schema": "pgbase/performance-evidence/v1",
+  "baseline_runtime_revision": "6dd8f6449f7b6bc1a986ff7444b898776abf1c7b",
+  "candidate_runtime_revision": "e1f5e2eb3ca77174d9f4e0cf655f0be0eb8ac5ca",
+  "paired_mixed_harness_revision": "8d0ceddbcb2687600e5b10182d1fa9e357934fa9",
+  "strengthened_mixed_harness_revision": "15b19c36443c3031c5ed0d979ada326b05b9f19d",
+  "native_instrumentation_revision": "8a3904980e052f0e656b71ce30e6d960fccfe795",
+  "native_instrumentation_note": "The committed native harness differs from the executed common harness only by a documentation comment explaining -v. Runtime and measured instrumentation are identical.",
+  "source_sha256": {
+    "before": {
+      "internal/query/codec.go": "eb87b6d91e391f46f4c3e644f877524693fbddcab3e66ed0388c7220bebcc719",
+      "internal/query/root_page.go": "c34310682eb472d9ed508c94b59e9dab4b3f739db08d691674a485a4d4d1d8f2",
+      "internal/cursor/codec.go": "917fb77fb6e86329734cf4a1daa227bcceb354af31d262ef33c4ebec6b402ea6",
+      "internal/cursor/v5.go": "bfb6e79c83417eac4395ecebd163ef0311522065b560e6693fa6e6633ce5cf77",
+      "internal/query/benchmark_test.go": "03fa9e7eb77f6985adafc28bb22472c7f8425f1af188e915458060968e313b80"
+    },
+    "after": {
+      "internal/query/codec.go": "243c3c3ed248095af23c056dd2223318d0dd4b47d5fbfc866bab09cb459ebe81",
+      "internal/query/root_page.go": "48ec92a83e5bb790bb6a1a8a407797ecdcb87d6b74249485d638378386b9b858",
+      "internal/cursor/codec.go": "f2152456952480fd9d7ca0949370fc0d6595dcc7e135a7aba0e23c7ffbf4d9db",
+      "internal/cursor/v5.go": "9767f67ef4dafc1824be5c89c722e0d5f9f43d1a017f81fb4b23d3115e2f6ea6",
+      "internal/query/benchmark_test.go": "03fa9e7eb77f6985adafc28bb22472c7f8425f1af188e915458060968e313b80"
+    },
+    "common_measured_harnesses": {
+      "internal/query/load_benchmark_integration_test.go": "761e16e83172c8ac1fd0b67f5751c7975b94af222b07026a6bf0dcefdb24d633",
+      "pgbase/mixed_load_integration_test.go": "9d9b3ebfc11c37c3d6629ac2f74c007c08db22762b870899cf1db666f5d7174a"
+    }
+  },
+  "artifacts_sha256": {
+    "README.md": "0c017c71f5e5c24462faf2ac88f5ae955b1a6a92feff495d4e4bc45169f360c3",
+    "measurements.json": "11ad06ccdf11445eaf08eb65ff0772877c4dc21a74cf3ae8d3da06184b3b7850",
+    "mixed-http-after.txt": "dc47108e3473b95e07b97ca0ad7e41c80ac6d67f5285468c6465d657f22b1c94",
+    "mixed-http-before.txt": "f8d4e68e30180c5e5bb606586fe73cc3607aaf1e95f37029a3e9bbf7a7d0ff86",
+    "mixed-http-strengthened-smoke.txt": "c94587b55e76767e8039208b597c60c9e5b5f527d054118b1c48c73aebbb6c16",
+    "page-after-alloc-top.txt": "59521c5ddda75bc4d18c37e9cf7b99ddf547cfa95e2d56f4ccfd6e88189c768a",
+    "page-after-assembler-source.txt": "b3bfc9b7f09d1c90dc970c533d827704014205065264c89be40072360e7a7d11",
+    "page-after-cpu-top.txt": "e0d1f29202b95718cabbf75d3f690301f925f1c51fe1db8af7f6a4bed208ee5f",
+    "page-after.txt": "2ddd26eace7f4217a07e9639d1e53861458be2f1e2681a300fb773ac7b09a1fd",
+    "page-before-alloc-top.txt": "15f271462fb3d3f304caa486a904c84beff59aaa324b11a5114fd838744bc501",
+    "page-before-assembler-source.txt": "8ff8be11cbd5b6c12cb0e9f36a78e815c4f941ec43967f3dedb3c01f11c5fa02",
+    "page-before-cpu-top.txt": "3a64d77d2ddf191c095b6d055fe17dc6de945eb5dac81192e1ab9102898b9711",
+    "page-before-fields-source.txt": "db093ab1b992411ee30baeba5b48b132c784737efad10731fef60b0f99bbf6d1",
+    "page-before.txt": "57f28885573b59cf4a3ff03ae5f434ebd27fd0f3fe11686e7dc4656875eb7b3b",
+    "page-explain-after.json": "77f47889689fe4159fb58762b1046cc5425f15d144c508087868326c92c73eb6",
+    "page-explain-before.json": "dca267221327f58983dc464ee67ec5fb51855ca63f3076142f1edfc681a5e6b7",
+    "query-codec-baseline-gmp4.txt": "f322da0bd1e514da72e204994e14b1abe7bb591399bcafd332e2ce8d0d1aae91",
+    "query-codec-candidate.txt": "1963270a03fff6135ab8c6b051c524a5af7f6e69ea277151ed97e52b48081551",
+    "query-focused-race.txt": "4bfbe4d0ed59eb9dfeaecb4b0d1b5edb8b107edaf161643bb76b73623ed65b2b",
+    "query-integration-focused.txt": "68f9d893afa768abfcfb21abc35d48f7ef6907636e7fc9b99bc86fcf18dac929",
+    "query-unit-full.txt": "135090aa0db71047c8acf81b49dcebb81b4b7af52c0ae88e97c5aed82aae37f9",
+    "realtime-fanout-bench.log": "6d8e0dabe79235aa00bfe671b84d9290c21f29f5ae58f8c8cb2715117fb01cc1",
+    "realtime-measurements.json": "97054af01412d598d4b947aabd92cde1f7abf2730d69769088ed9f3db70e3660",
+    "realtime-transport-race.log": "e735e851425c2d87d5fa53230404ac1eeeb51cd3cf64a2157968dff093be9f0a",
+    "security-cross-review-race.txt": "7ee7bf9f65a3c696cfe3df018b505f7298c528a6dc47c9549262fe94c719de02"
+  }
+}

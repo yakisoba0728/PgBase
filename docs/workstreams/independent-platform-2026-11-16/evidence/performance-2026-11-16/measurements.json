@@ -1,0 +1,1629 @@
+{
+  "baseline_revision": "6dd8f6449f7b6bc1a986ff7444b898776abf1c7b",
+  "runtime_candidate_revision": "e1f5e2eb3ca77174d9f4e0cf655f0be0eb8ac5ca",
+  "mixed_harness_revision": "8d0ceddbcb2687600e5b10182d1fa9e357934fa9",
+  "instrumentation_revision": "8a3904980e052f0e656b71ce30e6d960fccfe795",
+  "environment": {
+    "go": "1.26.11",
+    "postgresql": "17.9",
+    "os": "linux",
+    "arch": "amd64",
+    "cpu": "AMD EPYC 9V74 80-Core Processor",
+    "runtime_cpu_count": 9,
+    "GOMAXPROCS": 4,
+    "postgresql_max_connections": 100,
+    "transport": "localhost TCP, isolated disposable databases",
+    "postgresql_locale": "C.UTF-8",
+    "postgresql_build": "--without-icu --without-readline, pg_trgm installed",
+    "profiles_enabled_both_variants": true
+  },
+  "limits": [
+    "One before/after pair; no statistical latency guarantee.",
+    "Closed-loop sampling does not measure open-loop production capacity.",
+    "Process profiles include fixture setup, warmup and every workload; B/op is measured per benchmark.",
+    "HTTP allocation counts include the in-process load client and validation.",
+    "Separate EXPLAIN runs used one diagnostic iteration; their timings are excluded from throughput comparison."
+  ],
+  "native": {
+    "before": [
+      {
+        "rows": 500000,
+        "workload": "get",
+        "concurrency": 1,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 808215.0,
+          "errors": 0.0,
+          "gc-cycles": 46.0,
+          "gc-pause-ms": 3.166,
+          "p50-ms": 0.7261,
+          "p95-ms": 1.243,
+          "p99-ms": 1.954,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 0.0,
+          "pool-waits/op": 0.0,
+          "queries/s": 1237.0,
+          "B/op": 82954.0,
+          "allocs/op": 445.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "get",
+        "concurrency": 8,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 227932.0,
+          "errors": 0.0,
+          "gc-cycles": 33.0,
+          "gc-pause-ms": 6.491,
+          "p50-ms": 1.519,
+          "p95-ms": 3.123,
+          "p99-ms": 5.629,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 80144.0,
+          "pool-waits/op": 0.007,
+          "queries/s": 4387.0,
+          "B/op": 83393.0,
+          "allocs/op": 447.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "get",
+        "concurrency": 32,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 184445.0,
+          "errors": 0.0,
+          "gc-cycles": 31.0,
+          "gc-pause-ms": 5.527,
+          "p50-ms": 5.617,
+          "p95-ms": 8.178,
+          "p99-ms": 9.476,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 4191268.0,
+          "pool-waits/op": 0.992,
+          "queries/s": 5422.0,
+          "B/op": 83038.0,
+          "allocs/op": 448.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "list_50",
+        "concurrency": 1,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 3015397.0,
+          "errors": 0.0,
+          "gc-cycles": 472.0,
+          "gc-pause-ms": 37.51,
+          "p50-ms": 2.902,
+          "p95-ms": 4.078,
+          "p99-ms": 5.302,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 0.0,
+          "pool-waits/op": 0.0,
+          "queries/s": 331.6,
+          "B/op": 1116841.0,
+          "allocs/op": 10741.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "list_50",
+        "concurrency": 8,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 916621.0,
+          "errors": 0.0,
+          "gc-cycles": 308.0,
+          "gc-pause-ms": 71.2,
+          "p50-ms": 6.941,
+          "p95-ms": 10.73,
+          "p99-ms": 17.42,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 0.0,
+          "pool-waits/op": 0.0,
+          "queries/s": 1091.0,
+          "B/op": 1116444.0,
+          "allocs/op": 10740.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "list_50",
+        "concurrency": 32,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 948643.0,
+          "errors": 0.0,
+          "gc-cycles": 286.0,
+          "gc-pause-ms": 63.02,
+          "p50-ms": 30.03,
+          "p95-ms": 36.1,
+          "p99-ms": 39.92,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 21480294.0,
+          "pool-waits/op": 0.991,
+          "queries/s": 1054.0,
+          "B/op": 1116391.0,
+          "allocs/op": 10741.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "deep_cursor_50",
+        "concurrency": 1,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 4487297.0,
+          "errors": 0.0,
+          "gc-cycles": 481.0,
+          "gc-pause-ms": 41.86,
+          "p50-ms": 4.192,
+          "p95-ms": 5.838,
+          "p99-ms": 8.667,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 0.0,
+          "pool-waits/op": 0.0,
+          "queries/s": 222.9,
+          "B/op": 1125345.0,
+          "allocs/op": 10862.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "deep_cursor_50",
+        "concurrency": 8,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 1603090.0,
+          "errors": 0.0,
+          "gc-cycles": 300.0,
+          "gc-pause-ms": 146.6,
+          "p50-ms": 11.2,
+          "p95-ms": 21.97,
+          "p99-ms": 46.51,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 0.0,
+          "pool-waits/op": 0.0,
+          "queries/s": 623.8,
+          "B/op": 1124611.0,
+          "allocs/op": 10859.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "deep_cursor_50",
+        "concurrency": 32,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 1211209.0,
+          "errors": 0.0,
+          "gc-cycles": 293.0,
+          "gc-pause-ms": 104.2,
+          "p50-ms": 37.92,
+          "p95-ms": 47.8,
+          "p99-ms": 51.04,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 27332140.0,
+          "pool-waits/op": 0.991,
+          "queries/s": 825.6,
+          "B/op": 1124699.0,
+          "allocs/op": 10861.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "filtered_50",
+        "concurrency": 1,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 3308480.0,
+          "errors": 0.0,
+          "gc-cycles": 467.0,
+          "gc-pause-ms": 49.99,
+          "p50-ms": 2.988,
+          "p95-ms": 4.529,
+          "p99-ms": 8.708,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 0.0,
+          "pool-waits/op": 0.0,
+          "queries/s": 302.3,
+          "B/op": 1123180.0,
+          "allocs/op": 10838.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "filtered_50",
+        "concurrency": 8,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 974209.0,
+          "errors": 0.0,
+          "gc-cycles": 281.0,
+          "gc-pause-ms": 68.33,
+          "p50-ms": 7.481,
+          "p95-ms": 11.67,
+          "p99-ms": 13.61,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 0.0,
+          "pool-waits/op": 0.0,
+          "queries/s": 1026.0,
+          "B/op": 1123183.0,
+          "allocs/op": 10835.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "filtered_50",
+        "concurrency": 32,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 1008276.0,
+          "errors": 0.0,
+          "gc-cycles": 241.0,
+          "gc-pause-ms": 61.66,
+          "p50-ms": 31.37,
+          "p95-ms": 39.47,
+          "p99-ms": 49.03,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 22786805.0,
+          "pool-waits/op": 0.991,
+          "queries/s": 991.8,
+          "B/op": 1122428.0,
+          "allocs/op": 10836.0
+        }
+      }
+    ],
+    "after": [
+      {
+        "rows": 500000,
+        "workload": "get",
+        "concurrency": 1,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 797776.0,
+          "errors": 0.0,
+          "gc-cycles": 25.0,
+          "gc-pause-ms": 6.659,
+          "p50-ms": 0.6302,
+          "p95-ms": 1.302,
+          "p99-ms": 3.59,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 0.0,
+          "pool-waits/op": 0.0,
+          "queries/s": 1253.0,
+          "B/op": 47566.0,
+          "allocs/op": 425.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "get",
+        "concurrency": 8,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 165342.0,
+          "errors": 0.0,
+          "gc-cycles": 19.0,
+          "gc-pause-ms": 4.598,
+          "p50-ms": 1.087,
+          "p95-ms": 2.226,
+          "p99-ms": 3.675,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 66741.0,
+          "pool-waits/op": 0.007,
+          "queries/s": 6048.0,
+          "B/op": 48172.0,
+          "allocs/op": 428.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "get",
+        "concurrency": 32,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 138440.0,
+          "errors": 0.0,
+          "gc-cycles": 18.0,
+          "gc-pause-ms": 4.65,
+          "p50-ms": 4.256,
+          "p95-ms": 6.175,
+          "p99-ms": 7.721,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 3136038.0,
+          "pool-waits/op": 0.992,
+          "queries/s": 7224.0,
+          "B/op": 47773.0,
+          "allocs/op": 428.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "list_50",
+        "concurrency": 1,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 4154155.0,
+          "errors": 0.0,
+          "gc-cycles": 220.0,
+          "gc-pause-ms": 66.55,
+          "p50-ms": 2.56,
+          "p95-ms": 11.09,
+          "p99-ms": 35.95,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 0.0,
+          "pool-waits/op": 0.0,
+          "queries/s": 240.7,
+          "B/op": 517981.0,
+          "allocs/op": 7970.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "list_50",
+        "concurrency": 8,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 780360.0,
+          "errors": 0.0,
+          "gc-cycles": 157.0,
+          "gc-pause-ms": 67.67,
+          "p50-ms": 5.971,
+          "p95-ms": 9.879,
+          "p99-ms": 12.03,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 0.0,
+          "pool-waits/op": 0.0,
+          "queries/s": 1281.0,
+          "B/op": 517728.0,
+          "allocs/op": 7969.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "list_50",
+        "concurrency": 32,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 767474.0,
+          "errors": 0.0,
+          "gc-cycles": 158.0,
+          "gc-pause-ms": 57.61,
+          "p50-ms": 20.93,
+          "p95-ms": 28.01,
+          "p99-ms": 56.78,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 15358136.0,
+          "pool-waits/op": 0.991,
+          "queries/s": 1303.0,
+          "B/op": 517813.0,
+          "allocs/op": 7971.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "deep_cursor_50",
+        "concurrency": 1,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 3763927.0,
+          "errors": 0.0,
+          "gc-cycles": 228.0,
+          "gc-pause-ms": 24.94,
+          "p50-ms": 3.332,
+          "p95-ms": 4.607,
+          "p99-ms": 8.157,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 0.0,
+          "pool-waits/op": 0.0,
+          "queries/s": 265.7,
+          "B/op": 526348.0,
+          "allocs/op": 8090.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "deep_cursor_50",
+        "concurrency": 8,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 1243645.0,
+          "errors": 0.0,
+          "gc-cycles": 170.0,
+          "gc-pause-ms": 129.7,
+          "p50-ms": 7.527,
+          "p95-ms": 15.81,
+          "p99-ms": 82.55,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 0.0,
+          "pool-waits/op": 0.0,
+          "queries/s": 804.1,
+          "B/op": 526062.0,
+          "allocs/op": 8089.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "deep_cursor_50",
+        "concurrency": 32,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 872414.0,
+          "errors": 0.0,
+          "gc-cycles": 160.0,
+          "gc-pause-ms": 62.73,
+          "p50-ms": 27.32,
+          "p95-ms": 34.26,
+          "p99-ms": 36.45,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 19676146.0,
+          "pool-waits/op": 0.991,
+          "queries/s": 1146.0,
+          "B/op": 526169.0,
+          "allocs/op": 8091.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "filtered_50",
+        "concurrency": 1,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 3210082.0,
+          "errors": 0.0,
+          "gc-cycles": 224.0,
+          "gc-pause-ms": 26.98,
+          "p50-ms": 2.426,
+          "p95-ms": 3.889,
+          "p99-ms": 15.87,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 0.0,
+          "pool-waits/op": 0.0,
+          "queries/s": 311.5,
+          "B/op": 522364.0,
+          "allocs/op": 8067.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "filtered_50",
+        "concurrency": 8,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 1138366.0,
+          "errors": 0.0,
+          "gc-cycles": 140.0,
+          "gc-pause-ms": 112.4,
+          "p50-ms": 8.46,
+          "p95-ms": 15.56,
+          "p99-ms": 19.71,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 0.0,
+          "pool-waits/op": 0.0,
+          "queries/s": 878.5,
+          "B/op": 521938.0,
+          "allocs/op": 8064.0
+        }
+      },
+      {
+        "rows": 500000,
+        "workload": "filtered_50",
+        "concurrency": 32,
+        "samples": 1000,
+        "metrics": {
+          "ns/op": 1299076.0,
+          "errors": 0.0,
+          "gc-cycles": 121.0,
+          "gc-pause-ms": 150.5,
+          "p50-ms": 34.17,
+          "p95-ms": 89.39,
+          "p99-ms": 140.0,
+          "pool-canceled": 0.0,
+          "pool-wait-ns/op": 29206770.0,
+          "pool-waits/op": 0.991,
+          "queries/s": 769.8,
+          "B/op": 521978.0,
+          "allocs/op": 8066.0
+        }
+      }
+    ]
+  },
+  "mixed_http": {
+    "before": [
+      {
+        "stage": "baseline",
+        "latency": {
+          "all": {
+            "requests": 1000,
+            "p50": "3.84951ms",
+            "p95": "6.180592ms",
+            "p99": "10.600051ms"
+          },
+          "create": {
+            "requests": 100,
+            "p50": "3.928246ms",
+            "p95": "5.357613ms",
+            "p99": "8.345183ms"
+          },
+          "update": {
+            "requests": 100,
+            "p50": "3.196764ms",
+            "p95": "4.443742ms",
+            "p99": "5.384197ms"
+          },
+          "delete": {
+            "requests": 100,
+            "p50": "4.146674ms",
+            "p95": "6.672991ms",
+            "p99": "8.503291ms"
+          },
+          "get": {
+            "requests": 100,
+            "p50": "1.273165ms",
+            "p95": "1.742479ms",
+            "p99": "4.179362ms"
+          },
+          "page": {
+            "requests": 500,
+            "p50": "3.972412ms",
+            "p95": "6.397888ms",
+            "p99": "46.467991ms"
+          },
+          "cursor": {
+            "requests": 100,
+            "p50": "4.260178ms",
+            "p95": "7.163037ms",
+            "p99": "53.151699ms"
+          }
+        },
+        "metrics": {
+          "workers": "1",
+          "elapsed": "4.456602413s",
+          "requests": "1000",
+          "rps": "224.39",
+          "unexpected_errors": "0",
+          "error_rate": "0.000000",
+          "allocated_bytes_per_request": "840158.1",
+          "allocations_per_request": "9181.6",
+          "heap_before": "99466976",
+          "heap_after": "9446880",
+          "gc_cycles": "128",
+          "gc_pause": "19.167559ms",
+          "pool_max": "4",
+          "pool_wait_count": "0",
+          "pool_wait": "0s",
+          "pool_acquire": "1.177985ms",
+          "pool_canceled": "0"
+        }
+      },
+      {
+        "stage": "concurrent",
+        "latency": {
+          "all": {
+            "requests": 1000,
+            "p50": "14.098534ms",
+            "p95": "28.829101ms",
+            "p99": "58.042706ms"
+          },
+          "create": {
+            "requests": 100,
+            "p50": "15.813387ms",
+            "p95": "34.400741ms",
+            "p99": "56.574474ms"
+          },
+          "update": {
+            "requests": 100,
+            "p50": "14.184373ms",
+            "p95": "37.425642ms",
+            "p99": "56.474186ms"
+          },
+          "delete": {
+            "requests": 100,
+            "p50": "15.82026ms",
+            "p95": "29.512412ms",
+            "p99": "63.63071ms"
+          },
+          "get": {
+            "requests": 100,
+            "p50": "9.60706ms",
+            "p95": "18.755981ms",
+            "p99": "76.490417ms"
+          },
+          "page": {
+            "requests": 500,
+            "p50": "14.098534ms",
+            "p95": "28.419546ms",
+            "p99": "46.474781ms"
+          },
+          "cursor": {
+            "requests": 100,
+            "p50": "13.465722ms",
+            "p95": "25.152018ms",
+            "p99": "80.369118ms"
+          }
+        },
+        "metrics": {
+          "workers": "8",
+          "elapsed": "2.030992115s",
+          "requests": "1000",
+          "rps": "492.37",
+          "unexpected_errors": "0",
+          "error_rate": "0.000000",
+          "allocated_bytes_per_request": "783330.1",
+          "allocations_per_request": "9176.5",
+          "heap_before": "11934992",
+          "heap_after": "10364872",
+          "gc_cycles": "107",
+          "gc_pause": "43.434499ms",
+          "pool_max": "4",
+          "pool_wait_count": "3438",
+          "pool_wait": "10.725491739s",
+          "pool_acquire": "10.725505137s",
+          "pool_canceled": "0"
+        }
+      },
+      {
+        "stage": "saturated",
+        "latency": {
+          "all": {
+            "requests": 1000,
+            "p50": "57.376602ms",
+            "p95": "116.347243ms",
+            "p99": "162.142167ms"
+          },
+          "create": {
+            "requests": 100,
+            "p50": "76.08557ms",
+            "p95": "105.756785ms",
+            "p99": "117.748678ms"
+          },
+          "update": {
+            "requests": 100,
+            "p50": "66.393337ms",
+            "p95": "94.996122ms",
+            "p99": "100.888957ms"
+          },
+          "delete": {
+            "requests": 100,
+            "p50": "63.580029ms",
+            "p95": "90.604851ms",
+            "p99": "95.019727ms"
+          },
+          "get": {
+            "requests": 100,
+            "p50": "47.390353ms",
+            "p95": "77.539003ms",
+            "p99": "81.438203ms"
+          },
+          "page": {
+            "requests": 500,
+            "p50": "56.042471ms",
+            "p95": "145.239352ms",
+            "p99": "166.691057ms"
+          },
+          "cursor": {
+            "requests": 100,
+            "p50": "56.221382ms",
+            "p95": "63.730678ms",
+            "p99": "72.340999ms"
+          }
+        },
+        "metrics": {
+          "workers": "32",
+          "elapsed": "2.063853469s",
+          "requests": "1000",
+          "rps": "484.53",
+          "unexpected_errors": "0",
+          "error_rate": "0.000000",
+          "allocated_bytes_per_request": "742198.0",
+          "allocations_per_request": "9159.4",
+          "heap_before": "12863672",
+          "heap_after": "14955792",
+          "gc_cycles": "88",
+          "gc_pause": "19.311776ms",
+          "pool_max": "4",
+          "pool_wait_count": "3351",
+          "pool_wait": "57.897923188s",
+          "pool_acquire": "57.897926703s",
+          "pool_canceled": "0"
+        }
+      },
+      {
+        "stage": "recovery",
+        "latency": {
+          "all": {
+            "requests": 1000,
+            "p50": "6.820252ms",
+            "p95": "10.891194ms",
+            "p99": "13.254455ms"
+          },
+          "create": {
+            "requests": 100,
+            "p50": "7.538639ms",
+            "p95": "11.860223ms",
+            "p99": "14.573651ms"
+          },
+          "update": {
+            "requests": 100,
+            "p50": "6.331152ms",
+            "p95": "9.733604ms",
+            "p99": "12.550957ms"
+          },
+          "delete": {
+            "requests": 100,
+            "p50": "7.808779ms",
+            "p95": "11.861995ms",
+            "p99": "13.267755ms"
+          },
+          "get": {
+            "requests": 100,
+            "p50": "3.02693ms",
+            "p95": "6.422102ms",
+            "p99": "7.125166ms"
+          },
+          "page": {
+            "requests": 500,
+            "p50": "7.031983ms",
+            "p95": "10.84568ms",
+            "p99": "13.254455ms"
+          },
+          "cursor": {
+            "requests": 100,
+            "p50": "7.00904ms",
+            "p95": "11.217924ms",
+            "p99": "12.576412ms"
+          }
+        },
+        "metrics": {
+          "workers": "4",
+          "elapsed": "1.878235941s",
+          "requests": "1000",
+          "rps": "532.41",
+          "unexpected_errors": "0",
+          "error_rate": "0.000000",
+          "allocated_bytes_per_request": "781845.5",
+          "allocations_per_request": "9193.7",
+          "heap_before": "17510832",
+          "heap_after": "13795336",
+          "gc_cycles": "102",
+          "gc_pause": "14.694209ms",
+          "pool_max": "4",
+          "pool_wait_count": "2454",
+          "pool_wait": "1.85037135s",
+          "pool_acquire": "1.850680733s",
+          "pool_canceled": "0"
+        }
+      }
+    ],
+    "after": [
+      {
+        "stage": "baseline",
+        "latency": {
+          "all": {
+            "requests": 1000,
+            "p50": "3.801787ms",
+            "p95": "5.948286ms",
+            "p99": "13.19291ms"
+          },
+          "create": {
+            "requests": 100,
+            "p50": "3.997431ms",
+            "p95": "5.600714ms",
+            "p99": "11.201769ms"
+          },
+          "update": {
+            "requests": 100,
+            "p50": "3.103509ms",
+            "p95": "4.417147ms",
+            "p99": "10.849607ms"
+          },
+          "delete": {
+            "requests": 100,
+            "p50": "3.858941ms",
+            "p95": "7.206497ms",
+            "p99": "9.574422ms"
+          },
+          "get": {
+            "requests": 100,
+            "p50": "1.265093ms",
+            "p95": "1.73368ms",
+            "p99": "1.919947ms"
+          },
+          "page": {
+            "requests": 500,
+            "p50": "3.971723ms",
+            "p95": "6.348916ms",
+            "p99": "14.586079ms"
+          },
+          "cursor": {
+            "requests": 100,
+            "p50": "3.993535ms",
+            "p95": "6.46984ms",
+            "p99": "8.631144ms"
+          }
+        },
+        "metrics": {
+          "workers": "1",
+          "elapsed": "4.356672627s",
+          "requests": "1000",
+          "rps": "229.53",
+          "unexpected_errors": "0",
+          "error_rate": "0.000000",
+          "allocated_bytes_per_request": "777141.7",
+          "allocations_per_request": "9010.0",
+          "heap_before": "98358840",
+          "heap_after": "14253496",
+          "gc_cycles": "117",
+          "gc_pause": "17.042033ms",
+          "pool_max": "4",
+          "pool_wait_count": "4",
+          "pool_wait": "1.951632ms",
+          "pool_acquire": "3.062342ms",
+          "pool_canceled": "0"
+        }
+      },
+      {
+        "stage": "concurrent",
+        "latency": {
+          "all": {
+            "requests": 1000,
+            "p50": "12.995814ms",
+            "p95": "22.633689ms",
+            "p99": "79.581866ms"
+          },
+          "create": {
+            "requests": 100,
+            "p50": "14.390119ms",
+            "p95": "26.427619ms",
+            "p99": "79.307539ms"
+          },
+          "update": {
+            "requests": 100,
+            "p50": "13.828671ms",
+            "p95": "19.106819ms",
+            "p99": "77.272683ms"
+          },
+          "delete": {
+            "requests": 100,
+            "p50": "15.098521ms",
+            "p95": "20.071957ms",
+            "p99": "21.118582ms"
+          },
+          "get": {
+            "requests": 100,
+            "p50": "9.162631ms",
+            "p95": "13.469941ms",
+            "p99": "17.993192ms"
+          },
+          "page": {
+            "requests": 500,
+            "p50": "12.793784ms",
+            "p95": "25.624566ms",
+            "p99": "112.12365ms"
+          },
+          "cursor": {
+            "requests": 100,
+            "p50": "12.972815ms",
+            "p95": "23.392337ms",
+            "p99": "51.420755ms"
+          }
+        },
+        "metrics": {
+          "workers": "8",
+          "elapsed": "1.89965373s",
+          "requests": "1000",
+          "rps": "526.41",
+          "unexpected_errors": "0",
+          "error_rate": "0.000000",
+          "allocated_bytes_per_request": "732975.0",
+          "allocations_per_request": "9003.4",
+          "heap_before": "11233776",
+          "heap_after": "9761120",
+          "gc_cycles": "103",
+          "gc_pause": "27.382717ms",
+          "pool_max": "4",
+          "pool_wait_count": "3435",
+          "pool_wait": "9.919313839s",
+          "pool_acquire": "9.919330497s",
+          "pool_canceled": "0"
+        }
+      },
+      {
+        "stage": "saturated",
+        "latency": {
+          "all": {
+            "requests": 1000,
+            "p50": "49.782849ms",
+            "p95": "86.915925ms",
+            "p99": "227.642233ms"
+          },
+          "create": {
+            "requests": 100,
+            "p50": "65.171076ms",
+            "p95": "85.789498ms",
+            "p99": "97.748348ms"
+          },
+          "update": {
+            "requests": 100,
+            "p50": "62.31486ms",
+            "p95": "90.468729ms",
+            "p99": "96.194994ms"
+          },
+          "delete": {
+            "requests": 100,
+            "p50": "62.858217ms",
+            "p95": "238.261159ms",
+            "p99": "244.393524ms"
+          },
+          "get": {
+            "requests": 100,
+            "p50": "44.587497ms",
+            "p95": "219.416834ms",
+            "p99": "225.785599ms"
+          },
+          "page": {
+            "requests": 500,
+            "p50": "49.042371ms",
+            "p95": "52.975223ms",
+            "p99": "59.40316ms"
+          },
+          "cursor": {
+            "requests": 100,
+            "p50": "49.936856ms",
+            "p95": "57.688656ms",
+            "p99": "58.402668ms"
+          }
+        },
+        "metrics": {
+          "workers": "32",
+          "elapsed": "1.863219827s",
+          "requests": "1000",
+          "rps": "536.71",
+          "unexpected_errors": "0",
+          "error_rate": "0.000000",
+          "allocated_bytes_per_request": "682356.6",
+          "allocations_per_request": "8986.6",
+          "heap_before": "11822776",
+          "heap_after": "15299544",
+          "gc_cycles": "81",
+          "gc_pause": "13.317863ms",
+          "pool_max": "4",
+          "pool_wait_count": "3328",
+          "pool_wait": "52.436618991s",
+          "pool_acquire": "52.436625592s",
+          "pool_canceled": "0"
+        }
+      },
+      {
+        "stage": "recovery",
+        "latency": {
+          "all": {
+            "requests": 1000,
+            "p50": "6.561469ms",
+            "p95": "12.450093ms",
+            "p99": "27.405869ms"
+          },
+          "create": {
+            "requests": 100,
+            "p50": "7.857062ms",
+            "p95": "16.503022ms",
+            "p99": "75.41709ms"
+          },
+          "update": {
+            "requests": 100,
+            "p50": "5.931161ms",
+            "p95": "8.78466ms",
+            "p99": "13.728175ms"
+          },
+          "delete": {
+            "requests": 100,
+            "p50": "7.40009ms",
+            "p95": "12.546114ms",
+            "p99": "22.353704ms"
+          },
+          "get": {
+            "requests": 100,
+            "p50": "3.054963ms",
+            "p95": "6.041464ms",
+            "p99": "12.066519ms"
+          },
+          "page": {
+            "requests": 500,
+            "p50": "6.630426ms",
+            "p95": "11.950247ms",
+            "p99": "22.822128ms"
+          },
+          "cursor": {
+            "requests": 100,
+            "p50": "6.722768ms",
+            "p95": "14.143725ms",
+            "p99": "31.366883ms"
+          }
+        },
+        "metrics": {
+          "workers": "4",
+          "elapsed": "1.915564249s",
+          "requests": "1000",
+          "rps": "522.04",
+          "unexpected_errors": "0",
+          "error_rate": "0.000000",
+          "allocated_bytes_per_request": "711816.2",
+          "allocations_per_request": "9024.5",
+          "heap_before": "17348720",
+          "heap_after": "10375272",
+          "gc_cycles": "92",
+          "gc_pause": "25.105556ms",
+          "pool_max": "4",
+          "pool_wait_count": "2622",
+          "pool_wait": "2.281133936s",
+          "pool_acquire": "2.281355684s",
+          "pool_canceled": "0"
+        }
+      }
+    ]
+  },
+  "explain": {
+    "before": [
+      {
+        "workload": "list_50",
+        "plan": [
+          {
+            "Plan": {
+              "Node Type": "Limit",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Startup Cost": 0.84,
+              "Total Cost": 33.94,
+              "Plan Rows": 51,
+              "Plan Width": 335,
+              "Actual Startup Time": 0.02,
+              "Actual Total Time": 0.28,
+              "Actual Rows": 51,
+              "Actual Loops": 1,
+              "Shared Hit Blocks": 198,
+              "Shared Read Blocks": 11,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0,
+              "Plans": [
+                {
+                  "Node Type": "Nested Loop",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Join Type": "Inner",
+                  "Startup Cost": 0.84,
+                  "Total Cost": 324450.46,
+                  "Plan Rows": 499950,
+                  "Plan Width": 335,
+                  "Actual Startup Time": 0.02,
+                  "Actual Total Time": 0.276,
+                  "Actual Rows": 51,
+                  "Actual Loops": 1,
+                  "Inner Unique": true,
+                  "Shared Hit Blocks": 198,
+                  "Shared Read Blocks": 11,
+                  "Shared Dirtied Blocks": 0,
+                  "Shared Written Blocks": 0,
+                  "Local Hit Blocks": 0,
+                  "Local Read Blocks": 0,
+                  "Local Dirtied Blocks": 0,
+                  "Local Written Blocks": 0,
+                  "Temp Read Blocks": 0,
+                  "Temp Written Blocks": 0,
+                  "Plans": [
+                    {
+                      "Node Type": "Index Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Scan Direction": "Forward",
+                      "Index Name": "idx_39f134c7ec30f55e",
+                      "Relation Name": "benchmark_records",
+                      "Alias": "benchmark_records",
+                      "Startup Cost": 0.42,
+                      "Total Cost": 61851.3,
+                      "Plan Rows": 500000,
+                      "Plan Width": 257,
+                      "Actual Startup Time": 0.005,
+                      "Actual Total Time": 0.015,
+                      "Actual Rows": 51,
+                      "Actual Loops": 1,
+                      "Shared Hit Blocks": 5,
+                      "Shared Read Blocks": 0,
+                      "Shared Dirtied Blocks": 0,
+                      "Shared Written Blocks": 0,
+                      "Local Hit Blocks": 0,
+                      "Local Read Blocks": 0,
+                      "Local Dirtied Blocks": 0,
+                      "Local Written Blocks": 0,
+                      "Temp Read Blocks": 0,
+                      "Temp Written Blocks": 0
+                    },
+                    {
+                      "Node Type": "Index Scan",
+                      "Parent Relationship": "Inner",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Scan Direction": "Forward",
+                      "Index Name": "record_creation_ordinals_pkey",
+                      "Relation Name": "record_creation_ordinals",
+                      "Alias": "rq_membership",
+                      "Startup Cost": 0.42,
+                      "Total Cost": 0.51,
+                      "Plan Rows": 1,
+                      "Plan Width": 16,
+                      "Actual Startup Time": 0.004,
+                      "Actual Total Time": 0.004,
+                      "Actual Rows": 1,
+                      "Actual Loops": 51,
+                      "Index Cond": "((collection_id = '01a1e19d-be1e-7133-a693-c5d652fd0401'::uuid) AND (record_id = benchmark_records.id))",
+                      "Rows Removed by Index Recheck": 0,
+                      "Filter": "(ordinal <= '500000'::bigint)",
+                      "Rows Removed by Filter": 0,
+                      "Shared Hit Blocks": 193,
+                      "Shared Read Blocks": 11,
+                      "Shared Dirtied Blocks": 0,
+                      "Shared Written Blocks": 0,
+                      "Local Hit Blocks": 0,
+                      "Local Read Blocks": 0,
+                      "Local Dirtied Blocks": 0,
+                      "Local Written Blocks": 0,
+                      "Temp Read Blocks": 0,
+                      "Temp Written Blocks": 0
+                    }
+                  ]
+                }
+              ]
+            },
+            "Planning": {
+              "Shared Hit Blocks": 9,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0
+            },
+            "Planning Time": 0.182,
+            "Triggers": [],
+            "Execution Time": 0.294
+          }
+        ]
+      },
+      {
+        "workload": "filtered_50",
+        "plan": [
+          {
+            "Plan": {
+              "Node Type": "Limit",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Startup Cost": 0.84,
+              "Total Cost": 923.33,
+              "Plan Rows": 51,
+              "Plan Width": 335,
+              "Actual Startup Time": 0.016,
+              "Actual Total Time": 1.245,
+              "Actual Rows": 51,
+              "Actual Loops": 1,
+              "Shared Hit Blocks": 421,
+              "Shared Read Blocks": 4,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0,
+              "Plans": [
+                {
+                  "Node Type": "Nested Loop",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Join Type": "Inner",
+                  "Startup Cost": 0.84,
+                  "Total Cost": 90133.48,
+                  "Plan Rows": 4983,
+                  "Plan Width": 335,
+                  "Actual Startup Time": 0.015,
+                  "Actual Total Time": 1.24,
+                  "Actual Rows": 51,
+                  "Actual Loops": 1,
+                  "Inner Unique": true,
+                  "Shared Hit Blocks": 421,
+                  "Shared Read Blocks": 4,
+                  "Shared Dirtied Blocks": 0,
+                  "Shared Written Blocks": 0,
+                  "Local Hit Blocks": 0,
+                  "Local Read Blocks": 0,
+                  "Local Dirtied Blocks": 0,
+                  "Local Written Blocks": 0,
+                  "Temp Read Blocks": 0,
+                  "Temp Written Blocks": 0,
+                  "Plans": [
+                    {
+                      "Node Type": "Index Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Scan Direction": "Forward",
+                      "Index Name": "idx_39f134c7ec30f55e",
+                      "Relation Name": "benchmark_records",
+                      "Alias": "benchmark_records",
+                      "Startup Cost": 0.42,
+                      "Total Cost": 63101.3,
+                      "Plan Rows": 4983,
+                      "Plan Width": 257,
+                      "Actual Startup Time": 0.009,
+                      "Actual Total Time": 0.972,
+                      "Actual Rows": 51,
+                      "Actual Loops": 1,
+                      "Filter": "(priority = 42)",
+                      "Rows Removed by Filter": 4991,
+                      "Shared Hit Blocks": 221,
+                      "Shared Read Blocks": 0,
+                      "Shared Dirtied Blocks": 0,
+                      "Shared Written Blocks": 0,
+                      "Local Hit Blocks": 0,
+                      "Local Read Blocks": 0,
+                      "Local Dirtied Blocks": 0,
+                      "Local Written Blocks": 0,
+                      "Temp Read Blocks": 0,
+                      "Temp Written Blocks": 0
+                    },
+                    {
+                      "Node Type": "Index Scan",
+                      "Parent Relationship": "Inner",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Scan Direction": "Forward",
+                      "Index Name": "record_creation_ordinals_pkey",
+                      "Relation Name": "record_creation_ordinals",
+                      "Alias": "rq_membership",
+                      "Startup Cost": 0.42,
+                      "Total Cost": 5.41,
+                      "Plan Rows": 1,
+                      "Plan Width": 16,
+                      "Actual Startup Time": 0.005,
+                      "Actual Total Time": 0.005,
+                      "Actual Rows": 1,
+                      "Actual Loops": 51,
+                      "Index Cond": "((collection_id = '01a1e19d-be1e-7133-a693-c5d652fd0401'::uuid) AND (record_id = benchmark_records.id))",
+                      "Rows Removed by Index Recheck": 0,
+                      "Filter": "(ordinal <= '500000'::bigint)",
+                      "Rows Removed by Filter": 0,
+                      "Shared Hit Blocks": 200,
+                      "Shared Read Blocks": 4,
+                      "Shared Dirtied Blocks": 0,
+                      "Shared Written Blocks": 0,
+                      "Local Hit Blocks": 0,
+                      "Local Read Blocks": 0,
+                      "Local Dirtied Blocks": 0,
+                      "Local Written Blocks": 0,
+                      "Temp Read Blocks": 0,
+                      "Temp Written Blocks": 0
+                    }
+                  ]
+                }
+              ]
+            },
+            "Planning": {
+              "Shared Hit Blocks": 9,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0
+            },
+            "Planning Time": 0.159,
+            "Triggers": [],
+            "Execution Time": 1.259
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "workload": "list_50",
+        "plan": [
+          {
+            "Plan": {
+              "Node Type": "Limit",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Startup Cost": 0.84,
+              "Total Cost": 33.94,
+              "Plan Rows": 51,
+              "Plan Width": 335,
+              "Actual Startup Time": 0.024,
+              "Actual Total Time": 0.332,
+              "Actual Rows": 51,
+              "Actual Loops": 1,
+              "Shared Hit Blocks": 202,
+              "Shared Read Blocks": 7,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0,
+              "Plans": [
+                {
+                  "Node Type": "Nested Loop",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Join Type": "Inner",
+                  "Startup Cost": 0.84,
+                  "Total Cost": 324442.46,
+                  "Plan Rows": 499950,
+                  "Plan Width": 335,
+                  "Actual Startup Time": 0.023,
+                  "Actual Total Time": 0.328,
+                  "Actual Rows": 51,
+                  "Actual Loops": 1,
+                  "Inner Unique": true,
+                  "Shared Hit Blocks": 202,
+                  "Shared Read Blocks": 7,
+                  "Shared Dirtied Blocks": 0,
+                  "Shared Written Blocks": 0,
+                  "Local Hit Blocks": 0,
+                  "Local Read Blocks": 0,
+                  "Local Dirtied Blocks": 0,
+                  "Local Written Blocks": 0,
+                  "Temp Read Blocks": 0,
+                  "Temp Written Blocks": 0,
+                  "Plans": [
+                    {
+                      "Node Type": "Index Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Scan Direction": "Forward",
+                      "Index Name": "idx_39f134c7ec30f55e",
+                      "Relation Name": "benchmark_records",
+                      "Alias": "benchmark_records",
+                      "Startup Cost": 0.42,
+                      "Total Cost": 61851.3,
+                      "Plan Rows": 500000,
+                      "Plan Width": 257,
+                      "Actual Startup Time": 0.006,
+                      "Actual Total Time": 0.019,
+                      "Actual Rows": 51,
+                      "Actual Loops": 1,
+                      "Shared Hit Blocks": 5,
+                      "Shared Read Blocks": 0,
+                      "Shared Dirtied Blocks": 0,
+                      "Shared Written Blocks": 0,
+                      "Local Hit Blocks": 0,
+                      "Local Read Blocks": 0,
+                      "Local Dirtied Blocks": 0,
+                      "Local Written Blocks": 0,
+                      "Temp Read Blocks": 0,
+                      "Temp Written Blocks": 0
+                    },
+                    {
+                      "Node Type": "Index Scan",
+                      "Parent Relationship": "Inner",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Scan Direction": "Forward",
+                      "Index Name": "record_creation_ordinals_pkey",
+                      "Relation Name": "record_creation_ordinals",
+                      "Alias": "rq_membership",
+                      "Startup Cost": 0.42,
+                      "Total Cost": 0.51,
+                      "Plan Rows": 1,
+                      "Plan Width": 16,
+                      "Actual Startup Time": 0.004,
+                      "Actual Total Time": 0.004,
+                      "Actual Rows": 1,
+                      "Actual Loops": 51,
+                      "Index Cond": "((collection_id = '01a1e19e-4715-73a5-a20c-2620320691aa'::uuid) AND (record_id = benchmark_records.id))",
+                      "Rows Removed by Index Recheck": 0,
+                      "Filter": "(ordinal <= '500000'::bigint)",
+                      "Rows Removed by Filter": 0,
+                      "Shared Hit Blocks": 197,
+                      "Shared Read Blocks": 7,
+                      "Shared Dirtied Blocks": 0,
+                      "Shared Written Blocks": 0,
+                      "Local Hit Blocks": 0,
+                      "Local Read Blocks": 0,
+                      "Local Dirtied Blocks": 0,
+                      "Local Written Blocks": 0,
+                      "Temp Read Blocks": 0,
+                      "Temp Written Blocks": 0
+                    }
+                  ]
+                }
+              ]
+            },
+            "Planning": {
+              "Shared Hit Blocks": 9,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0
+            },
+            "Planning Time": 0.217,
+            "Triggers": [],
+            "Execution Time": 0.348
+          }
+        ]
+      },
+      {
+        "workload": "filtered_50",
+        "plan": [
+          {
+            "Plan": {
+              "Node Type": "Limit",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Startup Cost": 0.84,
+              "Total Cost": 892.42,
+              "Plan Rows": 51,
+              "Plan Width": 335,
+              "Actual Startup Time": 0.243,
+              "Actual Total Time": 1.808,
+              "Actual Rows": 51,
+              "Actual Loops": 1,
+              "Shared Hit Blocks": 424,
+              "Shared Read Blocks": 1,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0,
+              "Plans": [
+                {
+                  "Node Type": "Nested Loop",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Join Type": "Inner",
+                  "Startup Cost": 0.84,
+                  "Total Cost": 90889.28,
+                  "Plan Rows": 5199,
+                  "Plan Width": 335,
+                  "Actual Startup Time": 0.243,
+                  "Actual Total Time": 1.803,
+                  "Actual Rows": 51,
+                  "Actual Loops": 1,
+                  "Inner Unique": true,
+                  "Shared Hit Blocks": 424,
+                  "Shared Read Blocks": 1,
+                  "Shared Dirtied Blocks": 0,
+                  "Shared Written Blocks": 0,
+                  "Local Hit Blocks": 0,
+                  "Local Read Blocks": 0,
+                  "Local Dirtied Blocks": 0,
+                  "Local Written Blocks": 0,
+                  "Temp Read Blocks": 0,
+                  "Temp Written Blocks": 0,
+                  "Plans": [
+                    {
+                      "Node Type": "Index Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Scan Direction": "Forward",
+                      "Index Name": "idx_39f134c7ec30f55e",
+                      "Relation Name": "benchmark_records",
+                      "Alias": "benchmark_records",
+                      "Startup Cost": 0.42,
+                      "Total Cost": 63101.3,
+                      "Plan Rows": 5200,
+                      "Plan Width": 257,
+                      "Actual Startup Time": 0.019,
+                      "Actual Total Time": 0.985,
+                      "Actual Rows": 51,
+                      "Actual Loops": 1,
+                      "Filter": "(priority = 42)",
+                      "Rows Removed by Filter": 4991,
+                      "Shared Hit Blocks": 221,
+                      "Shared Read Blocks": 0,
+                      "Shared Dirtied Blocks": 0,
+                      "Shared Written Blocks": 0,
+                      "Local Hit Blocks": 0,
+                      "Local Read Blocks": 0,
+                      "Local Dirtied Blocks": 0,
+                      "Local Written Blocks": 0,
+                      "Temp Read Blocks": 0,
+                      "Temp Written Blocks": 0
+                    },
+                    {
+                      "Node Type": "Index Scan",
+                      "Parent Relationship": "Inner",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Scan Direction": "Forward",
+                      "Index Name": "record_creation_ordinals_pkey",
+                      "Relation Name": "record_creation_ordinals",
+                      "Alias": "rq_membership",
+                      "Startup Cost": 0.42,
+                      "Total Cost": 5.33,
+                      "Plan Rows": 1,
+                      "Plan Width": 16,
+                      "Actual Startup Time": 0.015,
+                      "Actual Total Time": 0.015,
+                      "Actual Rows": 1,
+                      "Actual Loops": 51,
+                      "Index Cond": "((collection_id = '01a1e19e-4715-73a5-a20c-2620320691aa'::uuid) AND (record_id = benchmark_records.id))",
+                      "Rows Removed by Index Recheck": 0,
+                      "Filter": "(ordinal <= '500000'::bigint)",
+                      "Rows Removed by Filter": 0,
+                      "Shared Hit Blocks": 203,
+                      "Shared Read Blocks": 1,
+                      "Shared Dirtied Blocks": 0,
+                      "Shared Written Blocks": 0,
+                      "Local Hit Blocks": 0,
+                      "Local Read Blocks": 0,
+                      "Local Dirtied Blocks": 0,
+                      "Local Written Blocks": 0,
+                      "Temp Read Blocks": 0,
+                      "Temp Written Blocks": 0
+                    }
+                  ]
+                }
+              ]
+            },
+            "Planning": {
+              "Shared Hit Blocks": 9,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0
+            },
+            "Planning Time": 0.236,
+            "Triggers": [],
+            "Execution Time": 1.824
+          }
+        ]
+      }
+    ]
+  },
+  "strengthened_mixed_harness_revision": "15b19c36443c3031c5ed0d979ada326b05b9f19d",
+  "strengthened_harness_note": "Original paired measurements use 8d0ceddb; 15b19c36 adds rank/title order and within-page unique-ID assertions. The later 32-cycle functional smoke is not pooled into the paired measurements.",
+  "validation": {
+    "native_measured_queries": 24000,
+    "mixed_measured_http_requests": 8000,
+    "strengthened_smoke_http_requests": 1280,
+    "unexpected_errors": 0
+  }
+}

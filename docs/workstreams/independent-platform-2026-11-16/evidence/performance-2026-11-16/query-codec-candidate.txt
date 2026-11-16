@@ -1,0 +1,21 @@
+goos: linux
+goarch: amd64
+pkg: github.com/yakisoba0728/PgBase/internal/query
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkFieldsByOrdinal20/copy_sort_reference-4         	  184144	      2023 ns/op	    8680 B/op	       4 allocs/op
+BenchmarkFieldsByOrdinal20/copy_sort_reference-4         	  174958	      1919 ns/op	    8680 B/op	       4 allocs/op
+BenchmarkFieldsByOrdinal20/copy_sort_reference-4         	  187849	      2034 ns/op	    8680 B/op	       4 allocs/op
+BenchmarkFieldsByOrdinal20/copy_sort_reference-4         	  145467	      3941 ns/op	    8680 B/op	       4 allocs/op
+BenchmarkFieldsByOrdinal20/copy_sort_reference-4         	  170640	      2505 ns/op	    8680 B/op	       4 allocs/op
+BenchmarkFieldsByOrdinal20/current-4                     	12392590	        28.10 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFieldsByOrdinal20/current-4                     	12798174	        30.92 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFieldsByOrdinal20/current-4                     	14413207	        29.14 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFieldsByOrdinal20/current-4                     	12500724	        35.65 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFieldsByOrdinal20/current-4                     	13036822	        28.43 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEncodeRecord20Fields-4                          	   26962	     11661 ns/op	    5745 B/op	      89 allocs/op
+BenchmarkEncodeRecord20Fields-4                          	   33926	     10590 ns/op	    5745 B/op	      89 allocs/op
+BenchmarkEncodeRecord20Fields-4                          	   34309	     10647 ns/op	    5745 B/op	      89 allocs/op
+BenchmarkEncodeRecord20Fields-4                          	   17373	     20931 ns/op	    5745 B/op	      89 allocs/op
+BenchmarkEncodeRecord20Fields-4                          	   21735	     19274 ns/op	    5745 B/op	      89 allocs/op
+PASS
+ok  	github.com/yakisoba0728/PgBase/internal/query	7.913s

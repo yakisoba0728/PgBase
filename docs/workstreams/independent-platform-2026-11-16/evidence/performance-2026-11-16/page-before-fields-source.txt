@@ -1,0 +1,11 @@
+Total: 9.96GB
+ROUTINE ======================== github.com/yakisoba0728/PgBase/internal/query.fieldsByOrdinal in /workspace/scratch/2a97293516a0/PgBase-profile-baseline/internal/query/codec.go
+    3.86GB     4.07GB (flat, cum) 40.88% of Total
+         .          .    554:func fieldsByOrdinal(collection schema.Collection) []schema.Field {
+    3.85GB     3.85GB    555:	fields := append([]schema.Field(nil), collection.Fields...)
+      12MB   228.58MB    556:	sort.Slice(fields, func(left, right int) bool {
+         .          .    557:		if fields[left].Ordinal == fields[right].Ordinal {
+         .          .    558:			return fields[left].Name < fields[right].Name
+         .          .    559:		}
+         .          .    560:		return fields[left].Ordinal < fields[right].Ordinal
+         .          .    561:	})

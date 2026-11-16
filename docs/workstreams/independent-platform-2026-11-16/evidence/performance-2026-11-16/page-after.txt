@@ -1,0 +1,80 @@
+2026/11/16 08:47:43 INFO applied system migration version=1 name=initial execution_ms=10
+2026/11/16 08:47:43 INFO applied system migration version=2 name=record_page_indexes execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=3 name=collection_update_delete execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=4 name=record_operations execution_ms=9
+2026/11/16 08:47:43 INFO applied system migration version=5 name=relation_schema execution_ms=5
+2026/11/16 08:47:43 INFO applied system migration version=6 name=schema_operations execution_ms=4
+2026/11/16 08:47:43 INFO applied system migration version=7 name=record_membership execution_ms=6
+2026/11/16 08:47:43 INFO applied system migration version=8 name=schema_companion_indexes execution_ms=2
+2026/11/16 08:47:43 INFO applied system migration version=9 name=schema_compiler_generation execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=10 name=public_users execution_ms=3
+2026/11/16 08:47:43 INFO applied system migration version=11 name=owner_access execution_ms=2
+2026/11/16 08:47:43 INFO applied system migration version=12 name=user_email_actions execution_ms=2
+2026/11/16 08:47:43 INFO applied system migration version=13 name=record_files execution_ms=4
+2026/11/16 08:47:43 INFO applied system migration version=14 name=realtime_delivery execution_ms=3
+2026/11/16 08:47:43 INFO applied system migration version=15 name=scheduled_jobs execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=16 name=user_auth_factors execution_ms=6
+2026/11/16 08:47:43 INFO applied system migration version=17 name=auth_collections execution_ms=5
+2026/11/16 08:47:43 INFO applied system migration version=18 name=record_rules execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=19 name=compound_indexes execution_ms=2
+2026/11/16 08:47:43 INFO applied system migration version=20 name=service_tokens execution_ms=3
+2026/11/16 08:47:43 INFO applied system migration version=21 name=collection_views execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=22 name=field_contracts execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=23 name=auth_administration execution_ms=4
+2026/11/16 08:47:43 INFO applied system migration version=24 name=file_variants execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=25 name=request_logs_and_calendar_jobs execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=26 name=auth_mail_html execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=27 name=sql_collection_views execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=28 name=oauth_callback_bridge execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=29 name=field_presentation execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=30 name=email_otp_login execution_ms=2
+2026/11/16 08:47:43 INFO applied system migration version=31 name=schema_import_operations execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=32 name=admin_impersonation execution_ms=3
+2026/11/16 08:47:43 INFO applied system migration version=33 name=advanced_fields execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=34 name=s3_settings execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=35 name=user_migrations execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=36 name=file_storage_migrations execution_ms=3
+2026/11/16 08:47:43 INFO applied system migration version=37 name=backup_storage_settings execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=38 name=backup_storage_operations execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=39 name=admin_mfa_network_policy execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=40 name=user_migration_sources execution_ms=3
+2026/11/16 08:47:43 INFO applied system migration version=41 name=sql_console execution_ms=5
+2026/11/16 08:47:43 INFO applied system migration version=42 name=schema_compatibility execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=43 name=auth_pb_compat execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=45 name=runtime_settings execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=48 name=auth_oidc_compat execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=50 name=auth_token_policies execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=51 name=admin_password_resets execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=52 name=auth_record_model execution_ms=7
+2026/11/16 08:47:43 INFO applied system migration version=54 name=runtime_settings_encryption execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=55 name=request_log_context execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=56 name=admin_email_otps execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=57 name=extension_objects execution_ms=1
+2026/11/16 08:47:43 INFO applied system migration version=58 name=api_rate_limits execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=59 name=extension_object_inventory execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=60 name=nullable_auth_rules execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=61 name=record_identities execution_ms=5
+2026/11/16 08:47:43 INFO applied system migration version=62 name=auth_email_visibility execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=63 name=advanced_collection_indexes execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=64 name=versioned_extension_objects execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=65 name=optional_auth_email_uniqueness execution_ms=0
+2026/11/16 08:47:43 INFO applied system migration version=66 name=search_and_service_logs execution_ms=5
+2026/11/16 08:47:43 INFO applied system migration version=67 name=file_field_name_length execution_ms=0
+goos: linux
+goarch: amd64
+pkg: github.com/yakisoba0728/PgBase/internal/query
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkConcurrentRecordReads/rows=500000/get/concurrency=1-4         	    1000	    797776 ns/op	         0 errors	        25.00 gc-cycles	         6.659 gc-pause-ms	         0.6302 p50-ms	         1.302 p95-ms	         3.590 p99-ms	         0 pool-canceled	         0 pool-wait-ns/op	         0 pool-waits/op	      1253 queries/s	   47566 B/op	     425 allocs/op
+BenchmarkConcurrentRecordReads/rows=500000/get/concurrency=8-4         	    1000	    165342 ns/op	         0 errors	        19.00 gc-cycles	         4.598 gc-pause-ms	         1.087 p50-ms	         2.226 p95-ms	         3.675 p99-ms	         0 pool-canceled	     66741 pool-wait-ns/op	         0.007000 pool-waits/op	      6048 queries/s	   48172 B/op	     428 allocs/op
+BenchmarkConcurrentRecordReads/rows=500000/get/concurrency=32-4        	    1000	    138440 ns/op	         0 errors	        18.00 gc-cycles	         4.650 gc-pause-ms	         4.256 p50-ms	         6.175 p95-ms	         7.721 p99-ms	         0 pool-canceled	   3136038 pool-wait-ns/op	         0.9920 pool-waits/op	      7224 queries/s	   47773 B/op	     428 allocs/op
+BenchmarkConcurrentRecordReads/rows=500000/list_50/concurrency=1-4     	    1000	   4154155 ns/op	         0 errors	       220.0 gc-cycles	        66.55 gc-pause-ms	         2.560 p50-ms	        11.09 p95-ms	        35.95 p99-ms	         0 pool-canceled	         0 pool-wait-ns/op	         0 pool-waits/op	       240.7 queries/s	  517981 B/op	    7970 allocs/op
+BenchmarkConcurrentRecordReads/rows=500000/list_50/concurrency=8-4     	    1000	    780360 ns/op	         0 errors	       157.0 gc-cycles	        67.67 gc-pause-ms	         5.971 p50-ms	         9.879 p95-ms	        12.03 p99-ms	         0 pool-canceled	         0 pool-wait-ns/op	         0 pool-waits/op	      1281 queries/s	  517728 B/op	    7969 allocs/op
+BenchmarkConcurrentRecordReads/rows=500000/list_50/concurrency=32-4    	    1000	    767474 ns/op	         0 errors	       158.0 gc-cycles	        57.61 gc-pause-ms	        20.93 p50-ms	        28.01 p95-ms	        56.78 p99-ms	         0 pool-canceled	  15358136 pool-wait-ns/op	         0.9910 pool-waits/op	      1303 queries/s	  517813 B/op	    7971 allocs/op
+BenchmarkConcurrentRecordReads/rows=500000/deep_cursor_50/concurrency=1-4         	    1000	   3763927 ns/op	         0 errors	       228.0 gc-cycles	        24.94 gc-pause-ms	         3.332 p50-ms	         4.607 p95-ms	         8.157 p99-ms	         0 pool-canceled	         0 pool-wait-ns/op	         0 pool-waits/op	       265.7 queries/s	  526348 B/op	    8090 allocs/op
+BenchmarkConcurrentRecordReads/rows=500000/deep_cursor_50/concurrency=8-4         	    1000	   1243645 ns/op	         0 errors	       170.0 gc-cycles	       129.7 gc-pause-ms	         7.527 p50-ms	        15.81 p95-ms	        82.55 p99-ms	         0 pool-canceled	         0 pool-wait-ns/op	         0 pool-waits/op	       804.1 queries/s	  526062 B/op	    8089 allocs/op
+BenchmarkConcurrentRecordReads/rows=500000/deep_cursor_50/concurrency=32-4        	    1000	    872414 ns/op	         0 errors	       160.0 gc-cycles	        62.73 gc-pause-ms	        27.32 p50-ms	        34.26 p95-ms	        36.45 p99-ms	         0 pool-canceled	  19676146 pool-wait-ns/op	         0.9910 pool-waits/op	      1146 queries/s	  526169 B/op	    8091 allocs/op
+BenchmarkConcurrentRecordReads/rows=500000/filtered_50/concurrency=1-4            	    1000	   3210082 ns/op	         0 errors	       224.0 gc-cycles	        26.98 gc-pause-ms	         2.426 p50-ms	         3.889 p95-ms	        15.87 p99-ms	         0 pool-canceled	         0 pool-wait-ns/op	         0 pool-waits/op	       311.5 queries/s	  522364 B/op	    8067 allocs/op
+BenchmarkConcurrentRecordReads/rows=500000/filtered_50/concurrency=8-4            	    1000	   1138366 ns/op	         0 errors	       140.0 gc-cycles	       112.4 gc-pause-ms	         8.460 p50-ms	        15.56 p95-ms	        19.71 p99-ms	         0 pool-canceled	         0 pool-wait-ns/op	         0 pool-waits/op	       878.5 queries/s	  521938 B/op	    8064 allocs/op
+BenchmarkConcurrentRecordReads/rows=500000/filtered_50/concurrency=32-4           	    1000	   1299076 ns/op	         0 errors	       121.0 gc-cycles	       150.5 gc-pause-ms	        34.17 p50-ms	        89.39 p95-ms	       140.0 p99-ms	         0 pool-canceled	  29206770 pool-wait-ns/op	         0.9910 pool-waits/op	       769.8 queries/s	  521978 B/op	    8066 allocs/op
+PASS
+ok  	github.com/yakisoba0728/PgBase/internal/query	38.261s
