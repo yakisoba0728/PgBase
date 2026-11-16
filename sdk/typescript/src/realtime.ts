@@ -46,7 +46,7 @@ export class RealtimeService {
     const generation = this.client.auth.generation;
     const start = () => {
       if (generation !== this.client.auth.generation) throw new PgBaseError(0, "realtime_unsubscribed");
-      return this.subscribeNow(topic, listener, options);
+      return this.subscribeNow(topic, listener, options, generation);
     };
     const result = this.subscribing ? this.subscribing.then(start) : start();
     const tail = result.catch(() => {});
@@ -55,19 +55,26 @@ export class RealtimeService {
     return result;
   }
 
-  private async subscribeNow(topic: string, listener: (event: any) => void, options: RealtimeSubscriptionOptions): Promise<() => Promise<void>> {
+  private async subscribeNow(topic: string, listener: (event: any) => void, options: RealtimeSubscriptionOptions, generation: number): Promise<() => Promise<void>> {
     if (!validRealtimeTopic(topic)) throw new PgBaseError(0, "invalid_realtime_topic");
     if (options.maxReconnects !== undefined && (!Number.isInteger(options.maxReconnects) || options.maxReconnects < 0)) throw new PgBaseError(0, "invalid_reconnect_options");
     if (options.reconnectDelayMs !== undefined && (!Number.isFinite(options.reconnectDelayMs) || options.reconnectDelayMs < 0)) throw new PgBaseError(0, "invalid_reconnect_options");
     if (this.controller?.signal.aborted && this.running) await this.running;
+    // Draining an aborted transport is asynchronous. The caller still belongs
+    // to the identity under which subscribe() started, even after that wait.
+    if (generation !== this.client.auth.generation) throw new PgBaseError(0, "realtime_unsubscribed");
     let set = this.listeners.get(topic);
     if (!set) { set = new Set(); this.listeners.set(topic, set); }
     const added = !set.has(listener);
     set.add(listener);
     this.ensureRunning(options);
+    const controller = this.controller;
     try {
       if (this.clientId) await this.sync();
       else await this.ready;
+      if (generation !== this.client.auth.generation || controller?.signal.aborted || this.listeners.get(topic) !== set || !set.has(listener)) {
+        throw new PgBaseError(0, "realtime_unsubscribed");
+      }
     } catch (error) {
       if (added) {
         set.delete(listener);
@@ -76,7 +83,11 @@ export class RealtimeService {
       }
       throw error;
     }
-    return async () => this.unsubscribe(topic, listener);
+    // A cleanup retained by an old screen must not remove a listener that was
+    // subsequently registered with the same function in another session.
+    return async () => {
+      if (this.controller === controller && this.listeners.get(topic) === set) await this.unsubscribe(topic, listener);
+    };
   }
 
   /**
@@ -139,6 +150,7 @@ export class RealtimeService {
             this.clientId = typeof data === "object" && data !== null && "clientId" in data ? String(data.clientId ?? "") : "";
             if (!this.clientId) throw new PgBaseError(0, "invalid_realtime_connect");
             await this.sync();
+            if (controller.signal.aborted) return;
             this.resolveReady?.();
             this.readySettled = true;
             this.notify({ state: "connected", attempt: reconnects });
