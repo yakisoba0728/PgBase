@@ -339,13 +339,18 @@ schedule:
 			response := publicUsersRequest(t, fixture, http.MethodGet, path, nil, identity.token, nil, nil)
 			assertPublicUsersStatus(t, response, http.StatusOK)
 			var page struct {
-				Items []map[string]any `json:"items"`
-				Total int              `json:"totalItems"`
-				Next  string           `json:"nextCursor"`
+				Items       []map[string]any `json:"items"`
+				Total       int              `json:"totalItems"`
+				TotalCapped bool             `json:"totalCapped"`
+				Next        string           `json:"nextCursor"`
 			}
 			decodePublicUsersJSON(t, response, &page)
-			if page.Total != 128+count/10 {
-				t.Errorf("owner=%d count=%d want=%d", index, page.Total, 128+count/10)
+			// The public total is deliberately capped at 10,000. Verify that
+			// contract while still traversing and counting every actual record
+			// below; the count hint is never the data-integrity oracle.
+			wantTotal := 128 + count/10
+			if page.Total != min(wantTotal, 10000) || page.TotalCapped != (wantTotal > 10000) {
+				t.Errorf("owner=%d total=%d capped=%t want=%d/%t", index, page.Total, page.TotalCapped, min(wantTotal, 10000), wantTotal > 10000)
 			}
 			for _, record := range page.Items {
 				title, _ := record["title"].(string)
