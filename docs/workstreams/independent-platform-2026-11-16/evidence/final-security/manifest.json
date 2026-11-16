@@ -7,16 +7,36 @@
   "typescript_node": "24.22.1",
   "dart": "3.13.3",
   "hashes": {
-    "README.md": "cff7b466a8b9ae10ae54e5505ff90e58f207567af51b68e6689ba5ad23cc3739",
+    "README.md": "2701feb8c71fb93996f157f269d5c769bf691e5260d1a5b40fc0a43018dfe1a0",
     "baseline-artifact-recheck.json": "fca3c6c97cba618455e42a30487c2901532486efd9ef271a625389df3f14e2ad",
     "failing-before.log": "021a3fcc090b4c8f9501df4ff3218bb430baedec47f2e11a6fa82606773bbb68",
+    "independent-backend-58c1038c-race.log": "205f494fbda2b45db26c48bb3af779b583a05575e94ca3e49e0bbf0ec73e72b4",
     "independent-dart-realtime.log": "8920580ef87c86e1835fe297f1d66c0b7625dff41ffdce756204ec84af995107",
     "independent-jobs-race.log": "12045976ecb4aa4607c67d404dd0fdfc62f53965d6dfe079935710c566fdf7bf",
     "independent-realtime-retention-race.log": "74d5198960ad01561d2afde2dc2923188f158ff128fa56b29a4471b470b6660e",
     "independent-security-race.log": "337f2fea728e3c56e7f84129fa3f526aa35bc46033ea3d3e254340933c726c53",
+    "independent-transaction-panic-worktree-race.log": "dc8ba3005629273320588bfb6a6be0cd4b99bf0ed70fdfab652978124465adb4",
     "independent-typescript-realtime.log": "806b8580151b79c55eed68635240a1d5bacdd11504d5826b26cc0a676b9e0f76",
     "metadata-failing-before.log": "b3be0e9240859540cf5fe42f2960759ec4ad8626b955caf88ac4f7dd828af4cf",
     "oidc-race.log": "3a2101fb0dc94b0e52a1d440922f8f7a990540e16b342ac72d5ca913c8f3e290",
     "package-race.log": "800e3de267c7e1168a2a21f4dae51fbf3906d3feec8f5f16b9d3193b8eb3ab9f"
+  },
+  "backend_cross_review": {
+    "runtime_commit": "58c1038c9055891f13f7dc13491920e676ca4ece",
+    "runtime_tree": "9845fe3bde247db6c33adea134d302a9da0a7004",
+    "clean_detached_checkout": true,
+    "schema": 68,
+    "postgres": "17.9",
+    "repeats": 3,
+    "top_level_pass_events": 24,
+    "total_pass_events": 42,
+    "skip_events": 0,
+    "fail_events": 0,
+    "log": "independent-backend-58c1038c-race.log"
+  },
+  "working_tree_run": {
+    "log": "independent-transaction-panic-worktree-race.log",
+    "qualification": false,
+    "reason": "Backend worktree contained uncommitted queue/schema-68 changes. Pinned independent rerun retained separately."
   }
 }
