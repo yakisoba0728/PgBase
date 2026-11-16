@@ -1,0 +1,162 @@
+[
+  {
+    "job_id": 133280387112,
+    "sha256": "37d1ff08c6f6c8f0c4b51bd237b0c398f08b4b27c4268e04bf78a0ff8826e74d",
+    "bytes": 429737,
+    "checkoutLines": [
+      "2026-11-16T11:54:48.9948689Z ba838872d72993abf1953dcafc64ba043f978c06",
+      "2026-11-16T11:54:49.2028159Z ba838872d72993abf1953dcafc64ba043f978c06"
+    ]
+  },
+  {
+    "job_id": 133280386571,
+    "name": "mixed-http",
+    "bytes": 54064,
+    "sha256": "30f73466ad67d8112a44d80ea8477eb94701999192e18dbaf2b18e96660ce58e",
+    "checkoutLines": [
+      "2026-11-16T11:55:00.4594103Z ba838872d72993abf1953dcafc64ba043f978c06"
+    ],
+    "required_source_present": true
+  },
+  {
+    "job_id": 133280386955,
+    "name": "backend / Release phase artifacts",
+    "bytes": 44295,
+    "sha256": "dd69cb499d78b232773431d81f396fa721dbcdd6a25eb9e0ce715b7aafe65474",
+    "checkoutLines": [
+      "2026-11-16T11:55:00.2195520Z ba838872d72993abf1953dcafc64ba043f978c06",
+      "2026-11-16T11:55:00.4403173Z ba838872d72993abf1953dcafc64ba043f978c06"
+    ],
+    "required_source_present": true
+  },
+  {
+    "job_id": 133280387001,
+    "name": "backend / Windows self-update",
+    "bytes": 22716,
+    "sha256": "64be9c2445ee7c8a7cdfef33d9bcaca76c96c87a573a8ed1930799acdd7bab71",
+    "checkoutLines": [
+      "2026-11-16T11:54:52.9421581Z ba838872d72993abf1953dcafc64ba043f978c06\r",
+      "2026-11-16T11:54:54.0617147Z ba838872d72993abf1953dcafc64ba043f978c06\r"
+    ],
+    "required_source_present": true
+  },
+  {
+    "job_id": 133280387081,
+    "name": "backend / macOS terminal",
+    "bytes": 21713,
+    "sha256": "a2125dc604203e340f803399e76893d1e421b90ae7424820e694b469ceb885f9",
+    "checkoutLines": [
+      "2026-11-16T11:54:51.2953040Z ba838872d72993abf1953dcafc64ba043f978c06",
+      "2026-11-16T11:54:51.8804500Z ba838872d72993abf1953dcafc64ba043f978c06"
+    ],
+    "required_source_present": true
+  },
+  {
+    "job_id": 133280387146,
+    "name": "frontend / test",
+    "bytes": 54694,
+    "sha256": "0b96df9f7e77d21480f157c96816f9512fb497d480547e1e5839c0cb08e30f37",
+    "checkoutLines": [
+      "2026-11-16T11:54:52.6528573Z ba838872d72993abf1953dcafc64ba043f978c06",
+      "2026-11-16T11:54:52.8179183Z ba838872d72993abf1953dcafc64ba043f978c06"
+    ],
+    "required_source_present": true
+  },
+  {
+    "job_id": 133280387167,
+    "name": "source-analysis / analyze (go, manual)",
+    "bytes": 180341,
+    "sha256": "4fe5db1f484978f95d6ffdfa4ac82da4087ca589d34a69e9d179e07b1936c8f7",
+    "checkoutLines": [
+      "2026-11-16T11:54:49.4710961Z ba838872d72993abf1953dcafc64ba043f978c06"
+    ],
+    "required_source_present": true
+  },
+  {
+    "job_id": 133280387178,
+    "name": "browser-and-recovery / e2e",
+    "bytes": 519675,
+    "sha256": "5454038d9d36f6ca57b9cd4b2ebdf6155b5ec3cb3a1a912fcc65f658a76eed0a",
+    "checkoutLines": [
+      "2026-11-16T11:54:48.5941107Z ba838872d72993abf1953dcafc64ba043f978c06",
+      "2026-11-16T11:54:48.8389025Z ba838872d72993abf1953dcafc64ba043f978c06"
+    ],
+    "required_source_present": true
+  },
+  {
+    "job_id": 133280387183,
+    "name": "source-analysis / analyze (javascript-typescript, none)",
+    "bytes": 354722,
+    "sha256": "9555cfbb28cd7496476dfd76ef573b3820324a43f4fa765f6b5267e5b619893d",
+    "checkoutLines": [
+      "2026-11-16T11:54:47.9645271Z ba838872d72993abf1953dcafc64ba043f978c06"
+    ],
+    "required_source_present": true
+  },
+  {
+    "job_id": 133280387248,
+    "name": "backend / Observability artifacts",
+    "bytes": 24870,
+    "sha256": "c57c5dd42b30ec78af973f2789fd745415dd58a609a89156f178c10b8ebba01d",
+    "checkoutLines": [
+      "2026-11-16T11:54:47.7291257Z ba838872d72993abf1953dcafc64ba043f978c06",
+      "2026-11-16T11:54:47.9704281Z ba838872d72993abf1953dcafc64ba043f978c06"
+    ],
+    "required_source_present": true
+  },
+  {
+    "job_id": 133280387312,
+    "name": "backend / PostgreSQL integration / 16.13",
+    "bytes": 938598,
+    "sha256": "d581c9c0ee0c97d9127905318e261c3ceb5b094aa7894e0e67cbae294dec43b9",
+    "checkoutLines": [
+      "2026-11-16T11:54:55.6098988Z ba838872d72993abf1953dcafc64ba043f978c06",
+      "2026-11-16T11:54:55.8595026Z ba838872d72993abf1953dcafc64ba043f978c06"
+    ],
+    "required_source_present": true
+  },
+  {
+    "job_id": 133280387317,
+    "name": "backend / PostgreSQL integration / 18.3",
+    "bytes": 949997,
+    "sha256": "9ece4fcaae641447c05bc58fd20bae4f12338a037b42c85c2e748b2c53a8e42a",
+    "checkoutLines": [
+      "2026-11-16T11:55:04.6545322Z ba838872d72993abf1953dcafc64ba043f978c06",
+      "2026-11-16T11:55:04.8154269Z ba838872d72993abf1953dcafc64ba043f978c06"
+    ],
+    "required_source_present": true
+  },
+  {
+    "job_id": 133280387341,
+    "name": "backend / PostgreSQL integration / 17.9 / pgbase",
+    "bytes": 161278,
+    "sha256": "63dbe2f271a8ecb57c0ce1fd9c438349e553ed5acd148d5d68420ecf0f606ea8",
+    "checkoutLines": [
+      "2026-11-16T11:55:00.2581017Z ba838872d72993abf1953dcafc64ba043f978c06",
+      "2026-11-16T11:55:00.4722018Z ba838872d72993abf1953dcafc64ba043f978c06"
+    ],
+    "required_source_present": true
+  },
+  {
+    "job_id": 133280387368,
+    "name": "backend / PostgreSQL integration / 17.9",
+    "bytes": 826700,
+    "sha256": "c94d75262dc909a2184e380c8d68ac8ab71120821ee6bf4d8cfcf429a653482c",
+    "checkoutLines": [
+      "2026-11-16T11:54:56.9358602Z ba838872d72993abf1953dcafc64ba043f978c06",
+      "2026-11-16T11:54:57.1893802Z ba838872d72993abf1953dcafc64ba043f978c06"
+    ],
+    "required_source_present": true
+  },
+  {
+    "job_id": 133280388096,
+    "name": "backend / Go unit",
+    "bytes": 75923,
+    "sha256": "69b15142d74dbb5785e9370fb8040c9b1ec9fb19287833e5b3b2d917f1f5840c",
+    "checkoutLines": [
+      "2026-11-16T11:54:48.9001393Z ba838872d72993abf1953dcafc64ba043f978c06",
+      "2026-11-16T11:54:49.1401611Z ba838872d72993abf1953dcafc64ba043f978c06"
+    ],
+    "required_source_present": true
+  }
+]

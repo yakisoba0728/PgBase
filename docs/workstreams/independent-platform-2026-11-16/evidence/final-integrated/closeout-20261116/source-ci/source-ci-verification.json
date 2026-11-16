@@ -1,0 +1,750 @@
+{
+  "verdict": "PASS",
+  "review_type": "Independent existing-evidence reconciliation only",
+  "source": {
+    "head": "4091c3be20ec8db177886a2a85550924fce37ff5",
+    "actual_checkout": "ba838872d72993abf1953dcafc64ba043f978c06",
+    "verified_tree": "653a46758f9e6af9662b77ecfe2f069a2ac94cb4",
+    "synthetic_parents": [
+      "8f551de4423a6b64d9c0ac94fff9b9bd07264f2a",
+      "4091c3be20ec8db177886a2a85550924fce37ff5"
+    ],
+    "post_test_docs_head": "28e4f1b0a33484c1a7997ca75913a52ff441b59c",
+    "post_test_docs_tree": "bef5cdeee47470dd488d4fdb6da31cbc2cd31754",
+    "post_test_changed_paths": [
+      "docs/workstreams/independent-platform-2026-11-16/continuation-state.md",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/coordinator/artifact-index.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/coordinator/decision-ledger.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/coordinator/post-run-source-identity.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/coordinator/publication-map.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/SHA256SUMS",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/artifact-api.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/extract-functional-evidence.py",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/functional-log-excerpts.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/functional-report.md",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/functional-result.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/jobs.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280386955.log.gz",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387001.log.gz",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387081.log.gz",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387112.log.gz",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387146.log.gz",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387167.log.gz",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387178.log.gz",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387183.log.gz",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387248.log.gz",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387312.log.gz",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387317.log.gz",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387341.log.gz",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387368.log.gz",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280388096.log.gz",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/parallel-routine-runs.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/raw-log-manifest.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/run.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/source-verification.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/final-files.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/final-jobs.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/final-performance-recheck.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/final-review.md",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/fresh-security-recheck.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/functional-independent-check.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/historical-failed-gate-recheck.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/performance-artifact-integrity.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/performance-connection-and-host-check.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/qualification-source.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security-log-evidence.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/artifacts.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/go.zip",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/image.zip",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/js.zip",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/runtime-assets.zip",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/sbom.zip",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/verify-performance.py",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/verify-security.py",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/final-gate/SHA256SUMS",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/final-gate/analyze_final_performance.py",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/final-gate/artifact-metadata.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/final-gate/final-performance-analysis.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/final-gate/job.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/final-gate/mixed-environment.txt",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/final-gate/mixed-http.txt",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/final-gate/open-loop-http.txt",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/final-gate/pgbase-final-mixed-http.zip",
+      "docs/workstreams/independent-platform-2026-11-16/final-integrated-qualification.md",
+      "docs/workstreams/independent-platform-2026-11-16/final-performance-qualification.md"
+    ],
+    "focused_qa_source": "277c18cbb5333ca2a925ccb84628702c29b7fcd6",
+    "focused_to_test_changes": [
+      "docs/workstreams/independent-platform-2026-11-16/continuation-state.md",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/coordinator/decision-ledger.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/commands.md",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/focused-files.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/focused-result.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/focused-source.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/gate-contract-review.md",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/historical-security-byte-check.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/listener-green-race.exit",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/listener-green-race.jsonl",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/listener-green-race.stderr",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/listener-red.exit",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/listener-red.jsonl",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/listener-red.stderr",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/run-disposable-postgres.sh",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/starting-source.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/SHA256SUMS",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/author-summary.json",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/commands.md",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/executed-fixture-wrapper.sh.txt",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/fixture-wrapper-executable-attempt.log",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/listener-capacity-green.log",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/listener-capacity-red.log",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/listener-focused-race.jsonl",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/protocol.md",
+      "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/vet.log"
+    ],
+    "workflow_blobs": {
+      ".github/workflows/full-qualification.yml": "a4f48d604f96d0370488a52e8d3adce8cacd8cee",
+      ".github/workflows/backend.yml": "ea8c2353eecb922a2c195739ca61eb3d8ba7dbde",
+      ".github/workflows/security.yml": "fbb5deffa28d5a828e4ec25daf96fdbab8524be3",
+      ".github/workflows/frontend.yml": "33726b7ff275773e1255c48e8318b15c46d45802",
+      ".github/workflows/nonperformance-e2e.yml": "365593859c5e3cd25d07f31e74561a5350801a03",
+      ".github/workflows/source-security.yml": "5ee0aec00b27eb1afd5e4dae05e20152f5a61486"
+    },
+    "schema_latest": 69
+  },
+  "full_ci": {
+    "success": 15,
+    "failed": 0,
+    "unfinished": 0,
+    "jobs": [
+      {
+        "id": 133280386955,
+        "name": "backend / Release phase artifacts",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "dd69cb499d78b232773431d81f396fa721dbcdd6a25eb9e0ce715b7aafe65474",
+        "fresh_matches_saved_log": true,
+        "required_steps": [
+          "Build immutable release phases",
+          "Run the process rollout against the built artifacts",
+          "Upload immutable release phase artifacts"
+        ],
+        "conditional_skipped_steps": [],
+        "named_test_failures": 0,
+        "named_test_skips": 0
+      },
+      {
+        "id": 133280387001,
+        "name": "backend / Windows self-update",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "64be9c2445ee7c8a7cdfef33d9bcaca76c96c87a573a8ed1930799acdd7bab71",
+        "fresh_matches_saved_log": true,
+        "required_steps": [
+          "Test native Windows self-update and CLI integration"
+        ],
+        "conditional_skipped_steps": [],
+        "named_test_failures": 0,
+        "named_test_skips": 0
+      },
+      {
+        "id": 133280387081,
+        "name": "backend / macOS terminal",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "a2125dc604203e340f803399e76893d1e421b90ae7424820e694b469ceb885f9",
+        "fresh_matches_saved_log": true,
+        "required_steps": [
+          "Vet the darwin build",
+          "Test the darwin terminal adapter with the race detector"
+        ],
+        "conditional_skipped_steps": [],
+        "named_test_failures": 0,
+        "named_test_skips": 0
+      },
+      {
+        "id": 133280387112,
+        "name": "security / audit",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "37d1ff08c6f6c8f0c4b51bd237b0c398f08b4b27c4268e04bf78a0ff8826e74d",
+        "fresh_matches_saved_log": true,
+        "required_steps": [
+          "Scan reachable Go vulnerabilities",
+          "Audit pinned frontend dependencies",
+          "Build the production image in local CI mode",
+          "Generate SPDX SBOM",
+          "Record final runtime trust and timezone data",
+          "Record image findings as SARIF",
+          "Record every severity as SARIF",
+          "Scan production image"
+        ],
+        "conditional_skipped_steps": [
+          "Check out current release security policy",
+          "Authenticate and pull release candidate"
+        ],
+        "named_test_failures": 0,
+        "named_test_skips": 0
+      },
+      {
+        "id": 133280387146,
+        "name": "frontend / test",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "0b96df9f7e77d21480f157c96816f9512fb497d480547e1e5839c0cb08e30f37",
+        "fresh_matches_saved_log": true,
+        "required_steps": [
+          "Verify browser example security boundaries",
+          "Typecheck",
+          "Test",
+          "Rebuild the embedded administrator UI from an empty directory",
+          "Verify the committed embedded output reproduces exactly"
+        ],
+        "conditional_skipped_steps": [
+          "Validate release candidate binding"
+        ],
+        "named_test_failures": 0,
+        "named_test_skips": 0
+      },
+      {
+        "id": 133280387167,
+        "name": "source-analysis / analyze (go, manual)",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "4fe5db1f484978f95d6ffdfa4ac82da4087ca589d34a69e9d179e07b1936c8f7",
+        "fresh_matches_saved_log": true,
+        "required_steps": [
+          "Verify the SARIF evidence parser",
+          "Preserve findings and resolved rule metadata for classification",
+          "Build Go runtime packages for extraction"
+        ],
+        "conditional_skipped_steps": [],
+        "named_test_failures": 0,
+        "named_test_skips": 0
+      },
+      {
+        "id": 133280387178,
+        "name": "browser-and-recovery / e2e",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "5454038d9d36f6ca57b9cd4b2ebdf6155b5ec3cb3a1a912fcc65f658a76eed0a",
+        "fresh_matches_saved_log": true,
+        "required_steps": [
+          "Verify Compose shutdown policy",
+          "Verify browser onboarding and authenticated workflows",
+          "Verify Firefox and WebKit representative workflows",
+          "Verify hardened runtime",
+          "Run black-box tests"
+        ],
+        "conditional_skipped_steps": [
+          "Authenticate and pull release candidate",
+          "Capture service logs",
+          "Upload failed E2E logs"
+        ],
+        "named_test_failures": 0,
+        "named_test_skips": 0
+      },
+      {
+        "id": 133280387183,
+        "name": "source-analysis / analyze (javascript-typescript, none)",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "9555cfbb28cd7496476dfd76ef573b3820324a43f4fa765f6b5267e5b619893d",
+        "fresh_matches_saved_log": true,
+        "required_steps": [
+          "Verify the SARIF evidence parser",
+          "Preserve findings and resolved rule metadata for classification"
+        ],
+        "conditional_skipped_steps": [
+          "Run actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
+          "Build Go runtime packages for extraction"
+        ],
+        "named_test_failures": 0,
+        "named_test_skips": 0
+      },
+      {
+        "id": 133280387248,
+        "name": "backend / Observability artifacts",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "c57c5dd42b30ec78af973f2789fd745415dd58a609a89156f178c10b8ebba01d",
+        "fresh_matches_saved_log": true,
+        "required_steps": [
+          "Validate Grafana dashboard JSON",
+          "Validate Prometheus alert rules",
+          "Validate dashboard PromQL",
+          "Validate dashboard and alert metric contract"
+        ],
+        "conditional_skipped_steps": [],
+        "named_test_failures": 0,
+        "named_test_skips": 0
+      },
+      {
+        "id": 133280387312,
+        "name": "backend / PostgreSQL integration / 16.13",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "d581c9c0ee0c97d9127905318e261c3ceb5b094aa7894e0e67cbae294dec43b9",
+        "fresh_matches_saved_log": true,
+        "required_steps": [
+          "Provision matching PostgreSQL client tools",
+          "Start local S3 integration fixture",
+          "Test PostgreSQL integration suite with skip policy",
+          "Analyze and test Dart SDK",
+          "Install and verify TypeScript SDK against PgBase",
+          "Verify browser SDK example modules",
+          "Verify the TypeScript SDK distribution reproduces exactly"
+        ],
+        "conditional_skipped_steps": [
+          "Vet integration build",
+          "Export S3 fixture image for the cache",
+          "Test bounded multi-process durability",
+          "Test administrator SDKs against a real server",
+          "Upload failed backend logs"
+        ],
+        "named_test_failures": 0,
+        "named_test_skips": 0
+      },
+      {
+        "id": 133280387317,
+        "name": "backend / PostgreSQL integration / 18.3",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "9ece4fcaae641447c05bc58fd20bae4f12338a037b42c85c2e748b2c53a8e42a",
+        "fresh_matches_saved_log": true,
+        "required_steps": [
+          "Provision matching PostgreSQL client tools",
+          "Start local S3 integration fixture",
+          "Test PostgreSQL integration suite with skip policy",
+          "Analyze and test Dart SDK",
+          "Install and verify TypeScript SDK against PgBase",
+          "Verify browser SDK example modules",
+          "Verify the TypeScript SDK distribution reproduces exactly"
+        ],
+        "conditional_skipped_steps": [
+          "Vet integration build",
+          "Export S3 fixture image for the cache",
+          "Test bounded multi-process durability",
+          "Test administrator SDKs against a real server",
+          "Upload failed backend logs"
+        ],
+        "named_test_failures": 0,
+        "named_test_skips": 0
+      },
+      {
+        "id": 133280387341,
+        "name": "backend / PostgreSQL integration / 17.9 / pgbase",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "63dbe2f271a8ecb57c0ce1fd9c438349e553ed5acd148d5d68420ecf0f606ea8",
+        "fresh_matches_saved_log": true,
+        "required_steps": [
+          "Provision matching PostgreSQL client tools",
+          "Start local S3 integration fixture",
+          "Test PostgreSQL integration suite with skip policy"
+        ],
+        "conditional_skipped_steps": [
+          "Vet integration build",
+          "Export S3 fixture image for the cache",
+          "Test bounded multi-process durability",
+          "Analyze and test Dart SDK",
+          "Install and verify TypeScript SDK against PgBase",
+          "Verify browser SDK example modules",
+          "Verify the TypeScript SDK distribution reproduces exactly",
+          "Test administrator SDKs against a real server",
+          "Record benchmark baseline",
+          "Upload benchmark baseline",
+          "Upload failed backend logs"
+        ],
+        "named_test_failures": 0,
+        "named_test_skips": 0
+      },
+      {
+        "id": 133280387368,
+        "name": "backend / PostgreSQL integration / 17.9",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "c94d75262dc909a2184e380c8d68ac8ab71120821ee6bf4d8cfcf429a653482c",
+        "fresh_matches_saved_log": true,
+        "required_steps": [
+          "Provision matching PostgreSQL client tools",
+          "Start local S3 integration fixture",
+          "Test PostgreSQL integration suite with skip policy",
+          "Analyze and test Dart SDK",
+          "Install and verify TypeScript SDK against PgBase",
+          "Verify browser SDK example modules",
+          "Verify the TypeScript SDK distribution reproduces exactly",
+          "Vet integration build",
+          "Test bounded multi-process durability",
+          "Test administrator SDKs against a real server"
+        ],
+        "conditional_skipped_steps": [
+          "Export S3 fixture image for the cache",
+          "Upload failed backend logs"
+        ],
+        "named_test_failures": 0,
+        "named_test_skips": 0
+      },
+      {
+        "id": 133280388096,
+        "name": "backend / Go unit",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "69b15142d74dbb5785e9370fb8040c9b1ec9fb19287833e5b3b2d917f1f5840c",
+        "fresh_matches_saved_log": true,
+        "required_steps": [
+          "Verify source-security evidence tooling",
+          "Verify formatting",
+          "Run pinned blocking static analysis",
+          "Vet unit build",
+          "Test unit suite with skip policy",
+          "Verify private attestations against a disposable registry"
+        ],
+        "conditional_skipped_steps": [
+          "Validate release candidate binding"
+        ],
+        "named_test_failures": 0,
+        "named_test_skips": 0
+      },
+      {
+        "id": 133280386571,
+        "name": "mixed-http",
+        "conclusion": "success",
+        "fresh_raw_log_sha256": "30f73466ad67d8112a44d80ea8477eb94701999192e18dbaf2b18e96660ce58e",
+        "steps_counted_as_one_job": true,
+        "performance_csv_review": "Separate Agent A"
+      }
+    ],
+    "all_15_fresh_logs_have_actual_checkout": true,
+    "all_14_functional_saved_logs_equal_live_bytes": true
+  },
+  "artifacts_verified_locally_against_live_metadata": [
+    {
+      "file": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/go.zip",
+      "id": 14223373289,
+      "sha256": "e2a386fd8e7d1ab2902ac0c9ca14e5812dba6c4d2a4a869ff651207b0fcdc331",
+      "bytes": 92859,
+      "matches_live_github_digest": true,
+      "expires_at": "2026-11-30T11:57:56Z"
+    },
+    {
+      "file": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/image.zip",
+      "id": 14223058511,
+      "sha256": "40425e3fe5aeed669fb0d0266077fc397224e8ab2487fe5f7356e46e23537c4e",
+      "bytes": 15494,
+      "matches_live_github_digest": true,
+      "expires_at": "2027-02-14T11:54:40Z"
+    },
+    {
+      "file": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/js.zip",
+      "id": 14224420779,
+      "sha256": "cde3658427f0f01d5c4cd4347d90701d6a6c496c2ee97647957fc2dc0a3849c7",
+      "bytes": 122745,
+      "matches_live_github_digest": true,
+      "expires_at": "2026-11-30T11:56:03Z"
+    },
+    {
+      "file": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/runtime-assets.zip",
+      "id": 14223078436,
+      "sha256": "be44bda6fd90f80903dfc53e13fff4a06a8eb7f6a37f008690c8b2d866247e01",
+      "bytes": 206512,
+      "matches_live_github_digest": true,
+      "expires_at": "2026-11-30T11:56:48Z"
+    },
+    {
+      "file": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/sbom.zip",
+      "id": 14224830401,
+      "sha256": "ed6a0eff2a84346d6282bbdae500402e0b3cfc9bae243487297036d84d7392f2",
+      "bytes": 115338,
+      "matches_live_github_digest": true,
+      "expires_at": "2027-02-14T11:54:40Z"
+    }
+  ],
+  "security": {
+    "source": {
+      "go": {
+        "count": 24,
+        "raw_summary_classification": "unreviewed",
+        "identities_primary_locations_and_rule_metadata_match_baseline": true,
+        "new_identities": 0,
+        "rule_security_severity_counts": {
+          "HIGH": 16,
+          "CRITICAL": 1,
+          "MEDIUM": 7
+        },
+        "rule_counts": [
+          {
+            "id": "go/allocation-size-overflow",
+            "score": "8.1",
+            "level": "warning",
+            "count": 7
+          },
+          {
+            "id": "go/email-injection",
+            "score": "9.8",
+            "level": "error",
+            "count": 1
+          },
+          {
+            "id": "go/incorrect-integer-conversion",
+            "score": "8.1",
+            "level": "warning",
+            "count": 1
+          },
+          {
+            "id": "go/log-injection",
+            "score": "6.1",
+            "level": "error",
+            "count": 7
+          },
+          {
+            "id": "go/reflected-xss",
+            "score": "7.8",
+            "level": "error",
+            "count": 5
+          },
+          {
+            "id": "go/weak-sensitive-data-hashing",
+            "score": "7.5",
+            "level": "warning",
+            "count": 2
+          },
+          {
+            "id": "go/zipslip",
+            "score": "7.5",
+            "level": "error",
+            "count": 1
+          }
+        ],
+        "extracted_count": 485,
+        "successful_invocations": true,
+        "extraction_warning_error_count": 0
+      },
+      "js": {
+        "count": 1,
+        "raw_summary_classification": "unreviewed",
+        "identities_primary_locations_and_rule_metadata_match_baseline": true,
+        "new_identities": 0,
+        "rule_security_severity_counts": {
+          "HIGH": 1
+        },
+        "rule_counts": [
+          {
+            "id": "js/incomplete-multi-character-sanitization",
+            "score": "7.8",
+            "level": "warning",
+            "count": 1
+          }
+        ],
+        "extracted_count": 331,
+        "successful_invocations": true,
+        "extraction_warning_error_count": 0
+      }
+    },
+    "image": {
+      "count": 32,
+      "counts": {
+        "MEDIUM": 21,
+        "LOW": 9,
+        "UNKNOWN": 2
+      },
+      "high_critical_gate_results": 0,
+      "exact_baseline_result_and_rule_metadata_match": true
+    },
+    "scope": "Existing artifact comparison and retained prior dispositions only; no new security scan or reachability audit.",
+    "source_reported_flow_blobs_unchanged": true,
+    "raw_source_score_counts": {
+      "HIGH": 17,
+      "CRITICAL": 1,
+      "MEDIUM": 7
+    },
+    "source_classification_reference": "final-security.md#independent-classification-of-all-24-go--one-js-locations and phase-nonperformance-security-ci.md",
+    "retained_image_dispositions": {
+      "libc_native_helper_risks": 25,
+      "openssl_upstream_distribution_conflicts": 4,
+      "CMS_record_without_demonstrated_entry": 1,
+      "architecture_specific_amd64_limit": 2,
+      "UNKNOWN_native_records_remain_unresolved": 2
+    },
+    "new_blocking_findings": 0,
+    "not_a_zero_vulnerability_claim": true
+  },
+  "prior_qa": {
+    "red": {
+      "sha256": "1a3030e4cb736a53be8f56b6e1b7eaf89e87bc92e18b28929335cceb746a062a",
+      "top_level_passes": 0,
+      "subtest_passes": 0,
+      "failed_tests": [
+        "TestListenerPreservesRequestPoolCapacityAcrossReconnectAndShutdown"
+      ],
+      "skipped_tests": [],
+      "exit": 1,
+      "passed_tests": []
+    },
+    "green-race": {
+      "sha256": "69a3e604e9120c9a9d3706abbf670db1bafd1265a875d31a69f500226272fbc5",
+      "top_level_passes": 25,
+      "subtest_passes": 17,
+      "failed_tests": [],
+      "skipped_tests": [],
+      "exit": 0,
+      "passed_tests": [
+        "TestListenerPreservesRequestPoolCapacityAcrossReconnectAndShutdown",
+        "TestBackupGateExcludesWritersAndOtherBackupOperations",
+        "TestDatabasePoolConnectionsParticipateInBackupGate",
+        "TestListenerRecordsConnectReloadAndReadinessTransitions",
+        "TestBackupGateMonitorReportsSessionLoss",
+        "TestBackupGateRejectsParsedInsecureTransportBeforeConnect",
+        "TestOpenRejectsPoolTooSmallForListenerAndRequests",
+        "TestOpenAppliesPgBaseSessionSettings",
+        "TestOpenAcceptsValidatedStatementTimeoutUnits/minutes",
+        "TestListenerSynchronizesTwoCachesAndReloadsMissedVersionBeforeReconnectReady",
+        "TestOpenAcceptsValidatedStatementTimeoutUnits",
+        "TestCloseContextHonorsDeadlineWithBorrowedConnection",
+        "TestConfigureSessionPinsSearchPathBeforeOtherSettings",
+        "TestConfigureSessionFailsClosedWhenSearchPathCannotBePinned",
+        "TestParsePoolConfigRequiresHeadroomForBackgroundAndRequestWork",
+        "TestParsePoolConfigRequiresVerifiedTLSForEveryRemoteTarget/remote_default_prefer",
+        "TestParsePoolConfigRequiresVerifiedTLSForEveryRemoteTarget/remote_require_without_identity_verification",
+        "TestParsePoolConfigRequiresVerifiedTLSForEveryRemoteTarget/remote_verify_ca_without_hostname_verification",
+        "TestParsePoolConfigRequiresVerifiedTLSForEveryRemoteTarget/remote_verify_full",
+        "TestParsePoolConfigRequiresVerifiedTLSForEveryRemoteTarget/every_remote_fallback_verifies_its_host",
+        "TestParsePoolConfigRequiresVerifiedTLSForEveryRemoteTarget/remote_plaintext_fallback_behind_local_primary",
+        "TestParsePoolConfigRequiresVerifiedTLSForEveryRemoteTarget/query_host_cannot_hide_behind_local_URL_authority",
+        "TestParsePoolConfigRequiresVerifiedTLSForEveryRemoteTarget/loopback_development_database",
+        "TestParsePoolConfigRequiresVerifiedTLSForEveryRemoteTarget/local_Unix_socket",
+        "TestParsePoolConfigRequiresVerifiedTLSForEveryRemoteTarget/explicit_trusted_development_network",
+        "TestParsePoolConfigRequiresVerifiedTLSForEveryRemoteTarget",
+        "TestParsePoolConfigTreatsUnixSocketAsLocal",
+        "TestListenerReadyFailsUntilInitialCatalogSynchronization",
+        "TestListenerOperationPanicIsRecordedAsFailureAndRepanics",
+        "TestListenerReadinessIncludesAnIdleSchemaWriterLease",
+        "TestListenerRejectsSchemaWriterCatalogDriftAtSupportedMigrations/v8_missing_lease_table",
+        "TestListenerRejectsSchemaWriterCatalogDriftAtSupportedMigrations/v8_missing_capability_table",
+        "TestListenerRejectsSchemaWriterCatalogDriftAtSupportedMigrations/v8_has_unrecorded_generation_markers",
+        "TestListenerRejectsSchemaWriterCatalogDriftAtSupportedMigrations/v9_missing_lease_table",
+        "TestListenerRejectsSchemaWriterCatalogDriftAtSupportedMigrations/v9_missing_capability_table",
+        "TestListenerRejectsSchemaWriterCatalogDriftAtSupportedMigrations/v9_generation_markers_removed",
+        "TestListenerRejectsSchemaWriterCatalogDriftAtSupportedMigrations",
+        "TestListenerHeartbeatFailsReadinessAtANewerGenerationFenceAndReconnects",
+        "TestSchemaApplyAndItsOwnListenerHeartbeatCannotDeadlock",
+        "TestRunCancellationClosesListenerAndPool",
+        "TestStartRunsAndCloseStopsEveryBackgroundComponent",
+        "TestCloseDrainsHTTPBeforeCancellingBackgroundWork"
+      ]
+    },
+    "scope": "Re-read prior RED/GREEN results and matching final code; no new test execution in closeout.",
+    "connection_budget": {
+      "request_background_pool": 4,
+      "dedicated_listener": 1,
+      "existing_backup_gate": 1,
+      "diagnostic_observer_when_enabled": 1,
+      "diagnostic_total": 7,
+      "prior_diagnostic_total": 6,
+      "observer_always_present_in_production": false
+    },
+    "preserved_contracts": [
+      "AfterConnect secure session",
+      "backup shared writer advisory lock",
+      "reconnect capacity",
+      "bounded close and PID cleanup",
+      "backup exclusion and recovery",
+      "schema readiness",
+      "shutdown ordering"
+    ]
+  },
+  "retained_limitations": [
+    "Firefox historical font cancellation not causally repaired; final gate passed",
+    "External OAuth/OIDC/SMTP interoperability not exhaustively qualified",
+    "Storage ambiguous-write tombstones and writer quiescence",
+    "External Jobs effect idempotency/fencing",
+    "Single CI workload/environment capacity only",
+    "Historical 547 drops remain failed evidence"
+  ],
+  "evidence_hashes": [
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280386955.log.gz",
+      "sha256": "ea97993ae1db611d5be689c3792f92d0667af567b223c981da5633a42715929d",
+      "raw_sha256": "dd69cb499d78b232773431d81f396fa721dbcdd6a25eb9e0ce715b7aafe65474"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387001.log.gz",
+      "sha256": "51b24caab57b3356af81481f727e0904ae888561e8a70b4384dce9f820966aa0",
+      "raw_sha256": "64be9c2445ee7c8a7cdfef33d9bcaca76c96c87a573a8ed1930799acdd7bab71"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387081.log.gz",
+      "sha256": "e741a98853b1fe0e6fc2e121de66db7f6771adc1d14ae1d6a445dc3588ab3e40",
+      "raw_sha256": "a2125dc604203e340f803399e76893d1e421b90ae7424820e694b469ceb885f9"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387112.log.gz",
+      "sha256": "d206c3f9a1e531b77dfa032b8352a9808b064c767cfdf8deee9e25220bc6944b",
+      "raw_sha256": "37d1ff08c6f6c8f0c4b51bd237b0c398f08b4b27c4268e04bf78a0ff8826e74d"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387146.log.gz",
+      "sha256": "c159422b1a9c63c0b08375a71586e58cdb7e4c39bc79ee10e583232306384717",
+      "raw_sha256": "0b96df9f7e77d21480f157c96816f9512fb497d480547e1e5839c0cb08e30f37"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387167.log.gz",
+      "sha256": "aa6ae46c5c1818f43d475e5fd2a5ea87f8c634bfc68a08af0d374d79e598b135",
+      "raw_sha256": "4fe5db1f484978f95d6ffdfa4ac82da4087ca589d34a69e9d179e07b1936c8f7"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387178.log.gz",
+      "sha256": "f4833c0c8394d4986d163730cc3c83487e411a743e89f5b99bc62ea19da798db",
+      "raw_sha256": "5454038d9d36f6ca57b9cd4b2ebdf6155b5ec3cb3a1a912fcc65f658a76eed0a"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387183.log.gz",
+      "sha256": "0400bd5b63f5e985b20cc55ad3d1b40f36740c584d9fbc3beb221ad09aaf7e3b",
+      "raw_sha256": "9555cfbb28cd7496476dfd76ef573b3820324a43f4fa765f6b5267e5b619893d"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387248.log.gz",
+      "sha256": "a05aff29642435c19bc76906c31eed95dd333a0e3022b03129ab7b0325d2a004",
+      "raw_sha256": "c57c5dd42b30ec78af973f2789fd745415dd58a609a89156f178c10b8ebba01d"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387312.log.gz",
+      "sha256": "c3cc1fcfc17533749708c43db57592a2f7253ebbfc501531b6ba9464d1d1dbb2",
+      "raw_sha256": "d581c9c0ee0c97d9127905318e261c3ceb5b094aa7894e0e67cbae294dec43b9"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387317.log.gz",
+      "sha256": "26b5e797a6de550e3e8793d590c53106e3a26f90893f9f51fb0142b2ab61530e",
+      "raw_sha256": "9ece4fcaae641447c05bc58fd20bae4f12338a037b42c85c2e748b2c53a8e42a"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387341.log.gz",
+      "sha256": "88732ad23217b051368117dd7470a455b671d27940e5c58fb5db8039e1f18922",
+      "raw_sha256": "63dbe2f271a8ecb57c0ce1fd9c438349e553ed5acd148d5d68420ecf0f606ea8"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280387368.log.gz",
+      "sha256": "15af2fa4d357a1b641fbf5ad4f94a5edbd5247a32ee147a01a2c07b2dcebfa22",
+      "raw_sha256": "c94d75262dc909a2184e380c8d68ac8ab71120821ee6bf4d8cfcf429a653482c"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/functional/logs/job-133280388096.log.gz",
+      "sha256": "1a5b81ae3a0c5cbfb764baec67f6e8c76420d9e5bd7809f0474f02d97942293f",
+      "raw_sha256": "69b15142d74dbb5785e9370fb8040c9b1ec9fb19287833e5b3b2d917f1f5840c"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/go.zip",
+      "sha256": "e2a386fd8e7d1ab2902ac0c9ca14e5812dba6c4d2a4a869ff651207b0fcdc331"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/image.zip",
+      "sha256": "40425e3fe5aeed669fb0d0266077fc397224e8ab2487fe5f7356e46e23537c4e"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/js.zip",
+      "sha256": "cde3658427f0f01d5c4cd4347d90701d6a6c496c2ee97647957fc2dc0a3849c7"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/runtime-assets.zip",
+      "sha256": "be44bda6fd90f80903dfc53e13fff4a06a8eb7f6a37f008690c8b2d866247e01"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/sbom.zip",
+      "sha256": "ed6a0eff2a84346d6282bbdae500402e0b3cfc9bae243487297036d84d7392f2"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/listener-red.jsonl",
+      "sha256": "1a3030e4cb736a53be8f56b6e1b7eaf89e87bc92e18b28929335cceb746a062a"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/listener-green-race.jsonl",
+      "sha256": "69a3e604e9120c9a9d3706abbf670db1bafd1265a875d31a69f500226272fbc5"
+    }
+  ]
+}

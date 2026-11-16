@@ -1,3 +1,121 @@
+# PgBase — final closeout complete
+
+## Current state — `READY_FOR_MANUAL_MERGE`
+
+This evidence-only closeout supersedes historical next-action instructions below.
+It recovers and publishes the prior final reports after a fresh independent
+comparison with GitHub. No new development or qualification phase follows.
+
+- **Tested PR source:** `4091c3be20ec8db177886a2a85550924fce37ff5`.
+- **Actual CI checkout:** `ba838872d72993abf1953dcafc64ba043f978c06`.
+- **Verified common full Git tree:** `653a46758f9e6af9662b77ecfe2f069a2ac94cb4`.
+- [Full qualification 43861850923](https://github.com/yakisoba0728/PgBase/actions/runs/43861850923):
+  **15 successful / 0 failed / 0 unfinished**; all job checkouts were compared.
+- **Performance PASS:** 200 RPS × 600 seconds; 120,000 scheduled/enqueued/attempted/completed;
+  zero dropped, unscheduled, incomplete or unexpected errors; end-to-end p99
+  **22.221162 ms ≤ 250 ms**, HTTP p99 **21.098702 ms**.
+- **Fresh independent evidence PASS:** two reviewers, maximum two concurrent.
+  Agent A passed 41/41 offline artifact checks. Agent B independently checked
+  source/CI/security and previous QA provenance. No tests or scans were rerun.
+- Physical SQL counts and per-owner traversal passed in the retained exact-source
+  run. Schema remains **69**. Listener initialization/reconnect/backup lock/cleanup
+  and the prior independent 25 top-level + 17 subtest race evidence remain coherent.
+- **Connection budget during diagnostics:** 4 request pool + 1 dedicated schema
+  listener + 1 existing backup gate + 1 optional diagnostic observer = **7 persistent
+  clients**, previously 6. Observer is not assumed always present in production;
+  transient database maintenance and operator sessions are additional.
+- **Security gate PASS with existing findings:** unchanged CodeQL 24 Go + 1 JS
+  raw findings (1 CRITICAL, 17 HIGH, 7 MEDIUM by scanner score), with existing human
+  dispositions preserved and no new source-flow/finding identities. Image scan:
+  32 records (21 MEDIUM, 9 LOW, 2 UNKNOWN), **0 HIGH/CRITICAL**. Scanner success
+  is not a claim of zero vulnerabilities.
+- Historical Firefox font cancellation remains an unproved, non-reproduced risk;
+  current Firefox 6/6 passed. Historical **547/120,000** loss remains a failure.
+  Storage ambiguity/quiescence, Jobs external-effect idempotency/fencing,
+  real external provider interoperability and broad device/accessibility limits remain.
+- Final publication changes **documentation/evidence only**, with `[skip ci]`.
+  Its exact commit and documentation tree are in PR #148's final handoff, separate
+  from the tested source/tree above. Existing tested-source evidence is unchanged.
+- PR remains **Open / Draft / Unmerged**, automatic merge disabled. Main remains
+  `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`.
+
+**Only remaining action:** the user reviews PR #148 and decides whether to merge
+manually. This is technical merge readiness, not a production deployment or
+universal capacity/provider-compatibility guarantee. Stop here.
+
+[Integrated report](final-integrated-qualification.md) ·
+[Performance report](final-performance-qualification.md) ·
+[Closeout evidence](evidence/final-integrated/closeout-20261116/).
+The original performance artifact expires **2026-11-30 21:08:39 KST**; the identical
+ZIP and core CI/security evidence are retained in Git with SHA-256 manifests.
+
+---
+
+## Previous execution session — original checkpoint retained
+
+# PgBase — final qualification complete
+
+## Latest outcome — Ready for Manual Merge
+
+**Functional / Non-performance = Ready. Performance = Pass. Overall = Ready for Manual Merge.**
+This completed final round supersedes the earlier next-action instructions below.
+PR#148 remains **Open / Draft / Unmerged**; the human merge decision is the next action.
+
+- [Final complete CI43861850923](https://github.com/yakisoba0728/PgBase/actions/runs/43861850923):
+  **15/15 successful jobs**, consisting of14 mandatory functional jobs and one final performance job.
+  Zero failed, cancelled or unfinished jobs; no additional final load run was necessary.
+- **Tested runtime HEAD:** `4091c3be20ec8db177886a2a85550924fce37ff5`.
+  **Actual CI checkout:** `ba838872d72993abf1953dcafc64ba043f978c06`.
+  **Exact common Git tree:** `653a46758f9e6af9662b77ecfe2f069a2ac94cb4`.
+- The final evidence/checkpoint commits are documentation only. They do not represent a
+  new runtime test execution. PR#148 identifies that final evidence HEAD separately.
+- All latest-source Go/static/race, PG16.13/17.9 core+application/18.3, schema69,
+  Storage/isolated MinIO/backup, Auth/Jobs/Realtime, SDK/admin/distribution, UI,
+  platform, security/supply-chain, observability and artifact gates passed.
+  TypeScript119, Dart138 and UI449 tests passed; Chromium26, Firefox6, WebKit6;
+  hardened runtime and30 black-box parent executions plus28 subtests passed.
+- **One 200 RPS x600s gate:** scheduled/attempted/completed **120000/120000/120000**;
+  drops/unexpected errors/unscheduled/incomplete **0/0/0/0**.
+  End-to-end p50/p95/p99: **7.400337/12.632966/22.221162ms**, with p99 limit250ms.
+  Request pool remains4; fsync/synchronous_commit/full_page_writes remainON.
+- Runtime change [277c18cb](https://github.com/yakisoba0728/PgBase/commit/277c18cbb5333ca2a925ccb84628702c29b7fcd6)
+  separates the schema listener's initialized connection, restoring4 available request slots.
+  Client budget is4 request+1schema+1existing backup gate+1observer=7, previously6.
+  Sampled extra autovacuum activity is a background worker, not an additional client.
+  This is not evidence of a historical leak or proof of the sole cause of547 dropped arrivals.
+- CI change [cb7247f4](https://github.com/yakisoba0728/PgBase/commit/cb7247f47c52bf8b6a8160b785d46ad4f486db06)
+  makes the final workflow call the existing complete three-browser suite.
+  Assertions, timeouts, console filters, workload and acceptance criteria are unchanged.
+- Three real subagents were created and all3 completed in separate worktrees, maximum3 concurrent (4 including
+  coordinator). The independent reviewer reproduced old-listener RED, passed integrated
+  PG17.9 race25top+17subtests, reconciled all14 functional logs/steps and independently
+  recalculated120000 performance rows before seeing the author's metrics.
+- Fresh CodeQL findings remain24Go/1JS; image32records remain21MEDIUM/9LOW/2UNKNOWN,
+  HIGH/CRITICAL0. Raw findings match the preserved baseline; no zero-vulnerability claim.
+- The old Firefox abort did not recur. Its historical cause is still unproved; no unsupported
+  repair claim and no downgrade of today's passing gate based only on that history.
+- The historical547-drop failure and earlier failed browser/fixture evidence remain retained.
+  Storage ambiguity/quiescence, external Jobs idempotency/fencing, real-provider and broader
+  device/accessibility limits remain documented. One CI workload pass is not universal capacity.
+- Main remains `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`. No main push/merge,
+  force push, production access, deployment, release/tag or package publication occurred.
+
+Canonical final reports: [Integrated qualification](final-integrated-qualification.md),
+[Performance qualification](final-performance-qualification.md),
+[Independent review](evidence/final-integrated/independent/final-review.md).
+Source/publication mapping and all artifact links/digests are in
+[evidence/final-integrated/coordinator/](evidence/final-integrated/coordinator/).
+The original [performance archive14224442513](https://github.com/yakisoba0728/PgBase/actions/runs/43861850923/artifacts/14224442513)
+is retained in Git as well: **3528654bytes**, SHA-256
+`82f0397e6b0ab5e1d71c96ebc2c4af35137fc8638d60c3c262b8208d5935d84e`.
+All14 functional logs and5 source/image/SBOM/runtime security ZIPs are retained with hashes.
+The final evidence publication uses `[skip ci]`; it does not request another600s run.
+This round is complete: no automatic coding continuation or further benchmark is planned.
+
+---
+
+## Historical checkpoints — preserved with original source scopes
+
 # PgBase — final integrated qualification in progress
 
 ## Current checkpoint — candidate preparation

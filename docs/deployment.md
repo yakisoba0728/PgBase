@@ -225,6 +225,7 @@ The bundled cookie-authenticated administrator UI must share the API origin. Adm
 - Require encrypted, verified transport for non-local PostgreSQL.
 - Pooled sessions pin `search_path` to `pg_catalog`; application relations are schema-qualified so caller- or role-controlled schemas cannot capture unqualified object resolution.
 - Configure at least four connections per pgBase request/background pool (`pool_max_conns=4` or higher), including schema/apply headroom. The schema catalog listener uses one additional dedicated connection after acquiring the same secure session configuration and backup-writer gate. Budget at least `pool_max_conns + 1` database connections per instance for these paths, plus the existing coordination, migration, backup, monitoring, and operator connections. Listener reconnect briefly acquires a pool slot before detaching it; the pool maximum itself is unchanged.
+- In the final qualification diagnostic fixture, budget **4 request/background pool connections + 1 dedicated schema listener + 1 existing backup writer-gate connection + 1 diagnostic observer = 7 persistent client connections**, one more than the previous total of 6. The observer exists only when diagnostics are running; it is not an always-on production connection. Background maintenance workers and other coordination, migration, monitoring or operator sessions require separate headroom.
 - Back up all three pgBase schemas together. See [Backup and restore](backup-restore.md).
 
 ## Health, rollout, and shutdown

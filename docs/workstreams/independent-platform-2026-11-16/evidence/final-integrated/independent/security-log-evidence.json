@@ -1,0 +1,58 @@
+[
+  {
+    "label": "go",
+    "job_id": 133280387167,
+    "url": "https://github.com/yakisoba0728/PgBase/actions/runs/43861850923/job/133280387167",
+    "sha256_decoded_log": "4fe5db1f484978f95d6ffdfa4ac82da4087ca589d34a69e9d179e07b1936c8f7",
+    "bytes": 180341,
+    "excerpts": [
+      "2026-11-16T11:54:49.4585306Z HEAD is now at ba83887 Merge 4091c3be20ec8db177886a2a85550924fce37ff5 into 8f551de4423a6b64d9c0ac94fff9b9bd07264f2a",
+      "2026-11-16T11:55:10.3170766Z ##[warning]This run of the CodeQL Action does not have permission to access the CodeQL Action API endpoints. As a result, it will not be opted into any experimental features. This could be because the Action is running on a pull request from a fork. If not, please ensure the workflow has at least the 'security-events: read' permission. Details: Resource not accessible by integration - https://docs.github.com/rest",
+      "2026-11-16T11:55:10.3189085Z ##[warning]Feature flags do not specify a default CLI version. Falling back to the CLI version shipped with the Action. This is 2.27.4.",
+      "2026-11-16T11:55:10.3572966Z Using CodeQL CLI version 2.27.4 from toolcache at /opt/hostedtoolcache/CodeQL/2.27.4/x64",
+      "2026-11-16T11:55:13.9646004Z ##[warning]1 issue was detected with this workflow: Please specify an on.push hook to analyze and see code scanning alerts from the default branch on the Security tab.",
+      "2026-11-16T11:55:15.6002961Z Using overlay database mode: none without caching.",
+      "2026-11-16T11:56:38.8177644Z   skip-queries: false",
+      "2026-11-16T11:56:39.5755731Z No precomputed diff ranges found; skipping diff-informed analysis stage.",
+      "2026-11-16T11:57:55.9471590Z Ran 12 tests in 0.007s"
+    ],
+    "raw_local_file": "/workspace/scratch/0b04974e09bd/final-ci-raw/job-133280387167.log",
+    "raw_log_owner": "Agent A retains all final functional job logs; this record does not substitute excerpts for the raw source."
+  },
+  {
+    "label": "js",
+    "job_id": 133280387183,
+    "url": "https://github.com/yakisoba0728/PgBase/actions/runs/43861850923/job/133280387183",
+    "sha256_decoded_log": "9555cfbb28cd7496476dfd76ef573b3820324a43f4fa765f6b5267e5b619893d",
+    "bytes": 354722,
+    "excerpts": [
+      "2026-11-16T11:54:47.9567117Z HEAD is now at ba83887 Merge 4091c3be20ec8db177886a2a85550924fce37ff5 into 8f551de4423a6b64d9c0ac94fff9b9bd07264f2a",
+      "2026-11-16T11:55:03.9052177Z ##[warning]This run of the CodeQL Action does not have permission to access the CodeQL Action API endpoints. As a result, it will not be opted into any experimental features. This could be because the Action is running on a pull request from a fork. If not, please ensure the workflow has at least the 'security-events: read' permission. Details: Resource not accessible by integration - https://docs.github.com/rest",
+      "2026-11-16T11:55:03.9063974Z ##[warning]Feature flags do not specify a default CLI version. Falling back to the CLI version shipped with the Action. This is 2.27.4.",
+      "2026-11-16T11:55:03.9167512Z Using CodeQL CLI version 2.27.4 from toolcache at /opt/hostedtoolcache/CodeQL/2.27.4/x64",
+      "2026-11-16T11:55:05.2118070Z ##[warning]1 issue was detected with this workflow: Please specify an on.push hook to analyze and see code scanning alerts from the default branch on the Security tab.",
+      "2026-11-16T11:55:06.2563751Z Using overlay database mode: none without caching.",
+      "2026-11-16T11:55:10.6812711Z   skip-queries: false",
+      "2026-11-16T11:55:11.3753551Z No precomputed diff ranges found; skipping diff-informed analysis stage.",
+      "2026-11-16T11:56:03.5719198Z Ran 12 tests in 0.005s"
+    ],
+    "raw_local_file": "/workspace/scratch/0b04974e09bd/final-ci-raw/job-133280387183.log",
+    "raw_log_owner": "Agent A retains all final functional job logs; this record does not substitute excerpts for the raw source."
+  },
+  {
+    "label": "supply-chain",
+    "job_id": 133280387112,
+    "url": "https://github.com/yakisoba0728/PgBase/actions/runs/43861850923/job/133280387112",
+    "sha256_decoded_log": "37d1ff08c6f6c8f0c4b51bd237b0c398f08b4b27c4268e04bf78a0ff8826e74d",
+    "bytes": 429737,
+    "excerpts": [
+      "2026-11-16T11:54:49.1933352Z HEAD is now at ba83887 Merge 4091c3be20ec8db177886a2a85550924fce37ff5 into 8f551de4423a6b64d9c0ac94fff9b9bd07264f2a",
+      "2026-11-16T11:54:56.0163366Z No vulnerabilities found.",
+      "2026-11-16T11:55:00.7958556Z found 0 vulnerabilities",
+      "2026-11-16T11:55:01.2426567Z found 0 vulnerabilities",
+      "2026-11-16T11:55:30.6608959Z #21 7.363 found 0 vulnerabilities"
+    ],
+    "raw_local_file": "/workspace/scratch/0b04974e09bd/final-ci-raw/job-133280387112.log",
+    "raw_log_owner": "Agent A retains all final functional job logs; this record does not substitute excerpts for the raw source."
+  }
+]

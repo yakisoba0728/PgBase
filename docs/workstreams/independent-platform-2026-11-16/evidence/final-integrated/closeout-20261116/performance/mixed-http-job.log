@@ -1,0 +1,601 @@
+﻿2026-11-16T11:54:44.2834122Z Current runner version: '2.338.2'
+2026-11-16T11:54:44.2857857Z ##[group]Runner Image Provisioner
+2026-11-16T11:54:44.2858812Z Hosted Compute Agent
+2026-11-16T11:54:44.2859393Z Version: 20261103.629
+2026-11-16T11:54:44.2860001Z Commit: 15dbd9ccb5dbf34fae002b6ed1a2670f52df37bc
+2026-11-16T11:54:44.2861321Z Build Date: 2026-11-03T17:26:59Z
+2026-11-16T11:54:44.2862021Z Worker ID: {8f974215-9bbf-41f9-a9f0-b8381aa6e3c9}
+2026-11-16T11:54:44.2862740Z Region: westus3
+2026-11-16T11:54:44.2863353Z Cloud: Azure
+2026-11-16T11:54:44.2863867Z ##[endgroup]
+2026-11-16T11:54:44.2865337Z ##[group]Operating System
+2026-11-16T11:54:44.2865950Z Ubuntu
+2026-11-16T11:54:44.2866454Z 24.04.5
+2026-11-16T11:54:44.2866969Z LTS
+2026-11-16T11:54:44.2867458Z ##[endgroup]
+2026-11-16T11:54:44.2867974Z ##[group]Runner Image
+2026-11-16T11:54:44.2868595Z Image: ubuntu-24.04
+2026-11-16T11:54:44.2869146Z Version: 20261111.370.1
+2026-11-16T11:54:44.2870806Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261111.370/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-16T11:54:44.2872434Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261111.370
+2026-11-16T11:54:44.2873461Z ##[endgroup]
+2026-11-16T11:54:44.2874616Z ##[group]GITHUB_TOKEN Permissions
+2026-11-16T11:54:44.2877069Z Contents: read
+2026-11-16T11:54:44.2877612Z Metadata: read
+2026-11-16T11:54:44.2878189Z Packages: read
+2026-11-16T11:54:44.2878741Z ##[endgroup]
+2026-11-16T11:54:44.2881139Z Secret source: Actions
+2026-11-16T11:54:44.2882055Z Cache mode: write
+2026-11-16T11:54:44.2883071Z Prepare workflow directory
+2026-11-16T11:54:44.3296379Z Prepare all required actions
+2026-11-16T11:54:44.3346315Z Getting action download info
+2026-11-16T11:54:44.6320619Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-11-16T11:54:44.7515276Z Download action repository 'actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e' (SHA:b7ad1dad31e06c5925ef5d2fc7ad053ef454303e)
+2026-11-16T11:54:45.4360976Z Download action repository 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9' (SHA:cf430e030ddbb5b0abf93d22962f4752f3646cd9)
+2026-11-16T11:54:45.6468858Z Complete job name: mixed-http
+2026-11-16T11:54:45.7016592Z ##[group]Checking docker version
+2026-11-16T11:54:45.7029639Z ##[command]/usr/bin/docker version --format '{{.Server.APIVersion}}'
+2026-11-16T11:54:45.8010585Z '1.48'
+2026-11-16T11:54:45.8024879Z Docker daemon API version: '1.48'
+2026-11-16T11:54:45.8025793Z ##[command]/usr/bin/docker version --format '{{.Client.APIVersion}}'
+2026-11-16T11:54:45.8208427Z '1.48'
+2026-11-16T11:54:45.8218619Z Docker client API version: '1.48'
+2026-11-16T11:54:45.8224223Z ##[endgroup]
+2026-11-16T11:54:45.8226515Z ##[group]Clean up resources from previous jobs
+2026-11-16T11:54:45.8232559Z ##[command]/usr/bin/docker ps --all --quiet --no-trunc --filter "label=f2533d"
+2026-11-16T11:54:45.8395261Z ##[command]/usr/bin/docker network prune --force --filter "label=f2533d"
+2026-11-16T11:54:45.8542906Z ##[endgroup]
+2026-11-16T11:54:45.8543615Z ##[group]Create local container network
+2026-11-16T11:54:45.8554177Z ##[command]/usr/bin/docker network create --label f2533d github_network_8417f289111548ffbd918e34c91b9a94
+2026-11-16T11:54:45.9029091Z 95cf6d6d3869d4197280f134811e8406077fe78f2eb05da3dc1deb2cb631c3af
+2026-11-16T11:54:45.9043972Z ##[endgroup]
+2026-11-16T11:54:45.9068679Z ##[group]Starting postgres service container
+2026-11-16T11:54:45.9089241Z ##[command]/usr/bin/docker pull postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+2026-11-16T11:54:46.5223783Z docker.io/library/postgres@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641: Pulling from library/postgres
+2026-11-16T11:54:46.7631341Z 9b02e9fcb401: Pulling fs layer
+2026-11-16T11:54:46.7638595Z 632702611019: Pulling fs layer
+2026-11-16T11:54:46.7639998Z 0ac04d834031: Pulling fs layer
+2026-11-16T11:54:46.7641693Z 2e2d52334eb1: Pulling fs layer
+2026-11-16T11:54:46.7643297Z 25cb8cfd32fb: Pulling fs layer
+2026-11-16T11:54:46.7644317Z d67c4f15e9dd: Pulling fs layer
+2026-11-16T11:54:46.7645329Z bd77bf55e3a1: Pulling fs layer
+2026-11-16T11:54:46.7646332Z 42925d59e920: Pulling fs layer
+2026-11-16T11:54:46.7647428Z 3352e0f4343b: Pulling fs layer
+2026-11-16T11:54:46.7648549Z fd73b50ab94b: Pulling fs layer
+2026-11-16T11:54:46.7649636Z a1ad95e548cd: Pulling fs layer
+2026-11-16T11:54:46.7650951Z b402a08ab1f1: Pulling fs layer
+2026-11-16T11:54:46.7652026Z acfc54558111: Pulling fs layer
+2026-11-16T11:54:46.7653098Z dc02b033c46a: Pulling fs layer
+2026-11-16T11:54:46.7654135Z bd77bf55e3a1: Waiting
+2026-11-16T11:54:46.7655028Z 42925d59e920: Waiting
+2026-11-16T11:54:46.7655916Z 3352e0f4343b: Waiting
+2026-11-16T11:54:46.7657022Z fd73b50ab94b: Waiting
+2026-11-16T11:54:46.7658166Z a1ad95e548cd: Waiting
+2026-11-16T11:54:46.7659303Z b402a08ab1f1: Waiting
+2026-11-16T11:54:46.7660752Z acfc54558111: Waiting
+2026-11-16T11:54:46.7661924Z dc02b033c46a: Waiting
+2026-11-16T11:54:46.7663112Z 2e2d52334eb1: Waiting
+2026-11-16T11:54:46.7664303Z 25cb8cfd32fb: Waiting
+2026-11-16T11:54:46.7665471Z d67c4f15e9dd: Waiting
+2026-11-16T11:54:46.9525903Z 632702611019: Verifying Checksum
+2026-11-16T11:54:46.9539418Z 632702611019: Download complete
+2026-11-16T11:54:46.9726627Z 0ac04d834031: Verifying Checksum
+2026-11-16T11:54:46.9729799Z 0ac04d834031: Download complete
+2026-11-16T11:54:47.0486078Z 9b02e9fcb401: Verifying Checksum
+2026-11-16T11:54:47.0488182Z 9b02e9fcb401: Download complete
+2026-11-16T11:54:47.1414518Z 2e2d52334eb1: Verifying Checksum
+2026-11-16T11:54:47.1416898Z 2e2d52334eb1: Download complete
+2026-11-16T11:54:47.1906378Z 25cb8cfd32fb: Verifying Checksum
+2026-11-16T11:54:47.1911977Z 25cb8cfd32fb: Download complete
+2026-11-16T11:54:47.2609005Z d67c4f15e9dd: Verifying Checksum
+2026-11-16T11:54:47.2612108Z d67c4f15e9dd: Download complete
+2026-11-16T11:54:47.3510793Z bd77bf55e3a1: Verifying Checksum
+2026-11-16T11:54:47.3515732Z bd77bf55e3a1: Download complete
+2026-11-16T11:54:47.3873801Z 42925d59e920: Verifying Checksum
+2026-11-16T11:54:47.3875826Z 42925d59e920: Download complete
+2026-11-16T11:54:47.5311241Z fd73b50ab94b: Verifying Checksum
+2026-11-16T11:54:47.5312661Z fd73b50ab94b: Download complete
+2026-11-16T11:54:47.5667727Z a1ad95e548cd: Download complete
+2026-11-16T11:54:47.7094044Z b402a08ab1f1: Verifying Checksum
+2026-11-16T11:54:47.7095349Z b402a08ab1f1: Download complete
+2026-11-16T11:54:47.7649093Z 3352e0f4343b: Verifying Checksum
+2026-11-16T11:54:47.7653871Z 3352e0f4343b: Download complete
+2026-11-16T11:54:47.7771876Z acfc54558111: Download complete
+2026-11-16T11:54:47.9046103Z dc02b033c46a: Verifying Checksum
+2026-11-16T11:54:47.9046630Z dc02b033c46a: Download complete
+2026-11-16T11:54:48.0796062Z 9b02e9fcb401: Pull complete
+2026-11-16T11:54:50.7497003Z 632702611019: Pull complete
+2026-11-16T11:54:50.9586540Z 0ac04d834031: Pull complete
+2026-11-16T11:54:51.0307857Z 2e2d52334eb1: Pull complete
+2026-11-16T11:54:51.4421910Z 25cb8cfd32fb: Pull complete
+2026-11-16T11:54:51.5126866Z d67c4f15e9dd: Pull complete
+2026-11-16T11:54:51.5209435Z bd77bf55e3a1: Pull complete
+2026-11-16T11:54:51.5499560Z 42925d59e920: Pull complete
+2026-11-16T11:54:55.5501024Z 3352e0f4343b: Pull complete
+2026-11-16T11:54:55.5642416Z fd73b50ab94b: Pull complete
+2026-11-16T11:54:55.5739084Z a1ad95e548cd: Pull complete
+2026-11-16T11:54:55.5847253Z b402a08ab1f1: Pull complete
+2026-11-16T11:54:55.5956508Z acfc54558111: Pull complete
+2026-11-16T11:54:55.6040318Z dc02b033c46a: Pull complete
+2026-11-16T11:54:55.6083705Z Digest: sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+2026-11-16T11:54:55.6276709Z Status: Downloaded newer image for postgres@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+2026-11-16T11:54:55.6290806Z docker.io/library/postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+2026-11-16T11:54:55.6347176Z ##[command]/usr/bin/docker create --name d01a920f5016444492a59380ec8d84c4_postgres179bookwormsha25647f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641_bdae55 --label f2533d --network github_network_8417f289111548ffbd918e34c91b9a94 --network-alias postgres -p 5432 --health-cmd "pg_isready -U postgres -d postgres" --health-interval 2s --health-timeout 3s --health-retries 30 -e "POSTGRES_USER=postgres" -e "POSTGRES_PASSWORD=postgres" -e "POSTGRES_DB=postgres" -e GITHUB_ACTIONS=true -e CI=true postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+2026-11-16T11:54:55.6611679Z 5a2e89d9f102df745575766578b6958cded8c93fb5f6e964a212b9d0c5d5a7db
+2026-11-16T11:54:55.6631710Z ##[command]/usr/bin/docker start 5a2e89d9f102df745575766578b6958cded8c93fb5f6e964a212b9d0c5d5a7db
+2026-11-16T11:54:55.8825405Z 5a2e89d9f102df745575766578b6958cded8c93fb5f6e964a212b9d0c5d5a7db
+2026-11-16T11:54:55.8841742Z ##[command]/usr/bin/docker ps --all --filter id=5a2e89d9f102df745575766578b6958cded8c93fb5f6e964a212b9d0c5d5a7db --filter status=running --no-trunc --format "{{.ID}} {{.Status}}"
+2026-11-16T11:54:55.8993788Z 5a2e89d9f102df745575766578b6958cded8c93fb5f6e964a212b9d0c5d5a7db Up Less than a second (health: starting)
+2026-11-16T11:54:55.9013100Z ##[command]/usr/bin/docker port 5a2e89d9f102df745575766578b6958cded8c93fb5f6e964a212b9d0c5d5a7db
+2026-11-16T11:54:55.9181409Z 5432/tcp -> 0.0.0.0:32768
+2026-11-16T11:54:55.9182086Z 5432/tcp -> [::]:32768
+2026-11-16T11:54:55.9226264Z ##[endgroup]
+2026-11-16T11:54:55.9234949Z ##[group]Waiting for all services to be ready
+2026-11-16T11:54:55.9248393Z ##[command]/usr/bin/docker inspect --format="{{if .Config.Healthcheck}}{{print .State.Health.Status}}{{end}}" 5a2e89d9f102df745575766578b6958cded8c93fb5f6e964a212b9d0c5d5a7db
+2026-11-16T11:54:55.9396008Z starting
+2026-11-16T11:54:55.9415857Z postgres service is starting, waiting 2 seconds before checking again.
+2026-11-16T11:54:57.9423898Z ##[command]/usr/bin/docker inspect --format="{{if .Config.Healthcheck}}{{print .State.Health.Status}}{{end}}" 5a2e89d9f102df745575766578b6958cded8c93fb5f6e964a212b9d0c5d5a7db
+2026-11-16T11:54:57.9584274Z healthy
+2026-11-16T11:54:57.9598298Z postgres service is healthy.
+2026-11-16T11:54:57.9598726Z ##[endgroup]
+2026-11-16T11:54:57.9889237Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-11-16T11:54:57.9889862Z with:
+2026-11-16T11:54:57.9890471Z   persist-credentials: false
+2026-11-16T11:54:57.9890850Z   repository: yakisoba0728/PgBase
+2026-11-16T11:54:57.9893398Z   token: ***
+2026-11-16T11:54:57.9893722Z   ssh-strict: true
+2026-11-16T11:54:57.9894026Z   ssh-user: git
+2026-11-16T11:54:57.9894363Z   clean: true
+2026-11-16T11:54:57.9894673Z   sparse-checkout-cone-mode: true
+2026-11-16T11:54:57.9895000Z   fetch-depth: 1
+2026-11-16T11:54:57.9895333Z   fetch-tags: false
+2026-11-16T11:54:57.9895627Z   show-progress: true
+2026-11-16T11:54:57.9895951Z   lfs: false
+2026-11-16T11:54:57.9896241Z   submodules: false
+2026-11-16T11:54:57.9896561Z   set-safe-directory: true
+2026-11-16T11:54:57.9896933Z   allow-unsafe-pr-checkout: false
+2026-11-16T11:54:57.9897420Z ##[endgroup]
+2026-11-16T11:54:58.2693358Z Syncing repository: yakisoba0728/PgBase
+2026-11-16T11:54:58.2694706Z ##[group]Getting Git version info
+2026-11-16T11:54:58.2695068Z Working directory is '/home/runner/work/PgBase/PgBase'
+2026-11-16T11:54:58.2695595Z [command]/usr/bin/git version
+2026-11-16T11:54:58.2771132Z git version 2.56.1
+2026-11-16T11:54:58.2789506Z ##[endgroup]
+2026-11-16T11:54:58.2799397Z Temporarily overriding HOME='/home/runner/work/_temp/c037a79f-cd76-476d-baab-6da3dd8e0ebc' before making global git config changes
+2026-11-16T11:54:58.2802538Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-16T11:54:58.2805081Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/PgBase/PgBase
+2026-11-16T11:54:58.2866592Z Deleting the contents of '/home/runner/work/PgBase/PgBase'
+2026-11-16T11:54:58.2869666Z ##[group]Determining repository object format
+2026-11-16T11:54:58.2871206Z ##[endgroup]
+2026-11-16T11:54:58.2871913Z ##[group]Initializing the repository
+2026-11-16T11:54:58.2874965Z [command]/usr/bin/git init /home/runner/work/PgBase/PgBase
+2026-11-16T11:54:58.3045965Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-16T11:54:58.3047175Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-16T11:54:58.3048191Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-16T11:54:58.3049153Z hint: call:
+2026-11-16T11:54:58.3050042Z hint:
+2026-11-16T11:54:58.3050632Z hint: 	git config --global init.defaultBranch <name>
+2026-11-16T11:54:58.3050981Z hint:
+2026-11-16T11:54:58.3051303Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-16T11:54:58.3051900Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-16T11:54:58.3052483Z hint:
+2026-11-16T11:54:58.3052772Z hint: 	git branch -m <name>
+2026-11-16T11:54:58.3053100Z hint:
+2026-11-16T11:54:58.3053600Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-16T11:54:58.3054475Z Initialized empty Git repository in /home/runner/work/PgBase/PgBase/.git/
+2026-11-16T11:54:58.3067357Z [command]/usr/bin/git remote add origin https://github.com/yakisoba0728/PgBase
+2026-11-16T11:54:58.3121140Z ##[endgroup]
+2026-11-16T11:54:58.3121772Z ##[group]Disabling automatic garbage collection
+2026-11-16T11:54:58.3126874Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-16T11:54:58.3157726Z ##[endgroup]
+2026-11-16T11:54:58.3158591Z ##[group]Setting up auth
+2026-11-16T11:54:58.3159049Z Removing SSH command configuration
+2026-11-16T11:54:58.3165589Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-16T11:54:58.3204026Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-16T11:54:58.3586335Z Removing HTTP extra header
+2026-11-16T11:54:58.3587144Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-16T11:54:58.3620332Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-16T11:54:58.3808703Z Removing includeIf entries pointing to credentials config files
+2026-11-16T11:54:58.3815095Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-16T11:54:58.3845813Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-16T11:54:58.4033384Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-3f3e08ce-8dde-4559-a49b-807cde544aed.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-16T11:54:58.4067791Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/PgBase/PgBase/.git.path /home/runner/work/_temp/git-credentials-3f3e08ce-8dde-4559-a49b-807cde544aed.config
+2026-11-16T11:54:58.4097375Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/PgBase/PgBase/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-3f3e08ce-8dde-4559-a49b-807cde544aed.config
+2026-11-16T11:54:58.4129762Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-3f3e08ce-8dde-4559-a49b-807cde544aed.config
+2026-11-16T11:54:58.4159934Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-3f3e08ce-8dde-4559-a49b-807cde544aed.config
+2026-11-16T11:54:58.4187128Z ##[endgroup]
+2026-11-16T11:54:58.4194033Z ##[group]Fetching the repository
+2026-11-16T11:54:58.4194884Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +ba838872d72993abf1953dcafc64ba043f978c06:refs/remotes/pull/148/merge
+2026-11-16T11:55:00.2521347Z From https://github.com/yakisoba0728/PgBase
+2026-11-16T11:55:00.2522108Z  * [new ref]         ba838872d72993abf1953dcafc64ba043f978c06 -> pull/148/merge
+2026-11-16T11:55:00.2526848Z ##[endgroup]
+2026-11-16T11:55:00.2527475Z ##[group]Determining the checkout info
+2026-11-16T11:55:00.2528152Z ##[endgroup]
+2026-11-16T11:55:00.2534106Z [command]/usr/bin/git sparse-checkout disable
+2026-11-16T11:55:00.2595567Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-16T11:55:00.2625375Z ##[group]Checking out the ref
+2026-11-16T11:55:00.2631400Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/148/merge
+2026-11-16T11:55:00.4506316Z Note: switching to 'refs/remotes/pull/148/merge'.
+2026-11-16T11:55:00.4506731Z 
+2026-11-16T11:55:00.4507021Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-11-16T11:55:00.4507769Z changes and commit them, and you can discard any commits you make in this
+2026-11-16T11:55:00.4508442Z state without impacting any branches by switching back to a branch.
+2026-11-16T11:55:00.4508939Z 
+2026-11-16T11:55:00.4509216Z If you want to create a new branch to retain commits you create, you may
+2026-11-16T11:55:00.4509724Z do so (now or later) by using -c with the switch command. Example:
+2026-11-16T11:55:00.4510046Z 
+2026-11-16T11:55:00.4510368Z   git switch -c <new-branch-name>
+2026-11-16T11:55:00.4510605Z 
+2026-11-16T11:55:00.4510732Z Or undo this operation with:
+2026-11-16T11:55:00.4510936Z 
+2026-11-16T11:55:00.4511044Z   git switch -
+2026-11-16T11:55:00.4511220Z 
+2026-11-16T11:55:00.4511494Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-11-16T11:55:00.4511838Z 
+2026-11-16T11:55:00.4512230Z HEAD is now at ba83887 Merge 4091c3be20ec8db177886a2a85550924fce37ff5 into 8f551de4423a6b64d9c0ac94fff9b9bd07264f2a
+2026-11-16T11:55:00.4520414Z ##[endgroup]
+2026-11-16T11:55:00.4567238Z [command]/usr/bin/git log -1 --format=%H
+2026-11-16T11:55:00.4594103Z ba838872d72993abf1953dcafc64ba043f978c06
+2026-11-16T11:55:00.4606252Z ##[group]Removing auth
+2026-11-16T11:55:00.4606933Z Removing SSH command configuration
+2026-11-16T11:55:00.4616711Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-16T11:55:00.4640992Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-16T11:55:00.4836081Z Removing HTTP extra header
+2026-11-16T11:55:00.4841212Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-16T11:55:00.4875573Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-16T11:55:00.5065133Z Removing includeIf entries pointing to credentials config files
+2026-11-16T11:55:00.5069353Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-16T11:55:00.5097503Z includeif.gitdir:/home/runner/work/PgBase/PgBase/.git.path
+2026-11-16T11:55:00.5098259Z includeif.gitdir:/home/runner/work/PgBase/PgBase/.git/worktrees/*.path
+2026-11-16T11:55:00.5098853Z includeif.gitdir:/github/workspace/.git.path
+2026-11-16T11:55:00.5099293Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-16T11:55:00.5106818Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/PgBase/PgBase/.git.path
+2026-11-16T11:55:00.5131043Z /home/runner/work/_temp/git-credentials-3f3e08ce-8dde-4559-a49b-807cde544aed.config
+2026-11-16T11:55:00.5143405Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/PgBase/PgBase/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-3f3e08ce\-8dde\-4559\-a49b\-807cde544aed\.config
+2026-11-16T11:55:00.5191431Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/PgBase/PgBase/.git/worktrees/*.path
+2026-11-16T11:55:00.5214455Z /home/runner/work/_temp/git-credentials-3f3e08ce-8dde-4559-a49b-807cde544aed.config
+2026-11-16T11:55:00.5222619Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/PgBase/PgBase/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-3f3e08ce\-8dde\-4559\-a49b\-807cde544aed\.config
+2026-11-16T11:55:00.5257161Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-16T11:55:00.5284826Z /github/runner_temp/git-credentials-3f3e08ce-8dde-4559-a49b-807cde544aed.config
+2026-11-16T11:55:00.5292117Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-3f3e08ce\-8dde\-4559\-a49b\-807cde544aed\.config
+2026-11-16T11:55:00.5367598Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-16T11:55:00.5389744Z /github/runner_temp/git-credentials-3f3e08ce-8dde-4559-a49b-807cde544aed.config
+2026-11-16T11:55:00.5396785Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-3f3e08ce\-8dde\-4559\-a49b\-807cde544aed\.config
+2026-11-16T11:55:00.5433528Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-16T11:55:00.5629251Z Removing credentials config '/home/runner/work/_temp/git-credentials-3f3e08ce-8dde-4559-a49b-807cde544aed.config'
+2026-11-16T11:55:00.5639736Z ##[endgroup]
+2026-11-16T11:55:00.5856260Z ##[group]Run actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+2026-11-16T11:55:00.5856894Z with:
+2026-11-16T11:55:00.5857292Z   go-version-file: go.mod
+2026-11-16T11:55:00.5857552Z   cache: true
+2026-11-16T11:55:00.5857758Z   check-latest: false
+2026-11-16T11:55:00.5861121Z   token: ***
+2026-11-16T11:55:00.5861451Z ##[endgroup]
+2026-11-16T11:55:00.7164876Z Setup go version spec 1.26.11
+2026-11-16T11:55:00.7178174Z Found in cache @ /opt/hostedtoolcache/go/1.26.11/x64
+2026-11-16T11:55:00.7179365Z Added go to the path
+2026-11-16T11:55:00.7182619Z Successfully set up Go version 1.26.11
+2026-11-16T11:55:00.7791699Z [command]/opt/hostedtoolcache/go/1.26.11/x64/bin/go env GOMODCACHE
+2026-11-16T11:55:00.7832506Z [command]/opt/hostedtoolcache/go/1.26.11/x64/bin/go env GOCACHE
+2026-11-16T11:55:00.7862107Z /home/runner/go/pkg/mod
+2026-11-16T11:55:00.7887226Z /home/runner/.cache/go-build
+2026-11-16T11:55:01.0307630Z Cache hit for: setup-go-Linux-x64-ubuntu24-go-1.26.11-e64ee2c6dc55274b206f919e8e6cf653ef972758d6c26c8648cb98bd2f7c99ee
+2026-11-16T11:55:02.2737682Z Received 54525952 of 105834644 (51.5%), 51.9 MBs/sec
+2026-11-16T11:55:03.2735331Z Received 101640340 of 105834644 (96.0%), 48.4 MBs/sec
+2026-11-16T11:55:04.2738521Z Received 101640340 of 105834644 (96.0%), 32.3 MBs/sec
+2026-11-16T11:55:05.2749592Z Received 101640340 of 105834644 (96.0%), 24.2 MBs/sec
+2026-11-16T11:55:05.3965793Z Received 105834644 of 105834644 (100.0%), 24.5 MBs/sec
+2026-11-16T11:55:05.3966775Z Cache Size: ~101 MB (105834644 B)
+2026-11-16T11:55:05.4036231Z [command]/usr/bin/tar -xf /home/runner/work/_temp/9f0717b7-540b-4ba7-af40-40f7b7958043/cache.tzst -P -C /home/runner/work/PgBase/PgBase --use-compress-program unzstd
+2026-11-16T11:55:06.0140644Z Cache restored successfully
+2026-11-16T11:55:06.0183576Z Cache restored from key: setup-go-Linux-x64-ubuntu24-go-1.26.11-e64ee2c6dc55274b206f919e8e6cf653ef972758d6c26c8648cb98bd2f7c99ee
+2026-11-16T11:55:06.0205501Z go version go1.26.11 linux/amd64
+2026-11-16T11:55:06.0205774Z 
+2026-11-16T11:55:06.0206115Z ##[group]go env
+2026-11-16T11:55:06.0391590Z AR='ar'
+2026-11-16T11:55:06.0392101Z CC='gcc'
+2026-11-16T11:55:06.0392435Z CGO_CFLAGS='-O2 -g'
+2026-11-16T11:55:06.0392782Z CGO_CPPFLAGS=''
+2026-11-16T11:55:06.0393100Z CGO_CXXFLAGS='-O2 -g'
+2026-11-16T11:55:06.0393437Z CGO_ENABLED='1'
+2026-11-16T11:55:06.0393772Z CGO_FFLAGS='-O2 -g'
+2026-11-16T11:55:06.0394081Z CGO_LDFLAGS='-O2 -g'
+2026-11-16T11:55:06.0394566Z CXX='g++'
+2026-11-16T11:55:06.0394769Z GCCGO='gccgo'
+2026-11-16T11:55:06.0394992Z GO111MODULE=''
+2026-11-16T11:55:06.0395201Z GOAMD64='v1'
+2026-11-16T11:55:06.0395402Z GOARCH='amd64'
+2026-11-16T11:55:06.0395601Z GOAUTH='netrc'
+2026-11-16T11:55:06.0395805Z GOBIN=''
+2026-11-16T11:55:06.0396030Z GOCACHE='/home/runner/.cache/go-build'
+2026-11-16T11:55:06.0396316Z GOCACHEPROG=''
+2026-11-16T11:55:06.0396527Z GODEBUG=''
+2026-11-16T11:55:06.0396751Z GOENV='/home/runner/.config/go/env'
+2026-11-16T11:55:06.0397019Z GOEXE=''
+2026-11-16T11:55:06.0397219Z GOEXPERIMENT=''
+2026-11-16T11:55:06.0397450Z GOFIPS140='off'
+2026-11-16T11:55:06.0397655Z GOFLAGS=''
+2026-11-16T11:55:06.0398338Z GOGCCFLAGS='-fPIC -m64 -pthread -Wl,--no-gc-sections -fmessage-length=0 -ffile-prefix-map=/tmp/go-build4159530871=/tmp/go-build -gno-record-gcc-switches'
+2026-11-16T11:55:06.0398982Z GOHOSTARCH='amd64'
+2026-11-16T11:55:06.0399199Z GOHOSTOS='linux'
+2026-11-16T11:55:06.0399408Z GOINSECURE=''
+2026-11-16T11:55:06.0399661Z GOMOD='/home/runner/work/PgBase/PgBase/go.mod'
+2026-11-16T11:55:06.0399984Z GOMODCACHE='/home/runner/go/pkg/mod'
+2026-11-16T11:55:06.0400455Z GONOPROXY=''
+2026-11-16T11:55:06.0400672Z GONOSUMDB=''
+2026-11-16T11:55:06.0400879Z GOOS='linux'
+2026-11-16T11:55:06.0401094Z GOPATH='/home/runner/go'
+2026-11-16T11:55:06.0401333Z GOPRIVATE=''
+2026-11-16T11:55:06.0401599Z GOPROXY='https://proxy.golang.org,direct'
+2026-11-16T11:55:06.0401926Z GOROOT='/opt/hostedtoolcache/go/1.26.11/x64'
+2026-11-16T11:55:06.0402228Z GOSUMDB='sum.golang.org'
+2026-11-16T11:55:06.0402461Z GOTELEMETRY='local'
+2026-11-16T11:55:06.0402874Z GOTELEMETRYDIR='/home/runner/.config/go/telemetry'
+2026-11-16T11:55:06.0403190Z GOTMPDIR=''
+2026-11-16T11:55:06.0403418Z GOTOOLCHAIN='local'
+2026-11-16T11:55:06.0403760Z GOTOOLDIR='/opt/hostedtoolcache/go/1.26.11/x64/pkg/tool/linux_amd64'
+2026-11-16T11:55:06.0404127Z GOVCS=''
+2026-11-16T11:55:06.0404341Z GOVERSION='go1.26.11'
+2026-11-16T11:55:06.0404574Z GOWORK=''
+2026-11-16T11:55:06.0404795Z PKG_CONFIG='pkg-config'
+2026-11-16T11:55:06.0404944Z 
+2026-11-16T11:55:06.0405310Z ##[endgroup]
+2026-11-16T11:55:06.0585204Z ##[group]Run set -euo pipefail
+2026-11-16T11:55:06.0585617Z [36;1mset -euo pipefail[0m
+2026-11-16T11:55:06.0586342Z [36;1mexport PGBASE_TEST_ADMIN_URL="***127.0.0.1:${POSTGRES_HOST_PORT:?}/postgres?sslmode=disable"[0m
+2026-11-16T11:55:06.0586860Z [36;1mgit rev-parse HEAD > mixed-environment.txt[0m
+2026-11-16T11:55:06.0587202Z [36;1mgo version >> mixed-environment.txt[0m
+2026-11-16T11:55:06.0587511Z [36;1mlscpu >> mixed-environment.txt[0m
+2026-11-16T11:55:06.0587809Z [36;1mfree -b >> mixed-environment.txt[0m
+2026-11-16T11:55:06.0588119Z [36;1muname -a >> mixed-environment.txt[0m
+2026-11-16T11:55:06.0588463Z [36;1mfor setting in cpu.max memory.max memory.high; do[0m
+2026-11-16T11:55:06.0588838Z [36;1m  if [[ -r "/sys/fs/cgroup/$setting" ]]; then[0m
+2026-11-16T11:55:06.0589194Z [36;1m    printf '%s=' "$setting" >> mixed-environment.txt[0m
+2026-11-16T11:55:06.0589589Z [36;1m    cat "/sys/fs/cgroup/$setting" >> mixed-environment.txt[0m
+2026-11-16T11:55:06.0589982Z [36;1m  fi[0m
+2026-11-16T11:55:06.0590364Z [36;1mdone[0m
+2026-11-16T11:55:06.0591248Z [36;1mdocker inspect --format 'memory={{.HostConfig.Memory}} nano_cpus={{.HostConfig.NanoCpus}} cpu_quota={{.HostConfig.CpuQuota}} cpu_period={{.HostConfig.CpuPeriod}} shm_size={{.HostConfig.ShmSize}}' "$POSTGRES_CONTAINER_ID" >> mixed-environment.txt[0m
+2026-11-16T11:55:06.0592258Z [36;1m# Timings affect diagnostic overhead only; durability stays enabled.[0m
+2026-11-16T11:55:06.0593169Z [36;1mdocker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'ALTER SYSTEM SET track_io_timing=on' -c 'ALTER SYSTEM SET track_wal_io_timing=on' -c 'SELECT pg_reload_conf()'[0m
+2026-11-16T11:55:06.0594781Z [36;1mdocker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -d postgres -At -c "select name,setting,unit from pg_settings where name in ('server_version','shared_buffers','max_connections','work_mem','effective_cache_size','fsync','synchronous_commit','track_io_timing','track_wal_io_timing') order by name" >> mixed-environment.txt[0m
+2026-11-16T11:55:06.0596350Z [36;1mgo test -tags=integration,load ./pgbase -run '^TestMixedHTTPPoolQualification$' -count=1 -v -timeout=10m | tee mixed-http.txt[0m
+2026-11-16T11:55:06.0617806Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-16T11:55:06.0618172Z env:
+2026-11-16T11:55:06.0618388Z   GOTOOLCHAIN: local
+2026-11-16T11:55:06.0618635Z   POSTGRES_HOST_PORT: 32768
+2026-11-16T11:55:06.0619046Z   POSTGRES_CONTAINER_ID: 5a2e89d9f102df745575766578b6958cded8c93fb5f6e964a212b9d0c5d5a7db
+2026-11-16T11:55:06.0619476Z   PGBASE_MIXED_CYCLES: 100
+2026-11-16T11:55:06.0619728Z   GOMAXPROCS: 4
+2026-11-16T11:55:06.0619944Z ##[endgroup]
+2026-11-16T11:55:06.2879788Z ALTER SYSTEM
+2026-11-16T11:55:06.3087228Z ALTER SYSTEM
+2026-11-16T11:55:06.3087839Z  pg_reload_conf 
+2026-11-16T11:55:06.3088523Z ----------------
+2026-11-16T11:55:06.3089075Z  t
+2026-11-16T11:55:06.3089861Z (1 row)
+2026-11-16T11:55:06.3090352Z 
+2026-11-16T11:55:47.9371756Z === RUN   TestMixedHTTPPoolQualification
+2026-11-16T11:55:50.0903205Z     mixed_load_integration_test.go:129: model=closed-loop mixed-http rows=256 owners=2 fields=3 relations=single pool=4 cycles=100 go=go1.26.11 GOMAXPROCS=4
+2026-11-16T11:55:56.6344330Z === RUN   TestMixedHTTPPoolQualification/baseline
+2026-11-16T11:55:56.6348606Z     mixed_load_integration_test.go:277: kind=all requests=1000 p50=5.499002ms p95=7.68583ms p99=18.983789ms
+2026-11-16T11:55:56.6349827Z     mixed_load_integration_test.go:277: kind=create requests=100 p50=6.384779ms p95=9.03801ms p99=15.022345ms
+2026-11-16T11:55:56.6350845Z     mixed_load_integration_test.go:277: kind=update requests=100 p50=5.115335ms p95=7.216454ms p99=87.346779ms
+2026-11-16T11:55:56.6351906Z     mixed_load_integration_test.go:277: kind=delete requests=100 p50=6.373027ms p95=8.493502ms p99=18.983789ms
+2026-11-16T11:55:56.6352813Z     mixed_load_integration_test.go:277: kind=get requests=100 p50=2.17322ms p95=3.377531ms p99=4.817124ms
+2026-11-16T11:55:56.6354111Z     mixed_load_integration_test.go:277: kind=page requests=500 p50=5.397945ms p95=7.590185ms p99=9.164562ms
+2026-11-16T11:55:56.6355177Z     mixed_load_integration_test.go:277: kind=cursor requests=100 p50=5.535525ms p95=7.59292ms p99=9.208167ms
+2026-11-16T11:55:56.6357788Z     mixed_load_integration_test.go:279: workers=1 elapsed=6.543827355s requests=1000 rps=152.82 unexpected_errors=0 error_rate=0.000000 allocated_bytes_per_request=790504.9 allocations_per_request=9012.9 heap_before=97379504 heap_after=8013992 gc_cycles=142 gc_pause=8.27965ms pool_max=4 pool_wait_count=0 pool_wait=0s pool_acquire=1.189592ms pool_canceled=0
+2026-11-16T11:55:56.6501202Z === RUN   TestMixedHTTPPoolQualification/concurrent
+2026-11-16T11:55:59.5287232Z     mixed_load_integration_test.go:277: kind=all requests=1000 p50=19.371783ms p95=30.325559ms p99=124.339244ms
+2026-11-16T11:55:59.5288387Z     mixed_load_integration_test.go:277: kind=create requests=100 p50=23.095314ms p95=33.800904ms p99=61.287462ms
+2026-11-16T11:55:59.5289530Z     mixed_load_integration_test.go:277: kind=update requests=100 p50=20.5824ms p95=34.615725ms p99=267.463456ms
+2026-11-16T11:55:59.5290844Z     mixed_load_integration_test.go:277: kind=delete requests=100 p50=24.608985ms p95=35.735737ms p99=201.647724ms
+2026-11-16T11:55:59.5291982Z     mixed_load_integration_test.go:277: kind=get requests=100 p50=12.756272ms p95=20.238407ms p99=103.132767ms
+2026-11-16T11:55:59.5293154Z     mixed_load_integration_test.go:277: kind=page requests=500 p50=18.727239ms p95=25.277007ms p99=35.051782ms
+2026-11-16T11:55:59.5294247Z     mixed_load_integration_test.go:277: kind=cursor requests=100 p50=18.842262ms p95=27.702252ms p99=100.788755ms
+2026-11-16T11:55:59.5296906Z     mixed_load_integration_test.go:279: workers=8 elapsed=2.878227428s requests=1000 rps=347.44 unexpected_errors=0 error_rate=0.000000 allocated_bytes_per_request=756992.4 allocations_per_request=9018.8 heap_before=10066976 heap_after=9300416 gc_cycles=124 gc_pause=30.480521ms pool_max=4 pool_wait_count=3458 pool_wait=12.107994665s pool_acquire=12.108018201s pool_canceled=0
+2026-11-16T11:55:59.5416268Z === RUN   TestMixedHTTPPoolQualification/saturated
+2026-11-16T11:56:02.1548874Z     mixed_load_integration_test.go:277: kind=all requests=1000 p50=78.737502ms p95=120.702ms p99=137.214912ms
+2026-11-16T11:56:02.1549873Z     mixed_load_integration_test.go:277: kind=create requests=100 p50=99.075339ms p95=135.392638ms p99=147.60139ms
+2026-11-16T11:56:02.1551027Z     mixed_load_integration_test.go:277: kind=update requests=100 p50=98.614549ms p95=134.686257ms p99=144.269484ms
+2026-11-16T11:56:02.1552264Z     mixed_load_integration_test.go:277: kind=delete requests=100 p50=92.566502ms p95=124.871017ms p99=139.45485ms
+2026-11-16T11:56:02.1554000Z     mixed_load_integration_test.go:277: kind=get requests=100 p50=61.420972ms p95=94.703495ms p99=106.134459ms
+2026-11-16T11:56:02.1555203Z     mixed_load_integration_test.go:277: kind=page requests=500 p50=78.295831ms p95=97.521707ms p99=102.6719ms
+2026-11-16T11:56:02.1556560Z     mixed_load_integration_test.go:277: kind=cursor requests=100 p50=75.491078ms p95=83.854016ms p99=86.648035ms
+2026-11-16T11:56:02.1559469Z     mixed_load_integration_test.go:279: workers=32 elapsed=2.612800374s requests=1000 rps=382.73 unexpected_errors=0 error_rate=0.000000 allocated_bytes_per_request=710359.9 allocations_per_request=8994.8 heap_before=11303952 heap_after=12243256 gc_cycles=97 gc_pause=22.816448ms pool_max=4 pool_wait_count=3290 pool_wait=1m11.198029011s pool_acquire=1m11.198047454s pool_canceled=0
+2026-11-16T11:56:02.1704041Z === RUN   TestMixedHTTPPoolQualification/recovery
+2026-11-16T11:56:05.0750020Z     mixed_load_integration_test.go:277: kind=all requests=1000 p50=9.598339ms p95=15.216527ms p99=101.236656ms
+2026-11-16T11:56:05.0751411Z     mixed_load_integration_test.go:277: kind=create requests=100 p50=12.867644ms p95=18.414837ms p99=25.550093ms
+2026-11-16T11:56:05.0752609Z     mixed_load_integration_test.go:277: kind=update requests=100 p50=9.359177ms p95=12.784496ms p99=13.361836ms
+2026-11-16T11:56:05.0753641Z     mixed_load_integration_test.go:277: kind=delete requests=100 p50=12.988567ms p95=16.502814ms p99=19.828509ms
+2026-11-16T11:56:05.0754393Z     mixed_load_integration_test.go:277: kind=get requests=100 p50=3.926138ms p95=7.359746ms p99=8.669897ms
+2026-11-16T11:56:05.0755130Z     mixed_load_integration_test.go:277: kind=page requests=500 p50=9.244148ms p95=12.932306ms p99=105.238479ms
+2026-11-16T11:56:05.0755878Z     mixed_load_integration_test.go:277: kind=cursor requests=100 p50=8.903674ms p95=12.983362ms p99=14.602811ms
+2026-11-16T11:56:05.0759785Z     mixed_load_integration_test.go:279: workers=4 elapsed=2.904225201s requests=1000 rps=344.33 unexpected_errors=0 error_rate=0.000000 allocated_bytes_per_request=743295.3 allocations_per_request=9029.1 heap_before=14306112 heap_after=12612376 gc_cycles=112 gc_pause=20.38043ms pool_max=4 pool_wait_count=1184 pool_wait=1.339660852s pool_acquire=1.340547168s pool_canceled=0
+2026-11-16T11:56:05.2118461Z --- PASS: TestMixedHTTPPoolQualification (17.27s)
+2026-11-16T11:56:05.2119049Z     --- PASS: TestMixedHTTPPoolQualification/baseline (6.56s)
+2026-11-16T11:56:05.2119552Z     --- PASS: TestMixedHTTPPoolQualification/concurrent (2.89s)
+2026-11-16T11:56:05.2120038Z     --- PASS: TestMixedHTTPPoolQualification/saturated (2.63s)
+2026-11-16T11:56:05.2120794Z     --- PASS: TestMixedHTTPPoolQualification/recovery (2.92s)
+2026-11-16T11:56:05.2121210Z PASS
+2026-11-16T11:56:05.2164089Z ok  	github.com/yakisoba0728/PgBase/pgbase	17.289s
+2026-11-16T11:56:05.4010779Z ##[group]Run set -euo pipefail
+2026-11-16T11:56:05.4011225Z [36;1mset -euo pipefail[0m
+2026-11-16T11:56:05.4012112Z [36;1mexport PGBASE_TEST_ADMIN_URL="***127.0.0.1:${POSTGRES_HOST_PORT:?}/postgres?sslmode=disable"[0m
+2026-11-16T11:56:05.4012727Z [36;1mpython3 scripts/support/test-run-observed-load.py[0m
+2026-11-16T11:56:05.4013227Z [36;1mpython3 scripts/support/run-observed-load.py \[0m
+2026-11-16T11:56:05.4013795Z [36;1m  --container "$POSTGRES_CONTAINER_ID" --evidence-dir load-evidence -- \[0m
+2026-11-16T11:56:05.4014770Z [36;1m  go test -tags=integration,load ./pgbase -run '^TestOpenLoopHTTPQualification$' -count=1 -v -timeout=15m | tee open-loop-http.txt[0m
+2026-11-16T11:56:05.4015500Z [36;1mpython3 - <<'PY'[0m
+2026-11-16T11:56:05.4015834Z [36;1mimport csv[0m
+2026-11-16T11:56:05.4016148Z [36;1mfrom pathlib import Path[0m
+2026-11-16T11:56:05.4016628Z [36;1msamples = Path('load-evidence/open-loop-samples.csv')[0m
+2026-11-16T11:56:05.4017210Z [36;1mwith samples.open(newline='') as stream:[0m
+2026-11-16T11:56:05.4017695Z [36;1m    rows = list(csv.DictReader(stream))[0m
+2026-11-16T11:56:05.4018196Z [36;1massert len(rows) == 120000, f'incomplete raw load evidence: {len(rows)} rows'[0m
+2026-11-16T11:56:05.4018852Z [36;1massert all(not row['error'] for row in rows), 'raw load evidence contains request errors'[0m
+2026-11-16T11:56:05.4019534Z [36;1mprint(f'preserved {len(rows)} raw scheduled arrivals in {samples}')[0m
+2026-11-16T11:56:05.4019997Z [36;1mPY[0m
+2026-11-16T11:56:05.4034847Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-16T11:56:05.4035428Z env:
+2026-11-16T11:56:05.4035739Z   GOTOOLCHAIN: local
+2026-11-16T11:56:05.4036093Z   POSTGRES_HOST_PORT: 32768
+2026-11-16T11:56:05.4036588Z   POSTGRES_CONTAINER_ID: 5a2e89d9f102df745575766578b6958cded8c93fb5f6e964a212b9d0c5d5a7db
+2026-11-16T11:56:05.4037153Z   PGBASE_OPEN_LOOP_RPS: 200
+2026-11-16T11:56:05.4037530Z   PGBASE_OPEN_LOOP_SECONDS: 600
+2026-11-16T11:56:05.4037901Z   PGBASE_OPEN_LOOP_DIAGNOSTICS: 1
+2026-11-16T11:56:05.4038380Z   PGBASE_LOAD_EVIDENCE_DIR: /home/runner/work/PgBase/PgBase/load-evidence
+2026-11-16T11:56:05.4038874Z   GOMAXPROCS: 4
+2026-11-16T11:56:05.4039195Z ##[endgroup]
+2026-11-16T11:56:05.6151154Z observer cleanup: force-stopping process group 8080
+2026-11-16T11:56:05.7675560Z .observer cleanup: force-stopping process group 8082
+2026-11-16T11:56:05.8541288Z .resource observer failed or produced incomplete evidence: /tmp/tmp2hdzq4e6/observer.txt
+2026-11-16T11:56:06.0315390Z .observer cleanup: force-stopping process group 8086
+2026-11-16T11:56:06.2105486Z .observer cleanup: force-stopping process group 8088
+2026-11-16T11:56:06.2276705Z ..
+2026-11-16T11:56:06.2277608Z ----------------------------------------------------------------------
+2026-11-16T11:56:06.2278078Z Ran 6 tests in 0.770s
+2026-11-16T11:56:06.2278250Z 
+2026-11-16T11:56:06.2278409Z OK
+2026-11-16T11:56:07.4375243Z === RUN   TestOpenLoopHTTPQualification
+2026-11-16T12:08:33.1996571Z     open_loop_load_integration_test.go:268: model=open-loop load_start_unix_ns=1794830313187356219 db_diagnostics=true
+2026-11-16T12:08:33.3373111Z     open_loop_load_integration_test.go:269: model=open-loop db_observations=6000 interval_ms=100 independent_connection=true instrumented=true
+2026-11-16T12:08:33.3493783Z     open_loop_load_integration_test.go:304: model=open-loop metric=scheduled_to_validated samples=120000 p50=7.400337ms p95=12.632966ms p99=22.221162ms
+2026-11-16T12:08:33.3591311Z     open_loop_load_integration_test.go:304: model=open-loop metric=http_service samples=120000 p50=6.735393ms p95=11.790135ms p99=21.098702ms
+2026-11-16T12:08:33.3690467Z     open_loop_load_integration_test.go:304: model=open-loop metric=generator_and_queue samples=120000 p50=188.78µs p95=920.248µs p99=1.146164ms
+2026-11-16T12:08:33.3788922Z     open_loop_load_integration_test.go:304: model=open-loop metric=generator samples=120000 p50=183.692µs p95=915.344µs p99=1.137495ms
+2026-11-16T12:08:33.3859686Z     open_loop_load_integration_test.go:304: model=open-loop metric=worker_queue samples=120000 p50=4.701µs p95=6.699µs p99=16.778µs
+2026-11-16T12:08:33.3863584Z     open_loop_load_integration_test.go:307: offered_rps=200 seconds=600 intended=120000 enqueued=120000 attempted=120000 completed=120000 dropped=0 unscheduled=0 errors=0 error_rate=0.000000 achieved_rps=200.00 elapsed=10m0.005995104s pool_max=4 pool_waits=4978 pool_wait=30.171161454s pool_canceled=0 bytes_per_request=616013.8 allocs_per_request=9042.1 gc_cycles=1303 gc_pause=131.963042ms runtime_busy_cpu_seconds=450.657910 runtime_gc_cpu_seconds=64.598140 heap_before=74748088 heap_after=132294072
+2026-11-16T12:08:36.8922104Z --- PASS: TestOpenLoopHTTPQualification (749.45s)
+2026-11-16T12:08:36.8923100Z PASS
+2026-11-16T12:08:36.9015852Z ok  	github.com/yakisoba0728/PgBase/pgbase	749.473s
+2026-11-16T12:08:38.9507512Z observer cleanup: force-stopping process group 8094
+2026-11-16T12:08:39.2443766Z preserved 120000 raw scheduled arrivals in load-evidence/open-loop-samples.csv
+2026-11-16T12:08:39.2843343Z ##[group]Run actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+2026-11-16T12:08:39.2843851Z with:
+2026-11-16T12:08:39.2844299Z   name: mixed-http-ba838872d72993abf1953dcafc64ba043f978c06
+2026-11-16T12:08:39.2844936Z   path: mixed-environment.txt
+mixed-http.txt
+open-loop-http.txt
+load-evidence/
+
+2026-11-16T12:08:39.2845507Z   retention-days: 14
+2026-11-16T12:08:39.2845866Z   if-no-files-found: error
+2026-11-16T12:08:39.2846219Z   compression-level: 6
+2026-11-16T12:08:39.2846678Z   overwrite: false
+2026-11-16T12:08:39.2847026Z   include-hidden-files: false
+2026-11-16T12:08:39.2847440Z   archive: true
+2026-11-16T12:08:39.2847760Z env:
+2026-11-16T12:08:39.2848123Z   GOTOOLCHAIN: local
+2026-11-16T12:08:39.2848471Z ##[endgroup]
+2026-11-16T12:08:39.4333989Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-11-16T12:08:39.4337125Z The least common ancestor is /home/runner/work/PgBase/PgBase. This will be the root directory of the artifact
+2026-11-16T12:08:39.4338168Z With the provided path, there will be 8 files uploaded
+2026-11-16T12:08:39.4341254Z Artifact name is valid!
+2026-11-16T12:08:39.4341876Z Root directory input is valid!
+2026-11-16T12:08:39.7965402Z Uploading artifact: mixed-http-ba838872d72993abf1953dcafc64ba043f978c06.zip
+2026-11-16T12:08:39.8001139Z Beginning upload of artifact content to blob storage
+2026-11-16T12:08:40.8728866Z Uploaded bytes 3528654
+2026-11-16T12:08:40.9332578Z Finished uploading artifact content to blob storage!
+2026-11-16T12:08:40.9333669Z SHA256 digest of uploaded artifact is 82f0397e6b0ab5e1d71c96ebc2c4af35137fc8638d60c3c262b8208d5935d84e
+2026-11-16T12:08:40.9334730Z Finalizing artifact upload
+2026-11-16T12:08:41.4147057Z Artifact mixed-http-ba838872d72993abf1953dcafc64ba043f978c06 successfully finalized. Artifact ID 14224442513
+2026-11-16T12:08:41.4148713Z Artifact mixed-http-ba838872d72993abf1953dcafc64ba043f978c06 has been successfully uploaded! Final size is 3528654 bytes. Artifact ID is 14224442513
+2026-11-16T12:08:41.4152203Z Artifact download URL: https://github.com/yakisoba0728/PgBase/actions/runs/43861850923/artifacts/14224442513
+2026-11-16T12:08:41.4344562Z Post job cleanup.
+2026-11-16T12:08:41.5536966Z [command]/opt/hostedtoolcache/go/1.26.11/x64/bin/go env GOMODCACHE
+2026-11-16T12:08:41.5585093Z [command]/opt/hostedtoolcache/go/1.26.11/x64/bin/go env GOCACHE
+2026-11-16T12:08:41.5624783Z /home/runner/go/pkg/mod
+2026-11-16T12:08:41.5647423Z /home/runner/.cache/go-build
+2026-11-16T12:08:41.5656421Z Cache hit occurred on the primary key setup-go-Linux-x64-ubuntu24-go-1.26.11-e64ee2c6dc55274b206f919e8e6cf653ef972758d6c26c8648cb98bd2f7c99ee, not saving cache.
+2026-11-16T12:08:41.5848177Z Post job cleanup.
+2026-11-16T12:08:41.6759089Z [command]/usr/bin/git version
+2026-11-16T12:08:41.6803280Z git version 2.56.1
+2026-11-16T12:08:41.6878576Z Temporarily overriding HOME='/home/runner/work/_temp/eb9b7e9d-5736-4e8f-9f0e-aaa3efff05af' before making global git config changes
+2026-11-16T12:08:41.6880113Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-16T12:08:41.6881572Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/PgBase/PgBase
+2026-11-16T12:08:41.6883589Z Removing SSH command configuration
+2026-11-16T12:08:41.6889320Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-16T12:08:41.6924734Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-16T12:08:41.7135421Z Removing HTTP extra header
+2026-11-16T12:08:41.7141873Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-16T12:08:41.7174818Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-16T12:08:41.7392198Z Removing includeIf entries pointing to credentials config files
+2026-11-16T12:08:41.7401292Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-16T12:08:41.7429800Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-16T12:08:41.7793162Z Print service container logs: d01a920f5016444492a59380ec8d84c4_postgres179bookwormsha25647f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641_bdae55
+2026-11-16T12:08:41.7801139Z ##[command]/usr/bin/docker logs --details 5a2e89d9f102df745575766578b6958cded8c93fb5f6e964a212b9d0c5d5a7db
+2026-11-16T12:08:41.7940894Z  The files belonging to this database system will be owned by user "postgres".
+2026-11-16T12:08:41.7943635Z  initdb: warning: enabling "trust" authentication for local connections
+2026-11-16T12:08:41.7944708Z  initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+2026-11-16T12:08:41.7946464Z  2026-11-16 11:54:56.966 UTC [1] LOG:  starting PostgreSQL 17.9 (Debian 17.9-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+2026-11-16T12:08:41.7947569Z  2026-11-16 11:54:56.966 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-11-16T12:08:41.7948538Z  2026-11-16 11:54:56.967 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-11-16T12:08:41.7949414Z  2026-11-16 11:54:56.968 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-11-16T12:08:41.7950579Z  2026-11-16 11:54:56.971 UTC [62] LOG:  database system was shut down at 2026-11-16 11:54:56 UTC
+2026-11-16T12:08:41.7951579Z  2026-11-16 11:54:56.976 UTC [1] LOG:  database system is ready to accept connections
+2026-11-16T12:08:41.7952328Z  2026-11-16 11:55:06.307 UTC [1] LOG:  received SIGHUP, reloading configuration files
+2026-11-16T12:08:41.7953097Z  2026-11-16 11:55:06.308 UTC [1] LOG:  parameter "track_io_timing" changed to "on"
+2026-11-16T12:08:41.7953779Z  2026-11-16 11:55:06.308 UTC [1] LOG:  parameter "track_wal_io_timing" changed to "on"
+2026-11-16T12:08:41.7954760Z  2026-11-16 11:56:05.097 UTC [271] FATAL:  terminating connection due to administrator command
+2026-11-16T12:08:41.7955642Z  2026-11-16 11:56:05.196 UTC [60] LOG:  checkpoint starting: immediate force wait
+2026-11-16T12:08:41.7957286Z  2026-11-16 11:56:05.201 UTC [60] LOG:  checkpoint complete: wrote 69 buffers (0.4%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.002 s, sync=0.002 s, total=0.006 s; sync files=15, longest=0.001 s, average=0.001 s; distance=21799 kB, estimate=21799 kB; lsn=0/2A2EE88, redo lsn=0/2A2EE30
+2026-11-16T12:08:41.7958400Z  2026-11-16 12:01:05.200 UTC [60] LOG:  checkpoint starting: time
+2026-11-16T12:08:41.7959576Z  2026-11-16 12:05:35.068 UTC [60] LOG:  checkpoint complete: wrote 6715 buffers (41.0%); 0 WAL file(s) added, 0 removed, 17 recycled; write=269.841 s, sync=0.021 s, total=269.869 s; sync files=772, longest=0.003 s, average=0.001 s; distance=279910 kB, estimate=279910 kB; lsn=0/1F4A7840, redo lsn=0/13B887C8
+2026-11-16T12:08:41.7960928Z  2026-11-16 12:06:05.099 UTC [60] LOG:  checkpoint starting: time
+2026-11-16T12:08:41.7962040Z  2026-11-16 12:08:36.736 UTC [60] LOG:  checkpoint complete: wrote 5831 buffers (35.6%); 0 WAL file(s) added, 0 removed, 13 recycled; write=151.631 s, sync=0.002 s, total=151.637 s; sync files=6, longest=0.001 s, average=0.001 s; distance=213356 kB, estimate=273255 kB; lsn=0/27D38E60, redo lsn=0/20BE3988
+2026-11-16T12:08:41.7963376Z  2026-11-16 12:08:36.736 UTC [60] LOG:  checkpoint starting: immediate force wait
+2026-11-16T12:08:41.7964522Z  2026-11-16 12:08:36.742 UTC [60] LOG:  checkpoint complete: wrote 37 buffers (0.2%); 0 WAL file(s) added, 0 removed, 7 recycled; write=0.001 s, sync=0.002 s, total=0.006 s; sync files=5, longest=0.001 s, average=0.001 s; distance=116053 kB, estimate=257534 kB; lsn=0/27D38F30, redo lsn=0/27D38ED8
+2026-11-16T12:08:41.7965587Z  This user must also own the server process.
+2026-11-16T12:08:41.7965987Z  
+2026-11-16T12:08:41.7966411Z  The database cluster will be initialized with locale "en_US.utf8".
+2026-11-16T12:08:41.7966946Z  The default database encoding has accordingly been set to "UTF8".
+2026-11-16T12:08:41.7967670Z  The default text search configuration will be set to "english".
+2026-11-16T12:08:41.7968075Z  
+2026-11-16T12:08:41.7968451Z  Data page checksums are disabled.
+2026-11-16T12:08:41.7968798Z  
+2026-11-16T12:08:41.7969246Z  fixing permissions on existing directory /var/lib/postgresql/data ... ok
+2026-11-16T12:08:41.7969764Z  creating subdirectories ... ok
+2026-11-16T12:08:41.7970296Z  selecting dynamic shared memory implementation ... posix
+2026-11-16T12:08:41.7970845Z  selecting default "max_connections" ... 100
+2026-11-16T12:08:41.7971230Z  selecting default "shared_buffers" ... 128MB
+2026-11-16T12:08:41.7971719Z  selecting default time zone ... Etc/UTC
+2026-11-16T12:08:41.7972131Z  creating configuration files ... ok
+2026-11-16T12:08:41.7972551Z  running bootstrap script ... ok
+2026-11-16T12:08:41.7972938Z  performing post-bootstrap initialization ... ok
+2026-11-16T12:08:41.7973412Z  syncing data to disk ... ok
+2026-11-16T12:08:41.7973743Z  
+2026-11-16T12:08:41.7974067Z  
+2026-11-16T12:08:41.7974411Z  Success. You can now start the database server using:
+2026-11-16T12:08:41.7974836Z  
+2026-11-16T12:08:41.7975231Z      pg_ctl -D /var/lib/postgresql/data -l logfile start
+2026-11-16T12:08:41.7975618Z  
+2026-11-16T12:08:41.7976468Z  waiting for server to start....2026-11-16 11:54:56.726 UTC [48] LOG:  starting PostgreSQL 17.9 (Debian 17.9-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+2026-11-16T12:08:41.7977464Z  2026-11-16 11:54:56.726 UTC [48] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-11-16T12:08:41.7978168Z  2026-11-16 11:54:56.729 UTC [51] LOG:  database system was shut down at 2026-11-16 11:54:56 UTC
+2026-11-16T12:08:41.7978769Z  2026-11-16 11:54:56.732 UTC [48] LOG:  database system is ready to accept connections
+2026-11-16T12:08:41.7979251Z   done
+2026-11-16T12:08:41.7979576Z  server started
+2026-11-16T12:08:41.7979940Z  
+2026-11-16T12:08:41.7980558Z  /usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*
+2026-11-16T12:08:41.7981085Z  
+2026-11-16T12:08:41.7981551Z  waiting for server to shut down....2026-11-16 11:54:56.841 UTC [48] LOG:  received fast shutdown request
+2026-11-16T12:08:41.7982229Z  2026-11-16 11:54:56.842 UTC [48] LOG:  aborting any active transactions
+2026-11-16T12:08:41.7982861Z  2026-11-16 11:54:56.844 UTC [48] LOG:  background worker "logical replication launcher" (PID 54) exited with exit code 1
+2026-11-16T12:08:41.7983530Z  2026-11-16 11:54:56.844 UTC [49] LOG:  shutting down
+2026-11-16T12:08:41.7984002Z  2026-11-16 11:54:56.844 UTC [49] LOG:  checkpoint starting: shutdown immediate
+2026-11-16T12:08:41.7985134Z  2026-11-16 11:54:56.847 UTC [49] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.004 s; sync files=2, longest=0.001 s, average=0.001 s; distance=0 kB, estimate=0 kB; lsn=0/14E4FB0, redo lsn=0/14E4FB0
+2026-11-16T12:08:41.7986214Z  2026-11-16 11:54:56.850 UTC [48] LOG:  database system is shut down
+2026-11-16T12:08:41.7986678Z   done
+2026-11-16T12:08:41.7986972Z  server stopped
+2026-11-16T12:08:41.7987301Z  
+2026-11-16T12:08:41.7987729Z  PostgreSQL init process complete; ready for start up.
+2026-11-16T12:08:41.7988219Z  
+2026-11-16T12:08:41.7993714Z Stop and remove container: d01a920f5016444492a59380ec8d84c4_postgres179bookwormsha25647f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641_bdae55
+2026-11-16T12:08:41.7998161Z ##[command]/usr/bin/docker rm --force 5a2e89d9f102df745575766578b6958cded8c93fb5f6e964a212b9d0c5d5a7db
+2026-11-16T12:08:42.0392308Z 5a2e89d9f102df745575766578b6958cded8c93fb5f6e964a212b9d0c5d5a7db
+2026-11-16T12:08:42.0420821Z Remove container network: github_network_8417f289111548ffbd918e34c91b9a94
+2026-11-16T12:08:42.0425457Z ##[command]/usr/bin/docker network rm github_network_8417f289111548ffbd918e34c91b9a94
+2026-11-16T12:08:42.1307874Z github_network_8417f289111548ffbd918e34c91b9a94
+2026-11-16T12:08:42.1389492Z Cleaning up orphan processes
+

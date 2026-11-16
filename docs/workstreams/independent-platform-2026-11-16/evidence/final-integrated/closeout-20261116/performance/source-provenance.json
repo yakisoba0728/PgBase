@@ -1,0 +1,27 @@
+{
+  "ci_checkout_sha": "ba838872d72993abf1953dcafc64ba043f978c06",
+  "candidate_sha": "4091c3be20ec8db177886a2a85550924fce37ff5",
+  "ci_tree": "653a46758f9e6af9662b77ecfe2f069a2ac94cb4",
+  "candidate_tree": "653a46758f9e6af9662b77ecfe2f069a2ac94cb4",
+  "sources": {
+    ".github/workflows/full-qualification.yml": {
+      "git_blob": "a4f48d604f96d0370488a52e8d3adce8cacd8cee",
+      "sha256": "b6ab5465b3469dc1a783177fa431cef76405e46525b8a540903b387fa6c27eb3"
+    },
+    "pgbase/mixed_load_integration_test.go": {
+      "git_blob": "0af8c5b99362a084886b8dc78af27bed9b5d0224",
+      "sha256": "fb5d8c0b4633d31b2a86e9b9327e6dedaaafd4ab685369aae967f1094328b4a3"
+    },
+    "pgbase/open_loop_diagnostics_integration_test.go": {
+      "git_blob": "14ff3d4012af7297e70b5c2959ff06b752a9e0a9",
+      "sha256": "37c7bcc4a06eb72656ffa5ff77ac3db98c78251425335ca771b4c2fca61be89b"
+    },
+    "pgbase/open_loop_load_integration_test.go": {
+      "git_blob": "6bf97d4e9f1b080e98f0f3000e17a6952160302f",
+      "sha256": "ea97a638021fa9d05d04741f2a3846ee39f527671de159e1b6f37499ee809a48"
+    }
+  },
+  "fresh_artifact_matches_preexisting_original": true,
+  "preexisting_original_repository_path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/performance/final-gate/pgbase-final-mixed-http.zip",
+  "archive_sha256": "82f0397e6b0ab5e1d71c96ebc2c4af35137fc8638d60c3c262b8208d5935d84e"
+}

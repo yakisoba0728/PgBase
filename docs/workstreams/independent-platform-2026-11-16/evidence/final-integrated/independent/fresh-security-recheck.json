@@ -1,0 +1,196 @@
+{
+  "run_id": 43861850923,
+  "head": "4091c3be20ec8db177886a2a85550924fce37ff5",
+  "checkout": "ba838872d72993abf1953dcafc64ba043f978c06",
+  "tree": "653a46758f9e6af9662b77ecfe2f069a2ac94cb4",
+  "baseline_run_id": 43836410887,
+  "baseline_head": "56a881f47d0c27877b91959d7df641c2f603ef03",
+  "source": {
+    "go": {
+      "results": 24,
+      "identities_equal": true,
+      "new_identities": [],
+      "removed_identities": [],
+      "primary_location_differences": [],
+      "extracted_locations": 485,
+      "changed_runtime_paths": [
+        "internal/jobs/management.go",
+        "internal/jobs/service.go",
+        "internal/recordaccess/rule_compile.go",
+        "internal/schema/listener.go"
+      ],
+      "missing_changed_runtime_extractions": [],
+      "warning_error_extraction_notifications": [],
+      "summary": {
+        "schemaVersion": 1,
+        "sourceCommit": "ba838872d72993abf1953dcafc64ba043f978c06",
+        "workflowRun": "43861850923",
+        "reports": [
+          {
+            "file": "go.sarif",
+            "sha256": "70d6a6891bef346d2b0edc322ed108c57894e23d9c1bdd63b62e2ece277512b9",
+            "tool": "CodeQL",
+            "version": "2.27.4",
+            "automationId": "source-security/go/",
+            "resultCount": 24,
+            "incrementalMode": null,
+            "diffRangeRestricted": false,
+            "successfullyExtractedFileCount": 485,
+            "ruleDescriptorCount": 35
+          }
+        ],
+        "resultCount": 24,
+        "byRule": {
+          "go/allocation-size-overflow": 7,
+          "go/email-injection": 1,
+          "go/incorrect-integer-conversion": 1,
+          "go/log-injection": 7,
+          "go/reflected-xss": 5,
+          "go/weak-sensitive-data-hashing": 2,
+          "go/zipslip": 1
+        },
+        "byLevel": {
+          "error": 14,
+          "warning": 10
+        },
+        "classification": "unreviewed"
+      }
+    },
+    "js": {
+      "results": 1,
+      "identities_equal": true,
+      "new_identities": [],
+      "removed_identities": [],
+      "primary_location_differences": [],
+      "extracted_locations": 331,
+      "changed_runtime_paths": [
+        "sdk/typescript/src/index.ts"
+      ],
+      "missing_changed_runtime_extractions": [],
+      "warning_error_extraction_notifications": [],
+      "summary": {
+        "schemaVersion": 1,
+        "sourceCommit": "ba838872d72993abf1953dcafc64ba043f978c06",
+        "workflowRun": "43861850923",
+        "reports": [
+          {
+            "file": "javascript.sarif",
+            "sha256": "e832bb37a0c92295f210f284def69eb10c5fee1d38884050502c1a046a5edf9c",
+            "tool": "CodeQL",
+            "version": "2.27.4",
+            "automationId": "source-security/javascript-typescript/",
+            "resultCount": 1,
+            "incrementalMode": null,
+            "diffRangeRestricted": false,
+            "successfullyExtractedFileCount": 331,
+            "ruleDescriptorCount": 103
+          }
+        ],
+        "resultCount": 1,
+        "byRule": {
+          "js/incomplete-multi-character-sanitization": 1
+        },
+        "byLevel": {
+          "warning": 1
+        },
+        "classification": "unreviewed"
+      }
+    }
+  },
+  "changed_reported_flow_sources": {},
+  "image": {
+    "all_severity_results": 32,
+    "high_critical_results": 0,
+    "all_result_records_equal": true,
+    "rule_metadata_equal": true,
+    "severity_counts": {
+      "MEDIUM": 21,
+      "LOW": 9,
+      "UNKNOWN": 2
+    }
+  },
+  "runtime_assets": {
+    "image_id": "sha256:546ddcf4340068c5f6c8c4c004fa65971bd0db8779db28e121eaa2f245dc9093",
+    "certificate_count": 148,
+    "unique_certificates": 148,
+    "certificate_manifest_matches": true,
+    "trust_bundle_sha256": "e9c7b63ee2623386e9b0a3ee32f499d01a8ea23dc83b8383ddff9f8e749543b7",
+    "trust_environment": {
+      "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt"
+    },
+    "timezone_version": "# version 2026f",
+    "timezone_sha256": "1708f2c388c5b602defbc56eba3237a9615f8cd28dbbf2f58d7534ff434af5a6",
+    "package_versions": {
+      "base-files": "12.4+deb12u15",
+      "ca-certificates": "20250419~deb12u2",
+      "libc6": "2.36-9+deb12u14",
+      "liblz4-1": "1.9.4-1",
+      "libssl3": "3.0.22-1~deb12u2",
+      "libzstd1": "1.5.4+dfsg2-5",
+      "media-types": "10.0.0",
+      "netbase": "6.4",
+      "postgresql-client-16": "16.16-1.pgdg12+1",
+      "postgresql-client-17": "17.12-1.pgdg12+1",
+      "postgresql-client-18": "18.7-1.pgdg12+2",
+      "tzdata": "2026f-0+deb12u1"
+    },
+    "package_versions_match_manifest": true
+  },
+  "sbom": {
+    "package_count": 62,
+    "file_count": 972,
+    "relationship_count": 1135,
+    "captured_versions_match": true,
+    "native_package_urls": {
+      "libc6": [
+        "pkg:deb/debian/libc6@2.36-9%2Bdeb12u14?arch=amd64&distro=debian-12.15&upstream=glibc"
+      ],
+      "libssl3": [
+        "pkg:deb/debian/libssl3@3.0.22-1~deb12u2?arch=amd64&distro=debian-12.15&upstream=openssl"
+      ]
+    }
+  },
+  "artifacts": [
+    {
+      "file": "go.zip",
+      "id": 14223373289,
+      "sha256": "e2a386fd8e7d1ab2902ac0c9ca14e5812dba6c4d2a4a869ff651207b0fcdc331",
+      "bytes": 92859,
+      "url": "https://github.com/yakisoba0728/PgBase/actions/runs/43861850923/artifacts/14223373289",
+      "expires_at": "2026-11-30T11:57:56Z"
+    },
+    {
+      "file": "image.zip",
+      "id": 14223058511,
+      "sha256": "40425e3fe5aeed669fb0d0266077fc397224e8ab2487fe5f7356e46e23537c4e",
+      "bytes": 15494,
+      "url": "https://github.com/yakisoba0728/PgBase/actions/runs/43861850923/artifacts/14223058511",
+      "expires_at": "2027-02-14T11:54:40Z"
+    },
+    {
+      "file": "js.zip",
+      "id": 14224420779,
+      "sha256": "cde3658427f0f01d5c4cd4347d90701d6a6c496c2ee97647957fc2dc0a3849c7",
+      "bytes": 122745,
+      "url": "https://github.com/yakisoba0728/PgBase/actions/runs/43861850923/artifacts/14224420779",
+      "expires_at": "2026-11-30T11:56:03Z"
+    },
+    {
+      "file": "runtime-assets.zip",
+      "id": 14223078436,
+      "sha256": "be44bda6fd90f80903dfc53e13fff4a06a8eb7f6a37f008690c8b2d866247e01",
+      "bytes": 206512,
+      "url": "https://github.com/yakisoba0728/PgBase/actions/runs/43861850923/artifacts/14223078436",
+      "expires_at": "2026-11-30T11:56:48Z"
+    },
+    {
+      "file": "sbom.zip",
+      "id": 14224830401,
+      "sha256": "ed6a0eff2a84346d6282bbdae500402e0b3cfc9bae243487297036d84d7392f2",
+      "bytes": 115338,
+      "url": "https://github.com/yakisoba0728/PgBase/actions/runs/43861850923/artifacts/14224830401",
+      "expires_at": "2027-02-14T11:54:40Z"
+    }
+  ],
+  "scope": "Fresh artifact/source reconciliation and retained prior finding classifications; no new exhaustive repository or native-library reachability audit. Successful jobs do not mean zero findings."
+}

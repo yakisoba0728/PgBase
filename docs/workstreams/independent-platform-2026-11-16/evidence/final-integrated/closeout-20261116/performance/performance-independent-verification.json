@@ -1,0 +1,234 @@
+{
+  "verdict": "PASS",
+  "scope": "Independent offline verification of existing artifact and exact-SHA test assertions; no benchmark, server or test was rerun.",
+  "provenance": {
+    "repository": "yakisoba0728/PgBase",
+    "run_id": 43861850923,
+    "job_id": 133280386571,
+    "artifact_id": 14224442513,
+    "ci_checkout_sha": "ba838872d72993abf1953dcafc64ba043f978c06",
+    "candidate_sha": "4091c3be20ec8db177886a2a85550924fce37ff5",
+    "git_tree": "653a46758f9e6af9662b77ecfe2f069a2ac94cb4",
+    "archive_sha256": "82f0397e6b0ab5e1d71c96ebc2c4af35137fc8638d60c3c262b8208d5935d84e",
+    "archive_bytes": 3528654,
+    "artifact_expires_at": "2026-11-30T12:08:39Z"
+  },
+  "checks": {
+    "archive_sha256_matches_github_digest": true,
+    "archive_bytes_match_github_metadata": true,
+    "artifact_identifiers_match": true,
+    "artifact_workflow_head_matches_candidate": true,
+    "artifact_not_expired_at_fetch": true,
+    "zip_crc_valid": true,
+    "all_extracted_bytes_match_archive": true,
+    "artifact_checkout_sha_matches": true,
+    "job_log_contains_checkout_sha_and_uploaded_digest": true,
+    "open_loop_test_passed": true,
+    "mixed_http_all_four_phases_passed": true,
+    "artifact_test_output_present_in_job_log": true,
+    "csv_exact_header": true,
+    "csv_120000_rows": true,
+    "csv_no_malformed_or_noncanonical_numeric_fields": true,
+    "csv_ids_exactly_0_through_119999_once": true,
+    "csv_semantics_owner_workload_status_correct": true,
+    "csv_schedule_exactly_200_rps_600_seconds": true,
+    "csv_timing_fields_consistent": true,
+    "csv_all_requests_attempted_completed_without_errors": true,
+    "raw_quantiles_match_ci_scheduled_to_validated": true,
+    "raw_quantiles_match_ci_http_service": true,
+    "raw_quantiles_match_ci_generator_and_queue": true,
+    "raw_quantiles_match_ci_generator": true,
+    "raw_quantiles_match_ci_worker_queue": true,
+    "preregistered_e2e_p99_gate_250ms": true,
+    "expected_final_e2e_http_p99": true,
+    "ci_summary_matches_preregistered_gate_and_raw_rows": true,
+    "observer_6000_samples_and_no_diagnostic_error": true,
+    "observer_independent_100ms_cadence": true,
+    "pool_max_4_all_observations": true,
+    "durability_on_before_and_after": true,
+    "settings_unchanged_before_after": true,
+    "postgres_17_9_captured": true,
+    "seven_persistent_sessions_before_after": true,
+    "six_non_observer_persistent_sessions_in_all_samples": true,
+    "raw_observer_elapsed_matches_summary": true,
+    "achieved_rps_matches_ci_rounding": true,
+    "load_start_matches_summary": true,
+    "executed_source_contains_integrity_and_contract_assertions": true,
+    "workflow_fixes_200rps_600s_diagnostics_and_pipefail": true
+  },
+  "raw_csv": {
+    "rows": 120000,
+    "unique_ids": 120000,
+    "missing_ids": 0,
+    "duplicate_ids": 0,
+    "malformed_rows": 0,
+    "noncanonical_or_invalid_numeric_rows": 0,
+    "semantic_errors": 0,
+    "schedule_errors": 0,
+    "timing_errors": 0,
+    "attempted": 120000,
+    "completed": 120000,
+    "dropped": 0,
+    "unscheduled": 0,
+    "unexpected_errors": 0,
+    "kinds": {
+      "create": 12000,
+      "update": 12000,
+      "delete": 12000,
+      "get": 12000,
+      "page": 72000
+    },
+    "owners": {
+      "0": 60000,
+      "1": 60000
+    },
+    "statuses": {
+      "201": 12000,
+      "200": 96000,
+      "204": 12000
+    },
+    "arrival_interval_ns": 5000000
+  },
+  "quantile_method": "Nearest rank: sorted_values[(n * percentile + 99) // 100 - 1], matching the unchanged Go test.",
+  "quantiles": {
+    "scheduled_to_validated": {
+      "samples": 120000,
+      "p50_ns": 7400337,
+      "p95_ns": 12632966,
+      "p99_ns": 22221162
+    },
+    "http_service": {
+      "samples": 120000,
+      "p50_ns": 6735393,
+      "p95_ns": 11790135,
+      "p99_ns": 21098702
+    },
+    "generator_and_queue": {
+      "samples": 120000,
+      "p50_ns": 188780,
+      "p95_ns": 920248,
+      "p99_ns": 1146164
+    },
+    "generator": {
+      "samples": 120000,
+      "p50_ns": 183692,
+      "p95_ns": 915344,
+      "p99_ns": 1137495
+    },
+    "worker_queue": {
+      "samples": 120000,
+      "p50_ns": 4701,
+      "p95_ns": 6699,
+      "p99_ns": 16778
+    }
+  },
+  "performance": {
+    "offered_rps": 200,
+    "scheduled_seconds": 600,
+    "elapsed_ns": 600005995104,
+    "achieved_rps_unrounded": "199.9980016519671738083140551",
+    "achieved_rps_rounded": "200.00",
+    "e2e_p99_limit_ns": 250000000
+  },
+  "database_integrity": {
+    "verdict": "PASS",
+    "basis": "Exact-source unconditional post-drain physical SQL counts plus full per-owner cursor traversal and cross-owner 404 assertions executed before the Go PASS marker; no detached raw row dump is present.",
+    "expected_physical_rows": 24256,
+    "expected_created": 12000,
+    "expected_updated": 12000,
+    "expected_deleted_targets": 12000,
+    "per_owner_rows": 12128,
+    "per_owner_created": 6000,
+    "per_owner_updated": 6000,
+    "contracts": [
+      "owner CRUD and mutation ETag",
+      "page sort/filter/relation expansion",
+      "complete cursor traversal and unique IDs",
+      "capped totalItems=10000 with totalCapped=true",
+      "cross-owner point read returns 404"
+    ],
+    "schema_69": "Outside this performance artifact; cross-check with source/CI reviewer evidence."
+  },
+  "database_environment": {
+    "settings": {
+      "before": {
+        "fsync": "on",
+        "work_mem": "4096",
+        "max_wal_size": "1024",
+        "server_version": "17.9 (Debian 17.9-1.pgdg12+1)",
+        "shared_buffers": "16384",
+        "max_connections": "100",
+        "track_io_timing": "on",
+        "wal_sync_method": "fdatasync",
+        "full_page_writes": "on",
+        "autovacuum_naptime": "60",
+        "checkpoint_timeout": "300",
+        "synchronous_commit": "on",
+        "track_wal_io_timing": "on",
+        "effective_cache_size": "524288",
+        "maintenance_work_mem": "65536",
+        "stats_fetch_consistency": "cache",
+        "checkpoint_completion_target": "0.9",
+        "max_parallel_workers_per_gather": "2"
+      },
+      "after": {
+        "fsync": "on",
+        "work_mem": "4096",
+        "max_wal_size": "1024",
+        "server_version": "17.9 (Debian 17.9-1.pgdg12+1)",
+        "shared_buffers": "16384",
+        "max_connections": "100",
+        "track_io_timing": "on",
+        "wal_sync_method": "fdatasync",
+        "full_page_writes": "on",
+        "autovacuum_naptime": "60",
+        "checkpoint_timeout": "300",
+        "synchronous_commit": "on",
+        "track_wal_io_timing": "on",
+        "effective_cache_size": "524288",
+        "maintenance_work_mem": "65536",
+        "stats_fetch_consistency": "cache",
+        "checkpoint_completion_target": "0.9",
+        "max_parallel_workers_per_gather": "2"
+      }
+    },
+    "observer_samples": 6000,
+    "observer_error": "",
+    "pool_max_counts": {
+      "4": 6000
+    },
+    "pool_total_counts": {
+      "4": 6000
+    },
+    "sampled_non_observer_backend_counts": {
+      "6": 5850,
+      "7": 150
+    },
+    "before_numbackends": 7,
+    "after_numbackends": 7,
+    "persistent_session_budget": "4 request pool + 1 dedicated listener + 1 backup gate + 1 diagnostic observer = 7. Observer is optional; sampled transient maintenance backends are additional and do not enlarge request pool."
+  },
+  "limitations": [
+    "One GitHub hosted 4-vCPU fixture with application, HTTP client and generator sharing a process; diagnostics enabled.",
+    "DB integrity verified through executed assertions and Go PASS; physical database was disposable and is not rerun or dumped now.",
+    "The historical 547-drop failure remains a failure; this audit makes no causal attribution or cross-hardware performance guarantee.",
+    "Schema, complete CI, listener QA and scanner residue are checked separately by Agent B."
+  ],
+  "file_sha256": {
+    "load-evidence/database-container-stats.txt": "1c65be72b0a9c9a64c5da67611c5f667dd2bda4fd3f0ef505736b4c7fcb8fd13",
+    "load-evidence/host-observer-start.txt": "b616ef4668cedf016fdc170448803a50550f8f61e81a8065199f3637e855b389",
+    "load-evidence/host-vmstat.txt": "a21ffddf465c69940db2f84b1b2d2344539e43362aab6b53ad2b6f800e6924af",
+    "load-evidence/open-loop-database.json": "8600808aec45af18f3f5bd48400cf8cabfa8035b7c87a3f22eef3a1bf2611c11",
+    "load-evidence/open-loop-samples.csv": "2bbcfdef50e9c35e68c9083fb75d7893b1db006e12724b9e2233f7219b3bddb7",
+    "mixed-environment.txt": "01f7e62dd590aa8911421467329b162b886c6854833a193d867043fef61e369c",
+    "mixed-http.txt": "ef27077b756f264276e784057b4ca1af366673930fc72cc555cb771bf5d28893",
+    "open-loop-http.txt": "bc067eae1168988c15f5e509bc475f3d2ebe087fe5d6e2849c706367af713684"
+  },
+  "source_sha256": {
+    ".github/workflows/full-qualification.yml": "b6ab5465b3469dc1a783177fa431cef76405e46525b8a540903b387fa6c27eb3",
+    "pgbase/mixed_load_integration_test.go": "fb5d8c0b4633d31b2a86e9b9327e6dedaaafd4ab685369aae967f1094328b4a3",
+    "pgbase/open_loop_diagnostics_integration_test.go": "37c7bcc4a06eb72656ffa5ff77ac3db98c78251425335ca771b4c2fca61be89b",
+    "pgbase/open_loop_load_integration_test.go": "ea97a638021fa9d05d04741f2a3846ee39f527671de159e1b6f37499ee809a48"
+  },
+  "job_log_sha256": "528f6a40c7bb0c2adcc090846cb9d313873ba8da5c1bd53ad6dacf3476d54217"
+}

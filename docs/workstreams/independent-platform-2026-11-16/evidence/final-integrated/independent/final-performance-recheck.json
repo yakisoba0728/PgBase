@@ -1,0 +1,161 @@
+{
+  "method": "Independent CSV nearest-rank percentiles over all attempted arrivals, including errored attempts; drops/unscheduled counted separately without fabricated latency.",
+  "verdict": "Pass",
+  "checks": {
+    "120000_raw_arrivals": true,
+    "unique_sequential_indices": true,
+    "200_rps_scheduled_offsets": true,
+    "unchanged_workload_and_owner_mix": true,
+    "all_completed": true,
+    "all_attempted": true,
+    "zero_dropped": true,
+    "zero_unscheduled": true,
+    "zero_errors": true,
+    "expected_response_statuses": true,
+    "no_invented_drop_or_unscheduled_latency": true,
+    "latency_accounting_consistent": true,
+    "end_to_end_p99_at_most_250ms": true,
+    "durability_enabled_before_and_after": true,
+    "wal_sync_method_unchanged": true,
+    "observer_succeeded": true,
+    "request_pool_maximum_four": true,
+    "test_pass_including_postload_durable_assertions": true,
+    "raw_counts_equal_test_summary": true
+  },
+  "counts": {
+    "scheduled_rows": 120000,
+    "attempted": 120000,
+    "completed": 120000,
+    "dropped": 0,
+    "unscheduled": 0,
+    "errors_including_drops": 0,
+    "unexpected_request_errors": 0,
+    "incomplete": 0
+  },
+  "kind_counts": {
+    "create": 12000,
+    "update": 12000,
+    "delete": 12000,
+    "get": 12000,
+    "page": 72000
+  },
+  "owner_counts": {
+    "0": 60000,
+    "1": 60000
+  },
+  "latency_ns": {
+    "scheduled_to_validated_ns": {
+      "samples": 120000,
+      "p50": 7400337,
+      "p95": 12632966,
+      "p99": 22221162
+    },
+    "http_service_ns": {
+      "samples": 120000,
+      "p50": 6735393,
+      "p95": 11790135,
+      "p99": 21098702
+    },
+    "generator_queue_ns": {
+      "samples": 120000,
+      "p50": 188780,
+      "p95": 920248,
+      "p99": 1146164
+    },
+    "generator_ns": {
+      "samples": 120000,
+      "p50": 183692,
+      "p95": 915344,
+      "p99": 1137495
+    },
+    "worker_queue_ns": {
+      "samples": 120000,
+      "p50": 4701,
+      "p95": 6699,
+      "p99": 16778
+    }
+  },
+  "durability": {
+    "fsync": {
+      "before": "on",
+      "after": "on"
+    },
+    "synchronous_commit": {
+      "before": "on",
+      "after": "on"
+    },
+    "full_page_writes": {
+      "before": "on",
+      "after": "on"
+    },
+    "wal_sync_method": {
+      "before": "fdatasync",
+      "after": "fdatasync"
+    }
+  },
+  "settings_before": {
+    "fsync": "on",
+    "work_mem": "4096",
+    "max_wal_size": "1024",
+    "server_version": "17.9 (Debian 17.9-1.pgdg12+1)",
+    "shared_buffers": "16384",
+    "max_connections": "100",
+    "track_io_timing": "on",
+    "wal_sync_method": "fdatasync",
+    "full_page_writes": "on",
+    "autovacuum_naptime": "60",
+    "checkpoint_timeout": "300",
+    "synchronous_commit": "on",
+    "track_wal_io_timing": "on",
+    "effective_cache_size": "524288",
+    "maintenance_work_mem": "65536",
+    "stats_fetch_consistency": "cache",
+    "checkpoint_completion_target": "0.9",
+    "max_parallel_workers_per_gather": "2"
+  },
+  "settings_after": {
+    "fsync": "on",
+    "work_mem": "4096",
+    "max_wal_size": "1024",
+    "server_version": "17.9 (Debian 17.9-1.pgdg12+1)",
+    "shared_buffers": "16384",
+    "max_connections": "100",
+    "track_io_timing": "on",
+    "wal_sync_method": "fdatasync",
+    "full_page_writes": "on",
+    "autovacuum_naptime": "60",
+    "checkpoint_timeout": "300",
+    "synchronous_commit": "on",
+    "track_wal_io_timing": "on",
+    "effective_cache_size": "524288",
+    "maintenance_work_mem": "65536",
+    "stats_fetch_consistency": "cache",
+    "checkpoint_completion_target": "0.9",
+    "max_parallel_workers_per_gather": "2"
+  },
+  "db_observer": {
+    "sample_count": 6000,
+    "backend_count_distribution_excluding_observer": {
+      "6": 5850,
+      "7": 150
+    },
+    "observer_additional_connections": 1,
+    "scope": "Independent observer connection; per-database activity/statistics; cluster-wide IO/WAL; sampled waits and query ages are not exact durations or proof of a cause; instrumented stratum",
+    "diagnostic_error": null
+  },
+  "durable_oracle": "Successful unchanged test asserts total rows24256/create12000/update12000 and per-owner rows12128/create6000/update6000, full cursor traversal and cross-owner404. This parser does not independently query the now-disposed DB.",
+  "files": {
+    "/workspace/scratch/0b04974e09bd/final-performance-raw/extracted/load-evidence/open-loop-samples.csv": {
+      "sha256": "2bbcfdef50e9c35e68c9083fb75d7893b1db006e12724b9e2233f7219b3bddb7",
+      "bytes": 7919996
+    },
+    "/workspace/scratch/0b04974e09bd/final-performance-raw/extracted/load-evidence/open-loop-database.json": {
+      "sha256": "8600808aec45af18f3f5bd48400cf8cabfa8035b7c87a3f22eef3a1bf2611c11",
+      "bytes": 16822376
+    },
+    "/workspace/scratch/0b04974e09bd/final-performance-raw/extracted/open-loop-http.txt": {
+      "sha256": "bc067eae1168988c15f5e509bc475f3d2ebe087fe5d6e2849c706367af713684",
+      "bytes": 1624
+    }
+  }
+}

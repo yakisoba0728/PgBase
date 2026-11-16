@@ -1,0 +1,101 @@
+{
+  "repository": "yakisoba0728/PgBase",
+  "pr": 148,
+  "starting_head": "23b6c4090e453587325d9dfad8fec6d854f3bee2",
+  "starting_tree": "a4ef35408feca0e51dcbdc26d0cc16b49b07f4b4",
+  "base_main": "8f551de4423a6b64d9c0ac94fff9b9bd07264f2a",
+  "user_instructions_sha256": "949a390a194cc77fcc0764ec2783ad50b007fc500faffa414c48150827eedfdd",
+  "agents": [
+    {
+      "task": "/root/functional_ci",
+      "role": "A functional CI",
+      "worktree": "PgBase-functional"
+    },
+    {
+      "task": "/root/performance",
+      "role": "B performance/PostgreSQL",
+      "worktree": "PgBase-performance"
+    },
+    {
+      "task": "/root/independent_qa",
+      "role": "C independent QA",
+      "worktree": "PgBase-qa"
+    }
+  ],
+  "created_subagents": 3,
+  "max_concurrent_subagents": 3,
+  "gate": {
+    "rps": 200,
+    "seconds": 600,
+    "scheduled_arrivals": 120000,
+    "request_pool_max": 4,
+    "dropped_max": 0,
+    "unexpected_errors_max": 0,
+    "incomplete_max": 0,
+    "end_to_end_p99_ms_max": 250,
+    "durability_relaxation_allowed": false,
+    "default_final_attempts": 1,
+    "max_final_attempts": 2,
+    "second_attempt_requires": "new verified code fix plus independent approval"
+  },
+  "scope": "Final integrated qualification; no repository-wide audit, large redesign, merge, deployment or publication.",
+  "initial_decisions": [
+    "Retain all three previously accepted functional fixes; do not reimplement.",
+    "A one-line final workflow caller change includes existing Firefox/WebKit gates while retaining Chromium/hardened/recovery.",
+    "B must distinguish intentional listener reservation from leak and avoid claiming a unique cause of historical 547 drops.",
+    "C independently reviews author changes and result/source identity.",
+    "The deterministic original-listener test shows only three request acquisitions; dedicated listener test allows four without relaxing fsync/synchronous_commit/full_page_writes.",
+    "Final budget is four pooled request connections, one dedicated schema listener, one existing backup-gate session and one existing diagnostic observer (seven total; six historically).",
+    "Remove only nonperformance-qualification before normal-message publication; add full-qualification once after source confirmation. Old performance labels are not retriggered."
+  ],
+  "final_attempts": [
+    {
+      "number": 1,
+      "run_id": 43861850923,
+      "job_id": 133280386571,
+      "scheduled": 120000,
+      "attempted": 120000,
+      "completed": 120000,
+      "drops": 0,
+      "unexpected_errors": 0,
+      "unscheduled": 0,
+      "incomplete": 0,
+      "p50_ms": 7.400337,
+      "p95_ms": 12.632966,
+      "p99_ms": 22.221162,
+      "request_pool_max": 4,
+      "persistent_client_sessions": 7,
+      "result": "Pass"
+    }
+  ],
+  "state": "COMPLETED_READY_FOR_MANUAL_MERGE",
+  "integrated_source_before_evidence": "ff5cd9ac3188923400d26297280faa87839b590d",
+  "integrated_source_tree_before_evidence": "1d30798382078731b9442e4a42aadb0a9d328a34",
+  "independent_preflight_verdict": "ACCEPT_SCOPED_CANDIDATE_FOR_FINAL_GATE",
+  "independent_preflight_evidence_commit": "aa1af733171bd2c846c7ec1aeeb1c9e2cbb21ddc",
+  "independent_preflight_race": {
+    "top_level_pass": 25,
+    "subtest_pass": 17,
+    "fail": 0,
+    "skip": 0
+  },
+  "completed_subagents": 3,
+  "independent_final_verdict": "ACCEPT_FINAL_INTEGRATED_QUALIFICATION",
+  "final_verdict": {
+    "functional": "Ready",
+    "performance": "Pass",
+    "overall": "Ready for Manual Merge"
+  },
+  "tested_runtime_head": "4091c3be20ec8db177886a2a85550924fce37ff5",
+  "test_checkout": "ba838872d72993abf1953dcafc64ba043f978c06",
+  "tested_tree": "653a46758f9e6af9662b77ecfe2f069a2ac94cb4",
+  "final_functional": {
+    "run_id": 43861850923,
+    "required_jobs": 14,
+    "successful": 14,
+    "failed": 0,
+    "cancelled": 0,
+    "unfinished": 0
+  },
+  "source_change_after_final_gate": false
+}

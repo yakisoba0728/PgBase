@@ -1,0 +1,45 @@
+=== RUN   TestMixedHTTPPoolQualification
+    mixed_load_integration_test.go:129: model=closed-loop mixed-http rows=256 owners=2 fields=3 relations=single pool=4 cycles=100 go=go1.26.11 GOMAXPROCS=4
+=== RUN   TestMixedHTTPPoolQualification/baseline
+    mixed_load_integration_test.go:277: kind=all requests=1000 p50=5.499002ms p95=7.68583ms p99=18.983789ms
+    mixed_load_integration_test.go:277: kind=create requests=100 p50=6.384779ms p95=9.03801ms p99=15.022345ms
+    mixed_load_integration_test.go:277: kind=update requests=100 p50=5.115335ms p95=7.216454ms p99=87.346779ms
+    mixed_load_integration_test.go:277: kind=delete requests=100 p50=6.373027ms p95=8.493502ms p99=18.983789ms
+    mixed_load_integration_test.go:277: kind=get requests=100 p50=2.17322ms p95=3.377531ms p99=4.817124ms
+    mixed_load_integration_test.go:277: kind=page requests=500 p50=5.397945ms p95=7.590185ms p99=9.164562ms
+    mixed_load_integration_test.go:277: kind=cursor requests=100 p50=5.535525ms p95=7.59292ms p99=9.208167ms
+    mixed_load_integration_test.go:279: workers=1 elapsed=6.543827355s requests=1000 rps=152.82 unexpected_errors=0 error_rate=0.000000 allocated_bytes_per_request=790504.9 allocations_per_request=9012.9 heap_before=97379504 heap_after=8013992 gc_cycles=142 gc_pause=8.27965ms pool_max=4 pool_wait_count=0 pool_wait=0s pool_acquire=1.189592ms pool_canceled=0
+=== RUN   TestMixedHTTPPoolQualification/concurrent
+    mixed_load_integration_test.go:277: kind=all requests=1000 p50=19.371783ms p95=30.325559ms p99=124.339244ms
+    mixed_load_integration_test.go:277: kind=create requests=100 p50=23.095314ms p95=33.800904ms p99=61.287462ms
+    mixed_load_integration_test.go:277: kind=update requests=100 p50=20.5824ms p95=34.615725ms p99=267.463456ms
+    mixed_load_integration_test.go:277: kind=delete requests=100 p50=24.608985ms p95=35.735737ms p99=201.647724ms
+    mixed_load_integration_test.go:277: kind=get requests=100 p50=12.756272ms p95=20.238407ms p99=103.132767ms
+    mixed_load_integration_test.go:277: kind=page requests=500 p50=18.727239ms p95=25.277007ms p99=35.051782ms
+    mixed_load_integration_test.go:277: kind=cursor requests=100 p50=18.842262ms p95=27.702252ms p99=100.788755ms
+    mixed_load_integration_test.go:279: workers=8 elapsed=2.878227428s requests=1000 rps=347.44 unexpected_errors=0 error_rate=0.000000 allocated_bytes_per_request=756992.4 allocations_per_request=9018.8 heap_before=10066976 heap_after=9300416 gc_cycles=124 gc_pause=30.480521ms pool_max=4 pool_wait_count=3458 pool_wait=12.107994665s pool_acquire=12.108018201s pool_canceled=0
+=== RUN   TestMixedHTTPPoolQualification/saturated
+    mixed_load_integration_test.go:277: kind=all requests=1000 p50=78.737502ms p95=120.702ms p99=137.214912ms
+    mixed_load_integration_test.go:277: kind=create requests=100 p50=99.075339ms p95=135.392638ms p99=147.60139ms
+    mixed_load_integration_test.go:277: kind=update requests=100 p50=98.614549ms p95=134.686257ms p99=144.269484ms
+    mixed_load_integration_test.go:277: kind=delete requests=100 p50=92.566502ms p95=124.871017ms p99=139.45485ms
+    mixed_load_integration_test.go:277: kind=get requests=100 p50=61.420972ms p95=94.703495ms p99=106.134459ms
+    mixed_load_integration_test.go:277: kind=page requests=500 p50=78.295831ms p95=97.521707ms p99=102.6719ms
+    mixed_load_integration_test.go:277: kind=cursor requests=100 p50=75.491078ms p95=83.854016ms p99=86.648035ms
+    mixed_load_integration_test.go:279: workers=32 elapsed=2.612800374s requests=1000 rps=382.73 unexpected_errors=0 error_rate=0.000000 allocated_bytes_per_request=710359.9 allocations_per_request=8994.8 heap_before=11303952 heap_after=12243256 gc_cycles=97 gc_pause=22.816448ms pool_max=4 pool_wait_count=3290 pool_wait=1m11.198029011s pool_acquire=1m11.198047454s pool_canceled=0
+=== RUN   TestMixedHTTPPoolQualification/recovery
+    mixed_load_integration_test.go:277: kind=all requests=1000 p50=9.598339ms p95=15.216527ms p99=101.236656ms
+    mixed_load_integration_test.go:277: kind=create requests=100 p50=12.867644ms p95=18.414837ms p99=25.550093ms
+    mixed_load_integration_test.go:277: kind=update requests=100 p50=9.359177ms p95=12.784496ms p99=13.361836ms
+    mixed_load_integration_test.go:277: kind=delete requests=100 p50=12.988567ms p95=16.502814ms p99=19.828509ms
+    mixed_load_integration_test.go:277: kind=get requests=100 p50=3.926138ms p95=7.359746ms p99=8.669897ms
+    mixed_load_integration_test.go:277: kind=page requests=500 p50=9.244148ms p95=12.932306ms p99=105.238479ms
+    mixed_load_integration_test.go:277: kind=cursor requests=100 p50=8.903674ms p95=12.983362ms p99=14.602811ms
+    mixed_load_integration_test.go:279: workers=4 elapsed=2.904225201s requests=1000 rps=344.33 unexpected_errors=0 error_rate=0.000000 allocated_bytes_per_request=743295.3 allocations_per_request=9029.1 heap_before=14306112 heap_after=12612376 gc_cycles=112 gc_pause=20.38043ms pool_max=4 pool_wait_count=1184 pool_wait=1.339660852s pool_acquire=1.340547168s pool_canceled=0
+--- PASS: TestMixedHTTPPoolQualification (17.27s)
+    --- PASS: TestMixedHTTPPoolQualification/baseline (6.56s)
+    --- PASS: TestMixedHTTPPoolQualification/concurrent (2.89s)
+    --- PASS: TestMixedHTTPPoolQualification/saturated (2.63s)
+    --- PASS: TestMixedHTTPPoolQualification/recovery (2.92s)
+PASS
+ok  	github.com/yakisoba0728/PgBase/pgbase	17.289s
