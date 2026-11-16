@@ -225,6 +225,12 @@ func (h *realtimeHub) realtimeMessageRecord(r *http.Request, principal identity.
 	}
 	if sub.expand != "" && event.Operation != "delete" && h.dependencies.Records != nil {
 		current, err := h.dependencies.Records.Get(r.Context(), recordops.GetRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, PublicID: event.PublicID, Expand: sub.expand, Fields: sub.fields, RuleContext: ruleRequestContext(r)})
+		if err != nil && !errors.Is(err, query.ErrRecordNotFound) && !errors.Is(err, recordaccess.ErrDenied) {
+			return nil, false, err
+		}
+		// A deleted or now-denied live row has no expansion, while its event
+		// snapshot has already passed the current replay policy. Operational
+		// lookup failures must instead remain retryable at the previous cursor.
 		if err == nil {
 			if expanded, ok := current.Data["expand"]; ok {
 				record["expand"] = expanded
