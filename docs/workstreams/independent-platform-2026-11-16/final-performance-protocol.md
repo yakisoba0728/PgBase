@@ -24,6 +24,13 @@ An observed severe regression is a >=25% p99 increase or >=15% throughput decrea
 - Query filter/order index experiment on the actual native plan: preserve identical logical responses and report scan counts, buffers, execution latency and index storage/write cost. Never add an index globally solely to improve a synthetic fixture.
 - Final native scale experiment at at least 1,000,000 rows where resources permit; preserve limits and disclose actual row count.
 - Final bounded open-loop HTTP test: fixed arrivals include queue delay in end-to-end latency, fail visibly on dropped/unfinished work, and verify correctness. Initial target 200 requests/s for 60 seconds, zero unexpected errors or cross-owner results, p99 <=250ms. This provisional target is scoped to the disposable local fixture and is not a general capacity promise. Also report service latency and scheduling delay separately to expose coordinated omission.
+- Before the first open-loop execution, the hosted final qualification is also set to 200 requests/s for 600 seconds (120,000 intended arrivals), with the same zero-error/data-integrity and 250ms p99 gates. This ten-minute test is sustained bounded load, not a multi-day soak or production-capacity certification. Resource limits and source revision must accompany its result.
 - Closed-loop mixed final fixture and fault/multiprocess/realtime verification have independent correctness gates. Long-term soak, cross-region networks and production-capacity certification remain unproven unless actually run and recorded.
 
 Final integrated runtime must be qualified separately from the historical A/B reconstruction. Changes to this protocol must be dated and explained rather than silently fitted to results.
+
+## Follow-up registered after the local ABBA results
+
+The first twelve native and twelve mixed invocations completed with no test errors. Native list_50/c1 improved, but mixed HTTP/c32 p99 remains statistically inconclusive and HTTP/c8 throughput showed a small adverse interval. Do not close those findings from memory results.
+
+A second, hosted experiment therefore increases each HTTP stage from 1,000 to 5,000 requests and keeps three ABBA blocks, identical CPU/allocation profiling, Go1.26.11, PostgreSQL17.9 and pool4. It retains the same comparison thresholds and run-level confidence method. `performance-qualification` runs the original isolated patch comparison; `final-performance-qualification` substitutes the final PR runtime and explicitly represents a broader code comparison. Each experiment has 240,000 measured HTTP requests. Hardware/platform data are captured, so results from different hosts are not pooled. The workflow does not assert a universal performance SLO or suppress unfavorable observations.
