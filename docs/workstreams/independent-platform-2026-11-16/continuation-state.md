@@ -4,7 +4,8 @@
 
 This section supersedes the historical checkpoint below. Actual remote refs, source trees and CI evidence take precedence; a running task is not a passed gate.
 
-- Observed published HEAD: `d77fd45de6975f55b047a3de9c4099e1805162ce`, branch `refactor/independent-platform-20261116`.
+- Initial observed published HEAD: `d77fd45de6975f55b047a3de9c4099e1805162ce`, branch `refactor/independent-platform-20261116`.
+- First published diagnostic batch: `10dc0f8b59f1d59b5a6e745a07618ec2849fc06d`, tree `a2bcc03f25e79e66bfb94f135011653e956672dc`; [full run 43816001786](https://github.com/yakisoba0728/PgBase/actions/runs/43816001786) is in progress. Production runtime remains identical to d77; load telemetry changed. Do not cancel this controlled diagnostic run by publishing the runtime batch early.
 - Source tree: `81f741069604ef08c3d1339c800139d896fc60a9`. Fetched Actions merge commit `f763e5016bcdecf939cb307bd4c1b292a0306529` has this same tree.
 - Main remains `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`; schema **68**; PR #148 open, Draft, unmerged.
 - Latest observed full qualification [43804114855](https://github.com/yakisoba0728/PgBase/actions/runs/43804114855): **14 successful jobs; mixed-http job 133090810046 failed**.
@@ -21,15 +22,15 @@ The unchanged gate requires **200 RPS for 600 seconds, pool 4, zero errors/drops
 
 ### Actual agents and ownership
 
-The tool limit is four concurrent agents including the coordinator. **Three child agents were actually created and started in parallel**. Later roles are queued, not yet created.
+The tool limit is four concurrent agents including the coordinator. **Five child agents have actually been created; maximum simultaneous children observed: three. Two first slices completed (B/C), three agents remain active (A/D/E).**
 
 | Agent | State | Scope |
 | --- | --- | --- |
 | A `performance` | Running | Load diagnostics, performance evidence; separate server/DB/pool/producer/queue/host/GC |
-| B `backend` | Running | Realtime delivery cursor/context/retries; extension transaction boundaries |
-| C `security` | Running | Auth request context, avatar redirects, file policy/ranges/cleanup, scan evidence |
-| D Frontend/SDK | Queued | Delayed listener and backup callback ownership; contracts and unchanged visual design |
-| E Reliability/QA | Queued | Independent review, load/data-integrity accounting, exact-source CI and coverage gaps |
+| B `backend` | First slice complete | Three recovered Realtime fixes; new precommit JSON validation; reviewed A telemetry and C auth source |
+| C `security` | First slice complete | Recovered avatar/file/cleanup fixes; new auth request-context correction; fresh scan reconciliation; reviewed B transaction source |
+| D `frontend_sdk` | Running | Recover listener/backup callback ownership; three-engine configuration; preserve all 26 browser cases/design |
+| E `reliability_qa` | Running | Independent current-source regressions, dropped-request accounting, historical performance recovery, release matrix |
 
 Main checkout: `/workspace/scratch/79c920ff2ec3/PgBase`, branch `coordinator/subagent-first-20261116`. Child worktrees are sibling `PgBase-performance`, `PgBase-backend`, `PgBase-security`, each on its own `agent/*-20261116` branch. Coordinator owns shared-branch publication. Agents commit changes/evidence and report briefly; CI jobs are not AI reviewers.
 
@@ -46,13 +47,19 @@ Recover selectively, freshly test and independently review. Existing raw evidenc
 
 ### Publication, persistence and next actions
 
+The next prepared runtime batch at local `18526f781f79a2b703656d6c58e5a681a4c82ad3` / tree `3735f859dfb226e4200b8ecc2268c97227bbdd10` contains B/C changes. It is preserved on the coordinator checkpoint branch while independent QA and the diagnostic-only CI run finish. It is **not yet current integrated qualification**.
+
+- B recovered Realtime fixes: PG17.9/race x3, 15 top-level / 39 pass events, zero failures/skips. New SQL-batch NaN/Infinity response defect: six before-fix reproductions; after-fix transaction controls x3, 18 top-level / 42 pass events, zero failures/skips. JSON validation now precedes commit; nested rollback preserves unrelated outer work.
+- C reproduced auth-record reads admitted despite negative actual method/header/query predicates. Originating request metadata now reaches rules; transport-dependent rules fail closed without transport context. Focused PG17.9/race: nine top-level / 72 pass events; affected four-package unit/race: 344 top-level / 833 pass events; zero failures/skips. Invalid-fixture attempts remain separately labeled.
+- B/C independently reviewed each other's immutable source; this is not independent test execution. E is doing that separately. Read `session-backend.md`, `session-security.md` and exact source manifests; none substitutes for integrated CI.
+
 First integration batch recovers the aligned PostgreSQL observer and separate generator/worker/pool/host diagnostics from A (`c298a9f4`, `17203060`). B independently reviewed tree `e711982abeeb767bfcb88e1b321984e3e24142db`: all arrival, pool, zero-loss/error, latency and durable-count criteria remain unchanged. Its 100-arrival smoke **failed** p99 under concurrent compilation; it is preserved and is not a qualification. The 600-second instrumented local baseline is running while team builds pause. Hosted diagnosis will run against the original runtime plus instrumentation before the recovered runtime fixes are integrated.
 
 HTTPS Git reads work; nonmutating push/CLI probes found no shell write credential. Publish through the connected GitHub Git-data API, preserve logical commits, compare resulting trees with local trees, record local/published SHA mappings, and update only the work branch with exact expected HEAD and `force=false`. Do not request or borrow real credentials.
 
 No chat-independent autonomous coding runner was verified. GitHub Actions supports hosted validation after publication, independently of this chat; this does not imply that child implementation continues after the conversation ends.
 
-1. Collect A/B/C commits and evidence, cross-review, then integrate; create D/E when slots free.
+1. Finish A measurement and D/E work; independently review/test the prepared batch. Actual agents now exist for all five roles.
 2. Recover remaining verified evidence/operations docs without rerunning completed work gratuitously.
 3. Publish and qualify the exact integrated source; retain run/job IDs, tested merge SHA/tree and artifacts. Diagnose new failures before rerunning.
 4. Update this file at every significant integration/review/CI boundary. Keep **Not Ready** while important failures or mandatory unverified gates remain.
