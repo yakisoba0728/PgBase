@@ -9,25 +9,35 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import time
 
 
 def stop_process(process, grace_seconds=2):
-    """Reap our child; an observer ignoring SIGTERM cannot hide the test result."""
-    if process.poll() is not None:
-        return
+    """Stop the child's process group and reap its leader with bounded waits."""
+    def group_exists():
+        try:
+            os.killpg(process.pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+
+    # The leader may already have exited while a test binary or observer child
+    # is still running. Its exit alone is not proof that the group is stopped.
     try:
         os.killpg(process.pid, signal.SIGTERM)
     except ProcessLookupError:
         pass
-    try:
-        process.wait(timeout=grace_seconds)
-    except subprocess.TimeoutExpired:
-        print(f"observer cleanup: force-stopping process {process.pid}", file=sys.stderr)
+    deadline = time.monotonic() + grace_seconds
+    while group_exists() and time.monotonic() < deadline:
+        process.poll()  # Reap an exited leader before checking its group again.
+        time.sleep(.01)
+    if group_exists():
+        print(f"observer cleanup: force-stopping process group {process.pid}", file=sys.stderr)
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        process.wait(timeout=grace_seconds)
+    process.wait(timeout=grace_seconds)
 
 
 def run(command, observers, grace_seconds=2):

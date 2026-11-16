@@ -1,0 +1,16 @@
+test_child_stops_after_leader_has_exited (__main__.ObserverCleanupTests.test_child_stops_after_leader_has_exited) ... observer cleanup: force-stopping process group 6
+ok
+test_child_stops_when_leader_exits_on_term (__main__.ObserverCleanupTests.test_child_stops_when_leader_exits_on_term) ... observer cleanup: force-stopping process group 8
+ok
+test_early_observer_exit_fails_successful_workload (__main__.ObserverCleanupTests.test_early_observer_exit_fails_successful_workload) ... resource observer failed or produced incomplete evidence: /tmp/tmpcgs3i7q2/observer.txt
+ok
+test_hung_observer_does_not_turn_success_into_timeout (__main__.ObserverCleanupTests.test_hung_observer_does_not_turn_success_into_timeout) ... observer cleanup: force-stopping process group 12
+ok
+test_hung_observer_preserves_load_failure (__main__.ObserverCleanupTests.test_hung_observer_preserves_load_failure) ... observer cleanup: force-stopping process group 14
+ok
+test_workload_signal_remains_failure (__main__.ObserverCleanupTests.test_workload_signal_remains_failure) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.785s
+
+OK

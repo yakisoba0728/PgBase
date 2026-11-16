@@ -2,7 +2,10 @@
 """Real subprocess regressions for resource-observer cleanup and exit status."""
 
 import importlib.util
+import os
 from pathlib import Path
+import signal
+import subprocess
 import sys
 import tempfile
 import time
@@ -59,6 +62,54 @@ class ObserverCleanupTests(unittest.TestCase):
 
     def test_workload_signal_remains_failure(self):
         self.assertEqual(MODULE.run([sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGTERM)"], []), 143)
+
+    def check_descendant_cleanup(self, leader_exits_first):
+        with tempfile.TemporaryDirectory() as directory:
+            ready = Path(directory) / "child.pid"
+            child_code = (
+                "import os, signal, sys, time; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(60)"
+            )
+            leader_code = (
+                "import pathlib, subprocess, sys, time; "
+                "subprocess.Popen([sys.executable, '-c', sys.argv[1], sys.argv[2]])\n"
+                "while not pathlib.Path(sys.argv[2]).exists(): time.sleep(.01)\n"
+                + ("raise SystemExit(0)" if leader_exits_first else "time.sleep(60)")
+            )
+            leader = subprocess.Popen(
+                [sys.executable, "-c", leader_code, child_code, str(ready)],
+                start_new_session=True,
+            )
+            try:
+                deadline = time.monotonic() + 3
+                while not ready.exists() or not ready.stat().st_size:
+                    self.assertLess(time.monotonic(), deadline)
+                    time.sleep(.01)
+                child_pid = int(ready.read_text())
+                if leader_exits_first:
+                    leader.wait(timeout=2)
+                MODULE.stop_process(leader, grace_seconds=.1)
+                # An orphan may remain a zombie until init reaps it; it must
+                # have stopped executing. We do reap the supervisor's own child.
+                child_stat = Path(f"/proc/{child_pid}/stat")
+                deadline = time.monotonic() + 2
+                while child_stat.exists() and child_stat.read_text().split()[2] != "Z":
+                    self.assertLess(time.monotonic(), deadline, "descendant still running")
+                    time.sleep(.01)
+                self.assertIsNotNone(leader.poll())
+            finally:
+                try:
+                    os.killpg(leader.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                leader.wait(timeout=2)
+
+    def test_child_stops_after_leader_has_exited(self):
+        self.check_descendant_cleanup(leader_exits_first=True)
+
+    def test_child_stops_when_leader_exits_on_term(self):
+        self.check_descendant_cleanup(leader_exits_first=False)
 
 
 if __name__ == "__main__":
