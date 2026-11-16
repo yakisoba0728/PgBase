@@ -1,3 +1,43 @@
+# PgBase — final integrated qualification in progress
+
+## Current checkpoint — candidate preparation
+
+This entry supersedes the historical next-action instructions below. The user
+has explicitly authorized the final full functional and performance round.
+**No latest-source full-CI or 600-second performance result is claimed yet.**
+
+- Starting PR #148 HEAD: `23b6c4090e453587325d9dfad8fec6d854f3bee2`.
+- Existing accepted Auth, Jobs and SDK fixes remain intact.
+- The final workflow now calls the existing full three-browser reusable suite.
+  Assertions, timeouts, recovery checks and required criteria are unchanged.
+- A bounded capacity test reproduced three available request slots in the old
+  pool4 configuration. The schema listener now owns a dedicated connection,
+  preserving initialized session security and the shared backup writer lock.
+  This is an explicitly authorized capacity-policy separation, not proof of
+  a leak or of the unique cause of the historical 547 dropped arrivals.
+- Request pool remains4. Persistent test sessions are4 pooled requests +1 schema
+  listener +1 existing backup gate +1 existing diagnostic observer =7, previously6.
+- Combined local runtime/CI source before evidence-only commits:
+  `ff5cd9ac3188923400d26297280faa87839b590d`, tree
+  `1d30798382078731b9442e4a42aadb0a9d328a34`.
+- Three real subagents are assigned functional CI, performance and independent
+  QA in separate worktrees; maximum concurrent subagents3.
+- Final gate remains200 RPS x600s,120000 arrivals, zero drops/unexpected errors/
+  incomplete and end-to-end p99<=250ms, unchanged PostgreSQL durability.
+- One final600s run is planned; a second requires a newly verified code correction
+  and independent approval. No unchanged blind rerun or ABBA campaign is allowed.
+- Main stays unchanged, PR Draft/unmerged. No production access, merge, deploy,
+  release, tags, package publication or required-check weakening is authorized.
+
+The evidence directory is `evidence/final-integrated/`. The coordinator will
+record published source/tree identities, actual run/jobs, artifact hashes and
+final two-axis verdict in `final-integrated-qualification.md` and
+`final-performance-qualification.md` after the fixed-source execution.
+
+---
+
+## Historical checkpoints — retained with their original source scopes
+
 # PgBase — functional correctness continuation
 
 ## Latest scoped outcome — three defects fixed and independently accepted
