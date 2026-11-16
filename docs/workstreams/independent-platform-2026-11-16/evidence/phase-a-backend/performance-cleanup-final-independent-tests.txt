@@ -1,0 +1,10 @@
+observer cleanup: force-stopping process group 17
+.observer cleanup: force-stopping process group 19
+.resource observer failed or produced incomplete evidence: /tmp/tmp5cqxvusy/observer.txt
+.observer cleanup: force-stopping process group 23
+.observer cleanup: force-stopping process group 25
+..
+----------------------------------------------------------------------
+Ran 6 tests in 0.799s
+
+OK

@@ -1,0 +1,8 @@
+resource observer failed or produced incomplete evidence: /tmp/tmpgqj69vzy/observer.txt
+.observer cleanup: force-stopping process 10
+.observer cleanup: force-stopping process 12
+..
+----------------------------------------------------------------------
+Ran 4 tests in 0.470s
+
+OK

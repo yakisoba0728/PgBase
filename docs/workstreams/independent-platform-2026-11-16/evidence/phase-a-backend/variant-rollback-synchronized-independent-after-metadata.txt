@@ -1,0 +1,6 @@
+2026-11-16T06:52:59Z
+3375bc20d5ac6d047ad823c7ebe33297741bf289
+9387d5ee267c3dd3e659514cf813ab714c296264
+go version go1.26.11 linux/amd64
+PostgreSQL 17.9 on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+COMMAND: go test -race -tags=integration ./internal/filestore -run \^TestVariantCleanupQueuesAfterDelayedPublisherRollback\$ -count=1 -json
