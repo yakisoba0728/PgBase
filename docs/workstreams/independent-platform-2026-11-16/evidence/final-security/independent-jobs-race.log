@@ -1,0 +1,33 @@
+postgres (PostgreSQL) 17.9
+=== RUN   TestJobManagementFencesExpiredHandlerCompletion
+=== RUN   TestJobManagementFencesExpiredHandlerCompletion/configure/success
+=== RUN   TestJobManagementFencesExpiredHandlerCompletion/configure/failure
+=== RUN   TestJobManagementFencesExpiredHandlerCompletion/disable/success
+=== RUN   TestJobManagementFencesExpiredHandlerCompletion/disable/failure
+=== RUN   TestJobManagementFencesExpiredHandlerCompletion/schedule/success
+=== RUN   TestJobManagementFencesExpiredHandlerCompletion/schedule/failure
+=== RUN   TestJobManagementFencesExpiredHandlerCompletion/request_run/success
+=== RUN   TestJobManagementFencesExpiredHandlerCompletion/request_run/failure
+=== RUN   TestJobManagementFencesExpiredHandlerCompletion/unregister/success
+=== RUN   TestJobManagementFencesExpiredHandlerCompletion/unregister/failure
+--- PASS: TestJobManagementFencesExpiredHandlerCompletion (0.34s)
+    --- PASS: TestJobManagementFencesExpiredHandlerCompletion/configure/success (0.01s)
+    --- PASS: TestJobManagementFencesExpiredHandlerCompletion/configure/failure (0.00s)
+    --- PASS: TestJobManagementFencesExpiredHandlerCompletion/disable/success (0.00s)
+    --- PASS: TestJobManagementFencesExpiredHandlerCompletion/disable/failure (0.00s)
+    --- PASS: TestJobManagementFencesExpiredHandlerCompletion/schedule/success (0.00s)
+    --- PASS: TestJobManagementFencesExpiredHandlerCompletion/schedule/failure (0.00s)
+    --- PASS: TestJobManagementFencesExpiredHandlerCompletion/request_run/success (0.00s)
+    --- PASS: TestJobManagementFencesExpiredHandlerCompletion/request_run/failure (0.00s)
+    --- PASS: TestJobManagementFencesExpiredHandlerCompletion/unregister/success (0.00s)
+    --- PASS: TestJobManagementFencesExpiredHandlerCompletion/unregister/failure (0.00s)
+=== RUN   TestScheduleCannotReplaceAnActiveClaim
+--- PASS: TestScheduleCannotReplaceAnActiveClaim (0.29s)
+=== RUN   TestExpiredCompletionWithoutManagementCannotRenewItsAuthority
+=== RUN   TestExpiredCompletionWithoutManagementCannotRenewItsAuthority/success
+=== RUN   TestExpiredCompletionWithoutManagementCannotRenewItsAuthority/failure
+--- PASS: TestExpiredCompletionWithoutManagementCannotRenewItsAuthority (0.25s)
+    --- PASS: TestExpiredCompletionWithoutManagementCannotRenewItsAuthority/success (0.01s)
+    --- PASS: TestExpiredCompletionWithoutManagementCannotRenewItsAuthority/failure (0.00s)
+PASS
+ok  	github.com/yakisoba0728/PgBase/internal/jobs	1.905s

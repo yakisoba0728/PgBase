@@ -1,0 +1,12 @@
+✔ a subscription waiting for an old connection cannot adopt another identity (6.623744ms)
+✔ an old subscription disposer cannot stop a replacement session's listener (4.755819ms)
+✔ leaving an SSE consumer cancels its unread body and releases the reader (3.122292ms)
+✔ a malformed realtime frame closes its old response before reconnecting (9.786064ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 184.377702
