@@ -91,12 +91,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
-    parser.add_argument("--http-only", action="store_true")
+    kinds = parser.add_mutually_exclusive_group()
+    kinds.add_argument("--http-only", action="store_true")
+    kinds.add_argument("--query-only", action="store_true")
     parser.add_argument("--http-cycles", type=int, default=100)
     options = parser.parse_args()
     source, output = options.source, options.output
     ledger = json.loads((source / "ledger.json").read_text())
-    if len(ledger) != (12 if options.http_only else 24) or any(row["exit_code"] != 0 for row in ledger):
+    if len(ledger) != (12 if options.http_only or options.query_only else 24) or any(row["exit_code"] != 0 for row in ledger):
         raise ValueError("require all registered invocations to succeed; failures must be investigated, not discarded")
     raw = {}
     expected = ["before", "after", "after", "before"] * 3
@@ -110,7 +112,7 @@ def main():
             if row["index"] in positions:
                 raise ValueError("duplicate invocation")
             positions[row["index"]] = {"side": row["side"], "metrics": metrics}
-    if len(raw) != (4 if options.http_only else 16) or any(len(values) != 12 for values in raw.values()):
+    if len(raw) != (4 if options.http_only else 12 if options.query_only else 16) or any(len(values) != 12 for values in raw.values()):
         raise ValueError("missing workload observations")
     rng = random.Random(20261116)
     resamples = [[rng.randrange(6) for _ in range(6)] for _ in range(20000)]
@@ -147,7 +149,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     report = {"method":"paired geometric ratios; run-level percentile bootstrap; six AB/BA pairs;20,000 resamples;seed20261116",
               "limitations":"Shared host, six pairs, multiple secondary endpoints; no absence-of-regression inference from wide intervals.",
-              "primary_workloads":["http/c32"] if options.http_only else ["native/list_50/c1","http/c32"],"pairs":pairs,"raw":raw,"comparisons":comparisons}
+              "primary_workloads":["http/c32"] if options.http_only else ["native/list_50/c1"] if options.query_only else ["native/list_50/c1","http/c32"],"pairs":pairs,"raw":raw,"comparisons":comparisons}
     (output / "comparison.json").write_text(json.dumps(report, indent=2)+"\n")
     with (output / "comparison.csv").open("w",newline="") as stream:
         writer=csv.writer(stream)

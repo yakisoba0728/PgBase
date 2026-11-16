@@ -225,6 +225,13 @@ func BenchmarkConcurrentRecordReads(b *testing.B) {
 				if b.Failed() {
 					return
 				}
+				if os.Getenv("PGBASE_BENCH_SAMPLES") == "1" {
+					samples := make([]int64, len(latency))
+					for index, elapsed := range latency {
+						samples[index] = elapsed.Nanoseconds()
+					}
+					b.Logf("raw_latency_ns=%v", samples)
+				}
 				slices.Sort(latency)
 				for _, percentile := range []int{50, 95, 99} {
 					index := (len(latency)*percentile+99)/100 - 1
