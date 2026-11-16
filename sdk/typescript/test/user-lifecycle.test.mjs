@@ -4,6 +4,33 @@ import { AuthStore, PgBaseClient, PgBaseError } from "../dist/index.js";
 
 const changed = (error) => error instanceof PgBaseError && error.status === 403 && error.code === "session_changed";
 
+for (const boundary of ["buffered records", "next page"]) {
+  for (const transition of ["replacement", "logout"]) {
+    test(`record iteration rejects ${boundary} after ${transition}`, async () => {
+      const auth = new AuthStore();
+      auth.save("old-user");
+      const requests = [];
+      const client = new PgBaseClient("http://pgbase.test", { auth, fetch: async (url, init) => {
+        requests.push({ url, token: new Headers(init.headers).get("authorization") });
+        return Response.json({
+          items: boundary === "buffered records" ? [{ id: "private-first" }, { id: "private-buffered" }] : [{ id: "private-first" }],
+          nextCursor: "old-user-cursor",
+        });
+      } });
+      const iterator = client.iterate("notes");
+      try {
+        assert.equal((await iterator.next()).value.id, "private-first");
+        if (transition === "logout") auth.clear();
+        else auth.save("new-user");
+        await assert.rejects(iterator.next(), changed);
+        assert.equal(requests.length, 1, "an old cursor must never be submitted under another session");
+        assert.equal(requests[0].token, "Bearer old-user");
+        assert.equal(auth.token, transition === "logout" ? null : "new-user");
+      } finally { await iterator.return(); }
+    });
+  }
+}
+
 for (const kind of ["parsed", "exact", "write", "multipart"]) {
   for (const outcome of ["success", "HTTP error", "transport error"]) {
     test(`user ${kind} rejects an old ${outcome} body after shared auth changes`, async () => {

@@ -241,10 +241,16 @@ export class PgBaseClient {
     query: Query = {},
     signal?: AbortSignal,
   ): AsyncGenerator<T> {
+    // Buffered rows and the next cursor belong to the session that began reading.
+    const generation = this.auth.generation;
     let cursor = query.cursor;
     do {
+      assertAuthGeneration(this.auth, generation);
       const page = await this.records<T>(collection).list({ ...query, cursor, total: undefined }, signal);
-      yield* page.items;
+      for (const record of page.items) {
+        assertAuthGeneration(this.auth, generation);
+        yield record;
+      }
       cursor = page.nextCursor;
     } while (cursor);
   }

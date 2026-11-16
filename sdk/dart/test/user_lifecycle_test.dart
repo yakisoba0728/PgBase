@@ -13,6 +13,59 @@ final _sessionChanged = throwsA(
 );
 
 void main() {
+  for (final boundary in ['buffered records', 'next page']) {
+    for (final transition in ['replacement', 'logout']) {
+      test('record iteration rejects $boundary after $transition', () async {
+        final auth = AuthStore(initialToken: 'old-user');
+        final requests = <http.Request>[];
+        final client = PgBaseClient(
+          Uri.parse('http://pgbase.test'),
+          auth: auth,
+          httpClient: MockClient((request) async {
+            requests.add(request);
+            return http.Response(
+              jsonEncode({
+                'items': boundary == 'buffered records'
+                    ? [
+                        {'id': 'private-first'},
+                        {'id': 'private-buffered'},
+                      ]
+                    : [
+                        {'id': 'private-first'},
+                      ],
+                'nextCursor': 'old-user-cursor',
+              }),
+              200,
+            );
+          }),
+        );
+        final iterator = StreamIterator(client.records('notes').iterate());
+        try {
+          expect(await iterator.moveNext(), isTrue);
+          expect(iterator.current['id']!.toDart(), 'private-first');
+          if (transition == 'logout') {
+            await auth.clear();
+          } else {
+            await auth.save('new-user');
+          }
+          await expectLater(iterator.moveNext(), _sessionChanged);
+          expect(
+            requests,
+            hasLength(1),
+            reason:
+                'an old cursor must never be submitted under another session',
+          );
+          expect(requests.single.headers['authorization'], 'Bearer old-user');
+          expect(auth.token, transition == 'logout' ? null : 'new-user');
+        } finally {
+          await iterator.cancel();
+          client.close();
+          await auth.close();
+        }
+      });
+    }
+  }
+
   for (final kind in ['json', 'record', 'multipart', 'upload', 'download']) {
     for (final outcome in ['success', 'HTTP error', 'transport error']) {
       test(
