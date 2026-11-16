@@ -1,0 +1,37 @@
+{
+  "scope": "Disposable loopback-only local regression environment; final hosted matrix remains required",
+  "go": {
+    "version": "1.26.11",
+    "archive_sha256": "9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec",
+    "source": "https://go.dev/dl/go1.26.11.linux-amd64.tar.gz"
+  },
+  "postgresql": {
+    "version": "17.9",
+    "source": "https://ftp.postgresql.org/pub/source/v17.9/postgresql-17.9.tar.bz2",
+    "archive_sha256": "3b9a62538a8da151e807a3ddb1198e8605f2032544d78f403ae883d27ecf1ee4",
+    "configure": [
+      "--without-readline",
+      "--without-icu",
+      "--with-openssl"
+    ],
+    "extensions": [
+      "pg_trgm from same17.9 source"
+    ],
+    "initial_missing_extension": "Independent QA retains initial setup failure before behavior executed; fixed by installing contrib/pg_trgm",
+    "durability": {
+      "fsync": "on",
+      "full_page_writes": "on",
+      "synchronous_commit": "on"
+    },
+    "max_connections": 100
+  },
+  "node": "v24.22.1",
+  "dart": "3.13.3",
+  "process_lifetime": "initdb,pg_ctl start,test command,pg_ctl stop and fixture removal occur in one executor invocation",
+  "runner_sha256": "a9ad67e6746b67ca8456b4fa71c1f52146b4d9f64795dcd88803edba8b500a66",
+  "limitations": [
+    "Local source build omits ICU; no claim of byte-equivalence to hosted PostgreSQL container images",
+    "Local host shared with other work; elapsed-time benchmarks not causal speed evidence",
+    "Only disposable generated test data; no production resources"
+  ]
+}
