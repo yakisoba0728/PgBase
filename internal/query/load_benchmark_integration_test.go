@@ -29,10 +29,18 @@ func BenchmarkConcurrentRecordReads(b *testing.B) {
 	rows := 100_000
 	if raw := os.Getenv("PGBASE_BENCH_ROWS"); raw != "" {
 		value, err := strconv.Atoi(raw)
-		if err != nil || value < benchmarkSeedRows || value > 1_000_000 || value%benchmarkSeedRows != 0 {
-			b.Fatal("PGBASE_BENCH_ROWS must be a multiple of 10000 in [10000, 1000000]")
+		if err != nil || value < benchmarkSeedRows || value > 2_000_000 || value%benchmarkSeedRows != 0 {
+			b.Fatal("PGBASE_BENCH_ROWS must be a multiple of 10000 in [10000, 2000000]")
 		}
 		rows = value
+	}
+	warmup := 100
+	if raw := os.Getenv("PGBASE_BENCH_WARMUP"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 5 || value > 10000 {
+			b.Fatal("PGBASE_BENCH_WARMUP must be in [5, 10000]")
+		}
+		warmup = value
 	}
 	records, _, id := benchmarkRecordService(b)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -78,6 +86,20 @@ func BenchmarkConcurrentRecordReads(b *testing.B) {
 	if _, err := records.pool.Exec(ctx, "ANALYZE "+table); err != nil {
 		b.Fatal(err)
 	}
+	// A diagnostic index on this disposable synthetic table, not a migration
+	// or an implicit change to application schemas. Compare with the same
+	// fixture without this flag and retain both execution plans.
+	if os.Getenv("PGBASE_BENCH_FILTER_INDEX") == "1" {
+		began := time.Now()
+		if _, err := records.pool.Exec(ctx, "CREATE INDEX benchmark_priority_page ON "+table+" (priority, created_at, id)"); err != nil {
+			b.Fatal(err)
+		}
+		var indexBytes int64
+		if err := records.pool.QueryRow(ctx, "SELECT pg_relation_size('app.benchmark_priority_page')").Scan(&indexBytes); err != nil {
+			b.Fatal(err)
+		}
+		b.Logf("diagnostic_filter_index=true build_time=%s index_bytes=%d", time.Since(began), indexBytes)
+	}
 	base := ListRequest{Principal: testReadPrincipal, Collection: "benchmark_records", Limit: 50}
 	if count, err := records.Count(ctx, base); err != nil || count != int64(rows) {
 		b.Fatalf("native visible rows=%d want=%d err=%v", count, rows, err)
@@ -122,12 +144,12 @@ func BenchmarkConcurrentRecordReads(b *testing.B) {
 		{"deep_cursor_50", readPage(deep)},
 		{"filtered_50", readPage(filtered)},
 	}
-	b.Logf("workload=closed-loop query-service rows=%d fields=20 go=%s cpus=%d GOMAXPROCS=%d", rows, runtime.Version(), runtime.NumCPU(), runtime.GOMAXPROCS(0))
+	b.Logf("workload=closed-loop query-service rows=%d fields=20 warmup=%d go=%s cpus=%d GOMAXPROCS=%d", rows, warmup, runtime.Version(), runtime.NumCPU(), runtime.GOMAXPROCS(0))
 	for _, workload := range workloads {
 		for _, concurrency := range []int{1, 8, 32} {
 			b.Run(fmt.Sprintf("rows=%d/%s/concurrency=%d", rows, workload.name, concurrency), func(b *testing.B) {
 				b.StopTimer()
-				for range 5 {
+				for range warmup {
 					if err := workload.run(ctx); err != nil {
 						b.Fatal(err)
 					}

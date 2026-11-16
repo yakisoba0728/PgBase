@@ -71,6 +71,18 @@ jobs:
           go version >> mixed-environment.txt
           lscpu >> mixed-environment.txt
           go test -tags=integration,load ./pgbase -run '^TestMixedHTTPPoolQualification$' -count=1 -v -timeout=10m | tee mixed-http.txt
+      - name: Qualify sustained fixed-arrival HTTP load
+        env:
+          POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
+          PGBASE_OPEN_LOOP_RPS: '200'
+          PGBASE_OPEN_LOOP_SECONDS: '600'
+          PGBASE_LOAD_EVIDENCE_DIR: load-evidence
+          GOMAXPROCS: '4'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PGBASE_TEST_ADMIN_URL="postgres://postgres:postgres@127.0.0.1:${POSTGRES_HOST_PORT:?}/postgres?sslmode=disable"
+          go test -tags=integration,load ./pgbase -run '^TestOpenLoopHTTPQualification$' -count=1 -v -timeout=15m | tee open-loop-http.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -78,5 +90,7 @@ jobs:
           path: |
             mixed-environment.txt
             mixed-http.txt
+            open-loop-http.txt
+            load-evidence/
           retention-days: 14
           if-no-files-found: error
