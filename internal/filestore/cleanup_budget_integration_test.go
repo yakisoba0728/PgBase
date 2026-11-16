@@ -214,6 +214,7 @@ func TestVariantCleanupQueuesAfterDelayedPublisherRollback(t *testing.T) {
 	service := &Service{pool: pool, objects: store}
 	done := make(chan error, 1)
 	go func() { done <- service.queueUnreferencedVariant(context.WithoutCancel(ctx), fileID, variant, key) }()
+	waitClosureLock(t, pool, "pg_advisory_xact_lock")
 	// Settle strictly after the rejected one-second cleanup budget. This is
 	// not a performance assertion; it distinguishes the two outcome paths.
 	<-time.After(1500 * time.Millisecond)
