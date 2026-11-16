@@ -57,6 +57,47 @@ void main() {
       await client.realtime.unsubscribe();
     }
   });
+
+  for (final application in [false, true]) {
+    test('an old ${application ? "application" : "collection"} listener error cannot enter a replacement session status', () async {
+      final transport = _RealtimeTransport();
+      final client = PgBaseClient(
+        Uri.parse('http://pgbase.test'),
+        httpClient: transport,
+        auth: AuthStore(initialToken: 'account-A'),
+      );
+      final statuses = <RealtimeStatus>[];
+      final stopObserving = client.realtime.onStatus(statuses.add);
+      final started = Completer<void>();
+      final oldResult = Completer<void>();
+      Future<void> listener(dynamic _) {
+        started.complete();
+        return oldResult.future;
+      }
+
+      Future<Future<void> Function()> subscribe(FutureOr<void> Function(dynamic) callback) => application
+          ? client.realtime.subscribeApplication('private', callback)
+          : client.realtime.subscribe('notes/*', callback);
+      try {
+        await subscribe(listener);
+        transport.connections.first.write(application
+            ? 'event: @app/cHJpdmF0ZQ\ndata: {"value":"account-A"}\n\n'
+            : 'event: notes/*\ndata: {"action":"create","record":{"id":"A-record"}}\n\n');
+        await started.future;
+        await client.auth.save('account-B');
+        await subscribe((_) {});
+        final observed = statuses.length;
+        oldResult.completeError(StateError('account-A private listener failure'));
+        await Future<void>.delayed(Duration.zero);
+        expect(client.realtime.status.state, RealtimeState.connected);
+        expect(client.realtime.status.error, isNull);
+        expect(statuses.length, observed);
+      } finally {
+        stopObserving();
+        await client.realtime.unsubscribe();
+      }
+    });
+  }
 }
 
 final class _RealtimeTransport extends http.BaseClient {

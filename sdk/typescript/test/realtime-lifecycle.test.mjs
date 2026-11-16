@@ -54,3 +54,34 @@ test("an old subscription disposer cannot stop a replacement session's listener"
     assert.deepEqual(received, ["B-record"]);
   } finally { await client.realtime.unsubscribe(); }
 });
+
+for (const application of [false, true]) {
+  test(`an old ${application ? "application" : "collection"} listener rejection cannot enter a replacement session's status`, async () => {
+    const { client, connections } = fixture();
+    const statuses = [];
+    const stopObserving = client.realtime.onStatus((status) => statuses.push(status));
+    let rejectOld;
+    let begin;
+    const started = new Promise((resolve) => { begin = resolve; });
+    const oldResult = new Promise((_resolve, reject) => { rejectOld = reject; });
+    const listener = () => { begin(); return oldResult; };
+    const subscribe = (callback) => application
+      ? client.realtime.subscribeApplication("private", callback)
+      : client.realtime.subscribe("notes/*", callback);
+    try {
+      await subscribe(listener);
+      connections[0].write(application
+        ? 'event: @app/cHJpdmF0ZQ\ndata: {"value":"account-A"}\n\n'
+        : 'event: notes/*\ndata: {"action":"create","record":{"id":"A-record"}}\n\n');
+      await started;
+      client.auth.save("account-B");
+      await subscribe(() => {});
+      const observed = statuses.length;
+      rejectOld(new Error("account-A private listener failure"));
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(client.realtime.status.state, "connected");
+      assert.equal(client.realtime.status.error, undefined);
+      assert.equal(statuses.length, observed, "obsolete callbacks must not notify replacement observers");
+    } finally { stopObserving(); await client.realtime.unsubscribe(); }
+  });
+}

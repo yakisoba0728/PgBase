@@ -447,17 +447,29 @@ final class RealtimeService {
   );
 
   void _deliver(Function listener, Object event, String topic) {
+    final stop = _stop;
+    final generation = _client.auth.generation;
+    // Listener futures can outlive the connection and its authenticated owner.
+    void failed(Object error) {
+      if (identical(_stop, stop) &&
+          stop != null &&
+          !stop.isCancelled &&
+          generation == _client.auth.generation) {
+        _listenerFailure(error, topic);
+      }
+    }
+
     try {
       final result = Function.apply(listener, [event]);
       if (result is Future)
         result.then<void>(
           (_) {},
           onError: (Object error, StackTrace stack) {
-            _listenerFailure(error, topic);
+            failed(error);
           },
         );
     } catch (error) {
-      _listenerFailure(error, topic);
+      failed(error);
     }
   }
 

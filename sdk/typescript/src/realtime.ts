@@ -199,8 +199,17 @@ export class RealtimeService {
   }
 
   private deliver(listener: (event: any) => unknown, event: unknown, topic: string): void {
-    try { Promise.resolve(listener(event)).catch((error) => this.listenerFailure(error, topic)); }
-    catch (error) { this.listenerFailure(error, topic); }
+    const controller = this.controller;
+    const generation = this.client.auth.generation;
+    // Listener promises may settle after their transport has stopped or the
+    // shared service has connected as another identity.
+    const failed = (error: unknown) => {
+      if (controller === this.controller && controller && !controller.signal.aborted && generation === this.client.auth.generation) {
+        this.listenerFailure(error, topic);
+      }
+    };
+    try { Promise.resolve(listener(event)).catch(failed); }
+    catch (error) { failed(error); }
   }
 
   private notify(status: RealtimeStatus): void {
