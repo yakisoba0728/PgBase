@@ -206,7 +206,7 @@ func (c *StorageController) build(ctx context.Context, s StorageSettings, encryp
 	return NewS3Store(ctx, S3Config{Bucket: s.Bucket, Region: s.Region, Endpoint: s.Endpoint, AccessKey: s.AccessKey, SecretKey: string(secret), UsePathStyle: s.UsePathStyle})
 }
 func (c *StorageController) Put(ctx context.Context, key string, body io.Reader) error {
-	if lease, ok := ctx.Value(storageLeaseContextKey{}).(storageLease); ok {
+	if lease, ok := ctx.Value(storageLeaseContextKey{}).(storageLease); ok && lease.controller == c {
 		return lease.store.Put(ctx, key, body)
 	}
 	leased, release, err := c.BeginStorageOperation(ctx)
@@ -217,7 +217,7 @@ func (c *StorageController) Put(ctx context.Context, key string, body io.Reader)
 	return c.Put(leased, key, body)
 }
 func (c *StorageController) Open(ctx context.Context, key string) (io.ReadCloser, error) {
-	if lease, ok := ctx.Value(storageLeaseContextKey{}).(storageLease); ok {
+	if lease, ok := ctx.Value(storageLeaseContextKey{}).(storageLease); ok && lease.controller == c {
 		return lease.store.Open(ctx, key)
 	}
 	leased, release, err := c.BeginStorageOperation(ctx)
@@ -256,7 +256,7 @@ func (c *StorageController) OpenRange(ctx context.Context, key string, requested
 }
 
 func (c *StorageController) Delete(ctx context.Context, key string) error {
-	if lease, ok := ctx.Value(storageLeaseContextKey{}).(storageLease); ok {
+	if lease, ok := ctx.Value(storageLeaseContextKey{}).(storageLease); ok && lease.controller == c {
 		return lease.store.Delete(ctx, key)
 	}
 	leased, release, err := c.BeginStorageOperation(ctx)
@@ -272,7 +272,7 @@ func (c *StorageController) Delete(ctx context.Context, key string) error {
 // lost before the publication transaction began.
 func (c *StorageController) GuardStoragePublication(ctx context.Context, tx pgx.Tx) error {
 	lease, ok := ctx.Value(storageLeaseContextKey{}).(storageLease)
-	if !ok {
+	if !ok || lease.controller != c {
 		return ErrStorageConflict
 	}
 	// The coordination session already owns a shared transition lock. A
