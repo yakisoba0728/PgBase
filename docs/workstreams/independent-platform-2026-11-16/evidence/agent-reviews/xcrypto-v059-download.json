@@ -1,0 +1,16 @@
+{
+	"Path": "golang.org/x/crypto",
+	"Version": "v0.59.0",
+	"Info": "/home/agent/go/pkg/mod/cache/download/golang.org/x/crypto/@v/v0.59.0.info",
+	"GoMod": "/home/agent/go/pkg/mod/cache/download/golang.org/x/crypto/@v/v0.59.0.mod",
+	"Zip": "/home/agent/go/pkg/mod/cache/download/golang.org/x/crypto/@v/v0.59.0.zip",
+	"Dir": "/home/agent/go/pkg/mod/golang.org/x/crypto@v0.59.0",
+	"Sum": "h1:xS2jhqYbzNrpvkWP2YTDf4TJwBy3ykR03i8vFDxEc7c=",
+	"GoModSum": "h1:veDyUwATGs3c+vN3VfTbzViMGXeTBk3WyhBOkn+F/4U=",
+	"Origin": {
+		"VCS": "git",
+		"URL": "https://go.googlesource.com/crypto",
+		"Hash": "6c966a7517bfc4fa0f268afb1fe663013ed932a5",
+		"Ref": "refs/tags/v0.59.0"
+	}
+}

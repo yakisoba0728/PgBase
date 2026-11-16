@@ -1,0 +1,84 @@
+{
+  "runId": 43777701630,
+  "checkout": "e719d9d31655d4e6e4724bbb1dda5007235bc7e5",
+  "headFromCheckoutMergeMessage": "7619dbf790c9ccf88079247482b5db18fe8f018a",
+  "baseFromCheckoutMergeMessage": "8f551de4423a6b64d9c0ac94fff9b9bd07264f2a",
+  "method": "GitHub connector fetch_workflow_job_logs structuredContent.content, UTF-8 re-encoded; existing BOM and newline content retained. SHA values refer to these decoded text files, not an Actions ZIP.",
+  "sources": [
+    {
+      "path": "tools/testskip/main.go",
+      "gitBlobSHA": "7974a8226575387d1c88275575568c0dda9db796",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/tools/testskip/main.go"
+    },
+    {
+      "path": "scripts/test-go-integration.sh",
+      "gitBlobSHA": "c1b169a69ef4931db5f6edc7bf01e7d516319efe",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/scripts/test-go-integration.sh"
+    },
+    {
+      "path": "tests/go-test-skip-allowlist.tsv",
+      "gitBlobSHA": "10b39ee9a477556ee3b6892f619756fc975f1871",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/tests/go-test-skip-allowlist.tsv"
+    },
+    {
+      "path": ".github/workflows/backend.yml",
+      "gitBlobSHA": "60afdab4474764d20e78f7d1c2614c01067d1aaa",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/.github/workflows/backend.yml"
+    },
+    {
+      "path": "pgbase/sdk_integration_test.go",
+      "gitBlobSHA": "5ca65ecb65467a5f3ad9fc8422f3ac4a51e49c8b",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/pgbase/sdk_integration_test.go"
+    },
+    {
+      "path": "pgbase/sdk_administration_acceptance_integration_test.go",
+      "gitBlobSHA": "d87096c091dade81aef27abe83e969129fef47df",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/pgbase/sdk_administration_acceptance_integration_test.go"
+    },
+    {
+      "path": "pgbase/multiprocess_acceptance_integration_test.go",
+      "gitBlobSHA": "5a2c7024a2555cbdb293c71468bcb65e2eb6b4a8",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/pgbase/multiprocess_acceptance_integration_test.go"
+    },
+    {
+      "path": "internal/filestore/s3_integration_test.go",
+      "gitBlobSHA": "174963e1e5a36b65e1fe16f78bff4f954c1d8ab4",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/internal/filestore/s3_integration_test.go"
+    },
+    {
+      "path": "scripts/test-s3-fixture.sh",
+      "gitBlobSHA": "7e9567a32d29d7bfee299da4d5aed6b886cc8cfb",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/scripts/test-s3-fixture.sh"
+    },
+    {
+      "path": "sdk/dart/tool/pocketbase_http_conformance.dart",
+      "gitBlobSHA": "06fd83e81c3b1196c72985945a72fddcfacd3e8c",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/sdk/dart/tool/pocketbase_http_conformance.dart"
+    },
+    {
+      "path": "sdk/typescript/package.json",
+      "gitBlobSHA": "d00bf1ae1ec6892a30373b22c362b8137aaf6e68",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/sdk/typescript/package.json"
+    },
+    {
+      "path": "pgbase/sdk_realtime_conformance_integration_test.go",
+      "gitBlobSHA": "ef9da6f732d66c8d53649c32ab0e55dc5d6578b1",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/pgbase/sdk_realtime_conformance_integration_test.go"
+    },
+    {
+      "path": "tests/sdk-acceptance/admin_http.mjs",
+      "gitBlobSHA": "346da9ab58a3924bf4e4445353fe326ce47262a7",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/tests/sdk-acceptance/admin_http.mjs"
+    },
+    {
+      "path": "sdk/dart/tool/admin_http_acceptance.dart",
+      "gitBlobSHA": "68816892f5f47d5f3c931622e1b13957ea833608",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/sdk/dart/tool/admin_http_acceptance.dart"
+    },
+    {
+      "path": "sdk/typescript/test/sdk.test.mjs",
+      "gitBlobSHA": "dd1ccd8535eecc3c62409603d192af9456201fc1",
+      "url": "https://github.com/yakisoba0728/PgBase/blob/e719d9d31655d4e6e4724bbb1dda5007235bc7e5/sdk/typescript/test/sdk.test.mjs"
+    }
+  ]
+}

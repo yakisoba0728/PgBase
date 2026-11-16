@@ -1,0 +1,28 @@
+[GNUPG:] NEWSIG
+gpg: Signature made Mon Nov 16 07:18:18 2026 KST
+gpg:                using RSA key ED541312A33F1128F10B1C6C54404762BBB6E853
+[GNUPG:] KEY_CONSIDERED AC530D520F2F3269F5E98313A48449044AAD5C5D 0
+[GNUPG:] SIG_ID 2EDnbxBoQRkXdfi61K6Xgnqyg/0 2026-11-15 1794781098
+[GNUPG:] GOODSIG 54404762BBB6E853 Debian Security Archive Automatic Signing Key (11/bullseye) <ftpmaster@debian.org>
+gpg: Good signature from "Debian Security Archive Automatic Signing Key (11/bullseye) <ftpmaster@debian.org>" [unknown]
+[GNUPG:] VALIDSIG ED541312A33F1128F10B1C6C54404762BBB6E853 2026-11-15 1794781098 0 4 0 1 8 01 AC530D520F2F3269F5E98313A48449044AAD5C5D
+[GNUPG:] KEY_CONSIDERED AC530D520F2F3269F5E98313A48449044AAD5C5D 0
+[GNUPG:] TRUST_UNDEFINED 0 pgp
+gpg: WARNING: This key is not certified with a trusted signature!
+gpg:          There is no indication that the signature belongs to the owner.
+Primary key fingerprint: AC53 0D52 0F2F 3269 F5E9  8313 A484 4904 4AAD 5C5D
+     Subkey fingerprint: ED54 1312 A33F 1128 F10B  1C6C 5440 4762 BBB6 E853
+[GNUPG:] NEWSIG
+gpg: Signature made Mon Nov 16 07:18:18 2026 KST
+gpg:                using RSA key B0CAB9266E8C3929798B3EEEBDE6D2B9216EC7A8
+[GNUPG:] KEY_CONSIDERED 05AB90340C0C5E797F44A8C8254CF3B5AEC0A8F0 0
+[GNUPG:] SIG_ID NU7d7RvHsdlmQrLnvwEcneeNSMA 2026-11-15 1794781098
+[GNUPG:] GOODSIG BDE6D2B9216EC7A8 Debian Security Archive Automatic Signing Key (12/bookworm) <ftpmaster@debian.org>
+gpg: Good signature from "Debian Security Archive Automatic Signing Key (12/bookworm) <ftpmaster@debian.org>" [unknown]
+[GNUPG:] VALIDSIG B0CAB9266E8C3929798B3EEEBDE6D2B9216EC7A8 2026-11-15 1794781098 0 4 0 1 8 01 05AB90340C0C5E797F44A8C8254CF3B5AEC0A8F0
+[GNUPG:] KEY_CONSIDERED 05AB90340C0C5E797F44A8C8254CF3B5AEC0A8F0 0
+[GNUPG:] TRUST_UNDEFINED 0 pgp
+gpg: WARNING: This key is not certified with a trusted signature!
+gpg:          There is no indication that the signature belongs to the owner.
+Primary key fingerprint: 05AB 9034 0C0C 5E79 7F44  A8C8 254C F3B5 AEC0 A8F0
+     Subkey fingerprint: B0CA B926 6E8C 3929 798B  3EEE BDE6 D2B9 216E C7A8

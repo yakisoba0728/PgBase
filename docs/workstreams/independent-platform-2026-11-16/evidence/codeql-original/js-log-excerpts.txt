@@ -1,0 +1,3 @@
+2026-11-15T19:19:38.3707577Z [105/105] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/javascript-queries/2.5.0/Summary/LinesOfUserCode.qlx.
+2026-11-15T19:20:18.5891862Z [36;1mprint(f'CodeQL findings requiring classification: {len(findings)}')[0m
+2026-11-15T19:20:18.6362668Z CodeQL findings requiring classification: 3

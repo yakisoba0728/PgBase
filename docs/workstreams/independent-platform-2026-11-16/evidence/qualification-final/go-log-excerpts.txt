@@ -1,0 +1,49 @@
+2026-11-16T00:24:18.5431174Z   CODEQL_ACTION_DIFF_INFORMED_QUERIES: false
+2026-11-16T00:24:23.7261290Z   CODEQL_ACTION_DIFF_INFORMED_QUERIES: false
+2026-11-16T00:24:26.3734549Z   CODEQL_ACTION_DIFF_INFORMED_QUERIES: false
+2026-11-16T00:24:42.0608027Z Using CodeQL CLI version 2.27.4 from toolcache at /opt/hostedtoolcache/CodeQL/2.27.4/x64
+2026-11-16T00:24:58.0102016Z   CODEQL_ACTION_DIFF_INFORMED_QUERIES: false
+2026-11-16T00:26:02.2023761Z   CODEQL_ACTION_DIFF_INFORMED_QUERIES: false
+2026-11-16T00:26:02.7394292Z No precomputed diff ranges found; skipping diff-informed analysis stage.
+2026-11-16T00:26:25.0136041Z [1/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-079/HtmlTemplateEscapingBypassXss.qlx.
+2026-11-16T00:26:25.0420892Z [2/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-079/ReflectedXss.qlx.
+2026-11-16T00:26:25.1572431Z [3/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-601/BadRedirectCheck.qlx.
+2026-11-16T00:26:25.2419673Z [4/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-601/OpenUrlRedirect.qlx.
+2026-11-16T00:26:25.2793151Z [5/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-640/EmailInjection.qlx.
+2026-11-16T00:26:25.4009777Z [6/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-918/RequestForgery.qlx.
+2026-11-16T00:26:25.4206960Z [7/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-614/CookieWithoutSecure.qlx.
+2026-11-16T00:26:25.5889323Z [8/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-190/AllocationSizeOverflow.qlx.
+2026-11-16T00:26:25.6488949Z [9/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-338/InsecureRandomness.qlx.
+2026-11-16T00:26:25.6792735Z [10/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-295/DisabledCertificateCheck.qlx.
+2026-11-16T00:26:25.7211886Z [11/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-020/IncompleteUrlSchemeCheck.qlx.
+2026-11-16T00:26:25.7551850Z [12/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-020/IncompleteHostnameRegexp.qlx.
+2026-11-16T00:26:25.8519108Z [13/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-020/SuspiciousCharacterInRegexp.qlx.
+2026-11-16T00:26:25.8795405Z [14/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-020/MissingRegexpAnchor.qlx.
+2026-11-16T00:26:25.9536031Z [15/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-312/CleartextLogging.qlx.
+2026-11-16T00:26:25.9916022Z [16/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-347/MissingJwtSignatureCheck.qlx.
+2026-11-16T00:26:26.0469035Z [17/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-022/ZipSlip.qlx.
+2026-11-16T00:26:26.1291145Z [18/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-022/UnsafeUnzipSymlink.qlx.
+2026-11-16T00:26:26.1619518Z [19/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-022/TaintedPath.qlx.
+2026-11-16T00:26:26.2339407Z [20/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-681/IncorrectIntegerConversionQuery.qlx.
+2026-11-16T00:26:26.2433841Z [21/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-322/InsecureHostKeyCallback.qlx.
+2026-11-16T00:26:26.3099562Z [22/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-770/UncontrolledAllocationSize.qlx.
+2026-11-16T00:26:26.3234248Z [23/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-643/XPathInjection.qlx.
+2026-11-16T00:26:26.3485985Z [24/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-209/StackTraceExposure.qlx.
+2026-11-16T00:26:26.4101012Z [25/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-352/ConstantOauth2State.qlx.
+2026-11-16T00:26:26.4559694Z [26/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-326/InsufficientKeySize.qlx.
+2026-11-16T00:26:26.4909639Z [27/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-078/CommandInjection.qlx.
+2026-11-16T00:26:26.6464545Z [28/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-327/BrokenCryptoAlgorithm.qlx.
+2026-11-16T00:26:26.6676653Z [29/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-327/WeakSensitiveDataHashing.qlx.
+2026-11-16T00:26:26.7382797Z [30/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-327/InsecureTLS.qlx.
+2026-11-16T00:26:26.7996113Z [31/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-1004/CookieWithoutHttpOnly.qlx.
+2026-11-16T00:26:26.8458844Z [32/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-089/SqlInjection.qlx.
+2026-11-16T00:26:26.8881505Z [33/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-089/StringBreak.qlx.
+2026-11-16T00:26:26.8905872Z [34/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Diagnostics/ExtractionErrors.qlx.
+2026-11-16T00:26:26.8948189Z [35/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Diagnostics/SuccessfullyExtractedFiles.qlx.
+2026-11-16T00:26:26.9028630Z [36/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Summary/LinesOfCode.qlx.
+2026-11-16T00:26:26.9809198Z [37/37] Loaded /opt/hostedtoolcache/CodeQL/2.27.4/x64/codeql/qlpacks/codeql/go-queries/1.6.14/Security/CWE-117/LogInjection.qlx.
+2026-11-16T00:26:58.4339064Z   CODEQL_ACTION_DIFF_INFORMED_QUERIES: false
+2026-11-16T00:26:58.5889087Z Ran 12 tests in 0.004s
+2026-11-16T00:26:58.6031597Z   CODEQL_ACTION_DIFF_INFORMED_QUERIES: false
+2026-11-16T00:26:58.6515574Z CodeQL findings requiring classification: 24
+2026-11-16T00:26:58.6669700Z   CODEQL_ACTION_DIFF_INFORMED_QUERIES: false

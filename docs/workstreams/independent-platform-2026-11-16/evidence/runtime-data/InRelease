@@ -1,0 +1,335 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA256
+
+Origin: Debian
+Label: Debian-Security
+Suite: oldstable-security
+Version: 12
+Codename: bookworm-security
+Date: Sun, 15 Nov 2026 22:18:17 UTC
+Valid-Until: Sun, 22 Nov 2026 22:18:17 UTC
+Acquire-By-Hash: yes
+Architectures: amd64 arm64 armhf i386 ppc64el
+Components: updates/main updates/contrib updates/non-free-firmware updates/non-free
+Description: Debian 12 - Security Updates
+SHA256:
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/Contents-amd64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 contrib/Contents-amd64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/Contents-arm64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 contrib/Contents-arm64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/Contents-armhf
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 contrib/Contents-armhf.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/Contents-i386
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 contrib/Contents-i386.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/Contents-ppc64el
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 contrib/Contents-ppc64el.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/Contents-source
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 contrib/Contents-source.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/Contents-udeb-amd64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 contrib/Contents-udeb-amd64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/Contents-udeb-arm64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 contrib/Contents-udeb-arm64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/Contents-udeb-armhf
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 contrib/Contents-udeb-armhf.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/Contents-udeb-i386
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 contrib/Contents-udeb-i386.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/Contents-udeb-ppc64el
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 contrib/Contents-udeb-ppc64el.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/binary-all/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 contrib/binary-all/Packages.xz
+ 1e37805147e48db675d630be22bbc49c5cfa0338219961428176463df11f6326      144 contrib/binary-all/Release
+ c8688a4761aec8f6dfbab8f3941f383fc5ee72aaf0bdaaa3c43aac81d8c42c84     3681 contrib/binary-amd64/Packages
+ 19f8dd5f1ee03c4ce44d79f31c4a9bb538e7b8324bf8db398cf395e3223affe9     1456 contrib/binary-amd64/Packages.xz
+ 13529bb1fecd706906a2a0a647b3046756075c6d7e9624234ca09430fa7f3f18      146 contrib/binary-amd64/Release
+ 392ced888341adbd716cc79cec50e81e1b0e6402bf80f66ef79c0e9cfcfaf5eb     2330 contrib/binary-arm64/Packages
+ e0d2c18d6618ed1d768f9bc0110729c1f92f1ae59371d76c55db8d68fc28869b     1100 contrib/binary-arm64/Packages.xz
+ d950e47907eea06f0058ad8ef2597da0e8b3ed8ab983dc2d844706d597f32d21      146 contrib/binary-arm64/Release
+ 9d42efbda0e66274011837cdff77038958a0e395aff8e70f7de4919c6b3839ba     1249 contrib/binary-armhf/Packages
+ bc29c09cd54856079b0818b155413b36ac9029b2e79c92e056095b8e5aa2f1dc      752 contrib/binary-armhf/Packages.xz
+ 74841a9c9cb715d25b50375552d3d3414ecc3b297c6f9e2a017fa5c640dd0177      146 contrib/binary-armhf/Release
+ 5fa601b164f4be1f8ca4da0775714cc72d33a1617598d6da92bf605db8ad260c     1245 contrib/binary-i386/Packages
+ 16ded2cc1f766575aa69ad280e3a91ee5ebfd348b8d8eae3ebcd5e0a9b328a52      752 contrib/binary-i386/Packages.xz
+ fa53b67781bf786171abfe4869ba82ddbbaf7b7655138c03c4f82b95be39f88e      145 contrib/binary-i386/Release
+ b215d402e6169c0e30bc0c2ba2c21ec62dd6f6ec0b5cc1aaacc619e9e9acc2f8     1719 contrib/binary-ppc64el/Packages
+ 2c164cb4c7ca80a7a81d287fa663a0455ca0028d1fd98d0e3adb7a6f4a17259e      880 contrib/binary-ppc64el/Packages.xz
+ cad3109ebc90451a5a34df4d754215addd97228d71f73b3182a550714b62301d      148 contrib/binary-ppc64el/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/debian-installer/binary-all/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 contrib/debian-installer/binary-all/Packages.xz
+ 1e37805147e48db675d630be22bbc49c5cfa0338219961428176463df11f6326      144 contrib/debian-installer/binary-all/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/debian-installer/binary-amd64/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 contrib/debian-installer/binary-amd64/Packages.xz
+ 13529bb1fecd706906a2a0a647b3046756075c6d7e9624234ca09430fa7f3f18      146 contrib/debian-installer/binary-amd64/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/debian-installer/binary-arm64/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 contrib/debian-installer/binary-arm64/Packages.xz
+ d950e47907eea06f0058ad8ef2597da0e8b3ed8ab983dc2d844706d597f32d21      146 contrib/debian-installer/binary-arm64/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/debian-installer/binary-armhf/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 contrib/debian-installer/binary-armhf/Packages.xz
+ 74841a9c9cb715d25b50375552d3d3414ecc3b297c6f9e2a017fa5c640dd0177      146 contrib/debian-installer/binary-armhf/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/debian-installer/binary-i386/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 contrib/debian-installer/binary-i386/Packages.xz
+ fa53b67781bf786171abfe4869ba82ddbbaf7b7655138c03c4f82b95be39f88e      145 contrib/debian-installer/binary-i386/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 contrib/debian-installer/binary-ppc64el/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 contrib/debian-installer/binary-ppc64el/Packages.xz
+ cad3109ebc90451a5a34df4d754215addd97228d71f73b3182a550714b62301d      148 contrib/debian-installer/binary-ppc64el/Release
+ d968906f26c787465e91ef99a7440f42f3e171978c8f273afbd00e726965c9c8     2068 contrib/i18n/Translation-en
+ aece6d7dd3e071ebad96569389000a75de512da47a3b608826072ff863ca17c7     1068 contrib/i18n/Translation-en.xz
+ eb95ff362f3dd9cc8aa44710e7779fe28c8a96d8daf7c8b17dad07b42c7ec4e6      147 contrib/source/Release
+ 504c323e5a0692a7b4cbd8bbdd62e35d94a5d027289407dd61c6de9130388e2e     2541 contrib/source/Sources
+ 0f81cc37fa97ed59626040685e0d95ca69f07457d0c8093a7b5f53039f77c345     1224 contrib/source/Sources.xz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 main/Contents-amd64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 main/Contents-amd64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 main/Contents-arm64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 main/Contents-arm64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 main/Contents-armhf
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 main/Contents-armhf.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 main/Contents-i386
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 main/Contents-i386.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 main/Contents-ppc64el
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 main/Contents-ppc64el.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 main/Contents-source
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 main/Contents-source.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 main/Contents-udeb-amd64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 main/Contents-udeb-amd64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 main/Contents-udeb-arm64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 main/Contents-udeb-arm64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 main/Contents-udeb-armhf
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 main/Contents-udeb-armhf.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 main/Contents-udeb-i386
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 main/Contents-udeb-i386.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 main/Contents-udeb-ppc64el
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 main/Contents-udeb-ppc64el.gz
+ ee0fb8a9e32e6dce5d4f5ab740537d5013b2fbe781e0d2dd56d4c73097ba0112   839465 main/binary-all/Packages
+ 4874b4d4552f652296e23f2f88576cede674e8302e2eaaa554735bc48fc45c43   134212 main/binary-all/Packages.xz
+ a3ecebb6d51c776059095634cce1eddafc990375c7e95a5b34f96a9c1eecda09      141 main/binary-all/Release
+ 13352e118cbb802791965a16c481e3f33555e9da4773f7f3572801601a43aded  2484116 main/binary-amd64/Packages
+ 5625320bdf727cfa250b1768fd11e6a3252d4beeb7f2398af4a28e3f17f1772a   372680 main/binary-amd64/Packages.xz
+ 05516a7e2e1f29b8f1686eb1e82c1d1142d1ab21c3398de3d3b3da977fcf60e6      143 main/binary-amd64/Release
+ 540fd3fdc7adb598e2710798237c6f00425a2ab114d2ac76fce8242804dcb8b4  2485659 main/binary-arm64/Packages
+ 54b61243a22255d8cf2863662f2de257106f289912167d660390f8f23d21bc9c   371140 main/binary-arm64/Packages.xz
+ ccfc9e8ae8b9c3d9ed8db63f353b91bb8e9835488872da8d5de0d45bb515c52c      143 main/binary-arm64/Release
+ 76b39afd9fb5eb5641c440b43dca08dde1a8addd3cc2db79e1e338cf83e39c3a  2177970 main/binary-armhf/Packages
+ fb3349b704af8ad4687bc944c30b4ebd4a999efcde4dd81d6962bbbbf679fe54   344664 main/binary-armhf/Packages.xz
+ f16c4f08b5e4c792cf77793ada5d2be4fd15fb91046ab00172bee0cce47dd635      143 main/binary-armhf/Release
+ 174d900eb2327238b8d4b85e883e941b43556798de2037c009ba6500324b178d  2361013 main/binary-i386/Packages
+ 4df2d4ba880bfead7b103d5b46988fba88e1546801571948e523be81dd8829fb   359900 main/binary-i386/Packages.xz
+ b03fada162f1f8706db550d39eedf9b884435187971da77c379152a559918de4      142 main/binary-i386/Release
+ ad69fdea9460eaad1ccdb2fc1b70d534a222b5a2cade0a6dd21322089a470ece  2343279 main/binary-ppc64el/Packages
+ 5d29c0918833724ae0ff686c44e234abc8e12d19e8d5a4d5261703de26b01202   356468 main/binary-ppc64el/Packages.xz
+ b051ec8e8caaec022d645c939e049b83de5a3c28bddf9b17c2c752a3fc615566      145 main/binary-ppc64el/Release
+ ced15d9e950d6d7d1801721561f4dd6e7c6a7bdbc2af7c353d7d308e4639b9c2      485 main/debian-installer/binary-all/Packages
+ e8d3e0caa802f8da9b0cff369b40779aa5141980167dd41bd61164ef347ce93d      404 main/debian-installer/binary-all/Packages.xz
+ a3ecebb6d51c776059095634cce1eddafc990375c7e95a5b34f96a9c1eecda09      141 main/debian-installer/binary-all/Release
+ 19a6f3de8fac71d6f602eb86d336381930831d106ccc0cb79f3d3493920892c0   542269 main/debian-installer/binary-amd64/Packages
+ b3374a688e3370b887eeb2a955111b133823dd3be496f059bbc53d532b5460c9    45388 main/debian-installer/binary-amd64/Packages.xz
+ 05516a7e2e1f29b8f1686eb1e82c1d1142d1ab21c3398de3d3b3da977fcf60e6      143 main/debian-installer/binary-amd64/Release
+ cdbf730e4dc880322e1cf506f6ea66a90abe9f5be1abbaae842c3ae451093e60   527826 main/debian-installer/binary-arm64/Packages
+ 6c386f4dea65030c78c60e6d87529413d7241e1d3d05785c0d62b94fddc7c4d9    44364 main/debian-installer/binary-arm64/Packages.xz
+ ccfc9e8ae8b9c3d9ed8db63f353b91bb8e9835488872da8d5de0d45bb515c52c      143 main/debian-installer/binary-arm64/Release
+ f16d3d56915b58e1a0050d8c4dd340c2782eb6f83e87d51c9efbb3bf3533e6b1   226061 main/debian-installer/binary-armhf/Packages
+ b1376f06fc892809b76b93c99ac5324631312707d827543b092303640c3c1606    23428 main/debian-installer/binary-armhf/Packages.xz
+ f16c4f08b5e4c792cf77793ada5d2be4fd15fb91046ab00172bee0cce47dd635      143 main/debian-installer/binary-armhf/Release
+ 824d1ecaab428681a478da3598306732d29697fe0e8d72a43547ecbb0a72e56d   881863 main/debian-installer/binary-i386/Packages
+ 729f2a41a213d72b8ee5ea048dcab057b07ada5cd1f7162577b69528db5b621e    70100 main/debian-installer/binary-i386/Packages.xz
+ b03fada162f1f8706db550d39eedf9b884435187971da77c379152a559918de4      142 main/debian-installer/binary-i386/Release
+ 8cad7d0e44c4e8e15b5ae8edfcab177c38d37cf67083899095656b49f316f246   237542 main/debian-installer/binary-ppc64el/Packages
+ 4f1947dfedbe1feb6f759dd22ce2a43657453d31ebcafe3f40f4ec8c3d350348    23652 main/debian-installer/binary-ppc64el/Packages.xz
+ b051ec8e8caaec022d645c939e049b83de5a3c28bddf9b17c2c752a3fc615566      145 main/debian-installer/binary-ppc64el/Release
+ b2634ffa48eb258e47a50e00cf3071caeafcebbd0930e226d5ee82b527d23452  1641881 main/i18n/Translation-en
+ ec7eed68b4df043cc028fd47d9e70c59b07ed7d4bfcd6dcfc03a01667678d7cb   233316 main/i18n/Translation-en.xz
+ aba3736ffd5e7f7c3c09102ad650ae6b8016286f1f8b03e3427bb1dce5f2d305      144 main/source/Release
+ 4964ef7775695efb1fd63e13d8676317a1f11125614e013069218feb1baf0271  7574265 main/source/Sources
+ 64446e18c52b03366eb499406414ad7bc2850c047a92da795e08ed43bcc57184   294220 main/source/Sources.xz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-amd64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-amd64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-arm64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-arm64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-armel
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-armel.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-armhf
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-armhf.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-i386
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-i386.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-mips64el
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-mips64el.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-mipsel
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-mipsel.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-ppc64el
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-ppc64el.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-s390x
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-s390x.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-source
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-source.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-udeb-amd64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-udeb-amd64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-udeb-arm64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-udeb-arm64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-udeb-armel
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-udeb-armel.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-udeb-armhf
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-udeb-armhf.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-udeb-i386
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-udeb-i386.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-udeb-mips64el
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-udeb-mips64el.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-udeb-mipsel
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-udeb-mipsel.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-udeb-ppc64el
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-udeb-ppc64el.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/Contents-udeb-s390x
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free-firmware/Contents-udeb-s390x.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/binary-all/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/binary-all/Packages.xz
+ 0ed9e45a0af768bc00e9afe2a85d8f6dc74bd8d75e162cfe5887e3841dbd715e      154 non-free-firmware/binary-all/Release
+ 757daf6f91a11e1ba2e7c29c1cfad110d4323106686f69a903ccb861f0d3fda6     2030 non-free-firmware/binary-amd64/Packages
+ 46b4882c04f6c9ec992afa60fff8236964beb4c8805f766f988a02dc99078c22      940 non-free-firmware/binary-amd64/Packages.xz
+ b3a24eae8ddcd6c59b2ebbe29ffb38e3562750acffe4563f2168417e56e76767      156 non-free-firmware/binary-amd64/Release
+ 80fa0686e1482aa39d168f2958e9bbd72974b03f855390cd0e00553a5c104b15      729 non-free-firmware/binary-arm64/Packages
+ 15818983d3701516780d9b08c2e5dcefbb75ae5ee66afefa57581c26e7ae9f32      508 non-free-firmware/binary-arm64/Packages.xz
+ 5c0ccf61b539810a8013af1217e6aa47eade25b392dde148aa6c68ca1769fb96      156 non-free-firmware/binary-arm64/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/binary-armel/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/binary-armel/Packages.xz
+ 65627508ed751b50d7f1bd30456e09915111dc701cc0e151133407add07546b7      156 non-free-firmware/binary-armel/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/binary-armhf/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/binary-armhf/Packages.xz
+ abbe20cd31f2002f353881998a4b139317712a023b9fd3b1f3f2d7390da2de2f      156 non-free-firmware/binary-armhf/Release
+ bd211cf3671361ef906c918653a3d48f80d887bf2d3af01bda721564fcbe71be     1297 non-free-firmware/binary-i386/Packages
+ dae53fff8fc9d1c47f1edc22feb4c9f4d2a21203945a98eb2391b18e853d6e49      692 non-free-firmware/binary-i386/Packages.xz
+ 6e0835c3bfeaa5a267d0c76c8d6ffb1281a97ab512da91a41d4f0930a43a3a2c      155 non-free-firmware/binary-i386/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/binary-mips64el/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/binary-mips64el/Packages.xz
+ ab2faa46a33b83a804a8aca11f311802f9dadc25d77df93d45280758fbda5e64      159 non-free-firmware/binary-mips64el/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/binary-mipsel/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/binary-mipsel/Packages.xz
+ 4d43f9304a853261aeb1406321020cc167f777d9797145c97a31bc092b524c1f      157 non-free-firmware/binary-mipsel/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/binary-ppc64el/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/binary-ppc64el/Packages.xz
+ 72ee2e7b5e8bdac2db32d84e5dd7d2cb5e974697acbaf3e2260048bbbf65fa96      158 non-free-firmware/binary-ppc64el/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/binary-s390x/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/binary-s390x/Packages.xz
+ 93198c024177c3ffe9e7bda54ac8f034666c153b77632ece31da33f9ac5c1ac3      156 non-free-firmware/binary-s390x/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/debian-installer/binary-all/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/debian-installer/binary-all/Packages.xz
+ 0ed9e45a0af768bc00e9afe2a85d8f6dc74bd8d75e162cfe5887e3841dbd715e      154 non-free-firmware/debian-installer/binary-all/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/debian-installer/binary-amd64/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/debian-installer/binary-amd64/Packages.xz
+ b3a24eae8ddcd6c59b2ebbe29ffb38e3562750acffe4563f2168417e56e76767      156 non-free-firmware/debian-installer/binary-amd64/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/debian-installer/binary-arm64/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/debian-installer/binary-arm64/Packages.xz
+ 5c0ccf61b539810a8013af1217e6aa47eade25b392dde148aa6c68ca1769fb96      156 non-free-firmware/debian-installer/binary-arm64/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/debian-installer/binary-armel/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/debian-installer/binary-armel/Packages.xz
+ 65627508ed751b50d7f1bd30456e09915111dc701cc0e151133407add07546b7      156 non-free-firmware/debian-installer/binary-armel/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/debian-installer/binary-armhf/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/debian-installer/binary-armhf/Packages.xz
+ abbe20cd31f2002f353881998a4b139317712a023b9fd3b1f3f2d7390da2de2f      156 non-free-firmware/debian-installer/binary-armhf/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/debian-installer/binary-i386/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/debian-installer/binary-i386/Packages.xz
+ 6e0835c3bfeaa5a267d0c76c8d6ffb1281a97ab512da91a41d4f0930a43a3a2c      155 non-free-firmware/debian-installer/binary-i386/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/debian-installer/binary-mips64el/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/debian-installer/binary-mips64el/Packages.xz
+ ab2faa46a33b83a804a8aca11f311802f9dadc25d77df93d45280758fbda5e64      159 non-free-firmware/debian-installer/binary-mips64el/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/debian-installer/binary-mipsel/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/debian-installer/binary-mipsel/Packages.xz
+ 4d43f9304a853261aeb1406321020cc167f777d9797145c97a31bc092b524c1f      157 non-free-firmware/debian-installer/binary-mipsel/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/debian-installer/binary-ppc64el/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/debian-installer/binary-ppc64el/Packages.xz
+ 72ee2e7b5e8bdac2db32d84e5dd7d2cb5e974697acbaf3e2260048bbbf65fa96      158 non-free-firmware/debian-installer/binary-ppc64el/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free-firmware/debian-installer/binary-s390x/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free-firmware/debian-installer/binary-s390x/Packages.xz
+ 93198c024177c3ffe9e7bda54ac8f034666c153b77632ece31da33f9ac5c1ac3      156 non-free-firmware/debian-installer/binary-s390x/Release
+ b0e0127c344a84777fcd8f33ddeb7c1f2fb63af93fabb8ca7f2f542378929f01     1261 non-free-firmware/i18n/Translation-en
+ 49d30fdf063720bf8f3699849f44c7bac234d435da032685ca8bd15b9a85f621      648 non-free-firmware/i18n/Translation-en.xz
+ dd2a3788f36841afa8063bf20c131d187376fee46a9e926fbe282d4b0a575712      157 non-free-firmware/source/Release
+ 4db430bb51a83e5802c3d0e5bd3ad946b340521bd95e0b6badc0b73d7cb9d4d5     7599 non-free-firmware/source/Sources
+ 153a91a147f72519b02fcf5c93c2d569878935bb288573e5863f6ca15b0060a5     1988 non-free-firmware/source/Sources.xz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/Contents-amd64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free/Contents-amd64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/Contents-arm64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free/Contents-arm64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/Contents-armhf
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free/Contents-armhf.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/Contents-i386
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free/Contents-i386.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/Contents-ppc64el
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free/Contents-ppc64el.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/Contents-source
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free/Contents-source.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/Contents-udeb-amd64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free/Contents-udeb-amd64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/Contents-udeb-arm64
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free/Contents-udeb-arm64.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/Contents-udeb-armhf
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free/Contents-udeb-armhf.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/Contents-udeb-i386
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free/Contents-udeb-i386.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/Contents-udeb-ppc64el
+ f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec       20 non-free/Contents-udeb-ppc64el.gz
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/binary-all/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free/binary-all/Packages.xz
+ b16e86101ccb19de17e5dd3e41ddea1f81c67a08ecf5127343e25e76b4c26f5c      145 non-free/binary-all/Release
+ 8dd1f256a970e5193e48c0f98ac2ddc0d37ea22c8ffb5ddfe793703a43f4488e    38710 non-free/binary-amd64/Packages
+ d4fe39fb712c6c94a3abd470e72f1603d74885d6a4cc8c50dea676fe0ad0197f     6296 non-free/binary-amd64/Packages.xz
+ eb9fcff7514bfd20e951af52fb1a24be3915d285b4e68de628e3409b4c657432      147 non-free/binary-amd64/Release
+ 77dcd01fc869070b98a3fa5fff5d7ebcb6321be64aa1139cebdd15452feefd8d    36486 non-free/binary-arm64/Packages
+ c1e66449d14669229c89ee2fe7665a2b9d9bb4abb00e8486f0be0cfda36e2dbe     5956 non-free/binary-arm64/Packages.xz
+ cc053e1408e2cbedfd4ee39fb7572f007177902aa8c2a48aa920069e601a4780      147 non-free/binary-arm64/Release
+ 14a69d65b376705b6cae1adc1a93af5b3ef219222b57f41264e131b505336aed      602 non-free/binary-armhf/Packages
+ 3e5cf945e9c0f328b298658ca07e33fc6f480995bb6f0e6d3ace086a88ad1ee4      480 non-free/binary-armhf/Packages.xz
+ e131c48e45de3505188d4a725f3ec2ea5304e048d299087678c762e0b6d28da8      147 non-free/binary-armhf/Release
+ 066e3b9ea3e7405d601ba254ee98cabe2e97c28f7306575aa433b263226e5898    21308 non-free/binary-i386/Packages
+ 3c5d03ad709c51dd58386503f6852393c73c4ccf97ad17bace9293202737c341     3804 non-free/binary-i386/Packages.xz
+ c7fb41647146124d925c787699afd85c64e6b54d6955d8551ba39780cda2f3ae      146 non-free/binary-i386/Release
+ a587c1914781282048193c8a3f74f978578050bc2b1d16ad7a9eacbd33e7017d     2778 non-free/binary-ppc64el/Packages
+ 188542ee3577de752c176872191cafa0989f702fcddd4e4256305eefd082830c      884 non-free/binary-ppc64el/Packages.xz
+ 2bf798a7d62da0c515d54b194227aef4718ae488a0254433f6012c58c3ba9011      149 non-free/binary-ppc64el/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/debian-installer/binary-all/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free/debian-installer/binary-all/Packages.xz
+ b16e86101ccb19de17e5dd3e41ddea1f81c67a08ecf5127343e25e76b4c26f5c      145 non-free/debian-installer/binary-all/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/debian-installer/binary-amd64/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free/debian-installer/binary-amd64/Packages.xz
+ eb9fcff7514bfd20e951af52fb1a24be3915d285b4e68de628e3409b4c657432      147 non-free/debian-installer/binary-amd64/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/debian-installer/binary-arm64/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free/debian-installer/binary-arm64/Packages.xz
+ cc053e1408e2cbedfd4ee39fb7572f007177902aa8c2a48aa920069e601a4780      147 non-free/debian-installer/binary-arm64/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/debian-installer/binary-armhf/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free/debian-installer/binary-armhf/Packages.xz
+ e131c48e45de3505188d4a725f3ec2ea5304e048d299087678c762e0b6d28da8      147 non-free/debian-installer/binary-armhf/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/debian-installer/binary-i386/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free/debian-installer/binary-i386/Packages.xz
+ c7fb41647146124d925c787699afd85c64e6b54d6955d8551ba39780cda2f3ae      146 non-free/debian-installer/binary-i386/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/debian-installer/binary-ppc64el/Packages
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free/debian-installer/binary-ppc64el/Packages.xz
+ 2bf798a7d62da0c515d54b194227aef4718ae488a0254433f6012c58c3ba9011      149 non-free/debian-installer/binary-ppc64el/Release
+ 071cdb59e0ab889e70076ed57a345fe8fad7e99cd9f585ea9c6b165e0d0560ab    23562 non-free/i18n/Translation-en
+ 524cc4c4acfea5a1baf84fe6d080ac160c13790ed7091beee83570a3c62168ba     5340 non-free/i18n/Translation-en.xz
+ b3bd0b50a3182060080e3e28ef40ed9869a2b4372581c0c25f087157959c5693      148 non-free/source/Release
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855        0 non-free/source/Sources
+ 0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275       32 non-free/source/Sources.xz
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCAAdFiEE7VQTEqM/ESjxCxxsVEBHYru26FMFAmr6L6oACgkQVEBHYru2
+6FNMWBAAycZM43g/Noz39Skla0VJ1zYYwgRa/LgtzKVBK1G/gFnmr4vMQ8wqpVpG
+Og92sKWea+ibFTHgEhuzZV6gcAUdt4oFV8xjGE2QVfWIjR7gcevCccP9uq5uNux4
+WkK0PvrbK5psGLFyCGaqo/+c4B0pO/DS8nZSggLe9G5AljtW+ccNwPH5BsyH02KE
+vtWJPYxVCzyGyuFt8sKq5WPgjYxu0OCclcSZtSPfSCl8eUXz6vWNpspBfnPke42d
+rY6TPQw3yt/gLtRlag9DMcnoItOH29MT/pMrFgCLLr3AEu9Fc/6/a2wEku+ImFWE
+7f+NF6M3T9f3e3DEDejYrJtnN2aM9Nz4x2AjtiFK6d4PIVAbgeopKzwbPOjpVsec
+t1Hty0DrzxejQbLAAt7yabhPPugVeyOBxtN3fZLol+dsChO9skLeL51QJ01arlBh
+2f9ytZTAf/SoMJOrvtl2ln3FLvjRDnvYrf0hPdgMJdxUSbl3AhKQqwNFA6z5FCI8
+APa6ye5rlOHe2AUiIepJKSbDayJmmBoLktvcX3TvveBtsNOvHft0HTrvXscQuTt4
+OkVMoI6iZ4BR8vjbn1DODNPtYzLlThE5LPSk+D9cp2QVWYQQwV8jwWtvGZvqH3hA
+wpGlcVO1W5vz+bgWpxT6V5Bm03CivZD08fbHPg5fcLLlQOsV2/SJAjIEAQEIAB0W
+IQSwyrkmbow5KXmLPu695tK5IW7HqAUCavovqgAKCRC95tK5IW7HqOHxD/itZPYq
+155ZDH92BA/MmLdQIvR1ZZBGPHUsA7e7cqPvwz+DWl1NAMCl2MmkhR1cI8DyN45L
+d52mqRoqi3/QdSlq8IIccnfm57SvJcu0xwctkPXbGCfwD5yzN/+D3YbZlBiaWqd0
+UPBBa+G3u0vJaZnXJmo+HHsCl2KwMEwLhTLbMv7p9GPcA3EMMO9raCKCVLdRhsjH
+Q3knlcgTxLPiG2KiX9eDJd+z5WeILGXXunl2YwMJ5qI35Wyt2hj6lcemtpX0vTGU
+J5USrws2QDlFw70kG51CgvWS0gwM4OEQWOXhTZ+CxzbBfaszoW53Lp2Tszt4kS9c
+c+4CjmKdfurru2wPU2tokQHWooeTQHsxp1jFoGL3oHXKysKwerp0j8C2d96GRKcC
+Lq02UeQsUFlvFrMIV4V+USNhEnX+ZBkURBkCAAB1FO8UrbtrDs74FxL7WHsry+Gi
+hD0DRHuZ8LccVnS2jTDIhS0JDNnTad9PDEkRMgbprdjFho2uuRRJvxbMXqroQ+6a
+rfz1j/ODxHGMeKni8liXlNGHIgxCpyYPBgpmcGBFiXNiYYvTVFxLSIBAVt3Vp0R5
+qqKfYYX9NEH1L1AUZi5D53mpZEhCUcu6LiLvzBRI2dAaxb7fzCGYdC07OMnhVoVs
+CLDK7Xm7ta2BZenVeiHA7mjKGgUHYElH82My
+=kmyT
+-----END PGP SIGNATURE-----

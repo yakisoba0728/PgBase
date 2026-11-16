@@ -27,6 +27,33 @@ The native profile exercises `query.Service` under the fixture administrator pri
 
 Both revisions run the same schema, synthetic value distributions, query shapes, warmup and iteration counts. Each receives a newly created database; generated fixture identifiers and backend cache state are not byte-for-byte snapshots. The shared host is not a dedicated, CPU-pinned benchmark machine. One pair does not distinguish a stable latency regression from scheduler, storage or profiling variation. No unfavorable result is removed, and no extra runtime change is justified from these latency samples alone.
 
+## Published source reconstruction
+
+The measurement artifacts retain the actual original local source identifiers. Their patches and relevant source bytes were independently matched to the published commits in [runtime-commit-map.json](evidence/runtime-commit-map.json). The combined CI runtimes `7619dbf790c9ccf88079247482b5db18fe8f018a` and `5e4b71d1f602c9c136809bf65f2375bf75fc4a9f` include other security/SDK/dependency changes and are not relabeled as the entire measured performance revision.
+
+To reconstruct the paired comparison, create both worktrees at `6dd8f6449f7b6bc1a986ff7444b898776abf1c7b`; apply published cursor commit `312f1c614b4c0d08c32a922dfb4fb2040ebaa3b6` and query commit `c0a37c385b5a49bbf6fd9cef624eace9b941482f` only to the candidate. Install the same native benchmark file from `e2f78171e2233a32ab4420a107cb5715485a24a5` and original mixed HTTP harness from `7c2e82234e188d623181048692d78975438d81f6` in both trees. Use the environment/commands below. The stronger HTTP assertions in `bf4aa46e1f09300a2995f91c022fa0b67edeede5` have separate evidence and were not used for the paired resource measurements.
+
+The published native benchmark adds one non-executable comment (`// Add PGBASE_BENCH_EXPLAIN=1 and -v to print native SQL execution plans.`). Removing that line reproduces the exact common-harness checksum in the manifest; retaining it has no executable effect. The original locked artifacts and their 25 hashes have not been altered.
+
+From a clone containing the PR branch's published history, the following prepares the two trees without relying on unpublished agent commit objects:
+
+```sh
+git fetch origin refactor/independent-platform-20261116
+pgbase_bench_dir=$(mktemp -d)
+git worktree add --detach "$pgbase_bench_dir/before" 6dd8f6449f7b6bc1a986ff7444b898776abf1c7b
+git worktree add --detach "$pgbase_bench_dir/after" 6dd8f6449f7b6bc1a986ff7444b898776abf1c7b
+git show 312f1c614b4c0d08c32a922dfb4fb2040ebaa3b6 --format= | git -C "$pgbase_bench_dir/after" apply
+git show c0a37c385b5a49bbf6fd9cef624eace9b941482f --format= | git -C "$pgbase_bench_dir/after" apply
+for pgbase_side in before after; do
+  git show e2f78171e2233a32ab4420a107cb5715485a24a5:internal/query/load_benchmark_integration_test.go \
+    > "$pgbase_bench_dir/$pgbase_side/internal/query/load_benchmark_integration_test.go"
+  git show 7c2e82234e188d623181048692d78975438d81f6:pgbase/mixed_load_integration_test.go \
+    > "$pgbase_bench_dir/$pgbase_side/pgbase/mixed_load_integration_test.go"
+done
+```
+
+Run the measurement commands below separately from each prepared tree, with the same disposable database server and toolchain. The candidate runtime edits are intentionally uncommitted benchmark inputs; compare the relevant file hashes with the manifest. Use separate profile output directories so the candidate does not overwrite baseline evidence.
+
 ## Paired query results
 
 Every row below contains 1,000 samples per revision. All 24,000 queries completed without an error. Latencies are milliseconds; throughput is query-service operations/second.
@@ -135,19 +162,20 @@ export GOMAXPROCS=4
 export PGBASE_TEST_ADMIN_URL='postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable'
 export PGBASE_BENCH_ROWS=500000
 export PGBASE_BENCH_EXPLAIN=1
+pgbase_profile_dir=$(mktemp -d)
 
 go test -tags=integration ./internal/query -run '^$' \
   -bench '^BenchmarkConcurrentRecordReads$' -benchtime=1000x -count=1 -v -timeout=15m \
-  -memprofile=/tmp/pgbase-query.mem -cpuprofile=/tmp/pgbase-query.cpu \
-  -o /tmp/pgbase-query.test
+  -memprofile="$pgbase_profile_dir/query.mem" -cpuprofile="$pgbase_profile_dir/query.cpu" \
+  -o "$pgbase_profile_dir/query.test"
 
 PGBASE_MIXED_CYCLES=100 go test -tags=integration,load ./pgbase \
   -run '^TestMixedHTTPPoolQualification$' -count=1 -v -timeout=10m \
-  -memprofile=/tmp/pgbase-mixed.mem -cpuprofile=/tmp/pgbase-mixed.cpu \
-  -o /tmp/pgbase-mixed.test
+  -memprofile="$pgbase_profile_dir/mixed.mem" -cpuprofile="$pgbase_profile_dir/mixed.cpu" \
+  -o "$pgbase_profile_dir/mixed.test"
 
-go tool pprof -top -alloc_space /tmp/pgbase-query.test /tmp/pgbase-query.mem
-go tool pprof -top /tmp/pgbase-query.test /tmp/pgbase-query.cpu
+go tool pprof -top -alloc_space "$pgbase_profile_dir/query.test" "$pgbase_profile_dir/query.mem"
+go tool pprof -top "$pgbase_profile_dir/query.test" "$pgbase_profile_dir/query.cpu"
 ```
 
 The original paired native command omitted `-v`: its actual plans executed but parent benchmark logs were suppressed. The retained plans were therefore collected by a separate command using the same fixture and `-v -benchtime=1x -bench '^BenchmarkConcurrentRecordReads$/rows=500000/list_50/concurrency=1$'`. Those one-sample outputs are not used as p50/p95/p99 evidence. Including `-v` in future paired runs retains the plan logs directly.

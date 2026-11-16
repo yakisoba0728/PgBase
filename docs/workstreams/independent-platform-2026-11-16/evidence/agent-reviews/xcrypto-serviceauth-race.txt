@@ -1,0 +1,8 @@
+=== RUN   TestServiceTokenLifecycleAndScopeLock
+--- PASS: TestServiceTokenLifecycleAndScopeLock (0.25s)
+=== RUN   TestAuthorizeSerializesRevocation
+--- PASS: TestAuthorizeSerializesRevocation (0.32s)
+=== RUN   TestListDoesNotTruncateScopesAtJoinedRowLimit
+--- PASS: TestListDoesNotTruncateScopesAtJoinedRowLimit (0.96s)
+PASS
+ok  	github.com/yakisoba0728/PgBase/internal/serviceauth	2.548s

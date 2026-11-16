@@ -1,0 +1,69 @@
+{
+  "before": "v0.58.0",
+  "after": "v0.59.0",
+  "packages": [
+    {
+      "path": "golang.org/x/crypto/argon2",
+      "recursive_file_count": 9,
+      "identical": true,
+      "files_sha256": {
+        "blamka_ref.go": "5ee521fdb6238d46888482d6cac64f825816d52a649b894447890c80450c657a",
+        "blamka_loong64.s": "36c96607033dd21fbff85ff1ef4b473825d944e7043738f799f2584993d2c6b4",
+        "blamka_loong64.go": "f656d6f7de87592eff8e9502f395e947d6b3e103ffcb820d34c0dcf5a22c3c96",
+        "blamka_generic.go": "168ed535967c760875407a802f810d76cf527f6c1bb111612dbc81c66fcaf34c",
+        "blamka_amd64.s": "34956c458ac293db0748178d62e110ac45837063e535a813c8a253c3fe50729f",
+        "blamka_amd64.go": "3f579a886e71b212df75178fef7876aa2b3ea059db0baab44cd3fb4239edca12",
+        "blake2b.go": "00b7ed36b3569e067ce4e34c92b44914e98a26f3666a2cf01b6785cc4b8201e6",
+        "argon2_test.go": "3c5d683e91556a09a1cfc5874134dd377fab6bc06621f1a55ebb1f4847b43e45",
+        "argon2.go": "3675c69f8a2efbd5ae4d35d00f5679113b50ec32f3fe6482c669ef7b401a38d5"
+      }
+    },
+    {
+      "path": "golang.org/x/crypto/blake2b",
+      "recursive_file_count": 11,
+      "identical": true,
+      "files_sha256": {
+        "register.go": "f010131c5e272dde27a5d1d30ce1329d681fdd74b5f5025d197c29448e57deae",
+        "blake2x.go": "0d146268afeda5a3461adaeb0ecb8eafad5fe0e77748bf487cf36544b0ab68d7",
+        "blake2b_test.go": "b9ad327b91f095c5b253e4ea345f5e5d4bd7fc280070750062221bfac2d0b479",
+        "blake2b_ref.go": "12bdf4ad93117b295576a63cd477c884ebdf182b3a30888dd961cc208fa80579",
+        "blake2b_loong64.s": "319ba1cca96ea6bdb30af8d15cad424bb394a040410f0b91bbea822ddbbd5cc5",
+        "blake2b_loong64.go": "5008116cce4e710a64ada1c754ff69630861f08fcabaa4d65729057396009b45",
+        "blake2b_generic.go": "3ca806fe8939d7688d4dfa70003bef7ff55e66088176b6c6b794fb32fe02725f",
+        "blake2b_amd64.s": "f499772b4f15bc364b1c3d862a3c604c1b95a6ca9a11c131f080f31cc6f373bf",
+        "blake2bAVX2_amd64.s": "5c29c80d50428e8541c97c6f31846c8d38b646f0f70bfc6325cd7b620b402651",
+        "blake2bAVX2_amd64.go": "1a2952821dcf30e5f49a9eec1091ba5f74d6f900cde45eb842bdf36204430982",
+        "blake2b.go": "f370186a863f5ef09589b842c688747c480dfd4d3d6bb89661e08de78ed49bb8"
+      }
+    },
+    {
+      "path": "golang.org/x/crypto/acme",
+      "recursive_file_count": 21,
+      "identical": true,
+      "files_sha256": {
+        "types_test.go": "c0b40d2d9c34b1e388d4bef4e2e6b5e24f6b3d0a65d838dc9f82a964df51a729",
+        "types.go": "e81713743288c87c2ed721daf1bd9002f4414f063cd3389470e5311bd00c4557",
+        "rfc8555_test.go": "8e1b23c5e0945d95986883c4565fe6f029350fec7702d3afe2b4405b8ae61b4d",
+        "rfc8555.go": "883fe6a5c72456dd2aad70f4567158c94a370bb2ad0a72c1fb3883fca779c82a",
+        "pebble_test.go": "9f571f7a2a3e26b149737b3473b5423fc4c391974541f8f3db7f0169af8019a2",
+        "jws_test.go": "ab455f181ca0f45d23fdfcd909afebe9ef6923a2febc13eed33445028e7eea4a",
+        "jws.go": "8301d9d448aec47f0cc123b2607192acb1a103e6ac6ba9a4d49c4f05002ea7c8",
+        "http_test.go": "81796c25c26e7fe0cad09ed3c0633b9513b5c1a0abcc58abcc01a690bce9afde",
+        "http.go": "1f3f948126b5cc90c113bea6affcfce15c3c265d29b8c26cd7954f137e6dcb5e",
+        "acme_test.go": "982bf2c2c534700308460acabc619385150b75cdf28971db49e2d9b07cea8f11",
+        "acme.go": "56f0af765dc8338cb128bbe29c97d038874950cbdb99213fadc4db0e1a578e0c",
+        "autocert/renewal_test.go": "a2d79c8f939411db9abf2e82ddeeaf3fec4fabf05e32b580c88761ead84254f2",
+        "autocert/renewal.go": "c441235ad4e46eab701b533df00827f45b8a21060a3b59d9d1eca2165989d6f4",
+        "autocert/listener.go": "8b2b6c1989e16cb040dd65a23948897efffe37773a22b242e764f6eab68bef26",
+        "autocert/example_test.go": "bc550bd70cb717b40305d5fb3640067db68db2c00807c1068d4f87903a2f1d92",
+        "autocert/cache_test.go": "ebbbd4f4bad4f790afbe0c36f400b5bcc0aefc2de687989a9ea8b66f82493eee",
+        "autocert/cache.go": "b0350eeeac88823cb2c6558e710fac345379f7eee308ff661f1e68f05bee93a2",
+        "autocert/autocert_test.go": "5781c6d59a3675ff9bb212d4d5df9eb05c4a83e47af9e5b35728852ecbc65d14",
+        "autocert/autocert.go": "d2403eb77732b1e0396fecbe7579b3b4ac26102268bda4e11e3587e9ae3f0466",
+        "internal/acmeprobe/prober.go": "0d47564297b8cf19ae108d05b5499e1d1c8913d882da3f02c22289f8c9c427e6",
+        "autocert/internal/acmetest/ca.go": "a89edd65e013f0c008d8fddf2e29df4010f930a3ad74b3cdd482becad9acfa9b"
+      }
+    }
+  ],
+  "note": "acme recursion includes acme/autocert. Production go list dependency graph imports only these packages; OpenPGP is absent before and after."
+}

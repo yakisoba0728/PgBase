@@ -1,0 +1,68 @@
+{
+  "runId": 43780150632,
+  "runtimeCommit": {
+    "sha": "5e4b71d1f602c9c136809bf65f2375bf75fc4a9f",
+    "message": "ci(sdk): run every live SDK conformance fixture",
+    "url": "https://github.com/yakisoba0728/PgBase/commit/5e4b71d1f602c9c136809bf65f2375bf75fc4a9f",
+    "createdAt": "2026-11-16T00:24:06Z"
+  },
+  "checkoutCommit": {
+    "sha": "2d712ba6239f2d19f1329400848173842ed7874c",
+    "message": "Merge 5e4b71d1f602c9c136809bf65f2375bf75fc4a9f into 8f551de4423a6b64d9c0ac94fff9b9bd07264f2a",
+    "url": "https://github.com/yakisoba0728/PgBase/commit/2d712ba6239f2d19f1329400848173842ed7874c",
+    "createdAt": "2026-11-16T00:24:10Z"
+  },
+  "expectedSourceTreeReportedByRoot": "4599bc705d4c4ec440e273cc6db3397f3edcc11d",
+  "sourceTreeCrossCheck": "Matches git rev-parse HEAD^{tree} in local integrated worktree. Normalized GitHub commit responses do not expose tree SHA; report does not claim this was independently retrieved from them.",
+  "logRetention": "Decoded GitHub connector text re-encoded as UTF-8, preserving BOM and newline content; SHA256 identifies these text files, not an Actions ZIP.",
+  "sourceFiles": [
+    {
+      "path": ".github/workflows/e2e.yml",
+      "gitBlobSHA": "5c2c55f4b860ef5159acd3b86e6a247c02213655",
+      "ref": "5e4b71d1f602c9c136809bf65f2375bf75fc4a9f"
+    },
+    {
+      "path": ".github/workflows/backend.yml",
+      "gitBlobSHA": "ea8c2353eecb922a2c195739ca61eb3d8ba7dbde",
+      "ref": "5e4b71d1f602c9c136809bf65f2375bf75fc4a9f"
+    },
+    {
+      "path": "ui/admin/e2e/authenticated/admin.spec.ts",
+      "gitBlobSHA": "b64e27714b9d8133d184686cbf85faaf97443a29",
+      "ref": "5e4b71d1f602c9c136809bf65f2375bf75fc4a9f"
+    },
+    {
+      "path": "ui/admin/e2e/contracts/javascript-example.spec.ts",
+      "gitBlobSHA": "e40cc77984defad1a7b878d77a8aad8de86b1a43",
+      "ref": "5e4b71d1f602c9c136809bf65f2375bf75fc4a9f"
+    },
+    {
+      "path": "ui/admin/playwright.config.ts",
+      "gitBlobSHA": "aa929b76fbf1960a944d0a6330deb7c918830000",
+      "ref": "5e4b71d1f602c9c136809bf65f2375bf75fc4a9f"
+    },
+    {
+      "path": "tests/e2e/crash_test.go",
+      "gitBlobSHA": "cd6f41d69411710573a72c264831efd18383aa98",
+      "ref": "5e4b71d1f602c9c136809bf65f2375bf75fc4a9f"
+    },
+    {
+      "path": "tools/testskip/main.go",
+      "gitBlobSHA": "7974a8226575387d1c88275575568c0dda9db796",
+      "ref": "5e4b71d1f602c9c136809bf65f2375bf75fc4a9f"
+    },
+    {
+      "path": "tests/go-test-skip-allowlist.tsv",
+      "gitBlobSHA": "10b39ee9a477556ee3b6892f619756fc975f1871",
+      "ref": "5e4b71d1f602c9c136809bf65f2375bf75fc4a9f"
+    }
+  ],
+  "existingBrowserExclusion": {
+    "path": "ui/admin/e2e/authenticated/admin.spec.ts",
+    "baselineRef": "8f551de4423a6b64d9c0ac94fff9b9bd07264f2a",
+    "baselineBlobSHA": "b64e27714b9d8133d184686cbf85faaf97443a29",
+    "finalBlobSHA": "b64e27714b9d8133d184686cbf85faaf97443a29",
+    "guard": "PGBASE_BROWSER_MANAGED_BACKUPS !== \"1\"",
+    "reason": "requires a disposable managed-host fixture"
+  }
+}

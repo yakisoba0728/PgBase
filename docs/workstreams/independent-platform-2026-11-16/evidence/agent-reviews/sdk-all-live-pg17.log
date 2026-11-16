@@ -1,0 +1,25 @@
+4be0c52cc444e6796b675dd76fdf3970dc7fe32d
+go version go1.26.11 linux/amd64
+Dart SDK version: 3.13.3 (stable) (Tue Sep 1 01:07:17 2026 -0700) on "linux_x64"
+v24.22.1
+postgres (PostgreSQL) 17.9
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+added 2 packages in 772ms
+Resolving dependencies...
+Downloading packages...
+Got dependencies!
+=== RUN   TestSDKPublicRecordHTTPConformance
+--- PASS: TestSDKPublicRecordHTTPConformance (3.12s)
+=== RUN   TestSDKRelationFileNativeListRegression
+--- PASS: TestSDKRelationFileNativeListRegression (1.45s)
+=== RUN   TestSDKTextRecordIdentityHTTPConformance
+--- PASS: TestSDKTextRecordIdentityHTTPConformance (14.82s)
+=== RUN   TestSDKRealtimeHTTPConformance
+=== RUN   TestSDKRealtimeHTTPConformance/typescript
+=== RUN   TestSDKRealtimeHTTPConformance/dart
+--- PASS: TestSDKRealtimeHTTPConformance (16.63s)
+    --- PASS: TestSDKRealtimeHTTPConformance/typescript (2.32s)
+    --- PASS: TestSDKRealtimeHTTPConformance/dart (3.99s)
+PASS
+ok  	github.com/yakisoba0728/PgBase/pgbase	36.049s

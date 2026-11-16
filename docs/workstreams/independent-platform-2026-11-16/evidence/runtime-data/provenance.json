@@ -1,0 +1,145 @@
+{
+  "debianRepository": "https://security.debian.org/debian-security/",
+  "suite": "bookworm-security",
+  "verifiedReleaseSHA256": "b3f07c0d2f852f5efc4a3c811eed82f449f64dfb005e59ce7f13aa5df22851a2",
+  "bookwormArchivePrimaryKey": "05AB90340C0C5E797F44A8C8254CF3B5AEC0A8F0",
+  "bookwormSigningSubkey": "B0CAB9266E8C3929798B3EEEBDE6D2B9216EC7A8",
+  "packageMetadata": {
+    "releaseSHA256": "b3f07c0d2f852f5efc4a3c811eed82f449f64dfb005e59ce7f13aa5df22851a2",
+    "packagesIndex": {
+      "path": "main/binary-amd64/Packages.xz",
+      "sha256": "5625320bdf727cfa250b1768fd11e6a3252d4beeb7f2398af4a28e3f17f1772a",
+      "size": 372680
+    },
+    "packages": [
+      {
+        "Package": "ca-certificates",
+        "Version": "20250419~deb12u2",
+        "Installed-Size": "388",
+        "Maintainer": "Julien Cristau <jcristau@debian.org>",
+        "Architecture": "all",
+        "Depends": "openssl (>= 1.1.1), debconf (>= 0.5) | debconf-2.0",
+        "Breaks": "ca-certificates-java (<< 20121112+nmu1)",
+        "Description": "Common CA certificates",
+        "Description-md5": "e867d2a359bea1800b5bff209fc65bd1",
+        "Enhances": "openssl",
+        "Multi-Arch": "foreign",
+        "Section": "misc",
+        "Priority": "standard",
+        "Filename": "pool/updates/main/c/ca-certificates/ca-certificates_20250419~deb12u2_all.deb",
+        "Size": "160948",
+        "SHA256": "b9f76b5271a7ac373fd5e7e1b5b826a71ddd702b42a0d104955ecb1acfffc94b"
+      },
+      {
+        "Package": "tzdata",
+        "Version": "2026f-0+deb12u1",
+        "Installed-Size": "2571",
+        "Maintainer": "GNU Libc Maintainers <debian-glibc@lists.debian.org>",
+        "Architecture": "all",
+        "Provides": "tzdata-bookworm",
+        "Depends": "debconf (>= 0.5) | debconf-2.0",
+        "Description": "time zone and daylight-saving time data",
+        "Homepage": "https://www.iana.org/time-zones",
+        "Description-md5": "a77a3cc9a67658dd7cfdc6547391b8f8",
+        "Multi-Arch": "foreign",
+        "Section": "localization",
+        "Priority": "required",
+        "Filename": "pool/updates/main/t/tzdata/tzdata_2026f-0+deb12u1_all.deb",
+        "Size": "307832",
+        "SHA256": "3254eb870c8a949518214805aee5e4276af7699988ea8b9a3a583cd0f1eab31c"
+      }
+    ]
+  },
+  "distrolessIndexDigest": "sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab",
+  "distrolessAMD64ManifestDigest": "sha256:52dcfbabb7457ea47c82f6e13af8c8a4a1d9f7b0145142b3ecab20f2b888411d",
+  "certificateComparison": {
+    "oldBaseCertCount": 150,
+    "newCertCount": 148,
+    "removed": {
+      "D7:A7:A0:FB:5D:7E:27:31:D7:71:E9:48:4E:BC:DE:F7:1D:5F:0C:3E:0A:29:48:78:2B:C8:3E:E0:EA:69:9E:F4": "subject=C=GB, ST=Greater Manchester, L=Salford, O=Comodo CA Limited, CN=AAA Certificate Services",
+      "86:A1:EC:BA:08:9C:4A:8D:3B:BE:27:34:C6:12:BA:34:1D:81:3E:04:3C:F9:E8:A8:62:CD:5C:57:A3:6B:BE:6B": "subject=C=IN, OU=emSign PKI, O=eMudhra Technologies Limited, CN=emSign ECC Root CA - G3"
+    },
+    "added": {},
+    "newBundleSHA256": "e9c7b63ee2623386e9b0a3ee32f499d01a8ea23dc83b8383ddff9f8e749543b7"
+  },
+  "timezoneComparison": [
+    {
+      "zone": "America/Winnipeg",
+      "date": "2026-11-16T12:00:00Z",
+      "oldUtcOffsetHours": -6.0,
+      "newUtcOffsetHours": -5.0
+    },
+    {
+      "zone": "America/Edmonton",
+      "date": "2026-11-16T12:00:00Z",
+      "oldUtcOffsetHours": -7.0,
+      "newUtcOffsetHours": -6.0
+    },
+    {
+      "zone": "America/Yellowknife",
+      "date": "2026-11-16T12:00:00Z",
+      "oldUtcOffsetHours": -7.0,
+      "newUtcOffsetHours": -6.0
+    },
+    {
+      "zone": "America/Havana",
+      "date": "2026-11-16T12:00:00Z",
+      "oldUtcOffsetHours": -5.0,
+      "newUtcOffsetHours": -4.0
+    },
+    {
+      "zone": "Africa/Casablanca",
+      "date": "2026-11-16T12:00:00Z",
+      "oldUtcOffsetHours": 1.0,
+      "newUtcOffsetHours": 0.0
+    },
+    {
+      "zone": "UTC",
+      "date": "2026-11-16T12:00:00Z",
+      "oldUtcOffsetHours": 0.0,
+      "newUtcOffsetHours": 0.0
+    }
+  ],
+  "tests": {
+    "exactRuntimeDataScriptExit": 0,
+    "go12611CGODisabledOriginalPinnedBaseProbeExit": 1,
+    "go12611CGODisabledGeneratedDataProbeExit": 0,
+    "oldTimezonePathsMissingFromOverlay": []
+  },
+  "limitations": [
+    "No Docker build or final-image E2E was executed locally; parent owns definitive CI.",
+    "Certificate comparison uses original pinned distroless bundle, not original final image whose bundle came from Go builder.",
+    "Native-library vulnerability inventory is retained; this data-only patch does not establish absence of every reachable libc/OpenSSL issue."
+  ],
+  "commits": {
+    "runtimeData": "63f7de9e9b7ce03ee9be0e88a834b9981cb47507",
+    "nativeTrustPath": "0a5298b3a1e3623360719ce3ca0f1f87d4e0ff81"
+  },
+  "nativeTrustProbe": {
+    "package": "libssl3",
+    "version": "3.0.22-1~deb12u2",
+    "architecture": "amd64",
+    "packageSHA256": "cb4784740daa9b3b0eaea2b444bbefa686794afbbf3d678d238c1fd9875f2efd",
+    "defaultCertFile": "/usr/lib/ssl/cert.pem",
+    "defaultCertDirectory": "/usr/lib/ssl/certs",
+    "absentPathLoadedCertificates": 0,
+    "explicitGeneratedBundleLoadedCertificates": 148,
+    "exitStatus": 0,
+    "log": "openssl-trust-path-probe.log",
+    "closureEvidence": [
+      "Pinned distroless layers contain only /etc/ssl/certs/ca-certificates.crt and no /usr/lib/ssl aliases.",
+      "postgres-client-runtime.sh writes nsswitch.conf, ELF binaries/library closure, license documents and dpkg status only.",
+      "build-postgres-client-libraries.sh exports libpq/libz/libssl/libcrypto plus docs/status; no trust-path aliases.",
+      "Final Dockerfile copies only those runtime closures, the generated data, and pgbase. SSL_CERT_FILE now aligns native OpenSSL and Go bundle selection."
+    ]
+  },
+  "primarySources": [
+    "https://security.debian.org/debian-security/dists/bookworm-security/InRelease",
+    "https://lists.debian.org/debian-lts-announce/2026/10/msg00039.html",
+    "https://lists.debian.org/debian-lts-announce/2026/10/msg00048.html",
+    "https://lists.debian.org/debian-lts-announce/2026/10/msg00061.html",
+    "https://openssl-library.org/news/secadv/20261110.txt",
+    "https://security-tracker.debian.org/tracker/source-package/openssl",
+    "https://security-tracker.debian.org/tracker/source-package/glibc"
+  ]
+}

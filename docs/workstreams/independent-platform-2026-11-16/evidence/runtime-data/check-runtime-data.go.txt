@@ -1,0 +1,30 @@
+package main
+
+import (
+    "crypto/x509"
+    "fmt"
+    "os"
+    "time"
+)
+
+func main() {
+    failed := false
+    pool, err := x509.SystemCertPool()
+    if err != nil { fmt.Println("SystemCertPool:", err); os.Exit(1) }
+    count := len(pool.Subjects())
+    fmt.Printf("system CA roots: %d (want 148)\n", count)
+    if count != 148 { failed = true }
+    now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+    for _, tc := range []struct{name string; hours int}{
+        {"America/Winnipeg", -5}, {"America/Edmonton", -6},
+        {"America/Yellowknife", -6}, {"America/Havana", -4},
+        {"Africa/Casablanca", 0}, {"UTC", 0},
+    } {
+        location, err := time.LoadLocation(tc.name)
+        if err != nil { fmt.Println(tc.name, err); failed = true; continue }
+        _, offset := now.In(location).Zone()
+        fmt.Printf("%s UTC offset seconds: %d (want %d)\n", tc.name, offset, tc.hours*3600)
+        if offset != tc.hours*3600 { failed = true }
+    }
+    if failed { os.Exit(1) }
+}
