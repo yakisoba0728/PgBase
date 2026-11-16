@@ -1,0 +1,165 @@
+{
+  "source_sha": "56a881f47d0c27877b91959d7df641c2f603ef03",
+  "source_tree": "9b4a2e78540c3737f03f6fcc27398bfaa0424180",
+  "ci_merge_sha": "0a517baea58bf65e2293f15fb0a9fb54321f7eb7",
+  "run_id": 43836410887,
+  "job_id": 133194026551,
+  "steps": [
+    {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 1
+    },
+    {
+      "name": "Check out repository",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 2
+    },
+    {
+      "name": "Set up Go",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 3
+    },
+    {
+      "name": "Set up Node.js",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 4
+    },
+    {
+      "name": "Generate isolated Compose configuration",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 5
+    },
+    {
+      "name": "Verify Compose shutdown policy",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 6
+    },
+    {
+      "name": "Authenticate and pull release candidate",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 7
+    },
+    {
+      "name": "Build image in local CI mode",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 8
+    },
+    {
+      "name": "Start isolated PostgreSQL project",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 9
+    },
+    {
+      "name": "Start the authenticated browser backend",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 10
+    },
+    {
+      "name": "Start the managed-backup browser backend",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 11
+    },
+    {
+      "name": "Create the isolated browser administrators",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 12
+    },
+    {
+      "name": "Install browser test dependencies",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 13
+    },
+    {
+      "name": "Install the Playwright browser and its system dependencies",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 14
+    },
+    {
+      "name": "Verify browser onboarding and authenticated workflows",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 15
+    },
+    {
+      "name": "Verify Firefox and WebKit representative workflows",
+      "status": "completed",
+      "conclusion": "failure",
+      "number": 16
+    },
+    {
+      "name": "Verify hardened runtime",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 17
+    },
+    {
+      "name": "Run black-box tests",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 18
+    },
+    {
+      "name": "Capture service logs",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 19
+    },
+    {
+      "name": "Upload failed E2E logs",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 20
+    },
+    {
+      "name": "Remove isolated Compose resources",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 21
+    },
+    {
+      "name": "Post Set up Node.js",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 40
+    },
+    {
+      "name": "Post Set up Go",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 41
+    },
+    {
+      "name": "Post Check out repository",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 42
+    },
+    {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 43
+    }
+  ],
+  "log": {
+    "file": "browser-smoke-failure-job.log.gz",
+    "raw_bytes": 512423,
+    "raw_sha256": "810080e6643303d68438512720a98c1dd48501ad094ba14ce351689dcd2b95f9",
+    "stored_sha256": "d120e3e5fd9b4204ad766230545cc3c3cf4fcbcb4a01ddfed34fee47c1124f17"
+  }
+}

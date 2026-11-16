@@ -1,0 +1,46 @@
+{
+  "run_id": 43836410887,
+  "job_id": 133194027179,
+  "postgres": "17.9",
+  "source_sha": "56a881f47d0c27877b91959d7df641c2f603ef03",
+  "full_log_sha256": "f802d2399a49c1f06aa75f558c389a00cc68277802f980a35bde2a17ac96ab82",
+  "full_log_owner": "Storage CI evidence",
+  "selected_lines": [
+    "2026-11-16T09:11:14.0289759Z No issues found!",
+    "2026-11-16T09:11:20.2115680Z \ud83c\udf89 134 tests passed.",
+    "2026-11-16T09:11:22.8096891Z \u2139 tests 115",
+    "2026-11-16T09:11:22.8097406Z \u2139 pass 115",
+    "2026-11-16T09:11:22.8097590Z \u2139 fail 0",
+    "2026-11-16T09:11:22.8097955Z \u2139 skipped 0",
+    "2026-11-16T09:11:29.1192415Z --- PASS: TestSDKPublicRecordHTTPConformance (3.00s)",
+    "2026-11-16T09:11:30.0726888Z --- PASS: TestSDKRelationFileNativeListRegression (0.95s)",
+    "2026-11-16T09:11:42.4807871Z --- PASS: TestSDKTextRecordIdentityHTTPConformance (12.41s)",
+    "2026-11-16T09:11:48.8606262Z --- PASS: TestSDKRealtimeHTTPConformance (6.38s)",
+    "2026-11-16T09:11:48.8606754Z     --- PASS: TestSDKRealtimeHTTPConformance/typescript (2.22s)",
+    "2026-11-16T09:11:48.8607368Z     --- PASS: TestSDKRealtimeHTTPConformance/dart (3.08s)",
+    "2026-11-16T09:11:49.1844719Z \u2139 tests 2",
+    "2026-11-16T09:11:49.1845676Z \u2139 pass 2",
+    "2026-11-16T09:11:49.1846572Z \u2139 fail 0",
+    "2026-11-16T09:11:49.1847532Z \u2139 skipped 0",
+    "2026-11-16T09:11:51.8112783Z === RUN   TestAdministrationSDKsAgainstRealHTTPServer/TypeScript_external_consumer",
+    "2026-11-16T09:11:53.3361363Z === RUN   TestAdministrationSDKsAgainstRealHTTPServer/Dart_external_consumer",
+    "2026-11-16T09:11:55.0948264Z --- PASS: TestAdministrationSDKsAgainstRealHTTPServer (4.95s)",
+    "2026-11-16T09:11:55.0949020Z     --- PASS: TestAdministrationSDKsAgainstRealHTTPServer/TypeScript_external_consumer (1.52s)",
+    "2026-11-16T09:11:55.0949653Z     --- PASS: TestAdministrationSDKsAgainstRealHTTPServer/Dart_external_consumer (1.73s)"
+  ],
+  "ci_merge_sha": "0a517baea58bf65e2293f15fb0a9fb54321f7eb7",
+  "checkout_line": "2026-11-16T09:04:13.7191357Z HEAD is now at 0a517ba Merge 56a881f47d0c27877b91959d7df641c2f603ef03 into 8f551de4423a6b64d9c0ac94fff9b9bd07264f2a",
+  "dart_unit_tests": 134,
+  "typescript_unit_tests": 115,
+  "dart_analysis": "clean",
+  "live_contract_tests": [
+    "TestSDKPublicRecordHTTPConformance",
+    "TestSDKRelationFileNativeListRegression",
+    "TestSDKTextRecordIdentityHTTPConformance",
+    "TestSDKRealtimeHTTPConformance"
+  ],
+  "administrator_consumers": [
+    "TypeScript_external_consumer",
+    "Dart_external_consumer"
+  ]
+}

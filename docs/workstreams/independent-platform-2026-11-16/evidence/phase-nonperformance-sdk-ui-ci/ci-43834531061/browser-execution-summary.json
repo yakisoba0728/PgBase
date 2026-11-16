@@ -1,0 +1,46 @@
+{
+  "source_sha": "30523ddaf27f8ffebd8b59c5ef802186107a408e",
+  "ci_merge_sha": "495ea346467f5d90fc9d250531c9c8718233b6d3",
+  "verified_common_tree": "7a28c45d5d5bb46156140953332422c8cb13bbf3",
+  "run_id": 43834531061,
+  "job_id": 133187914238,
+  "browser_executions": {
+    "chromium": 26,
+    "firefox": 6,
+    "webkit": 6,
+    "total": 38,
+    "failed": 0,
+    "skipped": 0
+  },
+  "smoke_selection": "PGBASE_BROWSER_SMOKE_ENGINES=firefox,webkit npm run test:e2e -- --project=*-smoke-*",
+  "managed_backup_round_trips": 3,
+  "archive_console_evidence": [
+    "\u00b7\u00b7\u00b7Managed backup fixture archive {\n  id: '0a40d6fb-74c7-4965-a88c-0b6458e9e158',\n  size: 43030,\n  sha256: '5076703a44f429eac3185bae4cd1e55035454acf94b1d14e2a56d9f746552086'\n}\n\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7",
+    "\u00b7\u00b7\u00b7\u00b7\u00b7Managed backup fixture archive {\n  id: '23a7eab1-94a3-4b52-a69d-508556ad7e3b',\n  size: 45564,\n  sha256: '47be8d6396833ba7b2f679fe6c312e074ab9c3ec8aa1849e2cfda1c5934aa962'\n}\n\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7Managed backup fixture archive {",
+    "\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7Managed backup fixture archive {\n  id: '74330d88-967c-4f89-b340-b84da8cbfcbb',\n  size: 48422,\n  sha256: 'e9550f7bcf6ddb78197cca88590274ae2a54761f03220a7bb97a60ea1947eb79'\n}\n\u00b7"
+  ],
+  "blackbox_top_level_executions": 30,
+  "blackbox_unique_tests": [
+    "TestAbruptApplicationAndDatabaseTerminationPreservesCommittedState",
+    "TestBootstrapCRUDAndRestart",
+    "TestBuiltImageReportsInjectedVersion",
+    "TestCollectionLifecycleAndRecordQueries",
+    "TestComposeStopDrainsAnInflightRequestWithoutSIGKILL",
+    "TestGracefulShutdownRejectsNewRequestsAndDrainsInflight",
+    "TestMetricsEndpointRequiresBearerAndUsesBoundedLabels",
+    "TestReadinessTracksDatabaseOutageAndRecovery",
+    "TestRecordMutationGuards",
+    "TestRelationCRUDExpandPersistsAcrossRestartAndReplicas",
+    "TestRelationDeleteActionsUseTheRecordMutationContract",
+    "TestReleaseModeRefusesAnythingButADigestPinnedCandidate",
+    "TestReleaseModeStartupNeverBuildsFromSource",
+    "TestTwoInstancesConvergeConcurrentSameETagUpdates",
+    "TestTwoInstancesSynchronizeSchema"
+  ],
+  "blackbox_failed_or_skipped": [],
+  "limits": [
+    "Firefox/WebKit exercise representative flows, not the complete Chromium suite",
+    "No comprehensive visual or accessibility audit is implied",
+    "SDK/live contract results belong to the separate PostgreSQL integration jobs"
+  ]
+}

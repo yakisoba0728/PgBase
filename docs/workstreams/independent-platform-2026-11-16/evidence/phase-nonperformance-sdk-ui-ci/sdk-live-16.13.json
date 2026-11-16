@@ -1,0 +1,38 @@
+{
+  "run_id": 43836410887,
+  "job_id": 133194027537,
+  "postgres": "16.13",
+  "source_sha": "56a881f47d0c27877b91959d7df641c2f603ef03",
+  "full_log_sha256": "2f8edd081f1a04815674265319dff9088abce1dd7c525caafaf5a97de246532c",
+  "full_log_owner": "Storage CI evidence",
+  "selected_lines": [
+    "2026-11-16T09:11:54.0555279Z No issues found!",
+    "2026-11-16T09:11:59.9196396Z \ud83c\udf89 134 tests passed.",
+    "2026-11-16T09:12:03.8432208Z \u2139 tests 115",
+    "2026-11-16T09:12:03.8432778Z \u2139 pass 115",
+    "2026-11-16T09:12:03.8433017Z \u2139 fail 0",
+    "2026-11-16T09:12:03.8433525Z \u2139 skipped 0",
+    "2026-11-16T09:12:09.7618955Z --- PASS: TestSDKPublicRecordHTTPConformance (2.87s)",
+    "2026-11-16T09:12:10.5008935Z --- PASS: TestSDKRelationFileNativeListRegression (0.74s)",
+    "2026-11-16T09:12:22.7354573Z --- PASS: TestSDKTextRecordIdentityHTTPConformance (12.23s)",
+    "2026-11-16T09:12:29.3503582Z --- PASS: TestSDKRealtimeHTTPConformance (6.61s)",
+    "2026-11-16T09:12:29.3504149Z     --- PASS: TestSDKRealtimeHTTPConformance/typescript (2.20s)",
+    "2026-11-16T09:12:29.3504648Z     --- PASS: TestSDKRealtimeHTTPConformance/dart (3.04s)",
+    "2026-11-16T09:12:29.6454232Z \u2139 tests 2",
+    "2026-11-16T09:12:29.6454784Z \u2139 pass 2",
+    "2026-11-16T09:12:29.6455024Z \u2139 fail 0",
+    "2026-11-16T09:12:29.6455544Z \u2139 skipped 0"
+  ],
+  "ci_merge_sha": "0a517baea58bf65e2293f15fb0a9fb54321f7eb7",
+  "checkout_line": "2026-11-16T09:04:16.0395116Z HEAD is now at 0a517ba Merge 56a881f47d0c27877b91959d7df641c2f603ef03 into 8f551de4423a6b64d9c0ac94fff9b9bd07264f2a",
+  "dart_unit_tests": 134,
+  "typescript_unit_tests": 115,
+  "dart_analysis": "clean",
+  "live_contract_tests": [
+    "TestSDKPublicRecordHTTPConformance",
+    "TestSDKRelationFileNativeListRegression",
+    "TestSDKTextRecordIdentityHTTPConformance",
+    "TestSDKRealtimeHTTPConformance"
+  ],
+  "administrator_consumers": []
+}

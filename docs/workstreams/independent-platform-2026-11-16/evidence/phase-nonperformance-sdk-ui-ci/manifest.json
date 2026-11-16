@@ -1,0 +1,139 @@
+{
+  "source_sha": "56a881f47d0c27877b91959d7df641c2f603ef03",
+  "ci_merge_sha": "0a517baea58bf65e2293f15fb0a9fb54321f7eb7",
+  "verified_common_tree": "9b4a2e78540c3737f03f6fcc27398bfaa0424180",
+  "run_id": 43836410887,
+  "frontend_job_id": 133194027215,
+  "frontend_result": "success",
+  "initial_browser_job_id": 133194026551,
+  "initial_browser_result": "failure",
+  "retry_browser_job_id": 133200243090,
+  "retry_browser_result": "failure",
+  "sdk_live_jobs": {
+    "16.13": 133194027537,
+    "17.9": 133194027179,
+    "18.3": 133194027244
+  },
+  "sdk_live_result": "all passed",
+  "outcome": "Blocked on recurring Firefox font-abort console teardown; current hardened-runtime and black-box steps unexecuted",
+  "historical_success_evidence": "ci-43834531061/manifest.json",
+  "evidence_files": [
+    {
+      "file": "browser-execution-summary.json",
+      "bytes": 1417,
+      "sha256": "6c7022dd25ad18f76a8137aef664d47ecab57d34c5a4da07ae383e9d723830f6"
+    },
+    {
+      "file": "browser-final-job.json",
+      "bytes": 4041,
+      "sha256": "8e32ed108a1e6334512af4477ebbd52245330465c24b429132f2fc44e5821578"
+    },
+    {
+      "file": "browser-final-job.log.gz",
+      "bytes": 70000,
+      "sha256": "21b5a345e8ebeee90c1af151991279a60d2528a98c200032f1a4dfbf0aae755f"
+    },
+    {
+      "file": "browser-initial-job.json",
+      "bytes": 3938,
+      "sha256": "6ce7d5bb8972d970cc83020294051d20ddd8329648787b76b3a8eaefcf918d63"
+    },
+    {
+      "file": "browser-initial-job.log.gz",
+      "bytes": 24034,
+      "sha256": "a76ec2bcea05351e66f4e5b612ee4676f586af46c667b6d569659039ab4df859"
+    },
+    {
+      "file": "browser-smoke-failure-artifact.zip",
+      "bytes": 97579,
+      "sha256": "52b63492ee4bdc0520b12fcb6c2c9da7852ee521e43e576a5f7d2f0836033fdc"
+    },
+    {
+      "file": "browser-smoke-failure-diagnosis.json",
+      "bytes": 1557,
+      "sha256": "ad7a99dd26fab448a6a37695bf89417af7d1da1a7c60ce39d30e1df7a349b8fe"
+    },
+    {
+      "file": "browser-smoke-failure-job.json",
+      "bytes": 3982,
+      "sha256": "c25749d0389bdfb380bcf9604305419ad19e0647619a517444eecdeff7920e8b"
+    },
+    {
+      "file": "browser-smoke-failure-job.log.gz",
+      "bytes": 70613,
+      "sha256": "d120e3e5fd9b4204ad766230545cc3c3cf4fcbcb4a01ddfed34fee47c1124f17"
+    },
+    {
+      "file": "ci-43834531061/browser-execution-summary.json",
+      "bytes": 2579,
+      "sha256": "09700fd4b70da866361a6c82b8e2856af73efdef6805603ad78c84c3c967b227"
+    },
+    {
+      "file": "ci-43834531061/browser-final-job.json",
+      "bytes": 4438,
+      "sha256": "613d8a84447c8c600ade26ebd00faebd2783ddf2ca714f0affb7c9065322cea0"
+    },
+    {
+      "file": "ci-43834531061/browser-final-job.log.gz",
+      "bytes": 71052,
+      "sha256": "84724e97ecc895493ec01f74fffaefdb5e6b857febc6ae8bab913da5dade7abb"
+    },
+    {
+      "file": "ci-43834531061/frontend-final-job.json",
+      "bytes": 2564,
+      "sha256": "066a074cd8cb8824cf6acae3a52ce653a03c926ceddf0a1220bf1b50d5de4457"
+    },
+    {
+      "file": "ci-43834531061/frontend-final-job.log.gz",
+      "bytes": 12758,
+      "sha256": "cae8e2e8c560397a100fd3a60204b46888a348ddf65c9a3a666e7c21e2422b4f"
+    },
+    {
+      "file": "ci-43834531061/manifest.json",
+      "bytes": 2242,
+      "sha256": "07598ce966d894c46b9a911e4b4defd00b8696d4d755e82d9068bc01b767d2e2"
+    },
+    {
+      "file": "frontend-final-job.json",
+      "bytes": 2564,
+      "sha256": "6936b9f53ea37aa5ced0c2e6df9c856e1877db40c49022496aba4462588ffdd9"
+    },
+    {
+      "file": "frontend-final-job.log.gz",
+      "bytes": 12852,
+      "sha256": "468e399e5df8e95ae0a884e93c24eb6e407020a71cb3922027e74c5ae7fc4c26"
+    },
+    {
+      "file": "frontend-initial-job.json",
+      "bytes": 2188,
+      "sha256": "7a3420b8d3dd9de68b3b401dcddaeae1cd73d1cf08a174fea74f4e9db8f4aa7c"
+    },
+    {
+      "file": "frontend-initial-job.log.gz",
+      "bytes": 12705,
+      "sha256": "6b4530fb8243e1d3e761af195c41326cd8df38c0fe477d354550b5648b3265b3"
+    },
+    {
+      "file": "frontend-initial-log-manifest.json",
+      "bytes": 332,
+      "sha256": "a61681f64514464aa4a4722ae5eb8fda83d111e17620f630b002588a7b1667da"
+    },
+    {
+      "file": "sdk-live-16.13.json",
+      "bytes": 1939,
+      "sha256": "3dcba99f5855f66aea55aa519781888a142bf661dbb05e5d6810ba83a08901e7"
+    },
+    {
+      "file": "sdk-live-17.9.json",
+      "bytes": 2592,
+      "sha256": "d0d3f304b450ec0f6822783365f9b1c239d108395558bd442634a76233641a4f"
+    },
+    {
+      "file": "sdk-live-18.3.json",
+      "bytes": 1938,
+      "sha256": "0b1d54a8db79cb10e2ef21798e8bbcac29d0e92b37acee60ceca0ca6625dc165"
+    }
+  ],
+  "accepted_browser_job_rerun_requests": 1,
+  "provider_latest_inventory_note": "Successful job IDs may be refreshed by reusable-workflow bookkeeping; logs listed here retain exact source and observed attempt scope"
+}
