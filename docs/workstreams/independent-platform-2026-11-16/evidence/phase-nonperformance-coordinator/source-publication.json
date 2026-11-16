@@ -1,0 +1,135 @@
+{
+  "base_sha": "a1a652289f0bc817f18db257282c758e66b4a672",
+  "qualified_source": {
+    "local_sha": "cf1324e15e772c2bceeb1360892da66a96d51532",
+    "remote_sha": "56a881f47d0c27877b91959d7df641c2f603ef03",
+    "tree": "9b4a2e78540c3737f03f6fcc27398bfaa0424180"
+  },
+  "ci_run_id": 43836410887,
+  "ci_run_url": "https://github.com/yakisoba0728/PgBase/actions/runs/43836410887",
+  "expected_main": "8f551de4423a6b64d9c0ac94fff9b9bd07264f2a",
+  "publication_method": "GitHub Git data API; every created tree verified against local Git tree; non-force expected-head ref update",
+  "commits": [
+    {
+      "local_sha": "1bebfb18ae40c0daf74df92a1fda6aaa4fd1eade",
+      "remote_sha": "a9f9aeeaa3700c15cf868e0187e84a354bab05a0",
+      "tree": "d122b27b75bfabdf6a93c8abd0612eb574d7090a"
+    },
+    {
+      "local_sha": "6aa0653b8d4613f4843c9a532ee455e03f882c98",
+      "remote_sha": "e7134d21fcc122db5996107fd59a9b3d9e34951a",
+      "tree": "a411f72df80f97de780cefcc77b1a81afb756a82"
+    },
+    {
+      "local_sha": "568d8ae7574092977dca483d2f09a86912957c9e",
+      "remote_sha": "86170fa278fed4c9c84d74d9fdbcfc09364d4d7b",
+      "tree": "c64ad9fca248d9d55549eddf1a3fb38cc935f822"
+    },
+    {
+      "local_sha": "4ee9e7e44a7763ae9fb51f8796e9e58f8052c186",
+      "remote_sha": "6b6853cb2051d6dd089d402a2a938062886034e2",
+      "tree": "e0edb767fd5ec487e84e9b5ad75524feaedab90e"
+    },
+    {
+      "local_sha": "a92b7ebc3dbf1cf549a803e217cf14050a235901",
+      "remote_sha": "e1af7ef5bfe5014c66ddbe1778392d67bbe74929",
+      "tree": "5bdda85b9fbbdb311b4c4e3853d1441b66586577"
+    },
+    {
+      "local_sha": "37bca0c1522b00a26b3334fd5b9a4f56f688d0db",
+      "remote_sha": "8ffc582b63f7b356567ef69e8d8946ee4d3b2b42",
+      "tree": "12889b4cc33bbf8081f21760bb969b8a1c916292"
+    },
+    {
+      "local_sha": "4bc799ce78951f2b8b186a5c8f45e2164f0c56b5",
+      "remote_sha": "a6d05845b6dc40deacaf8b66bcb90646d45cfb03",
+      "tree": "fbc5834d2c3a3978b27fab9760f768d276c798d8"
+    },
+    {
+      "local_sha": "5f9410a49dc96d6e591b6527546cba5ec424cfd6",
+      "remote_sha": "f2e949ecd37686e71b86ba95705ccdf3c3e6eb36",
+      "tree": "85ca78af5c4448eecff33e3f3616717f34647732"
+    },
+    {
+      "local_sha": "6c7f3d69688678f9fb54989bf813e178fd296cae",
+      "remote_sha": "d47515cab1a41f9ca150f21e29ca4be2887a6d68",
+      "tree": "f8eb7fa0e43961d848820747ef78fbcc05406eb8"
+    },
+    {
+      "local_sha": "97db0ddd912c4934a97f19f8fe6dfd390274447d",
+      "remote_sha": "fe3fdefda1166fe4c73f50f87a62adca17a3bb96",
+      "tree": "6007228286478bdb43ac729c550799249d020cda"
+    },
+    {
+      "local_sha": "7b1332943048bf4aa541c635a0ad0abcda57a668",
+      "remote_sha": "1416909dc9893073114a85c319569b54ff53f56f",
+      "tree": "6405d30bd7f55aa03213fd10a58af5dbe560c72d"
+    },
+    {
+      "local_sha": "b07ee270f545da186ae1c476f2efd6b9bd1685ac",
+      "remote_sha": "818aceeac76a3d55ecd21cc24c1a14d3142f5015",
+      "tree": "04e8c6f3ec9f4cd9ade70c321ccd65c23069cf97"
+    },
+    {
+      "local_sha": "fc308d9126112d755858e7205bce0e6cf5ae0642",
+      "remote_sha": "19e3929f749cf12308b148f10cb4950d2691ff14",
+      "tree": "10eb1bfaa2f8eb9f1f48fd53ac4c76e0c42733d6"
+    },
+    {
+      "local_sha": "54e01467c559ba1342ce6e8016a8e2835f1f460a",
+      "remote_sha": "d6cc73b8860dcca0b2bf175b9dfc2baee0c31c3f",
+      "tree": "d7fe14f674f4fc7d402739cf8c99610afc95464a"
+    },
+    {
+      "local_sha": "68382d4817ea73f85b3cb3fcf9776205a89ec8fd",
+      "remote_sha": "30523ddaf27f8ffebd8b59c5ef802186107a408e",
+      "tree": "7a28c45d5d5bb46156140953332422c8cb13bbf3",
+      "base_sha": "d6cc73b8860dcca0b2bf175b9dfc2baee0c31c3f"
+    },
+    {
+      "local_sha": "cf1324e15e772c2bceeb1360892da66a96d51532",
+      "remote_sha": "56a881f47d0c27877b91959d7df641c2f603ef03",
+      "tree": "9b4a2e78540c3737f03f6fcc27398bfaa0424180",
+      "base_sha": "30523ddaf27f8ffebd8b59c5ef802186107a408e"
+    }
+  ],
+  "performance": {
+    "executed": false,
+    "owner": "user",
+    "historical_failed_run": 43820007603,
+    "dropped_arrivals": 547,
+    "total_arrivals": 120000,
+    "rate_rps": 200,
+    "duration_seconds": 600
+  },
+  "full_qualification_opt_in_removed": true,
+  "required_check_settings_changed": false,
+  "ci_merge_sha": "0a517baea58bf65e2293f15fb0a9fb54321f7eb7",
+  "ci_merge_tree": "9b4a2e78540c3737f03f6fcc27398bfaa0424180",
+  "source_tree_equals_ci_merge_tree": true,
+  "initial_attempt": {
+    "source": {
+      "local_sha": "54e01467c559ba1342ce6e8016a8e2835f1f460a",
+      "remote_sha": "d6cc73b8860dcca0b2bf175b9dfc2baee0c31c3f",
+      "tree": "d7fe14f674f4fc7d402739cf8c99610afc95464a"
+    },
+    "run_id": 43833754019,
+    "ci_merge_sha": "8888312b8a650be0d654073122f553128e528d1c",
+    "successful_jobs": 8,
+    "failed_jobs": 2,
+    "cancelled_on_source_supersession": 4
+  },
+  "second_attempt": {
+    "source": {
+      "local_sha": "68382d4817ea73f85b3cb3fcf9776205a89ec8fd",
+      "remote_sha": "30523ddaf27f8ffebd8b59c5ef802186107a408e",
+      "tree": "7a28c45d5d5bb46156140953332422c8cb13bbf3"
+    },
+    "run_id": 43834531061,
+    "ci_merge_sha": "495ea346467f5d90fc9d250531c9c8718233b6d3",
+    "successful_jobs": 11,
+    "failed_jobs": 3,
+    "cancelled_jobs": 0,
+    "root_cause": "one obsolete latest-schema68 test fixture assertion; runtime unchanged by correction"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "job_id": 133185152151,
+  "run_id": 43833754019,
+  "source_sha": "d6cc73b8860dcca0b2bf175b9dfc2baee0c31c3f",
+  "ci_merge_sha": "8888312b8a650be0d654073122f553128e528d1c",
+  "source_tree": "d7fe14f674f4fc7d402739cf8c99610afc95464a",
+  "full_raw_log_sha256": "d6c5603772b22b2ee15c2f931ca06fca1f29bc4d5567bac39772a260077fff3b",
+  "full_log_evidence": "../phase-nonperformance-sdk-ui-ci/browser-initial-job.log.gz",
+  "excerpts": [
+    "2026-11-16T08:46:26.3260804Z 100 12213  100 12213    0     0   118k      0 --:--:-- --:--:-- --:--:--  119k",
+    "2026-11-16T08:46:26.3261578Z #32 4.312 zlib.tar.gz: FAILED",
+    "2026-11-16T08:46:26.7855408Z 100 12213  100 12213    0     0   118k      0 --:--:-- --:--:-- --:--:--  119k",
+    "2026-11-16T08:46:26.7855896Z 4.312 zlib.tar.gz: FAILED"
+  ],
+  "response_body_observed": false,
+  "cause_established": false
+}

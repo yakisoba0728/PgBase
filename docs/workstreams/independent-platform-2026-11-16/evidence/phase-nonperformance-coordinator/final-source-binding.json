@@ -1,0 +1,11 @@
+{
+  "source_sha": "56a881f47d0c27877b91959d7df641c2f603ef03",
+  "ci_merge_sha": "0a517baea58bf65e2293f15fb0a9fb54321f7eb7",
+  "identical_tree": "9b4a2e78540c3737f03f6fcc27398bfaa0424180",
+  "tests_only_since_second_attempt": [
+    "internal/doctor/checks_integration_test.go"
+  ],
+  "runtime_source_changed_since_second_attempt": false,
+  "original_performance_scope": "unchanged and not executed",
+  "documentation_checkpoint_policy": "Keep the tested PR source frozen; publish final reports and CI evidence on a documentation-only coordinator checkpoint and update its handoff pointer."
+}

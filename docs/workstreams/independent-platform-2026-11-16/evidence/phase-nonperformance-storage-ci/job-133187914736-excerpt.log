@@ -1,0 +1,19 @@
+L169: 2026-11-16T08:51:10.3130887Z   PGBASE_FULL_INTEGRATION_RACE: false
+L170: 2026-11-16T08:51:10.3131162Z   PGBASE_INTEGRATION_PACKAGES: ./...
+L171: 2026-11-16T08:51:10.3131446Z   PGBASE_INTEGRATION_EXCLUDE_PACKAGES: 
+L252: 2026-11-16T08:51:14.9361043Z HEAD is now at 495ea34 Merge 30523ddaf27f8ffebd8b59c5ef802186107a408e into 8f551de4423a6b64d9c0ac94fff9b9bd07264f2a
+L452: 2026-11-16T08:51:32.9499358Z [36;1mtest_arguments=(-count=1)[0m
+L456: 2026-11-16T08:51:32.9501587Z [36;1m  test_arguments=(-race -timeout 20m "${test_arguments[@]}")[0m
+L458: 2026-11-16T08:51:32.9502584Z [36;1mscripts/test-go-integration.sh "${test_arguments[@]}" 2>&1 | tee go-test.log[0m
+L471: 2026-11-16T08:51:32.9547792Z   PGBASE_TEST_S3_ENDPOINT: http://127.0.0.1:32769
+L536: 2026-11-16T08:52:31.4394069Z ok  	github.com/yakisoba0728/PgBase/internal/backup	16.587s
+L542: 2026-11-16T08:52:34.2266197Z ok  	github.com/yakisoba0728/PgBase/internal/database	1.814s
+L543: 2026-11-16T08:52:35.5462109Z === RUN   TestRunRequiresADeclaredCompatibleHistory
+L544: 2026-11-16T08:52:35.5487313Z     checks_integration_test.go:36: unexpected preparatory manifest: 64 migrations
+L545: 2026-11-16T08:52:35.5509657Z --- FAIL: TestRunRequiresADeclaredCompatibleHistory (0.00s)
+L546: 2026-11-16T08:52:51.4725343Z PASS
+L547: 2026-11-16T08:52:51.4839917Z ok  	github.com/yakisoba0728/PgBase/internal/api	37.528s
+L567: 2026-11-16T08:53:15.9752287Z ok  	github.com/yakisoba0728/PgBase/internal/filestore	22.532s
+L569: 2026-11-16T08:53:25.2908005Z ok  	github.com/yakisoba0728/PgBase/internal/migrate	8.522s
+L616: 2026-11-16T08:55:40.2227935Z ok  	github.com/yakisoba0728/PgBase/migrations/system	13.347s
+L636: 2026-11-16T08:58:58.6837048Z ok  	github.com/yakisoba0728/PgBase/pgbase	196.764s

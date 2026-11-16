@@ -1,0 +1,67 @@
+{
+  "source_sha": "30523ddaf27f8ffebd8b59c5ef802186107a408e",
+  "ci_merge_sha": "495ea346467f5d90fc9d250531c9c8718233b6d3",
+  "verified_common_tree": "7a28c45d5d5bb46156140953332422c8cb13bbf3",
+  "run_id": 43834531061,
+  "successful_job_ids": [
+    133187914876,
+    133187914238
+  ],
+  "initial_run_id": 43833754019,
+  "initial_source_sha": "d6cc73b8860dcca0b2bf175b9dfc2baee0c31c3f",
+  "initial_frontend_job_id": 133185152804,
+  "initial_failed_browser_job_id": 133185152151,
+  "evidence_files": [
+    {
+      "file": "browser-execution-summary.json",
+      "bytes": 2579,
+      "sha256": "09700fd4b70da866361a6c82b8e2856af73efdef6805603ad78c84c3c967b227"
+    },
+    {
+      "file": "browser-final-job.json",
+      "bytes": 4438,
+      "sha256": "613d8a84447c8c600ade26ebd00faebd2783ddf2ca714f0affb7c9065322cea0"
+    },
+    {
+      "file": "browser-final-job.log.gz",
+      "bytes": 71052,
+      "sha256": "84724e97ecc895493ec01f74fffaefdb5e6b857febc6ae8bab913da5dade7abb"
+    },
+    {
+      "file": "../browser-initial-job.json",
+      "bytes": 3938,
+      "sha256": "6ce7d5bb8972d970cc83020294051d20ddd8329648787b76b3a8eaefcf918d63"
+    },
+    {
+      "file": "../browser-initial-job.log.gz",
+      "bytes": 24034,
+      "sha256": "a76ec2bcea05351e66f4e5b612ee4676f586af46c667b6d569659039ab4df859"
+    },
+    {
+      "file": "frontend-final-job.json",
+      "bytes": 2564,
+      "sha256": "066a074cd8cb8824cf6acae3a52ce653a03c926ceddf0a1220bf1b50d5de4457"
+    },
+    {
+      "file": "frontend-final-job.log.gz",
+      "bytes": 12758,
+      "sha256": "cae8e2e8c560397a100fd3a60204b46888a348ddf65c9a3a666e7c21e2422b4f"
+    },
+    {
+      "file": "../frontend-initial-job.json",
+      "bytes": 2188,
+      "sha256": "7a3420b8d3dd9de68b3b401dcddaeae1cd73d1cf08a174fea74f4e9db8f4aa7c"
+    },
+    {
+      "file": "../frontend-initial-job.log.gz",
+      "bytes": 12705,
+      "sha256": "6b4530fb8243e1d3e761af195c41326cd8df38c0fe477d354550b5648b3265b3"
+    },
+    {
+      "file": "../frontend-initial-log-manifest.json",
+      "bytes": 332,
+      "sha256": "a61681f64514464aa4a4722ae5eb8fda83d111e17620f630b002588a7b1667da"
+    }
+  ],
+  "sdk_live_contract_owner": "Final PostgreSQL integration evidence and phase-nonperformance-validation.md"
+}

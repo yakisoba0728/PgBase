@@ -1,0 +1,6 @@
+2026-11-16T08:45:06.6159990Z [command]/usr/bin/git log -1 --format=%H
+2026-11-16T08:45:06.6201192Z 8888312b8a650be0d654073122f553128e528d1c
+2026-11-16T08:45:41.0671734Z   skip-queries: false
+2026-11-16T08:45:41.9494785Z No precomputed diff ranges found; skipping diff-informed analysis stage.
+2026-11-16T08:46:35.5652107Z [105/105 eval 303ms] Evaluation done; writing results to codeql/javascript-queries/Summary/LinesOfUserCode.bqrs.
+2026-11-16T08:46:39.6239086Z Ran 12 tests in 0.007s

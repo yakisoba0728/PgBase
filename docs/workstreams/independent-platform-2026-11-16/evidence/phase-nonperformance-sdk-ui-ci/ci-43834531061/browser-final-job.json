@@ -1,0 +1,172 @@
+{
+  "source_sha": "30523ddaf27f8ffebd8b59c5ef802186107a408e",
+  "source_tree": "7a28c45d5d5bb46156140953332422c8cb13bbf3",
+  "ci_merge_sha": "495ea346467f5d90fc9d250531c9c8718233b6d3",
+  "run_id": 43834531061,
+  "job": {
+    "id": 133187914238,
+    "name": "browser-and-recovery / e2e",
+    "status": "completed",
+    "conclusion": "success",
+    "run_id": 43834531061,
+    "logs_url": null,
+    "steps": [
+      {
+        "name": "Set up job",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 1
+      },
+      {
+        "name": "Check out repository",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 2
+      },
+      {
+        "name": "Set up Go",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 3
+      },
+      {
+        "name": "Set up Node.js",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 4
+      },
+      {
+        "name": "Generate isolated Compose configuration",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 5
+      },
+      {
+        "name": "Verify Compose shutdown policy",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 6
+      },
+      {
+        "name": "Authenticate and pull release candidate",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 7
+      },
+      {
+        "name": "Build image in local CI mode",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 8
+      },
+      {
+        "name": "Start isolated PostgreSQL project",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 9
+      },
+      {
+        "name": "Start the authenticated browser backend",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 10
+      },
+      {
+        "name": "Start the managed-backup browser backend",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 11
+      },
+      {
+        "name": "Create the isolated browser administrators",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 12
+      },
+      {
+        "name": "Install browser test dependencies",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 13
+      },
+      {
+        "name": "Install the Playwright browser and its system dependencies",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 14
+      },
+      {
+        "name": "Verify browser onboarding and authenticated workflows",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 15
+      },
+      {
+        "name": "Verify Firefox and WebKit representative workflows",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 16
+      },
+      {
+        "name": "Verify hardened runtime",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 17
+      },
+      {
+        "name": "Run black-box tests",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 18
+      },
+      {
+        "name": "Capture service logs",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 19
+      },
+      {
+        "name": "Upload failed E2E logs",
+        "status": "completed",
+        "conclusion": "skipped",
+        "number": 20
+      },
+      {
+        "name": "Remove isolated Compose resources",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 21
+      },
+      {
+        "name": "Post Set up Node.js",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 40
+      },
+      {
+        "name": "Post Set up Go",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 41
+      },
+      {
+        "name": "Post Check out repository",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 42
+      },
+      {
+        "name": "Complete job",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 43
+      }
+    ]
+  },
+  "log": {
+    "file": "browser-final-job.log.gz",
+    "raw_bytes": 522807,
+    "raw_sha256": "18ef3b25825223e2389060fa74d482b967f0d94efc82fb79558e962aeff7e73b",
+    "stored_sha256": "84724e97ecc895493ec01f74fffaefdb5e6b857febc6ae8bab913da5dade7abb"
+  }
+}

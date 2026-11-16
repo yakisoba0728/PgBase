@@ -1,0 +1,6 @@
+2026-11-16T08:45:03.8374496Z [command]/usr/bin/git log -1 --format=%H
+2026-11-16T08:45:03.8399870Z 8888312b8a650be0d654073122f553128e528d1c
+2026-11-16T08:46:28.3296055Z   skip-queries: false
+2026-11-16T08:46:29.0727477Z No precomputed diff ranges found; skipping diff-informed analysis stage.
+2026-11-16T08:47:25.6291735Z [37/37 eval 335ms] Evaluation done; writing results to codeql/go-queries/Security/CWE-918/RequestForgery.bqrs.
+2026-11-16T08:47:28.5643371Z Ran 12 tests in 0.004s

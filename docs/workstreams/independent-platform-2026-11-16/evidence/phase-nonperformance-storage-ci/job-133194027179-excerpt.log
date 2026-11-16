@@ -1,0 +1,23 @@
+L169: 2026-11-16T09:04:10.8581788Z   PGBASE_FULL_INTEGRATION_RACE: true
+L170: 2026-11-16T09:04:10.8582052Z   PGBASE_INTEGRATION_PACKAGES: ./...
+L171: 2026-11-16T09:04:10.8582335Z   PGBASE_INTEGRATION_EXCLUDE_PACKAGES: ./pgbase
+L252: 2026-11-16T09:04:13.7191357Z HEAD is now at 0a517ba Merge 56a881f47d0c27877b91959d7df641c2f603ef03 into 8f551de4423a6b64d9c0ac94fff9b9bd07264f2a
+L516: 2026-11-16T09:05:11.6905788Z [36;1mtest_arguments=(-count=1)[0m
+L520: 2026-11-16T09:05:11.6907570Z [36;1m  test_arguments=(-race -timeout 20m "${test_arguments[@]}")[0m
+L522: 2026-11-16T09:05:11.6908346Z [36;1mscripts/test-go-integration.sh "${test_arguments[@]}" 2>&1 | tee go-test.log[0m
+L535: 2026-11-16T09:05:11.6939862Z   PGBASE_TEST_S3_ENDPOINT: http://127.0.0.1:32769
+L553: 2026-11-16T09:06:20.7019900Z ok  	github.com/yakisoba0728/PgBase/internal/backup	17.979s
+L581: 2026-11-16T09:07:08.1911811Z ok  	github.com/yakisoba0728/PgBase/internal/filestore	20.279s
+L583: 2026-11-16T09:07:15.7421998Z ok  	github.com/yakisoba0728/PgBase/internal/doctor	48.162s
+L587: 2026-11-16T09:07:18.9016451Z ok  	github.com/yakisoba0728/PgBase/internal/migrate	9.414s
+L628: 2026-11-16T09:10:17.3169026Z ok  	github.com/yakisoba0728/PgBase/migrations/system	12.516s
+L668: 2026-11-16T09:11:09.8998356Z ok  	github.com/yakisoba0728/PgBase/pgbase	3.162s
+L765: 2026-11-16T09:11:14.0289759Z No issues found!
+L1066: 2026-11-16T09:11:29.1192415Z --- PASS: TestSDKPublicRecordHTTPConformance (3.00s)
+L1068: 2026-11-16T09:11:30.0726888Z --- PASS: TestSDKRelationFileNativeListRegression (0.95s)
+L1070: 2026-11-16T09:11:42.4807871Z --- PASS: TestSDKTextRecordIdentityHTTPConformance (12.41s)
+L1074: 2026-11-16T09:11:48.8606262Z --- PASS: TestSDKRealtimeHTTPConformance (6.38s)
+L1075: 2026-11-16T09:11:48.8606754Z     --- PASS: TestSDKRealtimeHTTPConformance/typescript (2.22s)
+L1076: 2026-11-16T09:11:48.8607368Z     --- PASS: TestSDKRealtimeHTTPConformance/dart (3.08s)
+L1078: 2026-11-16T09:11:48.8722684Z ok  	github.com/yakisoba0728/PgBase/pgbase	22.765s
+L1151: 2026-11-16T09:11:55.0964399Z ok  	github.com/yakisoba0728/PgBase/pgbase	4.955s

@@ -1,53 +1,67 @@
-# PgBase — nonperformance completion checkpoint
+# PgBase — final nonperformance checkpoint
 
-This current section supersedes earlier live-session scope instructions.
-Performance engineering and measurement are explicitly assigned to the user.
+## Final outcome and stop
 
-## Scope and publication policy
+**Implementation integrated; nonperformance qualification Blocked (13/14 jobs).
+Overall product Not Ready.** This session has ended. No agent or automatic
+coding process continues after the report.
 
-- Reuse Draft PR #148 and `refactor/independent-platform-20261116`; no merge,
-  main push, force push, release, tag, package publication or deployment.
-- Start from actual PR HEAD `a1a652289f0bc817f18db257282c758e66b4a672`.
-- Remote checkpoint `06938a41117072aa63b872b108652ea3a9e0cd94` and Storage
-  `71dc58151c226f85b982f9d310248ab87d2df1a8` were inspected. Only selected
-  Storage code/tests/docs were recovered; performance changes were excluded.
+The user explicitly excluded performance work and required stopping repeated
+same-defect investigation without a new evidence-backed hypothesis. Firefox's
+strict-console font-abort failure reproduced on one unchanged-job retry.
+No test/filter/timeout or required check was weakened to obtain success.
+
+## Exact current source
+
+- Draft PR #148, branch `refactor/independent-platform-20261116`.
+- Tested PR HEAD: `56a881f47d0c27877b91959d7df641c2f603ef03`.
+- Actual CI merge: `0a517baea58bf65e2293f15fb0a9fb54321f7eb7`.
+- Both trees: `9b4a2e78540c3737f03f6fcc27398bfaa0424180`.
+- Final run: [43836410887](https://github.com/yakisoba0728/PgBase/actions/runs/43836410887),
+  13 successful jobs, one failed browser job, zero unfinished jobs.
 - Main remains `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`.
-- Three actual child agents handle Storage, SDK/UI and independent QA/security
-  in separate worktrees, with no more than three children running together.
+- Final documentation/evidence checkpoint:
+  `coordinator/nonperformance-completion-20261116`, documentation-only above
+  the tested PR source. Use its immutable commit link from the PR description.
 
-## Selected, locally reviewed changes
+## Implemented and verified
 
-- Durable pre-Put variant cleanup intent, schema 69, retained ambiguous writes,
-  legacy worker guard and migration/restore policies.
-- Concrete schema 68 backup restore-before-migrate compatibility repair, with
-  actual pg_dump/RestoreNew regression and independently executed race tests.
-- The preserved TS/Dart delayed-listener error and administrator Backup
-  callback ownership fixes, with reproducible before/after regressions.
-- Conservative special-use destination rejection for external OAuth avatars,
-  with a separate reviewer and public-address controls.
-- Additive nonperformance CI and opt-in Firefox/WebKit smoke projects; original
-  performance workflows/required-check configuration remain unchanged.
+- Durable pre-Put cleanup intent, schema 69, retained ambiguous writes,
+  legacy-worker fencing and conservative migration/restore policies.
+- Actual schema 68 dump/restore-before-migrate compatibility correction.
+- TS/Dart delayed listener and admin Backup callback/session ownership.
+- Conservative OAuth-avatar special-use address rejection with a separate reviewer.
+- Obsolete Storage helper removal and doctor schema 69 fixture correction.
+- Go/race/static/vet, PostgreSQL 16/17/18, isolated MinIO, live SDKs,
+  admin builds, platforms, and fresh source/image security jobs passed.
+- Three actual child agents performed separated author and independent review.
 
-## Qualification status
+## Precise remaining nonperformance blocker
 
-Author and independent focused tests have passed. Hosted combined-source
-qualification is pending; see `phase-nonperformance-validation.md` for the exact
-source and job ledger once complete. No performance test is authorized here.
+**NP-BROWSER-01**: both final-source browser attempts passed Chromium 26,
+Firefox 5/6 and WebKit 6/6; the Firefox session case failed cleanConsole teardown
+on a Pretendard font `NS_BINDING_ABORTED` message. Its functional login/reload/
+signout assertions completed. Cause is not trace-proven because the failing
+Playwright trace was not uploaded. Current-source hardened-runtime/black-box
+steps were not executed after the failure; old 30523dda results remain historical.
 
-## Reports
+If explicitly resumed, first retain a trace and request/console evidence for
+that one case, determine the actual cause and make a justified narrow correction.
+Do not run another broad audit, blindly ignore console errors or restart performance.
 
-- `phase-nonperformance-storage.md`
-- `phase-nonperformance-sdk-ui.md`
-- `phase-nonperformance-security.md`
-- `phase-nonperformance-validation.md`
-- `phase-nonperformance-deferred.md`
+## Canonical reports
 
-## Release and stop boundary
+- `phase-nonperformance-validation.md`: decisions, exact jobs and attempt history.
+- `phase-nonperformance-storage.md` + `phase-nonperformance-storage-ci.md`.
+- `phase-nonperformance-sdk-ui.md` + `phase-nonperformance-sdk-ui-ci.md`.
+- `phase-nonperformance-security.md` + `phase-nonperformance-security-ci.md`.
+- `phase-nonperformance-deferred.md`: Open/Blocked/Deferred ownership and next actions.
+- `evidence/phase-nonperformance-coordinator/`: publication mapping and job ledger.
 
-**Not Ready.** 성능 검증은 사용자가 직접 처리할 예정이므로 미완료로 남겨둠.
-전체 릴리스 판정 Not Ready 유지. The historical 200 RPS/600s gate lost 547 of
-120,000 arrivals. No new performance pass exists.
+## Performance remains the user's work
 
-Finish this bounded functional qualification, publish evidence and stop. Do not
-start a new broad audit or performance phase. Earlier complete Phase A/Phase B
-history remains in Git and the unchanged historical workstream documents.
+성능 검증은 사용자가 직접 처리할 예정이므로 미완료로 남겨둠.
+전체 릴리스 판정 **Not Ready** 유지.
+The historical 200 RPS/600s gate dropped 547 of 120,000 arrivals. No new performance
+measurement or pass exists. Original performance workflows/criteria/evidence and
+required-check settings were not modified. PR remains Draft and unmerged.
