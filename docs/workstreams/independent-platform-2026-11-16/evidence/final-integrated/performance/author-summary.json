@@ -1,0 +1,67 @@
+{
+  "baseline_source": "23b6c4090e453587325d9dfad8fec6d854f3bee2",
+  "candidate_source": "b2c6b223ef65232247baecd00763845baf43efa0",
+  "candidate_tree": "2fbc55a8e3aeb2cf299f66365e63f92c42db6909",
+  "scope": "request-pool availability; no 600-second performance result or historical unique-cause claim",
+  "red": {
+    "result": "FAIL_EXPECTED",
+    "configured_pool_max": 4,
+    "held_request_connections": 3,
+    "listener_acquired_slots": 1,
+    "fixture_backends": 4
+  },
+  "green": {
+    "result": "PASS",
+    "configured_pool_max": 4,
+    "held_request_connections": 4,
+    "listener_acquired_slots": 0,
+    "fixture_backends": 5,
+    "reconnect_shutdown_backup_gate": "PASS"
+  },
+  "focused_race": {
+    "counts": {
+      "pass_tests": 30,
+      "pass_subtests": 7
+    },
+    "packages": [
+      {
+        "Package": "github.com/yakisoba0728/PgBase/internal/database",
+        "Action": "pass",
+        "Elapsed": 2.495
+      },
+      {
+        "Package": "github.com/yakisoba0728/PgBase/internal/schema",
+        "Action": "pass",
+        "Elapsed": 5.121
+      },
+      {
+        "Package": "github.com/yakisoba0728/PgBase/pgbase",
+        "Action": "pass",
+        "Elapsed": 1.708
+      }
+    ]
+  },
+  "vet": "PASS",
+  "environment": {
+    "go": "go version go1.26.11 linux/amd64",
+    "postgresql": "postgres (PostgreSQL) 17.9",
+    "gomaxprocs": 2,
+    "database": "disposable loopback PostgreSQL; fsync/synchronous_commit/full_page_writes on",
+    "network_fixture": "database and go test in same shell invocation"
+  },
+  "source_sha256": {
+    "internal/schema/listener.go": "579e6abbafede59a077b42a25b6c3910d9a76e3e0f31a129202fb8832c6998aa",
+    "internal/schema/listener_capacity_integration_test.go": "c77ed15c92507c32cf561ab11959a8911c5eb62628b35ecf9fa4f84168324a6c",
+    "internal/database/pool.go": "a7903ce66ba14b3c467f932c6fab59a28a148c5aebf29b1e4ed6358bc5f4e26f",
+    "pgbase/open_loop_load_integration_test.go": "ea97a638021fa9d05d04741f2a3846ee39f527671de159e1b6f37499ee809a48",
+    "pgbase/open_loop_diagnostics_integration_test.go": "37c7bcc4a06eb72656ffa5ff77ac3db98c78251425335ca771b4c2fca61be89b"
+  },
+  "final_expected_backend_accounting": {
+    "request_pool_max": 4,
+    "dedicated_schema_listener": 1,
+    "existing_backup_gate": 1,
+    "existing_test_observer": 1,
+    "total": 7,
+    "observer_sampler_excludes_itself": true
+  }
+}
