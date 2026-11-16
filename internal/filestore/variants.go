@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 var variantPattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,3})x(0|[1-9][0-9]{0,3})([tbf]?)$`)
@@ -78,12 +79,14 @@ func (s *Service) variantObject(ctx context.Context, file File, variant string) 
 		// The transaction may be aborted or its commit result may be unknown.
 		// Queue cleanup in a fresh transaction and guard every metadata table so
 		// a variant that did commit is never physically deleted.
-		err = errors.Join(err, s.queueUnreferencedVariant(context.WithoutCancel(ctx), file.ID, variant, uploadedKey))
+		err = errors.Join(err, s.queueUnreferencedVariant(ctx, file.ID, variant, uploadedKey))
 	}
 	return key, err
 }
 
 func (s *Service) queueUnreferencedVariant(ctx context.Context, fileID uuid.UUID, variant, key string) error {
+	ctx, cancel := database.BoundedCleanupContext(ctx)
+	defer cancel()
 	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		// Serialize with the publishing transaction. In a commit-unknown case a
 		// fresh snapshot could otherwise miss a commit that is still in flight

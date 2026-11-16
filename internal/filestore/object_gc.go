@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 // SweepPending turns abandoned uploads into durable deletion work. The row
@@ -122,6 +123,11 @@ func (s *Service) DrainOne(ctx context.Context) (bool, error) {
 }
 
 func (s *Service) failUpload(ctx context.Context, file File) {
+	// Cleanup survives request cancellation, but a stalled pool, object store
+	// or shared deletion backlog must not retain the upload's storage lease
+	// indefinitely. The durable queue remains retryable after this budget.
+	ctx, cancel := database.BoundedCleanupContext(ctx)
+	defer cancel()
 	_ = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var id uuid.UUID
 		if err := tx.QueryRow(ctx, `UPDATE pgbase_meta.record_files SET status='deleted',deleted_at=CURRENT_TIMESTAMP WHERE id=$1 AND status='pending' RETURNING id`, file.ID).Scan(&id); errors.Is(err, pgx.ErrNoRows) {
