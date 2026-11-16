@@ -1,0 +1,97 @@
+[
+  {
+    "id": 14211495758,
+    "name": "pgbase-image-scan-sarif",
+    "size_in_bytes": 15492,
+    "url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14211495758",
+    "archive_download_url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14211495758/zip",
+    "expired": false,
+    "created_at": "2026-11-16T09:06:27Z",
+    "expires_at": "2027-02-14T09:03:54Z",
+    "updated_at": "2026-11-16T09:06:27Z",
+    "digest": "sha256:ace5ab0a04afdf534f9d147d8f3b14170bb9a3ee2b462ff84a4ae194e47d8482",
+    "workflow_run": {
+      "id": 43836410887,
+      "repository_id": 1348242873,
+      "head_repository_id": 1348242873,
+      "head_branch": "refactor/independent-platform-20261116",
+      "head_sha": "56a881f47d0c27877b91959d7df641c2f603ef03"
+    }
+  },
+  {
+    "id": 14211461144,
+    "name": "pgbase-sbom",
+    "size_in_bytes": 115260,
+    "url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14211461144",
+    "archive_download_url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14211461144/zip",
+    "expired": false,
+    "created_at": "2026-11-16T09:06:05Z",
+    "expires_at": "2027-02-14T09:03:54Z",
+    "updated_at": "2026-11-16T09:06:05Z",
+    "digest": "sha256:aed283eb7f05596dd5fdb972073a695e6d2fe71c39c78db50659f1bcb74a3ae2",
+    "workflow_run": {
+      "id": 43836410887,
+      "repository_id": 1348242873,
+      "head_repository_id": 1348242873,
+      "head_branch": "refactor/independent-platform-20261116",
+      "head_sha": "56a881f47d0c27877b91959d7df641c2f603ef03"
+    }
+  },
+  {
+    "id": 14210922787,
+    "name": "source-security-go-0a517baea58bf65e2293f15fb0a9fb54321f7eb7",
+    "size_in_bytes": 92277,
+    "url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14210922787",
+    "archive_download_url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14210922787/zip",
+    "expired": false,
+    "created_at": "2026-11-16T09:06:28Z",
+    "expires_at": "2026-11-30T09:06:28Z",
+    "updated_at": "2026-11-16T09:06:28Z",
+    "digest": "sha256:ef90d954308f2ab1f13f5d5a34a6cb005cbb713860579746dca39613925d9a91",
+    "workflow_run": {
+      "id": 43836410887,
+      "repository_id": 1348242873,
+      "head_repository_id": 1348242873,
+      "head_branch": "refactor/independent-platform-20261116",
+      "head_sha": "56a881f47d0c27877b91959d7df641c2f603ef03"
+    }
+  },
+  {
+    "id": 14210619448,
+    "name": "runtime-assets-0a517baea58bf65e2293f15fb0a9fb54321f7eb7",
+    "size_in_bytes": 206513,
+    "url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14210619448",
+    "archive_download_url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14210619448/zip",
+    "expired": false,
+    "created_at": "2026-11-16T09:06:09Z",
+    "expires_at": "2026-11-30T09:06:08Z",
+    "updated_at": "2026-11-16T09:06:09Z",
+    "digest": "sha256:40ab04aaa8cd0950d2f282500a1fd27e4d5e7f04b0e25b2296d7c1364c9966a9",
+    "workflow_run": {
+      "id": 43836410887,
+      "repository_id": 1348242873,
+      "head_repository_id": 1348242873,
+      "head_branch": "refactor/independent-platform-20261116",
+      "head_sha": "56a881f47d0c27877b91959d7df641c2f603ef03"
+    }
+  },
+  {
+    "id": 14210344766,
+    "name": "source-security-javascript-typescript-0a517baea58bf65e2293f15fb0a9fb54321f7eb7",
+    "size_in_bytes": 122430,
+    "url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14210344766",
+    "archive_download_url": "https://api.github.com/repos/yakisoba0728/PgBase/actions/artifacts/14210344766/zip",
+    "expired": false,
+    "created_at": "2026-11-16T09:05:20Z",
+    "expires_at": "2026-11-30T09:05:19Z",
+    "updated_at": "2026-11-16T09:05:20Z",
+    "digest": "sha256:ef740943f00d85a00ae87612c41cd06d7e33ae23b5d07ba73900698870b00e0a",
+    "workflow_run": {
+      "id": 43836410887,
+      "repository_id": 1348242873,
+      "head_repository_id": 1348242873,
+      "head_branch": "refactor/independent-platform-20261116",
+      "head_sha": "56a881f47d0c27877b91959d7df641c2f603ef03"
+    }
+  }
+]

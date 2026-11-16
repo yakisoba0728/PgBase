@@ -1,0 +1,10 @@
+{
+  "url": "https://zlib.net/zlib-1.4.tar.gz",
+  "final_url": "https://zlib.net/zlib-1.4.tar.gz",
+  "status": 200,
+  "content_type": "application/x-gzip",
+  "bytes": 1507140,
+  "sha256": "02dd159783677a749c04adbdd02b55b8a2bcc7e054f51b76b549199a916ad584",
+  "gzip_header": "1f8b",
+  "expected_sha256": "02dd159783677a749c04adbdd02b55b8a2bcc7e054f51b76b549199a916ad584"
+}
