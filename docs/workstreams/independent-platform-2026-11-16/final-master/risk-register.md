@@ -1,0 +1,39 @@
+# Final-master risk register
+
+Status: **IN_PROGRESS — final candidate and independent qualification pending**.
+Owners below are accountable roles for acceptance or operation, not statements
+that someone approved deployment. No main merge, release or production action
+is authorized by this document.
+
+| ID / priority | Status and boundary | Evidence / mitigation | Owner and revalidation condition |
+| --- | --- | --- | --- |
+| QA-01 / acceptance gate | OPEN: combined runtime has not yet received a new complete source-bound qualification at this snapshot. | Final report must bind source SHA, actual CI checkout and matching tree, mandatory steps, retained raw logs and one 200 RPS / 600 s gate. [Historical 15/15](../final-integrated-qualification.md) is not a substitute. | Coordinator + independent QA; close only after actual current results are reconciled. |
+| STORE-01 / P2 | FIXED IN AUTHOR SOURCE; integration verification pending. Foreign-controller context previously routed Put/Open/Delete through another store and could authorize publication with the wrong lease owner. | `e59fc076` + scoped follow-up; original-source failing unit cases and prepared real-PG contract. Demonstrated trusted composed-call defect, not a proved HTTP tenant bypass. | Backend reviewer + independent QA; rerun ownership, lease release, retained-intent and real-PG tests on integrated source. |
+| SDK-01 / P2 | FIXED IN AUTHOR SOURCE; integration verification pending. Queued refresh could adopt a later account's auth generation. | `8ccf8ca`; deterministic RED in TS/Dart, rejection before transport, same-session rotation/log-out continuity. | SDK reviewer + independent QA; language suites and real-server contracts on final source. |
+| UI-01 / P2 | FIXED IN AUTHOR SOURCE; integration verification pending. Old Jobs/migration callbacks could notify or invalidate shared cache for a replacement session. | `b56b740`; invocation scope fences, focused stale-callback tests. | SDK/UI reviewer + independent QA; clean dist/typecheck/full UI and configured browsers. |
+| PERF-01 / P2 | FIXED IN AUTHOR SOURCE; final integration review pending. Offline reader accepted substituted stages, incomplete latency samples or oversized pools. | [Performance review](performance-infrastructure-review.md), exact RED/GREEN/replay evidence. Workload/gates unchanged. | Performance reviewer + independent QA; enforce registered c1/c8/c32/c4 order and complete population. |
+| SEC-01 / scanner applicability | RETAINED; fresh final scans pending. Historical CodeQL has **25 results: 1 CRITICAL / 17 HIGH / 7 MEDIUM**. | Raw scanner severity and `unreviewed` state are preserved. [Per-location historical dispositions](../final-security.md), [later source comparison](../phase-nonperformance-security-ci.md), retained SARIF. Scan success is not proof of harmlessness. | Security reviewer + release owner; compare fresh identities/flows and explicitly validate any new or changed reachable finding. |
+| SEC-02 / native dependencies | RETAINED; historical image has **32 records: 21 MEDIUM / 9 LOW / 2 UNKNOWN**. Native PostgreSQL helper libraries remain part of the image. | [Image dispositions](../phase-nonperformance-security-ci.md), SBOM and runtime-assets archives. Native-helper reachability, upstream/distribution disagreement and architecture-specific claims stay scoped to the actual artifact. UNKNOWN is not harmless. | Release owner/security reviewer; new digest, package/advisory or target architecture requires re-evaluation. |
+| STORE-02 / data integrity | OPERATIONAL RESTRICTION: uncertain remote Put can finish after cancellation/process/session loss. | Schema 69 commits pre-Put intent and retains uncertain tombstones indefinitely. Successful Delete or absent read does not prove quiescence. [Operator procedure](../../../storage-settings.md#variant-cleanup-and-uncertain-writes-schema-69). | Operator; retire retention only for exact reviewed keys after independently proving remote completion. |
+| STORE-03 / migration/old worker | OPERATIONAL RESTRICTION: retained intents block destination activation; older cleanup workers can repeatedly hit the DB guard. | Keep source namespace active, stop or upgrade all old workers, drain writers and prove remote quiescence. Do not bulk-delete the queue or infer safety from age. | Operator; every upgrade, namespace cutover or rollback. |
+| JOB-01 / external effects | CONTRACT LIMIT: lease/generation fencing does not deliver exactly-once external effects. | [Jobs source](../../../../internal/jobs/) and historical regressions preserve occurrence identity; SQL rollback cannot revoke an already accepted remote side effect. | Application/handler owner; use stable idempotency keys or external fencing before enabling retryable effectful jobs. |
+| DB-01 / resource capacity | CLARIFIED: **4 + 1 + 1 + optional 1 = 7** is a persistent diagnostic baseline, not total client capacity. | `internal/filestore/storage_settings.go` admits up to 64 storage operations/controller and opens separate coordination sessions; `internal/database/pool.go` documents them outside the request pool. [Budget](migration-and-rollback.md#database-connection-budget). | Operator + release owner; size headroom for controller count, concurrent I/O, migrations, backup/monitoring/admin and reconnect behavior. |
+| BROWSER-01 / historical instability | UNEXPLAINED HISTORICAL EVENT: Firefox font-request abort was not causally repaired. | Prior complete run passed configured browsers; trace workflow branches retain the failed/non-reproducing hypotheses. Do not blanket-ignore font/console errors. | UI/QA owner; if current failure recurs, preserve trace/request lifetime and reproduce before changing behavior. |
+| PROVIDER-01 / interoperability | OUTSIDE BOUNDED QUALIFICATION: real external OAuth/OIDC/SMTP providers and production S3 DNS/TLS/IAM/lifecycle behavior. | Disposable local providers and MinIO exercise contracts, not every provider deployment. [Storage guidance](../../../storage-settings.md). | Application/operator owner; validate target-provider configuration in isolated staging before use. |
+| ACCESS-01 / product coverage | OUTSIDE BOUNDED QUALIFICATION: unconfigured devices and comprehensive accessibility permutations. | Required existing Chromium/Firefox/WebKit cases are mandatory; local fixes do not redesign layouts or imply exhaustive accessibility certification. | Product/QA owner; additional device/accessibility requirements need their own scoped acceptance. |
+| EVID-01 / provenance and retention | CONTROLLED: old and new results must remain source scoped; hosted artifacts expire. | [Evidence index](evidence-index.md), hashes, original ZIP/log copies and preserved failures. 617 original evidence files retained byte-for-byte; remote-only artifacts retain expiry/digest without invented local verification. | Coordinator; verify manifest after integration and before final handoff. |
+
+## Acceptance interpretation
+
+The table distinguishes reproduced defects, scanner warnings, operating
+restrictions and unexecuted gates. It does not convert raw HIGH/CRITICAL scanner
+scores into confirmed exploits, and it does not erase them because a CI step
+succeeded. The backend author's bounded review rechecked selected mail/OIDC,
+archive, digest/cursor and context boundaries; unchanged prior dispositions are
+historical evidence, not newly repeated exhaustive proofs.
+
+A final `READY_FOR_MANUAL_MERGE` requires the coordinator to close QA-01 and the
+integration-verification items using actual independent/current evidence and to
+retain the remaining restrictions explicitly. A merge recommendation does not
+authorize production deployment or guarantee capacity outside the measured
+fixture. Any demonstrated P0/P1 or failed mandatory current gate remains a blocker.
