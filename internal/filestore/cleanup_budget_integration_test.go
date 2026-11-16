@@ -176,7 +176,9 @@ func TestUploadFailureCleanupBoundsExhaustedPool(t *testing.T) {
 	}
 }
 
-func TestVariantCleanupBoundsPublisherWaitAndPreservesLaterCommit(t *testing.T) {
+// A cleanup deadline without durable intent loses the only reference to bytes
+// if the publishing transaction settles after that deadline by rolling back.
+func TestVariantCleanupQueuesAfterDelayedPublisherRollback(t *testing.T) {
 	ctx := t.Context()
 	pool, err := database.Open(ctx, testutil.NewDatabase(t), 0)
 	if err != nil {
@@ -186,11 +188,18 @@ func TestVariantCleanupBoundsPublisherWaitAndPreservesLaterCommit(t *testing.T) 
 	if err := migrate.New(pool, nil).Up(ctx); err != nil {
 		t.Fatal(err)
 	}
-	// Isolate a commit-unknown publisher without unrelated file metadata.
+	// Isolate the publisher outcome without unrelated record metadata.
 	if _, err := pool.Exec(ctx, `alter table pgbase_meta.record_file_variants drop constraint record_file_variants_file_id_fkey`); err != nil {
 		t.Fatal(err)
 	}
+	store, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	fileID, key, variant := uuid.New(), "thumbnails/"+uuid.NewString(), "2x2"
+	if err := store.Put(ctx, key, bytes.NewBufferString("uncommitted variant")); err != nil {
+		t.Fatal(err)
+	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -202,30 +211,35 @@ func TestVariantCleanupBoundsPublisherWaitAndPreservesLaterCommit(t *testing.T) 
 	if _, err := tx.Exec(ctx, `insert into pgbase_meta.record_file_variants(file_id,variant,object_key,created_at) values($1,$2,$3,current_timestamp)`, fileID, variant, key); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{pool: pool}
+	service := &Service{pool: pool, objects: store}
 	done := make(chan error, 1)
 	go func() { done <- service.queueUnreferencedVariant(context.WithoutCancel(ctx), fileID, variant, key) }()
+	// Settle strictly after the rejected one-second cleanup budget. This is
+	// not a performance assertion; it distinguishes the two outcome paths.
+	<-time.After(1500 * time.Millisecond)
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var cleanupErr error
 	select {
-	case err := <-done:
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("publisher wait did not return its cleanup deadline: %v", err)
-		}
+	case cleanupErr = <-done:
 	case <-time.After(3 * time.Second):
-		_ = tx.Rollback(ctx)
-		<-done
-		t.Fatal("variant rollback cleanup remained blocked behind a publisher")
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := service.queueUnreferencedVariant(ctx, fileID, variant, key); err != nil {
-		t.Fatal(err)
+		t.Fatal("cleanup did not settle after publisher rollback")
 	}
 	var queued bool
 	if err := pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.file_object_deletions where object_key=$1)`, key).Scan(&queued); err != nil {
 		t.Fatal(err)
 	}
-	if queued {
-		t.Fatal("cleanup queued a variant whose publisher committed after the cleanup deadline")
+	if !queued || cleanupErr != nil {
+		t.Fatalf("aborted variant lost durable cleanup intent: queued=%t cleanup=%v", queued, cleanupErr)
+	}
+	if worked, err := service.DrainOne(ctx); err != nil || !worked {
+		t.Fatalf("queued variant cleanup failed: worked=%t err=%v", worked, err)
+	}
+	if reader, err := store.Open(ctx, key); !errors.Is(err, ErrNotFound) {
+		if reader != nil {
+			_ = reader.Close()
+		}
+		t.Fatalf("rolled-back variant bytes survived durable cleanup: %v", err)
 	}
 }
