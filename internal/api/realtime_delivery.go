@@ -74,6 +74,7 @@ func (h *realtimeHub) deliverRecordMessages(w http.ResponseWriter, r *http.Reque
 		}
 		record, include, err := h.realtimeMessageRecord(r, principal, message)
 		if err != nil {
+			writeRealtimeStreamError(w, control, err)
 			return err
 		}
 		// Only the last matching topic can acknowledge this sequence. If the
@@ -209,7 +210,12 @@ func (h *realtimeHub) realtimeMessageRecord(r *http.Request, principal identity.
 			return nil, false, nil
 		}
 		page, err := h.dependencies.Records.List(r.Context(), recordops.ListRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, Limit: 1, Filter: "(" + sub.filter + ") && id = '" + event.PublicID + "'", RuleContext: ruleRequestContext(r)})
-		if err != nil || len(page.Items) == 0 {
+		if err != nil {
+			// An unavailable current-record check is not a nonmatching record.
+			// Keep the last acknowledged cursor so reconnect can retry the event.
+			return nil, false, err
+		}
+		if len(page.Items) == 0 {
 			return nil, false, nil
 		}
 	}
