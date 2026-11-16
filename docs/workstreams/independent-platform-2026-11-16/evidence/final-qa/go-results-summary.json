@@ -1,0 +1,133 @@
+{
+  "extension-cleanup-after-race.jsonl": {
+    "pass": 12,
+    "fail": 0,
+    "skip": 0,
+    "top_level_tests": [
+      "TestExtensionHostCloseBoundsRollbackWhenDatabaseRepliesStop",
+      "TestExtensionHostCloseDoesNotHoldFileMutexWhileFinalizingObjectTransaction",
+      "TestPocketBaseRunInTransactionUsesInvocationBoundPostgresTransaction",
+      "TestRecordHooksFollowExternalTransactionOutcomeExactlyOnce"
+    ],
+    "test_pass_events_include_subtests_and_repeats": true,
+    "packages": [
+      {
+        "package": "github.com/yakisoba0728/PgBase/pgbase",
+        "action": "pass",
+        "elapsed_seconds": 12.718
+      }
+    ],
+    "non_json_lines": []
+  },
+  "extension-cleanup-before.jsonl": {
+    "pass": 0,
+    "fail": 1,
+    "skip": 0,
+    "top_level_tests": [
+      "TestExtensionHostCloseBoundsRollbackWhenDatabaseRepliesStop"
+    ],
+    "test_pass_events_include_subtests_and_repeats": true,
+    "packages": [
+      {
+        "package": "github.com/yakisoba0728/PgBase/pgbase",
+        "action": "fail",
+        "elapsed_seconds": 3.111
+      }
+    ],
+    "non_json_lines": []
+  },
+  "independent-queue-migration-race.jsonl": {
+    "pass": 12,
+    "fail": 0,
+    "skip": 0,
+    "top_level_tests": [
+      "TestDeliveryFailureBackoffDeadLetterAndOperatorRetry",
+      "TestDeliveryFailureDoesNotStrandTheRestOfTheClaimedBatch",
+      "TestOutboxQueueAdmissionIsAtomicAndAcceptsLegacyDeliveryInsert",
+      "TestOutboxQueueUpgradePreservesStateAndConcurrentOldWriter",
+      "TestPendingQueueIdentityCommitsWithItsOutboxEvent",
+      "TestPendingQueuePreservesRecordOrderAcrossDeadLetterAndConcurrentWorkers"
+    ],
+    "test_pass_events_include_subtests_and_repeats": true,
+    "packages": [
+      {
+        "package": "github.com/yakisoba0728/PgBase/internal/migrate",
+        "action": "pass",
+        "elapsed_seconds": 2.476
+      },
+      {
+        "package": "github.com/yakisoba0728/PgBase/internal/realtime",
+        "action": "pass",
+        "elapsed_seconds": 3.333
+      },
+      {
+        "package": "github.com/yakisoba0728/PgBase/migrations/system",
+        "action": "pass",
+        "elapsed_seconds": 1.031
+      }
+    ],
+    "non_json_lines": []
+  },
+  "independent-transaction-backup-race.jsonl": {
+    "pass": 44,
+    "fail": 0,
+    "skip": 0,
+    "top_level_tests": [
+      "TestBorrowedBatchAndTruncateFollowOwnerOutcome",
+      "TestBorrowedTransactionChecksDatabaseStateAndCallerIsolation",
+      "TestFailedBackupActivationDiscardsOnlyOwnedTarget",
+      "TestFailedBorrowedBatchRollsBackSavepointAndReportsFailure",
+      "TestFailedSavepointCleanupCannotLeaveWritesForOuterCommit",
+      "TestInTxRollsBackOnPanic",
+      "TestManagedBackupHTTPRestoresAndActivatesFreshTarget",
+      "TestManagedRestoreDiscardsProvisionedTargetWhenOpeningFails",
+      "TestPanickingMutationReportsRollbackInsteadOfSuccess",
+      "TestRunReportsOperationPanicToAfterWithoutSwallowingIt",
+      "TestSavepointFailurePreservesOwnerTransaction",
+      "TestTrustedDatabaseContextCannotCrossAppAndNestedPanicRollsBack",
+      "TestTrustedDatabaseOptInAndNestedTransactionsStayBound",
+      "TestTrustedSavepointRollbackFailurePreventsOuterCommit"
+    ],
+    "test_pass_events_include_subtests_and_repeats": true,
+    "packages": [
+      {
+        "package": "github.com/yakisoba0728/PgBase/internal/lifecycle",
+        "action": "pass",
+        "elapsed_seconds": 1.013
+      },
+      {
+        "package": "github.com/yakisoba0728/PgBase/internal/database",
+        "action": "pass",
+        "elapsed_seconds": 2.149
+      },
+      {
+        "package": "github.com/yakisoba0728/PgBase/internal/recordops",
+        "action": "pass",
+        "elapsed_seconds": 6.595
+      },
+      {
+        "package": "github.com/yakisoba0728/PgBase/pgbase",
+        "action": "pass",
+        "elapsed_seconds": 15.365
+      }
+    ],
+    "non_json_lines": []
+  },
+  "migration-immutability-race.jsonl": {
+    "pass": 1,
+    "fail": 0,
+    "skip": 0,
+    "top_level_tests": [
+      "TestHistoricalMigrationChecksumsRemainImmutable"
+    ],
+    "test_pass_events_include_subtests_and_repeats": true,
+    "packages": [
+      {
+        "package": "github.com/yakisoba0728/PgBase/migrations/system",
+        "action": "pass",
+        "elapsed_seconds": 1.025
+      }
+    ],
+    "non_json_lines": []
+  }
+}

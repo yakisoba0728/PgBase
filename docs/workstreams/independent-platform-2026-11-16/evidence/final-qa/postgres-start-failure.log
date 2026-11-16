@@ -1,0 +1,6 @@
+2026-11-16 11:43:08.673 KST [22] LOG:  starting PostgreSQL 17.9 on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2026-11-16 11:43:08.673 KST [22] LOG:  listening on IPv4 address "127.0.0.1", port 56535
+2026-11-16 11:43:08.674 KST [22] LOG:  could not create Unix socket for address "/workspace/scratch/8e510e1cc176/qa-postgres-PPYAmb/.s.PGSQL.56535": Operation not permitted
+2026-11-16 11:43:08.674 KST [22] WARNING:  could not create Unix-domain socket in directory "/workspace/scratch/8e510e1cc176/qa-postgres-PPYAmb"
+2026-11-16 11:43:08.674 KST [22] FATAL:  could not create any Unix-domain sockets
+2026-11-16 11:43:08.674 KST [22] LOG:  database system is shut down

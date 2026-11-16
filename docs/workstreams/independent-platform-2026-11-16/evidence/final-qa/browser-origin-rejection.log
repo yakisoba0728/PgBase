@@ -1,0 +1,11 @@
+Error: managed backup restore requires its own disposable backend origin
+    at file:///workspace/scratch/8e510e1cc176/PgBase-qa/ui/admin/playwright.config.ts:14:9
+    at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at node:internal/modules/esm/loader:647:26
+    at requireOrImport (/workspace/scratch/8e510e1cc176/PgBase-frontend/ui/admin/node_modules/playwright/lib/common/index.js:1081:12)
+    at loadUserConfig (/workspace/scratch/8e510e1cc176/PgBase-frontend/ui/admin/node_modules/playwright/lib/common/index.js:1268:46)
+    at loadConfig (/workspace/scratch/8e510e1cc176/PgBase-frontend/ui/admin/node_modules/playwright/lib/common/index.js:1275:22)
+    at Object.loadConfigFromFile (/workspace/scratch/8e510e1cc176/PgBase-frontend/ui/admin/node_modules/playwright/lib/common/index.js:1490:10)
+    at runTests (/workspace/scratch/8e510e1cc176/PgBase-frontend/ui/admin/node_modules/playwright/lib/cli/testActions.js:46:18)
+    at _Command.<anonymous> (/workspace/scratch/8e510e1cc176/PgBase-frontend/ui/admin/node_modules/playwright/lib/program.js:55:7)
