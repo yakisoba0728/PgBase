@@ -1,0 +1,10 @@
+{
+  "source": "ff5cd9ac3188923400d26297280faa87839b590d",
+  "tree": "1d30798382078731b9442e4a42aadb0a9d328a34",
+  "red_runtime_listener_blob": "4dbd456fe594b972bb90e32f3e6124f6f357a8a0",
+  "green_listener_blob": "b48179886b892366f75d31f25f4d0528978dd046",
+  "capacity_test_blob": "b1bee3027cafc5a46473f76bf955afc105465e04",
+  "gate_blob_unchanged": true,
+  "red_source": "b2c6b223ef65232247baecd00763845baf43efa0 with only listener.go restored from23b6c409; runtime restored after RED",
+  "toolchain": "Go1.26.11; PostgreSQL17.9; UTF8; loopback-only disposable cluster; race; count1"
+}

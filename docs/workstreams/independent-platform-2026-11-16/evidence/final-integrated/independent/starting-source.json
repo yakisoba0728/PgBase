@@ -1,0 +1,47 @@
+{
+  "source": "23b6c4090e453587325d9dfad8fec6d854f3bee2",
+  "tree": "a4ef35408feca0e51dcbdc26d0cc16b49b07f4b4",
+  "files": {
+    "pgbase/open_loop_load_integration_test.go": {
+      "git_blob": "6bf97d4e9f1b080e98f0f3000e17a6952160302f",
+      "sha256": "ea97a638021fa9d05d04741f2a3846ee39f527671de159e1b6f37499ee809a48"
+    },
+    "pgbase/open_loop_diagnostics_integration_test.go": {
+      "git_blob": "0ffe41ba8de01bc7054af22237cd08276e3f323b",
+      "sha256": "d7dedf98130a78c99160facfd138b5b7a4284f5e76d9ae6001a8f3af3650f71a"
+    },
+    "scripts/support/run-observed-load.py": {
+      "git_blob": "f2b2a2f64fd0bb2799420f6bdf8cd74ec723b965",
+      "sha256": "fc383dfbba40945d5a2f57dc41a1fa832f43a5997b610f1b3fda0d0dafa8ab01"
+    },
+    "internal/database/pool.go": {
+      "git_blob": "bbe3b70325223eba9fcf81b25457c2a52bfc0a05",
+      "sha256": "a7903ce66ba14b3c467f932c6fab59a28a148c5aebf29b1e4ed6358bc5f4e26f"
+    },
+    "internal/database/backup_gate.go": {
+      "git_blob": "42cf9c6ee938e6e52ef867011dcaa8f23321d304",
+      "sha256": "7941245c8c4d6e371eb10c13460e3b0c2d0dc237045fc1ea1f89ded9bd220184"
+    },
+    "pgbase/background.go": {
+      "git_blob": "bb1fa9fe0b9fa8117ca637b9a9574f080f0d53b1",
+      "sha256": "f2c320afe2dfad54b270001d7ee99bfcb81defbf2da59d7c77dea73f787daf13"
+    },
+    "pgbase/app.go": {
+      "git_blob": "59c09d05773dab69a081b7a28826abb85c223100",
+      "sha256": "edd9116da2a7b05c770b68c6af673a5395983c520f8b5b89ae5f79878626f970"
+    },
+    ".github/workflows/full-qualification.yml": {
+      "git_blob": "945aa9b1c059607b6d20b349f555cbfa61c43cd5",
+      "sha256": "f6280e5cb3c5281b348edf350cecf641a7f1c8c8318fdf07dbf72f477a851372"
+    },
+    ".github/workflows/nonperformance-e2e.yml": {
+      "git_blob": "365593859c5e3cd25d07f31e74561a5350801a03",
+      "sha256": "b5fee8c503ad3ab5ef118d0835ba1b3ab4ac252948efc603ee5d8add6d86d44a"
+    },
+    "deployments/security/trivy-allowlist.yaml": {
+      "git_blob": "e3e1799ff02827cc116ad5c0bbd18edfa15e0055",
+      "sha256": "9bd17009351eb4c5937895d322305d2e829cb66ba9fda2b197b35585cb33c55f"
+    }
+  },
+  "comments": "Frozen baseline gate and dependency blobs; later source comparison must disclose changes. This does not assert execution."
+}
