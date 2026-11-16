@@ -1,0 +1,34 @@
+{
+  "run_id": 43834531061,
+  "source": {
+    "local_sha": "68382d4817ea73f85b3cb3fcf9776205a89ec8fd",
+    "remote_sha": "30523ddaf27f8ffebd8b59c5ef802186107a408e",
+    "tree": "7a28c45d5d5bb46156140953332422c8cb13bbf3"
+  },
+  "merge_sha": "495ea346467f5d90fc9d250531c9c8718233b6d3",
+  "job_counts": {
+    "success": 11,
+    "failure": 3,
+    "cancelled": 0
+  },
+  "failed_jobs": [
+    {
+      "id": 133187914540,
+      "name": "backend / PostgreSQL integration / 17.9",
+      "step": "Test PostgreSQL integration suite with skip policy"
+    },
+    {
+      "id": 133187914622,
+      "name": "backend / PostgreSQL integration / 18.3",
+      "step": "Test PostgreSQL integration suite with skip policy"
+    },
+    {
+      "id": 133187914736,
+      "name": "backend / PostgreSQL integration / 16.13",
+      "step": "Test PostgreSQL integration suite with skip policy"
+    }
+  ],
+  "root_cause": "internal/doctor/checks_integration_test.go hardcoded latest schema68 after selected schema69 migration was added; preparatory manifest is now64 migrations. Test-only correction preserves explicit v67 and v68 incompatible-history rejection.",
+  "runtime_change_required": false,
+  "prior_results_are_not_final_source_qualification": true
+}

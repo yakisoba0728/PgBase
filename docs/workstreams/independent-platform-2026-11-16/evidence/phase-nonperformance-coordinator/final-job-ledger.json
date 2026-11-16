@@ -1,0 +1,257 @@
+{
+  "run_id": 43836410887,
+  "source": {
+    "local_sha": "cf1324e15e772c2bceeb1360892da66a96d51532",
+    "remote_sha": "56a881f47d0c27877b91959d7df641c2f603ef03",
+    "tree": "9b4a2e78540c3737f03f6fcc27398bfaa0424180"
+  },
+  "merge_sha": "0a517baea58bf65e2293f15fb0a9fb54321f7eb7",
+  "qualification": "BLOCKED; 13 successful jobs, one failed browser job",
+  "counts": {
+    "success": 13,
+    "failure": 1,
+    "unfinished": 0
+  },
+  "actual_browser_reruns": 1,
+  "jobs": [
+    {
+      "id": 133200243090,
+      "name": "browser-and-recovery / e2e",
+      "status": "completed",
+      "conclusion": "failure",
+      "failed_or_skipped_steps": [
+        {
+          "name": "Authenticate and pull release candidate",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify Firefox and WebKit representative workflows",
+          "conclusion": "failure"
+        },
+        {
+          "name": "Verify hardened runtime",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run black-box tests",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Post Set up Node.js",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Post Set up Go",
+          "conclusion": "skipped"
+        }
+      ]
+    },
+    {
+      "id": 133200298781,
+      "name": "security / audit",
+      "status": "completed",
+      "conclusion": "success",
+      "failed_or_skipped_steps": [
+        {
+          "name": "Check out current release security policy",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Authenticate and pull release candidate",
+          "conclusion": "skipped"
+        }
+      ]
+    },
+    {
+      "id": 133200291222,
+      "name": "backend / PostgreSQL integration / 17.9",
+      "status": "completed",
+      "conclusion": "success",
+      "failed_or_skipped_steps": [
+        {
+          "name": "Export S3 fixture image for the cache",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Upload failed backend logs",
+          "conclusion": "skipped"
+        }
+      ]
+    },
+    {
+      "id": 133200307524,
+      "name": "backend / Windows self-update",
+      "status": "completed",
+      "conclusion": "success",
+      "failed_or_skipped_steps": []
+    },
+    {
+      "id": 133200246226,
+      "name": "frontend / test",
+      "status": "completed",
+      "conclusion": "success",
+      "failed_or_skipped_steps": [
+        {
+          "name": "Validate release candidate binding",
+          "conclusion": "skipped"
+        }
+      ]
+    },
+    {
+      "id": 133200296043,
+      "name": "backend / PostgreSQL integration / 18.3",
+      "status": "completed",
+      "conclusion": "success",
+      "failed_or_skipped_steps": [
+        {
+          "name": "Vet integration build",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Export S3 fixture image for the cache",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Test bounded multi-process durability",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Test administrator SDKs against a real server",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Upload failed backend logs",
+          "conclusion": "skipped"
+        }
+      ]
+    },
+    {
+      "id": 133200292556,
+      "name": "backend / macOS terminal",
+      "status": "completed",
+      "conclusion": "success",
+      "failed_or_skipped_steps": []
+    },
+    {
+      "id": 133200307244,
+      "name": "backend / PostgreSQL integration / 17.9 / pgbase",
+      "status": "completed",
+      "conclusion": "success",
+      "failed_or_skipped_steps": [
+        {
+          "name": "Vet integration build",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Export S3 fixture image for the cache",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Test bounded multi-process durability",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Analyze and test Dart SDK",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Install and verify TypeScript SDK against PgBase",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify browser SDK example modules",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify the TypeScript SDK distribution reproduces exactly",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Test administrator SDKs against a real server",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Upload failed backend logs",
+          "conclusion": "skipped"
+        }
+      ]
+    },
+    {
+      "id": 133200305571,
+      "name": "backend / Release phase artifacts",
+      "status": "completed",
+      "conclusion": "success",
+      "failed_or_skipped_steps": []
+    },
+    {
+      "id": 133200315846,
+      "name": "source-analysis / analyze (javascript-typescript, none)",
+      "status": "completed",
+      "conclusion": "success",
+      "failed_or_skipped_steps": [
+        {
+          "name": "Run actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Build Go runtime packages for extraction",
+          "conclusion": "skipped"
+        }
+      ]
+    },
+    {
+      "id": 133200245697,
+      "name": "backend / Observability artifacts",
+      "status": "completed",
+      "conclusion": "success",
+      "failed_or_skipped_steps": []
+    },
+    {
+      "id": 133200245614,
+      "name": "backend / Go unit",
+      "status": "completed",
+      "conclusion": "success",
+      "failed_or_skipped_steps": [
+        {
+          "name": "Validate release candidate binding",
+          "conclusion": "skipped"
+        }
+      ]
+    },
+    {
+      "id": 133200325945,
+      "name": "backend / PostgreSQL integration / 16.13",
+      "status": "completed",
+      "conclusion": "success",
+      "failed_or_skipped_steps": [
+        {
+          "name": "Vet integration build",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Export S3 fixture image for the cache",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Test bounded multi-process durability",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Test administrator SDKs against a real server",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Upload failed backend logs",
+          "conclusion": "skipped"
+        }
+      ]
+    },
+    {
+      "id": 133200326726,
+      "name": "source-analysis / analyze (go, manual)",
+      "status": "completed",
+      "conclusion": "success",
+      "failed_or_skipped_steps": []
+    }
+  ]
+}

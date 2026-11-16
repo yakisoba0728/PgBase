@@ -1,0 +1,27 @@
+{
+  "workflow_run": 43836410887,
+  "source": {
+    "local_sha": "cf1324e15e772c2bceeb1360892da66a96d51532",
+    "remote_sha": "56a881f47d0c27877b91959d7df641c2f603ef03",
+    "tree": "9b4a2e78540c3737f03f6fcc27398bfaa0424180"
+  },
+  "failed_job_id": 133194026551,
+  "failed_step": "Verify Firefox and WebKit representative workflows",
+  "functional_assertions": "Login/reload/logout assertions completed; eleven other smoke cases passed",
+  "failed_assertion": "cleanConsole teardown saw one downloadable Pretendard font NS_BINDING_ABORTED (2152398850 / 0x804b0002) console message",
+  "cause": "Navigation-aborted request is an inference, not trace-proven; trace was not uploaded",
+  "prior_evidence": "Previous run43834531061 passed38 browsers on identical runtime/browser files; only doctor integration test changed thereafter",
+  "action": "Exactly one unchanged browser job rerun requested; no code, timeout, assertion or console filter change",
+  "original_failure_preserved": true,
+  "initial_api_request": "Rejected by GitHub because containing workflow still running; no rerun was started.",
+  "accepted_reruns": 1,
+  "retry_job_id": 133200243090,
+  "retry_source_unchanged": true,
+  "final_outcome": "Repeated identical Firefox font-abort cleanConsole failure; Blocked",
+  "retry_conclusion": "failure",
+  "further_retries": 0,
+  "downstream_current_source_unexecuted": [
+    "hardened runtime",
+    "black-box tests"
+  ]
+}

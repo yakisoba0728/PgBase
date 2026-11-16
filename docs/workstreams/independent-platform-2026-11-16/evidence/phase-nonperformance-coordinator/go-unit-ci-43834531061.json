@@ -1,0 +1,56 @@
+{
+  "run_id": 43834531061,
+  "source": {
+    "local_sha": "68382d4817ea73f85b3cb3fcf9776205a89ec8fd",
+    "remote_sha": "30523ddaf27f8ffebd8b59c5ef802186107a408e",
+    "tree": "7a28c45d5d5bb46156140953332422c8cb13bbf3"
+  },
+  "merge_sha": "495ea346467f5d90fc9d250531c9c8718233b6d3",
+  "job_id": 133187914915,
+  "job_url": "https://github.com/yakisoba0728/PgBase/actions/runs/43834531061/job/133187914915",
+  "conclusion": "success",
+  "race_environment_lines": [
+    "2026-11-16T08:51:02.2967666Z   PGBASE_FULL_UNIT_RACE: true",
+    "2026-11-16T08:51:04.7414175Z   PGBASE_FULL_UNIT_RACE: true",
+    "2026-11-16T08:51:06.4250025Z   PGBASE_FULL_UNIT_RACE: true",
+    "2026-11-16T08:51:06.5888485Z   PGBASE_FULL_UNIT_RACE: true",
+    "2026-11-16T08:51:07.6046585Z   PGBASE_FULL_UNIT_RACE: true",
+    "2026-11-16T08:52:36.0304823Z   PGBASE_FULL_UNIT_RACE: true",
+    "2026-11-16T08:52:48.1953657Z   PGBASE_FULL_UNIT_RACE: true",
+    "2026-11-16T08:54:35.0724157Z   PGBASE_FULL_UNIT_RACE: true",
+    "2026-11-16T08:54:35.0896032Z   PGBASE_FULL_UNIT_RACE: true",
+    "2026-11-16T08:54:38.2691055Z   PGBASE_FULL_UNIT_RACE: true",
+    "2026-11-16T08:54:38.2801566Z   PGBASE_FULL_UNIT_RACE: true"
+  ],
+  "checks": [
+    {
+      "name": "Verify source-security evidence tooling",
+      "conclusion": "success"
+    },
+    {
+      "name": "Verify formatting",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run pinned blocking static analysis",
+      "conclusion": "success"
+    },
+    {
+      "name": "Vet unit build",
+      "conclusion": "success"
+    },
+    {
+      "name": "Test unit suite with skip policy",
+      "conclusion": "success"
+    },
+    {
+      "name": "Install the pinned private attestation verifier",
+      "conclusion": "success"
+    },
+    {
+      "name": "Verify private attestations against a disposable registry",
+      "conclusion": "success"
+    }
+  ],
+  "full_logs": "Available from the exact GitHub Actions job; no benchmark commands belong to the dedicated job."
+}
