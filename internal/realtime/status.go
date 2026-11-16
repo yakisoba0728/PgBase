@@ -48,8 +48,7 @@ type DeadPage struct {
 
 // DeadEvents lists dead deliveries newest first. The opaque cursor carries the
 // position itself, so retried rows leaving the set never invalidate it.
-// shortcut: no index covers dead_at, so this scans outbox_delivery like Status
-// does; add a partial dead_at index if delivered markers grow large.
+// A partial dead_at/event_id index excludes delivered history from this path.
 func (s *Service) DeadEvents(ctx context.Context, before string, limit int) (DeadPage, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50

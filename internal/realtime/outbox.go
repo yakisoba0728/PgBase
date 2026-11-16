@@ -17,6 +17,20 @@ const (
 	retentionPassTimeout       = time.Second
 )
 
+// Both discovery and predecessor ordering are bounded by the pending delivery
+// queue, never lifetime outbox history. The database enqueues at outbox commit;
+// a dead or leased earlier version still blocks a later version of that record.
+const claimPendingQuery = `WITH pending AS (
+ SELECT d.event_id FROM pgbase_meta.outbox_delivery d
+ WHERE d.delivered_at IS NULL AND d.dead_at IS NULL
+ AND d.available_at<=clock_timestamp() AND (d.lease_until IS NULL OR d.lease_until<clock_timestamp())
+ AND NOT EXISTS (SELECT 1 FROM pgbase_meta.outbox_delivery prior
+  WHERE prior.collection_id=d.collection_id AND prior.record_id=d.record_id
+  AND prior.record_version<d.record_version AND prior.delivered_at IS NULL)
+ ORDER BY d.available_at,d.event_id FOR UPDATE OF d SKIP LOCKED LIMIT 100
+) UPDATE pgbase_meta.outbox_delivery d SET lease_token=$1,lease_until=clock_timestamp()+interval '30 seconds',
+ attempts=attempts+1 FROM pending WHERE d.event_id=pending.event_id RETURNING d.event_id`
+
 type claim struct{ id, token uuid.UUID }
 
 // Run retries transient database failures; each failed lease is eventually
@@ -85,24 +99,8 @@ func (s *Service) Deliver(ctx context.Context) error {
 func (s *Service) claim(ctx context.Context) ([]claim, error) {
 	result := make([]claim, 0, batchSize)
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.outbox_delivery(event_id)
-   SELECT o.event_id FROM pgbase_meta.record_outbox o WHERE NOT EXISTS
-   (SELECT 1 FROM pgbase_meta.outbox_delivery d WHERE d.event_id=o.event_id)
-   ORDER BY o.created_at,o.event_id LIMIT 100 ON CONFLICT DO NOTHING`); err != nil {
-			return err
-		}
 		token := uuid.New()
-		rows, err := tx.Query(ctx, `WITH pending AS (
-			SELECT d.event_id FROM pgbase_meta.outbox_delivery d JOIN pgbase_meta.record_outbox o USING(event_id)
-			WHERE d.delivered_at IS NULL AND d.dead_at IS NULL
-			AND d.available_at<=clock_timestamp() AND (d.lease_until IS NULL OR d.lease_until<clock_timestamp())
-			AND NOT EXISTS (SELECT 1 FROM pgbase_meta.record_outbox prior
-			 LEFT JOIN pgbase_meta.outbox_delivery delivery ON delivery.event_id=prior.event_id
-			 WHERE prior.collection_id=o.collection_id AND prior.record_id=o.record_id
-			 AND prior.record_version<o.record_version AND delivery.delivered_at IS NULL)
-			ORDER BY d.available_at,d.event_id FOR UPDATE OF d SKIP LOCKED LIMIT 100
-  ) UPDATE pgbase_meta.outbox_delivery d SET lease_token=$1,lease_until=clock_timestamp()+interval '30 seconds',
-   attempts=attempts+1 FROM pending WHERE d.event_id=pending.event_id RETURNING d.event_id`, token)
+		rows, err := tx.Query(ctx, claimPendingQuery, token)
 		if err != nil {
 			return err
 		}

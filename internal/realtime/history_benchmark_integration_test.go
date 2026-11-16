@@ -44,6 +44,10 @@ func BenchmarkOutboxDeliveredHistory(b *testing.B) {
 					b.Fatal(err)
 				}
 				b.Logf("legacy_discovery_b376e366 rows=%d plan=%s", count, plan)
+				if err := s.pool.QueryRow(ctx, "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+claimPendingQuery, uuid.New()).Scan(&plan); err != nil {
+					b.Fatal(err)
+				}
+				b.Logf("current_pending_claim rows=%d plan=%s", count, plan)
 			}
 			for range 10 {
 				if err := s.Deliver(ctx); err != nil {
