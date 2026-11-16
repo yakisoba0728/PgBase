@@ -1,0 +1,8 @@
+{
+  "expected_workload_exit": 17,
+  "observed_exit": null,
+  "blocked": true,
+  "external_deadline_seconds": 1,
+  "elapsed_seconds": 1.0009426030010218,
+  "scope": "Old workflow EXIT trap with real SIGTERM-ignoring surrogate observer; Docker-specific behavior inferred separately from original CI evidence."
+}

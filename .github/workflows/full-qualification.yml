@@ -100,14 +100,10 @@ jobs:
         run: |
           set -euo pipefail
           export PGBASE_TEST_ADMIN_URL="postgres://postgres:postgres@127.0.0.1:${POSTGRES_HOST_PORT:?}/postgres?sslmode=disable"
-          mkdir -p load-evidence
-          date -u +'%Y-%m-%dT%H:%M:%SZ' > load-evidence/host-observer-start.txt
-          vmstat -w -t 1 > load-evidence/host-vmstat.txt &
-          vmstat_pid=$!
-          docker stats --format '{{json .}}' "$POSTGRES_CONTAINER_ID" > load-evidence/database-container-stats.jsonl &
-          container_stats_pid=$!
-          trap 'kill "$vmstat_pid" "$container_stats_pid" 2>/dev/null || true; wait "$vmstat_pid" "$container_stats_pid" 2>/dev/null || true' EXIT
-          go test -tags=integration,load ./pgbase -run '^TestOpenLoopHTTPQualification$' -count=1 -v -timeout=15m | tee open-loop-http.txt
+          python3 scripts/support/test-run-observed-load.py
+          python3 scripts/support/run-observed-load.py \
+            --container "$POSTGRES_CONTAINER_ID" --evidence-dir load-evidence -- \
+            go test -tags=integration,load ./pgbase -run '^TestOpenLoopHTTPQualification$' -count=1 -v -timeout=15m | tee open-loop-http.txt
           python3 - <<'PY'
           import csv
           from pathlib import Path
