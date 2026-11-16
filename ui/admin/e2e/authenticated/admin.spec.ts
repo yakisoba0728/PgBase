@@ -507,17 +507,6 @@ test("saves application settings", async ({ page }) => {
   await expect(retention).toHaveValue(next);
 });
 
-test("creates a managed backup", async ({ page }) => {
-  // The CI image has no pg_dump and no backup directory, so this needs a managed-host fixture.
-  test.skip(process.env.PGBASE_BROWSER_MANAGED_BACKUPS !== "1", "requires a disposable managed-host fixture");
-  test.setTimeout(120_000);
-  await page.goto("/admin/backups");
-  await page.getByRole("button", { name: "Create backup" }).click();
-  await expect(page.getByText("Completed").first()).toBeVisible({ timeout: 90_000 });
-  await page.reload();
-  await expect(page.getByText("No backups yet.")).toHaveCount(0);
-});
-
 test("switches the interface to Korean", async ({ page }) => {
   await page.goto("/admin/settings");
   await page.getByRole("button", { name: "Language" }).click();

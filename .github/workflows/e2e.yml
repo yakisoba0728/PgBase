@@ -82,6 +82,7 @@ jobs:
             echo "PGBASE_POSTGRES_PORT=15432"
             echo "PGBASE_PUBLIC_URL=http://127.0.0.1:18090"
             echo "PGBASE_AUTH_PROJECT_NAME=pgbase-ci-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            echo "PGBASE_BACKUP_PROJECT_NAME=pgbase-ci-backup-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
             echo "PGBASE_ADMIN_EMAIL=e2e-admin@pgbase.test"
           } >> "$GITHUB_ENV"
           write_fixture_secret PGBASE_POSTGRES_PASSWORD "$(openssl rand -hex 32)"
@@ -110,7 +111,7 @@ jobs:
         if: steps.mode.outputs.release == 'false'
         run: docker compose -f deployments/docker-compose.yml build
 
-      - name: Start isolated PostgreSQL 16.13 project
+      - name: Start isolated PostgreSQL project
         shell: bash
         run: |
           set -euo pipefail
@@ -138,23 +139,42 @@ jobs:
               -f tests/e2e/browser-files.compose.yaml \
               up -d --wait $BUILD_FLAG
 
+      # Restoring changes the active database. Keep this backend and all of its
+      # volumes separate from onboarding, normal browser and black-box tests.
+      - name: Start the managed-backup browser backend
+        shell: bash
+        env:
+          BUILD_FLAG: ${{ steps.mode.outputs.release == 'true' && '--no-build' || '' }}
+        run: |
+          set -euo pipefail
+          COMPOSE_PROJECT_NAME="$PGBASE_BACKUP_PROJECT_NAME" \
+          PGBASE_HTTP_PORT=18092 \
+          PGBASE_POSTGRES_PORT=15434 \
+          PGBASE_PUBLIC_URL=http://127.0.0.1:18092 \
+            docker compose \
+              -f deployments/docker-compose.yml \
+              -f tests/e2e/browser-backups.compose.yaml \
+              up -d --wait $BUILD_FLAG
+
       # Setup is same-origin protected, so the bootstrap request carries the
       # Origin the instance was configured with.
-      - name: Create the authenticated backend's administrator
+      - name: Create the isolated browser administrators
         shell: bash
         run: |
           set -euo pipefail
-          status="$(curl --silent --show-error --output /tmp/setup.json --write-out '%{http_code}' \
-            --request POST http://127.0.0.1:18091/api/admin/setup \
-            --header 'Content-Type: application/json' \
-            --header 'Origin: http://127.0.0.1:18091' \
-            --data "$(printf '{"setupToken":"%s","email":"%s","password":"%s"}' \
-              "$PGBASE_SETUP_TOKEN" "$PGBASE_ADMIN_EMAIL" "$PGBASE_ADMIN_PASSWORD")")"
-          if [[ "$status" != "200" && "$status" != "201" ]]; then
-            echo "administrator setup failed with $status" >&2
-            cat /tmp/setup.json >&2
-            exit 1
-          fi
+          for fixture_port in 18091 18092; do
+            status="$(curl --silent --show-error --output /tmp/setup.json --write-out '%{http_code}' \
+              --request POST "http://127.0.0.1:$fixture_port/api/admin/setup" \
+              --header 'Content-Type: application/json' \
+              --header "Origin: http://127.0.0.1:$fixture_port" \
+              --data "$(printf '{"setupToken":"%s","email":"%s","password":"%s"}' \
+                "$PGBASE_SETUP_TOKEN" "$PGBASE_ADMIN_EMAIL" "$PGBASE_ADMIN_PASSWORD")")"
+            if [[ "$status" != "200" && "$status" != "201" ]]; then
+              echo "administrator setup failed on isolated port $fixture_port with $status" >&2
+              cat /tmp/setup.json >&2
+              exit 1
+            fi
+          done
 
       - name: Install browser test dependencies
         working-directory: ui/admin
@@ -171,6 +191,7 @@ jobs:
         env:
           PGBASE_ONBOARDING_BROWSER_BASE_URL: http://127.0.0.1:18090
           PGBASE_AUTHENTICATED_BROWSER_BASE_URL: http://127.0.0.1:18091
+          PGBASE_MANAGED_BACKUP_BROWSER_BASE_URL: http://127.0.0.1:18092
         run: npm run test:e2e
 
       - name: Verify hardened runtime
@@ -199,6 +220,11 @@ jobs:
               -f deployments/docker-compose.yml \
               -f tests/e2e/browser-files.compose.yaml \
               logs --no-color > compose-auth.log 2>&1
+          COMPOSE_PROJECT_NAME="$PGBASE_BACKUP_PROJECT_NAME" \
+            docker compose \
+              -f deployments/docker-compose.yml \
+              -f tests/e2e/browser-backups.compose.yaml \
+              logs --no-color > compose-backup.log 2>&1
 
       - name: Upload failed E2E logs
         if: failure()
@@ -209,15 +235,21 @@ jobs:
             e2e.log
             compose.log
             compose-auth.log
+            compose-backup.log
           if-no-files-found: warn
           retention-days: 14
 
       - name: Remove isolated Compose resources
         if: always()
         run: |
-          docker compose -f deployments/docker-compose.yml down --volumes --remove-orphans --rmi local
           COMPOSE_PROJECT_NAME="$PGBASE_AUTH_PROJECT_NAME" \
             docker compose \
               -f deployments/docker-compose.yml \
               -f tests/e2e/browser-files.compose.yaml \
               down --volumes --remove-orphans
+          COMPOSE_PROJECT_NAME="$PGBASE_BACKUP_PROJECT_NAME" \
+            docker compose \
+              -f deployments/docker-compose.yml \
+              -f tests/e2e/browser-backups.compose.yaml \
+              down --volumes --remove-orphans
+          docker compose -f deployments/docker-compose.yml down --volumes --remove-orphans --rmi local

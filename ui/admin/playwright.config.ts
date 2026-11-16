@@ -3,11 +3,15 @@ import { defineConfig, devices, type Project } from "@playwright/test";
 const onboardingBaseURL = process.env.PGBASE_ONBOARDING_BROWSER_BASE_URL ??
   process.env.PGBASE_BROWSER_BASE_URL ?? "http://127.0.0.1:8090";
 const authenticatedBaseURL = process.env.PGBASE_AUTHENTICATED_BROWSER_BASE_URL;
+const managedBackupBaseURL = process.env.PGBASE_MANAGED_BACKUP_BROWSER_BASE_URL;
 
 // Onboarding needs an instance with no administrator, so it can never share a
 // backend with the authenticated project.
 if (authenticatedBaseURL !== undefined && new URL(authenticatedBaseURL).origin === new URL(onboardingBaseURL).origin) {
   throw new Error("onboarding and authenticated Playwright projects require isolated backend origins");
+}
+if (managedBackupBaseURL !== undefined && [onboardingBaseURL, authenticatedBaseURL].some((base) => base !== undefined && new URL(base).origin === new URL(managedBackupBaseURL).origin)) {
+  throw new Error("managed backup restore requires its own disposable backend origin");
 }
 
 const projects: Project[] = [
@@ -31,6 +35,14 @@ if (authenticatedBaseURL !== undefined) {
     // expected stale-plan failures instead of exercising their workflow.
     workers: 1,
     use: { ...devices["Desktop Chrome"], baseURL: authenticatedBaseURL },
+  });
+}
+if (managedBackupBaseURL !== undefined) {
+  projects.push({
+    name: "managed-backups-chromium",
+    testDir: "./e2e/managed-backups",
+    workers: 1,
+    use: { ...devices["Desktop Chrome"], baseURL: managedBackupBaseURL },
   });
 }
 

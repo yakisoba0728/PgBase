@@ -58,6 +58,36 @@ cancellation itself fails, then releases the reader. This does not change replay
 or authorization semantics. Full TypeScript build, public type contract and test
 command now pass **113 Node tests** plus the existing standalone SDK checks.
 
+## Managed-backup browser coverage
+
+The previously skipped managed-backup test has been replaced by a dedicated
+`managed-backups-chromium` Playwright project. It has a third disposable Compose
+project, database volume, origin and ports, separate from onboarding and normal
+authenticated browser tests. It uses the same image selected by the E2E workflow
+(including the digest-pinned release candidate mode), with local file storage
+and a private backup subdirectory in a 256 MiB tmpfs. The subdirectory is created
+by the nonroot runtime; the tmpfs root itself is not incorrectly chmod'ed by it.
+
+The scenario signs in, creates a collection and record, uploads a file with
+declared SHA-256, creates a backup through the UI, downloads and hashes the actual
+archive, and uploads that archive through the UI. It then changes the record,
+creates another record and deletes the attachment. Restoring the uploaded archive
+must recover the original record value and ETag, remove the post-snapshot record,
+and recover the exact UTF-8 attachment bytes through a protected download. It
+also checks the typed restore confirmation, the specific returned restore job,
+readiness and the visible restored record. A successful backup job alone is not
+the acceptance condition.
+
+Local verification completed: TypeScript checking of the new Playwright spec and
+configuration, plus discovery of **26 browser tests in four files**, including
+the new managed restore scenario. Docker is unavailable in this local environment,
+and the known local Chromium IPC restriction is not bypassed. **Discovery is not
+a browser execution result**; the shipped-image scenario must pass in the hosted
+E2E workflow before release qualification. The workflow always supplies its
+dedicated project URL; it is optional only for local developers who do not start
+that third backend. Existing authenticated tests no longer contain the old
+`PGBASE_BROWSER_MANAGED_BACKUPS` skip.
+
 ## Coverage and remaining work
 
 Directly traced in this pass: shared Realtime subscribe/start/readiness/topic
