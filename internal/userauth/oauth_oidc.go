@@ -139,30 +139,43 @@ func (p *HTTPOAuthProvider) oidcRSAKey(ctx context.Context, kid string) (*rsa.Pu
 	}
 	var set struct {
 		Keys []struct {
-			KeyID      string   `json:"kid"`
-			Type       string   `json:"kty"`
-			Use        string   `json:"use"`
-			Algorithm  string   `json:"alg"`
-			Operations []string `json:"key_ops"`
-			N          string   `json:"n"`
-			E          string   `json:"e"`
+			KeyID      string          `json:"kid"`
+			Type       string          `json:"kty"`
+			Use        json.RawMessage `json:"use"`
+			Algorithm  json.RawMessage `json:"alg"`
+			Operations json.RawMessage `json:"key_ops"`
+			N          string          `json:"n"`
+			E          string          `json:"e"`
 		} `json:"keys"`
 	}
 	if err := p.doJSON(req, &set); err != nil {
 		return nil, err
 	}
 	for _, k := range set.Keys {
-		if k.KeyID != kid || k.Type != "RSA" || k.Use != "" && k.Use != "sig" || k.Algorithm != "" && k.Algorithm != "RS256" {
+		if k.KeyID != kid || k.Type != "RSA" || !optionalJWKString(k.Use, "sig") || !optionalJWKString(k.Algorithm, "RS256") {
 			continue
 		}
-		if k.Operations != nil {
-			canVerify := false
-			for _, operation := range k.Operations {
-				if operation == "verify" {
+		if len(k.Operations) != 0 {
+			var operations []string
+			if json.Unmarshal(k.Operations, &operations) != nil {
+				continue
+			}
+			canVerify, canSign, invalid := false, false, false
+			for _, operation := range operations {
+				switch operation {
+				case "verify":
+					invalid = invalid || canVerify
 					canVerify = true
+				case "sign":
+					invalid = invalid || canSign
+					canSign = true
+				default:
+					// This profile uses an RSA signature key. Encryption and
+					// other unrelated operations cannot authorize that use.
+					invalid = true
 				}
 			}
-			if !canVerify {
+			if !canVerify || invalid {
 				continue
 			}
 		}
@@ -185,4 +198,14 @@ func (p *HTTPOAuthProvider) oidcRSAKey(ctx context.Context, kid string) (*rsa.Pu
 		return &rsa.PublicKey{N: modulus, E: exponent}, nil
 	}
 	return nil, errors.New("OIDC signing key is unavailable")
+}
+
+// Missing JWK constraints are optional. Explicit null/empty values are not
+// equivalent to omission and cannot authorize this algorithm or key purpose.
+func optionalJWKString(raw json.RawMessage, expected string) bool {
+	if len(raw) == 0 {
+		return true
+	}
+	var value string
+	return json.Unmarshal(raw, &value) == nil && value == expected
 }
