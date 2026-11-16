@@ -38,6 +38,10 @@ RUN schema_version="$(find migrations/system -maxdepth 1 -type f -name '[0-9][0-
     && expected="{\"version\":\"${VERSION}\",\"commit\":\"${SOURCE_COMMIT}\",\"builtAt\":\"${BUILT_AT}\",\"goos\":\"${TARGETOS}\",\"goarch\":\"${TARGETARCH}\",\"schemaMin\":\"$schema_version\",\"schemaMax\":\"$schema_version\"}" \
     && test "$(/out/pgbase version --json)" = "$expected"
 
+FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS runtime-data
+COPY deployments/runtime-data.sh /runtime-data.sh
+RUN sh /runtime-data.sh
+
 FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS postgres-libraries
 COPY deployments/build-postgres-client-libraries.sh /build-postgres-client-libraries.sh
 RUN sh /build-postgres-client-libraries.sh
@@ -72,13 +76,13 @@ FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c
 COPY --from=postgres16 /runtime/ /
 COPY --from=postgres17 /runtime/ /
 COPY --from=postgres18 /runtime/ /
+COPY --from=runtime-data /runtime/ /
 ENV LD_LIBRARY_PATH="/opt/pgbase/postgresql/lib"
 ENV PATH="/opt/pgbase/postgresql/18/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 ARG VERSION=dev
 LABEL org.opencontainers.image.source="https://github.com/yakisoba0728/PgBase" \
       org.opencontainers.image.version="${VERSION}"
-COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build --chown=nonroot:nonroot /out/pgbase /pgbase
 USER nonroot:nonroot
 EXPOSE 8090
