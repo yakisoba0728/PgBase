@@ -41,7 +41,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/backend-adjacent-integration.log.gz",
@@ -55,7 +69,20 @@
       "removal_allowed": false,
       "encoding": "gzip",
       "original_bytes": 21150,
-      "original_sha256": "41a5a998ac4459ca5f3c4e87ae6934605c91b2c358717ba936957cf1f4521fa6"
+      "original_sha256": "41a5a998ac4459ca5f3c4e87ae6934605c91b2c358717ba936957cf1f4521fa6",
+      "source_sha": "e59fc07668e0a282555f2f52dbddf890162254e0",
+      "source_tree": "63b3b6eb3379e32967b16d5a637e9aa1d1052f95",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/backend-integration-execution.json",
@@ -66,7 +93,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/backend-integration-green.log",
@@ -77,7 +118,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "e59fc07668e0a282555f2f52dbddf890162254e0",
+      "source_tree": "63b3b6eb3379e32967b16d5a637e9aa1d1052f95",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/backend-integration-red.log",
@@ -88,7 +142,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+      "source_tree": "b758d273142d75377c18011d240cd64929cb4c97",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/backend-sdk-execution.json",
@@ -99,7 +166,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/backend-unit-green.log",
@@ -110,7 +191,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "e59fc07668e0a282555f2f52dbddf890162254e0",
+      "source_tree": "63b3b6eb3379e32967b16d5a637e9aa1d1052f95",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/backend-unit-red.log",
@@ -121,7 +215,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+      "source_tree": "b758d273142d75377c18011d240cd64929cb4c97",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/compression-map.json",
@@ -132,7 +239,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/fixture-setup-environment.txt",
@@ -143,7 +264,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Disposable fixture evidence; setup failures before migration completion are not runtime RED. Corrected fixture is PostgreSQL17.9 with pg_trgm and durability enabled.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/fixture-setup-execution.json",
@@ -154,7 +289,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Disposable fixture evidence; setup failures before migration completion are not runtime RED. Corrected fixture is PostgreSQL17.9 with pg_trgm and durability enabled.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/fixture-setup-new-source.log",
@@ -165,7 +314,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "e59fc07668e0a282555f2f52dbddf890162254e0",
+      "source_tree": "63b3b6eb3379e32967b16d5a637e9aa1d1052f95",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Disposable fixture evidence; setup failures before migration completion are not runtime RED. Corrected fixture is PostgreSQL17.9 with pg_trgm and durability enabled."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/fixture-setup-old-source.log",
@@ -176,7 +338,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+      "source_tree": "b758d273142d75377c18011d240cd64929cb4c97",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Disposable fixture evidence; setup failures before migration completion are not runtime RED. Corrected fixture is PostgreSQL17.9 with pg_trgm and durability enabled."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/fixture-setup-postgres.log",
@@ -187,7 +362,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Disposable fixture evidence; setup failures before migration completion are not runtime RED. Corrected fixture is PostgreSQL17.9 with pg_trgm and durability enabled.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/performance-execution.json",
@@ -198,7 +387,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/performance-green.log",
@@ -209,7 +412,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "6add53b53b57e6fc3826820ac7b6580b493629cb",
+      "source_tree": "a1abddc0078df9a34427225963bf0b6631930780",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/performance-red.log",
@@ -220,7 +436,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+      "source_tree": "b758d273142d75377c18011d240cd64929cb4c97",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/performance-replay.json",
@@ -231,7 +460,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/postgres-lease-environment.txt",
@@ -242,7 +485,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Disposable fixture evidence; setup failures before migration completion are not runtime RED. Corrected fixture is PostgreSQL17.9 with pg_trgm and durability enabled.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/postgres-lease.log",
@@ -253,7 +510,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Disposable fixture evidence; setup failures before migration completion are not runtime RED. Corrected fixture is PostgreSQL17.9 with pg_trgm and durability enabled.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/reviewed-source-identities.json",
@@ -264,7 +535,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/run-postgres-lease-qa.py",
@@ -275,7 +560,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/sdk-dart-green.log",
@@ -286,7 +585,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "8ccf8ca7b5a7a973dc209563e2b3256966da89be",
+      "source_tree": "519e2191f1c24eb27750d5970222d74e4e7354b8",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/sdk-dart-red.log",
@@ -297,7 +609,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+      "source_tree": "b758d273142d75377c18011d240cd64929cb4c97",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/sdk-typescript-build.log",
@@ -308,7 +633,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "8ccf8ca7b5a7a973dc209563e2b3256966da89be",
+      "source_tree": "519e2191f1c24eb27750d5970222d74e4e7354b8",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "npm run build && npm run test:types; git diff --exit-code -- dist; assert no git ls-files --others --exclude-standard -- dist",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/sdk-typescript-execution.json",
@@ -319,7 +657,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/sdk-typescript-green.log",
@@ -330,7 +682,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "8ccf8ca7b5a7a973dc209563e2b3256966da89be",
+      "source_tree": "519e2191f1c24eb27750d5970222d74e4e7354b8",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/sdk-typescript-red.log",
@@ -341,7 +706,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+      "source_tree": "b758d273142d75377c18011d240cd64929cb4c97",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/ui-dist-verification.log",
@@ -352,7 +730,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "b56b74022eced2c767429b435a2abc4031ec37ee",
+      "source_tree": "2c6942b22a709d019b2cb18726ac8dc0b2d97887",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "npm run verify:dist",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/ui-execution.json",
@@ -363,7 +754,21 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/ui-green.log",
@@ -374,7 +779,20 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": "b56b74022eced2c767429b435a2abc4031ec37ee",
+      "source_tree": "2c6942b22a709d019b2cb18726ac8dc0b2d97887",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/ui-red.log.gz",
@@ -388,7 +806,20 @@
       "removal_allowed": false,
       "encoding": "gzip",
       "original_bytes": 48999,
-      "original_sha256": "4173943ed0ecd8cb7c50f4167d0658ff40ab6fadc46b7d8cd94586bbd4aadff2"
+      "original_sha256": "4173943ed0ecd8cb7c50f4167d0658ff40ab6fadc46b7d8cd94586bbd4aadff2",
+      "source_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+      "source_tree": "b758d273142d75377c18011d240cd64929cb4c97",
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata."
     },
     {
       "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/with-postgres17.sh",
@@ -399,7 +830,22 @@
       "job_id": null,
       "expires_at": null,
       "preservation": "Git-tracked independent QA evidence",
-      "removal_allowed": false
+      "removal_allowed": false,
+      "source_sha": null,
+      "source_tree": null,
+      "command_reference": [
+        "performance-execution.json",
+        "sdk-typescript-execution.json",
+        "backend-sdk-execution.json",
+        "ui-execution.json",
+        "fixture-setup-execution.json",
+        "backend-integration-execution.json",
+        "backend-adjacent-integration-execution.json"
+      ],
+      "command": "See exact command in referenced execution JSON; artifact filename selects the execution or source identity record.",
+      "judgment": "Raw independently captured output; outcome and scope are preserved in execution metadata.",
+      "source_identity_note": "Metadata, fixture environment or copied executed harness spans multiple source checkouts; use reviewed-source-identities and execution records rather than assigning one untested source."
     }
-  ]
+  ],
+  "artifact_source_fields_explained": "One SHA/tree is present only when artifact execution has one source. Multi-source metadata and fixture-only files use null with explicit records; these are not fabricated unknown-source passes."
 }
