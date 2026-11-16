@@ -46,6 +46,10 @@ def main():
                 "cpu_count":os.cpu_count(),"gomaxprocs":4,"cycles":args.cycles,"order":["before","after","after","before"]*3,
                 "baseline":BASE,"candidate":args.candidate or {"base":BASE,"patches":PATCHES},
                 "harness_commit":HARNESS,"harness_sha256":hashlib.sha256(harness).hexdigest(),"started":time.time()}
+    def write_metadata():
+        (output/"environment.json").write_text(json.dumps(metadata,indent=2)+"\n")
+    metadata["phase"]="build"
+    write_metadata()
     worktrees=[]
     try:
         for side in ("before","after"):
@@ -59,8 +63,10 @@ def main():
             (work/PATH).write_bytes(harness)
             (output/f"source-{side}.patch").write_bytes(git("diff","HEAD",cwd=work))
             metadata[side+"_head"]=git("rev-parse","HEAD",cwd=work).decode().strip()
+            write_metadata()
             subprocess.run(["go","test","-c","-tags=integration,load","./pgbase","-o",str(temporary/f"{side}.test")],cwd=work,env=env,check=True)
-        (output/"environment.json").write_text(json.dumps(metadata,indent=2)+"\n")
+        metadata["phase"]="measurement"
+        write_metadata()
         ledger=[]
         for index,side in enumerate(metadata["order"],1):
             name=f"{index:02d}-{side}-mixed"
@@ -80,12 +86,18 @@ def main():
             print("END",name,"exit",code,"seconds",round(record["elapsed_seconds"],3),flush=True)
             if code:
                 raise RuntimeError(f"{name} failed; preserve its log and do not silently retry or omit it")
-        metadata["ended"]=time.time()
-        (output/"environment.json").write_text(json.dumps(metadata,indent=2)+"\n")
+        metadata["phase"]="analysis"
+        write_metadata()
         subprocess.run(["python3",str(repo/"scripts/analyze_repeated_load.py"),str(output),str(output/"analysis"),"--http-only","--http-cycles",str(args.cycles)],cwd=repo,check=True)
+        metadata["phase"]="complete"
+    except BaseException as error:
+        metadata["failure"]={"type":type(error).__name__,"message":str(error)}
+        raise
+    finally:
+        metadata["ended"]=time.time()
+        write_metadata()
         hashes={str(path.relative_to(output)):hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(output.rglob("*")) if path.is_file()}
         (output/"manifest.json").write_text(json.dumps(hashes,indent=2)+"\n")
-    finally:
         for work in worktrees:
             subprocess.run(["git","worktree","remove","--force",str(work)],cwd=repo,check=False)
 
