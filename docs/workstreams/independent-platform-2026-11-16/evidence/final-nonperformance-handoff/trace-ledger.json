@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "test_source_sha": "5206f30b9bf0a1813d4b70b627b677548f13e09b",
+  "full_ci_candidate_sha": "527cc0a05f97ab24e089eb968cd70e92160ba973",
+  "full_ci_checkout_sha": "b48828a536b5b67436827e55ebdfd7e755dece52",
+  "full_ci_tree": "9c0313270d4a508777a6d7a2a88ee5450729d487",
+  "acceptance": "Blocked: historical abort cause unproven; independent QA unavailable",
+  "runtime_or_assertion_changes": false,
+  "agents": {"created": 0, "completed": 0, "maximum_concurrent": 0},
+  "diagnostics": [
+    {
+      "fixture": "fresh",
+      "run_id": 43847672228,
+      "workflow_commit": "88d4699ff17897fd4ac951b76a5bf8e493344a0f",
+      "artifact_id": 14215408822,
+      "artifact_sha256": "06fdf8b5f431ef4d99e32323286242d155bbe1c046fc220c57ee52d668948f64",
+      "trace_sha256": "0b5b107e46ede9f96deb2e5294c1f65187375da0e6492287b24adf342411022b",
+      "expires_at": "2026-11-30T10:22:19Z",
+      "firefox": {"expected": 1, "unexpected": 0, "flaky": 0, "skipped": 0},
+      "subset87_requests": [],
+      "console_errors": [],
+      "abort_events": []
+    },
+    {
+      "fixture": "original-chromium-prerequisite",
+      "run_id": 43848675663,
+      "workflow_commit": "d055a48b8a40f4b2a2431f59618e427d105dd642",
+      "artifact_id": 14216248013,
+      "artifact_sha256": "6107fdd8a060ea4f191102434fdd7084365f7f3301c9390f3ea94a1489957326",
+      "trace_sha256": "01b8c2b82794eca9268f0099b3988b79c30f87529dcc7946fa0a37eb5e4559a5",
+      "expires_at": "2026-11-30T10:28:58Z",
+      "chromium": {"expected": 26, "unexpected": 0, "flaky": 0, "skipped": 0},
+      "firefox": {"expected": 1, "unexpected": 0, "flaky": 0, "skipped": 0},
+      "subset87_requests": [{"trace_file": "1-trace.network", "url": "http://127.0.0.1:18091/admin/assets/PretendardVariable.subset.87-Lzui2vbK.woff2", "_monotonicTime": 3569.98, "har_time": 0.121, "status": 200, "content_size": 24664, "mime_type": "font/woff2", "failure": null}],
+      "navigation_actions": [{"trace_file": "1-trace.trace", "method": "reload", "startTime": 3663.75}, {"method": "click Sign out", "startTime": 4032.569}, {"method": "goto /admin/collections", "startTime": 4466.033}],
+      "console_errors": [],
+      "abort_events": [],
+      "post_test_asset_probe": {"status": 200, "content_size": 24664, "mime_type": "font/woff2"}
+    }
+  ],
+  "source_sha256": {
+    "ui/admin/e2e/authenticated/admin.spec.ts": "9a5fe9276cd060024bf22e30e0c5f085ed8f326bf9dd7ad2f5a4ede08fc173ae",
+    "ui/admin/playwright.config.ts": "c5d0e707a0b9c3508b2de502e6110a532417a6945b64747cc6dc71701afe4762",
+    "ui/admin/package-lock.json": "19ca36afd61179505cd6f93f6c8df44d4a846471cc2464bef7247f41b7d95bcf",
+    "deployments/docker-compose.yml": "f8c68d1de13f267dd38a8095ee92ecf418b22cef2580638d5b21a1feddb8469c",
+    "tests/e2e/browser-files.compose.yaml": "7df077f1265f8872e0d3a881f2d44d00000be080edfc9814162cb6a3ab22b479",
+    "tests/e2e/browser-backups.compose.yaml": "dd2eb01ac9174a7f1f42d7f12ba757ec2697e4410634e4d2aa02f5284cd1d5b0"
+  },
+  "redaction": "Derived ledger excludes cookies, credentials, request bodies and font binaries. Original Actions traces retain disposable fixture traffic; observe the documented retention dates.",
+  "interpretation": "The prerequisite changed whether subset 87 appeared, but neither trace reproduces the historical abort. No causal fix or environment defect is claimed. Timing fields are trace diagnostics, not performance qualification."
+}

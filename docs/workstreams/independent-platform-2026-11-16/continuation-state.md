@@ -1,3 +1,28 @@
+# PgBase — final nonperformance continuation
+
+## Latest resumed outcome — CI completed, acceptance still Blocked
+
+This section supersedes the historical checkpoint preserved below.
+
+- [Nonperformance CI 43845969233](https://github.com/yakisoba0728/PgBase/actions/runs/43845969233) completed **14/14 successful jobs**, no unfinished jobs.
+- Chromium **26/26**, Firefox **6/6**, WebKit **6/6**, hardened runtime and **30 black-box top-level executions** passed on candidate `527cc0a05f97ab24e089eb968cd70e92160ba973` / synthetic checkout `b48828a536b5b67436827e55ebdfd7e755dece52`, identical tree `9c0313270d4a508777a6d7a2a88ee5450729d487`.
+- `527cc0a0` only repairs Playwright failure-artifact retention. It does not fix or prove the cause of the old font abort. All runtime, assertions, console/CSP/5xx checks, retries and timeouts are unchanged.
+- `5206f30b9bf0a1813d4b70b627b677548f13e09b` integrates the prior documentation-only checkpoint. Subsequent report/evidence changes are documentation-only and are not another test execution.
+- Two bounded diagnostics on immutable source `5206f30b` completed: fresh fixture [43847672228](https://github.com/yakisoba0728/PgBase/actions/runs/43847672228), then original Chromium prerequisite [43848675663](https://github.com/yakisoba0728/PgBase/actions/runs/43848675663). Both Firefox cases passed with retained traces. The first did not request subset 87; the second did, with HTTP 200 / 24,664 bytes and no console error. Neither reproduced the abort.
+- **NP-BROWSER-01 remains unresolved:** navigation cancellation is still an inference, not proven historical causation. No speculative runtime fix or console exception was applied.
+- **NP-QA-INDEPENDENCE remains Blocked:** no usable coding-subagent facility was available. Actual child agents created/completed/max-concurrent in this continuation: **0/0/0**. Coordinator inspection and CI are not independent QA.
+- **Task acceptance: Blocked. Overall product: Not Ready.** No A-1/A-2 success or environment defect is claimed from non-reproduction. All authorized CI/diagnostic runs have finished; no automatic coding continuation is claimed.
+
+Canonical current report: [`final-nonperformance-qa.md`](final-nonperformance-qa.md). Durable compact source/job/trace ledgers: [`evidence/final-nonperformance-handoff/`](evidence/final-nonperformance-handoff/). Raw Actions artifact URLs and November 30 retention expiry are recorded there; disposable auth values are excluded from Git evidence.
+
+Next work is limited to an actual independent reviewer plus an evidence-backed reproduction of the historical request abort before a minimal fix. Do not repeat the existing diagnostics unchanged, restart a broad audit, or execute performance work. The isolated diagnostic workflow is preserved at `d055a48b8a40f4b2a2431f59618e427d105dd642` on `coordinator/firefox-trace-20261116-final`, not integrated into PR #148.
+
+Schema 69, ambiguous-write tombstone retention, live-reference and legacy-worker protections, and writer-quiescence requirements for source-storage migration remain unchanged. Prior security classifications and deferred real-provider/accessibility coverage remain in force. The historical 200 RPS / 600-second test lost 547 of 120,000 requests; **performance remains the user's unresolved work**. Main remains `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`, PR #148 remains Draft/unmerged, and no production access, deployment, release/tag or package publication occurred.
+
+---
+
+## Historical checkpoint — retained verbatim; original source scope only
+
 # PgBase — final nonperformance checkpoint
 
 ## Final outcome and stop
