@@ -102,6 +102,7 @@ function DeadEvents() {
       if (bulk) setRun((current) => current && { ...current, done: current.done + 1, failed: current.failed + (result.status === "rejected" ? 1 : 0) });
     };
     const results = await settleLimited(ids, retryConcurrency, (id) => scope.run(() => retryRealtimeEvent(id)), settle);
+    if (!scope.isCurrent()) { setRun(null); return; }
     const failed = ids.filter((_, index) => results[index].status === "rejected");
     const firstError = results.find((result) => result.status === "rejected")?.reason;
     // A retried event leaves the dead list; one refetch per run rather than one per event.

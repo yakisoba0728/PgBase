@@ -52,10 +52,12 @@ export function onCsrfRejected(handler: CsrfRecovery, issuer: () => string | nul
 }
 
 const sessionChanged = () => new ApiError(403, "session_changed", "The administrator session changed while the request was in flight");
+const isCurrentScope = (scope: RequestScope) =>
+  generation === scope.generation && (scope.administrator === null || identity() === scope.administrator);
 function assertScope(scope: RequestScope): void {
   // An anonymous bootstrap read may discover the first identity. A request
   // issued as an administrator must never publish into another one's session.
-  if (generation !== scope.generation || (scope.administrator !== null && identity() !== scope.administrator)) throw sessionChanged();
+  if (!isCurrentScope(scope)) throw sessionChanged();
 }
 
 async function inScope<T>(scope: RequestScope, attempt: () => Promise<T>): Promise<T> {
@@ -76,6 +78,7 @@ export function captureSessionScope() {
   const scope: RequestScope = { generation, administrator: identity() };
   return {
     check: () => assertScope(scope),
+    isCurrent: () => isCurrentScope(scope),
     run: <T>(attempt: () => Promise<T>) => inScope(scope, attempt),
   };
 }

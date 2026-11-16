@@ -70,7 +70,8 @@ it("does not replace a file when the session changes while fetching its ETag", a
   await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
   advanceSession();
   finish({ record: { id: "r" }, etag: '"old-session"' });
-  await waitFor(() => expect(settled).toHaveBeenCalled());
+  await waitFor(() => expect(client.getMutationCache().getAll().at(-1)?.state.status).toBe("error"));
+  expect(settled).not.toHaveBeenCalled();
   expect(replace).not.toHaveBeenCalled();
   cleanup(); client.clear();
 });
@@ -89,7 +90,31 @@ it("does not dispatch the next selected file after the administrator session cha
   await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
   advanceSession();
   finish({ id: "one" } as api.StoredFile);
-  await waitFor(() => expect(settled).toHaveBeenCalled());
+  await waitFor(() => expect(client.getMutationCache().getAll().at(-1)?.state.status).toBe("error"));
+  expect(settled).not.toHaveBeenCalled();
   expect(upload).toHaveBeenCalledTimes(1);
+  cleanup(); client.clear();
+});
+
+it.each(["same", "replacement"])("refreshes a failed removal only in the %s administrator session", async (session) => {
+  setLanguage("en");
+  const file = { id: "f", filename: "old.txt", size: 3, contentType: "text/plain" } as api.StoredFile;
+  vi.spyOn(api, "listRecordFiles").mockResolvedValue([file]);
+  let fail!: (error: Error) => void;
+  const remove = vi.spyOn(api, "deleteFile").mockImplementation(() => new Promise<void>((_, reject) => { fail = reject; }));
+  const settled = vi.fn();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const invalidate = vi.spyOn(client, "invalidateQueries");
+  client.setQueryData(recordFilesQuery("notes", "r", "cover").queryKey, [file]);
+  const field = { id: "cover", name: "cover", type: "file", options: { maxSelect: 1 } } as CollectionField;
+  render(<QueryClientProvider client={client}><FileField collection="notes" recordId="r" field={field} readOnly={false} staged={[]} onStage={vi.fn()} onRecordChanged={settled} /></QueryClientProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Delete old.txt" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  await waitFor(() => expect(remove).toHaveBeenCalledTimes(1));
+  if (session === "replacement") advanceSession();
+  fail(new Error("The server did not confirm the removal"));
+  await waitFor(() => expect(client.getMutationCache().getAll().at(-1)?.state.status).toBe("error"));
+  expect(settled).toHaveBeenCalledTimes(session === "same" ? 1 : 0);
+  expect(invalidate).toHaveBeenCalledTimes(session === "same" ? 1 : 0);
   cleanup(); client.clear();
 });
