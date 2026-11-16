@@ -1,0 +1,80 @@
+{
+  "runtime_commit": "7779f0977db0237a2d21c8d5587d2cfa74339702",
+  "runtime_tree": "a06ecc1411fe2a037fc4a18f5d513e766060ac68",
+  "start_published_commit": "5285e9963251a73656dd22eb2f8a9254ba21678e",
+  "command": "GOMAXPROCS=2 PGBASE_TEST_ADMIN_URL=<disposable local PostgreSQL 17.9> go test -race -tags=integration ./internal/api -run ^TestRealtime(RelationFilter|ExpansionUsesCurrentRequestPolicyContext|ExpansionFailure|MissingOrDeniedCurrentRecord) -json -count=3",
+  "environment": {
+    "go": "go1.26.11 linux/amd64",
+    "postgres": "17.9, built from prior downloaded source; isolated new cluster",
+    "listen": "127.0.0.1:56543",
+    "GOMAXPROCS": 2,
+    "max_connections": 100,
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "host_cpu_count": 9,
+    "limits": "No hard CPU/RAM limits verified; no capacity inference"
+  },
+  "summary": {
+    "pass_test_events": 39,
+    "pass_top_level_events": 15,
+    "fail_test_events": 0,
+    "fail_top_level_events": 0,
+    "skip_test_events": 0,
+    "skip_top_level_events": 0,
+    "packages": [
+      {
+        "Action": "pass",
+        "Package": "github.com/yakisoba0728/PgBase/internal/api",
+        "Elapsed": 2.159
+      }
+    ]
+  },
+  "historical_local_runs": {
+    "realtime-after-race.log": "f6c56308 runtime, focused multiplex/slow-client/reauth/queued delivery and relation error regressions, race x3; expanded-context integration file was untracked but excluded without integration build tag",
+    "relation-filter-before.log": "published 5285e996 runtime plus new failing regression; pool deadline/08006 wrongly acknowledge seq10",
+    "expansion-before.log": "f6c56308 runtime plus new integration test; approved expansion absent although direct same-context read includes it",
+    "expansion-fault-before.log": "59a854cc runtime plus new fault cases; transient errors acknowledged partial events",
+    "expansion-after.log": "59a854cc equivalent working tree, isolated PG17.9 race x3"
+  },
+  "files": [
+    {
+      "path": "relation-filter-before.log",
+      "size": 956,
+      "sha256": "d37b347d33c11d694a552ff5c55dbfc2fbc37e44112cc5c15515a9f2b06ff44b"
+    },
+    {
+      "path": "relation-filter-after.log",
+      "size": 1903,
+      "sha256": "88ca24498130ee5e41d5730247bb0ab1d9414dfc978ca404b53ddbd94a12e98d"
+    },
+    {
+      "path": "realtime-after-race.log",
+      "size": 57,
+      "sha256": "fb9d7f6224139ba3e50acc01babd91158156dbd213de4d96cc827ac8c12a540c"
+    },
+    {
+      "path": "expansion-before.log",
+      "size": 7110,
+      "sha256": "0cbd5a7e33019f08e1b752d0749c494cc9ffab820ef6e8d500a49644b2263541"
+    },
+    {
+      "path": "expansion-after.log",
+      "size": 20364,
+      "sha256": "101b7b624cb35c8e8c278dd55cb977e9237a515d792740e271dca8c27b25d988"
+    },
+    {
+      "path": "expansion-fault-before.log",
+      "size": 1576,
+      "sha256": "8332650fb37d7c4164febc5d73ce1ae7c7109ea4868097be462f6fea2dcd4853"
+    },
+    {
+      "path": "current-record-fault-after.log",
+      "size": 5047,
+      "sha256": "873be76fe380bc6f36fbb1fc01cb6310c039532759f1043eb33c2e57b2e5ef3a"
+    },
+    {
+      "path": "final-focused.jsonl",
+      "size": 94618,
+      "sha256": "aec89049f75e1ab80c6bcb7391a68f94651cd3477a3b0604664828443d36a72b"
+    }
+  ]
+}
