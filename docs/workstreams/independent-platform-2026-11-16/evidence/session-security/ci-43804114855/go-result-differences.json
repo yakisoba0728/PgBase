@@ -1,0 +1,62 @@
+{
+  "results_sorted_by_rule_message_fingerprint": true,
+  "difference_count": 2324,
+  "difference_categories": {
+    "codeFlows": 2147,
+    "locations": 18,
+    "relatedLocations": 142,
+    "rule": 17
+  },
+  "first_differences": [
+    [
+      "/0/codeFlows/0/threadFlows/0/locations/0/location/physicalLocation/artifactLocation/index",
+      23,
+      31
+    ],
+    [
+      "/0/codeFlows/0/threadFlows/0/locations/1/location/physicalLocation/artifactLocation/index",
+      23,
+      31
+    ],
+    [
+      "/0/codeFlows/0/threadFlows/0/locations/2/location/physicalLocation/artifactLocation/index",
+      24,
+      32
+    ],
+    [
+      "/0/codeFlows/0/threadFlows/0/locations/3/location/physicalLocation/artifactLocation/index",
+      24,
+      32
+    ],
+    [
+      "/0/codeFlows/0/threadFlows/0/locations/4/location/physicalLocation/artifactLocation/index",
+      24,
+      32
+    ],
+    [
+      "/0/codeFlows/0/threadFlows/0/locations/5/location/physicalLocation/artifactLocation/index",
+      24,
+      32
+    ],
+    [
+      "/0/codeFlows/0/threadFlows/0/locations/6/location/physicalLocation/artifactLocation/index",
+      25,
+      33
+    ],
+    [
+      "/0/codeFlows/0/threadFlows/0/locations/7/location/physicalLocation/artifactLocation/index",
+      25,
+      33
+    ],
+    [
+      "/0/codeFlows/0/threadFlows/0/locations/8/location/physicalLocation/artifactLocation/index",
+      25,
+      33
+    ],
+    [
+      "/0/codeFlows/0/threadFlows/0/locations/8/taxa/0/index",
+      2,
+      7
+    ]
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "runtime_commit": "86dbfa822ea69e0c98867a66e52efdc634377c3a",
+  "tree": "9a76dd6550d8b91a0a527ad82edea4d3aec05272",
+  "before_runtime": "ee5b5886",
+  "base_published_head": "d77fd45de6975f55b047a3de9c4099e1805162ce",
+  "toolchain": "go1.26.11 linux/amd64; PostgreSQL 17.9; GOMAXPROCS=2",
+  "logs": {
+    "auth-context-before.jsonl": {
+      "sha256": "3934039c818ce0aa2ff7c203d001387cba2682304c20b81df0d386ba3a6b1448",
+      "events": {
+        "fail": 22,
+        "pass": 6
+      },
+      "top_level": {
+        "fail": 1
+      },
+      "stored_path": "auth-context-before.jsonl.gz",
+      "stored_sha256": "ca01f39a17f4909688e37bc9584d74866c827fcffb80dc9607d98952db1f91c3"
+    },
+    "auth-context-initial-fixture-invalid.jsonl": {
+      "sha256": "89bab59e945ba6b362c8a1fb5043976500b1158cd153350104de9e3dddd74a21",
+      "events": {
+        "fail": 10
+      },
+      "top_level": {
+        "fail": 1
+      },
+      "stored_path": "auth-context-initial-fixture-invalid.jsonl.gz",
+      "stored_sha256": "3a9e78aa97bff932512d0ddbf6215c1c3a05536f8adb602b80ba56c4aa10fbf9"
+    },
+    "integration-after.jsonl": {
+      "sha256": "fbe5b1a542400a0024f8bdec909f0211f729a4b6aa421da2d12299ff6a9a2de1",
+      "events": {
+        "pass": 72
+      },
+      "top_level": {
+        "pass": 9
+      },
+      "stored_path": "integration-after.jsonl.gz",
+      "stored_sha256": "dc558ed3600c8e1bb3060ffdaa461ed931c09694774d7b60c7e683961dec2fe1"
+    },
+    "integration-initial-body-fixture-invalid.jsonl": {
+      "sha256": "a7440cde00a07278036a934b8e67fe472784777547d8174d3af03361610234c9",
+      "events": {
+        "pass": 69,
+        "fail": 3
+      },
+      "top_level": {
+        "pass": 8,
+        "fail": 1
+      },
+      "stored_path": "integration-initial-body-fixture-invalid.jsonl.gz",
+      "stored_sha256": "8af0f681856affd3d82cccf724708c6e14b2dd450ed28cea337c747cd600b07b"
+    },
+    "unit-race.jsonl": {
+      "sha256": "fea519456bad52f5dbdc0876c79ba3323fca035767be9b003e6313851810d9ce",
+      "events": {
+        "pass": 833
+      },
+      "top_level": {
+        "pass": 344
+      },
+      "stored_path": "unit-race.jsonl.gz",
+      "stored_sha256": "93351c8ca0b3c136e96789d3f1ee0037aade99bc63233aa9ea03258408f49574"
+    }
+  },
+  "independent_source_review": {
+    "reviewer": "/root/backend",
+    "commit": "86dbfa822ea69e0c98867a66e52efdc634377c3a",
+    "result": "no blocker",
+    "execution": "not performed during performance quiet window"
+  },
+  "reviewed_backend_commit": "34be2bbe008059ff0e247cc3e328ecfae63d3516",
+  "backend_review_type": "independent source-only review; no blocker"
+}
