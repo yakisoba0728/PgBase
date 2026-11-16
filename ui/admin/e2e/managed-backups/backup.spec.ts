@@ -97,7 +97,12 @@ test("creates, downloads, uploads and restores an archive with exact record and 
   expect(job.backupId).toMatch(uuid);
   await expect(page.locator(".storage-job")).toContainText(job.backupId);
   await page.getByRole("cell", { name: job.backupId, exact: true }).click();
-  const pane = page.getByRole("region", { name: "Backup", exact: true });
+  // The completed job and archive details both have a "Backup" landmark.
+  // Only the selected archive pane owns the actual download link.
+  const pane = page.getByRole("region", { name: "Backup", exact: true }).filter({
+    has: page.getByRole("link", { name: "Download", exact: true }),
+  });
+  await expect(pane).toHaveCount(1);
   const downloadEvent = page.waitForEvent("download");
   await pane.getByRole("link", { name: "Download", exact: true }).click();
   const download = await downloadEvent;
