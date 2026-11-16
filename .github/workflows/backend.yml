@@ -353,7 +353,9 @@ jobs:
           npm --prefix sdk/typescript ci
           rm -rf sdk/typescript/dist
           npm --prefix sdk/typescript test
-          go test -tags='integration sdkconformance' ./pgbase -run '^TestSDKPublicRecordHTTPConformance$' -count=1
+          # Include realtime and relation/text-identity contracts as well as
+          # the basic record fixture; the tag alone does not select tests.
+          go test -tags='integration sdkconformance' ./pgbase -run '^TestSDK' -count=1 -v
 
       - name: Verify browser SDK example modules
         if: inputs.source_commit == '' && !matrix.postgres.shard
