@@ -53,7 +53,11 @@ func (s *Service) importOAuthAvatar(ctx context.Context, userID uuid.UUID, raw s
 		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
 	}}
 	defer transport.CloseIdleConnections()
-	client := &http.Client{Timeout: 8 * time.Second, Transport: transport, CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+	client := &http.Client{Timeout: 8 * time.Second, Transport: transport, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		// Supplying CheckRedirect replaces net/http's default ten-request limit.
+		if len(via) >= 10 {
+			return errors.New("avatar redirect limit exceeded")
+		}
 		if !avatarURLAllowed(req.URL, allowLoopback) {
 			return errors.New("avatar redirect rejected")
 		}
