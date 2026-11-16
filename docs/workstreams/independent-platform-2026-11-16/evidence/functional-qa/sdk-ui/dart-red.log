@@ -1,0 +1,43 @@
+00:00 +0: loading test/user_lifecycle_test.dart
+00:00 +0: record iteration rejects buffered records after replacement
+00:00 +0 -1: record iteration rejects buffered records after replacement [E]
+  Expected: throws <Instance of 'PgBaseError'> with `status`: <403> and `code`: 'session_changed'
+    Actual: <Instance of 'Future<bool>'>
+     Which: emitted <true>
+  
+  test/user_lifecycle_test.dart 43:11  main.<fn>
+  
+00:00 +0 -1: record iteration rejects buffered records after logout
+00:00 +0 -2: record iteration rejects buffered records after logout [E]
+  Expected: throws <Instance of 'PgBaseError'> with `status`: <403> and `code`: 'session_changed'
+    Actual: <Instance of 'Future<bool>'>
+     Which: emitted <true>
+  
+  test/user_lifecycle_test.dart 43:11  main.<fn>
+  
+00:00 +0 -2: record iteration rejects next page after replacement
+00:00 +0 -3: record iteration rejects next page after replacement [E]
+  Expected: throws <Instance of 'PgBaseError'> with `status`: <403> and `code`: 'session_changed'
+    Actual: <Instance of 'Future<bool>'>
+     Which: emitted <true>
+  
+  test/user_lifecycle_test.dart 43:11  main.<fn>
+  
+00:00 +0 -3: record iteration rejects next page after logout
+00:00 +0 -4: record iteration rejects next page after logout [E]
+  Expected: throws <Instance of 'PgBaseError'> with `status`: <403> and `code`: 'session_changed'
+    Actual: <Instance of 'Future<bool>'>
+     Which: emitted <true>
+  
+  test/user_lifecycle_test.dart 43:11  main.<fn>
+  
+00:00 +0 -4: Some tests failed.
+
+Failing tests:
+  test/user_lifecycle_test.dart: record iteration rejects buffered records after logout
+  test/user_lifecycle_test.dart: record iteration rejects buffered records after replacement
+  test/user_lifecycle_test.dart: record iteration rejects next page after logout
+  test/user_lifecycle_test.dart: record iteration rejects next page after replacement
+
+Consider enabling the flag chain-stack-traces to receive more detailed exceptions.
+For example, 'dart test --chain-stack-traces'.

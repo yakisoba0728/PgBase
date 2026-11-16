@@ -1,0 +1,141 @@
+{
+  "base_sha": "55f539895f85ca3b7d8731ab8f4c3b8999ab92bb",
+  "validated_source_sha": "3ec5f640a02541c4f9499703c54da22a9341b7f4",
+  "scope": "One shared TS/Dart iterator session-ownership defect; no UI/runtime Go changes",
+  "environment": {
+    "node": "v24.22.1",
+    "dart": "3.13.3",
+    "postgres": "17.9",
+    "go": "1.26.11",
+    "go_bin": "/workspace/scratch/2a97293516a0/toolchains/go/bin/go",
+    "dart_bin": "/workspace/scratch/2a97293516a0/toolchains/dart-sdk/bin/dart",
+    "pg_bin": "/workspace/scratch/2a97293516a0/toolchains/postgres/bin",
+    "GOMODCACHE": "/tmp/pgbase-functional-modcache",
+    "GOCACHE": "/tmp/pgbase-functional-gocache",
+    "GOMAXPROCS": "2",
+    "GOTOOLCHAIN": "local"
+  },
+  "verification": [
+    {
+      "name": "typescript RED",
+      "command": "node --test --test-name-pattern=\"record iteration\" sdk/typescript/test/user-lifecycle.test.mjs",
+      "base_with_new_tests": true,
+      "passed": 0,
+      "failed": 4,
+      "skipped": 0,
+      "log": "typescript-red.log"
+    },
+    {
+      "name": "dart RED",
+      "command": "dart test --no-color test/user_lifecycle_test.dart --name \"record iteration\" --reporter expanded",
+      "cwd": "sdk/dart",
+      "base_with_new_tests": true,
+      "passed": 0,
+      "failed": 4,
+      "log": "dart-red.log"
+    },
+    {
+      "name": "typescript GREEN",
+      "command": "npm test",
+      "cwd": "sdk/typescript",
+      "passed": 119,
+      "failed": 0,
+      "skipped": 0,
+      "log": "typescript-green.log"
+    },
+    {
+      "name": "dart targeted GREEN",
+      "command": "dart test --no-color test/user_lifecycle_test.dart --reporter expanded",
+      "cwd": "sdk/dart",
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0,
+      "log": "dart-green.log"
+    },
+    {
+      "name": "dart full GREEN",
+      "command": "dart test --no-color --reporter expanded",
+      "cwd": "sdk/dart",
+      "passed": 138,
+      "failed": 0,
+      "skipped": 0,
+      "log": "dart-full.log"
+    },
+    {
+      "name": "dart static",
+      "command": "dart analyze",
+      "cwd": "sdk/dart",
+      "issues": 0,
+      "log": "dart-analyze.log"
+    },
+    {
+      "name": "real PgBase HTTP",
+      "command": "PGBASE_QA_PG_BIN=/workspace/scratch/2a97293516a0/toolchains/postgres/bin bash /workspace/scratch/41607adf79d3/wt-data/docs/workstreams/independent-platform-2026-11-16/evidence/functional-qa/data/run-postgres.sh /workspace/scratch/2a97293516a0/toolchains/go/bin/go test -p 1 -tags='integration sdkconformance' ./pgbase -run '^TestSDKIteratorSessionHTTPConformance$' -count=1 -v -timeout=5m",
+      "passed_top_level": 1,
+      "passed_sdk_subtests": 2,
+      "failed": 0,
+      "skipped": 0,
+      "log": "http-green.log",
+      "isolation": "Fresh UTF8 disposable cluster; child tests in same exec network namespace; cluster stopped and removed by wrapper after success."
+    }
+  ],
+  "bootstrap_failure": {
+    "file": "dart-red-direct.log.gz",
+    "classification": "Incomplete cache/bootstrap compile error, not a product RED result",
+    "raw_sha256": "5da95cb38c4a7b849ece5983f74d4014980553030c5ec8b23702f8139262156f",
+    "resolution": "Cached package resolution completed; subsequent actual regression run produced four assertion failures before code was changed."
+  },
+  "independent_qa": "Pending separate coordinator-assigned reviewer; author tests are not independent QA",
+  "omissions": [
+    "No Firefox or performance execution",
+    "No UI layout/design or runtime change",
+    "No claim of full CI or PostgreSQL 16/18 validation from this workstream"
+  ],
+  "files": [
+    {
+      "name": "dart-analyze.log",
+      "bytes": 35,
+      "sha256": "cf666b19aee4c05e7165986f38e383b0c9060b4a33719850547bc3c827441c7f"
+    },
+    {
+      "name": "dart-full.log",
+      "bytes": 14450,
+      "sha256": "3d635e71d0e61f6a6a7e303516b3a7492129e79b1c48598b184d8de3fa12347b"
+    },
+    {
+      "name": "dart-green.log",
+      "bytes": 1760,
+      "sha256": "ae306acf17990b217062fde5bbc009e28305136cdba1e6f4b2dd9f05d7a7adec"
+    },
+    {
+      "name": "dart-red-direct.log.gz",
+      "bytes": 157737,
+      "sha256": "187192926b6d060a92782690015495c1f9d67fa83989a581e51e7525136217a6"
+    },
+    {
+      "name": "dart-red-retry.log",
+      "bytes": 2008,
+      "sha256": "2f62b0b1728cc5c81eab79a2b9eecd79c5cae4ad2a59938b09965ae181499c64"
+    },
+    {
+      "name": "dart-red.log",
+      "bytes": 2008,
+      "sha256": "2f62b0b1728cc5c81eab79a2b9eecd79c5cae4ad2a59938b09965ae181499c64"
+    },
+    {
+      "name": "http-green.log",
+      "bytes": 2242,
+      "sha256": "1af11ca996cf0825e8559485b3a05197fa76490d1aa33c496ac1429ead94d8ad"
+    },
+    {
+      "name": "typescript-green.log",
+      "bytes": 11907,
+      "sha256": "c4a6f1d4978cbc5bb78dc49996c674da456a03a3218828eedc706ff2c172fb53"
+    },
+    {
+      "name": "typescript-red.log",
+      "bytes": 2877,
+      "sha256": "2abcbb5ca30bc5001a010b599de1f8d194fe82e4a53fbb3eb8d8268cbbb15716"
+    }
+  ]
+}
