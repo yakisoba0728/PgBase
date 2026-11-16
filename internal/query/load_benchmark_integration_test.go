@@ -249,7 +249,7 @@ func BenchmarkConcurrentRecordReads(b *testing.B) {
 			}
 			return rollback
 		})
-		if !errors.Is(err, rollback) {
+		if err != rollback {
 			b.Fatalf("diagnostic write probe: %v", err)
 		}
 		b.Logf("diagnostic_write_update_rows=1000 rolled_back=true plan=%s", plan)
