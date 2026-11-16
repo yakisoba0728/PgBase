@@ -34,5 +34,9 @@
   "playwright-discovery.log": {
     "bytes": 3669,
     "sha256": "87194c89da8ffb4ce1a0a19a856b4a95683d4c3f6d72fc9f77eac71419730af6"
+  },
+  "hosted-backup-failure-43797156393.log": {
+    "bytes": 3858,
+    "sha256": "0e71f184a2333f82b517d57d610630a819f429c4daac929e96b5abf04c978e2d"
   }
 }

@@ -1,0 +1,41 @@
+2026-11-16T03:19:28.4883427Z 
+2026-11-16T03:19:28.4883866Z > pgbase-admin@0.0.0 test:e2e
+2026-11-16T03:19:28.4884170Z > playwright test
+2026-11-16T03:19:28.4884291Z 
+2026-11-16T03:19:30.1648480Z 
+2026-11-16T03:19:30.1649380Z Running 26 tests using 2 workers
+2026-11-16T03:20:17.0944290Z ···F······················
+2026-11-16T03:20:17.0948674Z 
+2026-11-16T03:20:17.0956868Z   1) [managed-backups-chromium] › e2e/managed-backups/backup.spec.ts:20:1 › creates, downloads, uploads and restores an archive with exact record and file content 
+2026-11-16T03:20:17.0957553Z 
+2026-11-16T03:20:17.0958108Z     Error: response.json: Protocol error (Network.getResponseBody): Request content was evicted from inspector cache
+2026-11-16T03:20:17.0959218Z     Response body is not available for a response that was navigated away from. Read response.body() before triggering any navigation.
+2026-11-16T03:20:17.0959669Z 
+2026-11-16T03:20:17.0960565Z        97 |     page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/admin/backups/upload").then(async (response) => {
+2026-11-16T03:20:17.0961574Z        98 |       expect(response.status()).toBe(201);
+2026-11-16T03:20:17.0962014Z     >  99 |       return await response.json() as { id: string };
+2026-11-16T03:20:17.0962496Z           |                             ^
+2026-11-16T03:20:17.0962832Z       100 |     }),
+2026-11-16T03:20:17.0963654Z       101 |     page.getByLabel("Upload archive", { exact: true }).setInputFiles(archivePath),
+2026-11-16T03:20:17.0964162Z       102 |   ]);
+2026-11-16T03:20:17.0964808Z         at /home/runner/work/PgBase/PgBase/ui/admin/e2e/managed-backups/backup.spec.ts:99:29
+2026-11-16T03:20:17.0965633Z         at /home/runner/work/PgBase/PgBase/ui/admin/e2e/managed-backups/backup.spec.ts:96:22
+2026-11-16T03:20:17.0965999Z 
+2026-11-16T03:20:17.0966656Z     Error Context: test-results/backup-creates-downloads-u-9c28a-act-record-and-file-content-managed-backups-chromium/error-context.md
+2026-11-16T03:20:17.0967528Z 
+2026-11-16T03:20:17.0968119Z     attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+2026-11-16T03:20:17.0969010Z     test-results/backup-creates-downloads-u-9c28a-act-record-and-file-content-managed-backups-chromium/trace.zip
+2026-11-16T03:20:17.0969613Z     Usage:
+2026-11-16T03:20:17.0969738Z 
+2026-11-16T03:20:17.0970709Z         npx playwright show-trace test-results/backup-creates-downloads-u-9c28a-act-record-and-file-content-managed-backups-chromium/trace.zip
+2026-11-16T03:20:17.0971328Z 
+2026-11-16T03:20:17.0971840Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-11-16T03:20:17.0972121Z 
+2026-11-16T03:20:17.0972213Z   1 failed
+2026-11-16T03:20:17.0973415Z     [managed-backups-chromium] › e2e/managed-backups/backup.spec.ts:20:1 › creates, downloads, uploads and restores an archive with exact record and file content 
+2026-11-16T03:20:17.0974127Z   25 passed (48.2s)
+2026-11-16T03:20:17.1164948Z ##[error]Process completed with exit code 1.
+2026-11-16T03:20:17.1210300Z ##[group]Run docker compose -f deployments/docker-compose.yml logs --no-color > compose.log 2>&1
+2026-11-16T03:20:17.1210850Z [36;1mdocker compose -f deployments/docker-compose.yml logs --no-color > compose.log 2>&1[0m
+2026-11-16T03:20:17.1211257Z [36;1mCOMPOSE_PROJECT_NAME="$PGBASE_AUTH_PROJECT_NAME" \[0m
+2026-11-16T03:20:17.1211525Z [36;1m  docker compose \[0m

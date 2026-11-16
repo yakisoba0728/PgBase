@@ -12,7 +12,7 @@ fixture is `737742c8`. The Dart suite ran after `97e7f7e8` and Dart source did
 not change in the subsequent commits. Integrated branch/server qualification
 is separate from this workstream evidence.
 
-These logs are copied without filtering. In particular, expected baseline
+The nine local logs below are copied without filtering. In particular, expected baseline
 failures and jsdom's document-navigation diagnostic remain visible. The manifest
 records each raw file's byte count and SHA-256.
 
@@ -27,6 +27,15 @@ records each raw file's byte count and SHA-256.
 | [ui-build.log](ui-build.log) | `npm run build` | Exit0;TypeScript and Vite production build |
 | [ui-dist-parity.log](ui-dist-parity.log) | `npm run verify:dist` | Exit0;rebuild exactly matches committed dist |
 | [playwright-discovery.log](playwright-discovery.log) | `npm run test:e2e -- --list` with all three distinct fixture URLs | Exit0;26 browser tests discovered,including the isolated managed restore |
+
+The later [hosted backup failure excerpt](hosted-backup-failure-43797156393.log)
+is a contiguous excerpt, not the complete job log, from
+[job 133068458736](https://github.com/yakisoba0728/PgBase/actions/runs/43797156393/job/133068458736).
+It records 25 passing cases and the managed-backup upload response's Chromium
+inspector-cache failure after the first attempted correction. Its lines are
+preserved as retrieved; the full hosted job and Compose failure artifact remain
+the primary evidence. See the workstream report for the corrected diagnosis and
+the new fixture's still-pending hosted execution.
 
 The new spec/config also passed:
 

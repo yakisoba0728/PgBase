@@ -88,6 +88,45 @@ dedicated project URL; it is optional only for local developers who do not start
 that third backend. Existing authenticated tests no longer contain the old
 `PGBASE_BROWSER_MANAGED_BACKUPS` skip.
 
+### Hosted E2E follow-up: Chromium inspector response eviction
+
+Hosted runs [43795108138](https://github.com/yakisoba0728/PgBase/actions/runs/43795108138)
+and [43797156393](https://github.com/yakisoba0728/PgBase/actions/runs/43797156393)
+each passed the other 25 browser cases but failed this scenario while Playwright
+read the upload response body using Chromium `Network.getResponseBody`. The
+second run used `13db9a43`'s immediate response-read attempt and still failed.
+That attempted fix was insufficient. The second backend log records the upload
+as HTTP 201 in 19 ms and the subsequent archive-list GET as HTTP 200.
+
+The original interpretation of Playwright's navigation hint was too specific.
+In the installed Playwright 1.63.0, `Response.internalBody()` appends that hint to
+any protocol error from its body callback; it does not establish that navigation
+caused this failure. The UI consumes `XMLHttpRequest.responseText`, whereas the
+test's `Response.json()` makes an additional CDP diagnostic-cache read. Chromium's
+[`NetworkResourcesData`](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/third_party/blink/renderer/core/inspector/network_resources_data.cc)
+counts request post data and response data in its resource cache and can evict
+content under resource or aggregate limits. The failed runs did not record the
+cache occupancy or fixture archive size, so the precise eviction trigger is
+**not established**; a large upload is not claimed as the proven cause. The
+fixture now logs the actual archive size and digest for subsequent runs.
+
+The corrected test retains each real UI action and HTTP status assertion. It
+waits for the UI's selected archive or job UUID, then checks that exact identity
+through authenticated API reads outside Chromium's inspector cache. Upload also
+requires the success toast, exactly one new repository entry, the selected
+pane's ID and digest, and a second actual UI download whose size and SHA-256
+match that uploaded entry. Upload verifies and repacks archives, so it is not
+required to preserve the gzip container's original bytes. Both create and restore
+jobs must identify the expected operation, archive and completed state. The
+typed confirmation, post-snapshot mutations, restored record/ETag, removal of
+the extra record, exact protected attachment content and readiness checks remain.
+No browser test is skipped, mocked or retried by this correction.
+
+The retained second-run failure excerpt is
+[`hosted-backup-failure-43797156393.log`](evidence/final-frontend-sdk/hosted-backup-failure-43797156393.log).
+The correction requires a new hosted browser execution; a source or TypeScript
+check alone does not establish successful restore.
+
 ## Reproduced and corrected: administrator workflow ownership
 
 Per-request session checks did not cover work performed before a request or
