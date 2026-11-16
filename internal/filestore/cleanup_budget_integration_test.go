@@ -197,6 +197,11 @@ func TestVariantCleanupQueuesAfterDelayedPublisherRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	fileID, key, variant := uuid.New(), "thumbnails/"+uuid.NewString(), "2x2"
+	// The current publication path persists its intent before Put; cleanup must
+	// leave that intent and the bytes intact while publication is unresolved.
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.file_object_deletions(object_key,queued_at) values($1,now())`, key); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.Put(ctx, key, bytes.NewBufferString("uncommitted variant")); err != nil {
 		t.Fatal(err)
 	}
@@ -205,34 +210,29 @@ func TestVariantCleanupQueuesAfterDelayedPublisherRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtextextended($1,0))`, fileID.String()+"/"+variant); err != nil {
+	if err := lockObjectReference(ctx, tx, key); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(ctx, `insert into pgbase_meta.record_file_variants(file_id,variant,object_key,created_at) values($1,$2,$3,current_timestamp)`, fileID, variant, key); err != nil {
 		t.Fatal(err)
 	}
 	service := &Service{pool: pool, objects: store}
-	done := make(chan error, 1)
-	go func() { done <- service.queueUnreferencedVariant(context.WithoutCancel(ctx), fileID, variant, key) }()
-	waitClosureLock(t, pool, "pg_advisory_xact_lock")
+	if worked, err := service.DrainOne(ctx); err != nil || worked {
+		t.Fatalf("cleanup crossed unresolved publisher: worked=%t err=%v", worked, err)
+	}
+	requireVariantBytes(t, store, key, true)
 	// Settle strictly after the rejected one-second cleanup budget. This is
 	// not a performance assertion; it distinguishes the two outcome paths.
 	<-time.After(1500 * time.Millisecond)
 	if err := tx.Rollback(ctx); err != nil {
 		t.Fatal(err)
 	}
-	var cleanupErr error
-	select {
-	case cleanupErr = <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("cleanup did not settle after publisher rollback")
-	}
 	var queued bool
 	if err := pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.file_object_deletions where object_key=$1)`, key).Scan(&queued); err != nil {
 		t.Fatal(err)
 	}
-	if !queued || cleanupErr != nil {
-		t.Fatalf("aborted variant lost durable cleanup intent: queued=%t cleanup=%v", queued, cleanupErr)
+	if !queued {
+		t.Fatal("aborted variant lost durable cleanup intent")
 	}
 	if worked, err := service.DrainOne(ctx); err != nil || !worked {
 		t.Fatalf("queued variant cleanup failed: worked=%t err=%v", worked, err)

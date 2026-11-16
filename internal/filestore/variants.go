@@ -123,29 +123,6 @@ func retireUnusedVariantIntent(ctx context.Context, tx pgx.Tx, key string) error
 	return err
 }
 
-func (s *Service) queueUnreferencedVariant(ctx context.Context, fileID uuid.UUID, variant, key string) error {
-	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		// Serialize with the publishing transaction. In a commit-unknown case a
-		// fresh snapshot could otherwise miss a commit that is still in flight
-		// and queue a live object for deletion.
-		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtextextended($1,0))`, fileID.String()+"/"+variant); err != nil {
-			return err
-		}
-		var referenced bool
-		if err := tx.QueryRow(ctx, `select exists(
-			select 1 from pgbase_meta.record_files where object_key=$1 or thumbnail_object_key=$1
-			union all
-			select 1 from pgbase_meta.record_file_variants where object_key=$1
-		)`, key).Scan(&referenced); err != nil {
-			return err
-		}
-		if referenced {
-			return nil
-		}
-		return enqueueObjects(ctx, tx, key)
-	})
-}
-
 func (s *Service) renderVariant(ctx context.Context, file File, variant string) (result []byte, resultErr error) {
 	if !thumbnailImageType(file.ContentType) {
 		return nil, ErrInvalid
