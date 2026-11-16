@@ -1,0 +1,648 @@
+[
+  {
+    "file": "01-before-query.log",
+    "planning_ms": 0.133,
+    "execution_ms": 1.49,
+    "total_output": 51,
+    "nodes": [
+      {
+        "type": "Limit",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 387,
+        "shared_read": 38,
+        "read_ms": 0.12
+      },
+      {
+        "type": "Nested Loop",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 387,
+        "shared_read": 38,
+        "read_ms": 0.12
+      },
+      {
+        "type": "Index Scan",
+        "relation": "benchmark_records",
+        "index": "idx_39f134c7ec30f55e",
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 4991,
+        "shared_hit": 221,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "record_creation_ordinals",
+        "index": "record_creation_ordinals_pkey",
+        "actual_rows": 1,
+        "actual_loops": 51,
+        "removed_filter": 0,
+        "shared_hit": 166,
+        "shared_read": 38,
+        "read_ms": 0.12
+      }
+    ]
+  },
+  {
+    "file": "02-after-query.log",
+    "planning_ms": 0.133,
+    "execution_ms": 1.04,
+    "total_output": 51,
+    "nodes": [
+      {
+        "type": "Limit",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 424,
+        "shared_read": 1,
+        "read_ms": 0.005
+      },
+      {
+        "type": "Nested Loop",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 424,
+        "shared_read": 1,
+        "read_ms": 0.005
+      },
+      {
+        "type": "Index Scan",
+        "relation": "benchmark_records",
+        "index": "idx_39f134c7ec30f55e",
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 4991,
+        "shared_hit": 221,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "record_creation_ordinals",
+        "index": "record_creation_ordinals_pkey",
+        "actual_rows": 1,
+        "actual_loops": 51,
+        "removed_filter": 0,
+        "shared_hit": 203,
+        "shared_read": 1,
+        "read_ms": 0.005
+      }
+    ]
+  },
+  {
+    "file": "03-after-query.log",
+    "planning_ms": 0.13,
+    "execution_ms": 0.863,
+    "total_output": 51,
+    "nodes": [
+      {
+        "type": "Limit",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 423,
+        "shared_read": 2,
+        "read_ms": 0.006
+      },
+      {
+        "type": "Nested Loop",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 423,
+        "shared_read": 2,
+        "read_ms": 0.006
+      },
+      {
+        "type": "Index Scan",
+        "relation": "benchmark_records",
+        "index": "idx_39f134c7ec30f55e",
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 4991,
+        "shared_hit": 221,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "record_creation_ordinals",
+        "index": "record_creation_ordinals_pkey",
+        "actual_rows": 1,
+        "actual_loops": 51,
+        "removed_filter": 0,
+        "shared_hit": 202,
+        "shared_read": 2,
+        "read_ms": 0.006
+      }
+    ]
+  },
+  {
+    "file": "04-before-query.log",
+    "planning_ms": 0.133,
+    "execution_ms": 470.356,
+    "total_output": 51,
+    "nodes": [
+      {
+        "type": "Limit",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 1981269,
+        "shared_read": 22930,
+        "read_ms": 82.118
+      },
+      {
+        "type": "Gather Merge",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 1981269,
+        "shared_read": 22930,
+        "read_ms": 82.118
+      },
+      {
+        "type": "Sort",
+        "relation": null,
+        "index": null,
+        "actual_rows": 44,
+        "actual_loops": 3,
+        "removed_filter": 0,
+        "shared_hit": 1981269,
+        "shared_read": 22930,
+        "read_ms": 82.118
+      },
+      {
+        "type": "Nested Loop",
+        "relation": null,
+        "index": null,
+        "actual_rows": 1667,
+        "actual_loops": 3,
+        "removed_filter": 0,
+        "shared_hit": 1981242,
+        "shared_read": 22927,
+        "read_ms": 82.103
+      },
+      {
+        "type": "Seq Scan",
+        "relation": "record_creation_ordinals",
+        "index": null,
+        "actual_rows": 166667,
+        "actual_loops": 3,
+        "removed_filter": 0,
+        "shared_hit": 84,
+        "shared_read": 4083,
+        "read_ms": 8.692
+      },
+      {
+        "type": "Index Scan",
+        "relation": "benchmark_records",
+        "index": "benchmark_records_pkey",
+        "actual_rows": 0,
+        "actual_loops": 500000,
+        "removed_filter": 1,
+        "shared_hit": 1981158,
+        "shared_read": 18844,
+        "read_ms": 73.411
+      }
+    ]
+  },
+  {
+    "file": "05-before-query.log",
+    "planning_ms": 0.141,
+    "execution_ms": 1.688,
+    "total_output": 51,
+    "nodes": [
+      {
+        "type": "Limit",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 425,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Nested Loop",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 425,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "benchmark_records",
+        "index": "idx_39f134c7ec30f55e",
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 4991,
+        "shared_hit": 221,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "record_creation_ordinals",
+        "index": "record_creation_ordinals_pkey",
+        "actual_rows": 1,
+        "actual_loops": 51,
+        "removed_filter": 0,
+        "shared_hit": 204,
+        "shared_read": 0,
+        "read_ms": 0.0
+      }
+    ]
+  },
+  {
+    "file": "06-after-query.log",
+    "planning_ms": 0.127,
+    "execution_ms": 0.978,
+    "total_output": 51,
+    "nodes": [
+      {
+        "type": "Limit",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 424,
+        "shared_read": 1,
+        "read_ms": 0.004
+      },
+      {
+        "type": "Nested Loop",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 424,
+        "shared_read": 1,
+        "read_ms": 0.004
+      },
+      {
+        "type": "Index Scan",
+        "relation": "benchmark_records",
+        "index": "idx_39f134c7ec30f55e",
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 4991,
+        "shared_hit": 221,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "record_creation_ordinals",
+        "index": "record_creation_ordinals_pkey",
+        "actual_rows": 1,
+        "actual_loops": 51,
+        "removed_filter": 0,
+        "shared_hit": 203,
+        "shared_read": 1,
+        "read_ms": 0.004
+      }
+    ]
+  },
+  {
+    "file": "07-after-query.log",
+    "planning_ms": 0.127,
+    "execution_ms": 0.941,
+    "total_output": 51,
+    "nodes": [
+      {
+        "type": "Limit",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 422,
+        "shared_read": 3,
+        "read_ms": 0.008
+      },
+      {
+        "type": "Nested Loop",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 422,
+        "shared_read": 3,
+        "read_ms": 0.008
+      },
+      {
+        "type": "Index Scan",
+        "relation": "benchmark_records",
+        "index": "idx_39f134c7ec30f55e",
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 4991,
+        "shared_hit": 221,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "record_creation_ordinals",
+        "index": "record_creation_ordinals_pkey",
+        "actual_rows": 1,
+        "actual_loops": 51,
+        "removed_filter": 0,
+        "shared_hit": 201,
+        "shared_read": 3,
+        "read_ms": 0.008
+      }
+    ]
+  },
+  {
+    "file": "08-before-query.log",
+    "planning_ms": 0.152,
+    "execution_ms": 1.19,
+    "total_output": 51,
+    "nodes": [
+      {
+        "type": "Limit",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 424,
+        "shared_read": 1,
+        "read_ms": 0.005
+      },
+      {
+        "type": "Nested Loop",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 424,
+        "shared_read": 1,
+        "read_ms": 0.005
+      },
+      {
+        "type": "Index Scan",
+        "relation": "benchmark_records",
+        "index": "idx_39f134c7ec30f55e",
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 4991,
+        "shared_hit": 221,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "record_creation_ordinals",
+        "index": "record_creation_ordinals_pkey",
+        "actual_rows": 1,
+        "actual_loops": 51,
+        "removed_filter": 0,
+        "shared_hit": 203,
+        "shared_read": 1,
+        "read_ms": 0.005
+      }
+    ]
+  },
+  {
+    "file": "09-before-query.log",
+    "planning_ms": 0.179,
+    "execution_ms": 1.421,
+    "total_output": 51,
+    "nodes": [
+      {
+        "type": "Limit",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 424,
+        "shared_read": 1,
+        "read_ms": 0.005
+      },
+      {
+        "type": "Nested Loop",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 424,
+        "shared_read": 1,
+        "read_ms": 0.005
+      },
+      {
+        "type": "Index Scan",
+        "relation": "benchmark_records",
+        "index": "idx_39f134c7ec30f55e",
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 4991,
+        "shared_hit": 221,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "record_creation_ordinals",
+        "index": "record_creation_ordinals_pkey",
+        "actual_rows": 1,
+        "actual_loops": 51,
+        "removed_filter": 0,
+        "shared_hit": 203,
+        "shared_read": 1,
+        "read_ms": 0.005
+      }
+    ]
+  },
+  {
+    "file": "10-after-query.log",
+    "planning_ms": 0.129,
+    "execution_ms": 1.149,
+    "total_output": 51,
+    "nodes": [
+      {
+        "type": "Limit",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 425,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Nested Loop",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 425,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "benchmark_records",
+        "index": "idx_39f134c7ec30f55e",
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 4991,
+        "shared_hit": 221,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "record_creation_ordinals",
+        "index": "record_creation_ordinals_pkey",
+        "actual_rows": 1,
+        "actual_loops": 51,
+        "removed_filter": 0,
+        "shared_hit": 204,
+        "shared_read": 0,
+        "read_ms": 0.0
+      }
+    ]
+  },
+  {
+    "file": "11-after-query.log",
+    "planning_ms": 0.175,
+    "execution_ms": 1.056,
+    "total_output": 51,
+    "nodes": [
+      {
+        "type": "Limit",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 425,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Nested Loop",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 425,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "benchmark_records",
+        "index": "idx_39f134c7ec30f55e",
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 4991,
+        "shared_hit": 221,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "record_creation_ordinals",
+        "index": "record_creation_ordinals_pkey",
+        "actual_rows": 1,
+        "actual_loops": 51,
+        "removed_filter": 0,
+        "shared_hit": 204,
+        "shared_read": 0,
+        "read_ms": 0.0
+      }
+    ]
+  },
+  {
+    "file": "12-before-query.log",
+    "planning_ms": 0.123,
+    "execution_ms": 0.807,
+    "total_output": 51,
+    "nodes": [
+      {
+        "type": "Limit",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 422,
+        "shared_read": 3,
+        "read_ms": 0.008
+      },
+      {
+        "type": "Nested Loop",
+        "relation": null,
+        "index": null,
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 0,
+        "shared_hit": 422,
+        "shared_read": 3,
+        "read_ms": 0.008
+      },
+      {
+        "type": "Index Scan",
+        "relation": "benchmark_records",
+        "index": "idx_39f134c7ec30f55e",
+        "actual_rows": 51,
+        "actual_loops": 1,
+        "removed_filter": 4991,
+        "shared_hit": 221,
+        "shared_read": 0,
+        "read_ms": 0.0
+      },
+      {
+        "type": "Index Scan",
+        "relation": "record_creation_ordinals",
+        "index": "record_creation_ordinals_pkey",
+        "actual_rows": 1,
+        "actual_loops": 51,
+        "removed_filter": 0,
+        "shared_hit": 201,
+        "shared_read": 3,
+        "read_ms": 0.008
+      }
+    ]
+  }
+]

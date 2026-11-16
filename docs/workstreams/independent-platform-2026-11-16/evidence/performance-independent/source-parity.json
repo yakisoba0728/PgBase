@@ -1,0 +1,49 @@
+{
+  "reviewer_checkout": "ffe78b117f958fe779e35ef5ff957ee83cda6669",
+  "harness": {
+    "pgbase/mixed_load_integration_test.go": {
+      "commit": "7c2e82234e188d623181048692d78975438d81f6",
+      "expected_sha256": "9d9b3ebfc11c37c3d6629ac2f74c007c08db22762b870899cf1db666f5d7174a",
+      "before_sha256": "9d9b3ebfc11c37c3d6629ac2f74c007c08db22762b870899cf1db666f5d7174a",
+      "after_sha256": "9d9b3ebfc11c37c3d6629ac2f74c007c08db22762b870899cf1db666f5d7174a",
+      "all_bytes_equal": true
+    },
+    "internal/query/load_benchmark_integration_test.go": {
+      "commit": "e2f78171e2233a32ab4420a107cb5715485a24a5",
+      "expected_sha256": "db4fab087667cd326fa761f2d04b3008bff23746b4e434459b347aedbcdba9bb",
+      "before_sha256": "db4fab087667cd326fa761f2d04b3008bff23746b4e434459b347aedbcdba9bb",
+      "after_sha256": "db4fab087667cd326fa761f2d04b3008bff23746b4e434459b347aedbcdba9bb",
+      "all_bytes_equal": true
+    }
+  },
+  "runtime": [
+    {
+      "path": "internal/cursor/codec.go",
+      "baseline": "6dd8f6449f7b6bc1a986ff7444b898776abf1c7b",
+      "candidate_source_commit": "312f1c614b4c0d08c32a922dfb4fb2040ebaa3b6",
+      "before_matches_baseline": true,
+      "after_matches_patch_tip": true
+    },
+    {
+      "path": "internal/cursor/v5.go",
+      "baseline": "6dd8f6449f7b6bc1a986ff7444b898776abf1c7b",
+      "candidate_source_commit": "312f1c614b4c0d08c32a922dfb4fb2040ebaa3b6",
+      "before_matches_baseline": true,
+      "after_matches_patch_tip": true
+    },
+    {
+      "path": "internal/query/codec.go",
+      "baseline": "6dd8f6449f7b6bc1a986ff7444b898776abf1c7b",
+      "candidate_source_commit": "c0a37c385b5a49bbf6fd9cef624eace9b941482f",
+      "before_matches_baseline": true,
+      "after_matches_patch_tip": true
+    },
+    {
+      "path": "internal/query/root_page.go",
+      "baseline": "6dd8f6449f7b6bc1a986ff7444b898776abf1c7b",
+      "candidate_source_commit": "c0a37c385b5a49bbf6fd9cef624eace9b941482f",
+      "before_matches_baseline": true,
+      "after_matches_patch_tip": true
+    }
+  ]
+}

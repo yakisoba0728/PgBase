@@ -1,0 +1,13 @@
+{
+  "author-script-reproduction.json": "f348f14604bcc3ea0c605b6a27081ec67be1aeb259ceae51b489a404f21a69c7",
+  "filtered-plans.json": "da7af37f40886c1852393e2c7320372ef8f0114469c4bf379bff6d61602a4c79",
+  "independent-statistics.json": "bea21f4f938940cf16a35e3d91361e337092325dbd9efdd1f4f27db9e7d3d005",
+  "mixed-after-cpu.txt": "31fb55681daae98673990cbb6048e202974d04a5e500ea44282cfb92da31931a",
+  "mixed-before-cpu.txt": "60f3fdafb0548e52a078edeb82f524604adf7b81c32f2336f3e873c678c82f2e",
+  "profile-commands.json": "ccd9599018d44fab73a468fb44deda9ba19eb3996db77f17d33d3dddafd30366",
+  "query-after-cpu.txt": "88a92c0ba8c4f8ceec607d68b81ceb8c447bb66cc50dc2349a14f86f8eb5b68b",
+  "query-before-cpu.txt": "8c31f07c2030e4e7901157d39a58f17d1d91c38fa9239bf6fc586bf665bdf4fe",
+  "recompute.log": "16c1acc698229f27e46f39ac4228f27250eac0b842954f43cb8d6b0952ffb451",
+  "recompute.py": "9289c8d20c454e9ff1949b2f638105fb80436cb9277064e96ddef27ce0245a52",
+  "source-parity.json": "8c9eb281cbe664a96bbe08d3c14d7149388bd26602ecf82e5938cb375f93562e"
+}

@@ -1,0 +1,39 @@
+File: mixed-before.test
+Build ID: 6beb93c2e149b019f5992b50d86a7ad016c368d8
+Type: cpu
+Time: 2026-11-16 11:12:02 KST
+Duration: 83.10s, Total samples = 106.06s (127.63%)
+Showing nodes accounting for 57.02s, 53.76% of 106.06s total
+Dropped 1708 nodes (cum <= 0.53s)
+Showing top 30 nodes out of 401
+      flat  flat%   sum%        cum   cum%
+    10.48s  9.88%  9.88%     10.48s  9.88%  internal/runtime/syscall/linux.Syscall6
+     9.42s  8.88% 18.76%      9.42s  8.88%  golang.org/x/crypto/argon2.xorBlocksSSE2
+     4.26s  4.02% 22.78%      6.38s  6.02%  compress/flate.(*compressor).deflate
+     3.31s  3.12% 25.90%      3.31s  3.12%  runtime.futex
+     2.54s  2.39% 28.30%      3.74s  3.53%  runtime.tryDeferToSpanScan
+     2.48s  2.34% 30.63%      2.48s  2.34%  runtime.memclrNoHeapPointers
+     2.35s  2.22% 32.85%      2.35s  2.22%  golang.org/x/crypto/argon2.mixBlocksSSE2
+     1.90s  1.79% 34.64%      1.90s  1.79%  runtime.nextFreeFast (inline)
+     1.85s  1.74% 36.39%      1.85s  1.74%  runtime.memmove
+     1.62s  1.53% 37.91%      1.62s  1.53%  runtime.madvise
+     1.44s  1.36% 39.27%      2.26s  2.13%  encoding/json.appendCompact
+     1.37s  1.29% 40.56%      1.37s  1.29%  golang.org/x/crypto/argon2.blamkaSSE4
+     1.34s  1.26% 41.83%      1.58s  1.49%  encoding/json.appendString[go.shape.string]
+     1.31s  1.24% 43.06%      3.87s  3.65%  runtime.scanObject
+     1.09s  1.03% 44.09%      7.54s  7.11%  runtime.mallocgcSmallScanNoHeader
+     1.04s  0.98% 45.07%      1.77s  1.67%  slices.insertionSortCmpFunc[go.shape.struct { encoding/json.v reflect.Value; encoding/json.ks string }]
+     0.91s  0.86% 45.93%     13.91s 13.12%  runtime.mallocgc
+     0.86s  0.81% 46.74%      0.97s  0.91%  runtime.(*mspan).writeHeapBitsSmall
+     0.81s  0.76% 47.50%      0.83s  0.78%  compress/flate.(*compressor).reset
+     0.77s  0.73% 48.23%      0.79s  0.74%  encoding/json.stateInString
+     0.75s  0.71% 48.93%      1.23s  1.16%  encoding/json.checkValid
+     0.72s  0.68% 49.61%      0.72s  0.68%  runtime.spanClass.sizeclass (inline)
+     0.70s  0.66% 50.27%      1.02s  0.96%  internal/runtime/maps.(*Iter).Next
+     0.58s  0.55% 50.82%      0.59s  0.56%  runtime.(*mspan).moveInlineMarks
+     0.56s  0.53% 51.35%         4s  3.77%  runtime.newobject
+     0.55s  0.52% 51.87%      0.55s  0.52%  aeshashbody
+     0.55s  0.52% 52.39%      0.71s  0.67%  runtime.typePointers.next
+     0.53s   0.5% 52.89%      0.59s  0.56%  runtime.step
+     0.49s  0.46% 53.35%      0.94s  0.89%  internal/sync.(*HashTrieMap[go.shape.interface {},go.shape.interface {}]).Load
+     0.44s  0.41% 53.76%      0.76s  0.72%  compress/flate.(*compressor).findMatch

@@ -1,0 +1,39 @@
+File: query-before.test
+Build ID: ca30ccc3242111dbec5f6cc12d96ad780122014e
+Type: cpu
+Time: 2026-11-16 11:09:32 KST
+Duration: 383.90s, Total samples = 223.31s (58.17%)
+Showing nodes accounting for 116.77s, 52.29% of 223.31s total
+Dropped 1202 nodes (cum <= 1.12s)
+Showing top 30 nodes out of 312
+      flat  flat%   sum%        cum   cum%
+    11.12s  4.98%  4.98%     16.08s  7.20%  runtime.tryDeferToSpanScan
+    10.16s  4.55%  9.53%     10.16s  4.55%  internal/runtime/syscall/linux.Syscall6
+     7.70s  3.45% 12.98%      7.70s  3.45%  runtime.memclrNoHeapPointers
+     6.77s  3.03% 16.01%      6.77s  3.03%  runtime.futex
+     6.66s  2.98% 18.99%     12.84s  5.75%  slices.insertionSortCmpFunc[go.shape.struct { encoding/json.v reflect.Value; encoding/json.ks string }]
+     5.81s  2.60% 21.59%      5.81s  2.60%  runtime.memmove
+     4.81s  2.15% 23.75%      5.80s  2.60%  encoding/json.appendString[go.shape.string]
+     4.70s  2.10% 25.85%     57.93s 25.94%  github.com/yakisoba0728/PgBase/internal/query.EncodeRecord
+     4.67s  2.09% 27.94%      4.67s  2.09%  runtime.nextFreeFast (inline)
+     4.62s  2.07% 30.01%     15.51s  6.95%  runtime.scanObject
+     3.88s  1.74% 31.75%      3.93s  1.76%  runtime.heapSetTypeSmallHeader (inline)
+     3.82s  1.71% 33.46%      4.64s  2.08%  runtime.typePointers.next
+     3.73s  1.67% 35.13%      6.60s  2.96%  slices.partitionCmpFunc[go.shape.struct { encoding/json.v reflect.Value; encoding/json.ks string }]
+     3.69s  1.65% 36.78%      3.69s  1.65%  runtime.madvise
+     3.03s  1.36% 38.14%     19.02s  8.52%  runtime.mallocgcSmallScanNoHeader
+     2.62s  1.17% 39.31%      2.62s  1.17%  runtime.osyield
+     2.52s  1.13% 40.44%      5.17s  2.32%  encoding/json.appendCompact
+     2.42s  1.08% 41.53%      2.42s  1.08%  runtime.tgkill
+     2.35s  1.05% 42.58%      2.69s  1.20%  runtime.heapArenaOf (inline)
+     2.19s  0.98% 43.56%     10.90s  4.88%  runtime.wbBufFlush1
+     2.15s  0.96% 44.52%     47.88s 21.44%  runtime.mallocgc
+     2.10s  0.94% 45.46%      2.46s  1.10%  runtime.(*mspan).writeHeapBitsSmall
+     2.08s  0.93% 46.39%     11.27s  5.05%  runtime.bulkBarrierPreWrite
+     2.04s  0.91% 47.31%      3.55s  1.59%  runtime.findObject
+     1.98s  0.89% 48.19%      1.98s  0.89%  runtime.procyieldAsm
+     1.94s  0.87% 49.06%      3.68s  1.65%  internal/sync.(*HashTrieMap[go.shape.interface {},go.shape.interface {}]).Load
+     1.92s  0.86% 49.92%      1.92s  0.86%  cmpbody
+     1.79s   0.8% 50.72%      3.46s  1.55%  internal/runtime/maps.(*Iter).Next
+     1.79s   0.8% 51.52%      1.79s   0.8%  runtime.spanClass.sizeclass (inline)
+     1.71s  0.77% 52.29%      4.04s  1.81%  runtime.scanblock
