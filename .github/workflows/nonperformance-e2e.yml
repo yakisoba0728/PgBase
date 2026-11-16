@@ -243,6 +243,8 @@ jobs:
           name: e2e-failure-logs
           path: |
             e2e.log
+            ui/admin/test-results/
+            ui/admin/playwright-report/
             compose.log
             compose-auth.log
             compose-backup.log
