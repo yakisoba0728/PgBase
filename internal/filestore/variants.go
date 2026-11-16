@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 var variantPattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,3})x(0|[1-9][0-9]{0,3})([tbf]?)$`)
@@ -34,8 +35,18 @@ func (s *Service) variantObject(ctx context.Context, file File, variant string) 
 		return "", err
 	}
 	defer release()
+	// Reserve before acquiring a pooled publishing transaction: concurrent
+	// variants must not each hold a pool connection while waiting for another
+	// connection to persist their intent. The session lease protects the key
+	// until publication takes the object-reference lock used by the GC worker.
+	reservedKey := "thumbnails/" + uuid.NewString()
+	ownership, err := s.reserveObject(ctx, reservedKey, true)
+	if err != nil {
+		return "", err
+	}
+	defer ownership.release()
 	var key string
-	var uploadedKey string
+	writeResolved := true // No Put has started yet.
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var ready uuid.UUID
 		if err := tx.QueryRow(ctx, `select id from pgbase_meta.record_files where id=$1 and status='ready' for update`, file.ID).Scan(&ready); err != nil {
@@ -45,7 +56,7 @@ func (s *Service) variantObject(ctx context.Context, file File, variant string) 
 			return err
 		}
 		if err := tx.QueryRow(ctx, `select object_key from pgbase_meta.record_file_variants where file_id=$1 and variant=$2`, file.ID, variant).Scan(&key); err == nil {
-			return nil
+			return retireUnusedVariantIntent(ctx, tx, reservedKey)
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -53,34 +64,63 @@ func (s *Service) variantObject(ctx context.Context, file File, variant string) 
 			return err
 		}
 		if err := tx.QueryRow(ctx, `select object_key from pgbase_meta.record_file_variants where file_id=$1 and variant=$2`, file.ID, variant).Scan(&key); err == nil {
-			return nil
+			return retireUnusedVariantIntent(ctx, tx, reservedKey)
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return err
+		}
+		if err := lockObjectReference(ctx, tx, reservedKey); err != nil {
+			return err
+		}
+		var owned bool
+		if err := tx.QueryRow(ctx, `select exists(select 1 from pg_locks where locktype='advisory' and pid=$1 and database=(select oid from pg_database where datname=current_database()) and classid=((hashtextextended($2,0) >> 32) & 4294967295)::oid and objid=(hashtextextended($2,0) & 4294967295)::oid and objsubid=1 and mode='ExclusiveLock' and granted)`, int32(ownership.conn.PgConn().PID()), stagedObjectLockName(reservedKey)).Scan(&owned); err != nil {
+			return err
+		}
+		if !owned {
+			return ErrStorageConflict
 		}
 		data, err := s.renderVariant(ctx, file, variant)
 		if err != nil {
 			return err
 		}
-		key = "thumbnails/" + uuid.NewString()
+		key = reservedKey
+		writeResolved = false
 		if err := s.objects.Put(ctx, key, bytes.NewReader(data)); err != nil {
 			return err
 		}
-		uploadedKey = key
+		writeResolved = true // The backend acknowledged completion of this Put.
 		if err := s.guardStoragePublication(ctx, tx); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `insert into pgbase_meta.record_file_variants(file_id,variant,object_key,created_at) values($1,$2,$3,$4)`, file.ID, variant, key, s.options.Now().UTC()); err != nil {
 			return err
 		}
-		return nil
+		// Commit publishes the reference and retires its intent atomically. A
+		// lost COMMIT reply needs no synchronous reference check: the still-live
+		// transaction's reference lock fences GC until its actual outcome.
+		_, err = tx.Exec(ctx, `delete from pgbase_meta.file_object_deletions where object_key=$1`, key)
+		return err
 	})
-	if err != nil && uploadedKey != "" {
-		// The transaction may be aborted or its commit result may be unknown.
-		// Queue cleanup in a fresh transaction and guard every metadata table so
-		// a variant that did commit is never physically deleted.
-		err = errors.Join(err, s.queueUnreferencedVariant(context.WithoutCancel(ctx), file.ID, variant, uploadedKey))
+	if err != nil && writeResolved {
+		// No write is outstanding. This optimization may time out behind an
+		// unknown commit or an exhausted pool; the retained intent is already
+		// durable, so returning never loses the only record of object bytes.
+		cleanup, cancel := database.BoundedCleanupContext(ctx)
+		_, cleanupErr := s.pool.Exec(cleanup, `update pgbase_meta.file_object_deletions set retain_on_success=false,next_attempt_at=CURRENT_TIMESTAMP where object_key=$1`, reservedKey)
+		cancel()
+		if cleanupErr != nil {
+			err = errors.Join(err, cleanupErr)
+		}
 	}
 	return key, err
+}
+
+func retireUnusedVariantIntent(ctx context.Context, tx pgx.Tx, key string) error {
+	// The cached-variant path never starts Put for the freshly reserved key.
+	if _, err := tx.Exec(ctx, `update pgbase_meta.file_object_deletions set retain_on_success=false where object_key=$1`, key); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `delete from pgbase_meta.file_object_deletions where object_key=$1`, key)
+	return err
 }
 
 func (s *Service) queueUnreferencedVariant(ctx context.Context, fileID uuid.UUID, variant, key string) error {

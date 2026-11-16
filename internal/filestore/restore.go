@@ -25,7 +25,10 @@ func ResetRestoredStorage(ctx context.Context, pool *database.Pool) error {
 		if _, err := tx.Exec(ctx, `delete from pgbase_meta.record_files where status='pending'`); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `delete from pgbase_meta.file_object_deletions`); err != nil {
+		// This isolated restore owns a new local namespace, not the source's
+		// still-running remote writes. Clearing their retention here must not
+		// cause a restored worker to act on source storage credentials.
+		if _, err := tx.Exec(ctx, `update pgbase_meta.file_object_deletions set retain_on_success=false; delete from pgbase_meta.file_object_deletions`); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `delete from pgbase_meta.file_storage_migrations`); err != nil {

@@ -58,11 +58,12 @@ func (s *Service) SweepPending(ctx context.Context, olderThan time.Time, limit i
 
 func (s *Service) DrainOne(ctx context.Context) (bool, error) {
 	worked := false
+	var deletionErr error
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock_shared($1)`, ObjectGCKey); err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, `select object_key from pgbase_meta.file_object_deletions order by queued_at,object_key limit 100`)
+		rows, err := tx.Query(ctx, `select object_key from pgbase_meta.file_object_deletions where next_attempt_at<=CURRENT_TIMESTAMP order by next_attempt_at,queued_at,object_key limit 100`)
 		if err != nil {
 			return err
 		}
@@ -94,8 +95,9 @@ func (s *Service) DrainOne(ctx context.Context) (bool, error) {
 			if !stagingLock {
 				continue
 			}
-			var selected string
-			err := tx.QueryRow(ctx, `select object_key from pgbase_meta.file_object_deletions where object_key=$1 for update skip locked`, key).Scan(&selected)
+			var retained bool
+			var attempts int
+			err := tx.QueryRow(ctx, `select retain_on_success,attempts from pgbase_meta.file_object_deletions where object_key=$1 and next_attempt_at<=CURRENT_TIMESTAMP for update skip locked`, key).Scan(&retained, &attempts)
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue
 			}
@@ -107,7 +109,26 @@ func (s *Service) DrainOne(ctx context.Context) (bool, error) {
 				return err
 			}
 			if !referenced {
-				if err := s.objects.Delete(ctx, key); err != nil {
+				deleteCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				deletionErr = s.objects.Delete(deleteCtx, key)
+				cancel()
+				if errors.Is(deletionErr, ErrNotFound) {
+					deletionErr = nil
+				}
+				if deletionErr != nil || retained {
+					// Backoff keeps a failed or uncertain oldest key from starving
+					// ordinary deletions. Never discard an uncertain write merely
+					// because the object was absent at this particular instant.
+					failure := ""
+					if deletionErr != nil {
+						failure = "object deletion failed"
+					}
+					delay := time.Second * time.Duration(1<<min(attempts, 8))
+					if retained && deletionErr == nil {
+						delay = time.Hour
+					}
+					_, err := tx.Exec(ctx, `update pgbase_meta.file_object_deletions set attempts=least(attempts,2147483646)+1,last_attempt_at=clock_timestamp(),next_attempt_at=clock_timestamp()+$2::bigint * interval '1 millisecond',last_error=$3 where object_key=$1`, key, delay.Milliseconds(), failure)
+					worked = err == nil
 					return err
 				}
 			}
@@ -119,7 +140,7 @@ func (s *Service) DrainOne(ctx context.Context) (bool, error) {
 		}
 		return nil
 	})
-	return worked, err
+	return worked, errors.Join(err, deletionErr)
 }
 
 func (s *Service) failUpload(ctx context.Context, file File) {
