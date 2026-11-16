@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -380,3 +381,95 @@ func TestUnpackRejectsTrailingContentWithoutDrainingIt(t *testing.T) {
 type failingArchiveReader struct{ err error }
 
 func (r failingArchiveReader) Read([]byte) (int, error) { return 0, r.err }
+
+// Local PAX records are consumed inside tar.Reader.Next without being returned
+// as archive entries. A scaled budget reproduces metadata inflation without
+// allocating or decompressing the production eight-GiB limit.
+func TestArchiveExpandedBudgetIncludesHiddenMetadata(t *testing.T) {
+	source := t.TempDir()
+	makeArchiveFixture(t, source)
+	var encoded bytes.Buffer
+	if err := Pack(t.Context(), source, &encoded); err != nil {
+		t.Fatal(err)
+	}
+	gz, err := gzip.NewReader(bytes.NewReader(encoded.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(gz)
+	if err = errors.Join(err, gz.Close()); err != nil {
+		t.Fatal(err)
+	}
+	var metadata bytes.Buffer
+	tw := tar.NewWriter(&metadata)
+	if err := tw.WriteHeader(&tar.Header{Name: "placeholder", Typeflag: tar.TypeReg, Format: tar.FormatPAX, PAXRecords: map[string]string{"pgbase.test": strings.Repeat("m", 1024)}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.Bytes()[156] != tar.TypeXHeader {
+		t.Fatal("fixture did not generate a local PAX header")
+	}
+	size, err := strconv.ParseInt(strings.Trim(string(metadata.Bytes()[124:136]), "\x00 "), 8, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pax := metadata.Bytes()[:512+(size+511)/512*512]
+	encoded.Reset()
+	writer := gzip.NewWriter(&encoded)
+	for range 8 {
+		if _, err := writer.Write(pax); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := writer.Write(raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "metadata")
+	if err := unpackArchive(t.Context(), bytes.NewReader(encoded.Bytes()), destination, int64(len(raw)+len(pax))); err == nil {
+		t.Fatal("hidden PAX metadata bypassed the expanded archive budget")
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatal("over-budget archive retained staging directory")
+	}
+}
+
+func TestArchiveExpandedBudgetRoundTripBoundary(t *testing.T) {
+	source := t.TempDir()
+	makeArchiveFixture(t, source)
+	var encoded bytes.Buffer
+	if err := Pack(t.Context(), source, &encoded); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(encoded.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	size, err := io.Copy(io.Discard, reader)
+	if err = errors.Join(err, reader.Close()); err != nil {
+		t.Fatal(err)
+	}
+	for _, delta := range []int64{0, -1} {
+		t.Run(strconv.FormatInt(delta, 10), func(t *testing.T) {
+			var packed bytes.Buffer
+			err := packArchive(t.Context(), source, &packed, size+delta)
+			if (err == nil) != (delta == 0) {
+				t.Errorf("Pack expanded boundary: delta=%d err=%v", delta, err)
+			}
+			destination := filepath.Join(t.TempDir(), "boundary")
+			err = unpackArchive(t.Context(), bytes.NewReader(encoded.Bytes()), destination, size+delta)
+			if (err == nil) != (delta == 0) {
+				t.Errorf("Unpack expanded boundary: delta=%d err=%v", delta, err)
+			}
+			if delta < 0 {
+				if _, err := os.Stat(destination); !os.IsNotExist(err) {
+					t.Fatal("over-budget archive retained staging directory")
+				}
+			}
+		})
+	}
+}

@@ -12,12 +12,19 @@ import (
 )
 
 const MaximumArchiveBytes int64 = 2 << 30
+
+// Expanded bytes include tar metadata, padding and terminators as well as
+// regular-file payloads. Pack and Unpack enforce the same stream budget.
 const maximumUnpackedBytes int64 = 8 << 30
 const maximumArchiveEntries = 100_000
 
 // Pack emits a portable, verified backup directory. The archive contains no
 // absolute paths, links, permissions, credentials, or deployment configuration.
-func Pack(ctx context.Context, directory string, destination io.Writer) (resultErr error) {
+func Pack(ctx context.Context, directory string, destination io.Writer) error {
+	return packArchive(ctx, directory, destination, maximumUnpackedBytes)
+}
+
+func packArchive(ctx context.Context, directory string, destination io.Writer, maximumExpanded int64) (resultErr error) {
 	manifest, err := VerifyContext(ctx, directory)
 	if err != nil {
 		return err
@@ -29,7 +36,7 @@ func Pack(ctx context.Context, directory string, destination io.Writer) (resultE
 	if len(manifest.Files) > maximumArchiveEntries-2 || info.Size() > 16<<20 {
 		return errors.New("backup archive exceeds limit")
 	}
-	remaining := maximumUnpackedBytes - info.Size()
+	remaining := maximumExpanded - info.Size()
 	for _, file := range append([]File{manifest.Database}, manifest.Files...) {
 		if file.Size > remaining {
 			return errors.New("backup archive exceeds limit")
@@ -37,7 +44,7 @@ func Pack(ctx context.Context, directory string, destination io.Writer) (resultE
 		remaining -= file.Size
 	}
 	gz := gzip.NewWriter(&boundedArchiveWriter{writer: destination, remaining: MaximumArchiveBytes})
-	tw := tar.NewWriter(gz)
+	tw := tar.NewWriter(&boundedArchiveWriter{writer: gz, remaining: maximumExpanded})
 	defer func() { resultErr = errors.Join(resultErr, tw.Close(), gz.Close()) }()
 	names := []string{"manifest.json", "database.dump"}
 	for _, file := range manifest.Files {
@@ -67,7 +74,11 @@ func Pack(ctx context.Context, directory string, destination io.Writer) (resultE
 // Unpack accepts only a bounded manifest, database dump and object tree. Every
 // entry is created exclusively under a new directory, and Verify rejects missing
 // objects, duplicates, extra objects and checksum mismatch before use.
-func Unpack(ctx context.Context, source io.Reader, directory string) (resultErr error) {
+func Unpack(ctx context.Context, source io.Reader, directory string) error {
+	return unpackArchive(ctx, source, directory, maximumUnpackedBytes)
+}
+
+func unpackArchive(ctx context.Context, source io.Reader, directory string, maximumExpanded int64) (resultErr error) {
 	if err := os.Mkdir(directory, 0700); err != nil {
 		return err
 	}
@@ -86,7 +97,12 @@ func Unpack(ctx context.Context, source io.Reader, directory string) (resultErr 
 		return err
 	}
 	defer func() { resultErr = errors.Join(resultErr, gz.Close()) }()
-	tr := tar.NewReader(gz)
+	// Next may consume arbitrarily many local PAX/GNU metadata headers before
+	// returning a regular entry. Bound the entire expanded stream, not only
+	// payload sizes visible to the extraction loop. One sentinel byte makes an
+	// exhausted budget distinguishable from a genuine, checksum-validated EOF.
+	expanded := &io.LimitedReader{R: contextReader{ctx, gz}, N: maximumExpanded + 1}
+	tr := tar.NewReader(expanded)
 	var total int64
 	count := 0
 	for {
@@ -110,7 +126,7 @@ func Unpack(ctx context.Context, source io.Reader, directory string) (resultErr 
 		}
 		// Compare before adding: an attacker-controlled tar size can be close
 		// to MaxInt64 and wrap a cumulative total past the extraction budget.
-		if header.Size > maximumUnpackedBytes-total || (name == "manifest.json" && header.Size > 16<<20) {
+		if header.Size > maximumExpanded-total || (name == "manifest.json" && header.Size > 16<<20) {
 			return errors.New("backup archive exceeds limit")
 		}
 		total += header.Size
@@ -131,11 +147,11 @@ func Unpack(ctx context.Context, source io.Reader, directory string) (resultErr 
 	// One extra byte already makes this archive invalid: draining a trailing
 	// compressed member would inflate attacker-controlled junk outside the
 	// per-entry expanded-size budget.
-	n, err := io.Copy(io.Discard, io.LimitReader(gz, 1))
+	n, err := io.Copy(io.Discard, io.LimitReader(expanded, 1))
 	if err != nil {
 		return err
 	}
-	if n != 0 || limited.N <= 0 {
+	if n != 0 || limited.N <= 0 || expanded.N <= 0 {
 		return errors.New("invalid or oversized backup archive")
 	}
 	if _, err = VerifyContext(ctx, directory); err != nil {
@@ -145,8 +161,8 @@ func Unpack(ctx context.Context, source io.Reader, directory string) (resultErr 
 	return nil
 }
 
-// Bound compressed output too: a verified directory may still exceed the
-// upload/restore archive budget after compression.
+// Bound both tar and compressed output: a verified directory can exceed the
+// stream budgets once framing or compression overhead is included.
 type boundedArchiveWriter struct {
 	writer    io.Writer
 	remaining int64
