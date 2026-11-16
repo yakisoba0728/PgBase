@@ -271,3 +271,19 @@ No source-level blocker was found in these four test/CI corrections. The QA
 agent did not independently inspect the cited hosted run's raw logs or rerun
 the workloads in this follow-up review; the final CI evidence must state its
 own tested revision and outcome.
+
+The agent also independently reviewed the field-order diagnostic protocol
+`d996a117`, Python runner, Go observation overlay, and prepared common historical
+HTTP harness. Two pre-execution findings were corrected in `8cb52e16`: observer
+query errors must remain failures even when the sampling loop has just been
+canceled, and an interrupted runner must terminate/reap its active child before
+removing disposable worktrees. The corrected overlay retains and serializes
+query/final-snapshot errors; the runner preserves an interrupted ledger entry and
+keeps worktrees if its child cannot be reaped. `pg_stat_io` is explicitly labeled
+cluster-wide. Source review of the corrected artifact found no blocker for the
+declared diagnostic experiment. Both arms receive identical instrumentation;
+request latencies retain monotonic timing, absolute timestamps allow observation
+alignment, and error/count/physical-isolation checks remain intact. The observer
+changes the measurement conditions, so this is a separate diagnostic experiment,
+not a replacement for the previous historical measurement. QA did not execute
+the smoke/full runs or infer a performance cause from this source review.
