@@ -1,0 +1,1385 @@
+{
+  "scope": "Extracted without altering raw logs; includes Go benchmark calibration invocations as well as measured repetitions. Full EXPLAIN JSON remains in raw.zip.",
+  "plans": [
+    {
+      "source_log": "backend-history-before.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.476,
+      "top_shared_hit_blocks": 16,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 16,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 7,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 9,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-before.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.331,
+      "top_shared_hit_blocks": 16,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 16,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 7,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 9,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-before.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.308,
+      "top_shared_hit_blocks": 16,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 16,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 7,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 9,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-before.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.341,
+      "top_shared_hit_blocks": 16,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 16,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 7,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 9,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-before.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.37,
+      "top_shared_hit_blocks": 16,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 16,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 7,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 9,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-before.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.322,
+      "top_shared_hit_blocks": 16,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 16,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 7,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 9,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-before.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 100000,
+      "execution_time_ms": 33.887,
+      "top_shared_hit_blocks": 1330,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1330,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 496,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 834,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-before.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 100000,
+      "execution_time_ms": 40.849,
+      "top_shared_hit_blocks": 1033,
+      "top_shared_read_blocks": 297,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1033,
+          "Shared Read Blocks": 297
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 199,
+          "Shared Read Blocks": 297
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 834,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-before.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 100000,
+      "execution_time_ms": 32.926,
+      "top_shared_hit_blocks": 1330,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1330,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 496,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 834,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-before.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 100000,
+      "execution_time_ms": 34.047,
+      "top_shared_hit_blocks": 1330,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1330,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 496,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 834,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-before.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 100000,
+      "execution_time_ms": 47.198,
+      "top_shared_hit_blocks": 1330,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1330,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 496,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 834,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-before.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 100000,
+      "execution_time_ms": 40.45,
+      "top_shared_hit_blocks": 959,
+      "top_shared_read_blocks": 371,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 959,
+          "Shared Read Blocks": 371
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 125,
+          "Shared Read Blocks": 371
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 834,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.321,
+      "top_shared_hit_blocks": 35,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 35,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 7,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 28,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "current_pending_claim",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.061,
+      "top_shared_hit_blocks": 1,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pending_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_predecessor_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pkey",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.297,
+      "top_shared_hit_blocks": 35,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 35,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 7,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 28,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "current_pending_claim",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.033,
+      "top_shared_hit_blocks": 1,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pending_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_predecessor_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pkey",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.322,
+      "top_shared_hit_blocks": 35,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 35,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 7,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 28,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "current_pending_claim",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.104,
+      "top_shared_hit_blocks": 1,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pending_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_predecessor_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pkey",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.482,
+      "top_shared_hit_blocks": 35,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 35,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 7,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 28,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "current_pending_claim",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.037,
+      "top_shared_hit_blocks": 1,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pending_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_predecessor_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pkey",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.369,
+      "top_shared_hit_blocks": 35,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 35,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 7,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 28,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "current_pending_claim",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.049,
+      "top_shared_hit_blocks": 1,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pending_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_predecessor_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pkey",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.298,
+      "top_shared_hit_blocks": 35,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 35,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 7,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 1000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 28,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "current_pending_claim",
+      "delivered_rows": 1000,
+      "execution_time_ms": 0.035,
+      "top_shared_hit_blocks": 1,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pending_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_predecessor_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pkey",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 100000,
+      "execution_time_ms": 38.99,
+      "top_shared_hit_blocks": 2817,
+      "top_shared_read_blocks": 441,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 2817,
+          "Shared Read Blocks": 441
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 55,
+          "Shared Read Blocks": 441
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 2762,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "current_pending_claim",
+      "delivered_rows": 100000,
+      "execution_time_ms": 0.212,
+      "top_shared_hit_blocks": 1,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pending_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_predecessor_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pkey",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 100000,
+      "execution_time_ms": 35.929,
+      "top_shared_hit_blocks": 2802,
+      "top_shared_read_blocks": 456,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 2802,
+          "Shared Read Blocks": 456
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 40,
+          "Shared Read Blocks": 456
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 2762,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "current_pending_claim",
+      "delivered_rows": 100000,
+      "execution_time_ms": 0.152,
+      "top_shared_hit_blocks": 1,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pending_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_predecessor_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pkey",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 100000,
+      "execution_time_ms": 37.019,
+      "top_shared_hit_blocks": 2805,
+      "top_shared_read_blocks": 453,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 2805,
+          "Shared Read Blocks": 453
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 43,
+          "Shared Read Blocks": 453
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 2762,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "current_pending_claim",
+      "delivered_rows": 100000,
+      "execution_time_ms": 0.174,
+      "top_shared_hit_blocks": 1,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pending_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_predecessor_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pkey",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 100000,
+      "execution_time_ms": 38.543,
+      "top_shared_hit_blocks": 2799,
+      "top_shared_read_blocks": 459,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 2799,
+          "Shared Read Blocks": 459
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 37,
+          "Shared Read Blocks": 459
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 2762,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "current_pending_claim",
+      "delivered_rows": 100000,
+      "execution_time_ms": 0.217,
+      "top_shared_hit_blocks": 1,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pending_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_predecessor_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pkey",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 100000,
+      "execution_time_ms": 39.984,
+      "top_shared_hit_blocks": 2803,
+      "top_shared_read_blocks": 455,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 2803,
+          "Shared Read Blocks": 455
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 41,
+          "Shared Read Blocks": 455
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 2762,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "current_pending_claim",
+      "delivered_rows": 100000,
+      "execution_time_ms": 0.217,
+      "top_shared_hit_blocks": 1,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pending_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_predecessor_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pkey",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "legacy_discovery_b376e366",
+      "delivered_rows": 100000,
+      "execution_time_ms": 50.517,
+      "top_shared_hit_blocks": 2799,
+      "top_shared_read_blocks": 459,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 2799,
+          "Shared Read Blocks": 459
+        },
+        {
+          "Node Type": "Index Only Scan",
+          "Relation Name": "record_outbox",
+          "Index Name": "record_outbox_created_idx",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 37,
+          "Shared Read Blocks": 459
+        },
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 100000,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 2762,
+          "Shared Read Blocks": 0
+        }
+      ]
+    },
+    {
+      "source_log": "backend-history-after.log",
+      "label": "current_pending_claim",
+      "delivered_rows": 100000,
+      "execution_time_ms": 0.19,
+      "top_shared_hit_blocks": 1,
+      "top_shared_read_blocks": 0,
+      "relation_or_index_nodes": [
+        {
+          "Node Type": "ModifyTable",
+          "Relation Name": "outbox_delivery",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pending_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 1,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_predecessor_idx",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        },
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "outbox_delivery",
+          "Index Name": "outbox_delivery_pkey",
+          "Actual Rows": 0,
+          "Actual Loops": 0,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 0
+        }
+      ]
+    }
+  ]
+}

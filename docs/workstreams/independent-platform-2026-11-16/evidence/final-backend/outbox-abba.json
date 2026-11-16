@@ -1,0 +1,229 @@
+{
+  "runtime_commits": {
+    "A": "6d0299c0",
+    "B": "58c1038c"
+  },
+  "binary_sha256": {
+    "A": "5d9e2be19038b46de5f02497ba1a34cd64d379fe76c018f973328246f1e46cd8",
+    "B": "1727861070bc7dc1a4ff3376ab6fa749f363e261eb05b60b8de1e09bce943efb"
+  },
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "cpu_count": 9,
+  "GOMAXPROCS": "2",
+  "cpu_max": null,
+  "memory_max": null,
+  "workload": "closed-loop idle delivery poll; 100000 delivered events; fresh disposable database each repetition",
+  "warmup": "VACUUM ANALYZE source/delivery tables, then 10 delivery polls",
+  "sampling": "1000 measured polls per repetition; all nanosecond samples retained in raw log",
+  "iterations": 1000,
+  "runs": [
+    {
+      "index": 1,
+      "variant": "A",
+      "log": "01-A.log",
+      "started_at": "2026-11-16T02:48:20.184526+00:00",
+      "elapsed_seconds": 41.59929153000121,
+      "returncode": 0,
+      "sha256": "8555b42309b2dbc8622667b4256946c156afc4a712191abb4885a7ef93a810e1",
+      "samples": 1000,
+      "p50_ms": 24.646926,
+      "p95_ms": 39.74737,
+      "p99_ms": 120.084608,
+      "mean_ms": 28.862212824,
+      "polls_per_second": 34.647378082128995
+    },
+    {
+      "index": 2,
+      "variant": "B",
+      "log": "02-B.log",
+      "started_at": "2026-11-16T02:49:01.784928+00:00",
+      "elapsed_seconds": 16.559517420000702,
+      "returncode": 0,
+      "sha256": "76b7fe8c58486fd8d22706ad783ca77c2bdce95dacd8683336f279d651702a02",
+      "samples": 1000,
+      "p50_ms": 0.160834,
+      "p95_ms": 0.21501,
+      "p99_ms": 0.281217,
+      "mean_ms": 0.157497782,
+      "polls_per_second": 6349.295763415894
+    },
+    {
+      "index": 3,
+      "variant": "B",
+      "log": "03-B.log",
+      "started_at": "2026-11-16T02:49:18.345564+00:00",
+      "elapsed_seconds": 15.320591683999737,
+      "returncode": 0,
+      "sha256": "24a3ad33051c35c60d485bf35069cd6ac2f38fe95fec412cb624cae9ca1be081",
+      "samples": 1000,
+      "p50_ms": 0.160678,
+      "p95_ms": 0.28061,
+      "p99_ms": 0.501817,
+      "mean_ms": 0.177885617,
+      "polls_per_second": 5621.589968119794
+    },
+    {
+      "index": 4,
+      "variant": "A",
+      "log": "04-A.log",
+      "started_at": "2026-11-16T02:49:33.667050+00:00",
+      "elapsed_seconds": 40.1390976849998,
+      "returncode": 0,
+      "sha256": "679bf05f5a3c26ab1877b09a8c2937258095217aff5a2070804b0d942bce2d5e",
+      "samples": 1000,
+      "p50_ms": 24.675157,
+      "p95_ms": 38.479438,
+      "p99_ms": 117.546363,
+      "mean_ms": 29.428312003,
+      "polls_per_second": 33.980882080428444
+    },
+    {
+      "index": 5,
+      "variant": "A",
+      "log": "05-A.log",
+      "started_at": "2026-11-16T02:50:13.807786+00:00",
+      "elapsed_seconds": 41.3269903370001,
+      "returncode": 0,
+      "sha256": "2757abf6ca642e0dfa0f28f1497e3300c432b414009efd7c106e7715ed6b92e8",
+      "samples": 1000,
+      "p50_ms": 25.858923,
+      "p95_ms": 39.380132,
+      "p99_ms": 59.157333,
+      "mean_ms": 28.771580452,
+      "polls_per_second": 34.75651960337434
+    },
+    {
+      "index": 6,
+      "variant": "B",
+      "log": "06-B.log",
+      "started_at": "2026-11-16T02:50:55.136183+00:00",
+      "elapsed_seconds": 16.276917459999822,
+      "returncode": 0,
+      "sha256": "f249c54c0805be02a4bd6dd41459df5430ea4a495ac94c6bb9176b686fc6b9e3",
+      "samples": 1000,
+      "p50_ms": 0.146476,
+      "p95_ms": 0.280966,
+      "p99_ms": 0.505817,
+      "mean_ms": 0.16506643,
+      "polls_per_second": 6058.167005853341
+    },
+    {
+      "index": 7,
+      "variant": "B",
+      "log": "07-B.log",
+      "started_at": "2026-11-16T02:51:11.414167+00:00",
+      "elapsed_seconds": 16.19059067099988,
+      "returncode": 0,
+      "sha256": "700ce2c3fbaa3d8ba4705dba6b3ad32d8a49583e4f8a85dc5b520561bbc8b2f8",
+      "samples": 1000,
+      "p50_ms": 0.144238,
+      "p95_ms": 0.267632,
+      "p99_ms": 0.441368,
+      "mean_ms": 0.167073914,
+      "polls_per_second": 5985.374832363118
+    },
+    {
+      "index": 8,
+      "variant": "A",
+      "log": "08-A.log",
+      "started_at": "2026-11-16T02:51:27.605717+00:00",
+      "elapsed_seconds": 38.257131946998925,
+      "returncode": 0,
+      "sha256": "6898c69ec544d9d9d7de19569958dec6770b0846753cd4aabb77a779e436f16c",
+      "samples": 1000,
+      "p50_ms": 24.182768,
+      "p95_ms": 36.07635,
+      "p99_ms": 128.831079,
+      "mean_ms": 27.708764116999998,
+      "polls_per_second": 36.08966447501986
+    }
+  ],
+  "summary": {
+    "A": {
+      "repetitions": 4,
+      "p50_ms": {
+        "mean": 24.8409435,
+        "min": 24.182768,
+        "max": 25.858923,
+        "standard_deviation": 0.7152167981595983,
+        "repeat_mean_t95_interval": [
+          23.70287408078209,
+          25.97901291921791
+        ]
+      },
+      "p95_ms": {
+        "mean": 38.4208225,
+        "min": 36.07635,
+        "max": 39.74737,
+        "standard_deviation": 1.6512611409306732,
+        "repeat_mean_t95_interval": [
+          35.79329779354487,
+          41.04834720645513
+        ]
+      },
+      "p99_ms": {
+        "mean": 106.40484574999999,
+        "min": 59.157333,
+        "max": 128.831079,
+        "standard_deviation": 31.867081765218636,
+        "repeat_mean_t95_interval": [
+          55.6972123023035,
+          157.11247919769647
+        ]
+      },
+      "polls_per_second": {
+        "mean": 34.86861106023791,
+        "min": 33.980882080428444,
+        "max": 36.08966447501986,
+        "standard_deviation": 0.8832784967851213,
+        "repeat_mean_t95_interval": [
+          33.463118000748,
+          36.274104119727824
+        ]
+      }
+    },
+    "B": {
+      "repetitions": 4,
+      "p50_ms": {
+        "mean": 0.15305649999999998,
+        "min": 0.144238,
+        "max": 0.160834,
+        "standard_deviation": 0.008937667313119232,
+        "repeat_mean_t95_interval": [
+          0.13883467820501647,
+          0.1672783217949835
+        ]
+      },
+      "p95_ms": {
+        "mean": 0.2610545,
+        "min": 0.21501,
+        "max": 0.280966,
+        "standard_deviation": 0.031316901182375415,
+        "repeat_mean_t95_interval": [
+          0.21122232654987708,
+          0.310886673450123
+        ]
+      },
+      "p99_ms": {
+        "mean": 0.43255475,
+        "min": 0.281217,
+        "max": 0.505817,
+        "standard_deviation": 0.1051116937686605,
+        "repeat_mean_t95_interval": [
+          0.26529860530635074,
+          0.5998108946936492
+        ]
+      },
+      "polls_per_second": {
+        "mean": 6003.606892438037,
+        "min": 5621.589968119794,
+        "max": 6349.295763415894,
+        "standard_deviation": 299.30304596622557,
+        "repeat_mean_t95_interval": [
+          5527.349001726521,
+          6479.864783149553
+        ]
+      }
+    }
+  }
+}

@@ -44,3 +44,20 @@ and the update and run routes are not mounted. That empty list is intended.
 The default handler deadline is 30 seconds and the lease is one minute. The
 fixed relationship keeps cooperative handlers from being reclaimed while they
 are still running. It does not make non-cooperative handlers exactly-once.
+
+## Editing and requesting work
+
+Configuration, disable/unregister, manual run requests, and the embedded Go
+`Schedule` method refuse to replace an active lease. Wait for the current run
+to complete or for its lease to expire. After expiry an accepted change clears
+the old token and advances its generation atomically; a delayed old handler
+cannot overwrite the operator's new state. Completion itself also requires an
+unexpired lease, even when no other worker or operator has intervened.
+
+A manual run request queues the normal worker. If an occurrence is already
+waiting for retry, the request and schedule edits preserve its occurrence key
+and attempt history. This preserves idempotent external effects across an
+operator-triggered retry. They do not create a fresh logical occurrence simply
+by changing its next execution time. The next occurrence after a successful
+completion receives its own key. None of these metadata fences cancel an
+external side effect that a handler already performed.
