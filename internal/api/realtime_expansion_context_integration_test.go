@@ -89,7 +89,7 @@ func TestRealtimeExpansionUsesCurrentRequestPolicyContext(t *testing.T) {
 	hub := newRealtimeHub(Dependencies{Records: records})
 	message := realtimePendingMessage{
 		subscription: realtimeSubscription{raw: "realtime_context_notes?expand=owner", collection: "realtime_context_notes", expand: "owner"},
-		event: realtime.Event{Collection: "realtime_context_notes", Operation: "create", PublicID: note.Record.Data["id"].(string), Record: note.Record.Data},
+		event:        realtime.Event{Collection: "realtime_context_notes", Operation: "create", PublicID: note.Record.Data["id"].(string), Record: note.Record.Data},
 	}
 	for _, scope := range []string{"allowed", "denied"} {
 		t.Run(scope, func(t *testing.T) {
