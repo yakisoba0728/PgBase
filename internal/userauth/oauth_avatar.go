@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -102,8 +103,50 @@ func localSMTPHostForOAuth(host string) bool {
 	ip := net.ParseIP(host)
 	return strings.EqualFold(strings.TrimSuffix(host, "."), "localhost") || ip != nil && ip.IsLoopback()
 }
+
+// Avatar downloads use a conservative public-unicast policy. IsPrivate alone
+// does not exclude shared, documentation, benchmarking or reserved addresses.
+// Protocol assignments and transition mechanisms are not avatar destinations,
+// including their special-purpose globally reachable exceptions. See IANA's
+// IPv4/IPv6 Special-Purpose Address Registries and oauth-provider-verification.md.
+var avatarSpecialUsePrefixes = [...]netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.88.99.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("2001::/23"),
+	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("2002::/16"),
+	netip.MustParsePrefix("3fff::/20"),
+}
+
+var avatarIPv6Unicast = netip.MustParsePrefix("2000::/3")
+
 func publicIP(ip net.IP) bool {
-	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast())
+	address, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return false
+	}
+	address = address.Unmap()
+	if !address.IsGlobalUnicast() || address.IsPrivate() {
+		return false
+	}
+	// This excludes reserved IPv6 space and translation prefixes that may route
+	// an apparently global IPv6 address to a private IPv4 destination.
+	if address.Is6() && !avatarIPv6Unicast.Contains(address) {
+		return false
+	}
+	for _, prefix := range avatarSpecialUsePrefixes {
+		if prefix.Contains(address) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) GetOAuthAvatar(ctx context.Context, userID uuid.UUID) (OAuthAvatar, error) {
