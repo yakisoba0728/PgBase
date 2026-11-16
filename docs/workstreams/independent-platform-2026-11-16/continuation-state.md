@@ -1,5 +1,78 @@
 # PgBase — subagent-first continuation
 
+## Phase A — bounded integration candidate, 2026-11-16
+
+This section supersedes earlier live-session instructions. Only Workstreams A
+(HTTP-load diagnosis), B (selected checkpoint fixes) and C (combined validation)
+are authorized in this session. Stop after their intermediate report; do not
+start the deferred second half or a new repository-wide audit.
+
+### Actual starting state
+
+- PR #148 started at `10dc0f8b59f1d59b5a6e745a07618ec2849fc06d`.
+- The latest remote checkpoint was `7b53cb58e66d6e62d6416fc39ea676eecb3e2d6c`,
+  tree `bbc76aeb0e9429b3330306b11180d4b6d78da03d`: 16 commits ahead, zero behind.
+  These changes were not yet in the PR. Their original identities are retained.
+- Main is `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`; schema is 68. The PR stays
+  Draft and unmerged. No main push, force push, production, release or package
+  publication is part of this work.
+- Three actual agents were spawned for Performance, Backend Integration and
+  Security/Independent QA, with a maximum of three simultaneous child agents.
+  They use separate worktrees. Earlier sessions' agent states below are history.
+
+### Selected changes and newly verified limits
+
+The checkpoint Realtime, Extension JSON-before-commit, Auth transport context,
+avatar redirect cap, standalone protected-file request/range handling and
+ordinary failed-upload cleanup changes have fresh focused review and tests.
+Read `phase-a-backend.md` and the fresh independent Security evidence for exact
+source identities and before/after outcomes; earlier evidence keeps its scope.
+
+One incomplete slice is deliberately withheld: the variant cleanup timeout in
+`1708ad72`. A late publisher rollback after that timeout leaves stored thumbnail
+bytes with no durable deletion intent. The candidate restores `variants.go` to
+its PR-start behavior and adds an actual delayed-rollback/deletion regression.
+Ordinary upload cleanup bounds remain. Durable staging intent before a bounded
+variant cleanup is a deferred design requirement; the original unbounded wait
+is explicitly still a risk. No broad filestore redesign is attempted here.
+
+The sustained-load observer supervisor replaces the unbounded shell EXIT wait
+with bounded process-group cleanup while preserving the workload exit status.
+Independent review reproduced a descendant-cleanup gap in its first version;
+the correction and both original failed fixtures are retained. The existing
+200 RPS, 600 seconds, pool 4, zero errors/drops and p99 <=250ms criteria are
+unchanged. No database durability setting is weakened.
+
+### Performance evidence, before the new integrated run
+
+- Run `43804114855` failed: 119,822/120,000 completed, 178 dropped; end-to-end
+  p99 approximately 1.209s.
+- Run `43816001786` ended as **cancelled**, but its original log records a
+  completed **failed** load before cancellation: 118,660/120,000 completed,
+  1,340 queue-full drops, end-to-end p99 1.884536s; service p99 466.482ms,
+  worker-queue p99 1.670608s and generator p99 1.0626ms. Percentiles are not
+  additive. The later observer-cleanup hang does not erase this result.
+- Four-connection saturation and PostgreSQL WAL waits narrow the cause to
+  service/pool/storage backpressure. These observations do not prove which
+  server change would repair it; CPU, GC, scheduler and host scope/limits are
+  recorded separately in the Performance report. A-2 is an acceptable outcome.
+
+### Candidate validation and publication policy
+
+Focused local tests precede one full qualification of the combined candidate.
+Its exact GitHub HEAD/merge tree and terminal job results must be recorded;
+no historical green run qualifies it. While that run is active, hold the PR
+HEAD unchanged. Final evidence and this same handoff path may be updated on
+`coordinator/subagent-first-20261116`, as a descendant of the tested PR candidate,
+to preserve the exact tested PR source without cancelling or duplicating CI.
+
+Current intermediate decision: **Not Ready; integrated CI pending.** The final
+Phase A checkpoint and PR description will record the tested ending HEAD,
+terminal checks, evidence links, residual risks and an unexecuted next-session
+TODO. This is not overall project completion or a claimed completion percentage.
+
+---
+
 ## Active checkpoint — 2026-11-16
 
 This section supersedes the historical checkpoint below. Actual remote refs, source trees and CI evidence take precedence; a running task is not a passed gate.
