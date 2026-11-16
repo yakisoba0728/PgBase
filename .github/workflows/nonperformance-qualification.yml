@@ -1,0 +1,37 @@
+name: Nonperformance source qualification
+
+# Explicitly scoped functional validation. This workflow does not replace or
+# report success for Full source qualification or any performance gate.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: nonperformance-qualification-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'nonperformance-qualification')
+    uses: ./.github/workflows/nonperformance-backend.yml
+    with:
+      full_validation: true
+  security:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'nonperformance-qualification')
+    uses: ./.github/workflows/security.yml
+    with:
+      full_validation: true
+  frontend:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'nonperformance-qualification')
+    uses: ./.github/workflows/frontend.yml
+  browser-and-recovery:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'nonperformance-qualification')
+    uses: ./.github/workflows/nonperformance-e2e.yml
+  source-analysis:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'nonperformance-qualification')
+    uses: ./.github/workflows/source-security.yml
