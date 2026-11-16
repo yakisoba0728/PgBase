@@ -182,11 +182,16 @@ func TestOpenLoopHTTPQualification(t *testing.T) {
 	diagnostics := newOpenLoopDiagnostics(t, fixture)
 	type observation struct {
 		queue, service, total time.Duration
+		generator             time.Duration
 		status                int
 		err                   error
 	}
 	observations := make([]observation, count)
-	queue := make(chan arrival, 256)
+	type queuedArrival struct {
+		arrival
+		generator time.Duration
+	}
+	queue := make(chan queuedArrival, 256)
 	ctx, cancel := context.WithTimeout(t.Context(), time.Duration(seconds)*time.Second+30*time.Second)
 	defer cancel()
 	var workers sync.WaitGroup
@@ -197,7 +202,8 @@ func TestOpenLoopHTTPQualification(t *testing.T) {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			for request := range queue {
+			for queued := range queue {
+				request := queued.arrival
 				scheduled := start.Add(time.Duration(request.index) * interval)
 				began := time.Now()
 				status, headers, raw, err := mixedLoadRequest(ctx, client, fixture.server.URL, request.method, request.path, owners[request.owner].token, request.body, request.headers)
@@ -205,7 +211,7 @@ func TestOpenLoopHTTPQualification(t *testing.T) {
 				if err == nil {
 					err = validate(request, status, headers, raw)
 				}
-				observations[request.index] = observation{queue: began.Sub(scheduled), service: service, total: time.Since(scheduled), status: status, err: err}
+				observations[request.index] = observation{queue: began.Sub(scheduled), generator: queued.generator, service: service, total: time.Since(scheduled), status: status, err: err}
 			}
 		}()
 	}
@@ -241,8 +247,9 @@ schedule:
 				break schedule
 			}
 		}
+		queued := queuedArrival{arrival: request, generator: time.Since(scheduled)}
 		select {
-		case queue <- request:
+		case queue <- queued:
 			enqueued++
 		default:
 			dropped++
@@ -261,6 +268,7 @@ schedule:
 	t.Logf("model=open-loop load_start_unix_ns=%d db_diagnostics=%t", start.UnixNano(), diagnostics != nil)
 	diagnostics.stop(t, elapsed)
 	latencies, services, waits := make([]time.Duration, 0, count), make([]time.Duration, 0, count), make([]time.Duration, 0, count)
+	generatorDelays, workerWaits := make([]time.Duration, 0, count), make([]time.Duration, 0, count)
 	failed, completed, attempted := 0, 0, 0
 	for i, result := range observations {
 		if result.err != nil {
@@ -278,6 +286,8 @@ schedule:
 			latencies = append(latencies, result.total)
 			services = append(services, result.service)
 			waits = append(waits, result.queue)
+			generatorDelays = append(generatorDelays, result.generator)
+			workerWaits = append(workerWaits, result.queue-result.generator)
 		}
 	}
 	quantile := func(values []time.Duration, percentile int) time.Duration {
@@ -290,7 +300,7 @@ schedule:
 	for _, series := range []struct {
 		name   string
 		values []time.Duration
-	}{{"scheduled_to_validated", latencies}, {"http_service", services}, {"generator_and_queue", waits}} {
+	}{{"scheduled_to_validated", latencies}, {"http_service", services}, {"generator_and_queue", waits}, {"generator", generatorDelays}, {"worker_queue", workerWaits}} {
 		t.Logf("model=open-loop metric=%s samples=%d p50=%s p95=%s p99=%s", series.name, len(series.values), quantile(series.values, 50), quantile(series.values, 95), quantile(series.values, 99))
 	}
 	cpuTotal, cpuIdle := cpu[0].Value.Float64()-cpuBefore[0], cpu[1].Value.Float64()-cpuBefore[1]
@@ -305,13 +315,13 @@ schedule:
 			t.Fatal(err)
 		}
 		writer := csv.NewWriter(file)
-		_ = writer.Write([]string{"index", "kind", "owner", "scheduled_offset_ns", "generator_queue_ns", "http_service_ns", "scheduled_to_validated_ns", "status", "error"})
+		_ = writer.Write([]string{"index", "kind", "owner", "scheduled_offset_ns", "generator_queue_ns", "http_service_ns", "scheduled_to_validated_ns", "status", "error", "generator_ns", "worker_queue_ns"})
 		for i, result := range observations {
 			message := ""
 			if result.err != nil {
 				message = result.err.Error()
 			}
-			_ = writer.Write([]string{strconv.Itoa(i), arrivals[i].kind, strconv.Itoa(arrivals[i].owner), strconv.FormatInt(int64(time.Duration(i)*interval), 10), strconv.FormatInt(int64(result.queue), 10), strconv.FormatInt(int64(result.service), 10), strconv.FormatInt(int64(result.total), 10), strconv.Itoa(result.status), message})
+			_ = writer.Write([]string{strconv.Itoa(i), arrivals[i].kind, strconv.Itoa(arrivals[i].owner), strconv.FormatInt(int64(time.Duration(i)*interval), 10), strconv.FormatInt(int64(result.queue), 10), strconv.FormatInt(int64(result.service), 10), strconv.FormatInt(int64(result.total), 10), strconv.Itoa(result.status), message, strconv.FormatInt(int64(result.generator), 10), strconv.FormatInt(int64(result.queue-result.generator), 10)})
 		}
 		writer.Flush()
 		writeErr, closeErr := writer.Error(), file.Close()

@@ -1,0 +1,36 @@
+{
+  "run_id": 43804114855,
+  "source": "d77fd45de6975f55b047a3de9c4099e1805162ce",
+  "all_errors_are_queue_full": true,
+  "dropped_by_kind": {
+    "page": 110,
+    "create": 15,
+    "update": 17,
+    "delete": 18,
+    "get": 18
+  },
+  "post_load_reconciliation": [
+    {
+      "owner": "0",
+      "dropped_create": 9,
+      "dropped_update": 9,
+      "dropped_delete": 9,
+      "expected_if_only_unsent_mutations_absent": {
+        "rows": 12128,
+        "creates": 5991,
+        "updates": 5991
+      }
+    },
+    {
+      "owner": "1",
+      "dropped_create": 6,
+      "dropped_update": 8,
+      "dropped_delete": 9,
+      "expected_if_only_unsent_mutations_absent": {
+        "rows": 12131,
+        "creates": 5994,
+        "updates": 5992
+      }
+    }
+  ]
+}

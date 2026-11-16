@@ -61,6 +61,7 @@ jobs:
       - name: Measure mixed HTTP load and pool recovery
         env:
           POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
           PGBASE_MIXED_CYCLES: '100'
           GOMAXPROCS: '4'
         shell: bash
@@ -70,12 +71,28 @@ jobs:
           git rev-parse HEAD > mixed-environment.txt
           go version >> mixed-environment.txt
           lscpu >> mixed-environment.txt
+          free -b >> mixed-environment.txt
+          uname -a >> mixed-environment.txt
+          for setting in cpu.max memory.max memory.high; do
+            if [[ -r "/sys/fs/cgroup/$setting" ]]; then
+              printf '%s=' "$setting" >> mixed-environment.txt
+              cat "/sys/fs/cgroup/$setting" >> mixed-environment.txt
+            fi
+          done
+          docker inspect --format 'memory={{.HostConfig.Memory}} nano_cpus={{.HostConfig.NanoCpus}} cpu_quota={{.HostConfig.CpuQuota}} cpu_period={{.HostConfig.CpuPeriod}} shm_size={{.HostConfig.ShmSize}}' "$POSTGRES_CONTAINER_ID" >> mixed-environment.txt
+          # Timings affect diagnostic overhead only; durability stays enabled.
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'ALTER SYSTEM SET track_io_timing=on' -c 'ALTER SYSTEM SET track_wal_io_timing=on' -c 'SELECT pg_reload_conf()'
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -d postgres -At -c "select name,setting,unit from pg_settings where name in ('server_version','shared_buffers','max_connections','work_mem','effective_cache_size','fsync','synchronous_commit','track_io_timing','track_wal_io_timing') order by name" >> mixed-environment.txt
           go test -tags=integration,load ./pgbase -run '^TestMixedHTTPPoolQualification$' -count=1 -v -timeout=10m | tee mixed-http.txt
       - name: Qualify sustained fixed-arrival HTTP load
         env:
           POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
           PGBASE_OPEN_LOOP_RPS: '200'
           PGBASE_OPEN_LOOP_SECONDS: '600'
+          # Separate diagnostic stratum: observer overhead is recorded, and the
+          # original rate, duration, latency and zero-error/drop gates stay fixed.
+          PGBASE_OPEN_LOOP_DIAGNOSTICS: '1'
           # go test runs the package binary from pgbase/, not the checkout root.
           PGBASE_LOAD_EVIDENCE_DIR: ${{ github.workspace }}/load-evidence
           GOMAXPROCS: '4'
@@ -83,6 +100,13 @@ jobs:
         run: |
           set -euo pipefail
           export PGBASE_TEST_ADMIN_URL="postgres://postgres:postgres@127.0.0.1:${POSTGRES_HOST_PORT:?}/postgres?sslmode=disable"
+          mkdir -p load-evidence
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > load-evidence/host-observer-start.txt
+          vmstat -w -t 1 > load-evidence/host-vmstat.txt &
+          vmstat_pid=$!
+          docker stats --format '{{json .}}' "$POSTGRES_CONTAINER_ID" > load-evidence/database-container-stats.jsonl &
+          container_stats_pid=$!
+          trap 'kill "$vmstat_pid" "$container_stats_pid" 2>/dev/null || true; wait "$vmstat_pid" "$container_stats_pid" 2>/dev/null || true' EXIT
           go test -tags=integration,load ./pgbase -run '^TestOpenLoopHTTPQualification$' -count=1 -v -timeout=15m | tee open-loop-http.txt
           python3 - <<'PY'
           import csv

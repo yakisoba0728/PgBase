@@ -1,0 +1,15 @@
+{
+  "source_base": "d77fd45de6975f55b047a3de9c4099e1805162ce",
+  "runtime_change": false,
+  "smoke": true,
+  "rate": 20,
+  "seconds": 5,
+  "request_count": 100,
+  "errors": 0,
+  "pool_max": 4,
+  "observations": 49,
+  "split_timing_identity": "generator_queue_ns == generator_ns + worker_queue_ns for every row",
+  "p99_ms": 251.521822,
+  "test_result": "FAIL: unchanged 250 ms p99 gate; concurrent external/team compilation during this diagnostic smoke",
+  "performance_qualification": false
+}

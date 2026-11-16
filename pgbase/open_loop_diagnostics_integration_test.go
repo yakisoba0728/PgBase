@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 const openLoopDiagnosticInterval = 100 * time.Millisecond
@@ -47,10 +48,12 @@ type openLoopDBObservation struct {
 	StartedUnixNS   int64                `json:"started_unix_ns"`
 	QueryNS         int64                `json:"query_ns"`
 	Backends        []openLoopDBActivity `json:"backends"`
+	Pool            database.PoolStats   `json:"pool"`
 }
 
 type openLoopDiagnostics struct {
 	connection *pgx.Conn
+	pool       *database.Pool
 	directory  string
 	before     openLoopDBSnapshot
 	after      openLoopDBSnapshot
@@ -98,7 +101,7 @@ func newOpenLoopDiagnostics(t *testing.T, fixture *publicUsersFixture) *openLoop
 			t.Errorf("close open-loop observer: %v", err)
 		}
 	})
-	result := &openLoopDiagnostics{connection: connection, directory: directory, done: make(chan struct{})}
+	result := &openLoopDiagnostics{connection: connection, pool: fixture.app.pool, directory: directory, done: make(chan struct{})}
 	result.before, err = result.snapshot(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +142,7 @@ func (s *openLoopDiagnostics) start(t *testing.T, ctx context.Context, loadStart
 				return
 			case scheduled := <-ticker.C:
 				began := time.Now()
-				sample := openLoopDBObservation{ScheduledUnixNS: scheduled.UnixNano(), StartedUnixNS: began.UnixNano()}
+				sample := openLoopDBObservation{ScheduledUnixNS: scheduled.UnixNano(), StartedUnixNS: began.UnixNano(), Pool: s.pool.Stats()}
 				// Stopping admission must not cancel the observer's in-flight
 				// query and destroy its connection before the final snapshot.
 				queryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)

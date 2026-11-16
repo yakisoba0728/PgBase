@@ -1,0 +1,90 @@
+{
+  "passing_run": 43797156393,
+  "passing_branch_head": "ca224c363dc0ef77add0faef79f9b25ffd5ae9ad",
+  "passing_tree": "29d03e7a3f3554b5ff545ab64e9ed69a5f157499",
+  "failing_run": 43804114855,
+  "failing_branch_head": "d77fd45de6975f55b047a3de9c4099e1805162ce",
+  "failing_tree": "81f741069604ef08c3d1339c800139d896fc60a9",
+  "all_changed_paths": [
+    "docs/workstreams/independent-platform-2026-11-16/continuation-state.md",
+    "docs/workstreams/independent-platform-2026-11-16/evidence/final-frontend-sdk/README.md",
+    "docs/workstreams/independent-platform-2026-11-16/evidence/final-frontend-sdk/hosted-backup-failure-43797156393.log",
+    "docs/workstreams/independent-platform-2026-11-16/evidence/final-frontend-sdk/manifest.json",
+    "docs/workstreams/independent-platform-2026-11-16/evidence/final-security/README.md",
+    "docs/workstreams/independent-platform-2026-11-16/evidence/final-security/ci-43795108138/README.md",
+    "docs/workstreams/independent-platform-2026-11-16/evidence/final-security/ci-43795108138/job-evidence.json",
+    "docs/workstreams/independent-platform-2026-11-16/evidence/final-security/ci-43795108138/manifest.json",
+    "docs/workstreams/independent-platform-2026-11-16/evidence/final-security/ci-43795108138/recheck.json",
+    "docs/workstreams/independent-platform-2026-11-16/evidence/final-security/ci-43795108138/source-go-job.log.gz",
+    "docs/workstreams/independent-platform-2026-11-16/evidence/final-security/ci-43795108138/source-js-job.log.gz",
+    "docs/workstreams/independent-platform-2026-11-16/evidence/final-security/ci-43795108138/supply-chain-job.log.gz",
+    "docs/workstreams/independent-platform-2026-11-16/evidence/final-security/manifest.json",
+    "docs/workstreams/independent-platform-2026-11-16/final-frontend-sdk.md",
+    "docs/workstreams/independent-platform-2026-11-16/final-qa.md",
+    "docs/workstreams/independent-platform-2026-11-16/final-security.md",
+    "ui/admin/e2e/managed-backups/backup.spec.ts"
+  ],
+  "identical_git_objects": {
+    "go.mod": {
+      "before": "869a66f765567657d8d541c13877262bda3bb592",
+      "after": "869a66f765567657d8d541c13877262bda3bb592",
+      "same": true
+    },
+    "go.sum": {
+      "before": "f4a9c766ed8072b279b6ae12e2b9213e722d582b",
+      "after": "f4a9c766ed8072b279b6ae12e2b9213e722d582b",
+      "same": true
+    },
+    "internal": {
+      "before": "216117d9d42618016d0a0b3469b0c14110b56030",
+      "after": "216117d9d42618016d0a0b3469b0c14110b56030",
+      "same": true
+    },
+    "pgbase": {
+      "before": "537af3c6227552755874bb0f41b9023fd48eae1d",
+      "after": "537af3c6227552755874bb0f41b9023fd48eae1d",
+      "same": true
+    },
+    "cmd": {
+      "before": "be259919aa0031ba7fc2ff17a3dceb3ad33f1778",
+      "after": "be259919aa0031ba7fc2ff17a3dceb3ad33f1778",
+      "same": true
+    },
+    ".github/workflows/full-qualification.yml": {
+      "before": "0c08aa06d0f2237544a69eb317f0fdfe4d60a993",
+      "after": "0c08aa06d0f2237544a69eb317f0fdfe4d60a993",
+      "same": true
+    }
+  },
+  "before_environment_sha256": "0ed8dbbf6d1e7754cd68b87e1ba39e2f7ebdf1e223a9186cc77a0af3d150ea9d",
+  "after_environment_sha256": "fd8b027715289ec8b0ecfd3ea6b8ca889466fd746693a0c52d719215c03fbd54",
+  "before_cpu": [
+    "CPU(s):                                  4",
+    "Model name:                              Intel(R) Xeon(R) 6975P-C",
+    "Thread(s) per core:                      2",
+    "Core(s) per socket:                      2",
+    "Hypervisor vendor:                       KVM"
+  ],
+  "after_cpu": [
+    "CPU(s):                                  4",
+    "Model name:                              AMD EPYC 9V74 80-Core Processor",
+    "Thread(s) per core:                      2",
+    "Core(s) per socket:                      2",
+    "Hypervisor vendor:                       Microsoft"
+  ],
+  "before_open_loop_summary": [
+    "open_loop_load_integration_test.go:290: model=open-loop metric=scheduled_to_validated samples=120000 p50=4.434136ms p95=5.759173ms p99=11.579078ms",
+    "open_loop_load_integration_test.go:290: model=open-loop metric=http_service samples=120000 p50=3.953507ms p95=4.963825ms p99=9.779564ms",
+    "open_loop_load_integration_test.go:290: model=open-loop metric=generator_and_queue samples=120000 p50=410.449\u00b5s p95=1.002806ms p99=1.187397ms",
+    "open_loop_load_integration_test.go:293: offered_rps=200 seconds=600 intended=120000 enqueued=120000 attempted=120000 completed=120000 dropped=0 unscheduled=0 errors=0 error_rate=0.000000 achieved_rps=200.00 elapsed=9m59.9991381s pool_max=4 pool_waits=308 pool_wait=289.088217ms pool_canceled=0 bytes_per_request=615230.7 allocs_per_request=9035.1 gc_cycles=1479 gc_pause=81.907859ms runtime_busy_cpu_seconds=264.236966 runtime_gc_cpu_seconds=50.439390 heap_before=70342080 heap_after=71368272",
+    "--- PASS: TestOpenLoopHTTPQualification (695.41s)"
+  ],
+  "after_open_loop_summary": [
+    "open_loop_load_integration_test.go:290: model=open-loop metric=scheduled_to_validated samples=119822 p50=6.215522ms p95=542.151476ms p99=1.208698942s",
+    "open_loop_load_integration_test.go:290: model=open-loop metric=http_service samples=119822 p50=5.694628ms p95=175.991978ms p99=370.273954ms",
+    "open_loop_load_integration_test.go:290: model=open-loop metric=generator_and_queue samples=119822 p50=307.465\u00b5s p95=382.181467ms p99=1.03572732s",
+    "open_loop_load_integration_test.go:293: offered_rps=200 seconds=600 intended=120000 enqueued=119822 attempted=119822 completed=119822 dropped=178 unscheduled=0 errors=178 error_rate=0.001483 achieved_rps=199.70 elapsed=10m0.000223613s pool_max=4 pool_waits=139906 pool_wait=1h2m59.845671655s pool_canceled=0 bytes_per_request=614471.4 allocs_per_request=9024.7 gc_cycles=1421 gc_pause=132.08747ms runtime_busy_cpu_seconds=369.543415 runtime_gc_cpu_seconds=44.320177 heap_before=86921224 heap_after=65629928",
+    "--- FAIL: TestOpenLoopHTTPQualification (760.01s)"
+  ],
+  "interpretation": "Go runtime, Go harness, dependency inputs and workflow bytes are identical. CPU/hypervisor differs. This rules out intervening source edits as the explanation but does not isolate which host/database/scheduling condition caused the failure. No original aligned load epoch or DB wait samples exist."
+}
