@@ -1,0 +1,11 @@
+{
+  "base_sha": "55f539895f85ca3b7d8731ab8f4c3b8999ab92bb",
+  "verified_source_sha": "47375c87669ea208813a1d4b1af71ef710db1d3b",
+  "scope": "Jobs reschedule occurrence identity only",
+  "files": {
+    "internal/jobs/service.go": "ef80f32e7e4e2c223089412ca5d992b792137801f8d1f8d257ab869fc57d8a9a",
+    "internal/jobs/management.go": "3b80027cf1a04b268d9eb01237d5eb56bae8a9055a5145b3222d020725adc417",
+    "internal/jobs/management_occurrence_integration_test.go": "3a8291757a8c760626519737300539e87cf72afbb37c4c9df905b236fe8478f2",
+    "docs/javascript.md": "eea123d1e3fc684cf146113a236323ba000db3c5cffe2732d47f91666443ce99"
+  }
+}

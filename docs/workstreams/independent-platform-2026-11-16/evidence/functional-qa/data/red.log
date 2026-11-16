@@ -1,0 +1,33 @@
+PostgreSQL 17.9 on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+=== RUN   TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry
+=== RUN   TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/schedule/failed
+    management_occurrence_integration_test.go:69: rescheduled job reused old occurrence: old=2026-11-16 19:51:50.018803 +0900 KST new=2026-11-16 19:51:50.018803 +0900 KST want=2026-11-16 19:51:51.02701 +0900 KST
+=== RUN   TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/schedule/expired
+    management_occurrence_integration_test.go:69: rescheduled job reused old occurrence: old=2026-11-16 19:51:50.028453 +0900 KST new=2026-11-16 19:51:50.028453 +0900 KST want=2026-11-16 19:51:51.030162 +0900 KST
+=== RUN   TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/schedule_timezone/failed
+    management_occurrence_integration_test.go:69: rescheduled job reused old occurrence: old=2026-11-16 19:51:50.031283 +0900 KST new=2026-11-16 19:51:50.031283 +0900 KST want=2026-11-16 19:51:51.032071 +0900 KST
+=== RUN   TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/schedule_timezone/expired
+    management_occurrence_integration_test.go:69: rescheduled job reused old occurrence: old=2026-11-16 19:51:50.033185 +0900 KST new=2026-11-16 19:51:50.033185 +0900 KST want=2026-11-16 19:51:51.033615 +0900 KST
+=== RUN   TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/configure/failed
+    management_occurrence_integration_test.go:69: rescheduled job reused old occurrence: old=2026-11-16 19:51:50.034172 +0900 KST new=2026-11-16 19:51:50.034172 +0900 KST want=2026-11-16 19:51:51.034488 +0900 KST
+=== RUN   TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/configure/expired
+    management_occurrence_integration_test.go:69: rescheduled job reused old occurrence: old=2026-11-16 19:51:50.03508 +0900 KST new=2026-11-16 19:51:50.03508 +0900 KST want=2026-11-16 19:51:51.035446 +0900 KST
+=== RUN   TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/configure_timezone/failed
+    management_occurrence_integration_test.go:69: rescheduled job reused old occurrence: old=2026-11-16 19:51:50.035986 +0900 KST new=2026-11-16 19:51:50.035986 +0900 KST want=2026-11-16 19:51:51.036342 +0900 KST
+=== RUN   TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/configure_timezone/expired
+    management_occurrence_integration_test.go:69: rescheduled job reused old occurrence: old=2026-11-16 19:51:50.036791 +0900 KST new=2026-11-16 19:51:50.036791 +0900 KST want=2026-11-16 19:51:51.037125 +0900 KST
+--- FAIL: TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry (0.22s)
+    --- FAIL: TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/schedule/failed (0.01s)
+    --- FAIL: TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/schedule/expired (0.00s)
+    --- FAIL: TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/schedule_timezone/failed (0.00s)
+    --- FAIL: TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/schedule_timezone/expired (0.00s)
+    --- FAIL: TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/configure/failed (0.00s)
+    --- FAIL: TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/configure/expired (0.00s)
+    --- FAIL: TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/configure_timezone/failed (0.00s)
+    --- FAIL: TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry/configure_timezone/expired (0.00s)
+=== RUN   TestUnchangedJobSchedulePreservesPendingOccurrence
+--- PASS: TestUnchangedJobSchedulePreservesPendingOccurrence (0.18s)
+FAIL
+FAIL	github.com/yakisoba0728/PgBase/internal/jobs	0.408s
+FAIL
+Disposable fixture retained at /tmp/pgbase-functional-data.LbjhAz
