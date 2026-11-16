@@ -1,14 +1,17 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as backups from "../api/backups";
-import { ApiError } from "../api/http";
+import { advanceSession, ApiError } from "../api/http";
 import { queryClient as appClient } from "../app/queries";
 import * as storage from "../api/storage";
 import * as system from "../api/system";
 import { setLanguage } from "../i18n";
 import { BackupsActions, BackupsView } from "./BackupsView";
+import * as notifications from "../components/Toast";
+import * as operations from "../app/operations";
+import { backupJobQuery } from "./queries";
 
 const entry: backups.BackupEntry = { id: "20261114-a1", createdAt: "2026-11-14T00:00:00Z", size: 2048, postgresqlMajor: 17 };
 
@@ -26,7 +29,90 @@ beforeEach(() => {
   vi.spyOn(storage, "getBackupStorageSettings").mockResolvedValue({ driver: "local" } as storage.BackupStorageSettings);
   vi.spyOn(system, "getSettings").mockRejectedValue(new Error("not needed"));
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); operations.forgetOperations(); vi.restoreAllMocks(); });
+
+function renderActions(search = "") {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const router = createMemoryRouter([{ path: "*", element: <><BackupsActions /><BackupsView /></> }], { initialEntries: [`/backups${search}`] });
+  const rendered = render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+  return { client, router, ...rendered };
+}
+
+it.each(["same", "replacement"])("publishes a failed archive upload only into the %s administrator session", async (session) => {
+  let fail!: (error: Error) => void;
+  const upload = vi.spyOn(backups, "uploadBackup").mockImplementation(() => new Promise((_resolve, reject) => { fail = reject; }));
+  const notify = vi.spyOn(notifications, "toast").mockImplementation(() => {});
+  const { client, container } = renderActions();
+  const invalidate = vi.spyOn(client, "invalidateQueries");
+  await screen.findByRole("cell", { name: entry.id });
+  fireEvent.change(container.querySelector("input[type=file]")!, { target: { files: [new File(["gz"], "late.tar.gz")] } });
+  await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+  if (session === "replacement") advanceSession();
+  fail(new Error("Previous administrator upload failure"));
+  await waitFor(() => expect(client.getMutationCache().getAll().at(-1)?.state.status).toBe("error"));
+  expect(notify).toHaveBeenCalledTimes(session === "same" ? 1 : 0);
+  expect(invalidate).toHaveBeenCalledTimes(session === "same" ? 1 : 0);
+  cleanup(); client.clear();
+});
+
+it("does not publish obsolete upload progress or select its archive after an identity change", async () => {
+  let finish!: (entry: backups.BackupEntry) => void;
+  let progress!: (fraction: number) => void;
+  const upload = vi.spyOn(backups, "uploadBackup").mockImplementation((_file, _signal, onProgress) => {
+    progress = onProgress!;
+    return new Promise((resolve) => { finish = resolve; });
+  });
+  const notify = vi.spyOn(notifications, "toast").mockImplementation(() => {});
+  const { client, router, container } = renderActions();
+  const invalidate = vi.spyOn(client, "invalidateQueries");
+  await screen.findByRole("cell", { name: entry.id });
+  fireEvent.change(container.querySelector("input[type=file]")!, { target: { files: [new File(["gz"], "late.tar.gz")] } });
+  await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+  act(() => progress(0.25));
+  const before = container.querySelector("progress")?.getAttribute("value");
+  advanceSession();
+  act(() => progress(0.75));
+  expect(container.querySelector("progress")?.getAttribute("value")).toBe(before);
+  finish({ ...entry, id: "old-account-upload" });
+  await waitFor(() => expect(client.getMutationCache().getAll().at(-1)?.state.status).toBe("error"));
+  expect(router.state.location.search).toBe("");
+  expect(notify).not.toHaveBeenCalled();
+  expect(invalidate).not.toHaveBeenCalled();
+  cleanup(); client.clear();
+});
+
+it.each(["create", "delete", "restore"] as const)("does not publish an obsolete %s receipt after an identity change", async (operation) => {
+  let finish!: (value: backups.BackupJob) => void;
+  const pending = new Promise<backups.BackupJob>((resolve) => { finish = resolve; });
+  const call = operation === "create" ? vi.spyOn(backups, "createBackup").mockReturnValue(pending)
+    : operation === "delete" ? vi.spyOn(backups, "deleteBackup").mockReturnValue(pending.then(() => undefined))
+    : vi.spyOn(backups, "restoreBackup").mockReturnValue(pending);
+  const notify = vi.spyOn(notifications, "toast").mockImplementation(() => {});
+  const track = vi.spyOn(operations, "trackOperation");
+  const { client, router } = renderActions(operation === "create" ? "" : `?backup=${entry.id}`);
+  const invalidate = vi.spyOn(client, "invalidateQueries");
+  await screen.findByRole("cell", { name: entry.id });
+  if (operation === "create") fireEvent.click(screen.getByRole("button", { name: "Create backup" }));
+  else {
+    const pane = within(await screen.findByRole("region", { name: "Backup" }));
+    const label = operation === "delete" ? "Delete" : "Restore";
+    fireEvent.click(pane.getByRole("button", { name: label }));
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.change(dialog.getByRole("textbox", { name: /to confirm/ }), { target: { value: "pgbase-20261114-a1.tar.gz" } });
+    fireEvent.click(dialog.getByRole("button", { name: label }));
+  }
+  await waitFor(() => expect(call).toHaveBeenCalledTimes(1));
+  const before = router.state.location.search;
+  advanceSession();
+  finish({ id: "old-account-job", operation: operation === "restore" ? "restore" : "create", backupId: entry.id, status: "running", phase: "started", createdAt: "", updatedAt: "" });
+  await waitFor(() => expect(client.getMutationCache().getAll().at(-1)?.state.status).toBe("error"));
+  expect(client.getQueryData(backupJobQuery("old-account-job").queryKey)).toBeUndefined();
+  expect(router.state.location.search).toBe(before);
+  expect(track).not.toHaveBeenCalled();
+  expect(notify).not.toHaveBeenCalled();
+  expect(invalidate).not.toHaveBeenCalled();
+  cleanup(); client.clear();
+});
 
 it("deletes an archive only after its file name is typed", async () => {
   const remove = vi.spyOn(backups, "deleteBackup").mockResolvedValue(undefined);
@@ -66,7 +152,7 @@ it("re-reads the archive list after a cancelled upload, since the server may hav
   const router = createMemoryRouter([{ path: "*", element: <><BackupsActions /><BackupsView /></> }], { initialEntries: ["/backups"] });
   vi.spyOn(backups, "uploadBackup").mockImplementation((_file, signal) => new Promise((_resolve, reject) => signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))));
   const { container } = render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
-  await screen.findByText(entry.id);
+  await screen.findByRole("cell", { name: entry.id });
   const reads = list.mock.calls.length;
   fireEvent.change(container.querySelector("input[type=file]")!, { target: { files: [new File(["gz"], "late.tar.gz")] } });
   fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
