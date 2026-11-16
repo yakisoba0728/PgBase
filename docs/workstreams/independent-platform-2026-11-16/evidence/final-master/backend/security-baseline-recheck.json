@@ -1,0 +1,997 @@
+{
+  "reviewed_source": "242f80aea730ee483cc22798fb6450bdb3064081",
+  "historical_ci_source": "4091c3be20ec8db177886a2a85550924fce37ff5",
+  "historical_ci_checkout": "ba838872d72993abf1953dcafc64ba043f978c06",
+  "historical_ci_run": 43861850923,
+  "fresh_scan": false,
+  "artifacts": [
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/go.zip",
+      "sha256": "e2a386fd8e7d1ab2902ac0c9ca14e5812dba6c4d2a4a869ff651207b0fcdc331",
+      "size": 92859,
+      "reports": [
+        {
+          "member": "go.sarif",
+          "result_count": 24,
+          "findings": [
+            {
+              "rule": "go/weak-sensitive-data-hashing",
+              "path": "internal/adminauth/service.go",
+              "line": 649,
+              "raw_security_severity": "7.5",
+              "reported_flow_paths": [
+                "internal/adminauth/accounts.go",
+                "internal/adminauth/administrator_profile.go",
+                "internal/adminauth/service.go"
+              ]
+            },
+            {
+              "rule": "go/weak-sensitive-data-hashing",
+              "path": "migrations/system/embed.go",
+              "line": 300,
+              "raw_security_severity": "7.5",
+              "reported_flow_paths": [
+                "migrations/system/embed.go"
+              ]
+            },
+            {
+              "rule": "go/zipslip",
+              "path": "internal/backup/archive.go",
+              "line": 109,
+              "raw_security_severity": "7.5",
+              "reported_flow_paths": [
+                "internal/backup/archive.go",
+                "internal/backup/backup.go"
+              ]
+            },
+            {
+              "rule": "go/incorrect-integer-conversion",
+              "path": "internal/cursor/v5.go",
+              "line": 199,
+              "raw_security_severity": "8.1",
+              "reported_flow_paths": [
+                "internal/cursor/v5.go",
+                "internal/query/cursor_v5_binding.go",
+                "internal/query/root_page.go"
+              ]
+            },
+            {
+              "rule": "go/email-injection",
+              "path": "internal/mailer/smtp.go",
+              "line": 146,
+              "raw_security_severity": "9.8",
+              "reported_flow_paths": [
+                "internal/adminauth/password.go",
+                "internal/adminauth/password_recovery.go",
+                "internal/api/admin_handlers.go",
+                "internal/api/auth_admin.go",
+                "internal/api/auth_collections.go",
+                "internal/api/email_actions.go",
+                "internal/mailer/smtp.go",
+                "internal/userauth/auth_admin.go",
+                "internal/userauth/email_actions.go",
+                "internal/userauth/email_otp.go",
+                "internal/userauth/service.go"
+              ]
+            },
+            {
+              "rule": "go/reflected-xss",
+              "path": "internal/api/compression.go",
+              "line": 176,
+              "raw_security_severity": "7.8",
+              "reported_flow_paths": [
+                "internal/api/admin_handlers.go",
+                "internal/api/compression.go",
+                "internal/api/custom_routes.go",
+                "internal/api/record_handlers.go",
+                "internal/api/sql_console.go",
+                "internal/recordartifact/artifact.go",
+                "internal/recordops/service.go",
+                "internal/sqlconsole/service.go",
+                "internal/sqlconsole/types.go"
+              ]
+            },
+            {
+              "rule": "go/reflected-xss",
+              "path": "internal/api/custom_routes.go",
+              "line": 228,
+              "raw_security_severity": "7.8",
+              "reported_flow_paths": [
+                "internal/api/admin_handlers.go",
+                "internal/api/compression.go",
+                "internal/api/custom_routes.go",
+                "internal/api/record_handlers.go",
+                "internal/api/sql_console.go",
+                "internal/recordartifact/artifact.go",
+                "internal/recordops/service.go",
+                "internal/sqlconsole/service.go",
+                "internal/sqlconsole/types.go"
+              ]
+            },
+            {
+              "rule": "go/reflected-xss",
+              "path": "internal/api/middleware.go",
+              "line": 266,
+              "raw_security_severity": "7.8",
+              "reported_flow_paths": [
+                "internal/api/admin_handlers.go",
+                "internal/api/compression.go",
+                "internal/api/middleware.go",
+                "internal/api/record_handlers.go",
+                "internal/api/sql_console.go",
+                "internal/recordartifact/artifact.go",
+                "internal/recordops/service.go",
+                "internal/sqlconsole/service.go",
+                "internal/sqlconsole/types.go"
+              ]
+            },
+            {
+              "rule": "go/reflected-xss",
+              "path": "internal/api/schema_handlers.go",
+              "line": 652,
+              "raw_security_severity": "7.8",
+              "reported_flow_paths": [
+                "internal/api/admin_handlers.go",
+                "internal/api/compression.go",
+                "internal/api/record_handlers.go",
+                "internal/api/schema_handlers.go",
+                "internal/api/sql_console.go",
+                "internal/recordartifact/artifact.go",
+                "internal/recordops/service.go",
+                "internal/sqlconsole/service.go",
+                "internal/sqlconsole/types.go"
+              ]
+            },
+            {
+              "rule": "go/reflected-xss",
+              "path": "internal/observability/metrics.go",
+              "line": 468,
+              "raw_security_severity": "7.8",
+              "reported_flow_paths": [
+                "internal/api/admin_handlers.go",
+                "internal/api/compression.go",
+                "internal/api/record_handlers.go",
+                "internal/api/sql_console.go",
+                "internal/observability/metrics.go",
+                "internal/recordartifact/artifact.go",
+                "internal/recordops/service.go",
+                "internal/sqlconsole/service.go",
+                "internal/sqlconsole/types.go"
+              ]
+            },
+            {
+              "rule": "go/allocation-size-overflow",
+              "path": "internal/query/root_page.go",
+              "line": 205,
+              "raw_security_severity": "8.1",
+              "reported_flow_paths": [
+                "internal/jsvm/native_host.go",
+                "internal/query/compatibility.go",
+                "internal/query/compiler.go",
+                "internal/query/expand.go",
+                "internal/query/root_page.go",
+                "internal/query/service.go",
+                "internal/recordops/read.go",
+                "pgbase/extension_app_query.go",
+                "pgbase/extension_auth_api.go",
+                "pgbase/extension_bridge.go",
+                "pgbase/extension_bridge_errors.go"
+              ]
+            },
+            {
+              "rule": "go/allocation-size-overflow",
+              "path": "pgbase/extension_objects.go",
+              "line": 482,
+              "raw_security_severity": "8.1",
+              "reported_flow_paths": [
+                "internal/jsvm/native_host.go",
+                "pgbase/extension_bridge.go",
+                "pgbase/extension_bridge_errors.go",
+                "pgbase/extension_objects.go",
+                "pgbase/extensions.go"
+              ]
+            },
+            {
+              "rule": "go/allocation-size-overflow",
+              "path": "internal/query/compiler.go",
+              "line": 94,
+              "raw_security_severity": "8.1",
+              "reported_flow_paths": [
+                "internal/jsvm/native_host.go",
+                "internal/query/codec.go",
+                "internal/query/compiler.go",
+                "internal/recordops/generated_fields.go",
+                "internal/recordops/modifiers.go",
+                "internal/recordops/record_identity.go",
+                "internal/recordops/service.go",
+                "internal/recordops/validate.go",
+                "pgbase/extension_bridge.go",
+                "pgbase/extension_bridge_errors.go"
+              ]
+            },
+            {
+              "rule": "go/allocation-size-overflow",
+              "path": "internal/query/compiler.go",
+              "line": 95,
+              "raw_security_severity": "8.1",
+              "reported_flow_paths": [
+                "internal/jsvm/native_host.go",
+                "internal/query/codec.go",
+                "internal/query/compiler.go",
+                "internal/recordops/generated_fields.go",
+                "internal/recordops/modifiers.go",
+                "internal/recordops/record_identity.go",
+                "internal/recordops/service.go",
+                "internal/recordops/validate.go",
+                "pgbase/extension_bridge.go",
+                "pgbase/extension_bridge_errors.go"
+              ]
+            },
+            {
+              "rule": "go/allocation-size-overflow",
+              "path": "internal/schema/operation_cursor.go",
+              "line": 75,
+              "raw_security_severity": "8.1",
+              "reported_flow_paths": [
+                "internal/schema/operation_cursor.go"
+              ]
+            },
+            {
+              "rule": "go/allocation-size-overflow",
+              "path": "internal/schema/schema_document.go",
+              "line": 320,
+              "raw_security_severity": "8.1",
+              "reported_flow_paths": [
+                "internal/jsvm/native_host.go",
+                "internal/schema/schema_document.go",
+                "internal/schema/schema_document_checksum.go",
+                "pgbase/extension_app_control.go",
+                "pgbase/extension_app_schema.go",
+                "pgbase/extension_bridge.go",
+                "pgbase/extension_bridge_errors.go",
+                "pgbase/extensions.go"
+              ]
+            },
+            {
+              "rule": "go/allocation-size-overflow",
+              "path": "internal/schema/schema_policy_checksum.go",
+              "line": 21,
+              "raw_security_severity": "8.1",
+              "reported_flow_paths": [
+                "internal/jsvm/native_host.go",
+                "internal/schema/schema_document.go",
+                "internal/schema/schema_document_checksum.go",
+                "internal/schema/schema_policy_checksum.go",
+                "pgbase/extension_app_control.go",
+                "pgbase/extension_app_schema.go",
+                "pgbase/extension_bridge.go",
+                "pgbase/extension_bridge_errors.go",
+                "pgbase/extensions.go"
+              ]
+            },
+            {
+              "rule": "go/log-injection",
+              "path": "examples/custom-routes/main.go",
+              "line": 37,
+              "raw_security_severity": "6.1",
+              "reported_flow_paths": [
+                "examples/custom-routes/main.go",
+                "internal/api/admin_handlers.go",
+                "internal/api/lifecycle.go",
+                "internal/api/schema_handlers.go",
+                "internal/lifecycle/registry.go",
+                "pgbase/app.go",
+                "pgbase/app_lifecycle_hooks.go",
+                "pgbase/managed.go"
+              ]
+            },
+            {
+              "rule": "go/log-injection",
+              "path": "examples/jobs/main.go",
+              "line": 39,
+              "raw_security_severity": "6.1",
+              "reported_flow_paths": [
+                "examples/jobs/main.go",
+                "internal/api/admin_handlers.go",
+                "internal/api/lifecycle.go",
+                "internal/api/schema_handlers.go",
+                "internal/lifecycle/registry.go",
+                "pgbase/app.go",
+                "pgbase/app_lifecycle_hooks.go"
+              ]
+            },
+            {
+              "rule": "go/log-injection",
+              "path": "examples/lifecycle/main.go",
+              "line": 43,
+              "raw_security_severity": "6.1",
+              "reported_flow_paths": [
+                "examples/lifecycle/main.go",
+                "internal/api/admin_handlers.go",
+                "internal/api/lifecycle.go",
+                "internal/api/schema_handlers.go",
+                "internal/lifecycle/registry.go",
+                "pgbase/app.go",
+                "pgbase/app_lifecycle_hooks.go",
+                "pgbase/managed.go"
+              ]
+            },
+            {
+              "rule": "go/log-injection",
+              "path": "internal/api/middleware.go",
+              "line": 145,
+              "raw_security_severity": "6.1",
+              "reported_flow_paths": [
+                "internal/api/middleware.go"
+              ]
+            },
+            {
+              "rule": "go/log-injection",
+              "path": "internal/cli/database.go",
+              "line": 84,
+              "raw_security_severity": "6.1",
+              "reported_flow_paths": [
+                "internal/adminauth/email_otp.go",
+                "internal/api/admin_handlers.go",
+                "internal/api/lifecycle.go",
+                "internal/api/schema_handlers.go",
+                "internal/cli/database.go",
+                "internal/cli/run.go",
+                "internal/lifecycle/registry.go",
+                "pgbase/lifecycle_hooks.go"
+              ]
+            },
+            {
+              "rule": "go/log-injection",
+              "path": "internal/cli/run.go",
+              "line": 259,
+              "raw_security_severity": "6.1",
+              "reported_flow_paths": [
+                "internal/api/admin_handlers.go",
+                "internal/api/lifecycle.go",
+                "internal/api/schema_handlers.go",
+                "internal/cli/run.go",
+                "internal/lifecycle/registry.go",
+                "pgbase/app.go",
+                "pgbase/app_lifecycle_hooks.go"
+              ]
+            },
+            {
+              "rule": "go/log-injection",
+              "path": "pgbase/backup_alert.go",
+              "line": 92,
+              "raw_security_severity": "6.1",
+              "reported_flow_paths": [
+                "internal/api/admin_handlers.go",
+                "internal/api/lifecycle.go",
+                "internal/api/schema_handlers.go",
+                "internal/lifecycle/registry.go",
+                "pgbase/backup_alert.go",
+                "pgbase/lifecycle_hooks.go"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/js.zip",
+      "sha256": "cde3658427f0f01d5c4cd4347d90701d6a6c496c2ee97647957fc2dc0a3849c7",
+      "size": 122745,
+      "reports": [
+        {
+          "member": "javascript.sarif",
+          "result_count": 1,
+          "findings": [
+            {
+              "rule": "js/incomplete-multi-character-sanitization",
+              "path": "ui/admin/src/collections/relation.ts",
+              "line": 58,
+              "raw_security_severity": "7.8",
+              "reported_flow_paths": [
+                "ui/admin/src/collections/relation.ts"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-integrated/independent/security/image.zip",
+      "sha256": "40425e3fe5aeed669fb0d0266077fc397224e8ab2487fe5f7356e46e23537c4e",
+      "size": 15494,
+      "reports": [
+        {
+          "member": "pgbase-image.sarif",
+          "result_count": 0,
+          "findings": []
+        },
+        {
+          "member": "pgbase-image-all-severities.sarif",
+          "result_count": 32,
+          "findings": [
+            {
+              "rule": "CVE-2026-18374",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-19499",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-19542",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-5435",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-5450",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-5928",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-6238",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-6368",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-6791",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-77117",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-80489",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-84243",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-8674",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-86805",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-89092",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-95818",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2010-4756",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2018-20796",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2019-1010022",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2019-1010023",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2019-1010024",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2019-1010025",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2019-9192",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-97399",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-100290",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-115819",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-107496",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-88822",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-88823",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-95691",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2026-95692",
+              "path": "library/pgbase",
+              "line": 1
+            },
+            {
+              "rule": "CVE-2025-27587",
+              "path": "library/pgbase",
+              "line": 1
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "source_finding_count": 25,
+  "severity_counts": {
+    "HIGH": 17,
+    "CRITICAL": 1,
+    "MEDIUM": 7
+  },
+  "scope_note": "Raw retained artifacts and reported-flow source identity recheck; source-to-sink review boundaries are separately recorded in backend-review.md. No claim of universal unreachability or fresh scanner execution.",
+  "all_reported_flow_source_blobs_unchanged": true,
+  "unique_reported_flow_sources": [
+    {
+      "path": "examples/custom-routes/main.go",
+      "historical_blob": "cdaf51fda91d27e722673241c5b4d89e9f42dfd1",
+      "current_blob": "cdaf51fda91d27e722673241c5b4d89e9f42dfd1",
+      "equal": true
+    },
+    {
+      "path": "examples/jobs/main.go",
+      "historical_blob": "2ed161ca31d689bb939385de8f778dc7d85f5696",
+      "current_blob": "2ed161ca31d689bb939385de8f778dc7d85f5696",
+      "equal": true
+    },
+    {
+      "path": "examples/lifecycle/main.go",
+      "historical_blob": "e4c0488d56f5954d7bf5eb02a4bb63cd13035fe2",
+      "current_blob": "e4c0488d56f5954d7bf5eb02a4bb63cd13035fe2",
+      "equal": true
+    },
+    {
+      "path": "internal/adminauth/accounts.go",
+      "historical_blob": "8eaedce122a1a4e8dede9af69edbf8dde583f626",
+      "current_blob": "8eaedce122a1a4e8dede9af69edbf8dde583f626",
+      "equal": true
+    },
+    {
+      "path": "internal/adminauth/administrator_profile.go",
+      "historical_blob": "3145852b2366465a002f94e666dc242340c94fdb",
+      "current_blob": "3145852b2366465a002f94e666dc242340c94fdb",
+      "equal": true
+    },
+    {
+      "path": "internal/adminauth/email_otp.go",
+      "historical_blob": "9512a25610487a526daeb58d1394fad0a409a456",
+      "current_blob": "9512a25610487a526daeb58d1394fad0a409a456",
+      "equal": true
+    },
+    {
+      "path": "internal/adminauth/password.go",
+      "historical_blob": "564440e0794b2aa242c4d5629353a88bb65907ce",
+      "current_blob": "564440e0794b2aa242c4d5629353a88bb65907ce",
+      "equal": true
+    },
+    {
+      "path": "internal/adminauth/password_recovery.go",
+      "historical_blob": "560aeb3f03d4c245d1777435cdcbf49c39e43e70",
+      "current_blob": "560aeb3f03d4c245d1777435cdcbf49c39e43e70",
+      "equal": true
+    },
+    {
+      "path": "internal/adminauth/service.go",
+      "historical_blob": "13ded71b8e47bd5eb391cc50ebcb0b04817dbb12",
+      "current_blob": "13ded71b8e47bd5eb391cc50ebcb0b04817dbb12",
+      "equal": true
+    },
+    {
+      "path": "internal/api/admin_handlers.go",
+      "historical_blob": "5a950d8d610456f16fef0fc5efa5a15eb54888e3",
+      "current_blob": "5a950d8d610456f16fef0fc5efa5a15eb54888e3",
+      "equal": true
+    },
+    {
+      "path": "internal/api/auth_admin.go",
+      "historical_blob": "c94ae8e0d19a561ca85b64fecb9a991eb71d4a48",
+      "current_blob": "c94ae8e0d19a561ca85b64fecb9a991eb71d4a48",
+      "equal": true
+    },
+    {
+      "path": "internal/api/auth_collections.go",
+      "historical_blob": "3d0cee16dffe6cf123d90f87e700fa5b0a5b8677",
+      "current_blob": "3d0cee16dffe6cf123d90f87e700fa5b0a5b8677",
+      "equal": true
+    },
+    {
+      "path": "internal/api/compression.go",
+      "historical_blob": "3d19f1c07a82a654896d3c928899d0af4fac6814",
+      "current_blob": "3d19f1c07a82a654896d3c928899d0af4fac6814",
+      "equal": true
+    },
+    {
+      "path": "internal/api/custom_routes.go",
+      "historical_blob": "325010325fedb5f3d5502b5fdddbb3c3d66bb6ee",
+      "current_blob": "325010325fedb5f3d5502b5fdddbb3c3d66bb6ee",
+      "equal": true
+    },
+    {
+      "path": "internal/api/email_actions.go",
+      "historical_blob": "bce3177d6131dd7bb31be36b6d0143c10cd63e65",
+      "current_blob": "bce3177d6131dd7bb31be36b6d0143c10cd63e65",
+      "equal": true
+    },
+    {
+      "path": "internal/api/lifecycle.go",
+      "historical_blob": "8ce26c523019c4b0224dcb445a9ddbd336866367",
+      "current_blob": "8ce26c523019c4b0224dcb445a9ddbd336866367",
+      "equal": true
+    },
+    {
+      "path": "internal/api/middleware.go",
+      "historical_blob": "88ca5af0d97613e0f493a6e848217c469cf1ed00",
+      "current_blob": "88ca5af0d97613e0f493a6e848217c469cf1ed00",
+      "equal": true
+    },
+    {
+      "path": "internal/api/record_handlers.go",
+      "historical_blob": "0f15c7f41374a0678357e412fc252457bbcef28b",
+      "current_blob": "0f15c7f41374a0678357e412fc252457bbcef28b",
+      "equal": true
+    },
+    {
+      "path": "internal/api/schema_handlers.go",
+      "historical_blob": "a7279b2a7dfa6001c30cde3f91fac84bbe9e5890",
+      "current_blob": "a7279b2a7dfa6001c30cde3f91fac84bbe9e5890",
+      "equal": true
+    },
+    {
+      "path": "internal/api/sql_console.go",
+      "historical_blob": "58b273800b074e9f66c57eda17bad1c558bb8513",
+      "current_blob": "58b273800b074e9f66c57eda17bad1c558bb8513",
+      "equal": true
+    },
+    {
+      "path": "internal/backup/archive.go",
+      "historical_blob": "12c3b594af07ec9d2b60e224f9fcbf6d63533646",
+      "current_blob": "12c3b594af07ec9d2b60e224f9fcbf6d63533646",
+      "equal": true
+    },
+    {
+      "path": "internal/backup/backup.go",
+      "historical_blob": "25301e81d6ca7174956dac2cc403b82a36bb6fb0",
+      "current_blob": "25301e81d6ca7174956dac2cc403b82a36bb6fb0",
+      "equal": true
+    },
+    {
+      "path": "internal/cli/database.go",
+      "historical_blob": "471c0cc38e42c52b5e6ee80913b36b8d373c319f",
+      "current_blob": "471c0cc38e42c52b5e6ee80913b36b8d373c319f",
+      "equal": true
+    },
+    {
+      "path": "internal/cli/run.go",
+      "historical_blob": "dfcfc75b1642b2c59f62e95f8c34b309c67a8e66",
+      "current_blob": "dfcfc75b1642b2c59f62e95f8c34b309c67a8e66",
+      "equal": true
+    },
+    {
+      "path": "internal/cursor/v5.go",
+      "historical_blob": "73e184efb7e4df359852be08411b7598fded9f32",
+      "current_blob": "73e184efb7e4df359852be08411b7598fded9f32",
+      "equal": true
+    },
+    {
+      "path": "internal/jsvm/native_host.go",
+      "historical_blob": "d355084d6984c8006de76af1d7d74cf92a8b7232",
+      "current_blob": "d355084d6984c8006de76af1d7d74cf92a8b7232",
+      "equal": true
+    },
+    {
+      "path": "internal/lifecycle/registry.go",
+      "historical_blob": "7209d5100b6bb81d8daf5f694d6f7a33e2e82109",
+      "current_blob": "7209d5100b6bb81d8daf5f694d6f7a33e2e82109",
+      "equal": true
+    },
+    {
+      "path": "internal/mailer/smtp.go",
+      "historical_blob": "70e5c5b1cb63deb0e99359f8d91ba46da7391781",
+      "current_blob": "70e5c5b1cb63deb0e99359f8d91ba46da7391781",
+      "equal": true
+    },
+    {
+      "path": "internal/observability/metrics.go",
+      "historical_blob": "b3eaa6c9e9e6a533ceb6fd67f5fc39a64fcfb938",
+      "current_blob": "b3eaa6c9e9e6a533ceb6fd67f5fc39a64fcfb938",
+      "equal": true
+    },
+    {
+      "path": "internal/query/codec.go",
+      "historical_blob": "1629625e06705257914503a9373d73395bc33bc3",
+      "current_blob": "1629625e06705257914503a9373d73395bc33bc3",
+      "equal": true
+    },
+    {
+      "path": "internal/query/compatibility.go",
+      "historical_blob": "e83800205aec0d17180ca5ff3d2440753f49b275",
+      "current_blob": "e83800205aec0d17180ca5ff3d2440753f49b275",
+      "equal": true
+    },
+    {
+      "path": "internal/query/compiler.go",
+      "historical_blob": "57ba4f1ee4fa6e3cf2a1198e4ecbd2feca919210",
+      "current_blob": "57ba4f1ee4fa6e3cf2a1198e4ecbd2feca919210",
+      "equal": true
+    },
+    {
+      "path": "internal/query/cursor_v5_binding.go",
+      "historical_blob": "32d52f64ae63158678a0b3bb7d940757dfd89c66",
+      "current_blob": "32d52f64ae63158678a0b3bb7d940757dfd89c66",
+      "equal": true
+    },
+    {
+      "path": "internal/query/expand.go",
+      "historical_blob": "02cd713f439b0e938ef57717915cb99fe00bb5fe",
+      "current_blob": "02cd713f439b0e938ef57717915cb99fe00bb5fe",
+      "equal": true
+    },
+    {
+      "path": "internal/query/root_page.go",
+      "historical_blob": "74817f41b232d78a6531a3f34122e009ffebad9a",
+      "current_blob": "74817f41b232d78a6531a3f34122e009ffebad9a",
+      "equal": true
+    },
+    {
+      "path": "internal/query/service.go",
+      "historical_blob": "fc12dfc39173f387d71a8e6294d9b329abe74eb7",
+      "current_blob": "fc12dfc39173f387d71a8e6294d9b329abe74eb7",
+      "equal": true
+    },
+    {
+      "path": "internal/recordartifact/artifact.go",
+      "historical_blob": "9b418f3c9da8c45a42a3f14b3730b13484a1112d",
+      "current_blob": "9b418f3c9da8c45a42a3f14b3730b13484a1112d",
+      "equal": true
+    },
+    {
+      "path": "internal/recordops/generated_fields.go",
+      "historical_blob": "89a5b84b4fdcb5465173817234a9d4327765f4e8",
+      "current_blob": "89a5b84b4fdcb5465173817234a9d4327765f4e8",
+      "equal": true
+    },
+    {
+      "path": "internal/recordops/modifiers.go",
+      "historical_blob": "c5d8e837e2cc8ea4cddcaa0521be47880739fef2",
+      "current_blob": "c5d8e837e2cc8ea4cddcaa0521be47880739fef2",
+      "equal": true
+    },
+    {
+      "path": "internal/recordops/read.go",
+      "historical_blob": "026deeace5cd860216a30f7b4468ea518a5bc36d",
+      "current_blob": "026deeace5cd860216a30f7b4468ea518a5bc36d",
+      "equal": true
+    },
+    {
+      "path": "internal/recordops/record_identity.go",
+      "historical_blob": "c589e2740ea63412845752ab9bec642b07d264ea",
+      "current_blob": "c589e2740ea63412845752ab9bec642b07d264ea",
+      "equal": true
+    },
+    {
+      "path": "internal/recordops/service.go",
+      "historical_blob": "4571635c78b7517ae8f2bb86908d6b063e6fddd8",
+      "current_blob": "4571635c78b7517ae8f2bb86908d6b063e6fddd8",
+      "equal": true
+    },
+    {
+      "path": "internal/recordops/validate.go",
+      "historical_blob": "dde962af0cef87eb7ce7c8d0e2054f8839d855a8",
+      "current_blob": "dde962af0cef87eb7ce7c8d0e2054f8839d855a8",
+      "equal": true
+    },
+    {
+      "path": "internal/schema/operation_cursor.go",
+      "historical_blob": "6b696221a1e7bb1d0e4789f4f45921405e0a81e4",
+      "current_blob": "6b696221a1e7bb1d0e4789f4f45921405e0a81e4",
+      "equal": true
+    },
+    {
+      "path": "internal/schema/schema_document.go",
+      "historical_blob": "f685cf3ecf1c3e07c2fb281b17cd7008fd855426",
+      "current_blob": "f685cf3ecf1c3e07c2fb281b17cd7008fd855426",
+      "equal": true
+    },
+    {
+      "path": "internal/schema/schema_document_checksum.go",
+      "historical_blob": "b2645ae19a01be694595c6cda9c09f5922869d15",
+      "current_blob": "b2645ae19a01be694595c6cda9c09f5922869d15",
+      "equal": true
+    },
+    {
+      "path": "internal/schema/schema_policy_checksum.go",
+      "historical_blob": "a553b76140fbb13b698e12788e04266ba8f3b052",
+      "current_blob": "a553b76140fbb13b698e12788e04266ba8f3b052",
+      "equal": true
+    },
+    {
+      "path": "internal/sqlconsole/service.go",
+      "historical_blob": "c5de93dc1f4808fb55bae11679ee4269f1500b93",
+      "current_blob": "c5de93dc1f4808fb55bae11679ee4269f1500b93",
+      "equal": true
+    },
+    {
+      "path": "internal/sqlconsole/types.go",
+      "historical_blob": "7b2fc9c942fa32057458441946d86bea33444d51",
+      "current_blob": "7b2fc9c942fa32057458441946d86bea33444d51",
+      "equal": true
+    },
+    {
+      "path": "internal/userauth/auth_admin.go",
+      "historical_blob": "ed2a68c0845fb298a9ab016a457c7e2bf2a5ec2a",
+      "current_blob": "ed2a68c0845fb298a9ab016a457c7e2bf2a5ec2a",
+      "equal": true
+    },
+    {
+      "path": "internal/userauth/email_actions.go",
+      "historical_blob": "f6e62485b1d8bbae7735e55b7ba4dc79c951f613",
+      "current_blob": "f6e62485b1d8bbae7735e55b7ba4dc79c951f613",
+      "equal": true
+    },
+    {
+      "path": "internal/userauth/email_otp.go",
+      "historical_blob": "1ca606b46df391a9f4d96b76cdcf88a342aeeea3",
+      "current_blob": "1ca606b46df391a9f4d96b76cdcf88a342aeeea3",
+      "equal": true
+    },
+    {
+      "path": "internal/userauth/service.go",
+      "historical_blob": "8c234db55c01b86adacdab8b982a596f7832957c",
+      "current_blob": "8c234db55c01b86adacdab8b982a596f7832957c",
+      "equal": true
+    },
+    {
+      "path": "migrations/system/embed.go",
+      "historical_blob": "acbfd76aba98e16d8d42fd9f36f2e95b2f87bcec",
+      "current_blob": "acbfd76aba98e16d8d42fd9f36f2e95b2f87bcec",
+      "equal": true
+    },
+    {
+      "path": "pgbase/app.go",
+      "historical_blob": "59c09d05773dab69a081b7a28826abb85c223100",
+      "current_blob": "59c09d05773dab69a081b7a28826abb85c223100",
+      "equal": true
+    },
+    {
+      "path": "pgbase/app_lifecycle_hooks.go",
+      "historical_blob": "45ff60230f6366a2cd652a99bdeedc40b08067bd",
+      "current_blob": "45ff60230f6366a2cd652a99bdeedc40b08067bd",
+      "equal": true
+    },
+    {
+      "path": "pgbase/backup_alert.go",
+      "historical_blob": "8ea2bcdfcb878e419e00b8fd9f2135a0212d8401",
+      "current_blob": "8ea2bcdfcb878e419e00b8fd9f2135a0212d8401",
+      "equal": true
+    },
+    {
+      "path": "pgbase/extension_app_control.go",
+      "historical_blob": "0fbe3c72b49d35a84e4fc86c8191f0a56abcef60",
+      "current_blob": "0fbe3c72b49d35a84e4fc86c8191f0a56abcef60",
+      "equal": true
+    },
+    {
+      "path": "pgbase/extension_app_query.go",
+      "historical_blob": "a177c526d9d0b3fd4dc3c6118f5a224d7aa894ad",
+      "current_blob": "a177c526d9d0b3fd4dc3c6118f5a224d7aa894ad",
+      "equal": true
+    },
+    {
+      "path": "pgbase/extension_app_schema.go",
+      "historical_blob": "8cd1420715ae65377fc9c8b76b967c8cd8313bed",
+      "current_blob": "8cd1420715ae65377fc9c8b76b967c8cd8313bed",
+      "equal": true
+    },
+    {
+      "path": "pgbase/extension_auth_api.go",
+      "historical_blob": "e6406f6199a2f88164b818cd8a2b8125884a41e2",
+      "current_blob": "e6406f6199a2f88164b818cd8a2b8125884a41e2",
+      "equal": true
+    },
+    {
+      "path": "pgbase/extension_bridge.go",
+      "historical_blob": "e646dfc7c49fb2b9526d706717b266916461fe25",
+      "current_blob": "e646dfc7c49fb2b9526d706717b266916461fe25",
+      "equal": true
+    },
+    {
+      "path": "pgbase/extension_bridge_errors.go",
+      "historical_blob": "69706c43e55dd492ae190df92522579b89703f67",
+      "current_blob": "69706c43e55dd492ae190df92522579b89703f67",
+      "equal": true
+    },
+    {
+      "path": "pgbase/extension_objects.go",
+      "historical_blob": "05b32914251c098854ebd55f4561541a70f1a4d5",
+      "current_blob": "05b32914251c098854ebd55f4561541a70f1a4d5",
+      "equal": true
+    },
+    {
+      "path": "pgbase/extensions.go",
+      "historical_blob": "3ee67625b22ba5aec1756879fe876633981c2348",
+      "current_blob": "3ee67625b22ba5aec1756879fe876633981c2348",
+      "equal": true
+    },
+    {
+      "path": "pgbase/lifecycle_hooks.go",
+      "historical_blob": "2bfd1d0dc90b267a44f9147cc96cb49cce3f6694",
+      "current_blob": "2bfd1d0dc90b267a44f9147cc96cb49cce3f6694",
+      "equal": true
+    },
+    {
+      "path": "pgbase/managed.go",
+      "historical_blob": "07c1288d8ae93bbf7d5b5df6b81f14ccda190115",
+      "current_blob": "07c1288d8ae93bbf7d5b5df6b81f14ccda190115",
+      "equal": true
+    },
+    {
+      "path": "ui/admin/src/collections/relation.ts",
+      "historical_blob": "7159a7aa9239cf0fbf74fd0f813d8dfd2b3105d1",
+      "current_blob": "7159a7aa9239cf0fbf74fd0f813d8dfd2b3105d1",
+      "equal": true
+    }
+  ],
+  "checked_unique_path_count": 68
+}

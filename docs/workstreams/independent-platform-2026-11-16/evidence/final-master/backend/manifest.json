@@ -1,0 +1,193 @@
+{
+  "reviewer": "/root/backend_quality",
+  "base_source": "242f80aea730ee483cc22798fb6450bdb3064081",
+  "code_commit": "e59fc07668e0a282555f2f52dbddf890162254e0",
+  "code_tree": "63b3b6eb3379e32967b16d5a637e9aa1d1052f95",
+  "go_binary": "/workspace/scratch/27f5e00d0baa/tools/go/bin/go",
+  "tests": [
+    {
+      "name": "unit-race",
+      "command": "GOMAXPROCS=2 go test -p=2 -race -json ./internal/accessrule ./internal/adminauth ./internal/userauth ./internal/backup ./internal/cursor ./internal/filestore ./internal/jobs ./internal/lifecycle ./internal/recordaccess ./internal/recordops ./internal/realtime ./internal/schema ./internal/database",
+      "exit_code": 0,
+      "fresh_execution": true,
+      "source_state": "Baseline runtime and selected test inventory at base_source; new ownership regressions were added after package discovery and are absent from this execution.",
+      "top_level_passes": 360,
+      "subtest_passes": 406,
+      "test_failures": 0,
+      "test_skips": 0,
+      "package_results": [
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/accessrule",
+          "action": "pass",
+          "elapsed_seconds": 1.064
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/adminauth",
+          "action": "pass",
+          "elapsed_seconds": 8.583
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/userauth",
+          "action": "pass",
+          "elapsed_seconds": 4.531
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/cursor",
+          "action": "pass",
+          "elapsed_seconds": 1.043
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/backup",
+          "action": "pass",
+          "elapsed_seconds": 2.797
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/jobs",
+          "action": "pass",
+          "elapsed_seconds": 1.031
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/filestore",
+          "action": "pass",
+          "elapsed_seconds": 1.53
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/lifecycle",
+          "action": "pass",
+          "elapsed_seconds": 1.069
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/recordaccess",
+          "action": "pass",
+          "elapsed_seconds": 1.078
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/recordops",
+          "action": "pass",
+          "elapsed_seconds": 4.322
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/realtime",
+          "action": "pass",
+          "elapsed_seconds": 1.035
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/database",
+          "action": "pass",
+          "elapsed_seconds": 1.051
+        },
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/schema",
+          "action": "pass",
+          "elapsed_seconds": 2.622
+        }
+      ],
+      "first_event_time": "2026-11-17T08:31:10.760027994+09:00",
+      "last_event_time": "2026-11-17T08:32:55.057994259+09:00"
+    },
+    {
+      "name": "foreign-lease-red",
+      "command": "GOMAXPROCS=2 go test -p=2 ./internal/filestore -run '^TestStorageControllerDoesNotUseForeignLeaseAfterCancellation$' -count=1 -v",
+      "exit_code": 1,
+      "fresh_execution": true,
+      "source_state": "Unmodified base runtime plus new ownership unit regression; expected defect reproduction."
+    },
+    {
+      "name": "foreign-lease-green",
+      "command": "GOMAXPROCS=2 go test -p=2 -race -json ./internal/filestore",
+      "exit_code": 0,
+      "fresh_execution": true,
+      "source_state": "Working tree matching code_commit production/test file bytes; code commit finalized after execution.",
+      "top_level_passes": 38,
+      "subtest_passes": 15,
+      "test_failures": 0,
+      "test_skips": 0,
+      "package_results": [
+        {
+          "package": "github.com/yakisoba0728/PgBase/internal/filestore",
+          "action": "pass",
+          "elapsed_seconds": 2.012
+        }
+      ],
+      "first_event_time": "2026-11-17T08:33:32.452611517+09:00",
+      "last_event_time": "2026-11-17T08:33:34.46432698+09:00"
+    }
+  ],
+  "files": [
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/backend/foreign-lease-green.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/backend/foreign-lease-green.jsonl.gz",
+      "sha256": "d58bc0a646a83417f2e329806a10f140a1859032b24e7558a217225d23bff7b0",
+      "bytes": 3945,
+      "uncompressed_sha256": "787d7f5840eb14bcf8439c233c8b6733ff6e7219e2483190793095a76890ef27",
+      "uncompressed_bytes": 48971,
+      "compression": "gzip, mtime=0; full round-trip verified"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/backend/foreign-lease-green.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/backend/foreign-lease-red.exit",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/backend/foreign-lease-red.log",
+      "sha256": "bd743b93287684a82e1e88da2842c55a96dff16c686e10a7be5db5e0845499c0",
+      "bytes": 1126
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/backend/security-baseline-recheck.json",
+      "sha256": "c9f629b2897cae594784703f6f9e7a5293eaad2ea9791c1674809374778f1153",
+      "bytes": 35381
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/backend/unit-race.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/backend/unit-race.jsonl.gz",
+      "sha256": "3180c573265f6fbccd750443b7df045b9527e876861dec9945301f11709e5149",
+      "bytes": 54475,
+      "uncompressed_sha256": "ceaed074c0002da32d8c1d28ba0b6c9cb6b2f65d8ee2755a3005005d98e835e7",
+      "uncompressed_bytes": 791061,
+      "compression": "gzip, mtime=0; full round-trip verified"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/backend/unit-race.stderr",
+      "sha256": "4672bb446f25f1204fcb77aa72ac6da182a2eba0e98f62eeb64e2bab4a041413",
+      "bytes": 2393
+    }
+  ],
+  "pending": [
+    "PostgreSQL integration NOT RUN by author: root delegated prepared regression and high-risk contracts to independent QA after fixture provisioning",
+    "Independent reviewer reproduction of old-source RED and corrected-source GREEN",
+    "Final exact-source integrated CI/security/performance"
+  ],
+  "source_files": [
+    {
+      "path": "internal/filestore/storage_settings.go",
+      "git_blob": "99f73a8d6ea79e58e8d22b954bb14b3a8ed263ea",
+      "sha256": "2cd1ee152065224318c7fedef23e1471ef62a0f2d1d70a64b2bb5d453271ce21"
+    },
+    {
+      "path": "internal/filestore/storage_lease_ownership_test.go",
+      "git_blob": "9398b4517930d8757a6220386b1291030e43f4a2",
+      "sha256": "242c8bc03a7ab50c23a6d274893def2939da5f55b6a0526cd1c9b0ac544e2477"
+    },
+    {
+      "path": "internal/filestore/storage_lease_ownership_integration_test.go",
+      "git_blob": "a873b7f7b3371d51ab4edccea7a2ca92f6b13f7b",
+      "sha256": "d0db6d8d882d421265a2b454490136f2cfbe8d37c745dd15486e06fd7cf5c272"
+    }
+  ],
+  "runtime_frozen": true,
+  "evidence_storage": "Complete new JSONL streams gzip-compressed after byte-for-byte round-trip verification; original digests and byte counts retained. Historical artifacts untouched."
+}
