@@ -104,6 +104,7 @@ func NewService(pool *database.Pool, registry *Registry, logger *slog.Logger) *S
 
 // Schedule creates or enables a named durable job. Changing its schedule makes
 // an interval job due immediately; a calendar job uses its next occurrence.
+// A schedule or timezone change replaces the pending occurrence and its retries.
 // An active claim must finish or expire before its configuration can change.
 func (s *Service) Schedule(ctx context.Context, name, schedule string) error {
 	return s.ScheduleInTimezone(ctx, name, schedule, "UTC")
@@ -121,6 +122,12 @@ func (s *Service) ScheduleInTimezone(ctx context.Context, name, schedule, timezo
 	 VALUES($1,$2,$3,$4,$5) ON CONFLICT (name) DO UPDATE SET
 	 enabled=true,next_run_at=CASE WHEN pgbase_meta.scheduled_jobs.schedule=excluded.schedule
 	 AND pgbase_meta.scheduled_jobs.timezone=$4 THEN pgbase_meta.scheduled_jobs.next_run_at ELSE $5 END,
+	 attempts=CASE WHEN pgbase_meta.scheduled_jobs.schedule=excluded.schedule
+	 AND pgbase_meta.scheduled_jobs.timezone=$4 THEN pgbase_meta.scheduled_jobs.attempts ELSE 0 END,
+	 last_scheduled_at=CASE WHEN pgbase_meta.scheduled_jobs.schedule=excluded.schedule
+	 AND pgbase_meta.scheduled_jobs.timezone=$4 THEN pgbase_meta.scheduled_jobs.last_scheduled_at ELSE NULL END,
+	 last_error=CASE WHEN pgbase_meta.scheduled_jobs.schedule=excluded.schedule
+	 AND pgbase_meta.scheduled_jobs.timezone=$4 THEN pgbase_meta.scheduled_jobs.last_error ELSE NULL END,
 	 schedule=excluded.schedule,timezone=$4,lease_token=NULL,lease_until=NULL,
 	 fence_generation=pgbase_meta.scheduled_jobs.fence_generation+1,updated_at=clock_timestamp()
 	 WHERE pgbase_meta.scheduled_jobs.lease_until IS NULL OR pgbase_meta.scheduled_jobs.lease_until<clock_timestamp()`, uuid.New(), name, schedule, timezone, next)

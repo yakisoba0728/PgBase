@@ -72,8 +72,13 @@ func (s *Service) ConfigureJobInTimezone(ctx context.Context, id uuid.UUID, sche
 	}
 	// Expiry allows an operator edit, but the expired handler may still return.
 	// Revoke its token and generation in the same update as the accepted edit.
+	// Replacing the schedule also starts a new occurrence; a no-op save keeps
+	// the pending retry identity and its already-completed idempotent effects.
 	result, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET schedule=$2,timezone=$3,enabled=$4,
 	 lease_token=NULL,lease_until=NULL,fence_generation=fence_generation+1,
+	 attempts=CASE WHEN schedule<>$2 OR timezone<>$3 THEN 0 ELSE attempts END,
+	 last_scheduled_at=CASE WHEN schedule<>$2 OR timezone<>$3 THEN NULL ELSE last_scheduled_at END,
+	 last_error=CASE WHEN schedule<>$2 OR timezone<>$3 THEN NULL ELSE last_error END,
 	 next_run_at=CASE WHEN schedule<>$2 OR timezone<>$3 THEN $5 ELSE next_run_at END,updated_at=clock_timestamp()
 	 WHERE id=$1 AND name=ANY($6::text[]) AND (lease_until IS NULL OR lease_until<clock_timestamp())`, id, schedule, timezone, enabled, next, s.registry.names())
 	if err != nil {
