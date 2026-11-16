@@ -87,6 +87,11 @@ func BenchmarkConcurrentRecordReads(b *testing.B) {
 	if _, err := records.pool.Exec(ctx, "ANALYZE "+table); err != nil {
 		b.Fatal(err)
 	}
+	// The fixture bulk-rebuilds this sidecar too. Leaving its cardinality stale
+	// makes plan selection depend on when asynchronous autoanalyze happens.
+	if _, err := records.pool.Exec(ctx, "ANALYZE pgbase_meta.record_creation_ordinals"); err != nil {
+		b.Fatal(err)
+	}
 	// A diagnostic index on this disposable synthetic table, not a migration
 	// or an implicit change to application schemas. Compare with the same
 	// fixture without this flag and retain both execution plans.
