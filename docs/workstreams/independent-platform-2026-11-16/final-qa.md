@@ -233,3 +233,41 @@ Final release readiness must use the final integrated runtime's evidence. In
 particular, an unresolved repeatable performance regression or an unexecuted
 mandatory restore/browser/security gate cannot be converted into Ready by these
 passing selected tests.
+
+## Read-only review of later qualification fixture corrections
+
+The QA agent reviewed these immutable follow-up commits without running tests
+or load during the separate field-order performance experiment. No additional
+runtime change is approved or qualified by this section.
+
+- `1caaf85f` corrects the open-loop fixture's total-count expectation to the
+  existing native API contract. `RecordPage` documents the 10,000 cap;
+  `internal/query/expand.go` computes `TotalCapped = total > maximumListTotal`
+  and then takes the minimum. The fixture now verifies both values exactly.
+  At 120,000 arrivals it still checks 24,256 physical rows, 12,000 creates,
+  12,000 updates, and every owner cursor page with exactly 12,128 unique records
+  per owner, including 6,000 creates and 6,000 updates. Owner/group/identity,
+  final-cursor exhaustion, cross-owner denial, zero errors/drops, and the
+  original 250 ms p99 threshold remain enforced. No integrity assertion was
+  relaxed. This correction cannot excuse a separate run that exceeds p99.
+- `dea3ca96` changes `PGBASE_LOAD_EVIDENCE_DIR` from a package-relative path to
+  the absolute checkout workspace. The workflow shell, raw CSV guard, and
+  artifact upload now address the same directory even though `go test` runs
+  the test binary from its package directory. A successful test must also
+  produce 120,000 CSV rows with no request error. `set -euo pipefail` preserves
+  test failures and `if: always()` preserves any evidence written on failure.
+  Missing per-arrival CSV from an earlier execution remains an evidence gap;
+  source review cannot recreate those samples or establish a successful rerun.
+- `5ded8e98` strengthens repository policy tests to require all three browser
+  backends, their independent projects/ports/origins, administrator setup, all
+  three Playwright environment variables, selected-image reuse, and teardown
+  in the always-run step. This extends the previous two-backend policy.
+- `13db9a43` consumes backup create/upload/restore response bodies immediately
+  in the response promise while the UI action completes. Expected statuses and
+  all archive, record, ETag, file-byte, readiness, and rendered-UI assertions are
+  retained. It adds no skip, tolerance, or retry that could hide a failure.
+
+No source-level blocker was found in these four test/CI corrections. The QA
+agent did not independently inspect the cited hosted run's raw logs or rerun
+the workloads in this follow-up review; the final CI evidence must state its
+own tested revision and outcome.
