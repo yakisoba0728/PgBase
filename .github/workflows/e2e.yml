@@ -56,6 +56,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          write_fixture_secret() {
+            local fixture_key=$1 fixture_secret=$2
+            # GITHUB_ENV is printed by later steps. Register even disposable
+            # fixture credentials with the runner before exporting them.
+            echo "::add-mask::$fixture_secret"
+            printf '%s=%s\n' "$fixture_key" "$fixture_secret" >> "$GITHUB_ENV"
+          }
           if [[ -z "$PGBASE_E2E_CANDIDATE_IMAGE" && -z "$PGBASE_E2E_EXPECTED_VERSION" ]]; then
             selected_image="pgbase-ci:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
             selected_version="e2e-workflow"
@@ -74,13 +81,13 @@ jobs:
             echo "PGBASE_HTTP_PORT=18090"
             echo "PGBASE_POSTGRES_PORT=15432"
             echo "PGBASE_PUBLIC_URL=http://127.0.0.1:18090"
-            echo "PGBASE_POSTGRES_PASSWORD=$(openssl rand -hex 32)"
-            echo "PGBASE_SETUP_TOKEN=$(openssl rand -hex 32)"
-            echo "PGBASE_TOKEN_SECRET=$(openssl rand -base64 32 | tr -d '\n')"
             echo "PGBASE_AUTH_PROJECT_NAME=pgbase-ci-auth-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
             echo "PGBASE_ADMIN_EMAIL=e2e-admin@pgbase.test"
-            echo "PGBASE_ADMIN_PASSWORD=$(openssl rand -base64 24 | tr -d '\n')"
           } >> "$GITHUB_ENV"
+          write_fixture_secret PGBASE_POSTGRES_PASSWORD "$(openssl rand -hex 32)"
+          write_fixture_secret PGBASE_SETUP_TOKEN "$(openssl rand -hex 32)"
+          write_fixture_secret PGBASE_TOKEN_SECRET "$(openssl rand -base64 32 | tr -d '\n')"
+          write_fixture_secret PGBASE_ADMIN_PASSWORD "$(openssl rand -base64 24 | tr -d '\n')"
           echo "release=$release" >> "$GITHUB_OUTPUT"
 
       - name: Verify Compose shutdown policy
