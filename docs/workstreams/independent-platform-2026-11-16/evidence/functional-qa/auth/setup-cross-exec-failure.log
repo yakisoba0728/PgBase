@@ -1,0 +1,21 @@
+go: downloading github.com/prometheus/client_golang v1.25.0
+go: downloading golang.org/x/crypto v0.59.0
+go: downloading github.com/zkrebbekx/pgparse v1.3.0
+go: downloading github.com/beorn7/perks v1.0.1
+go: downloading github.com/cespare/xxhash/v2 v2.3.0
+go: downloading github.com/prometheus/client_model v0.6.3
+go: downloading github.com/prometheus/common v0.73.1
+go: downloading github.com/prometheus/procfs v0.22.0
+go: downloading google.golang.org/protobuf v1.36.12
+go: downloading golang.org/x/sys v0.50.0
+go: downloading github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822
+go: downloading github.com/pandatix/go-abnf v0.5.3
+=== RUN   TestRecordMutationMissingTransportContextFailsClosed
+    service_test.go:237: connect to PostgreSQL test admin database: failed to connect to `user=agent database=postgres`: 127.0.0.1:56592 (127.0.0.1): dial error: dial tcp 127.0.0.1:56592: connect: connection refused
+--- FAIL: TestRecordMutationMissingTransportContextFailsClosed (0.00s)
+=== RUN   TestBatchMissingTransportContextRollsBackAllArtifacts
+    service_test.go:237: connect to PostgreSQL test admin database: failed to connect to `user=agent database=postgres`: 127.0.0.1:56592 (127.0.0.1): dial error: dial tcp 127.0.0.1:56592: connect: connection refused
+--- FAIL: TestBatchMissingTransportContextRollsBackAllArtifacts (0.00s)
+FAIL
+FAIL	github.com/yakisoba0728/PgBase/internal/recordops	0.013s
+FAIL
