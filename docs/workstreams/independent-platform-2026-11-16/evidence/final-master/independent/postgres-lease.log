@@ -1,0 +1,68 @@
+The files belonging to this database system will be owned by user "agent".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "C".
+The default database encoding has accordingly been set to "SQL_ASCII".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+fixing permissions on existing directory /tmp/pgbase-final-master-xazKwV ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Asia/Seoul
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+Success. You can now start the database server using:
+
+    /workspace/scratch/27f5e00d0baa/tools/pgsql17/bin/pg_ctl -D /tmp/pgbase-final-master-xazKwV -l logfile start
+
+waiting for server to start....2026-11-17 08:41:23.435 KST [23] LOG:  starting PostgreSQL 17.9 on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2026-11-17 08:41:23.435 KST [23] LOG:  listening on IPv4 address "127.0.0.1", port 56848
+2026-11-17 08:41:23.437 KST [26] LOG:  database system was shut down at 2026-11-17 08:41:23 KST
+2026-11-17 08:41:23.439 KST [23] LOG:  database system is ready to accept connections
+ done
+server started
+2026-11-17 08:41:25.901 KST [24] LOG:  checkpoint starting: immediate force wait
+2026-11-17 08:41:25.903 KST [24] LOG:  checkpoint complete: wrote 6 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=5, longest=0.001 s, average=0.001 s; distance=6869 kB, estimate=6869 kB; lsn=0/1B468B0, redo lsn=0/1B46858
+2026-11-17 08:41:28.034 KST [24] LOG:  checkpoint starting: immediate force wait
+2026-11-17 08:41:28.036 KST [24] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.002 s, sync=0.001 s, total=0.003 s; sync files=4, longest=0.001 s, average=0.001 s; distance=6869 kB, estimate=6869 kB; lsn=0/21FC078, redo lsn=0/21FC020
+2026-11-17 08:41:31.366 KST [24] LOG:  checkpoint starting: immediate force wait
+2026-11-17 08:41:31.366 KST [24] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=4, longest=0.001 s, average=0.000 s; distance=6871 kB, estimate=6871 kB; lsn=0/28B1FF0, redo lsn=0/28B1F98
+2026-11-17 08:41:31.675 KST [184] FATAL:  terminating connection due to administrator command
+2026-11-17 08:41:31.810 KST [187] FATAL:  terminating connection due to administrator command
+2026-11-17 08:41:31.986 KST [192] FATAL:  terminating connection due to administrator command
+2026-11-17 08:41:32.109 KST [24] LOG:  checkpoint starting: immediate force wait
+2026-11-17 08:41:32.110 KST [24] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=4, longest=0.001 s, average=0.001 s; distance=6881 kB, estimate=6881 kB; lsn=0/2F6A480, redo lsn=0/2F6A428
+2026-11-17 08:41:32.162 KST [24] LOG:  checkpoint starting: immediate force wait
+2026-11-17 08:41:32.163 KST [24] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=4, longest=0.001 s, average=0.000 s; distance=4064 kB, estimate=6599 kB; lsn=0/33625C8, redo lsn=0/3362570
+2026-11-17 08:41:32.662 KST [24] LOG:  checkpoint starting: immediate force wait
+2026-11-17 08:41:32.662 KST [24] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=4, longest=0.001 s, average=0.000 s; distance=6871 kB, estimate=6871 kB; lsn=0/3A181E8, redo lsn=0/3A18190
+2026-11-17 08:41:32.958 KST [209] FATAL:  terminating connection due to administrator command
+2026-11-17 08:41:32.968 KST [24] LOG:  checkpoint starting: immediate force wait
+2026-11-17 08:41:32.969 KST [24] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=4, longest=0.001 s, average=0.000 s; distance=6871 kB, estimate=6871 kB; lsn=0/40CDDF8, redo lsn=0/40CDDA0
+2026-11-17 08:41:33.286 KST [212] FATAL:  terminating connection due to administrator command
+2026-11-17 08:41:33.387 KST [211] FATAL:  terminating connection due to administrator command
+2026-11-17 08:41:33.506 KST [24] LOG:  checkpoint starting: immediate force wait
+2026-11-17 08:41:33.507 KST [24] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=4, longest=0.001 s, average=0.000 s; distance=6874 kB, estimate=6874 kB; lsn=0/47846E0, redo lsn=0/4784688
+2026-11-17 08:41:33.885 KST [215] ERROR:  uncertain object write requires retained cleanup intent
+2026-11-17 08:41:33.885 KST [215] CONTEXT:  PL/pgSQL function pgbase_meta.protect_uncertain_object_intent() line 12 at RAISE
+2026-11-17 08:41:33.885 KST [215] STATEMENT:  delete from pgbase_meta.file_object_deletions where object_key=$1
+2026-11-17 08:41:33.896 KST [24] LOG:  checkpoint starting: immediate force wait
+2026-11-17 08:41:33.897 KST [24] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=4, longest=0.001 s, average=0.000 s; distance=6876 kB, estimate=6876 kB; lsn=0/4E3BAD0, redo lsn=0/4E3BA78
+2026-11-17 08:41:40.208 KST [24] LOG:  checkpoint starting: immediate force wait
+2026-11-17 08:41:40.209 KST [24] LOG:  checkpoint complete: wrote 4 buffers (0.0%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=4, longest=0.001 s, average=0.000 s; distance=6873 kB, estimate=6876 kB; lsn=0/54F20C8, redo lsn=0/54F2070
+waiting for server to shut down....2026-11-17 08:41:41.249 KST [23] LOG:  received fast shutdown request
+2026-11-17 08:41:41.249 KST [23] LOG:  aborting any active transactions
+2026-11-17 08:41:41.251 KST [23] LOG:  background worker "logical replication launcher" (PID 29) exited with exit code 1
+2026-11-17 08:41:41.251 KST [24] LOG:  shutting down
+2026-11-17 08:41:41.251 KST [24] LOG:  checkpoint starting: shutdown immediate
+2026-11-17 08:41:41.252 KST [24] LOG:  checkpoint complete: wrote 1 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=1, longest=0.001 s, average=0.001 s; distance=0 kB, estimate=6189 kB; lsn=0/54F21D0, redo lsn=0/54F21D0
+2026-11-17 08:41:41.255 KST [23] LOG:  database system is shut down
+ done
+server stopped

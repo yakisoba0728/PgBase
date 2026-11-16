@@ -1,0 +1,46 @@
+[
+  {
+    "check": "backend-integration-red",
+    "exit_code": 1,
+    "command": [
+      "go",
+      "test",
+      "-race",
+      "-p=1",
+      "-tags=integration",
+      "./internal/filestore",
+      "-run",
+      "^TestStorageControllerForeignLeaseKeepsObjectNamespaceAndPublicationOwner$",
+      "-count=1",
+      "-v",
+      "-timeout=3m"
+    ],
+    "head": "242f80aea730ee483cc22798fb6450bdb3064081",
+    "source_tree": "b758d273142d75377c18011d240cd64929cb4c97",
+    "fixture_overlaid": true,
+    "fixture_sha256": "d0db6d8d882d421265a2b454490136f2cfbe8d37c745dd15486e06fd7cf5c272",
+    "log_sha256": "ee69c441b1f87dbaf8b4f26996a8c98b8d35f7208493cf621fd648b94dfa7621"
+  },
+  {
+    "check": "backend-integration-green",
+    "exit_code": 0,
+    "command": [
+      "go",
+      "test",
+      "-race",
+      "-p=1",
+      "-tags=integration",
+      "./internal/filestore",
+      "-run",
+      "^TestStorageControllerForeignLeaseKeepsObjectNamespaceAndPublicationOwner$",
+      "-count=1",
+      "-v",
+      "-timeout=3m"
+    ],
+    "head": "e59fc07668e0a282555f2f52dbddf890162254e0",
+    "source_tree": "63b3b6eb3379e32967b16d5a637e9aa1d1052f95",
+    "fixture_overlaid": false,
+    "fixture_sha256": "d0db6d8d882d421265a2b454490136f2cfbe8d37c745dd15486e06fd7cf5c272",
+    "log_sha256": "d0435006bd86e2c99ade77e569d54058e2a0a6217f12f8b999a6725278f8d571"
+  }
+]

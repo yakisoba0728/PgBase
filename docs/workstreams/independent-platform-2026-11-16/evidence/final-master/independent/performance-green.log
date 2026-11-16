@@ -1,0 +1,22 @@
+test_changed_concurrency_is_rejected (test_analyze_repeated_load.RepeatedLoadEvidenceTests.test_changed_concurrency_is_rejected) ... ok
+test_changed_pool_budget_is_rejected (test_analyze_repeated_load.RepeatedLoadEvidenceTests.test_changed_pool_budget_is_rejected) ... ok
+test_partial_latency_population_is_rejected (test_analyze_repeated_load.RepeatedLoadEvidenceTests.test_partial_latency_population_is_rejected) ... ok
+test_registered_stages_are_accepted (test_analyze_repeated_load.RepeatedLoadEvidenceTests.test_registered_stages_are_accepted) ... ok
+test_reordered_recovery_stage_is_rejected (test_analyze_repeated_load.RepeatedLoadEvidenceTests.test_reordered_recovery_stage_is_rejected) ... ok
+test_codeql_extension_metadata_is_not_lost (test_summarize_codeql.SummarizeCodeQLTest.test_codeql_extension_metadata_is_not_lost) ... ok
+test_component_name_resolution (test_summarize_codeql.SummarizeCodeQLTest.test_component_name_resolution) ... ok
+test_conflicting_rule_indices_are_rejected (test_summarize_codeql.SummarizeCodeQLTest.test_conflicting_rule_indices_are_rejected) ... ok
+test_diff_range_pack_cannot_hide_behind_missing_scope_property (test_summarize_codeql.SummarizeCodeQLTest.test_diff_range_pack_cannot_hide_behind_missing_scope_property) ... ok
+test_driver_rules_and_result_level_override (test_summarize_codeql.SummarizeCodeQLTest.test_driver_rules_and_result_level_override) ... ok
+test_duplicate_ids_in_other_component_do_not_override (test_summarize_codeql.SummarizeCodeQLTest.test_duplicate_ids_in_other_component_do_not_override) ... ok
+test_empty_completed_report_is_counted_without_a_security_verdict (test_summarize_codeql.SummarizeCodeQLTest.test_empty_completed_report_is_counted_without_a_security_verdict) ... ok
+test_full_scope_check_retains_extracted_file_evidence (test_summarize_codeql.SummarizeCodeQLTest.test_full_scope_check_retains_extracted_file_evidence) ... ok
+test_incomplete_analysis_is_not_a_clean_report (test_summarize_codeql.SummarizeCodeQLTest.test_incomplete_analysis_is_not_a_clean_report) ... ok
+test_incremental_scope_is_preserved_and_rejected_for_full_qualification (test_summarize_codeql.SummarizeCodeQLTest.test_incremental_scope_is_preserved_and_rejected_for_full_qualification) ... ok
+test_invalid_references_fail_instead_of_silent_null_metadata (test_summarize_codeql.SummarizeCodeQLTest.test_invalid_references_fail_instead_of_silent_null_metadata) ... ok
+test_reports_and_results_are_not_deduplicated (test_summarize_codeql.SummarizeCodeQLTest.test_reports_and_results_are_not_deduplicated) ... ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 0.022s
+
+OK

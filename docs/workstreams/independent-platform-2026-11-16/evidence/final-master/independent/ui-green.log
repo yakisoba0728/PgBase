@@ -1,0 +1,12 @@
+
+ RUN  v5.0.5 /workspace/scratch/27f5e00d0baa/worktrees/independent-ui/ui/admin
+
+
+ Test Files  2 passed (2)
+      Tests  15 passed (15)
+   Start at  08:37:47
+   Duration  10.57s (tests 39%, environment 25%, transform 23%, import 10%, setup 3%)
+
+    Isolate  2 workers spawned · ~1.45s startup each (spawn + environment, per file)
+             at least ~1.45s faster with isolate: false — reuses workers across files instead of one per file
+

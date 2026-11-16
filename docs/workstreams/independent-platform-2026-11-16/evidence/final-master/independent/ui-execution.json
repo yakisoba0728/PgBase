@@ -1,0 +1,32 @@
+[
+  {
+    "check": "ui-red",
+    "exit_code": 1,
+    "head": "242f80aea730ee483cc22798fb6450bdb3064081",
+    "source_tree": "b758d273142d75377c18011d240cd64929cb4c97",
+    "command": "node_modules/.bin/vitest run src/ops/JobsView.test.tsx src/storage/MigrationView.test.tsx --maxWorkers=1",
+    "dependencies": "Own copied dependencies from pinned project npm ci; author directory unmodified",
+    "fixture_overlaid": true,
+    "log_sha256": "4173943ed0ecd8cb7c50f4167d0658ff40ab6fadc46b7d8cd94586bbd4aadff2",
+    "summary": [
+      "Test Files  2 failed (2)",
+      "Tests  7 failed | 8 passed (15)",
+      "Duration  13.40s (tests 64%, environment 15%, transform 13%, import 6%, setup 2%)"
+    ]
+  },
+  {
+    "check": "ui-green",
+    "exit_code": 0,
+    "head": "b56b74022eced2c767429b435a2abc4031ec37ee",
+    "source_tree": "2c6942b22a709d019b2cb18726ac8dc0b2d97887",
+    "command": "node_modules/.bin/vitest run src/ops/JobsView.test.tsx src/storage/MigrationView.test.tsx --maxWorkers=1",
+    "dependencies": "Own copied dependencies from pinned project npm ci; author directory unmodified",
+    "fixture_overlaid": false,
+    "log_sha256": "52c5284f3fff7d146e3c5403b8950fa98e03cbeb713561f4f366e6993bf598d7",
+    "summary": [
+      "Test Files  2 passed (2)",
+      "Tests  15 passed (15)",
+      "Duration  10.57s (tests 39%, environment 25%, transform 23%, import 10%, setup 3%)"
+    ]
+  }
+]

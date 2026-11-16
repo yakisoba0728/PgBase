@@ -1,0 +1,58 @@
+[
+  {
+    "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/backend-unit-red.log",
+    "source_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+    "source_tree": "b758d273142d75377c18011d240cd64929cb4c97",
+    "command": "GOTOOLCHAIN=local GOMAXPROCS=4 go test -race ./internal/filestore -run ^TestStorageControllerDoesNotUseForeignLeaseAfterCancellation$ -count=1 -v",
+    "exit_code": 1,
+    "fixture_overlaid_on_old_source": true,
+    "sha256": "8b3457f4f3a66aa97862bfb056d4599cf3d08db4fd74041cf9f52aa8dcef5480",
+    "bytes": 1126,
+    "top_level_go_passes": 0,
+    "top_level_go_failures": 1,
+    "go_subtest_failures": 3,
+    "skip_lines": 0
+  },
+  {
+    "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/backend-unit-green.log",
+    "source_sha": "e59fc07668e0a282555f2f52dbddf890162254e0",
+    "source_tree": "63b3b6eb3379e32967b16d5a637e9aa1d1052f95",
+    "command": "GOTOOLCHAIN=local GOMAXPROCS=4 go test -race ./internal/filestore -count=1 -v",
+    "exit_code": 0,
+    "fixture_overlaid_on_old_source": false,
+    "sha256": "1c9b504e618b0be7c2aca35519b75d26698a345fe0fac773d4b09185ee5fe31e",
+    "bytes": 7039,
+    "top_level_go_passes": 38,
+    "top_level_go_failures": 0,
+    "go_subtest_failures": 0,
+    "skip_lines": 0
+  },
+  {
+    "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/sdk-dart-red.log",
+    "source_sha": "242f80aea730ee483cc22798fb6450bdb3064081",
+    "source_tree": "b758d273142d75377c18011d240cd64929cb4c97",
+    "command": "dart pub get --offline && dart test test/user_lifecycle_test.dart --reporter expanded",
+    "exit_code": 1,
+    "fixture_overlaid_on_old_source": true,
+    "sha256": "5e5840dd4c01e0ce359ec398533828e3e85246241e9350a94da8e3b3a196c122",
+    "bytes": 3120,
+    "top_level_go_passes": null,
+    "top_level_go_failures": null,
+    "go_subtest_failures": null,
+    "skip_lines": 0
+  },
+  {
+    "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent/sdk-dart-green.log",
+    "source_sha": "8ccf8ca7b5a7a973dc209563e2b3256966da89be",
+    "source_tree": "519e2191f1c24eb27750d5970222d74e4e7354b8",
+    "command": "dart pub get --offline && dart test test/user_lifecycle_test.dart --reporter expanded",
+    "exit_code": 0,
+    "fixture_overlaid_on_old_source": false,
+    "sha256": "2aa2b2d0233346e7573c2cf91b222e3f176e395269c8f0aa7a108aa70738c47e",
+    "bytes": 2058,
+    "top_level_go_passes": null,
+    "top_level_go_failures": null,
+    "go_subtest_failures": null,
+    "skip_lines": 0
+  }
+]

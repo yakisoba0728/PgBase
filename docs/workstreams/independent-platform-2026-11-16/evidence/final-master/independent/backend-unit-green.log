@@ -1,0 +1,108 @@
+=== RUN   TestStorageOperationReusesOnlyItsOwnLease
+--- PASS: TestStorageOperationReusesOnlyItsOwnLease (0.00s)
+=== RUN   TestAuthFileFieldNameLength
+--- PASS: TestAuthFileFieldNameLength (0.00s)
+=== RUN   TestHiddenFieldPolicyGuardsEveryFileOperation
+--- PASS: TestHiddenFieldPolicyGuardsEveryFileOperation (0.00s)
+=== RUN   TestImageDecodeOwnsFormatAndPixelBudget
+--- PASS: TestImageDecodeOwnsFormatAndPixelBudget (0.00s)
+=== RUN   TestThumbnailByteAndReaderPathsHaveIdenticalBoundsAndOutput
+--- PASS: TestThumbnailByteAndReaderPathsHaveIdenticalBoundsAndOutput (0.11s)
+=== RUN   TestLocalPublicationSurvivesProcessTermination
+=== RUN   TestLocalPublicationSurvivesProcessTermination/during_write
+=== RUN   TestLocalPublicationSurvivesProcessTermination/after_publication
+--- PASS: TestLocalPublicationSurvivesProcessTermination (0.12s)
+    --- PASS: TestLocalPublicationSurvivesProcessTermination/during_write (0.07s)
+    --- PASS: TestLocalPublicationSurvivesProcessTermination/after_publication (0.05s)
+=== RUN   TestLocalStoreRejectsTraversalAndPublishesAtomically
+--- PASS: TestLocalStoreRejectsTraversalAndPublishesAtomically (0.00s)
+=== RUN   TestLocalStoreStreamsResolvedByteRange
+--- PASS: TestLocalStoreStreamsResolvedByteRange (0.00s)
+=== RUN   TestCountingReaderStopsAtMaximumWithoutBuffering
+--- PASS: TestCountingReaderStopsAtMaximumWithoutBuffering (0.00s)
+=== RUN   TestDownloadTokenIsBoundToCurrentUserFileVariantAndExpiry
+--- PASS: TestDownloadTokenIsBoundToCurrentUserFileVariantAndExpiry (0.00s)
+=== RUN   TestLocalPutDoesNotPublishAfterFinalReadCancelsContext
+--- PASS: TestLocalPutDoesNotPublishAfterFinalReadCancelsContext (0.00s)
+=== RUN   TestPolicyCallbackMustExplicitlyOptIntoPublicFiles
+--- PASS: TestPolicyCallbackMustExplicitlyOptIntoPublicFiles (0.00s)
+=== RUN   TestLifecycleReadCloserReportsOneFinalStreamOutcome
+=== RUN   TestLifecycleReadCloserReportsOneFinalStreamOutcome/eof
+=== RUN   TestLifecycleReadCloserReportsOneFinalStreamOutcome/read_failure
+=== RUN   TestLifecycleReadCloserReportsOneFinalStreamOutcome/cancellation
+--- PASS: TestLifecycleReadCloserReportsOneFinalStreamOutcome (0.00s)
+    --- PASS: TestLifecycleReadCloserReportsOneFinalStreamOutcome/eof (0.00s)
+    --- PASS: TestLifecycleReadCloserReportsOneFinalStreamOutcome/read_failure (0.00s)
+    --- PASS: TestLifecycleReadCloserReportsOneFinalStreamOutcome/cancellation (0.00s)
+=== RUN   TestLifecycleReaderCancellationClosesBlockedReadAndReportsOnce
+--- PASS: TestLifecycleReaderCancellationClosesBlockedReadAndReportsOnce (0.00s)
+=== RUN   TestParseS3RangeMetadataRejectsInconsistentResponses
+--- PASS: TestParseS3RangeMetadataRejectsInconsistentResponses (0.00s)
+=== RUN   TestS3RangeMapsDisappearanceDuringSizeResolutionToNotFound
+--- PASS: TestS3RangeMapsDisappearanceDuringSizeResolutionToNotFound (0.00s)
+=== RUN   TestStagedCopiesShareOneFinalOutcomeAndAdmissionRelease
+--- PASS: TestStagedCopiesShareOneFinalOutcomeAndAdmissionRelease (0.00s)
+=== RUN   TestStagedCompletionReleasesAdmissionEvenWhenHookPanics
+--- PASS: TestStagedCompletionReleasesAdmissionEvenWhenHookPanics (0.00s)
+=== RUN   TestStorageControllerDoesNotUseForeignLeaseAfterCancellation
+=== RUN   TestStorageControllerDoesNotUseForeignLeaseAfterCancellation/put
+=== RUN   TestStorageControllerDoesNotUseForeignLeaseAfterCancellation/open
+=== RUN   TestStorageControllerDoesNotUseForeignLeaseAfterCancellation/delete
+--- PASS: TestStorageControllerDoesNotUseForeignLeaseAfterCancellation (0.00s)
+    --- PASS: TestStorageControllerDoesNotUseForeignLeaseAfterCancellation/put (0.00s)
+    --- PASS: TestStorageControllerDoesNotUseForeignLeaseAfterCancellation/open (0.00s)
+    --- PASS: TestStorageControllerDoesNotUseForeignLeaseAfterCancellation/delete (0.00s)
+=== RUN   TestCopyVerifiedPreservesConflictingDestinationObject
+--- PASS: TestCopyVerifiedPreservesConflictingDestinationObject (0.00s)
+=== RUN   TestCopyVerifiedReusesIdenticalDestinationObject
+--- PASS: TestCopyVerifiedReusesIdenticalDestinationObject (0.00s)
+=== RUN   TestStorageNamespaceIgnoresTransportOptions
+--- PASS: TestStorageNamespaceIgnoresTransportOptions (0.00s)
+=== RUN   TestStorageValidationIdentifiesInvalidFields
+--- PASS: TestStorageValidationIdentifiesInvalidFields (0.00s)
+=== RUN   TestUploadByteValidationRejectsInvalidStoredContent
+=== RUN   TestUploadByteValidationRejectsInvalidStoredContent/valid
+=== RUN   TestUploadByteValidationRejectsInvalidStoredContent/size
+=== RUN   TestUploadByteValidationRejectsInvalidStoredContent/digest
+=== RUN   TestUploadByteValidationRejectsInvalidStoredContent/type
+=== RUN   TestUploadByteValidationRejectsInvalidStoredContent/limit
+--- PASS: TestUploadByteValidationRejectsInvalidStoredContent (0.00s)
+    --- PASS: TestUploadByteValidationRejectsInvalidStoredContent/valid (0.00s)
+    --- PASS: TestUploadByteValidationRejectsInvalidStoredContent/size (0.00s)
+    --- PASS: TestUploadByteValidationRejectsInvalidStoredContent/digest (0.00s)
+    --- PASS: TestUploadByteValidationRejectsInvalidStoredContent/type (0.00s)
+    --- PASS: TestUploadByteValidationRejectsInvalidStoredContent/limit (0.00s)
+=== RUN   TestVariantGrammarIsBounded
+--- PASS: TestVariantGrammarIsBounded (0.00s)
+=== RUN   TestRenderVariantSupportsWebP
+--- PASS: TestRenderVariantSupportsWebP (0.00s)
+=== RUN   TestRenderThumbnailDataExtractsAnimatedWebPFirstFrame
+--- PASS: TestRenderThumbnailDataExtractsAnimatedWebPFirstFrame (0.02s)
+=== RUN   TestAnimatedWebPVP8LAlphaBlendsWithBackground
+=== RUN   TestAnimatedWebPVP8LAlphaBlendsWithBackground/blend
+=== RUN   TestAnimatedWebPVP8LAlphaBlendsWithBackground/replace
+--- PASS: TestAnimatedWebPVP8LAlphaBlendsWithBackground (0.00s)
+    --- PASS: TestAnimatedWebPVP8LAlphaBlendsWithBackground/blend (0.00s)
+    --- PASS: TestAnimatedWebPVP8LAlphaBlendsWithBackground/replace (0.00s)
+=== RUN   TestAnimatedWebPALPHSubchunkPreservesAlpha
+--- PASS: TestAnimatedWebPALPHSubchunkPreservesAlpha (0.00s)
+=== RUN   TestWebPThumbnailEncodingPreservesAlpha
+--- PASS: TestWebPThumbnailEncodingPreservesAlpha (0.00s)
+=== RUN   TestRenderVariantSupportsGIF
+--- PASS: TestRenderVariantSupportsGIF (0.00s)
+=== RUN   TestRenderThumbnailDataPreservesGIFTransparencyAsPNG
+--- PASS: TestRenderThumbnailDataPreservesGIFTransparencyAsPNG (0.00s)
+=== RUN   TestBuildThumbnailPreservesGIFTransparencyAsPNG
+--- PASS: TestBuildThumbnailPreservesGIFTransparencyAsPNG (0.00s)
+=== RUN   TestRenderThumbnailDataNormalizesEXIFOrientation
+--- PASS: TestRenderThumbnailDataNormalizesEXIFOrientation (0.01s)
+=== RUN   TestOrientImageAllEXIFOrientations
+--- PASS: TestOrientImageAllEXIFOrientations (0.00s)
+=== RUN   TestEXIFParserRejectsMalformedAndOversizedIFDs
+--- PASS: TestEXIFParserRejectsMalformedAndOversizedIFDs (0.00s)
+=== RUN   TestRenderThumbnailReaderEnforcesByteAndPixelBounds
+--- PASS: TestRenderThumbnailReaderEnforcesByteAndPixelBounds (0.00s)
+=== RUN   TestRenderVariantDimensionsAndVerticalCrop
+--- PASS: TestRenderVariantDimensionsAndVerticalCrop (0.22s)
+PASS
+ok  	github.com/yakisoba0728/PgBase/internal/filestore	1.597s
