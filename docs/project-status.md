@@ -469,11 +469,12 @@ UI를 다시 만들며 서버 응답과 코드에서 관찰한 사항이다. `fr
 
 - **운영 배포**(2026-11-17T10:50–10:52Z, `https://pgbase.yaki.kr`): 사전 점검(앱 healthy, 67/67, doctor 통과) → 서버에서 `d64c729f` 후보 이미지 빌드와 이전 이미지 `pgbase-rollback:cd244c33` 태그 → 앱 정지 → DB dump(1,285,053 bytes)·파일 archive를 `/etc/dokploy/backups/pgbase/20261117T105028Z-hardening`에 저장 → 격리된 PostgreSQL에 복원해 후보 이미지로 `migrate up`(68·69 적용, 69/69·dirty=false, doctor 통과, 건수 일치) → Dokploy `compose.deploy` deployment `VhpSigLR47xTP_3szBatk` done(57초) → 사후 검증. 배포 commit `d64c729f`, 운영 69/69·dirty=false, doctor 통과, 관리자·사용자·레코드 건수와 `PGBASE_*` 환경·파일 checksum 보존, 배포 바이너리와 준비 이미지 바이너리 일치, PostgreSQL 17.12, `/health/live`·`/health/ready`·`/admin/` 200, 세션 없는 `/api/admin/session` 401, 미등록 경로 404, 진입 JS·CSS가 commit된 dist와 SHA-256 일치. 중단은 약 1분 40초였다.
 - **릴리스**: main `57507741`(배포 commit `d64c729f`에 문서만 더함)에 tag `v0.4.0`을 만들었다. 릴리스 gate [run 44069969545](https://github.com/yakisoba0728/PgBase/actions/runs/44069969545)가 contract·e2e·복원 drill·Go unit·PostgreSQL 16.13/17.9/18.3 통합·frontend·security를 통과했고(Windows self-update는 건너뜀) 이미지 `sha256:aa5a9bf0dee12a847d44f885453949b49577235c80f71c99930407771a6b6e25`를 `v0.4.0`·`latest`로 승격했다. GitHub 릴리스 [v0.4.0](https://github.com/yakisoba0728/PgBase/releases/tag/v0.4.0)에 v0.3.1과 같은 첨부 8개를 올렸다. 운영은 이 이미지가 아닌 서버 source build다. 첨부한 attestation 서명을 따로 재검증하지는 않았다.
+- **운영 초기화**: 2026-11-17T23:06–23:08Z 소유자 지시로 운영 데이터를 초기화했다: 컨테이너 제거, DB·파일 volume 삭제, 서버의 `/etc/dokploy/backups/pgbase` 백업 5개 삭제 후 main `57507741`을 빈 volume에 다시 배포(deployment `tVnKvWxa8-6nrvlipXBMS`, done). 69/69·dirty=false, doctor 통과, 관리자·사용자·컬렉션 0, `/api/admin/status`는 `setupRequired: true`, health 200. 첫 배포 때 만든 `…-hardening` 백업도 함께 지웠으므로 초기화 이전 데이터(관리자 1, 사용자 0, 파일 0)로 돌아갈 수 없다.
 
 하지 않은 것과 한계:
 
 - 패키지(npm/pub.dev) 공개.
-- 운영에서 로그인 후 화면·CRUD·realtime·jobs·파일 동작 확인. 서버 밖 백업.
+- 운영 첫 관리자 생성과 설정 재입력(소유자 작업). 운영에서 로그인 후 화면·CRUD·realtime·jobs·파일 동작 확인. 운영 백업. 세션 기록에 노출된 Dokploy API key 교체.
 - 부하 gate 통과는 1회 실행이다. 실패한 run과 호스트 fsync 속도를 비교하지 않아 수정 효과와 호스트 차이가 섞여 있다.
 - 쓰기 요청당 WAL flush 약 2.5회는 그대로다.
 - 목록 조회 할당 최적화 측정에서 일부 p99가 올랐다(동시 1 목록 5.3ms → 36.0ms 등). 읽기 commit 수정 뒤에 다시 재지 않았다.

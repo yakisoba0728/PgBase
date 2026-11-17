@@ -1,6 +1,6 @@
 # 다음 작업과 완료 기준
 
-2026-11-17 기준: main은 `d64c729f`(schema 69)이고 같은 commit이 운영에 배포돼 있다. 플랫폼 강화([PR #148](https://github.com/yakisoba0728/PgBase/pull/148))를 병합하고 같은 날 배포했으며, main `57507741`을 [v0.4.0](https://github.com/yakisoba0728/PgBase/releases/tag/v0.4.0)으로 게시했다. 범위와 검증은 [현재 상태](project-status.md) §15를 따른다.
+2026-11-17 기준: main은 `d64c729f`(schema 69)이고 운영은 main `57507741`을 빈 데이터로 새로 설치한 상태다. 플랫폼 강화([PR #148](https://github.com/yakisoba0728/PgBase/pull/148))를 병합하고 같은 날 배포했으며, main `57507741`을 [v0.4.0](https://github.com/yakisoba0728/PgBase/releases/tag/v0.4.0)으로 게시했다. 범위와 검증은 [현재 상태](project-status.md) §15를 따른다.
 
 2026-11-15 기준: main은 `5cb9ea0d`(schema 67)이고 같은 commit이 운영에 배포돼 있다. 최신 릴리스 tag는 v0.3.1(schema 66)이라 그 뒤의 백엔드 재작성(PR #135–#137, schema 67), PR #138–#141, 관리자 UI 개편([PR #142](https://github.com/yakisoba0728/PgBase/pull/142))과 크기·모션 후속([PR #144](https://github.com/yakisoba0728/PgBase/pull/144))은 tag 없이 main에만 있다. 이번 UI 개편의 범위와 검증은 [현재 상태](project-status.md) §13을 따른다. 아래 2026-11-13 문단과 표는 당시 기록에 이번 항목을 더한 것이다.
 
