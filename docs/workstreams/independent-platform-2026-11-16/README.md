@@ -1,6 +1,6 @@
 # Independent PostgreSQL platform workstream
 
-Merged to main as `d64c729f` through [PR #148](https://github.com/yakisoba0728/PgBase/pull/148) on 2026-11-17. It adds system migrations `000068` (realtime pending queue) and `000069` (durable variant cleanup). Production still runs schema 67; deployment is a separate step.
+Merged to main as `d64c729f` through [PR #148](https://github.com/yakisoba0728/PgBase/pull/148) on 2026-11-17. It adds system migrations `000068` (realtime pending queue) and `000069` (durable variant cleanup). Deployed to production the same day (schema 69/69); see [project status](../../project-status.md) §15.
 
 ## Status: merged
 

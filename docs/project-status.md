@@ -459,17 +459,20 @@ UI를 다시 만들며 서버 응답과 코드에서 관찰한 사항이다. `fr
 
 ## 15. 2026-11-17 플랫폼 강화 병합(`refactor/independent-platform-20261116`)
 
-기록일: 2026-11-17 KST. main `8f551de4`(schema 67)에서 분기한 [PR #148](https://github.com/yakisoba0728/PgBase/pull/148)을 squash 병합했다(main `d64c729f`, schema 69). 운영에는 배포하지 않았다.
+기록일: 2026-11-17 KST. main `8f551de4`(schema 67)에서 분기한 [PR #148](https://github.com/yakisoba0728/PgBase/pull/148)을 squash 병합했다(main `d64c729f`, schema 69). 같은 날 운영에 배포했다.
 
 - **변경**: system migration `000068`(realtime 대기열을 outbox transaction 안에서 채움)·`000069`(중단된 객체 쓰기의 삭제 의도를 쓰기 전에 보존). 백업 압축 해제 크기 제한, 관리자 TOTP 6자리 검증, OIDC token 시각·키 제약, OAuth avatar redirect 제한, 메일 템플릿 escape. SDK(TypeScript·Dart)와 관리자 UI의 결과를 요청한 세션에 묶음. 목록 조회 할당 약 53% 감소. qualification용 workflow와 부하 테스트 추가.
 - **부하 gate**: 이전 후보 `89e883fc`는 200 RPS × 600초에서 p99 588ms로 실패했다(기준 250ms). `pg_stat_statements`로 보니 읽기 요청의 `FOR SHARE` 고정이 XID와 WAL을 만들어 읽기 commit마다 fsync를 기다리고 있었다. record 읽기(`List`·`ListPocketBase`·`Get`)가 소유한 transaction을 `synchronous_commit=off`로 commit하게 했다. 잠금, 쓰기, 호출자 transaction 안의 읽기는 그대로다.
 - **측정**: 로컬(PostgreSQL 17.9 Docker, 200 RPS × 30초, 원본·수정본 교대 10쌍)에서 실행당 WAL sync 약 12,300 → 8,100, p99는 9쌍에서 수정본이 낮았다(중앙값 70ms → 58ms). CI [run 44053449983](https://github.com/yakisoba0728/PgBase/actions/runs/44053449983)에서 15개 job 통과, p99 13.2ms.
-- **검증**: 단위 테스트 전체, `recordops`·`query`·`database`·`recordaccess` 통합 테스트, 읽기 commit 범위를 확인하는 통합 테스트 추가. 병합 후 main push CI의 Frontend·Security는 통과했고 Backend는 기록 시점에 진행 중이었다.
+- **검증**: 단위 테스트 전체, `recordops`·`query`·`database`·`recordaccess` 통합 테스트, 읽기 commit 범위를 확인하는 통합 테스트 추가. 병합 후 main push CI(Backend·Frontend·Security)가 통과했다. 병합 commit의 tree는 전체 qualification을 통과한 PR head `a3ac4b5d`와 같다.
 - **정리**: PR에서 증거·과정 문서 862개(약 29MB)를 지웠다. 원본은 commit `3c163037`에 남아 있다. 보조 원격 브랜치 4개를 지웠다.
+
+- **운영 배포**(2026-11-17T10:50–10:52Z, `https://pgbase.yaki.kr`): 사전 점검(앱 healthy, 67/67, doctor 통과) → 서버에서 `d64c729f` 후보 이미지 빌드와 이전 이미지 `pgbase-rollback:cd244c33` 태그 → 앱 정지 → DB dump(1,285,053 bytes)·파일 archive를 `/etc/dokploy/backups/pgbase/20261117T105028Z-hardening`에 저장 → 격리된 PostgreSQL에 복원해 후보 이미지로 `migrate up`(68·69 적용, 69/69·dirty=false, doctor 통과, 건수 일치) → Dokploy `compose.deploy` deployment `VhpSigLR47xTP_3szBatk` done(57초) → 사후 검증. 배포 commit `d64c729f`, 운영 69/69·dirty=false, doctor 통과, 관리자·사용자·레코드 건수와 `PGBASE_*` 환경·파일 checksum 보존, 배포 바이너리와 준비 이미지 바이너리 일치, PostgreSQL 17.12, `/health/live`·`/health/ready`·`/admin/` 200, 세션 없는 `/api/admin/session` 401, 미등록 경로 404, 진입 JS·CSS가 commit된 dist와 SHA-256 일치. 중단은 약 1분 40초였다.
 
 하지 않은 것과 한계:
 
-- 운영 배포, 릴리스 tag, 패키지 공개.
+- 릴리스 tag, 패키지 공개.
+- 운영에서 로그인 후 화면·CRUD·realtime·jobs·파일 동작 확인. 서버 밖 백업.
 - 부하 gate 통과는 1회 실행이다. 실패한 run과 호스트 fsync 속도를 비교하지 않아 수정 효과와 호스트 차이가 섞여 있다.
 - 쓰기 요청당 WAL flush 약 2.5회는 그대로다.
 - 목록 조회 할당 최적화 측정에서 일부 p99가 올랐다(동시 1 목록 5.3ms → 36.0ms 등). 읽기 commit 수정 뒤에 다시 재지 않았다.
