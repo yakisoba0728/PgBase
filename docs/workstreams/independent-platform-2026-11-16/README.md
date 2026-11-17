@@ -12,9 +12,22 @@ The last full qualification of candidate `89e883fc` ([run 43982303611](https://g
 | Completed / dropped / errors | 120,000 / 0 / 0 | 120,000 / 0 / 0 |
 | End-to-end p99 | **588 ms** | ≤ 250 ms |
 
-Sampled evidence places the waiting in durable PostgreSQL `COMMIT` (WAL) and the request pool queue behind it. No correctable software defect was reproduced and no runtime patch was adopted.
+Sampled evidence places the waiting in durable PostgreSQL `COMMIT` (WAL) and the request pool queue behind it.
 
-Next step: capture a short trace with per-transaction acquire, `COMMIT` and release times aligned to PostgreSQL and host observations, establish an avoidable software cause, then make a minimal fix and run one full qualification on the new source. Do not rerun the unchanged candidate to look for a faster host.
+### Read commits no longer wait for a WAL flush
+
+Statement statistics showed that read requests write WAL: the `FOR SHARE` pins on `schema_state`, `collection_access`, `users` and `collection_rules` assign an XID, so every read `COMMIT` waited for an fsync while holding one of four pooled connections. Record reads (`List`, `ListPocketBase`, `Get`) that own their transaction now commit with `synchronous_commit = off`. They write no rows, so nothing durable is at stake; the locks and their exclusion guarantees are unchanged. Mutations and reads inside a caller's transaction stay synchronous.
+
+Local measurement (PostgreSQL 17.9 in Docker, 200 RPS × 30 s, pool 4, base and fix interleaved):
+
+| | WAL syncs per run | p99 over 10 pairs |
+| --- | --- | --- |
+| Before | about 12,300 | 14–360 ms, median 70 ms |
+| After | about 8,100 | 9–68 ms, median 58 ms |
+
+The fix had the lower p99 in 9 of 10 pairs. Run-to-run variance on this host is large and its fsync (0.2–0.4 ms mean) is faster than the failed CI host (0.80 ms), so this does not show that the 600 s gate passes. That needs a full qualification of the new source.
+
+Still open: each mutation causes about 2.5 WAL flushes (the record transaction plus outbox delivery). Relaxing any of those changes delivery or durability semantics and is an owner decision.
 
 ## Documents
 

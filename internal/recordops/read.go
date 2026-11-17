@@ -23,7 +23,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPag
 		}
 		return RecordPage{}, err
 	}
-	err = s.pinnedTx(ctx, request.Collection, pgx.RepeatableRead, nil, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+	err = s.readTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		var err error
 		page, err = s.reader.List(WithTransaction(ctx, tx), query.ListRequest{
 			Principal: request.Principal, Collection: request.Collection, Cursor: request.Cursor,
@@ -49,7 +49,7 @@ func (s *Service) ListPocketBase(ctx context.Context, request PocketBaseListRequ
 	if err := s.validateRequest(ctx, request.Principal, request.RequestID); err != nil {
 		return PocketBasePage{}, err
 	}
-	err = s.pinnedTx(ctx, request.Collection, pgx.RepeatableRead, nil, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+	err = s.readTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		var err error
 		page, err = query.ListPocketBase(WithTransaction(ctx, tx), s.reader, query.PocketBaseListRequest{ListRequest: query.ListRequest{
 			Principal: request.Principal, Collection: request.Collection, Cursor: request.Cursor,
@@ -92,7 +92,7 @@ func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, e
 	if err := s.validateRequest(ctx, request.Principal, request.RequestID); err != nil {
 		return Record{}, err
 	}
-	err = s.pinnedTx(ctx, request.Collection, pgx.RepeatableRead, nil, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+	err = s.readTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		id := request.ID
 		var err error
 		if request.PublicID != "" {

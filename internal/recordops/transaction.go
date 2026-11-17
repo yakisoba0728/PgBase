@@ -27,7 +27,7 @@ func (s *Service) compoundTx(ctx context.Context, operation func(context.Context
 			return operation(WithTransaction(ctx, savepoint), savepoint)
 		})
 	}
-	return s.ownedTx(ctx, pgx.ReadCommitted, func(tx pgx.Tx) error {
+	return s.ownedTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		owned := context.WithValue(WithTransaction(ctx, tx), managedTransactionKey{}, true)
 		return operation(owned, tx)
 	})
@@ -67,10 +67,31 @@ func (s *Service) deleteTx(ctx context.Context, collectionName string, operation
 	return s.pinnedTx(ctx, collectionName, pgx.ReadCommitted, nil, operation)
 }
 
+// readTx pins like updateTx for an operation that writes no rows. The FOR
+// SHARE pins still give the transaction an XID and WAL records, so a
+// synchronous COMMIT would wait for a WAL flush that protects nothing. Only a
+// transaction owned here relaxes it; a borrowed one may carry its owner's writes.
+func (s *Service) readTx(ctx context.Context, collectionName string, operation func(pgx.Tx, schema.Catalog, schema.Collection) error) error {
+	return s.pinnedTxOptions(ctx, collectionName, pgx.TxOptions{
+		IsoLevel:   pgx.RepeatableRead,
+		BeginQuery: "begin isolation level repeatable read; set local synchronous_commit = off",
+	}, nil, operation)
+}
+
 func (s *Service) pinnedTx(
 	ctx context.Context,
 	collectionName string,
 	isolation pgx.TxIsoLevel,
+	idempotencyLock *int64,
+	operation func(pgx.Tx, schema.Catalog, schema.Collection) error,
+) error {
+	return s.pinnedTxOptions(ctx, collectionName, pgx.TxOptions{IsoLevel: isolation}, idempotencyLock, operation)
+}
+
+func (s *Service) pinnedTxOptions(
+	ctx context.Context,
+	collectionName string,
+	options pgx.TxOptions,
 	idempotencyLock *int64,
 	operation func(pgx.Tx, schema.Catalog, schema.Collection) error,
 ) error {
@@ -101,7 +122,7 @@ func (s *Service) pinnedTx(
 		if err := requireTransactionOutcome(ctx); err != nil {
 			return err
 		}
-		if isolation == pgx.ReadCommitted {
+		if options.IsoLevel == pgx.ReadCommitted {
 			if err := database.RequireReadCommitted(ctx, tx); err != nil {
 				return err
 			}
@@ -113,15 +134,15 @@ func (s *Service) pinnedTx(
 		// Roll back this operation even if its owner later commits the transaction.
 		return database.InSavepoint(ctx, tx, run)
 	}
-	return s.ownedTx(ctx, isolation, run)
+	return s.ownedTx(ctx, options, run)
 }
 
-func (s *Service) ownedTx(ctx context.Context, isolation pgx.TxIsoLevel, operation func(pgx.Tx) error) error {
+func (s *Service) ownedTx(ctx context.Context, options pgx.TxOptions, operation func(pgx.Tx) error) error {
 	return database.Retry(ctx, func() error {
 		if hooks, _ := ctx.Value(mutationHookKey{}).(*mutationHookRun); hooks != nil {
 			hooks.events, hooks.failure = nil, nil
 		}
-		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: isolation}, operation)
+		return s.pool.InTx(ctx, options, operation)
 	}, func(cause database.RetryCause, exhausted bool) {
 		s.record(ctx, observability.TransactionRetryEvent(cause, exhausted))
 		if s.logger == nil {

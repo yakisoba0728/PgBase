@@ -453,7 +453,7 @@ UI를 다시 만들며 서버 응답과 코드에서 관찰한 사항이다. `fr
 
 - **Cloudflare 경로**: proxy를 끄고 DNS만 쓰거나, 유료 plan 또는 서버 이전. 운영 설정이라 소유자 결정. 고치기 전에는 요청 하나가 약 0.5초다.
 - **컬렉션 텍스트 필드 trigram index**: `LIKE` 컴파일로 index가 쓰일 수 있게만 했고 index는 없다. 대량 검색은 아직 빨라지지 않았다. migration, 쓰기 비용, disk(50만 행 기준 필드당 50~100MB)가 따른다. generic plan에서 index 사용 여부는 측정 두 건의 결과가 달라 index를 넣을 때 다시 확인한다.
-- **schema 고정의 `FOR SHARE`**: 읽기 transaction마다 XID와 WAL을 만든다. advisory lock으로 바꾸는 것은 설계 결정이 필요해 손대지 않았다.
+- **schema 고정의 `FOR SHARE`**: 읽기 transaction마다 XID와 WAL을 만든다. advisory lock으로 바꾸는 것은 설계 결정이 필요해 손대지 않았다. PR #148에서 record 읽기(`List`·`ListPocketBase`·`Get`)가 소유한 transaction은 `synchronous_commit=off`로 commit해 WAL flush 대기만 없앴다. XID·WAL 생성과 잠금 자체는 그대로다.
 - **PocketBase 호환 offset 목록의 전체 count**, **썸네일 token 일괄 발급 endpoint**, **`files=true`의 서버 쪽 단축**(결과가 달라질 수 있어 UI 쪽만 처리).
 - **UI 배치**: 손보지 않았다. 후보는 모바일에서 저장 버튼 줄의 줄바꿈, session 확인 전 boot 스켈레톤이 shell 모양이 아닌 것.
 
