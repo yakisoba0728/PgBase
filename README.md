@@ -4,7 +4,7 @@ PgBase is an independent PostgreSQL application backend with an embedded adminis
 
 Start with one application instance and one PostgreSQL database. Run additional PgBase instances for the same project when the workload calls for it. PostgreSQL owns durable application state; transaction, authorization and failure-recovery contracts take priority over compatibility with other backends.
 
-**Status:** early v0.x. Interfaces and database contracts may change. The latest published release is [v0.3.1](https://github.com/yakisoba0728/PgBase/releases/tag/v0.3.1), based on schema 66; current source uses schema 69. Source changes, release artifacts and production deployments are separate states. The [independent-platform workstream](docs/workstreams/independent-platform-2026-11-16/README.md) records the current redesign scope and verification gaps. It is not a completed production-readiness certification.
+**Status:** early v0.x. Interfaces and database contracts may change. The latest published release is [v0.4.0](https://github.com/yakisoba0728/PgBase/releases/tag/v0.4.0), based on schema 69, the same schema as current source. Source changes, release artifacts and production deployments are separate states. The [independent-platform workstream](docs/workstreams/independent-platform-2026-11-16/README.md) records the current redesign scope and verification gaps. It is not a completed production-readiness certification.
 
 ## Capabilities
 
