@@ -1,3 +1,19 @@
+# Current continuation — performance blocker recovery (2026-11-17)
+
+## Recovery checkpoint: investigation in progress; NOT_READY
+
+- Starting remote PR #148 HEAD: `77bc070047c5a19d68439b75cb7b65bcde5d1c9a`, tree `07fc4145c03d636c1416e2e838ad701cebc3b03b`; rechecked through GitHub and `git ls-remote`.
+- Main remains `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`. PR remains Open / Draft / Unmerged. This checkpoint contains documentation only and does not authorize a merge.
+- Three actual subagents are working in separate worktrees: Performance Diagnosis, Runtime Implementation, Independent QA. They are examining only WAL/COMMIT, pool/queue, and environment/observer hypotheses.
+- Confirmed cause: none yet. Runtime fixes: none. New runtime qualifications: none. Independent correction approval: pending evidence.
+- Existing full qualification [43982303611](https://github.com/yakisoba0728/PgBase/actions/runs/43982303611) remains completed, 14 successful jobs / one failed mixed-http job. No CI is running for this recovery.
+- The last tested source/checkout/tree and the 588ms/547-drop historical failures remain preserved below. Existing functional results are not extended to new runtime code.
+- Next step: analyze existing raw evidence, reproduce a specific defect with a bounded focused experiment if justified, and obtain separate QA before adopting a minimal correction. No unchanged-source 600-second retry is permitted.
+- Publication commits use `[skip ci]` only for documentation/evidence. The one new final gate remains conditional on a demonstrated safe correction and independent approval.
+- [Starting GitHub snapshot](evidence/final-master/performance-blocker-recovery/start-github-state.json).
+
+## Prior final-master checkpoint (preserved)
+
 # Current continuation — final master consolidation
 
 ## BLOCKED / NOT_READY: current performance gate fails
