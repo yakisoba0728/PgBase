@@ -120,6 +120,10 @@ func (s *Service) stage(ctx context.Context, principal identity.Subject, input U
 }
 
 func (s *Service) reserveStagedObject(ctx context.Context, key string) (*stagedObjectOwnership, error) {
+	return s.reserveObject(ctx, key, false)
+}
+
+func (s *Service) reserveObject(ctx context.Context, key string, retain bool) (*stagedObjectOwnership, error) {
 	lease, _ := ctx.Value(storageLeaseContextKey{}).(storageLease)
 	conn, ownConn := lease.conn, false
 	var err error
@@ -135,7 +139,7 @@ func (s *Service) reserveStagedObject(ctx context.Context, key string) (*stagedO
 		ownership.release()
 		return nil, err
 	}
-	if _, err = s.pool.Exec(ctx, `insert into pgbase_meta.file_object_deletions(object_key,queued_at) values($1,CURRENT_TIMESTAMP) on conflict(object_key) do nothing`, key); err != nil {
+	if _, err = s.pool.Exec(ctx, `insert into pgbase_meta.file_object_deletions(object_key,queued_at,retain_on_success) values($1,CURRENT_TIMESTAMP,$2) on conflict(object_key) do nothing`, key, retain); err != nil {
 		ownership.release()
 		return nil, err
 	}

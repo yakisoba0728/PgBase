@@ -38,11 +38,21 @@ func TestAbruptApplicationAndDatabaseTerminationPreservesCommittedState(t *testi
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cleanupCancel()
-		if output, err := suite.docker(cleanupCtx, "update", "--restart=unless-stopped", appID, databaseID); err != nil {
-			t.Errorf("restore restart policy: %v\n%s", err, output)
-		}
 		if output, err := suite.compose(cleanupCtx, "up", "-d", "--wait", "--no-build"); err != nil {
 			t.Errorf("recover compose services: %v\n%s", err, output)
+			return
+		}
+		// Compose may replace containers during recovery. Captured pre-crash
+		// IDs are evidence of the kill, not stable handles for later cleanup.
+		output, err := suite.compose(cleanupCtx, "ps", "--all", "--quiet", "pgbase", "postgres")
+		containers := strings.Fields(output)
+		if err != nil || len(containers) != 2 {
+			t.Errorf("resolve recovered services: %v\n%s", err, output)
+			return
+		}
+		args := append([]string{"update", "--restart=unless-stopped"}, containers...)
+		if output, err := suite.docker(cleanupCtx, args...); err != nil {
+			t.Errorf("restore recovered restart policy: %v\n%s", err, output)
 		}
 	})
 	// The uncommitted write must disappear while the acknowledged create and its
@@ -68,8 +78,12 @@ func TestAbruptApplicationAndDatabaseTerminationPreservesCommittedState(t *testi
 			t.Fatalf("container %s exit code=%d, want SIGKILL (137)", container, code)
 		}
 	}
-	if output, err := suite.compose(ctx, "up", "-d", "--wait", "--no-build"); err != nil {
+	// Deliberately exercise replacement IDs, not just the easier restart case.
+	if output, err := suite.compose(ctx, "up", "-d", "--wait", "--no-build", "--force-recreate"); err != nil {
 		t.Fatalf("restart after SIGKILL: %v\n%s", err, output)
+	}
+	if suite.composeServiceContainer(t, ctx, "pgbase") == appID || suite.composeServiceContainer(t, ctx, "postgres") == databaseID {
+		t.Fatal("recovery fixture did not replace both containers")
 	}
 	var fetched map[string]any
 	if err := client.request(ctx, http.MethodGet, path+"/"+id, nil, http.StatusOK, &fetched); err != nil {

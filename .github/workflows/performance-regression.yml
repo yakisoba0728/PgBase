@@ -1,0 +1,67 @@
+name: Repeated HTTP performance qualification
+
+# Explicit opt-in, hosted disposable PostgreSQL only. Label once for the
+# historical isolated patch comparison, or use final-performance-qualification
+# to compare the current PR runtime with the same historical baseline.
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repeated-http-${{ github.event.pull_request.number }}-${{ github.event.label.name }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    if: github.event.label.name == 'performance-qualification' || github.event.label.name == 'final-performance-qualification'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Repeat six AB and BA pairs with 5000 requests per stage
+        env:
+          POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
+          FINAL_COMPARISON: ${{ github.event.label.name == 'final-performance-qualification' }}
+          CANDIDATE_REF: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PGBASE_TEST_ADMIN_URL="postgres://postgres:postgres@127.0.0.1:${POSTGRES_HOST_PORT:?}/postgres?sslmode=disable"
+          git rev-parse HEAD > http-runner.txt
+          lscpu >> http-runner.txt
+          if [[ "$FINAL_COMPARISON" == 'true' ]]; then
+            python3 scripts/repeat_http_regression.py --output http-repeated --cycles 500 --candidate "$CANDIDATE_REF" | tee http-repeat-console.txt
+          else
+            python3 scripts/repeat_http_regression.py --output http-repeated --cycles 500 | tee http-repeat-console.txt
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: http-repeated-${{ github.event.label.name }}-${{ github.sha }}
+          path: |
+            http-runner.txt
+            http-repeat-console.txt
+            http-repeated/
+          retention-days: 30
+          if-no-files-found: error

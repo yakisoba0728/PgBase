@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: frontend-${{ github.event.pull_request.number || github.run_id }}
+  group: frontend-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -57,6 +57,9 @@ jobs:
       - name: Install dependencies
         working-directory: ui/admin
         run: npm ci --ignore-scripts
+
+      - name: Verify browser example security boundaries
+        run: node --test examples/javascript/test/browser-security.test.mjs
 
       - name: Typecheck
         working-directory: ui/admin

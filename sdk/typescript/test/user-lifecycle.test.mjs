@@ -1,0 +1,161 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { AuthStore, PgBaseClient, PgBaseError } from "../dist/index.js";
+
+const changed = (error) => error instanceof PgBaseError && error.status === 403 && error.code === "session_changed";
+
+const refreshedSession = (token) => ({ token, expiresAt: "later", user: { id: "one", email: "a@example.test", createdAt: "then" } });
+
+for (const waitingFor of ["refresh", "logout"]) {
+  test(`queued refresh cannot rotate a replacement session while waiting for ${waitingFor}`, async () => {
+    let release;
+    const calls = [];
+    const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, init) => {
+      calls.push(new Headers(init.headers).get("authorization"));
+      if (calls.length === 1) return new Promise((resolve) => { release = resolve; });
+      return Response.json(refreshedSession("unexpected-new-user-rotation"));
+    } });
+    client.auth.save("old-user");
+    const first = waitingFor === "refresh" ? client.realm("members").refresh() : client.logout();
+    const firstRejected = assert.rejects(first, changed);
+    const queuedRejected = assert.rejects(client.realm("members").refresh(), changed);
+    client.auth.save("new-user");
+    release(waitingFor === "refresh" ? Response.json(refreshedSession("old-rotation")) : new Response(null, { status: 204 }));
+    await Promise.all([firstRejected, queuedRejected]);
+    assert.deepEqual(calls, ["Bearer old-user"], "queued old-session work must never send a replacement token");
+    assert.equal(client.auth.token, "new-user");
+  });
+}
+
+test("queued refreshes retain their own rotation lineage and logout revokes the final token", async () => {
+  let release;
+  const calls = [];
+  const client = new PgBaseClient("http://pgbase.test", { fetch: async (url, init) => {
+    calls.push(new Headers(init.headers).get("authorization"));
+    if (calls.length === 1) return new Promise((resolve) => { release = resolve; });
+    return String(url).endsWith("/refresh")
+      ? Response.json(refreshedSession(`rotation-${calls.length}`))
+      : new Response(null, { status: 204 });
+  } });
+  client.auth.save("old-user");
+  const refreshes = Array.from({ length: 3 }, () => client.realm("members").refresh());
+  const logout = client.logout();
+  release(Response.json(refreshedSession("rotation-1")));
+  const sessions = await Promise.all(refreshes);
+  await logout;
+  assert.deepEqual(sessions.map((session) => session.token), ["rotation-1", "rotation-2", "rotation-3"]);
+  assert.deepEqual(calls, ["Bearer old-user", "Bearer rotation-1", "Bearer rotation-2", "Bearer rotation-3"]);
+  assert.equal(client.auth.token, null);
+});
+
+test("a refresh explicitly started after replacement can wait for obsolete work", async () => {
+  let release;
+  const calls = [];
+  const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, init) => {
+    calls.push(new Headers(init.headers).get("authorization"));
+    if (calls.length === 1) return new Promise((resolve) => { release = resolve; });
+    return Response.json(refreshedSession("new-user-rotation"));
+  } });
+  client.auth.save("old-user");
+  const rejected = assert.rejects(client.realm("members").refresh(), changed);
+  client.auth.save("new-user");
+  const current = client.realm("members").refresh();
+  release(Response.json(refreshedSession("old-rotation")));
+  await rejected;
+  assert.equal((await current).token, "new-user-rotation");
+  assert.deepEqual(calls, ["Bearer old-user", "Bearer new-user"]);
+  assert.equal(client.auth.token, "new-user-rotation");
+});
+
+for (const boundary of ["buffered records", "next page"]) {
+  for (const transition of ["replacement", "logout"]) {
+    test(`record iteration rejects ${boundary} after ${transition}`, async () => {
+      const auth = new AuthStore();
+      auth.save("old-user");
+      const requests = [];
+      const client = new PgBaseClient("http://pgbase.test", { auth, fetch: async (url, init) => {
+        requests.push({ url, token: new Headers(init.headers).get("authorization") });
+        return Response.json({
+          items: boundary === "buffered records" ? [{ id: "private-first" }, { id: "private-buffered" }] : [{ id: "private-first" }],
+          nextCursor: "old-user-cursor",
+        });
+      } });
+      const iterator = client.iterate("notes");
+      try {
+        assert.equal((await iterator.next()).value.id, "private-first");
+        if (transition === "logout") auth.clear();
+        else auth.save("new-user");
+        await assert.rejects(iterator.next(), changed);
+        assert.equal(requests.length, 1, "an old cursor must never be submitted under another session");
+        assert.equal(requests[0].token, "Bearer old-user");
+        assert.equal(auth.token, transition === "logout" ? null : "new-user");
+      } finally { await iterator.return(); }
+    });
+  }
+}
+
+for (const kind of ["parsed", "exact", "write", "multipart"]) {
+  for (const outcome of ["success", "HTTP error", "transport error"]) {
+    test(`user ${kind} rejects an old ${outcome} body after shared auth changes`, async () => {
+      const auth = new AuthStore();
+      auth.save("old-user");
+      let entered, body, sentToken;
+      const started = new Promise((resolve) => { entered = resolve; });
+      const response = new Response(new ReadableStream({ start(controller) { body = controller; } }), {
+        status: outcome === "HTTP error" ? 401 : 200,
+      });
+      const read = response.text.bind(response);
+      response.text = () => { entered(); return read(); };
+      const client = new PgBaseClient("http://pgbase.test", { auth, fetch: async (_url, init) => {
+        sentToken = new Headers(init.headers).get("authorization");
+        return response;
+      } });
+      const other = new PgBaseClient("http://pgbase.test", { auth });
+      const pending = kind === "parsed" ? client.records("notes").get("one")
+        : kind === "exact" ? client.records("notes").getJSON("one")
+        : kind === "write" ? client.records("notes").create({ title: "private" }, "create-old-user")
+        : client.files("notes", "one").upload("attachment", new Blob(["private"]), "private.txt");
+      const rejected = assert.rejects(pending, changed);
+      await started;
+      other.auth.save("new-user");
+      if (outcome === "transport error") body.error(new TypeError("old connection lost"));
+      else {
+        body.enqueue(new TextEncoder().encode(outcome === "success" ? '{"id":"private-old-user"}' : '{"error":{"code":"unauthorized"}}'));
+        body.close();
+      }
+      await rejected;
+      assert.equal(sentToken, "Bearer old-user");
+      assert.equal(auth.token, "new-user");
+    });
+  }
+}
+
+test("file preparation cannot submit under a replacement user's token", async () => {
+  let release, calls = 0;
+  const bytes = new Promise((resolve) => { release = resolve; });
+  const file = new Blob(["private"]);
+  file.arrayBuffer = () => bytes;
+  const client = new PgBaseClient("http://pgbase.test", { fetch: async () => {
+    calls++;
+    return Response.json({ id: "file" });
+  } });
+  client.auth.save("old-user");
+  const rejected = assert.rejects(client.files("notes", "one").upload("attachment", file, "private.txt"), changed);
+  client.auth.save("new-user");
+  release(new TextEncoder().encode("private").buffer);
+  await rejected;
+  assert.equal(calls, 0);
+});
+
+for (const realm of [false, true]) {
+  test(`a stale ${realm ? "realm" : "public"} login cannot return its obsolete session`, async () => {
+    let release;
+    const client = new PgBaseClient("http://pgbase.test", { fetch: () => new Promise((resolve) => { release = resolve; }) });
+    const pending = realm ? client.realm("members").login("old@example.test", "password") : client.login("old@example.test", "password");
+    const rejected = assert.rejects(pending, changed);
+    client.auth.save("new-user");
+    release(Response.json({ token: "old-token", user: { id: "old-user", email: "old@example.test", createdAt: "then" }, expiresAt: "later" }));
+    await rejected;
+    assert.equal(client.auth.token, "new-user");
+  });
+}

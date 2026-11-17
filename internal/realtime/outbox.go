@@ -11,7 +11,25 @@ import (
 
 var errLeaseLost = errors.New("outbox lease lost")
 
-const deliveryLock int64 = 704712092
+const (
+	deliveryLock         int64 = 704712092
+	retentionBatchSize         = 1000
+	retentionPassTimeout       = time.Second
+)
+
+// Both discovery and predecessor ordering are bounded by the pending delivery
+// queue, never lifetime outbox history. The database enqueues at outbox commit;
+// a dead or leased earlier version still blocks a later version of that record.
+const claimPendingQuery = `WITH pending AS (
+ SELECT d.event_id FROM pgbase_meta.outbox_delivery d
+ WHERE d.delivered_at IS NULL AND d.dead_at IS NULL
+ AND d.available_at<=clock_timestamp() AND (d.lease_until IS NULL OR d.lease_until<clock_timestamp())
+ AND NOT EXISTS (SELECT 1 FROM pgbase_meta.outbox_delivery prior
+  WHERE prior.collection_id=d.collection_id AND prior.record_id=d.record_id
+  AND prior.record_version<d.record_version AND prior.delivered_at IS NULL)
+ ORDER BY d.available_at,d.event_id FOR UPDATE OF d SKIP LOCKED LIMIT 100
+) UPDATE pgbase_meta.outbox_delivery d SET lease_token=$1,lease_until=clock_timestamp()+interval '30 seconds',
+ attempts=attempts+1 FROM pending WHERE d.event_id=pending.event_id RETURNING d.event_id`
 
 type claim struct{ id, token uuid.UUID }
 
@@ -22,20 +40,38 @@ func (s *Service) Run(ctx context.Context) error {
 	defer ticker.Stop()
 	maintenance := time.NewTicker(time.Minute)
 	defer maintenance.Stop()
+	prunePending := true
 	for {
-		if err := s.Deliver(ctx); err != nil && ctx.Err() == nil {
-			s.logger.WarnContext(ctx, "outbox delivery deferred")
-		}
+		prunePending = s.runPass(ctx, prunePending)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
 		case <-maintenance.C:
-			if err := s.Prune(ctx, 24*time.Hour); err != nil && ctx.Err() == nil {
-				s.logger.WarnContext(ctx, "realtime retention deferred")
-			}
+			prunePending = true
 		}
 	}
+}
+
+// A backlog gets one bounded cleanup transaction per delivery poll. This keeps
+// delivery moving during catch-up without limiting retention to one batch per
+// minute or creating an unbounded maintenance loop. Errors wait for the next
+// maintenance tick; a full batch continues on the next ordinary poll.
+func (s *Service) runPass(ctx context.Context, prunePending bool) bool {
+	if err := s.Deliver(ctx); err != nil && ctx.Err() == nil {
+		s.logger.WarnContext(ctx, "outbox delivery deferred")
+	}
+	if !prunePending || ctx.Err() != nil {
+		return false
+	}
+	deleted, err := s.pruneBatch(ctx, 24*time.Hour)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.logger.WarnContext(ctx, "realtime retention deferred")
+		}
+		return false
+	}
+	return deleted == retentionBatchSize
 }
 
 func (s *Service) Deliver(ctx context.Context) error {
@@ -63,24 +99,8 @@ func (s *Service) Deliver(ctx context.Context) error {
 func (s *Service) claim(ctx context.Context) ([]claim, error) {
 	result := make([]claim, 0, batchSize)
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.outbox_delivery(event_id)
-   SELECT o.event_id FROM pgbase_meta.record_outbox o WHERE NOT EXISTS
-   (SELECT 1 FROM pgbase_meta.outbox_delivery d WHERE d.event_id=o.event_id)
-   ORDER BY o.created_at,o.event_id LIMIT 100 ON CONFLICT DO NOTHING`); err != nil {
-			return err
-		}
 		token := uuid.New()
-		rows, err := tx.Query(ctx, `WITH pending AS (
-			SELECT d.event_id FROM pgbase_meta.outbox_delivery d JOIN pgbase_meta.record_outbox o USING(event_id)
-			WHERE d.delivered_at IS NULL AND d.dead_at IS NULL
-			AND d.available_at<=clock_timestamp() AND (d.lease_until IS NULL OR d.lease_until<clock_timestamp())
-			AND NOT EXISTS (SELECT 1 FROM pgbase_meta.record_outbox prior
-			 LEFT JOIN pgbase_meta.outbox_delivery delivery ON delivery.event_id=prior.event_id
-			 WHERE prior.collection_id=o.collection_id AND prior.record_id=o.record_id
-			 AND prior.record_version<o.record_version AND delivery.delivered_at IS NULL)
-			ORDER BY d.available_at,d.event_id FOR UPDATE OF d SKIP LOCKED LIMIT 100
-  ) UPDATE pgbase_meta.outbox_delivery d SET lease_token=$1,lease_until=clock_timestamp()+interval '30 seconds',
-   attempts=attempts+1 FROM pending WHERE d.event_id=pending.event_id RETURNING d.event_id`, token)
+		rows, err := tx.Query(ctx, claimPendingQuery, token)
 		if err != nil {
 			return err
 		}
@@ -124,18 +144,37 @@ func (s *Service) publish(ctx context.Context, item claim) error {
 
 // Prune removes a bounded committed prefix older than the retention window.
 func (s *Service) Prune(ctx context.Context, retention time.Duration) error {
+	_, err := s.pruneBatch(ctx, retention)
+	return err
+}
+
+func (s *Service) pruneBatch(ctx context.Context, retention time.Duration) (int64, error) {
 	if retention < time.Hour {
-		return ErrCursorInvalid
+		return 0, ErrCursorInvalid
 	}
-	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	ctx, cancel := context.WithTimeout(ctx, retentionPassTimeout)
+	defer cancel()
+	var count int64
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, deliveryLock); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `WITH doomed AS (
-   SELECT sequence FROM pgbase_meta.realtime_events WHERE delivered_at<clock_timestamp()-make_interval(secs=>$1)
-   ORDER BY sequence LIMIT 1000
-  ), deleted AS (DELETE FROM pgbase_meta.realtime_events WHERE sequence IN (SELECT sequence FROM doomed) RETURNING sequence)
-  UPDATE pgbase_meta.realtime_retention SET floor_sequence=GREATEST(floor_sequence,COALESCE((SELECT max(sequence) FROM deleted),0)) WHERE singleton`, retention.Seconds())
-		return err
+		// Inspect only the leading bounded sequence window, even when every
+		// retained event is fresh. A clock correction can make timestamps
+		// non-monotonic; stop at the first unexpired sequence so the global
+		// replay floor never crosses a retained event.
+		return tx.QueryRow(ctx, `WITH candidates AS MATERIALIZED (
+   SELECT sequence,delivered_at>=statement_timestamp()-make_interval(secs=>$1) AS keep
+   FROM pgbase_meta.realtime_events ORDER BY sequence LIMIT $2
+  ), boundary AS (SELECT min(sequence) FILTER (WHERE keep) AS first_retained FROM candidates),
+  deleted AS (
+   DELETE FROM pgbase_meta.realtime_events events USING candidates,boundary
+   WHERE events.sequence=candidates.sequence AND NOT candidates.keep
+   AND (boundary.first_retained IS NULL OR candidates.sequence<boundary.first_retained)
+   RETURNING events.sequence
+  ) UPDATE pgbase_meta.realtime_retention
+  SET floor_sequence=GREATEST(floor_sequence,COALESCE((SELECT max(sequence) FROM deleted),0))
+  WHERE singleton RETURNING (SELECT count(*) FROM deleted)`, retention.Seconds(), retentionBatchSize).Scan(&count)
 	})
+	return count, err
 }

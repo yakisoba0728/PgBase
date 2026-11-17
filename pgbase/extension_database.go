@@ -28,6 +28,7 @@ func (host *extensionHost) callDatabase(ctx context.Context, raw json.RawMessage
 		return nil, extensionError("invalid_database_request", err)
 	}
 	results := make([]any, 0, len(request.Statements))
+	var response json.RawMessage
 	err := host.bridge.database.RunInTransaction(ctx, func(txCtx context.Context) error {
 		for _, statement := range request.Statements {
 			if strings.TrimSpace(statement.SQL) == "" {
@@ -87,10 +88,15 @@ func (host *extensionHost) callDatabase(ctx context.Context, raw json.RawMessage
 			}
 			results = append(results, map[string]any{"items": items})
 		}
-		return nil
+		// Result encoding is part of the batch outcome. PostgreSQL values such
+		// as non-finite floats are not JSON-representable; reject them while the
+		// transaction (or nested savepoint) can still roll back its writes.
+		var err error
+		response, err = json.Marshal(map[string]any{"results": results})
+		return err
 	})
 	if err != nil {
 		return nil, extensionError("database_transaction_failed", err)
 	}
-	return json.Marshal(map[string]any{"results": results})
+	return response, nil
 }

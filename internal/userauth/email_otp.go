@@ -202,7 +202,7 @@ func (s *Service) sendOTP(ctx context.Context, collectionID uuid.UUID, to, otpID
 		body = strings.ReplaceAll(strings.ReplaceAll(cb, "{{otp}}", code), "{{otp_id}}", otpID)
 		if ch != "" {
 			var wrapErr error
-			htmlBody, wrapErr = mailer.WrapHTML(strings.ReplaceAll(strings.ReplaceAll(ch, "{{otp}}", code), "{{otp_id}}", otpID))
+			htmlBody, wrapErr = mailer.RenderHTML(ch, mailer.HTMLVariables{OTP: code, OTPID: otpID})
 			if wrapErr != nil {
 				return wrapErr
 			}

@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -86,7 +88,7 @@ func TestPackRejectsManifestBeyondRestoreLimit(t *testing.T) {
 	}
 	var packed bytes.Buffer
 	if err := Pack(context.Background(), directory, &packed); err == nil || packed.Len() != 0 {
-		t.Fatalf("unrestorable backup emitted: bytes=%d err=%v", packed.Len(), err)
+		t.Fatal("unrestorable backup emitted")
 	}
 }
 func TestArchiveRejectsTraversalLinksAndDuplicate(t *testing.T) {
@@ -112,6 +114,8 @@ func TestArchiveRejectsTraversalLinksAndDuplicate(t *testing.T) {
 }
 func TestManagerSerializesPersistsAndRecoversJobs(t *testing.T) {
 	root := t.TempDir()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	manager, err := NewManager(ManagerOptions{Directory: root, Retention: 1, Create: func(ctx context.Context, path string) error {
@@ -127,37 +131,50 @@ func TestManagerSerializesPersistsAndRecoversJobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	job, err := manager.Create(context.Background())
+	// Register ownership immediately, before any assertion can fail. Workers
+	// must be stopped before TempDir cleanup, including on the timeout path.
+	own := func(owned *Manager) {
+		t.Cleanup(func() {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cleanupCancel()
+			if err := owned.Shutdown(cleanupCtx); err != nil {
+				t.Errorf("backup manager cleanup: %v", err)
+			}
+		})
+	}
+	own(manager)
+	job, err := manager.Create(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	<-entered
-	if _, err = manager.Create(context.Background()); !errors.Is(err, ErrBusy) {
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("backup callback was not entered")
+	}
+	if _, err = manager.Create(ctx); !errors.Is(err, ErrBusy) {
 		t.Fatal(err)
 	}
+	manager.mu.Lock()
+	drained := manager.drained
+	manager.mu.Unlock()
 	close(release)
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		job, err = manager.Job(context.Background(), job.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if job.Status != "running" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("job never finished")
-		}
-		time.Sleep(time.Millisecond)
+	// This is a serialization/durability contract, not a three-second storage
+	// benchmark. Wait for the actual release boundary with a deadlock watchdog.
+	select {
+	case <-drained:
+	case <-ctx.Done():
+		t.Fatal("backup operation did not release its ownership")
 	}
-	if job.Status != "completed" {
-		t.Fatal(job)
+	job, err = manager.Job(ctx, job.ID)
+	if err != nil || job.Status != "completed" {
+		t.Fatalf("job=%+v err=%v", job, err)
 	}
-	list, err := manager.List(context.Background())
+	list, err := manager.List(ctx)
 	if err != nil || len(list) != 1 {
 		t.Fatalf("entries=%v err=%v", list, err)
 	}
-	if err = manager.Shutdown(context.Background()); err != nil {
+	if err = manager.Shutdown(ctx); err != nil {
 		t.Fatal(err)
 	}
 	options := manager.options
@@ -165,12 +182,12 @@ func TestManagerSerializesPersistsAndRecoversJobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer manager.Shutdown(context.Background())
-	recovered, err := manager.Job(context.Background(), job.ID)
+	own(manager)
+	recovered, err := manager.Job(ctx, job.ID)
 	if err != nil || recovered.Status != "completed" {
 		t.Fatalf("recovered=%v err=%v", recovered, err)
 	}
-	stream, err := manager.Open(context.Background(), list[0].ID)
+	stream, err := manager.Open(ctx, list[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,17 +198,17 @@ func TestManagerSerializesPersistsAndRecoversJobs(t *testing.T) {
 	}
 	// Retention may remove the original archive during Upload. Release its
 	// read handle first so the fixture is valid on Windows as well as Unix.
-	uploaded, err := manager.Upload(context.Background(), bytes.NewReader(archive))
+	uploaded, err := manager.Upload(ctx, bytes.NewReader(archive))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if uploaded.ID == list[0].ID {
 		t.Fatal("upload reused archive identity")
 	}
-	if retained, listErr := manager.List(context.Background()); listErr != nil || len(retained) != 1 || retained[0].ID != uploaded.ID {
+	if retained, listErr := manager.List(ctx); listErr != nil || len(retained) != 1 || retained[0].ID != uploaded.ID {
 		t.Fatalf("retention entries=%+v err=%v", retained, listErr)
 	}
-	if err = manager.Delete(context.Background(), uploaded.ID); err != nil {
+	if err = manager.Delete(ctx, uploaded.ID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -274,6 +291,33 @@ func TestUnpackRejectsOversizedHeaderBeforeWritingPayload(t *testing.T) {
 	}
 }
 
+func TestUnpackRejectsCumulativeSizeOverflowBeforeReadingPayload(t *testing.T) {
+	var encoded bytes.Buffer
+	gz := gzip.NewWriter(&encoded)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "files/first", Typeflag: tar.TypeReg, Mode: 0600, Size: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: "database.dump", Typeflag: tar.TypeReg, Mode: 0600, Size: math.MaxInt64, Format: tar.FormatGNU}); err != nil {
+		t.Fatal(err)
+	}
+	// There is intentionally no huge payload. Rejecting the header must happen
+	// before reading it, rather than wrapping the cumulative byte count.
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "overflow")
+	if err := Unpack(t.Context(), &encoded, destination); err == nil || !strings.Contains(err.Error(), "exceeds limit") {
+		t.Fatalf("overflowing header limit: %v", err)
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("retained rejected destination: %v", err)
+	}
+}
+
 func TestArchiveWriterEnforcesCompressedBudgetAndPropagatesCloseFailure(t *testing.T) {
 	var output bytes.Buffer
 	bounded := &boundedArchiveWriter{writer: &output, remaining: 3}
@@ -293,5 +337,139 @@ func TestArchiveWriterEnforcesCompressedBudgetAndPropagatesCloseFailure(t *testi
 	}
 	if output.Len() > 10 {
 		t.Fatalf("compressed budget exceeded: %d", output.Len())
+	}
+}
+
+// A tar terminator followed by a gzip member is invalid immediately. Do not
+// inflate the remainder merely to discover its already-known invalidity.
+func TestUnpackRejectsTrailingContentWithoutDrainingIt(t *testing.T) {
+	source := t.TempDir()
+	makeArchiveFixture(t, source)
+	var archive bytes.Buffer
+	if err := Pack(t.Context(), source, &archive); err != nil {
+		t.Fatal(err)
+	}
+	var trailing bytes.Buffer
+	gz := gzip.NewWriter(&trailing)
+	chunk := make([]byte, 64<<10)
+	for i := range chunk {
+		chunk[i] = byte(i)
+	}
+	for range 32 {
+		if _, err := gz.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := errors.New("unpack drained beyond invalid trailing member")
+	sourceReader := io.MultiReader(bytes.NewReader(archive.Bytes()), bytes.NewReader(trailing.Bytes()), failingArchiveReader{sentinel})
+	destination := filepath.Join(t.TempDir(), "rejected")
+	err := Unpack(t.Context(), sourceReader, destination)
+	if err == nil {
+		t.Fatal("trailing gzip member accepted")
+	}
+	if errors.Is(err, sentinel) {
+		t.Fatal("invalid trailing payload was fully decompressed")
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatal("rejected extraction retained")
+	}
+}
+
+type failingArchiveReader struct{ err error }
+
+func (r failingArchiveReader) Read([]byte) (int, error) { return 0, r.err }
+
+// Local PAX records are consumed inside tar.Reader.Next without being returned
+// as archive entries. A scaled budget reproduces metadata inflation without
+// allocating or decompressing the production eight-GiB limit.
+func TestArchiveExpandedBudgetIncludesHiddenMetadata(t *testing.T) {
+	source := t.TempDir()
+	makeArchiveFixture(t, source)
+	var encoded bytes.Buffer
+	if err := Pack(t.Context(), source, &encoded); err != nil {
+		t.Fatal(err)
+	}
+	gz, err := gzip.NewReader(bytes.NewReader(encoded.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(gz)
+	if err = errors.Join(err, gz.Close()); err != nil {
+		t.Fatal(err)
+	}
+	var metadata bytes.Buffer
+	tw := tar.NewWriter(&metadata)
+	if err := tw.WriteHeader(&tar.Header{Name: "placeholder", Typeflag: tar.TypeReg, Format: tar.FormatPAX, PAXRecords: map[string]string{"pgbase.test": strings.Repeat("m", 1024)}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.Bytes()[156] != tar.TypeXHeader {
+		t.Fatal("fixture did not generate a local PAX header")
+	}
+	size, err := strconv.ParseInt(strings.Trim(string(metadata.Bytes()[124:136]), "\x00 "), 8, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pax := metadata.Bytes()[:512+(size+511)/512*512]
+	encoded.Reset()
+	writer := gzip.NewWriter(&encoded)
+	for range 8 {
+		if _, err := writer.Write(pax); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := writer.Write(raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "metadata")
+	if err := unpackArchive(t.Context(), bytes.NewReader(encoded.Bytes()), destination, int64(len(raw)+len(pax))); err == nil {
+		t.Fatal("hidden PAX metadata bypassed the expanded archive budget")
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatal("over-budget archive retained staging directory")
+	}
+}
+
+func TestArchiveExpandedBudgetRoundTripBoundary(t *testing.T) {
+	source := t.TempDir()
+	makeArchiveFixture(t, source)
+	var encoded bytes.Buffer
+	if err := Pack(t.Context(), source, &encoded); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(encoded.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	size, err := io.Copy(io.Discard, reader)
+	if err = errors.Join(err, reader.Close()); err != nil {
+		t.Fatal(err)
+	}
+	for _, delta := range []int64{0, -1} {
+		t.Run(strconv.FormatInt(delta, 10), func(t *testing.T) {
+			var packed bytes.Buffer
+			err := packArchive(t.Context(), source, &packed, size+delta)
+			if (err == nil) != (delta == 0) {
+				t.Errorf("Pack expanded boundary: delta=%d err=%v", delta, err)
+			}
+			destination := filepath.Join(t.TempDir(), "boundary")
+			err = unpackArchive(t.Context(), bytes.NewReader(encoded.Bytes()), destination, size+delta)
+			if (err == nil) != (delta == 0) {
+				t.Errorf("Unpack expanded boundary: delta=%d err=%v", delta, err)
+			}
+			if delta < 0 {
+				if _, err := os.Stat(destination); !os.IsNotExist(err) {
+					t.Fatal("over-budget archive retained staging directory")
+				}
+			}
+		})
 	}
 }

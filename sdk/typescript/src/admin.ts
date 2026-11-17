@@ -233,48 +233,51 @@ export class PgBaseAdminClient {
   private async adopt(path: string, init: RequestInit, signal?: AbortSignal): Promise<AdministratorSession> {
     const generation = ++this.#generation;
     const session = await this.request<AdministratorSession & { csrfToken: string }>(path, init, signal, true);
+    if (generation !== this.#generation) throw new AdminAPIError(403, "session_changed");
     if (!session.csrfToken) throw new AdminAPIError(0, "invalid_session_response");
-    if (generation === this.#generation) this.#csrf = session.csrfToken;
+    this.#csrf = session.csrfToken;
     return { administrator: session.administrator, expiresAt: session.expiresAt };
   }
-  private async request<T>(path: string, init: RequestInit, signal?: AbortSignal, anonymous = false): Promise<T> {
+  private request<T>(path: string, init: RequestInit, signal?: AbortSignal, anonymous = false): Promise<T> {
+    return this.readResponse(path, init, signal, "application/json", async (response) =>
+      await responseJSON(response, () => { throw new AdminAPIError(response.status, "invalid_response_body"); }) as T, anonymous);
+  }
+  private requestText(path: string, init: RequestInit, signal?: AbortSignal): Promise<string> {
+    return this.readResponse(path, init, signal, "application/json", (response) => response.text());
+  }
+  private requestBlob(path: string, init: RequestInit, signal?: AbortSignal): Promise<Blob> {
+    return this.readResponse(path, init, signal, "application/gzip", (response) => response.blob());
+  }
+
+  /** One session boundary for JSON, exact text, downloads and HTTP failures. */
+  private async readResponse<T>(path: string, init: RequestInit, signal: AbortSignal | undefined,
+    accept: string, read: (response: Response) => Promise<T>, anonymous = false): Promise<T> {
     const generation = this.#generation;
+    const assertCurrent = () => {
+      if (generation !== this.#generation) throw new AdminAPIError(403, "session_changed");
+    };
     const headers = new Headers(init.headers);
-    headers.set("Accept", "application/json");
+    headers.set("Accept", accept);
     if (init.body !== undefined && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-    if (!anonymous && init.method && init.method !== "GET") headers.set("X-PgBase-CSRF", this.#csrf);
-    const response = await this.#fetch(new URL(path, this.baseURL), { ...init, headers, credentials: "include", signal });
+    if (!anonymous && init.method && !["GET", "HEAD"].includes(init.method.toUpperCase())) headers.set("X-PgBase-CSRF", this.#csrf);
+    let response: Response;
+    let body: unknown;
+    try {
+      response = await this.#fetch(new URL(path, this.baseURL), { ...init, headers, credentials: "include", signal });
+      assertCurrent();
+      body = response.ok ? await read(response) : await responseJSON(response, () => undefined);
+    } catch (error) {
+      // A late transport error must not act as a failure of the newer login.
+      assertCurrent();
+      throw error;
+    }
+    assertCurrent();
     if (!response.ok) {
-      if (response.status === 401 && generation === this.#generation) { this.#csrf = ""; this.#generation++; }
-      const data = await responseJSON(response, () => undefined) as { error?: { code?: string; details?: Record<string, string[]> } } | undefined;
+      if (response.status === 401) { this.#csrf = ""; this.#generation++; }
+      const data = body as { error?: { code?: string; details?: Record<string, string[]> } } | undefined;
       throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details);
     }
-    return await responseJSON(response, () => { throw new AdminAPIError(response.status, "invalid_response_body"); }) as T;
-  }
-  private async requestText(path: string, init: RequestInit, signal?: AbortSignal): Promise<string> {
-    const generation = this.#generation;
-    const headers = new Headers(init.headers); headers.set("Accept", "application/json");
-    if (init.body !== undefined) headers.set("Content-Type", "application/json");
-    if (init.method && init.method !== "GET") headers.set("X-PgBase-CSRF", this.#csrf);
-    const response = await this.#fetch(new URL(path, this.baseURL), { ...init, headers, credentials:"include", signal });
-    if (!response.ok) {
-      if (response.status === 401 && generation === this.#generation) { this.#csrf = ""; this.#generation++; }
-      const data = await responseJSON(response, () => undefined) as { error?: { code?: string; details?: Record<string, string[]> } } | undefined;
-      throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details);
-    }
-    return response.text();
-  }
-  private async requestBlob(path: string, init: RequestInit, signal?: AbortSignal): Promise<Blob> {
-    const generation = this.#generation;
-    const headers = new Headers(init.headers); headers.set("Accept", "application/gzip");
-    if (init.method && init.method !== "GET") headers.set("X-PgBase-CSRF", this.#csrf);
-    const response = await this.#fetch(new URL(path, this.baseURL), { ...init, headers, credentials: "include", signal });
-    if (!response.ok) {
-      if (response.status === 401 && generation === this.#generation) { this.#csrf = ""; this.#generation++; }
-      const data = await responseJSON(response, () => undefined) as { error?: { code?: string; details?: Record<string, string[]> } } | undefined;
-      throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details);
-    }
-    return response.blob();
+    return body as T;
   }
 }
 

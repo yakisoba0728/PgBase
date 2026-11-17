@@ -83,17 +83,17 @@ final class PgBaseAdminClient {
     CancellationToken? cancellation,
   }) async {
     final normalized = method.toUpperCase();
-    final generation = _generation;
     final requestHeaders = _headers(normalized, headers);
-    final response = await transport.json(
-      normalized,
-      path,
-      headers: requestHeaders,
-      body: body,
-      query: query,
-      cancellation: cancellation,
+    final response = await _send(
+      () => transport.json(
+        normalized,
+        path,
+        headers: requestHeaders,
+        body: body,
+        query: query,
+        cancellation: cancellation,
+      ),
     );
-    _accept(response, generation);
     if (response.status == 204 || response.bytes.isEmpty)
       return const JsonNull();
     try {
@@ -490,13 +490,13 @@ final class PgBaseAdminClient {
     String id, {
     CancellationToken? cancellation,
   }) async {
-    final generation = _generation;
-    final response = await transport.download(
-      '/api/admin/backups/${Uri.encodeComponent(id)}',
-      headers: _headers('GET', null),
-      cancellation: cancellation,
+    final response = await _send(
+      () => transport.download(
+        '/api/admin/backups/${Uri.encodeComponent(id)}',
+        headers: _headers('GET', null),
+        cancellation: cancellation,
+      ),
     );
-    _accept(response, generation);
     return response.bytes;
   }
 
@@ -576,10 +576,10 @@ final class PgBaseAdminClient {
       body: body,
       cancellation: cancellation,
     );
+    _assertCurrent(generation);
     if (value is! JsonObject || value['csrfToken'] is! JsonString)
       throw const PgBaseProtocolError('invalid_admin_session_response');
-    if (generation == _generation)
-      _csrf = (value['csrfToken']! as JsonString).value;
+    _csrf = (value['csrfToken']! as JsonString).value;
     return value;
   }
 
@@ -609,16 +609,16 @@ final class PgBaseAdminClient {
     UploadSource source, {
     CancellationToken? cancellation,
   }) async {
-    final generation = _generation;
-    final response = await transport.upload(
-      'POST',
-      path,
-      source: source,
-      contentType: 'application/gzip',
-      headers: _headers('POST', null),
-      cancellation: cancellation,
+    final response = await _send(
+      () => transport.upload(
+        'POST',
+        path,
+        source: source,
+        contentType: 'application/gzip',
+        headers: _headers('POST', null),
+        cancellation: cancellation,
+      ),
     );
-    _accept(response, generation);
     try {
       final value = decodeExactJson(response.bytes);
       if (value is! JsonObject)
@@ -642,7 +642,31 @@ final class PgBaseAdminClient {
     return headers;
   }
 
+  // Transport methods collect the complete body before returning. Keep success,
+  // HTTP failures and interrupted bodies in the same administrator generation.
+  Future<PgBaseResponse> _send(
+    Future<PgBaseResponse> Function() attempt,
+  ) async {
+    final generation = _generation;
+    final PgBaseResponse response;
+    try {
+      response = await attempt();
+    } catch (_) {
+      _assertCurrent(generation);
+      rethrow;
+    }
+    _accept(response, generation);
+    return response;
+  }
+
+  void _assertCurrent(int generation) {
+    if (generation != _generation) {
+      throw const PgBaseError(403, 'session_changed');
+    }
+  }
+
   void _accept(PgBaseResponse response, int generation) {
+    _assertCurrent(generation);
     if (response.status < 200 || response.status >= 300) {
       if (response.status == 401 && generation == _generation) {
         _csrf = '';

@@ -53,6 +53,15 @@ func compileAuthRecordRuleInTx(ctx context.Context, tx database.DBTX, collection
 		return "", nil, ErrValidation
 	}
 	request := authRuleRequestContext(ruleContext)
+	metadata := accessrule.RequestContextFromContext(ctx)
+	if authRuleRequiresRequestMetadata(parsed) && (metadata == nil || metadata.Method == "") {
+		// An embedded/background call has no HTTP request. Empty strings must
+		// not turn a negative method/header/query predicate into permission.
+		return "false", nil, nil
+	}
+	if metadata != nil {
+		request.Method, request.Query, request.Headers, request.Context = metadata.Method, metadata.Query, metadata.Headers, metadata.Context
+	}
 	if err := loadAuthRuleActor(ctx, tx, collectionID, ruleContext.Principal, &request); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "false", nil, nil
@@ -66,6 +75,30 @@ func compileAuthRecordRuleInTx(ctx context.Context, tx database.DBTX, collection
 		return "", nil, ErrValidation
 	}
 	return predicate, args, nil
+}
+
+func authRuleRequiresRequestMetadata(rule accessrule.Rule) bool {
+	requires := func(path string) bool {
+		return strings.HasPrefix(path, "__pgbase_request_") &&
+			!strings.HasPrefix(path, "__pgbase_request_auth_") &&
+			!strings.HasPrefix(path, "__pgbase_request_body_")
+	}
+	if requires(rule.Field) || requires(rule.OtherField) {
+		return true
+	}
+	if rule.Function != nil {
+		for _, arg := range rule.Function.Args {
+			if requires(arg.Field) {
+				return true
+			}
+		}
+	}
+	for _, arg := range rule.Args {
+		if authRuleRequiresRequestMetadata(arg) {
+			return true
+		}
+	}
+	return false
 }
 
 func loadAuthRuleActor(ctx context.Context, db database.DBTX, collectionID uuid.UUID, principal identity.Subject, request *accessrule.RequestContext) error {

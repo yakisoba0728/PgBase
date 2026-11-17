@@ -81,7 +81,7 @@ func TestDeliveryFailureBackoffDeadLetterAndOperatorRetry(t *testing.T) {
 	}
 	// A second dead row pages newest first with an opaque position cursor.
 	second := seedEvent(t, s, user, collection)
-	if _, err := s.pool.Exec(ctx, `INSERT INTO pgbase_meta.outbox_delivery(event_id,attempts,dead_at) VALUES($1,10,clock_timestamp())`, second); err != nil {
+	if _, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.outbox_delivery SET attempts=10,dead_at=clock_timestamp() WHERE event_id=$1`, second); err != nil {
 		t.Fatal(err)
 	}
 	first, err := s.DeadEvents(ctx, "", 1)

@@ -199,6 +199,12 @@ var searchAndServiceLogsSQL string
 //go:embed 000067_file_field_name_length.sql
 var fileFieldNameLengthSQL string
 
+//go:embed 000068_realtime_pending_queue.sql
+var realtimePendingQueueSQL string
+
+//go:embed 000069_durable_variant_cleanup.sql
+var durableVariantCleanupSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -307,6 +313,8 @@ var migrations = []Migration{
 	{Version: 65, Name: "optional_auth_email_uniqueness", SQL: optionalAuthEmailUniquenessSQL, SHA256: sha256.Sum256([]byte(optionalAuthEmailUniquenessSQL))},
 	{Version: 66, Name: "search_and_service_logs", SQL: searchAndServiceLogsSQL, SHA256: sha256.Sum256([]byte(searchAndServiceLogsSQL))},
 	{Version: 67, Name: "file_field_name_length", SQL: fileFieldNameLengthSQL, SHA256: sha256.Sum256([]byte(fileFieldNameLengthSQL))},
+	{Version: 68, Name: "realtime_pending_queue", SQL: realtimePendingQueueSQL, SHA256: sha256.Sum256([]byte(realtimePendingQueueSQL))},
+	{Version: 69, Name: "durable_variant_cleanup", SQL: durableVariantCleanupSQL, SHA256: sha256.Sum256([]byte(durableVariantCleanupSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

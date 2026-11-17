@@ -102,27 +102,30 @@ func (*Listener) Component() string { return "schema" }
 
 func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 	connectStarted := time.Now()
-	connection, err := l.pool.Acquire(ctx)
+	pooledConnection, err := l.pool.Acquire(ctx)
 	if err != nil {
 		l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, schemaOperationOutcome(err), time.Since(connectStarted)))
 		return false, fmt.Errorf("acquire schema listener connection: %w", err)
 	}
+	// The listener owns this fully initialized session for its whole lifetime.
+	// Detach it so LISTEN does not permanently consume a request-pool slot;
+	// this adds one dedicated backend without changing the request pool limit.
+	connection := pooledConnection.Hijack()
 	defer func() {
 		l.setReady(ctx, false)
 		l.pid.Store(0)
 		cleanupCtx, cancel := database.BoundedCleanupContext(ctx)
 		defer cancel()
-		_ = connection.Conn().Close(cleanupCtx)
-		connection.Release()
+		_ = connection.Close(cleanupCtx)
 	}()
 
-	l.pid.Store(connection.Conn().PgConn().PID())
+	l.pid.Store(connection.PgConn().PID())
 	if _, err := connection.Exec(ctx, "listen "+schemaChangeChannel); err != nil {
 		l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, schemaOperationOutcome(err), time.Since(connectStarted)))
 		return false, fmt.Errorf("listen for schema changes: %w", err)
 	}
 	l.record(ctx, observability.OperationEvent(observability.OperationListenerConnect, observability.OutcomeSuccess, time.Since(connectStarted)))
-	catalog, err := l.reload(ctx, connection.Conn())
+	catalog, err := l.reload(ctx, connection)
 	if err != nil {
 		return false, err
 	}
@@ -133,12 +136,12 @@ func (l *Listener) listenOnce(ctx context.Context) (bool, error) {
 	becameReady := true
 	for {
 		waitCtx, cancelWait := context.WithTimeout(ctx, l.writerHeartbeatInterval)
-		_, waitErr := connection.Conn().WaitForNotification(waitCtx)
+		_, waitErr := connection.WaitForNotification(waitCtx)
 		cancelWait()
 		if waitErr != nil && !errors.Is(waitErr, context.DeadlineExceeded) {
 			return becameReady, fmt.Errorf("wait for schema change notification: %w", waitErr)
 		}
-		if _, err := l.reload(ctx, connection.Conn()); err != nil {
+		if _, err := l.reload(ctx, connection); err != nil {
 			return becameReady, err
 		}
 	}

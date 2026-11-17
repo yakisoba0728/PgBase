@@ -1,6 +1,7 @@
 package userauth
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rsa"
@@ -57,8 +58,7 @@ func (p *HTTPOAuthProvider) verifyOIDCIDToken(ctx context.Context, raw, verifier
 		return nil, errors.New("OIDC id token signature is invalid")
 	}
 	var issuer, nonce string
-	var exp float64
-	if json.Unmarshal(claims["iss"], &issuer) != nil || issuer != p.config.Issuer || json.Unmarshal(claims["exp"], &exp) != nil || time.Now().Unix() >= int64(exp) || !oidcAudience(claims["aud"], claims["azp"], p.config.ClientID) || json.Unmarshal(claims["nonce"], &nonce) != nil {
+	if json.Unmarshal(claims["iss"], &issuer) != nil || issuer != p.config.Issuer || !validOIDCTimes(claims, time.Now()) || !oidcAudience(claims["aud"], claims["azp"], p.config.ClientID) || json.Unmarshal(claims["nonce"], &nonce) != nil {
 		return nil, errors.New("OIDC id token claims are invalid")
 	}
 	d := sha256.Sum256([]byte(verifier))
@@ -66,6 +66,38 @@ func (p *HTTPOAuthProvider) verifyOIDCIDToken(ctx context.Context, raw, verifier
 		return nil, errors.New("OIDC id token nonce is invalid")
 	}
 	return claims, nil
+}
+
+// OIDC requires exp and iat; JWT nbf is optional, but must be enforced when
+// present. Keep fractional NumericDates valid without lossy int64 conversion.
+func validOIDCTimes(claims map[string]json.RawMessage, now time.Time) bool {
+	exp, expOK := oidcNumericDate(claims["exp"])
+	iat, iatOK := oidcNumericDate(claims["iat"])
+	current := float64(now.Unix()) + float64(now.Nanosecond())/float64(time.Second)
+	if !expOK || !iatOK || current >= exp || iat > current+60 || iat > exp {
+		return false
+	}
+	if raw, present := claims["nbf"]; present {
+		nbf, ok := oidcNumericDate(raw)
+		if !ok || nbf > current+60 || nbf >= exp {
+			return false
+		}
+	}
+	return true
+}
+
+func oidcNumericDate(raw json.RawMessage) (float64, bool) {
+	raw = bytes.TrimSpace(raw)
+	// Unmarshalling null into a numeric variable succeeds with zero. Reject
+	// null and strings explicitly rather than treating a missing claim as 0.
+	if len(raw) == 0 || raw[0] != '-' && (raw[0] < '0' || raw[0] > '9') {
+		return 0, false
+	}
+	var number float64
+	if json.Unmarshal(raw, &number) != nil {
+		return 0, false
+	}
+	return number, true
 }
 
 func oidcAudience(raw, authorizedParty json.RawMessage, clientID string) bool {
@@ -107,18 +139,45 @@ func (p *HTTPOAuthProvider) oidcRSAKey(ctx context.Context, kid string) (*rsa.Pu
 	}
 	var set struct {
 		Keys []struct {
-			KeyID string `json:"kid"`
-			Type  string `json:"kty"`
-			N     string `json:"n"`
-			E     string `json:"e"`
+			KeyID      string          `json:"kid"`
+			Type       string          `json:"kty"`
+			Use        json.RawMessage `json:"use"`
+			Algorithm  json.RawMessage `json:"alg"`
+			Operations json.RawMessage `json:"key_ops"`
+			N          string          `json:"n"`
+			E          string          `json:"e"`
 		} `json:"keys"`
 	}
 	if err := p.doJSON(req, &set); err != nil {
 		return nil, err
 	}
 	for _, k := range set.Keys {
-		if k.KeyID != kid || k.Type != "RSA" {
+		if k.KeyID != kid || k.Type != "RSA" || !optionalJWKString(k.Use, "sig") || !optionalJWKString(k.Algorithm, "RS256") {
 			continue
+		}
+		if len(k.Operations) != 0 {
+			var operations []string
+			if json.Unmarshal(k.Operations, &operations) != nil {
+				continue
+			}
+			canVerify, canSign, invalid := false, false, false
+			for _, operation := range operations {
+				switch operation {
+				case "verify":
+					invalid = invalid || canVerify
+					canVerify = true
+				case "sign":
+					invalid = invalid || canSign
+					canSign = true
+				default:
+					// This profile uses an RSA signature key. Encryption and
+					// other unrelated operations cannot authorize that use.
+					invalid = true
+				}
+			}
+			if !canVerify || invalid {
+				continue
+			}
 		}
 		n, nerr := base64.RawURLEncoding.DecodeString(k.N)
 		e, eerr := base64.RawURLEncoding.DecodeString(k.E)
@@ -129,10 +188,24 @@ func (p *HTTPOAuthProvider) oidcRSAKey(ctx context.Context, kid string) (*rsa.Pu
 		for _, b := range e {
 			exponent = exponent<<8 | int(b)
 		}
-		if exponent < 3 {
+		if exponent < 3 || exponent&1 == 0 {
 			break
 		}
-		return &rsa.PublicKey{N: new(big.Int).SetBytes(n), E: exponent}, nil
+		modulus := new(big.Int).SetBytes(n)
+		if modulus.BitLen() < 2048 {
+			break
+		}
+		return &rsa.PublicKey{N: modulus, E: exponent}, nil
 	}
 	return nil, errors.New("OIDC signing key is unavailable")
+}
+
+// Missing JWK constraints are optional. Explicit null/empty values are not
+// equivalent to omission and cannot authorize this algorithm or key purpose.
+func optionalJWKString(raw json.RawMessage, expected string) bool {
+	if len(raw) == 0 {
+		return true
+	}
+	var value string
+	return json.Unmarshal(raw, &value) == nil && value == expected
 }

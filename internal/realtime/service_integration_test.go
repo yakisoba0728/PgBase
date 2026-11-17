@@ -140,7 +140,7 @@ func TestReadForResolvesAndProjectsExactTextRecordIdentity(t *testing.T) {
 	}
 }
 
-func realtimeFixture(t *testing.T) (*Service, uuid.UUID, uuid.UUID) {
+func realtimeFixture(t testing.TB) (*Service, uuid.UUID, uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
 	pool, err := database.Open(ctx, testutil.NewDatabase(t), 5*time.Second)

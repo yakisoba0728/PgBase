@@ -112,6 +112,14 @@ void main() {
           }),
         );
         final refresh = client.realm('members').refresh();
+        final rejected = expectLater(
+          refresh,
+          throwsA(
+            isA<PgBaseError>()
+                .having((error) => error.status, 'status', 403)
+                .having((error) => error.code, 'code', 'session_changed'),
+          ),
+        );
         final logout = realmLogout
             ? client.realm('members').logout()
             : client.logout();
@@ -122,7 +130,7 @@ void main() {
             200,
           ),
         );
-        await Future.wait([refresh, logout]);
+        await Future.wait([rejected, logout]);
         expect(logouts, 0);
         expect(client.auth.token, 'explicit-new-login');
         await client.auth.close();

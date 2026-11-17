@@ -1,8 +1,11 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as api from "../api/jobs";
+import { advanceSession, ApiError } from "../api/http";
+import * as notifications from "../components/Toast";
+import * as operations from "../app/operations";
 import { setLanguage } from "../i18n";
 import { JobsView } from "./JobsView";
 import { jobsQuery } from "./queries";
@@ -15,7 +18,58 @@ function renderJobs(client: QueryClient) {
 }
 
 beforeEach(() => setLanguage("en"));
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); operations.forgetOperations(); vi.restoreAllMocks(); });
+
+it.each(["same", "replacement"])("publishes a delayed job failure only into the %s session", async (session) => {
+  vi.spyOn(api, "listJobs").mockResolvedValue({ items: [job], workerEnabled: true });
+  let fail!: (error: Error) => void;
+  const run = vi.spyOn(api, "runJob").mockImplementation(() => new Promise((_resolve, reject) => { fail = reject; }));
+  const notify = vi.spyOn(notifications, "toast").mockImplementation(() => {});
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  renderJobs(client);
+  fireEvent.click(await screen.findByRole("button", { name: "Run now" }));
+  await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+  const invalidate = vi.spyOn(client, "invalidateQueries");
+  if (session === "replacement") advanceSession();
+  fail(new ApiError(403, session === "replacement" ? "session_changed" : "permission_denied", "Previous job request failed"));
+  await waitFor(() => expect(client.getMutationCache().getAll().at(-1)?.state.status).toBe("error"));
+  expect(notify).toHaveBeenCalledTimes(session === "same" ? 1 : 0);
+  expect(invalidate).toHaveBeenCalledTimes(session === "same" ? 1 : 0);
+  cleanup(); client.clear();
+});
+
+it.each(["run", "save"] as const)("does not publish an obsolete job %s receipt into a replacement session", async (operation) => {
+  vi.spyOn(api, "listJobs").mockResolvedValue({ items: [job], workerEnabled: true });
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => { finish = resolve; });
+  const call = operation === "run" ? vi.spyOn(api, "runJob").mockReturnValue(pending) : vi.spyOn(api, "updateJob").mockReturnValue(pending);
+  const notify = vi.spyOn(notifications, "toast").mockImplementation(() => {});
+  const track = vi.spyOn(operations, "trackOperation");
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  renderJobs(client);
+  if (operation === "save") fireEvent.change(await screen.findByDisplayValue("@every 1h"), { target: { value: "@every 2h" } });
+  fireEvent.click(await screen.findByRole("button", { name: operation === "run" ? "Run now" : "Save" }));
+  await waitFor(() => expect(call).toHaveBeenCalledTimes(1));
+  const invalidate = vi.spyOn(client, "invalidateQueries");
+  advanceSession();
+  finish();
+  await waitFor(() => expect(client.getMutationCache().getAll().at(-1)?.state.status).toBe("error"));
+  expect(notify).not.toHaveBeenCalled();
+  expect(track).not.toHaveBeenCalled();
+  expect(invalidate).not.toHaveBeenCalled();
+  cleanup(); client.clear();
+});
+
+it("does not issue a queued job run after its click session changes", async () => {
+  vi.spyOn(api, "listJobs").mockResolvedValue({ items: [job], workerEnabled: true });
+  const run = vi.spyOn(api, "runJob").mockResolvedValue(undefined);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { onMutate: () => advanceSession() } } });
+  renderJobs(client);
+  fireEvent.click(await screen.findByRole("button", { name: "Run now" }));
+  await waitFor(() => expect(client.getMutationCache().getAll().at(-1)?.state.status).toBe("error"));
+  expect(run).not.toHaveBeenCalled();
+  cleanup(); client.clear();
+});
 
 it("keeps the loaded list when a refetch fails", async () => {
   const list = vi.spyOn(api, "listJobs").mockResolvedValueOnce({ items: [job], workerEnabled: true }).mockRejectedValue(new Error("offline"));

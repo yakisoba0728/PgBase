@@ -1,11 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { ApiError } from "../api/http";
+import { advanceSession, ApiError } from "../api/http";
 import * as realtime from "../api/realtime";
 import { setLanguage } from "../i18n";
 import { realtimeKey } from "./queries";
 import { RealtimeView } from "./RealtimeView";
+import * as notifications from "../components/Toast";
 
 const event = (id: string) => ({ eventId: id, collectionName: "posts", recordId: `r-${id}`, operation: "update", recordVersion: 1, attempts: 10, createdAt: "2026-11-14T00:00:00Z", deadAt: "2026-11-14T00:00:00Z" }) as realtime.DeadRealtimeEvent;
 
@@ -53,6 +54,22 @@ it("disables only the row whose retry is in flight", async () => {
   await waitFor(() => expect(screen.getByRole("checkbox", { name: "Select e1" })).toBeEnabled());
 });
 
+it("does not dispatch queued retries under a replacement administrator session", async () => {
+  vi.mocked(realtime.listDeadRealtimeEvents).mockResolvedValue({ items: Array.from({ length: 6 }, (_, i) => event(`e${i}`)) });
+  const release: (() => void)[] = [];
+  const retry = vi.spyOn(realtime, "retryRealtimeEvent").mockImplementation(() => new Promise<void>((resolve) => { release.push(resolve); }));
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RealtimeView /></QueryClientProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "Retry all loaded (6)" }));
+  await waitFor(() => expect(retry).toHaveBeenCalledTimes(4));
+  advanceSession();
+  // Subsequent callbacks resolve immediately, so the baseline cannot hang when
+  // it incorrectly starts the two tasks that were still queued at sign-out.
+  retry.mockResolvedValue(undefined);
+  release.forEach((resolve) => resolve());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Retry all loaded (6)" })).toBeEnabled());
+  expect(retry).toHaveBeenCalledTimes(4);
+});
+
 it("keeps at most ten pages of dead events and offers a way back to the newest", async () => {
   vi.spyOn(realtime, "listDeadRealtimeEvents").mockImplementation(async (before) => {
     const page = before === undefined ? 0 : Number(before);
@@ -69,4 +86,22 @@ it("keeps at most ten pages of dead events and offers a way back to the newest",
   expect(screen.getByRole("button", { name: "Retry all loaded (10)" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Back to newest" }));
   expect(await screen.findByRole("checkbox", { name: "Select p0" })).toBeInTheDocument();
+});
+
+it("does not refresh replacement-session caches or publish an old retry notification", async () => {
+  let release!: () => void;
+  const retry = vi.spyOn(realtime, "retryRealtimeEvent").mockImplementation(() => new Promise<void>((resolve) => { release = resolve; }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const invalidate = vi.spyOn(client, "invalidateQueries");
+  const notify = vi.spyOn(notifications, "toast");
+  render(<QueryClientProvider client={client}><RealtimeView /></QueryClientProvider>);
+  await screen.findByRole("checkbox", { name: "Select e1" });
+  fireEvent.click(screen.getAllByRole("button", { name: "Retry" })[0]);
+  await waitFor(() => expect(retry).toHaveBeenCalledTimes(1));
+  advanceSession();
+  release();
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: "Select e1" })).toBeEnabled());
+  expect(invalidate).not.toHaveBeenCalled();
+  expect(notify).not.toHaveBeenCalled();
+  cleanup(); client.clear();
 });

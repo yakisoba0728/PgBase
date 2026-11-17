@@ -1,0 +1,12 @@
+# Restore changes the active database and file target. Use this override only
+# with its own disposable Compose project, never the other browser backends.
+services:
+  pgbase:
+    environment:
+      PGBASE_FILES_DRIVER: local
+      PGBASE_FILES_LOCAL_DIRECTORY: /tmp/pgbase-files
+      # The runtime is nonroot. It creates and owns this private subdirectory;
+      # the tmpfs mount root is owned by root and cannot be chmod'ed by it.
+      PGBASE_BACKUPS_DIRECTORY: /backups/archives
+    tmpfs:
+      - /backups:size=256m,mode=1777

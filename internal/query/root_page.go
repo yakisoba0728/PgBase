@@ -127,6 +127,13 @@ func (s *Service) readRootPageInTx(
 			hasMore = true
 			return false, nil
 		}
+		// Plain roots are already measured and no callback can change their
+		// wire representation. Relation hydration must be measured again after
+		// it rewrites the map, so only cache the unchanged scalar response.
+		if request.hydrate == nil {
+			candidate.wireBytes = len(encoded)
+			candidate.wireMeasured = true
+		}
 		result.candidates = append(result.candidates, candidate)
 		responseBytes += len(encoded)
 		if len(result.candidates) > pageLimit {

@@ -51,7 +51,9 @@ export function idsFilter(ids: string[]): string {
   return ids.map((id) => `id = ${quote(id)}`).join(" || ");
 }
 
-/** Plain text of an HTML string for one-line summaries; tags dropped, common entities decoded. */
+/** Display summary only: this is not an HTML sanitizer. It may contain literal
+ * markup after entity decoding; callers must render it as text (React children
+ * or textContent), never as innerHTML. Tags are dropped for readability. */
 export function htmlText(html: string, limit = 400): string {
   return html
     .slice(0, limit * 8)

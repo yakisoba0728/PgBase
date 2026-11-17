@@ -584,6 +584,15 @@ func (s *ObjectMigrationService) activate(ctx context.Context, id uuid.UUID) (bo
 		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, storageTransitionLock); err != nil {
 			return err
 		}
+		// An uncertain remote Put may still finish in the source namespace.
+		// Moving its intent to a different backend would lose that coverage.
+		var uncertain bool
+		if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.file_object_deletions where retain_on_success)`).Scan(&uncertain); err != nil {
+			return err
+		}
+		if uncertain {
+			return ErrStorageConflict
+		}
 		var base int64
 		var sourceBlob, destinationBlob []byte
 		var canceled bool

@@ -114,6 +114,45 @@ func TestSMTPUsesMailboxAddressesForTheEnvelope(t *testing.T) {
 	}
 }
 
+func TestSMTPRejectsHeaderInjectionAndQuotesBodyTerminators(t *testing.T) {
+	address, messages := startSMTPFixture(t)
+	if _, err := NewSMTP(SMTPConfig{Address: address, From: "sender@example.test\r\nBcc: attacker@example.test", AllowInsecure: true}); err == nil {
+		t.Fatal("sender header injection accepted")
+	}
+	sender, err := NewSMTP(SMTPConfig{Address: address, From: "sender@example.test", AllowInsecure: true, Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range []Message{
+		{To: "user@example.test\r\nBcc: attacker@example.test", Subject: "Verify", Text: "body"},
+		{To: "user@example.test", Subject: "Verify\nBcc: attacker@example.test", Text: "body"},
+		{To: "user@example.test", Subject: "Verify\rBcc: attacker@example.test", Text: "body"},
+	} {
+		if err := sender.Send(t.Context(), message); err == nil {
+			t.Fatal("recipient or subject header injection accepted")
+		}
+	}
+	select {
+	case <-messages:
+		t.Fatal("rejected header reached the SMTP server")
+	default:
+	}
+	const text = "first\r\n.\r\nRCPT TO:<attacker@example.test>\r\nDATA\r\nstill body"
+	if err := sender.Send(t.Context(), Message{To: "user@example.test", Subject: "Verify", Text: text}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case delivered := <-messages:
+		// The fixture retains wire dot-stuffing, unlike a real MTA. The
+		// attacker-supplied terminator must remain inside this single DATA.
+		if !strings.Contains(delivered, "first\r\n..\r\nRCPT TO:<attacker@example.test>\r\nDATA\r\nstill body") {
+			t.Fatalf("SMTP body escaped its DATA command: %q", delivered)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SMTP fixture received no message")
+	}
+}
+
 func TestSMTPDeliversMultipartAlternative(t *testing.T) {
 	address, messages := startSMTPFixture(t)
 	sender, err := NewSMTP(SMTPConfig{Address: address, From: "sender@example.test", ServerName: "localhost", AllowInsecure: true, Timeout: time.Second})

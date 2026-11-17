@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Facts } from "../components/Facts";
 import { RiAddLine, RiArchive2Line, RiDownload2Line, RiErrorWarningLine, RiHistoryLine, RiUpload2Line } from "@remixicon/react";
 import { backupDownloadPath, createBackup, deleteBackup, restoreBackup, uploadBackup, type BackupEntry } from "../api/backups";
+import { captureSessionScope } from "../api/http";
 import type { BackupStorageSettings } from "../api/storage";
 import { errorText } from "../app/queries";
 import { Button, FileButton, RefreshButton } from "../components/Button";
@@ -47,34 +48,41 @@ export function BackupsActions() {
   const reason = off ? { title: t("storage.backups.offTitle"), "aria-describedby": offTextId } : {};
 
   const create = useMutation({
-    mutationFn: createBackup,
-    onSuccess: (started) => {
+    mutationFn: (scope: ReturnType<typeof captureSessionScope>) => scope.run(createBackup),
+    onSuccess: (started, scope) => {
+      if (!scope.isCurrent()) return;
       queryClient.setQueryData(backupJobQuery(started.id).queryKey, started);
       trackOperation({ kind: "backup", id: started.id, subject: started.backupId });
       update({ job: started.id });
     },
-    onError: (error) => toast(errorText(t, error), "danger"),
+    onError: (error, scope) => { if (scope.isCurrent()) toast(errorText(t, error), "danger"); },
   });
   const abort = useRef<AbortController | null>(null);
   const [fraction, setFraction] = useState(0);
   const upload = useMutation({
-    mutationFn: (file: File) => {
-      abort.current = new AbortController();
+    mutationFn: ({ file, scope }: { file: File; scope: ReturnType<typeof captureSessionScope> }) => scope.run(() => {
+      const controller = new AbortController();
+      abort.current = controller;
       setFraction(0);
-      return uploadBackup(file, abort.current.signal, setFraction);
-    },
-    onSuccess: (entry) => {
+      return uploadBackup(file, controller.signal, (progress) => { if (scope.isCurrent()) setFraction(progress); });
+    }),
+    onSuccess: (entry, { scope }) => {
+      if (!scope.isCurrent()) return;
       toast(t("storage.backups.uploaded"));
       update({ backup: entry.id });
     },
-    onError: (error) => (abort.current?.signal.aborted ? toast(t("storage.backups.uploadCanceled"), "info") : toast(errorText(t, error), "danger")),
+    onError: (error, { scope }) => {
+      if (!scope.isCurrent()) return;
+      if (abort.current?.signal.aborted) toast(t("storage.backups.uploadCanceled"), "info");
+      else toast(errorText(t, error), "danger");
+    },
     // A cancel or failure after the body was sent may still have stored the archive: list what the server has.
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: backupsQuery.queryKey }),
+    onSettled: (_entry, _error, { scope }) => { if (scope.isCurrent()) return queryClient.invalidateQueries({ queryKey: backupsQuery.queryKey }); },
   });
   const onFile = ([file]: File[]) => {
     if (!file) return;
     if (!/\.(tar\.gz|tgz)$/i.test(file.name)) toast(t("storage.backups.uploadOnly"), "danger");
-    else upload.mutate(file);
+    else upload.mutate({ file, scope: captureSessionScope() });
   };
 
   return (
@@ -84,7 +92,7 @@ export function BackupsActions() {
         <JobProgress
           title={t("storage.backups.upload")}
           state="running"
-          detail={t("storage.backups.uploading", { name: upload.variables.name, size: formatBytes(upload.variables.size) })}
+          detail={t("storage.backups.uploading", { name: upload.variables.file.name, size: formatBytes(upload.variables.file.size) })}
           done={fraction}
           total={1}
           action={<Button size="sm" variant="secondary" onClick={() => abort.current?.abort()}>{t("common.cancel")}</Button>}
@@ -92,7 +100,7 @@ export function BackupsActions() {
       ) : (
         <FileButton size="sm" icon={RiUpload2Line} accept=".tar.gz,.tgz,application/gzip" disabled={busy || off} {...reason} onFiles={onFile}>{t("storage.backups.upload")}</FileButton>
       )}
-      <Button size="sm" icon={RiAddLine} data-new loading={create.isPending} disabled={busy || off} {...reason} onClick={() => create.mutate()}>{t("storage.backups.create")}</Button>
+      <Button size="sm" icon={RiAddLine} data-new loading={create.isPending} disabled={busy || off} {...reason} onClick={() => create.mutate(captureSessionScope())}>{t("storage.backups.create")}</Button>
     </>
   );
 }
@@ -204,24 +212,26 @@ function BackupPane({ backup, location, jobRunning, onClose }: { backup: BackupE
   const [dialog, setDialog] = useState<"delete" | "restore" | null>(null);
 
   const remove = useMutation({
-    mutationFn: () => deleteBackup(backup.id),
-    onSuccess: () => {
+    mutationFn: (scope: ReturnType<typeof captureSessionScope>) => scope.run(() => deleteBackup(backup.id)),
+    onSuccess: (_result, scope) => {
+      if (!scope.isCurrent()) return;
       toast(t("storage.backups.deleted"));
       setDialog(null);
       update({ backup: null });
       void queryClient.invalidateQueries({ queryKey: backupsQuery.queryKey });
     },
-    onError: (error) => toast(errorText(t, error), "danger"),
+    onError: (error, scope) => { if (scope.isCurrent()) toast(errorText(t, error), "danger"); },
   });
   const restore = useMutation({
-    mutationFn: () => restoreBackup(backup.id),
-    onSuccess: (started) => {
+    mutationFn: (scope: ReturnType<typeof captureSessionScope>) => scope.run(() => restoreBackup(backup.id)),
+    onSuccess: (started, scope) => {
+      if (!scope.isCurrent()) return;
       queryClient.setQueryData(backupJobQuery(started.id).queryKey, started);
       trackOperation({ kind: "restore", id: started.id, subject: started.backupId });
       setDialog(null);
       update({ job: started.id, backup: null });
     },
-    onError: (error) => toast(errorText(t, error), "danger"),
+    onError: (error, scope) => { if (scope.isCurrent()) toast(errorText(t, error), "danger"); },
   });
   const name = fileName(backup);
   const typed = { phrase: name, label: t("common.typeToConfirm", { name }) };
@@ -249,9 +259,9 @@ function BackupPane({ backup, location, jobRunning, onClose }: { backup: BackupE
         <Button variant="secondary" icon={RiHistoryLine} disabled={jobRunning} onClick={() => setDialog("restore")}>{t("storage.backups.restore")}</Button>
       </footer>
       <ConfirmDialog open={dialog === "delete"} danger title={t("storage.backups.deleteTitle")} message={t("storage.backups.deleteText")} confirmLabel={t("storage.backups.delete")}
-        busy={remove.isPending} typed={typed} onConfirm={() => remove.mutate()} onCancel={() => setDialog(null)} />
+        busy={remove.isPending} typed={typed} onConfirm={() => remove.mutate(captureSessionScope())} onCancel={() => setDialog(null)} />
       <ConfirmDialog open={dialog === "restore"} danger title={t("storage.backups.restoreTitle")} message={t("storage.backups.restoreLead")} confirmLabel={t("storage.backups.restore")}
-        busy={restore.isPending} typed={typed} onConfirm={() => restore.mutate()} onCancel={() => setDialog(null)}>
+        busy={restore.isPending} typed={typed} onConfirm={() => restore.mutate(captureSessionScope())} onCancel={() => setDialog(null)}>
         <ul className="storage-steps">
           <li>{t("storage.backups.restoreStep1")}</li>
           <li>{t("storage.backups.restoreStep2", { time: created })}</li>

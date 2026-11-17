@@ -2,6 +2,78 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { PgBaseAdminClient, PgBaseClient, PgBaseError } from "../dist/index.js";
 
+test("low-level send preserves RequestInit cancellation with and without a request key", async () => {
+  for (const requestKey of [undefined, null, "read"]) {
+    const reason = new Error("caller cancelled");
+    const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, init) => {
+      init.signal?.throwIfAborted();
+      return Response.json({ ok: true });
+    } });
+    await assert.rejects(client.send("/status", { signal: AbortSignal.abort(reason) }, { requestKey }), (error) => error === reason);
+  }
+});
+
+test("either low-level cancellation signal remains effective through body reads", async () => {
+  for (const cancelled of ["init", "options"]) {
+    const init = new AbortController();
+    const options = new AbortController();
+    let entered;
+    const started = new Promise((resolve) => { entered = resolve; });
+    const reason = new Error(`${cancelled} cancelled`);
+    let effective;
+    let finish;
+    const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, request) => {
+      effective = request.signal;
+      return new Response(new ReadableStream({ start(controller) {
+        finish = () => { controller.enqueue(new TextEncoder().encode("{}")); controller.close(); };
+        request.signal?.addEventListener("abort", () => controller.error(request.signal.reason), { once: true });
+        entered();
+      } }));
+    } });
+    const pending = client.send("/status", { signal: init.signal }, { signal: options.signal });
+    const result = pending.catch((error) => error);
+    await started;
+    (cancelled === "init" ? init : options).abort(reason);
+    const aborted = effective.aborted;
+    if (!aborted) finish(); // A broken implementation must fail rather than hang.
+    const outcome = await result;
+    assert.equal(aborted, true);
+    assert.equal(outcome, reason);
+  }
+});
+
+test("two cancellation sources work without AbortSignal.any and release forwarding listeners", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, "any");
+  Object.defineProperty(AbortSignal, "any", { configurable: true, value: undefined });
+  try {
+    for (const requestKey of [null, "combined"]) {
+      for (const fail of [false, true]) {
+        const sources = [new AbortController(), new AbortController()];
+        const active = sources.map(({ signal }) => {
+          const listeners = new Set();
+          const add = signal.addEventListener.bind(signal);
+          const remove = signal.removeEventListener.bind(signal);
+          signal.addEventListener = (type, listener, options) => { if (type === "abort") listeners.add(listener); add(type, listener, options); };
+          signal.removeEventListener = (type, listener, options) => { if (type === "abort") listeners.delete(listener); remove(type, listener, options); };
+          return listeners;
+        });
+        const failure = new Error("transport failed");
+        const client = new PgBaseClient("http://pgbase.test", { fetch: async () => {
+          if (fail) throw failure;
+          return Response.json({ ok: true });
+        } });
+        const pending = client.send("/status", { signal: sources[0].signal }, { signal: sources[1].signal, requestKey });
+        if (fail) await assert.rejects(pending, (error) => error === failure);
+        else assert.deepEqual(await pending, { ok: true });
+        assert.deepEqual(active.map((listeners) => listeners.size), [0, 0]);
+      }
+    }
+  } finally {
+    if (descriptor) Object.defineProperty(AbortSignal, "any", descriptor);
+    else delete AbortSignal.any;
+  }
+});
+
 test("auto cancellation retains body reads, leaves mutations independent and respects the global switch", async () => {
   const calls = [];
   const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, init) => new Response(new ReadableStream({
@@ -206,7 +278,8 @@ test("stale auth revocation responses preserve a newer saved session", async () 
         const client = new PgBaseClient("http://pgbase.test", { fetch: () => new Promise((resolve) => { finish = resolve; }) });
         client.auth.save("old", { id: "old" });
         const pending = action(client);
-        const settled = status === 500 ? assert.rejects(pending, { status }) : pending;
+        const settled = replace ? assert.rejects(pending, { status: 403, code: "session_changed" })
+          : status === 500 ? assert.rejects(pending, { status }) : pending;
         if (replace) client.auth.save("new", { id: "new" });
         finish(status === 204 ? new Response(null, { status }) : Response.json({ error: { code: "failed" } }, { status }));
         await settled;

@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/api"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/filestore"
@@ -140,7 +141,7 @@ func withFileServices(ctx context.Context, dependencies api.Dependencies, pool *
 		if operation == filestore.OperationWrite {
 			action = "update"
 		}
-		allowed, err := recordaccess.AllowsRecordInCatalog(ctx, tx, catalog, collection, principal, action, recordID, false, nil)
+		allowed, err := recordaccess.AllowsRecordInCatalog(ctx, tx, catalog, collection, principal, action, recordID, false, accessrule.RequestContextFromContext(ctx))
 		if err != nil {
 			return err
 		}

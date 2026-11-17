@@ -74,6 +74,7 @@ func (h *realtimeHub) deliverRecordMessages(w http.ResponseWriter, r *http.Reque
 		}
 		record, include, err := h.realtimeMessageRecord(r, principal, message)
 		if err != nil {
+			writeRealtimeStreamError(w, control, err)
 			return err
 		}
 		// Only the last matching topic can acknowledge this sequence. If the
@@ -209,7 +210,12 @@ func (h *realtimeHub) realtimeMessageRecord(r *http.Request, principal identity.
 			return nil, false, nil
 		}
 		page, err := h.dependencies.Records.List(r.Context(), recordops.ListRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, Limit: 1, Filter: "(" + sub.filter + ") && id = '" + event.PublicID + "'", RuleContext: ruleRequestContext(r)})
-		if err != nil || len(page.Items) == 0 {
+		if err != nil {
+			// An unavailable current-record check is not a nonmatching record.
+			// Keep the last acknowledged cursor so reconnect can retry the event.
+			return nil, false, err
+		}
+		if len(page.Items) == 0 {
 			return nil, false, nil
 		}
 	}
@@ -218,7 +224,13 @@ func (h *realtimeHub) realtimeMessageRecord(r *http.Request, principal identity.
 		record[key] = value
 	}
 	if sub.expand != "" && event.Operation != "delete" && h.dependencies.Records != nil {
-		current, err := h.dependencies.Records.Get(r.Context(), recordops.GetRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, PublicID: event.PublicID, Expand: sub.expand, Fields: sub.fields})
+		current, err := h.dependencies.Records.Get(r.Context(), recordops.GetRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: event.Collection, PublicID: event.PublicID, Expand: sub.expand, Fields: sub.fields, RuleContext: ruleRequestContext(r)})
+		if err != nil && !errors.Is(err, query.ErrRecordNotFound) && !errors.Is(err, recordaccess.ErrDenied) {
+			return nil, false, err
+		}
+		// A deleted or now-denied live row has no expansion, while its event
+		// snapshot has already passed the current replay policy. Operational
+		// lookup failures must instead remain retryable at the previous cursor.
 		if err == nil {
 			if expanded, ok := current.Data["expand"]; ok {
 				record["expand"] = expanded

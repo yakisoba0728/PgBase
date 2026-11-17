@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiCloseLine, RiDeleteBinLine, RiUploadLine } from "@remixicon/react";
 import type { CollectionField } from "../api/collections";
 import { deleteFile, getRecord, replaceRecordFiles, uploadRecordFile, type StoredFile } from "../api/records";
+import { captureSessionScope } from "../api/http";
 import { errorText } from "../app/queries";
 import { FileButton, IconButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
@@ -63,31 +64,35 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
   };
 
   const upload = useMutation({
-    mutationFn: async (list: File[]) => {
+    mutationFn: async ({ list, scope }: { list: File[]; scope: ReturnType<typeof captureSessionScope> }) => {
       if (replacing) {
-        const latest = await getRecord(collection, recordId!);
-        await replaceRecordFiles(collection, recordId!, latest.etag, field.name, list);
+        const latest = await scope.run(() => getRecord(collection, recordId!));
+        await scope.run(() => replaceRecordFiles(collection, recordId!, latest.etag, field.name, list));
         return;
       }
       setUploads(list.map((file) => ({ name: file.name, progress: 0 })));
       for (const [index, file] of list.entries()) {
-        await uploadRecordFile(collection, recordId!, field.name, file, {
-          onProgress: (progress) => setUploads((previous) => previous.map((item, at) => (at === index ? { ...item, progress } : item))),
-        });
+        await scope.run(() => uploadRecordFile(collection, recordId!, field.name, file, {
+          onProgress: (progress) => { if (scope.isCurrent()) setUploads((previous) => previous.map((item, at) => (at === index ? { ...item, progress } : item))); },
+        }));
         setUploads((previous) => previous.map((item, at) => (at === index ? { ...item, progress: 1 } : item)));
       }
     },
-    onError: (error) => toast(errorText(t, error), "danger"),
-    onSettled: () => {
+    onError: (error, { scope }) => { if (scope.isCurrent()) toast(errorText(t, error), "danger"); },
+    onSettled: (_result, _error, { scope }) => {
       setUploads([]);
+      // Mutation callbacks also run after unmount. An old operation must not
+      // invoke the parent's reload or refresh a replacement session's cache.
+      if (!scope.isCurrent()) return;
       return refresh();
     },
   });
   const remove = useMutation({
-    mutationFn: (file: StoredFile) => deleteFile(file.id),
-    onError: (error) => toast(errorText(t, error), "danger"),
-    onSettled: () => {
+    mutationFn: ({ file, scope }: { file: StoredFile; scope: ReturnType<typeof captureSessionScope> }) => scope.run(() => deleteFile(file.id)),
+    onError: (error, { scope }) => { if (scope.isCurrent()) toast(errorText(t, error), "danger"); },
+    onSettled: (_result, _error, { scope }) => {
       setRemoving(null);
+      if (!scope.isCurrent()) return;
       return refresh();
     },
   });
@@ -97,7 +102,7 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
     if (problem) toast(problem, "danger");
     if (!ok.length) return;
     if (recordId === null) onStage([...staged, ...ok]);
-    else upload.mutate(ok);
+    else upload.mutate({ list: ok, scope: captureSessionScope() });
   };
   // The server keeps a required field from losing its last file.
   const lastRequired = field.required && current <= 1;
@@ -160,7 +165,7 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
         confirmLabel={t("common.delete")}
         danger
         busy={remove.isPending}
-        onConfirm={() => removing && remove.mutate(removing)}
+        onConfirm={() => removing && remove.mutate({ file: removing, scope: captureSessionScope() })}
         onCancel={() => setRemoving(null)}
       />
       <FilePreview

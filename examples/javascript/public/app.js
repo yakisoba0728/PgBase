@@ -1,7 +1,9 @@
 const output = document.querySelector("#result");
 const button = document.querySelector("#run");
 const exact = "900719925474099312345.0001";
-const apiBase = new URLSearchParams(location.search).get("api") || "";
+// A deployment-owned setting, never a page URL/query parameter: requests below
+// include entered passwords and bearer tokens. Use "" for the page's origin.
+const apiBase = "";
 
 async function request(path, options = {}) {
   const response = await fetch(apiBase + path, options);
@@ -22,16 +24,17 @@ function bearer(token, body) {
 
 async function nextRecordEvent(token, action) {
   const controller = new AbortController();
-  const response = await fetch(apiBase + "/api/v1/user/collections/n6_tasks/events", {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: controller.signal,
-  });
-  if (!response.ok || !response.body) throw new Error(`SSE: ${response.status}`);
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  await action();
+  let reader;
   try {
+    const response = await fetch(apiBase + "/api/v1/user/collections/n6_tasks/events", {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) throw new Error(`SSE: ${response.status}`);
+    reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    await action();
     for (;;) {
       const item = await reader.read();
       if (item.done) throw new Error("SSE ended before a record event");
@@ -46,6 +49,10 @@ async function nextRecordEvent(token, action) {
     }
   } finally {
     controller.abort();
+    if (reader) {
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
   }
 }
 

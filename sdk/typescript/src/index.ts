@@ -62,20 +62,25 @@ export class PgBaseClient {
 
   /** Internal session rotation/logout ordering shared by public and realm auth. */
   _refresh(path: string, signal?: AbortSignal): Promise<UserSession> {
+    const queuedGeneration = this.auth.generation;
+    const queuedOrigin = this.refreshGeneration === queuedGeneration ? this.refreshOrigin : queuedGeneration;
     const previous = this.pendingRefresh;
     const logout = this.pendingLogout;
     const operation = (async () => {
       if (logout) await logout.catch(() => {});
       if (previous) await previous.catch(() => {});
+      // Earlier queued rotations may replace our token, but an explicit login
+      // or logout must not let old work act on another session.
+      if (queuedGeneration !== this.auth.generation && (this.refreshGeneration !== this.auth.generation || this.refreshOrigin !== queuedOrigin)) {
+        throw new PgBaseError(403, "session_changed");
+      }
       if (!this.auth.token) throw new PgBaseError(0, "authentication_required");
       const generation = this.auth.generation;
       const session = refreshSession(await this._request<unknown>(path, { method: "POST" }, signal));
-      if (generation === this.auth.generation) {
-        if (this.refreshGeneration !== generation) this.refreshOrigin = generation;
-        this.refreshGeneration = generation + 1;
-        this.auth.save(session.token, session.user);
-      }
-      return session;
+      assertAuthGeneration(this.auth, generation);
+      if (this.refreshGeneration !== generation) this.refreshOrigin = generation;
+      this.refreshGeneration = generation + 1;
+      return acceptAuthSession(this.auth, generation, session, true);
     })();
     this.pendingRefresh = operation;
     const clear = () => { if (this.pendingRefresh === operation) this.pendingRefresh = undefined; };
@@ -131,7 +136,7 @@ export class PgBaseClient {
   async completeOTP(otpId: string, code: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>> {
     const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
     const generation = this.auth.generation;
-    try { const session = await this.request<UserSession>(authFieldsPath("/api/v1/auth/otp/complete", query), { method: "POST", body: JSON.stringify({ otpId, code }) }, requestSignal, query?.requestKey); if (session.token && session.user && generation === this.auth.generation) this.auth.save(session.token, session.user); return session; }
+    try { const session = await this.request<UserSession>(authFieldsPath("/api/v1/auth/otp/complete", query), { method: "POST", body: JSON.stringify({ otpId, code }) }, requestSignal, query?.requestKey); return acceptAuthSession(this.auth, generation, session, !!(session.token && session.user)); }
     catch (error) { if (error instanceof PgBaseError && error.code === "mfa_required") { const [challengeToken] = error.details.challengeToken ?? []; const [expiresAt] = error.details.expiresAt ?? []; if (challengeToken && expiresAt) throw new MFAChallengeError(error.status, error.code,error.details,{challengeToken,expiresAt}); } throw error; }
   }
 
@@ -220,8 +225,7 @@ export class PgBaseClient {
     const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
     const generation = this.auth.generation;
     const session = await this.request<UserSession>(authFieldsPath("/api/v1/auth/mfa/complete", query), { method: "POST", body: JSON.stringify({ challengeToken, code }) }, requestSignal, query?.requestKey);
-    if (session.token && session.user && generation === this.auth.generation) this.auth.save(session.token, session.user);
-    return session;
+    return acceptAuthSession(this.auth, generation, session, !!(session.token && session.user));
   }
 
   beginTOTPEnrollment(currentPassword: string, signal?: AbortSignal): Promise<{ secret: string; otpAuthUrl: string }> {
@@ -244,10 +248,16 @@ export class PgBaseClient {
     query: Query = {},
     signal?: AbortSignal,
   ): AsyncGenerator<T> {
+    // Buffered rows and the next cursor belong to the session that began reading.
+    const generation = this.auth.generation;
     let cursor = query.cursor;
     do {
+      assertAuthGeneration(this.auth, generation);
       const page = await this.records<T>(collection).list({ ...query, cursor, total: undefined }, signal);
-      yield* page.items;
+      for (const record of page.items) {
+        assertAuthGeneration(this.auth, generation);
+        yield record;
+      }
       cursor = page.nextCursor;
     } while (cursor);
   }
@@ -262,9 +272,9 @@ export class PgBaseClient {
   cancelAllRequests(): void { for (const controller of this.requestControllers.values()) controller.abort(); this.requestControllers.clear(); }
 
   /** Low-level request; null disables cancellation and a string supplies an explicit key. */
-  async send<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {
-    return (await this.readResponse(path, init, options.signal, options.requestKey,
-      (response) => responseJSON(response, () => { throw new PgBaseError(response.status, "invalid_response_body"); }))).body as T;
+  send<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {
+    return inAuthScope(this.auth, async () => (await this.readResponse(path, init, options.signal, options.requestKey,
+      (response) => responseJSON(response, () => { throw new PgBaseError(response.status, "invalid_response_body"); }))).body as T);
   }
 
   async _response<T>(path: string, init: RequestInit = {}, signal?: AbortSignal, requestKey?: string | null): Promise<{ body: T; etag?: string }> {
@@ -277,12 +287,22 @@ export class PgBaseClient {
   }
 
   private async readResponse<T>(path: string, init: RequestInit, signal: AbortSignal | undefined, requestKey: string | null | undefined, read: (response: Response) => Promise<T>): Promise<{ body: T; etag?: string }> {
+    const generation = this.auth.generation;
     const method = (init.method ?? "GET").toUpperCase();
     const key = requestKey === undefined && (method === "GET" || method === "HEAD") ? `${method} ${path}` : requestKey;
-    const keyed = this.keyedSignal(key, signal);
+    // RequestInit.signal is part of send's public fetch-compatible contract.
+    // Both sources stay active when the caller also supplies RequestOptions.
+    const keyed = this.keyedSignal(key, signal, init.signal);
     try {
+      assertAuthGeneration(this.auth, generation);
       const response = await this.fetchResponse(path, init, keyed.signal);
-      return { body: await read(response), etag: response.headers.get("ETag") ?? undefined };
+      assertAuthGeneration(this.auth, generation);
+      const body = await read(response);
+      assertAuthGeneration(this.auth, generation);
+      return { body, etag: response.headers.get("ETag") ?? undefined };
+    } catch (error) {
+      assertAuthGeneration(this.auth, generation);
+      throw error;
     } finally { keyed.cleanup(); }
   }
 
@@ -319,14 +339,11 @@ export class PgBaseClient {
 		method: "POST",
 		body: JSON.stringify({ email, password, ...(path.endsWith("/register") && query?.profile !== undefined ? { fields: query.profile } : {}) }),
 	}, requestSignal, query?.requestKey);
-    if (session.token && generation === this.auth.generation) {
-      this.auth.save(session.token, session.user);
-    }
-    return session;
+    return acceptAuthSession(this.auth, generation, session, !!session.token);
   }
 
-  private async request<T>(path: string, init: RequestInit = {}, signal?: AbortSignal, requestKey?: string | null): Promise<T> {
-    return (await this._response<T>(path, init, signal, requestKey)).body;
+  private request<T>(path: string, init: RequestInit = {}, signal?: AbortSignal, requestKey?: string | null): Promise<T> {
+    return inAuthScope(this.auth, async () => (await this._response<T>(path, init, signal, requestKey)).body);
   }
 
   private async fetchResponse(path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<Response> {
@@ -348,18 +365,54 @@ export class PgBaseClient {
 	return response;
   }
 
-  private keyedSignal(key?: string | null, signal?: AbortSignal): { signal: AbortSignal | undefined; cleanup: () => void } {
-    if (!key || !this.autoCancellation) return { signal, cleanup: () => {} };
-    if (this.autoCancellation) this.cancelRequest(key);
+  private keyedSignal(key?: string | null, ...signals: (AbortSignal | null | undefined)[]): { signal: AbortSignal | undefined; cleanup: () => void } {
+    const sources = [...new Set(signals.filter((signal): signal is AbortSignal => !!signal))];
+    const requestKey = key && this.autoCancellation ? key : undefined;
+    if (!requestKey && sources.length < 2) return { signal: sources[0], cleanup: () => {} };
+    if (requestKey) this.cancelRequest(requestKey);
     const controller = new AbortController();
-    this.requestControllers.set(key, controller);
-    const abort = () => controller.abort(signal?.reason);
-    if (signal?.aborted) abort();
-    else signal?.addEventListener("abort", abort, { once: true });
+    if (requestKey) this.requestControllers.set(requestKey, controller);
+    const removeListeners: (() => void)[] = [];
+    for (const signal of sources) {
+      const abort = () => controller.abort(signal.reason);
+      if (signal.aborted) { abort(); break; }
+      signal.addEventListener("abort", abort, { once: true });
+      removeListeners.push(() => signal.removeEventListener("abort", abort));
+    }
     return { signal: controller.signal, cleanup: () => {
-      signal?.removeEventListener("abort", abort);
-      if (this.requestControllers.get(key) === controller) this.requestControllers.delete(key);
+      for (const remove of removeListeners) remove();
+      if (requestKey && this.requestControllers.get(requestKey) === controller) this.requestControllers.delete(requestKey);
     } };
+  }
+}
+
+function assertAuthGeneration(auth: AuthStore, generation: number): void {
+  if (generation !== auth.generation) throw new PgBaseError(403, "session_changed");
+}
+
+/** Check the final auth continuation and account for exactly our own save. */
+function acceptAuthSession<T extends Partial<UserSession>>(auth: AuthStore, generation: number, session: T, adopt: boolean): T {
+  assertAuthGeneration(auth, generation);
+  if (adopt) {
+    const expected = generation + 1;
+    try { auth.save(session.token!, session.user); }
+    catch (error) { assertAuthGeneration(auth, expected); throw error; }
+    // Storage/listeners are caller-owned and may synchronously change auth.
+    assertAuthGeneration(auth, expected);
+  }
+  return session;
+}
+
+/** Includes a wrapper's asynchronous mapping, not only its HTTP body read. */
+async function inAuthScope<T>(auth: AuthStore, action: () => Promise<T>): Promise<T> {
+  const generation = auth.generation;
+  try {
+    const result = await action();
+    assertAuthGeneration(auth, generation);
+    return result;
+  } catch (error) {
+    assertAuthGeneration(auth, generation);
+    throw error;
   }
 }
 
@@ -371,8 +424,7 @@ export class AuthRealm {
     const generation = this.client.auth.generation;
     try {
       const session = await this.client._request<UserSession>(`${this.path(action)}${query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`}`, { method: "POST", body: JSON.stringify({ email, password, ...(action === "register" && query?.profile !== undefined ? { fields: query.profile } : {}) }) }, requestSignal, query?.requestKey);
-      if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token, session.user);
-      return session;
+      return acceptAuthSession(this.client.auth, generation, session, !!session.token);
     } catch (error) {
       if (error instanceof PgBaseError && error.code === "mfa_required") {
         const [challengeToken] = error.details.challengeToken ?? []; const [expiresAt] = error.details.expiresAt ?? [];
@@ -384,9 +436,11 @@ export class AuthRealm {
   register<T extends RecordData = RecordData>(email: string, password: string, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<UserSession> { return this.authenticate("register", email, password, options, signal); }
   login(email: string, password: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<UserSession> { return this.authenticate("login", email, password, options, signal); }
   /** Returns the sign-in methods enabled for this auth collection. */
-  async methods(signal?: AbortSignal): Promise<AuthMethods> {
-    const methods = await this.client._request<Omit<AuthMethods, "oauth2"> & { oauth2?: AuthMethods["oauth2"] }>(this.path("methods"), {}, signal);
-    return { ...methods, oauth2: methods.oauth2 ?? { enabled: false, providers: [] } };
+  methods(signal?: AbortSignal): Promise<AuthMethods> {
+    return inAuthScope(this.client.auth, async () => {
+      const methods = await this.client._request<Omit<AuthMethods, "oauth2"> & { oauth2?: AuthMethods["oauth2"] }>(this.path("methods"), {}, signal);
+      return { ...methods, oauth2: methods.oauth2 ?? { enabled: false, providers: [] } };
+    });
   }
   /** Rotates the current bearer token after validating its replacement session. */
   refresh(signal?: AbortSignal): Promise<UserSession> { return this.client._refresh(this.path("refresh"), signal); }
@@ -396,20 +450,20 @@ export class AuthRealm {
   requestOTP(email: string, signal?: AbortSignal): Promise<{ otpId: string; expiresAt: string }> { return this.client._request(this.path("otp/request"), { method: "POST", body: JSON.stringify({ email }) }, signal); }
   async completeOTP(otpId: string, code: string, signal?: AbortSignal): Promise<UserSession> {
     const generation = this.client.auth.generation;
-    try { const session = await this.client._request<UserSession>(this.path("otp/complete"), { method: "POST", body: JSON.stringify({ otpId, code }) }, signal); if (session.token && generation === this.client.auth.generation) this.client.auth.save(session.token, session.user); return session; }
+    try { const session = await this.client._request<UserSession>(this.path("otp/complete"), { method: "POST", body: JSON.stringify({ otpId, code }) }, signal); return acceptAuthSession(this.client.auth, generation, session, !!session.token); }
     catch (error) { if (error instanceof PgBaseError && error.code === "mfa_required") { const [challengeToken] = error.details.challengeToken ?? []; const [expiresAt] = error.details.expiresAt ?? []; if (challengeToken && expiresAt) throw new MFAChallengeError(error.status, error.code, error.details, { challengeToken, expiresAt }); } throw error; }
   }
-  async profile<T extends RecordData = RecordData>(options?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
+  profile<T extends RecordData = RecordData>(options?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
     const [query, requestSignal] = recordGetArguments(options, signal);
     const parameters = new URLSearchParams();
     if (query?.expand !== undefined) parameters.set("expand", query.expand);
     if (query?.fields !== undefined) parameters.set("fields", query.fields);
-    return (await this.client._request<{ attributes: T }>(`${this.path("profile")}${parameters.size ? `?${parameters}` : ""}`, {}, requestSignal, query?.requestKey)).attributes;
+    return inAuthScope(this.client.auth, async () => (await this.client._request<{ attributes: T }>(`${this.path("profile")}${parameters.size ? `?${parameters}` : ""}`, {}, requestSignal, query?.requestKey)).attributes);
   }
-  async updateProfile<T extends RecordData = RecordData>(profile: T, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
+  updateProfile<T extends RecordData = RecordData>(profile: T, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
     const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
     const suffix = query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`;
-    return (await this.client._request<{ attributes: T }>(`${this.path("profile")}${suffix}`, { method: "PATCH", body: JSON.stringify(profile) }, requestSignal, query?.requestKey)).attributes;
+    return inAuthScope(this.client.auth, async () => (await this.client._request<{ attributes: T }>(`${this.path("profile")}${suffix}`, { method: "PATCH", body: JSON.stringify(profile) }, requestSignal, query?.requestKey)).attributes);
   }
   oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<OAuthStart> { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
   /** Starts OAuth and delegates browser/popup/deep-link navigation to the host. */
@@ -436,7 +490,7 @@ export class AuthRealm {
     } finally { adapter.close?.(); }
   }
   oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<OAuthStart> { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
-  async oauthComplete<T extends RecordData = RecordData>(provider: string, state: string, code: string, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>> { const [query, requestSignal] = recordGetArguments(options, signal); const generation = this.client.auth.generation; const session = await this.client._request<UserSession>(authFieldsPath("/api/v1/auth/oauth/complete", query), { method: "POST", body: JSON.stringify({ provider, state, code, ...(query?.profile === undefined ? {} : { fields: query.profile }) }) }, requestSignal, query?.requestKey); if (session.token && session.user && generation === this.client.auth.generation) this.client.auth.save(session.token, session.user); return session; }
+  async oauthComplete<T extends RecordData = RecordData>(provider: string, state: string, code: string, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>> { const [query, requestSignal] = recordGetArguments(options, signal); const generation = this.client.auth.generation; const session = await this.client._request<UserSession>(authFieldsPath("/api/v1/auth/oauth/complete", query), { method: "POST", body: JSON.stringify({ provider, state, code, ...(query?.profile === undefined ? {} : { fields: query.profile }) }) }, requestSignal, query?.requestKey); return acceptAuthSession(this.client.auth, generation, session, !!(session.token && session.user)); }
   oauthCompleteFromURL<T extends RecordData = RecordData>(provider: string, callbackURL: string | URL, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>> {
     const url = typeof callbackURL === "string" ? new URL(callbackURL) : callbackURL;
     const providerError = url.searchParams.get("error");
@@ -494,8 +548,8 @@ export class Records<T extends RecordData> {
   }
 
   /** Returns the complete { items, nextCursor? } JSON envelope without parsing numbers. */
-  async listJSON(query: Query = {}, signal?: AbortSignal): Promise<string> {
-    return (await this.client._responseText(this.listPath(query), {}, signal, query.requestKey)).body;
+  listJSON(query: Query = {}, signal?: AbortSignal): Promise<string> {
+    return inAuthScope(this.client.auth, async () => (await this.client._responseText(this.listPath(query), {}, signal, query.requestKey)).body);
   }
 
   /**
@@ -510,9 +564,9 @@ export class Records<T extends RecordData> {
 
   get(id: string, signal?: AbortSignal): Promise<T>;
   get(id: string, options?: RecordGetOptions, signal?: AbortSignal): Promise<T>;
-  async get(id: string, optionsOrSignal?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
+  get(id: string, optionsOrSignal?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
     const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
-    return (await this.getWithETag(id, options, requestSignal)).record;
+    return inAuthScope(this.client.auth, async () => (await this.getWithETag(id, options, requestSignal)).record);
   }
 
   getWithETag(id: string, signal?: AbortSignal): Promise<RecordResult<T>>;
@@ -530,8 +584,8 @@ export class Records<T extends RecordData> {
     return this.recordJSONResponse(this.path(id, options), {}, requestSignal, options?.requestKey);
   }
 
-  async create(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
-    return (await this.createWithETag(data, idempotencyKey, options, signal)).record;
+  create(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
+    return inAuthScope(this.client.auth, async () => (await this.createWithETag(data, idempotencyKey, options, signal)).record);
   }
 
   createWithETag(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>> {
@@ -553,8 +607,8 @@ export class Records<T extends RecordData> {
     }, requestSignal, query?.requestKey);
   }
 
-  async update(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
-    return (await this.updateWithETag(id, data, etag, options, signal)).record;
+  update(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
+    return inAuthScope(this.client.auth, async () => (await this.updateWithETag(id, data, etag, options, signal)).record);
   }
 
   updateWithETag(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>> {
@@ -680,14 +734,18 @@ export class Records<T extends RecordData> {
     return `/api/v1/user/collections/${encodeURIComponent(this.collection)}/events`;
   }
 
-  private async recordResponse(path: string, init: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<RecordResult<T>> {
-    const response = await this.client._response<T>(path, init, signal, requestKey);
-    return { record: response.body, etag: response.etag };
+  private recordResponse(path: string, init: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<RecordResult<T>> {
+    return inAuthScope(this.client.auth, async () => {
+      const response = await this.client._response<T>(path, init, signal, requestKey);
+      return { record: response.body, etag: response.etag };
+    });
   }
 
-  private async recordJSONResponse(path: string, init: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<RecordJSONResult> {
-    const response = await this.client._responseText(path, init, signal, requestKey);
-    return { recordJSON: response.body, etag: response.etag };
+  private recordJSONResponse(path: string, init: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<RecordJSONResult> {
+    return inAuthScope(this.client.auth, async () => {
+      const response = await this.client._responseText(path, init, signal, requestKey);
+      return { recordJSON: response.body, etag: response.etag };
+    });
   }
 }
 
@@ -711,18 +769,28 @@ export class Files {
   }
 
   async upload(field: string, file: Blob, filename: string, signal?: AbortSignal): Promise<FileInfo> {
-    const bytes = await file.arrayBuffer();
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
-    const body = new FormData();
-    body.append("file", file, filename);
-    return this.client._request(this.fieldPath(field), {
-      method: "POST",
-      headers: {
-        "X-PgBase-File-Size": String(file.size),
-        "X-PgBase-File-SHA256": hex(new Uint8Array(digest)),
-      },
-      body,
-    }, signal);
+    const generation = this.client.auth.generation;
+    try {
+      const bytes = await file.arrayBuffer();
+      assertAuthGeneration(this.client.auth, generation);
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      assertAuthGeneration(this.client.auth, generation);
+      const body = new FormData();
+      body.append("file", file, filename);
+      const result = await this.client._request<FileInfo>(this.fieldPath(field), {
+        method: "POST",
+        headers: {
+          "X-PgBase-File-Size": String(file.size),
+          "X-PgBase-File-SHA256": hex(new Uint8Array(digest)),
+        },
+        body,
+      }, signal);
+      assertAuthGeneration(this.client.auth, generation);
+      return result;
+    } catch (error) {
+      assertAuthGeneration(this.client.auth, generation);
+      throw error;
+    }
   }
 
   delete(fileID: string, signal?: AbortSignal): Promise<void> {

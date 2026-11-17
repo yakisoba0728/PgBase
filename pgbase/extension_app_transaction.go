@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
 )
@@ -139,7 +140,9 @@ func (host *extensionHost) rollbackAppTransaction() error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	err := tx.Rollback(context.WithoutCancel(ctx))
+	cleanupCtx, cancel := database.BoundedCleanupContext(ctx)
+	defer cancel()
+	err := tx.Rollback(cleanupCtx)
 	if err == nil {
 		recordOutcome.Finish(ctx, recordops.ErrTransactionRolledBack)
 		return objectTx.finish(ctx, true)

@@ -6,7 +6,7 @@ import { UnsavedGuard } from "../components/UnsavedGuard";
 import { Row, Table, TableScroll } from "../components/Table";
 import { QueryView } from "../components/QueryView";
 import { RiErrorWarningLine, RiPlayLine, RiTimerLine } from "@remixicon/react";
-import { ApiError } from "../api/http";
+import { ApiError, captureSessionScope } from "../api/http";
 import { runJob, updateJob, type ManagedJob } from "../api/jobs";
 import { errorText } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
@@ -150,22 +150,27 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
   const refresh = () => queryClient.invalidateQueries({ queryKey: jobsQuery.queryKey });
 
   const save = useMutation({
-    mutationFn: () => updateJob(job.id, { schedule: schedule.trim(), timezone: timezone.trim(), enabled }),
-    onSuccess: () => { patch({ schedule: schedule.trim(), timezone: timezone.trim() || "UTC" }); toast(t("ops.jobs.saved")); },
-    onSettled: refresh,
+    mutationFn: (scope: ReturnType<typeof captureSessionScope>) => scope.run(() => updateJob(job.id, { schedule: schedule.trim(), timezone: timezone.trim(), enabled })),
+    onSuccess: (_result, scope) => {
+      if (!scope.isCurrent()) return;
+      patch({ schedule: schedule.trim(), timezone: timezone.trim() || "UTC" });
+      toast(t("ops.jobs.saved"));
+    },
+    onSettled: (_result, _error, scope) => { if (scope.isCurrent()) return refresh(); },
   });
   const run = useMutation({
-    mutationFn: () => runJob(job.id),
-    onSuccess: () => {
+    mutationFn: (scope: ReturnType<typeof captureSessionScope>) => scope.run(() => runJob(job.id)),
+    onSuccess: (_result, scope) => {
+      if (!scope.isCurrent()) return;
       toast(t("ops.jobs.runRequested", { name: job.name }), "info");
       trackOperation({ kind: "job", id: job.id, subject: job.name, since: job.lastStartedAt });
     },
-    onError: (error) => toast(errorText(t, error), "danger"),
-    onSettled: refresh,
+    onError: (error, scope) => { if (scope.isCurrent()) toast(errorText(t, error), "danger"); },
+    onSettled: (_result, _error, scope) => { if (scope.isCurrent()) return refresh(); },
   });
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    save.mutate();
+    save.mutate(captureSessionScope());
   };
   const summary = describeSchedule(schedule);
   const locked = !workerEnabled || !job.registered;
@@ -175,7 +180,7 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
       <PaneHeader title={job.name} mono onClose={onClose} />
       <div className="pane-body">
         {locked && <Notice role="note">{workerEnabled ? t("ops.jobs.unregisteredNote") : t("ops.jobs.noWorker")}</Notice>}
-        {save.isError && (
+        {save.isError && save.variables?.isCurrent() && (
           <Notice tone="danger">{save.error instanceof ApiError && save.error.code === "invalid_request" ? t("ops.jobs.invalid") : errorText(t, save.error)}</Notice>
         )}
         <fieldset className="form" disabled={locked}>
@@ -199,7 +204,7 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
         ]} />
       </div>
       <footer className="pane-footer">
-        <Button variant="secondary" icon={RiPlayLine} className="pane-footer-start" disabled={locked || job.running || !job.enabled} loading={run.isPending} onClick={() => run.mutate()}>{t("ops.jobs.run")}</Button>
+        <Button variant="secondary" icon={RiPlayLine} className="pane-footer-start" disabled={locked || job.running || !job.enabled} loading={run.isPending} onClick={() => run.mutate(captureSessionScope())}>{t("ops.jobs.run")}</Button>
         <SaveBar dirty={dirty} busy={save.isPending} saveDisabled={locked || !dirty} onDiscard={reset} />
       </footer>
       <UnsavedGuard dirty={dirty} />

@@ -75,11 +75,11 @@ func fileRoutes(dependencies Dependencies) []route {
 		base := endpoint.prefix + "/collections/{collection}/records/{id}/files/{field}"
 		file := endpoint.prefix + "/files/{fileId}"
 		routes = append(routes,
-			route{method: "GET", pattern: base, access: endpoint.accessRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(endpoint.handler.list)},
-			route{method: "POST", pattern: base, access: endpoint.accessWrite, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: dependencies.MaximumFileUploadBytes, streamedUpload: true, handler: http.HandlerFunc(endpoint.handler.upload)},
-			route{method: "GET", pattern: file, access: endpoint.accessRead, response: passthrough(), deadline: deadlineDefault, handler: http.HandlerFunc(endpoint.handler.download)},
-			route{method: "DELETE", pattern: file, access: endpoint.accessWrite, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(endpoint.handler.delete)},
-			route{method: "POST", pattern: file + "/token", access: endpoint.accessWrite, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: http.HandlerFunc(endpoint.handler.token)},
+			route{method: "GET", pattern: base, access: endpoint.accessRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: withRuleRequestContext(endpoint.handler.list)},
+			route{method: "POST", pattern: base, access: endpoint.accessWrite, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: dependencies.MaximumFileUploadBytes, streamedUpload: true, handler: withRuleRequestContext(endpoint.handler.upload)},
+			route{method: "GET", pattern: file, access: endpoint.accessRead, response: passthrough(), deadline: deadlineDefault, handler: withRuleRequestContext(endpoint.handler.download)},
+			route{method: "DELETE", pattern: file, access: endpoint.accessWrite, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: withRuleRequestContext(endpoint.handler.delete)},
+			route{method: "POST", pattern: file + "/token", access: endpoint.accessWrite, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, maximumRequestBytes: maximumCredentialRequestBytes, handler: withRuleRequestContext(endpoint.handler.token)},
 		)
 	}
 	if _, ok := dependencies.Files.(publicFileService); ok {

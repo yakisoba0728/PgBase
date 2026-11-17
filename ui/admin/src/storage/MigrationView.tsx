@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../components/Dialog";
 import { Notice, Skeleton } from "../components/Feedback";
 import { combineQueries, QueryView, useHeld } from "../components/QueryView";
 import { toast } from "../components/Toast";
-import { ApiError, isNotFound } from "../api/http";
+import { ApiError, captureSessionScope, isNotFound } from "../api/http";
 import { trackOperation, untrackOperation, useOperations, watchOperation } from "../app/operations";
 import { JobProgress } from "../components/JobProgress";
 import { useT, type Translate } from "../i18n";
@@ -71,13 +71,20 @@ function MigrationStatus({ migration }: { migration: StorageMigrationStatus | nu
   const queryClient = useQueryClient();
   const [confirm, setConfirm] = useState(false);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["storage"] });
-  const onError = (error: unknown) => toast(t(storageErrorKey(error, "migration")), "danger");
-  const cancel = useMutation({ mutationFn: (id: string) => cancelStorageMigration(id), onSuccess: () => setConfirm(false), onError, onSettled: refresh });
-  const resume = useMutation({
-    mutationFn: (id: string) => resumeStorageMigration(id),
-    onSuccess: (resumed) => trackOperation({ kind: "migration", id: resumed.id }),
+  type Action = { id: string; scope: ReturnType<typeof captureSessionScope> };
+  const onError = (error: unknown, { scope }: Action) => { if (scope.isCurrent()) toast(t(storageErrorKey(error, "migration")), "danger"); };
+  const onSettled = (_result: unknown, _error: unknown, { scope }: Action) => { if (scope.isCurrent()) return refresh(); };
+  const cancel = useMutation({
+    mutationFn: ({ id, scope }: Action) => scope.run(() => cancelStorageMigration(id)),
+    onSuccess: (_result, { scope }) => { if (scope.isCurrent()) setConfirm(false); },
     onError,
-    onSettled: refresh,
+    onSettled,
+  });
+  const resume = useMutation({
+    mutationFn: ({ id, scope }: Action) => scope.run(() => resumeStorageMigration(id)),
+    onSuccess: (resumed, { scope }) => { if (scope.isCurrent()) trackOperation({ kind: "migration", id: resumed.id }); },
+    onError,
+    onSettled,
   });
   const committed = migration?.status === "committed";
   // The switch-over changes the active file storage.
@@ -104,7 +111,7 @@ function MigrationStatus({ migration }: { migration: StorageMigrationStatus | nu
         action={
           (canCancel || canResume) && (
             <div className="actions">
-              {canResume && <Button size="sm" variant="secondary" loading={resume.isPending} onClick={() => resume.mutate(migration.id)}>{t("storage.migration.resume")}</Button>}
+              {canResume && <Button size="sm" variant="secondary" loading={resume.isPending} onClick={() => resume.mutate({ id: migration.id, scope: captureSessionScope() })}>{t("storage.migration.resume")}</Button>}
               {canCancel && <Button size="sm" variant="danger" disabled={status === "canceling"} onClick={() => setConfirm(true)}>{t("storage.migration.cancel")}</Button>}
             </div>
           )
@@ -116,7 +123,7 @@ function MigrationStatus({ migration }: { migration: StorageMigrationStatus | nu
         { label: t("storage.migration.id"), value: migration.id, mono: true, copy: true },
       ]} />
       <ConfirmDialog open={confirm} danger title={t("storage.migration.cancelTitle")} message={t("storage.migration.cancelText")} confirmLabel={t("storage.migration.cancel")}
-        busy={cancel.isPending} onConfirm={() => cancel.mutate(migration.id)} onCancel={() => setConfirm(false)} />
+        busy={cancel.isPending} onConfirm={() => cancel.mutate({ id: migration.id, scope: captureSessionScope() })} onCancel={() => setConfirm(false)} />
     </section>
   );
 }
@@ -134,10 +141,10 @@ function DestinationForm({ current, locked }: { current: FileStorageSettings; lo
     preview.reset();
   };
 
-  const preview = useMutation({ mutationFn: () => previewStorageMigration(destinationOf(draft)) });
+  const preview = useMutation({ mutationFn: (scope: ReturnType<typeof captureSessionScope>) => scope.run(() => previewStorageMigration(destinationOf(draft))) });
   const [confirm, setConfirm] = useState(false);
   const start = useMutation({
-    mutationFn: () => {
+    mutationFn: (scope: ReturnType<typeof captureSessionScope>) => scope.run(() => {
       const id = newIdentity().operationId;
       // Recorded before the request: a lost response is recovered by id after a reload, from any page.
       update({ migration: id });
@@ -147,26 +154,29 @@ function DestinationForm({ current, locked }: { current: FileStorageSettings; lo
       return startStorageMigration(id, destinationOf(draft))
         .catch((error: unknown) => {
           // Only a definite refusal frees the id; a lost response may still have started it.
-          if (!(error instanceof ApiError && error.code === "network_error")) untrackOperation(id);
+          if (scope.isCurrent() && !(error instanceof ApiError && error.code === "network_error")) untrackOperation(id);
           throw error;
         })
         .finally(release);
-    },
-    onSuccess: (started) => {
+    }),
+    onSuccess: (started, scope) => {
+      if (!scope.isCurrent()) return;
       queryClient.setQueryData(migrationQuery(started.id).queryKey, started);
       preview.reset();
     },
-    onError: (error) => {
+    onError: (error, scope) => {
+      if (!scope.isCurrent()) return;
       if (!(error instanceof ApiError && error.code === "network_error")) update({ migration: null });
     },
-    onSettled: () => setConfirm(false),
+    onSettled: (_result, _error, scope) => { if (scope.isCurrent()) setConfirm(false); },
   });
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setTouched(true);
-    if (Object.keys(validateDraft(draft, current.secretConfigured, false)).length === 0) preview.mutate();
+    if (Object.keys(validateDraft(draft, current.secretConfigured, false)).length === 0) preview.mutate(captureSessionScope());
   };
-  const failed = preview.error ?? start.error;
+  const failed = (preview.variables?.isCurrent() ? preview.error : null) ?? (start.variables?.isCurrent() ? start.error : null);
+  const prepared = preview.variables?.isCurrent() ? preview.data : undefined;
   // The destination is what gets typed to confirm: its bucket, or the local disk's name.
   const target = draft.driver === "s3" ? draft.bucket.trim() : t("storage.local");
 
@@ -182,16 +192,16 @@ function DestinationForm({ current, locked }: { current: FileStorageSettings; lo
           <StorageFields draft={draft} errors={errors} secretConfigured={current.secretConfigured} secretHint={t("storage.migration.secretHint")} onChange={change} />
         </fieldset>
         <footer className="actions">
-          {preview.data && <span className="storage-preview mono">{t("storage.migration.previewResult", { count: preview.data.totalObjects })}</span>}
+          {prepared && <span className="storage-preview mono">{t("storage.migration.previewResult", { count: prepared.totalObjects })}</span>}
           <Button type="submit" variant="secondary" disabled={locked || start.isPending} loading={preview.isPending}>{t("storage.migration.preview")}</Button>
-          <Button disabled={locked || !preview.data} loading={start.isPending} onClick={() => setConfirm(true)}>{t("storage.migration.start")}</Button>
+          <Button disabled={locked || !prepared} loading={start.isPending} onClick={() => setConfirm(true)}>{t("storage.migration.start")}</Button>
         </footer>
       </form>
       {/* Outside the form: Enter in the typed field must not also submit a preview. */}
       <ConfirmDialog open={confirm} danger title={t("storage.migration.startTitle")} confirmLabel={t("storage.migration.start")} busy={start.isPending}
-        typed={{ phrase: target, label: t("common.typeToConfirm", { name: target }) }} onConfirm={() => start.mutate()} onCancel={() => setConfirm(false)}>
+        typed={{ phrase: target, label: t("common.typeToConfirm", { name: target }) }} onConfirm={() => start.mutate(captureSessionScope())} onCancel={() => setConfirm(false)}>
         <ul className="storage-steps">
-          <li>{t("storage.migration.startStep1", { count: preview.data?.totalObjects ?? 0, target: describeSettings(t, destinationOf(draft)) })}</li>
+          <li>{t("storage.migration.startStep1", { count: prepared?.totalObjects ?? 0, target: describeSettings(t, destinationOf(draft)) })}</li>
           <li>{t("storage.migration.startStep2")}</li>
           <li>{t("storage.migration.startStep3")}</li>
           <li>{t("storage.migration.startStep4")}</li>

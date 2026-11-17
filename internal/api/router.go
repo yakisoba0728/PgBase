@@ -274,6 +274,12 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 		// real connection before any byte is held, and so a rejected request
 		// never allocates a buffer for a body it will not produce.
 		baseHandler := declared.handler
+		// Auth rules may use HTTP method, headers, query values and request ID.
+		// Capture them inside admission so every auth endpoint (including
+		// login/OTP/OAuth/session issuance) observes its own request.
+		if strings.HasPrefix(declared.pattern, "/api/v1/auth/") || strings.HasPrefix(declared.pattern, "/api/v1/public/auth/") || strings.HasPrefix(declared.pattern, "/api/admin/users/") {
+			baseHandler = withRuleRequestContext(baseHandler.ServeHTTP)
+		}
 		if declared.noStore {
 			// Enforce the policy on the buffered response after an extension
 			// handler returns, even if that handler tried to make it cacheable.

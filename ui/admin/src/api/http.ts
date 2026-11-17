@@ -1,7 +1,6 @@
 import { isSafeNumber, LosslessNumber, parse, stringify } from "lossless-json";
 
-/** A failed API call. `code` is the server's `error.code`, or `network_error` /
- * `invalid_response` when the transport itself failed. */
+/** A failed API call. `code` is the server's `error.code`, or a transport/session failure. */
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -16,9 +15,8 @@ export class ApiError extends Error {
   }
 }
 
-/** A 404: the thing asked for does not exist, or (on a list route) the server never registered the feature. */
+/** A 404: the thing asked for does not exist, or the server never registered the feature. */
 export const isNotFound = (error: unknown) => error instanceof ApiError && error.status === 404;
-
 export type Query = Record<string, string | number | boolean | undefined | null>;
 
 export interface RequestOptions {
@@ -35,53 +33,88 @@ let csrfToken = "";
 let generation = 0;
 export const sessionGeneration = () => generation;
 export const advanceSession = () => { generation++; };
-
-export function setCsrfToken(token: string): void {
-  csrfToken = token;
-}
-
-export function clearCsrfToken(): void {
-  csrfToken = "";
-}
+export function setCsrfToken(token: string): void { csrfToken = token; }
+export function clearCsrfToken(): void { csrfToken = ""; }
 
 /** The administrator now signed in after renewing the session, or null when there is none. */
 export type CsrfRecovery = () => Promise<string | null>;
 let recover: CsrfRecovery = async () => null;
 let identity: () => string | null = () => null;
-let recovering: Promise<string | null> | null = null;
+interface RequestScope { generation: number; administrator: string | null }
+interface RecoveryFlight { scope: RequestScope; promise: Promise<string | null> }
+let recovering: RecoveryFlight | null = null;
 
-/**
- * Registers how a rejected CSRF token is renewed (another tab signed in again and replaced the session cookie) and
- * which administrator a request is issued under.
- */
+/** Register session renewal and the identity under which a request is issued. */
 export function onCsrfRejected(handler: CsrfRecovery, issuer: () => string | null): void {
   recover = handler;
   identity = issuer;
+  recovering = null;
 }
 
-// A rejected token never reached the handler, so the request is safe to send once more with the renewed one, but
-// only for the administrator it was issued under: one recovery is shared, and the cache may already show someone else.
-async function withCsrfRecovery<T>(attempt: () => Promise<T>): Promise<T> {
-  const issuedBy = identity();
+const sessionChanged = () => new ApiError(403, "session_changed", "The administrator session changed while the request was in flight");
+const isCurrentScope = (scope: RequestScope) =>
+  generation === scope.generation && (scope.administrator === null || identity() === scope.administrator);
+function assertScope(scope: RequestScope): void {
+  // An anonymous bootstrap read may discover the first identity. A request
+  // issued as an administrator must never publish into another one's session.
+  if (!isCurrentScope(scope)) throw sessionChanged();
+}
+
+async function inScope<T>(scope: RequestScope, attempt: () => Promise<T>): Promise<T> {
+  assertScope(scope);
   try {
-    return await attempt();
+    const result = await attempt();
+    assertScope(scope);
+    return result;
   } catch (error) {
-    if (!(error instanceof ApiError && error.code === "csrf_rejected")) throw error;
-    const renewed = await (recovering ??= recover().finally(() => (recovering = null)));
-    if (renewed === null) throw error;
-    if (renewed === issuedBy) return attempt();
-    throw new ApiError(403, "session_changed", "Another administrator signed in on this browser");
+    // In particular, a delayed 401 must not invalidate a newer login.
+    assertScope(scope);
+    throw error;
   }
 }
 
-// A number becomes a JS number only when it round-trips exactly (safe integers
-// and floats whose digits survive parseFloat); anything else (big int64s,
-// over-long decimals, out-of-range exponents) stays a LosslessNumber holding
-// the server's exact text, and stringifyJson writes it back unchanged.
+/** Keeps preparation, queued work and later requests in one administrator's session. */
+export function captureSessionScope() {
+  const scope: RequestScope = { generation, administrator: identity() };
+  return {
+    check: () => assertScope(scope),
+    isCurrent: () => isCurrentScope(scope),
+    run: <T>(attempt: () => Promise<T>) => inScope(scope, attempt),
+  };
+}
+
+// The scope includes body decoding, not just arrival of the response headers.
+// A CSRF rejection is safe to retry once, but only in the original session.
+async function withCsrfRecovery<T>(attempt: () => Promise<T>): Promise<T> {
+  const scope: RequestScope = { generation, administrator: identity() };
+  try {
+    return await inScope(scope, attempt);
+  } catch (error) {
+    if (!(error instanceof ApiError && error.code === "csrf_rejected")) throw error;
+    assertScope(scope);
+    if (!recovering || recovering.scope.generation !== scope.generation || recovering.scope.administrator !== scope.administrator) {
+      const flight: RecoveryFlight = {
+        scope,
+        promise: Promise.resolve().then(recover).finally(() => {
+          // An old recovery must not clear a newer session's single flight.
+          if (recovering === flight) recovering = null;
+        }),
+      };
+      recovering = flight;
+    }
+    const flight = recovering;
+    const renewed = await inScope(scope, () => flight.promise);
+    if (renewed === null) throw error;
+    if (renewed !== scope.administrator) throw sessionChanged();
+    return inScope(scope, attempt);
+  }
+}
+
+// Only numbers that round-trip exactly become JS numbers; all others retain
+// the server's exact decimal text through parsing and serialization.
 export function parseJson(text: string): unknown {
   return parse(text, null, (value) => (isSafeNumber(value) ? Number(value) : new LosslessNumber(value)));
 }
-
 export function stringifyJson(value: unknown, space?: number): string {
   const text = stringify(value, null, space);
   if (text === undefined) throw new TypeError("value is not JSON-serializable");
@@ -98,8 +131,6 @@ function buildURL(path: string, query?: Query): string {
   return encoded ? `${path}${path.includes("?") ? "&" : "?"}${encoded}` : path;
 }
 
-const send = (method: string, path: string, options: RequestOptions) => withCsrfRecovery(() => sendOnce(method, path, options));
-
 async function sendOnce(method: string, path: string, options: RequestOptions): Promise<Response> {
   const headers = new Headers(options.headers);
   let body: string | undefined;
@@ -111,15 +142,9 @@ async function sendOnce(method: string, path: string, options: RequestOptions): 
   let response: Response;
   try {
     response = await fetch(buildURL(path, options.query), {
-      method,
-      headers,
-      body,
-      credentials: "include",
-      signal: options.signal,
-      keepalive: options.keepalive,
+      method, headers, body, credentials: "include", signal: options.signal, keepalive: options.keepalive,
     });
   } catch (error) {
-    // An abort is the caller's own decision, so it propagates untouched.
     if (options.signal?.aborted) throw error;
     throw new ApiError(0, "network_error", error instanceof Error ? error.message : "Network request failed");
   }
@@ -129,32 +154,26 @@ async function sendOnce(method: string, path: string, options: RequestOptions): 
 
 async function toApiError(response: Response): Promise<ApiError> {
   let envelope: unknown;
-  try {
-    envelope = parseJson(await response.text());
-  } catch {
-    envelope = undefined;
-  }
+  try { envelope = parseJson(await response.text()); } catch { envelope = undefined; }
   const error = (envelope as { error?: { code?: unknown; message?: unknown; details?: unknown } } | undefined)?.error;
   if (error && typeof error.code === "string") {
-    const message = typeof error.message === "string" ? error.message : error.code;
-    return new ApiError(response.status, error.code, message, error.details);
+    return new ApiError(response.status, error.code, typeof error.message === "string" ? error.message : error.code, error.details);
   }
   return new ApiError(response.status, "invalid_response", `Unexpected ${response.status} response`);
 }
 
-export async function requestWithHeaders<T>(
+export function requestWithHeaders<T>(
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
   options: RequestOptions = {},
 ): Promise<{ data: T; headers: Headers }> {
-  const response = await send(method, path, options);
-  const text = await response.text();
-  if (text === "") return { data: undefined as T, headers: response.headers };
-  try {
-    return { data: parseJson(text) as T, headers: response.headers };
-  } catch {
-    throw new ApiError(response.status, "invalid_response", "Response body is not valid JSON");
-  }
+  return withCsrfRecovery(async () => {
+    const response = await sendOnce(method, path, options);
+    const text = await response.text();
+    if (text === "") return { data: undefined as T, headers: response.headers };
+    try { return { data: parseJson(text) as T, headers: response.headers }; }
+    catch { throw new ApiError(response.status, "invalid_response", "Response body is not valid JSON"); }
+  });
 }
 
 export async function request<T>(
@@ -172,49 +191,52 @@ interface UploadOptions {
   signal?: AbortSignal;
 }
 
-/** A POST over XHR, the one transport that reports upload progress; the body is a multipart form or a raw blob. Errors match `request`. */
+/** XHR supplies upload progress. Session boundaries and API errors match fetch. */
 export function upload<T>(path: string, body: FormData | Blob, options: UploadOptions = {}): Promise<T> {
   return withCsrfRecovery(() => uploadOnce<T>(path, body, options));
 }
 
 function uploadOnce<T>(path: string, body: FormData | Blob, options: UploadOptions): Promise<T> {
   return new Promise((resolve, reject) => {
-    if (options.signal?.aborted) { reject(options.signal.reason ?? new DOMException("Aborted", "AbortError")); return; }
+    const signal = options.signal;
+    const abortReason = () => signal?.reason ?? new DOMException("Aborted", "AbortError");
+    if (signal?.aborted) { reject(abortReason()); return; }
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", path);
-    xhr.withCredentials = true;
-    for (const [key, value] of Object.entries(options.headers ?? {})) xhr.setRequestHeader(key, value);
-    if (csrfToken) xhr.setRequestHeader(csrfHeader, csrfToken);
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) options.onProgress?.(event.loaded / event.total);
-    };
-    xhr.onerror = () => reject(new ApiError(0, "network_error", "Network request failed"));
-    xhr.onabort = () => reject(new DOMException("Aborted", "AbortError"));
-    xhr.onload = () => {
-      if (xhr.status < 200 || xhr.status >= 300) {
-        let response: Response;
-        try {
-          response = new Response(xhr.responseText, { status: xhr.status });
-        } catch {
-          // A status that cannot carry a body (304) or is outside 200-599 makes the constructor throw.
-          reject(new ApiError(xhr.status, "invalid_response", `Unexpected ${xhr.status} response`));
+    const abort = () => xhr.abort();
+    const cleanup = () => signal?.removeEventListener("abort", abort);
+    const fail = (error: unknown) => { cleanup(); reject(error); };
+    try {
+      xhr.open("POST", path);
+      xhr.withCredentials = true;
+      const headers = new Headers(options.headers);
+      for (const [key, value] of Object.entries(options.headers ?? {})) xhr.setRequestHeader(key, value);
+      if (csrfToken && !headers.has(csrfHeader)) xhr.setRequestHeader(csrfHeader, csrfToken);
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && event.total > 0) options.onProgress?.(Math.min(1, Math.max(0, event.loaded / event.total)));
+      };
+      xhr.onerror = () => fail(new ApiError(0, "network_error", "Network request failed"));
+      xhr.ontimeout = () => fail(new ApiError(0, "network_error", "Upload timed out"));
+      xhr.onabort = () => fail(abortReason());
+      xhr.onload = () => {
+        cleanup();
+        if (xhr.status < 200 || xhr.status >= 300) {
+          let response: Response;
+          try { response = new Response(xhr.responseText, { status: xhr.status }); }
+          catch { reject(new ApiError(xhr.status, "invalid_response", `Unexpected ${xhr.status} response`)); return; }
+          void toApiError(response).then(reject, reject);
           return;
         }
-        void toApiError(response).then(reject);
-        return;
-      }
-      try {
-        resolve((xhr.responseText === "" ? undefined : parseJson(xhr.responseText)) as T);
-      } catch {
-        reject(new ApiError(xhr.status, "invalid_response", "Response body is not valid JSON"));
-      }
-    };
-    options.signal?.addEventListener("abort", () => xhr.abort());
-    xhr.send(body);
+        try { resolve((xhr.responseText === "" ? undefined : parseJson(xhr.responseText)) as T); }
+        catch { reject(new ApiError(xhr.status, "invalid_response", "Response body is not valid JSON")); }
+      };
+      signal?.addEventListener("abort", abort, { once: true });
+      // A custom transport may synchronously abort while it is being opened.
+      if (signal?.aborted) { fail(abortReason()); return; }
+      xhr.send(body);
+    } catch (error) { fail(error); }
   });
 }
 
-export async function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
-  const response = await send("GET", path, options);
-  return response.blob();
+export function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+  return withCsrfRecovery(async () => (await sendOnce("GET", path, options)).blob());
 }

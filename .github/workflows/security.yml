@@ -7,6 +7,11 @@ on:
   workflow_dispatch:
   workflow_call:
     inputs:
+      full_validation:
+        description: Include a disposable runtime image scan on hosted runners
+        required: false
+        default: false
+        type: boolean
       candidate_image:
         description: Optional digest-pinned release candidate; empty keeps local CI mode
         required: false
@@ -30,12 +35,12 @@ permissions:
   packages: read
 
 concurrency:
-  group: security-${{ github.event.pull_request.number || github.run_id }}
+  group: security-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   audit:
-    runs-on: ${{ (((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
+    runs-on: ${{ inputs.full_validation && 'ubuntu-24.04' || (((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha == vars.PGBASE_CI_TRUSTED_SHA) || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && vars.PGBASE_CI_RUNNER) || 'ubuntu-24.04' }}
     timeout-minutes: 40
     env:
       PGBASE_SECURITY_CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
@@ -82,7 +87,7 @@ jobs:
 
       - name: Select the image under test
         id: image
-        if: inputs.candidate_image != '' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        if: inputs.candidate_image != '' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || inputs.full_validation
         shell: bash
         run: |
           set -euo pipefail
@@ -121,6 +126,21 @@ jobs:
           format: spdx-json
           output-file: pgbase.spdx.json
           artifact-name: pgbase-sbom
+
+      - name: Record final runtime trust and timezone data
+        if: steps.image.outputs.image_ref != '' && inputs.source_commit == ''
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.image_ref }}
+        run: bash scripts/support/record-runtime-assets.sh "$IMAGE_REF" runtime-assets
+
+      - name: Upload runtime data evidence
+        if: ${{ always() && steps.image.outputs.image_ref != '' && inputs.source_commit == '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runtime-assets-${{ github.sha }}
+          path: runtime-assets/
+          if-no-files-found: error
+          retention-days: 14
 
       # The findings are recorded before the gate runs, so a failing scan still
       # leaves a machine-readable report to triage rather than only console

@@ -1,0 +1,79 @@
+name: Source security qualification
+
+# Explicit, read-only whole-source qualification. Reports stay in artifacts;
+# this does not modify Security settings, deployment or release state.
+on:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: source-security-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # PR analysis otherwise restricts alerts to changed line ranges. This
+      # qualification promises the entire configured source, including old code.
+      CODEQL_ACTION_DIFF_INFORMED_QUERIES: 'false'
+      CODEQL_ACTION_FILE_COVERAGE_ON_PRS: 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            mode: manual
+          - language: javascript-typescript
+            mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: matrix.language == 'go'
+        with:
+          go-version: 1.26.11
+          cache: true
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.mode }}
+          tools: linked
+          queries: security-extended
+          threads: 2
+          ram: 6000
+          config: |
+            name: PgBase source qualification
+            paths:
+              - cmd
+              - internal
+              - pgbase
+              - pgbasecli
+              - sdk
+              - ui/admin/src
+              - examples
+            paths-ignore:
+              - '**/node_modules/**'
+              - '**/dist/**'
+      - name: Build Go runtime packages for extraction
+        if: matrix.language == 'go'
+        run: go build ./...
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          output: source-sarif
+          upload: never
+          upload-database: false
+          category: source-security/${{ matrix.language }}
+      - name: Verify the SARIF evidence parser
+        run: python3 -m unittest discover -s scripts/tests -v
+      - name: Preserve findings and resolved rule metadata for classification
+        run: python3 scripts/summarize-codeql.py source-sarif --require-full-scope
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: source-security-${{ matrix.language }}-${{ github.sha }}
+          path: source-sarif/
+          retention-days: 14
+          if-no-files-found: error

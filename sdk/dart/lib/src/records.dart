@@ -1,4 +1,5 @@
 import 'client.dart';
+import 'auth_scope.dart';
 import 'errors.dart';
 import 'exact_json.dart';
 import 'realtime.dart';
@@ -204,8 +205,11 @@ final class Records {
     Query query = const Query(),
     CancellationToken? cancellation,
   ]) async* {
+    // Buffered rows and the next cursor belong to the session that began reading.
+    final scope = AuthScope(_client.auth);
     var next = query.cursor;
     do {
+      scope.check();
       final page = await list(
         Query(
           filter: query.filter,
@@ -219,7 +223,10 @@ final class Records {
         ),
         cancellation,
       );
-      yield* Stream.fromIterable(page.items);
+      for (final record in page.items) {
+        scope.check();
+        yield record;
+      }
       next = page.nextCursor;
     } while (next != null);
   }

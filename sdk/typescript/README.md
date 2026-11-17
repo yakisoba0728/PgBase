@@ -34,6 +34,24 @@ Record `list`, `get`, `getWithETag`, their JSON variants, and projection-bearing
 
 Parsed and exact-text response methods reject interrupted body reads. Parsed methods reject malformed success JSON with `invalid_response_body`; status 204 is a valid empty success. HTTP errors retain structured server details when valid JSON is available, and body transport failures retain their original error instead of masquerading as success.
 
+Low-level `send(path, init, options)` accepts cancellation in `init.signal` as well as `options.signal`. If both are present, aborting either cancels the full request, including response-body reads, with that signal's reason. It does not turn cancellation into a successful empty result.
+
+## User session lifetime
+
+JSON/exact-text requests and file uploads belong to the `AuthStore` generation in which they started. Replacing or clearing auth state (including cookie import or successful token refresh) makes a pending older success, HTTP failure or transport failure reject with `PgBaseError(403, "session_changed")`. This also applies when multiple clients share one store. File preparation is included: a file selected under one identity cannot finish hashing and then start its upload with a replacement identity's token. Existing Realtime streams already stop on auth changes.
+
+A current login or refresh can still adopt its own replacement token after its guarded response is read. A stale login/refresh now rejects instead of returning a session it did not adopt; refresh-before-logout ordering still revokes the rotated token, and an explicit newer login is preserved. A generation change can therefore discard a concurrent read even when refresh keeps the same user. Use separate stores for deliberately independent identities.
+
+Authentication completion checks the generation again immediately before adoption and after its own save. Concurrent completions that already read their bodies cannot both return conflicting sessions: one adoption invalidates the other. Reentrant persistence/listener changes also invalidate the old result; a persistence failure under the still-current self-adopted session keeps its original error. SDK response mapping and upload helpers check through their final asynchronous work. Once a Promise has fulfilled, later auth changes cannot retract that value or prevent a delayed consumer callback; applications must clear their own caches/subscriptions on auth change.
+
+Migration: handle `session_changed` as an obsolete result, discard session-specific UI/cache state, and issue a fresh read if appropriate. No mutation is retried automatically: it may already have committed under the original identity. This check does not cancel server-side work, revoke previously returned download URLs, or control requests the application sends directly with `fetch`.
+
+## Administrator session lifetime
+
+Administrator JSON, exact-text and backup-download requests belong to the session generation in which they started. Starting a new `login`/`resume`, completing logout, or accepting a current-session 401 invalidates responses from the previous generation, including delayed bodies and HTTP/transport failures. Such requests reject with `AdminAPIError(403, "session_changed")`; old identity/data cannot be published into the new login by a late SDK result. A current-session error keeps its original status/details.
+
+Migration: callers that previously consumed a stale successful response or handled an old 401 after another login must now discard `session_changed`, clear their own session-scoped caches and issue a fresh read when appropriate. Do not automatically retry a mutation: the server may already have committed it. This guards one client instance's local lifetime; it does not detect a cookie changed by another browser tab without `resume`/`login` on that instance, or cancel an in-flight browser Set-Cookie update.
+
 ## Realtime status and recovery
 
 The existing `subscribe` callbacks keep receiving record/application events. Opt into shared-session status and asynchronous errors separately:

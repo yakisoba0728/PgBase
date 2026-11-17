@@ -45,7 +45,7 @@ func (s *Service) Batch(ctx context.Context, request BatchRequest) (results []Mu
 	ctx, hooks := s.hookContext(ctx)
 	if hooks != nil {
 		hooks.deferAfter++
-		defer func() { hooks.deferAfter--; hooks.after(ctx, &err) }()
+		defer hooks.finishOperation(ctx, &err, true)
 	}
 	err = s.compoundTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		ctx = context.WithValue(ctx, batchMutationKey{}, true)

@@ -147,3 +147,31 @@ it("ends a bulk delete against what is open and selected now, not at the start",
   expect(router.state.location.search).toBe("?record=r3");
   expect(screen.getByText("1 selected")).toBeTruthy();
 });
+
+it("does not start a bulk delete after its administrator changes while settings load", async () => {
+  let finish!: (settings: system.RuntimeSettings) => void;
+  vi.mocked(system.getSettings).mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+  vi.spyOn(records, "listRecords").mockResolvedValue({ items: [{ id: "r1" }, { id: "r2" }] });
+  const remove = vi.spyOn(records, "deleteRecord").mockResolvedValue();
+  show();
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Select all loaded records" }));
+  await confirmDelete();
+  await waitFor(() => expect(system.getSettings).toHaveBeenCalled());
+  http.advanceSession();
+  await act(async () => { finish({ batch: { enabled: false, maxRequests: 50 } } as system.RuntimeSettings); });
+  expect(remove).not.toHaveBeenCalled();
+});
+
+it("does not dispatch remaining bulk deletes after its administrator changes", async () => {
+  vi.spyOn(records, "listRecords").mockResolvedValue({ items: Array.from({ length: 8 }, (_, index) => ({ id: `r${index}` })) });
+  const finish: (() => void)[] = [];
+  const remove = vi.spyOn(records, "deleteRecord").mockImplementation(() => new Promise((resolve) => { finish.push(resolve); }));
+  show();
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Select all loaded records" }));
+  await confirmDelete();
+  await waitFor(() => expect(remove).toHaveBeenCalledTimes(6));
+  http.advanceSession();
+  remove.mockResolvedValue();
+  await act(async () => { finish.forEach((resolve) => resolve()); });
+  expect(remove).toHaveBeenCalledTimes(6);
+});

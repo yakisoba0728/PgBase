@@ -74,10 +74,11 @@ for (const realmLogout of [false, true]) {
     }});
     client.auth.save('old');
     const refreshing = client.realm('members').refresh();
+    const rejected = assert.rejects(refreshing, { status: 403, code: 'session_changed' });
     const loggingOut = realmLogout ? client.realm('members').logout() : client.logout();
     client.auth.save('explicit-new-login');
     release(Response.json({token:'replacement',expiresAt:'later',user:{id:'one',email:'a@example.test',createdAt:'then'}}));
-    await Promise.all([refreshing, loggingOut]);
+    await Promise.all([rejected, loggingOut]);
     assert.equal(logouts, 0);
     assert.equal(client.auth.token, 'explicit-new-login');
   });

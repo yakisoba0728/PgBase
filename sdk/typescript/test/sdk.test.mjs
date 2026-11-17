@@ -388,7 +388,7 @@ try {
   const fenced = new PgBaseClient("http://example.test", { fetch: () => pending });
   const staleLogin = fenced.login("stale@example.test", "password");
   fenced.auth.save("fresh");
-  await staleLogin;
+  await assert.rejects(staleLogin, { status: 403, code: "session_changed" });
   assert.equal(fenced.auth.token, "fresh", "a late authentication response cannot replace a newer token");
 
 	for (const [name, invoke] of [
@@ -402,7 +402,7 @@ try {
 	  const guarded = new PgBaseClient("http://example.test", { fetch: () => delayed });
 	  const request = invoke(guarded);
 	  guarded.auth.save("newer-token");
-	  await request;
+	  await assert.rejects(request, { status: 403, code: "session_changed" });
 	  assert.equal(guarded.auth.token, "newer-token", `${name} response cannot replace newer authentication`);
 	}
 } finally {

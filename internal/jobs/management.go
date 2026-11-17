@@ -70,7 +70,15 @@ func (s *Service) ConfigureJobInTimezone(ctx context.Context, id uuid.UUID, sche
 	if err != nil {
 		return err
 	}
+	// Expiry allows an operator edit, but the expired handler may still return.
+	// Revoke its token and generation in the same update as the accepted edit.
+	// Replacing the schedule also starts a new occurrence; a no-op save keeps
+	// the pending retry identity and its already-completed idempotent effects.
 	result, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET schedule=$2,timezone=$3,enabled=$4,
+	 lease_token=NULL,lease_until=NULL,fence_generation=fence_generation+1,
+	 attempts=CASE WHEN schedule<>$2 OR timezone<>$3 THEN 0 ELSE attempts END,
+	 last_scheduled_at=CASE WHEN schedule<>$2 OR timezone<>$3 THEN NULL ELSE last_scheduled_at END,
+	 last_error=CASE WHEN schedule<>$2 OR timezone<>$3 THEN NULL ELSE last_error END,
 	 next_run_at=CASE WHEN schedule<>$2 OR timezone<>$3 THEN $5 ELSE next_run_at END,updated_at=clock_timestamp()
 	 WHERE id=$1 AND name=ANY($6::text[]) AND (lease_until IS NULL OR lease_until<clock_timestamp())`, id, schedule, timezone, enabled, next, s.registry.names())
 	if err != nil {
@@ -99,7 +107,9 @@ func (s *Service) Register(ctx context.Context, name, schedule, timezone string,
 }
 
 func (s *Service) Unregister(ctx context.Context, name string) error {
-	result, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET enabled=false,updated_at=clock_timestamp() WHERE name=$1 AND (lease_until IS NULL OR lease_until<clock_timestamp())`, name)
+	result, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET enabled=false,
+ lease_token=NULL,lease_until=NULL,fence_generation=fence_generation+1,updated_at=clock_timestamp()
+ WHERE name=$1 AND (lease_until IS NULL OR lease_until<clock_timestamp())`, name)
 	if err != nil {
 		return err
 	}
@@ -122,7 +132,8 @@ func (s *Service) ensureScheduledInTimezone(ctx context.Context, name, schedule,
 // RequestRun queues the normal worker; it never runs a handler on an HTTP
 // goroutine or steals a lease. Disabled and unregistered jobs stay disabled.
 func (s *Service) RequestRun(ctx context.Context, id uuid.UUID) error {
-	result, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET next_run_at=clock_timestamp(),updated_at=clock_timestamp()
+	result, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET next_run_at=clock_timestamp(),
+ lease_token=NULL,lease_until=NULL,fence_generation=fence_generation+1,updated_at=clock_timestamp()
  WHERE id=$1 AND enabled AND name=ANY($2::text[]) AND (lease_until IS NULL OR lease_until<clock_timestamp())`, id, s.registry.names())
 	if err != nil {
 		return err

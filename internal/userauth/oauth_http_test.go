@@ -106,7 +106,7 @@ func TestHTTPOAuthProviderOIDCIDTokenFallbackVerifiesClaimsAndSignature(t *testi
 	d := sha256.Sum256([]byte(verifier))
 	makeToken := func(issuer string) string {
 		header, _ := json.Marshal(map[string]string{"alg": "RS256", "kid": "one"})
-		claims, _ := json.Marshal(map[string]any{"iss": issuer, "aud": "client", "exp": time.Now().Add(time.Minute).Unix(), "nonce": base64.RawURLEncoding.EncodeToString(d[:]), "sub": "subject", "email": "oidc@example.test", "email_verified": true})
+		claims, _ := json.Marshal(map[string]any{"iss": issuer, "aud": "client", "exp": time.Now().Add(time.Minute).Unix(), "iat": time.Now().Unix(), "nonce": base64.RawURLEncoding.EncodeToString(d[:]), "sub": "subject", "email": "oidc@example.test", "email_verified": true})
 		signing := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(claims)
 		sum := sha256.Sum256([]byte(signing))
 		sig, _ := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, sum[:])
@@ -155,7 +155,7 @@ func TestOIDCIDTokenFallbackRejectsInvalidTokens(t *testing.T) {
 		return input + "." + base64.RawURLEncoding.EncodeToString(sig)
 	}
 	base := func() map[string]any {
-		return map[string]any{"iss": server.URL, "aud": "client", "exp": time.Now().Add(time.Hour).Unix(), "nonce": nonce, "sub": "subject"}
+		return map[string]any{"iss": server.URL, "aud": "client", "exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(), "nonce": nonce, "sub": "subject"}
 	}
 	valid := sign(map[string]string{"alg": "RS256", "kid": "one"}, base(), key)
 	if _, err := p.verifyOIDCIDToken(context.Background(), valid, verifier); err != nil {

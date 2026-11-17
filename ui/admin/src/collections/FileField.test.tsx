@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
 import type { CollectionField } from "../api/collections";
 import * as api from "../api/records";
+import { advanceSession } from "../api/http";
 import { FileField } from "./FileField";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import type { Collection } from "../api/collections";
@@ -50,5 +51,70 @@ it("keeps other edits and saves with the new ETag after replacing a single file"
   await waitFor(() => expect(screen.getByLabelText(/^title/)).toHaveValue("b"));
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(update).toHaveBeenCalledWith("notes", "r", { title: "b" }, { ifMatch: '"v2"' }));
+  cleanup(); client.clear();
+});
+
+it("does not replace a file when the session changes while fetching its ETag", async () => {
+  setLanguage("en");
+  const file = { id: "f", filename: "old.txt", size: 3, contentType: "text/plain" } as api.StoredFile;
+  vi.spyOn(api, "listRecordFiles").mockResolvedValue([file]);
+  let finish!: (value: api.RecordWithETag) => void;
+  const read = vi.spyOn(api, "getRecord").mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+  const replace = vi.spyOn(api, "replaceRecordFiles").mockResolvedValue({ record: { id: "r" }, etag: '"next"' });
+  const settled = vi.fn();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(recordFilesQuery("notes", "r", "cover").queryKey, [file]);
+  const field = { id: "cover", name: "cover", type: "file", options: { maxSelect: 1 } } as CollectionField;
+  render(<QueryClientProvider client={client}><FileField collection="notes" recordId="r" field={field} readOnly={false} staged={[]} onStage={vi.fn()} onRecordChanged={settled} /></QueryClientProvider>);
+  fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(["new"], "new.txt")] } });
+  await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+  advanceSession();
+  finish({ record: { id: "r" }, etag: '"old-session"' });
+  await waitFor(() => expect(client.getMutationCache().getAll().at(-1)?.state.status).toBe("error"));
+  expect(settled).not.toHaveBeenCalled();
+  expect(replace).not.toHaveBeenCalled();
+  cleanup(); client.clear();
+});
+
+it("does not dispatch the next selected file after the administrator session changes", async () => {
+  setLanguage("en");
+  vi.spyOn(api, "listRecordFiles").mockResolvedValue([]);
+  let finish!: (value: api.StoredFile) => void;
+  const upload = vi.spyOn(api, "uploadRecordFile").mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; })).mockResolvedValue({ id: "unexpected" } as api.StoredFile);
+  const settled = vi.fn();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(recordFilesQuery("notes", "r", "cover").queryKey, []);
+  const field = { id: "cover", name: "cover", type: "file", options: { maxSelect: 2 } } as CollectionField;
+  render(<QueryClientProvider client={client}><FileField collection="notes" recordId="r" field={field} readOnly={false} staged={[]} onStage={vi.fn()} onRecordChanged={settled} /></QueryClientProvider>);
+  fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(["one"], "one.txt"), new File(["two"], "two.txt")] } });
+  await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+  advanceSession();
+  finish({ id: "one" } as api.StoredFile);
+  await waitFor(() => expect(client.getMutationCache().getAll().at(-1)?.state.status).toBe("error"));
+  expect(settled).not.toHaveBeenCalled();
+  expect(upload).toHaveBeenCalledTimes(1);
+  cleanup(); client.clear();
+});
+
+it.each(["same", "replacement"])("refreshes a failed removal only in the %s administrator session", async (session) => {
+  setLanguage("en");
+  const file = { id: "f", filename: "old.txt", size: 3, contentType: "text/plain" } as api.StoredFile;
+  vi.spyOn(api, "listRecordFiles").mockResolvedValue([file]);
+  let fail!: (error: Error) => void;
+  const remove = vi.spyOn(api, "deleteFile").mockImplementation(() => new Promise<void>((_, reject) => { fail = reject; }));
+  const settled = vi.fn();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const invalidate = vi.spyOn(client, "invalidateQueries");
+  client.setQueryData(recordFilesQuery("notes", "r", "cover").queryKey, [file]);
+  const field = { id: "cover", name: "cover", type: "file", options: { maxSelect: 1 } } as CollectionField;
+  render(<QueryClientProvider client={client}><FileField collection="notes" recordId="r" field={field} readOnly={false} staged={[]} onStage={vi.fn()} onRecordChanged={settled} /></QueryClientProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Delete old.txt" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  await waitFor(() => expect(remove).toHaveBeenCalledTimes(1));
+  if (session === "replacement") advanceSession();
+  fail(new Error("The server did not confirm the removal"));
+  await waitFor(() => expect(client.getMutationCache().getAll().at(-1)?.state.status).toBe("error"));
+  expect(settled).toHaveBeenCalledTimes(session === "same" ? 1 : 0);
+  expect(invalidate).toHaveBeenCalledTimes(session === "same" ? 1 : 0);
   cleanup(); client.clear();
 });

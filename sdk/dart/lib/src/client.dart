@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'auth.dart';
+import 'auth_scope.dart';
 import 'errors.dart';
 import 'exact_json.dart';
 import 'files.dart';
@@ -183,6 +184,10 @@ final class PgBaseClient {
       _logout('/api/v1/auth/logout', cancellation);
 
   Future<UserSession> _refresh(String path, CancellationToken? cancellation) {
+    final queuedGeneration = auth.generation;
+    final queuedOrigin = _refreshGeneration == queuedGeneration
+        ? _refreshOrigin
+        : queuedGeneration;
     final previous = _pendingRefresh;
     final logout = _pendingLogout;
     final operation = () async {
@@ -196,19 +201,27 @@ final class PgBaseClient {
           await previous;
         } catch (_) {}
       }
+      // Queued rotations may replace this session's token, but explicit auth
+      // changes must not let old work act on the replacement session.
+      if (queuedGeneration != auth.generation &&
+          (_refreshGeneration != auth.generation ||
+              _refreshOrigin != queuedOrigin)) {
+        throw const PgBaseError(403, 'session_changed');
+      }
       if (auth.token == null)
         throw const PgBaseProtocolError('authentication_required');
       final generation = auth.generation;
-      final session = _decodeRefreshSession(
-        await request('POST', path, cancellation: cancellation),
-      );
-      if (generation == auth.generation) {
+      final scope = AuthScope(auth);
+      return scope.run(() async {
+        final session = _decodeRefreshSession(
+          await request('POST', path, cancellation: cancellation),
+        );
+        scope.check();
         if (_refreshGeneration != generation) _refreshOrigin = generation;
         _refreshGeneration = generation + 1;
-        final saving = auth.save(session.token!, record: session.user);
-        await saving;
-      }
-      return session;
+        await scope.adopt(session.token!, record: session.user);
+        return session;
+      });
     }();
     _pendingRefresh = operation;
     void clear() {
@@ -519,6 +532,7 @@ final class PgBaseClient {
     String? requestKey,
     bool autoCancel = true,
   }) async {
+    final scope = AuthScope(auth);
     final effectiveCancellation = _requestCancellation(
       method,
       path,
@@ -528,13 +542,15 @@ final class PgBaseClient {
       autoCancel,
     );
     try {
-      final response = await transport.json(
-        method,
-        path,
-        headers: headersFor(headers),
-        body: body,
-        query: query,
-        cancellation: effectiveCancellation.token,
+      final response = await scope.run(
+        () => transport.json(
+          method,
+          path,
+          headers: headersFor(headers),
+          body: body,
+          query: query,
+          cancellation: effectiveCancellation.token,
+        ),
       );
       if (response.status < 200 || response.status >= 300)
         throw pgBaseError(response);
@@ -591,6 +607,7 @@ final class PgBaseClient {
     String? requestKey,
     bool autoCancel = true,
   }) async {
+    final scope = AuthScope(auth);
     final effective = _requestCancellation(
       method,
       path,
@@ -600,13 +617,15 @@ final class PgBaseClient {
       autoCancel,
     );
     try {
-      final response = await transport.json(
-        method,
-        path,
-        headers: headersFor(headers),
-        body: body,
-        query: query,
-        cancellation: effective.token,
+      final response = await scope.run(
+        () => transport.json(
+          method,
+          path,
+          headers: headersFor(headers),
+          body: body,
+          query: query,
+          cancellation: effective.token,
+        ),
       );
       if (response.status < 200 || response.status >= 300)
         throw pgBaseError(response);
@@ -626,13 +645,15 @@ final class PgBaseClient {
   }) async {
     if (files.keys.any((key) => key.isEmpty || key == 'requests'))
       throw const PgBaseProtocolError('invalid_batch_file');
-    final response = await transport.multipart(
-      'POST',
-      '/api/v1/user/collections/batch',
-      fields: {'requests': utf8.decode(encodeExactJson(requests))},
-      files: files,
-      headers: headersFor(null),
-      cancellation: cancellation,
+    final response = await AuthScope(auth).run(
+      () => transport.multipart(
+        'POST',
+        '/api/v1/user/collections/batch',
+        fields: {'requests': utf8.decode(encodeExactJson(requests))},
+        files: files,
+        headers: headersFor(null),
+        cancellation: cancellation,
+      ),
     );
     if (response.status < 200 || response.status >= 300)
       throw pgBaseError(response);
@@ -673,37 +694,40 @@ final class PgBaseClient {
     CancellationToken? cancellation, {
     bool mfa = false,
     String? fields,
-  }) async {
-    final generation = auth.generation;
-    try {
-      final session = _decodeSession(
-        await request(
-          'POST',
-          path,
-          body: JsonObject(body),
-          query: {if (fields != null) 'fields': fields},
-          cancellation: cancellation,
-        ),
-      );
-      if (session.token != null && generation == auth.generation)
-        await auth.save(session.token!, record: session.user);
-      return session;
-    } on PgBaseError catch (error) {
-      if (mfa && error.code == 'mfa_required') {
-        final token = error.details['challengeToken']?.firstOrNull;
-        final expiresAt = error.details['expiresAt']?.firstOrNull;
-        if (token != null && expiresAt != null)
-          throw MfaChallengeError(
-            error.status,
-            error.code,
-            MfaChallenge(token: token, expiresAt: expiresAt),
-            details: error.details,
-            etag: error.etag,
-            requestId: error.requestId,
-          );
+  }) {
+    final scope = AuthScope(auth);
+    return scope.run(() async {
+      try {
+        final session = _decodeSession(
+          await request(
+            'POST',
+            path,
+            body: JsonObject(body),
+            query: {if (fields != null) 'fields': fields},
+            cancellation: cancellation,
+          ),
+        );
+        scope.check();
+        if (session.token != null)
+          await scope.adopt(session.token!, record: session.user);
+        return session;
+      } on PgBaseError catch (error) {
+        if (mfa && error.code == 'mfa_required') {
+          final token = error.details['challengeToken']?.firstOrNull;
+          final expiresAt = error.details['expiresAt']?.firstOrNull;
+          if (token != null && expiresAt != null)
+            throw MfaChallengeError(
+              error.status,
+              error.code,
+              MfaChallenge(token: token, expiresAt: expiresAt),
+              details: error.details,
+              etag: error.etag,
+              requestId: error.requestId,
+            );
+        }
+        rethrow;
       }
-      rethrow;
-    }
+    });
   }
 
   Future<void> _voidPost(

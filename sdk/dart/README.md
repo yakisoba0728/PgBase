@@ -18,6 +18,51 @@ Mutating admin helpers retain the login cookie and CSRF token. A restore starts
 the server's native restore job and does not invent an approval or idempotency
 contract; inspect it with `backupJob`.
 
+## User session lifetime
+
+User JSON, record, batch, file-upload and download operations belong to the
+`AuthStore` generation in which they started, including when clients share a
+store. Replacing, restoring, importing or clearing auth state, or successfully
+refreshing a token, makes a pending older success/HTTP/transport result reject
+with `PgBaseError(403, 'session_changed')`. File hashing belongs to the same
+scope: a prepared file cannot start its upload using a replacement user's token.
+Existing Realtime streams already stop on auth changes.
+
+Current login/refresh operations still adopt their own guarded response, and
+refresh-before-logout still revokes the rotated token. A stale login/refresh now
+rejects instead of returning an unadopted session, and preserves an explicit
+newer login. Refresh also invalidates concurrent old-generation reads when the
+user is unchanged. Use separate stores for deliberately independent identities.
+
+Auth completion checks again at adoption and accounts for exactly its own
+generation increment while awaiting persistence. If another save or clear occurs
+during that wait, the older completion rejects; a persistence failure for the
+still-current self-adopted identity keeps its original error. Once a Future has
+completed, later auth changes cannot retract its value or stop a delayed consumer
+callback. Applications must clear their own caches/subscriptions on auth change.
+
+Migration: discard `session_changed`, clear session-specific caches, and issue a
+fresh read when appropriate. Never automatically retry a write: it may already
+have committed under the original identity. The guard does not cancel remote
+work, revoke previously issued download URIs, or cover caller-owned direct
+`transport` requests.
+
+## Administrator session lifetime
+
+Administrator requests, including backup uploads/downloads, are bound to their
+client's local session generation through complete response-body collection.
+After a new login/resume, logout, or current-session 401 invalidates that
+generation, older success responses and HTTP/transport failures reject with
+`PgBaseError(403, 'session_changed')`. An older concurrent login also rejects
+instead of returning an identity that no longer owns the client's cookie/CSRF.
+Current-session errors retain their original status and details.
+
+Migration: discard `session_changed` and clear session-specific caches in your
+application. Reissue a read under the new identity if needed; do not automatically
+retry writes, which may already have committed. This local lifetime check cannot
+detect a cookie changed outside this client without a new `resume`/`login`, or
+control an external cookie-capable transport's own cookie updates.
+
 `confirmTotpEnrollment` always returns the server-authored recovery-code
 object. Its older named `fields` parameter is deprecated and ignored for source
 compatibility because the native confirmation route does not support response

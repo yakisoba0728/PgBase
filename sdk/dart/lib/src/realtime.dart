@@ -119,7 +119,7 @@ final class RealtimeService {
     Future<Future<void> Function()> start() {
       if (generation != _client.auth.generation)
         throw const PgBaseCancellation();
-      return _subscribe(topic, listener);
+      return _subscribe(topic, listener, generation);
     }
 
     final result = _subscribing == null
@@ -139,18 +139,29 @@ final class RealtimeService {
   Future<Future<void> Function()> _subscribe(
     String topic,
     Function listener,
+    int generation,
   ) async {
     if (!_validTopic(topic))
       throw const PgBaseProtocolError('invalid_realtime_topic');
     if (_stop?.isCancelled ?? false) await _running;
+    // A stopped transport may take time to drain; retain the caller's original
+    // identity across that asynchronous boundary.
+    if (generation != _client.auth.generation)
+      throw const PgBaseCancellation();
     final listeners = _listeners[topic] ??= {};
     final added = listeners.add(listener);
     _ensureRunning();
+    final stop = _stop;
     try {
       if (_clientId != null)
         await _sync();
       else
         await _ready!.future;
+      if (generation != _client.auth.generation ||
+          (stop?.isCancelled ?? true) ||
+          !identical(_listeners[topic], listeners) ||
+          !listeners.contains(listener))
+        throw const PgBaseCancellation();
     } catch (_) {
       if (added) {
         listeners.remove(listener);
@@ -161,7 +172,10 @@ final class RealtimeService {
       }
       rethrow;
     }
-    return () => unsubscribe(topic, listener);
+    return () async {
+      if (identical(_stop, stop) && identical(_listeners[topic], listeners))
+        await unsubscribe(topic, listener);
+    };
   }
 
   /// Subscribes to an application topic while preserving its raw UTF-8 name.
@@ -433,17 +447,29 @@ final class RealtimeService {
   );
 
   void _deliver(Function listener, Object event, String topic) {
+    final stop = _stop;
+    final generation = _client.auth.generation;
+    // Listener futures can outlive the connection and its authenticated owner.
+    void failed(Object error) {
+      if (identical(_stop, stop) &&
+          stop != null &&
+          !stop.isCancelled &&
+          generation == _client.auth.generation) {
+        _listenerFailure(error, topic);
+      }
+    }
+
     try {
       final result = Function.apply(listener, [event]);
       if (result is Future)
         result.then<void>(
           (_) {},
           onError: (Object error, StackTrace stack) {
-            _listenerFailure(error, topic);
+            failed(error);
           },
         );
     } catch (error) {
-      _listenerFailure(error, topic);
+      failed(error);
     }
   }
 

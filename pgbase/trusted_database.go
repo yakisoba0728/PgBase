@@ -77,11 +77,9 @@ func (d *TrustedDatabase) RunInTransaction(ctx context.Context, fn func(callback
 		return errors.New("transaction callback is required")
 	}
 	if bound, ok := ctx.Value(trustedTransactionKey{}).(trustedTransaction); ok && bound.owner == d {
-		nested, err := bound.tx.Begin(ctx)
-		if err != nil {
-			return err
-		}
-		return runTrustedTransaction(ctx, d, nested, fn)
+		return database.InSavepoint(ctx, bound.tx, func(tx pgx.Tx) error {
+			return fn(context.WithValue(ctx, trustedTransactionKey{}, trustedTransaction{owner: d, tx: tx}))
+		})
 	}
 	if d == nil || d.pool == nil {
 		return errors.New("trusted database is unavailable")
@@ -89,23 +87,6 @@ func (d *TrustedDatabase) RunInTransaction(ctx context.Context, fn func(callback
 	return d.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		return fn(context.WithValue(ctx, trustedTransactionKey{}, trustedTransaction{owner: d, tx: tx}))
 	})
-}
-
-func runTrustedTransaction(ctx context.Context, owner *TrustedDatabase, tx pgx.Tx, fn func(context.Context) error) (err error) {
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback(context.WithoutCancel(ctx))
-		}
-	}()
-	if err = fn(context.WithValue(ctx, trustedTransactionKey{}, trustedTransaction{owner: owner, tx: tx})); err != nil {
-		return err
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return err
-	}
-	committed = true
-	return nil
 }
 
 type errorRow struct{ err error }

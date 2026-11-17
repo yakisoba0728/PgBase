@@ -480,4 +480,6 @@ export declare class PgBaseAdminClient {
     private request;
     private requestText;
     private requestBlob;
+    /** One session boundary for JSON, exact text, downloads and HTTP failures. */
+    private readResponse;
 }

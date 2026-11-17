@@ -13,7 +13,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net/netip"
-	"strconv"
 	"strings"
 	"time"
 
@@ -253,9 +252,12 @@ func validTOTP(secret []byte, code string, now time.Time) bool {
 	if len(code) != 6 {
 		return false
 	}
-	want, err := strconv.Atoi(code)
-	if err != nil {
-		return false
+	var want int32
+	for index := range len(code) {
+		if code[index] < '0' || code[index] > '9' {
+			return false
+		}
+		want = want*10 + int32(code[index]-'0')
 	}
 	for offset := -1; offset <= 1; offset++ {
 		counter := uint64(now.Add(time.Duration(offset)*30*time.Second).Unix() / 30)
@@ -266,7 +268,7 @@ func validTOTP(secret []byte, code string, now time.Time) bool {
 		digest := mac.Sum(nil)
 		start := digest[len(digest)-1] & 15
 		value := (int(digest[start])&127)<<24 | int(digest[start+1])<<16 | int(digest[start+2])<<8 | int(digest[start+3])
-		if subtle.ConstantTimeEq(int32(value%1000000), int32(want)) == 1 {
+		if subtle.ConstantTimeEq(int32(value%1000000), want) == 1 {
 			return true
 		}
 	}

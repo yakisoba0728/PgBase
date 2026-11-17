@@ -35,3 +35,31 @@ No OAuth test-application credentials were supplied, and the user confirmed that
 A future authorized check needs a provider-owned test application, its client ID and supported secret/key material, a registered callback URI matching the deployed PgBase URL, required scopes, and a dedicated consenting test account. Apple additionally needs a Services ID/domain configuration, public HTTPS callback bridge, and a valid signed client-secret JWT or its team ID/key ID/signing key inputs. Self-hosted OAuth/OIDC needs the actual issuer/endpoint configuration and an isolated test identity. Credentials should be supplied through a secret manager or local configuration, never committed.
 
 Detailed command results, intentional before-fix failures, credential-name inventory, and public metadata observations are recorded under `.local/redesign/runtime-verification/oauth-*` in the verification workspace. No actual external OAuth end-to-end pass is claimed.
+
+## Avatar address policy (2026-11-16)
+
+Optional avatar imports accept ordinary public IPv4 and IPv6 unicast addresses.
+Every address returned by DNS must pass the policy before the transport dials
+one of those exact addresses. Redirects receive the same destination checks and
+the existing ten-request limit. The explicit local-provider fixture option
+continues to permit loopback; it does not permit other private or special-use
+addresses.
+
+The policy rejects shared carrier address space, documentation, benchmarking,
+reserved space, protocol-assignment blocks and IPv6 translation/tunnel
+destinations in addition to private, loopback, link-local and multicast space.
+IPv4-mapped IPv6 is normalized before applying the IPv4 checks. IPv6 accepts
+only `2000::/3`, excluding the additional listed special-purpose subranges.
+This intentionally conservative avatar policy rejects globally reachable
+special-purpose exceptions within protocol-assignment blocks as well; these
+are not ordinary avatar hosting destinations. It does not purport to be a
+general-purpose routing classification. A deployment that requires translated
+IPv6-only avatar fetching needs a separately reviewed egress design.
+
+The address ranges were checked against the primary
+[IANA IPv4 Special-Purpose Address Registry](https://www.iana.org/assignments/iana-ipv4-special-registry/)
+and [IANA IPv6 Special-Purpose Address Registry](https://www.iana.org/assignments/iana-ipv6-special-registry/).
+Bounded regression tests reproduce the earlier classifier's acceptance of
+special-use addresses and retain public IPv4/IPv6, mapped-address and redirect
+controls. They establish destination-policy enforcement, not a demonstrated
+network exploit or live provider interoperability.

@@ -3,6 +3,7 @@
 package filestore
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -98,8 +99,18 @@ func TestVariantCleanupWaitsForPublisherCommitBeforeReferenceCheck(t *testing.T)
 	if _, err := pool.Exec(ctx, `alter table pgbase_meta.record_file_variants drop constraint record_file_variants_file_id_fkey`); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{pool: pool}
+	store, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{pool: pool, objects: store}
 	fileID, key, variant := uuid.New(), "thumbnails/"+uuid.NewString(), "2x2"
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.file_object_deletions(object_key,queued_at,retain_on_success) values($1,now(),true)`, key); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Put(ctx, key, bytes.NewBufferString("committed variant")); err != nil {
+		t.Fatal(err)
+	}
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -109,30 +120,31 @@ func TestVariantCleanupWaitsForPublisherCommitBeforeReferenceCheck(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtextextended($1,0))`, fileID.String()+"/"+variant); err != nil {
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err := lockObjectReference(ctx, tx, key); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(ctx, `insert into pgbase_meta.record_file_variants(file_id,variant,object_key,created_at) values($1,$2,$3,CURRENT_TIMESTAMP)`, fileID, variant, key); err != nil {
 		t.Fatal(err)
 	}
-	done := make(chan error, 1)
-	go func() { done <- service.queueUnreferencedVariant(ctx, fileID, variant, key) }()
-	select {
-	case err := <-done:
-		t.Fatalf("cleanup did not wait for publisher: %v", err)
-	case <-time.After(100 * time.Millisecond):
+	// The production worker defers this intent while the publisher owns the
+	// reference lock, even though its uncommitted reference is not yet visible.
+	if worked, err := service.DrainOne(ctx); err != nil || worked {
+		t.Fatalf("cleanup crossed pending publisher: worked=%t err=%v", worked, err)
 	}
+	requireVariantBytes(t, store, key, true)
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-done; err != nil {
-		t.Fatal(err)
+	if worked, err := service.DrainOne(ctx); err != nil || !worked {
+		t.Fatalf("committed reference cleanup: worked=%t err=%v", worked, err)
 	}
+	requireVariantBytes(t, store, key, true)
 	var queued bool
 	if err := pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.file_object_deletions where object_key=$1)`, key).Scan(&queued); err != nil {
 		t.Fatal(err)
 	}
 	if queued {
-		t.Fatal("committed variant object was queued for deletion")
+		t.Fatal("committed variant retained its obsolete cleanup intent")
 	}
 }

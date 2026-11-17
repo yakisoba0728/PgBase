@@ -623,11 +623,21 @@ void main() {
         httpClient: client,
       );
       final older = admin.login('old@example.test', 'password');
+      final rejected = expectLater(
+        older,
+        throwsA(
+          isA<PgBaseError>().having(
+            (error) => error.code,
+            'code',
+            'session_changed',
+          ),
+        ),
+      );
       await client.oldLoginStarted.future;
       final newer = admin.login('new@example.test', 'password');
       await newer;
       client.oldLoginResponse.complete(_adminLoginResponse('old'));
-      await older;
+      await rejected;
       await admin.configureJob('daily', '0 0 * * *', true);
 
       final mutation = client.requests.last;

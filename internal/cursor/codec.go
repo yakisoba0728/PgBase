@@ -52,10 +52,12 @@ func (c *Codec) authenticatedPayload(token string) ([]byte, error) {
 }
 
 func (c *Codec) signAndEncode(payload []byte) (string, error) {
-	signature := c.fingerprint(cursorDomain, payload)
-	if len(payload)+len(signature) > maxDecodedSize {
+	// Reject before hashing or adding lengths. The HMAC is always SHA-256;
+	// subtraction keeps the bound valid independently of the input length.
+	if len(payload) > maxDecodedSize-sha256.Size {
 		return "", invalid()
 	}
+	signature := c.fingerprint(cursorDomain, payload)
 	raw := append(append(make([]byte, 0, len(payload)+len(signature)), payload...), signature...)
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }

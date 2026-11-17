@@ -6,9 +6,38 @@ The native collection event stream accepts no query parameters; `fields` cannot 
 
 The SSE `id` is a monotonically increasing PostgreSQL `int64` delivery sequence, distinct from the event's UUID. Save the most recent SSE ID (including `cursor` frames) and supply it as `Last-Event-ID` on reconnect. Initial connections without a cursor start at the current head. A cursor older than retained events returns HTTP 410; reload records and start a fresh subscription. The TypeScript SDK exposes `RecordEvent.deliveryId` as a decimal string so values above JavaScript's safe-integer range remain exact. Pass `lastEventId` as a decimal string for such values; unsafe numeric inputs are rejected. The SDK handles stream framing and bounded reconnect attempts. Consumers should deduplicate by event UUID when applying effects.
 
-The PostgreSQL outbox discovers committed mutations without using a UUID high-water mark. Workers claim bounded batches with expiring leases and fenced publication; delivery sequence allocation is serialized through commit. Versions of one record are delivered in order. Failed publication backs off and reaches a dead letter after ten attempts. Administrators can inspect `GET /api/admin/realtime/status`, list dead events newest first through `GET /api/admin/realtime/dead?before={nextBefore}` (50 per page; `{items:[{eventId,collectionName,recordId,operation,recordVersion,attempts,createdAt,deadAt}],nextBefore?}`; the opaque cursor stays valid when listed events are retried; the event envelope and record snapshot are not returned), and retry a dead event through `POST /api/admin/realtime/{eventId}/retry`. The dead list has no dedicated index, so like the status counts it scans the delivery table. Retrying an already delivered event does not republish it.
+The PostgreSQL outbox queues delivery in the same transaction as each record mutation. Workers claim bounded batches with expiring leases and fenced publication; delivery sequence allocation is serialized through commit. This does not use a UUID high-water mark, so a late-committing transaction is still delivered. Versions of one record are delivered in order. Failed publication backs off and reaches a dead letter after ten attempts. A dead predecessor blocks subsequent versions of that record until an operator retries it; unrelated records continue.
+
+Administrators can inspect `GET /api/admin/realtime/status`, list dead events newest first through `GET /api/admin/realtime/dead?before={nextBefore}` (50 per page; `{items:[{eventId,collectionName,recordId,operation,recordVersion,attempts,createdAt,deadAt}],nextBefore?}`; the opaque cursor stays valid when listed events are retried; the event envelope and record snapshot are not returned), and retry a dead event through `POST /api/admin/realtime/{eventId}/retry`. Partial indexes keep dead-event listing and pending-queue ordering separate from delivered history. Exact status counts still scan the delivery table; avoid treating that administrator diagnostic as a high-frequency application API. Retrying an already delivered event does not republish it.
 
 Active user status, session validity, collection admission and current list/view rules are checked during delivery. Delete events retain the owner and row snapshot needed to evaluate permission after the base row is gone. Subscriptions are limited to four connections per user and 128 per process, with a 30-minute lifetime and 10-second write deadlines. Clients reconnect after normal lifetime expiry. Retention defaults to 24 hours; delivered outbox markers remain durable to prevent redelivery. Realtime retention is not audit retention.
+
+## Queue and retention operations
+
+System migration 68 installs the database-owned enqueue trigger and backfills
+missing delivery rows. Older record writers that only insert their outbox row
+still enqueue atomically. The migration preserves delivered/dead/retry state;
+only pending/dead historical rows need ordering metadata. Follow the normal
+[drained migration procedure](deployment.md#required-production-sequence), run the new binary's
+`pgbase migrate up`, and require `pgbase migrate status` to report the latest
+clean schema before serving. This does not declare old binaries compatible
+with the new schema: the ordinary exact-version startup gate remains in force.
+
+Retention checks at startup and at least once per minute. While expired replay
+history remains, each ordinary delivery poll removes at most 1,000 leading
+events, with a one-second transaction deadline plus bounded rollback cleanup.
+It yields between batches so new events continue to be delivered. A failed pass
+waits for the next maintenance tick. A fully fresh leading window stops the
+catch-up; database clock corrections cannot expire a cursor across an
+unexpired earlier event. Clock corrections or maintenance failures can thus
+retain events longer than 24 hours.
+
+Monitor pending/dead counts, the age of the oldest pending event, database
+resource use, and the size of audit/outbox/delivery relations. Replay cleanup
+does not delete durable audit events, outbox payloads, or delivered identity
+markers. Those tables still require storage capacity planning. Do not truncate
+delivery markers to reclaim space: that removes durable delivery history and
+is outside the supported recovery contract.
 
 ## Multiplex record subscriptions
 
@@ -19,6 +48,8 @@ The client ID in `PB_CONNECT` is not a replay position and is not sent as an SSE
 Reconnect with the last numeric checkpoint, then resubmit subscriptions using the new `clientId`. Initial connections without a checkpoint start at the subscription's current head. Before the first numeric checkpoint has been received, reconnecting is another fresh subscription; replay of that initial gap is not guaranteed. Application topics do not advance the durable checkpoint. Subscription replacement preserves positions for unchanged record topics; newly added topics start at the current head. Reauthentication with a new credential for the same principal preserves those positions, while a guest-to-auth upgrade initializes the new principal's subscriptions at their current heads.
 
 An expired reconnect checkpoint returns HTTP 410 from subscription replacement without changing client state; an invalid checkpoint returns 400. If retention expires while a stream is active, it receives `PB_ERROR` with `{"code":"cursor_expired"}` and closes. Invalid cursors use `invalid_cursor`; other delivery failures use `subscription_failed`. Reload records before starting fresh after retention expiry. Multiplex connections have the same 30-minute maximum lifetime and refreshed 10-second write deadlines as the collection stream. Slow consumers release both connection and broker admission when a write fails.
+
+Relation filters that require current data and requested expansions use the stream's current request policy context. A failed current-record lookup, including a database timeout, closes the stream with `subscription_failed` without acknowledging the affected event; reconnecting can retry from the last received checkpoint. A successful relation-filter lookup with no match advances normally. If the current base row has been deleted or is no longer viewable, its already-authorized event snapshot can still be delivered without a live expansion; an operational lookup failure is not treated as that absence.
 
 ## Application topics
 
