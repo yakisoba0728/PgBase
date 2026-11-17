@@ -1,6 +1,6 @@
 # Schema 69 migration, recovery and rollback boundaries
 
-Status: **IN_PROGRESS — current integrated CI pending**. This is a source-based
+Status: **Current migration/recovery gates PASS; overall qualification BLOCKED by sustained-load p99**. This is a source-based
 operator summary and a map to existing executable qualification. It records no
 production execution. Follow the repository's [deployment](../../../deployment.md),
 [upgrade](../../../upgrades.md), [backup/restore](../../../backup-restore.md) and
@@ -59,8 +59,7 @@ migration, preserves bytes, and upgrades/reapplies schema 69. Separate S3
 snapshot contracts restore to independent local files. Source-bound coverage is
 explained in the [Storage CI report](../phase-nonperformance-storage-ci.md);
 the later [historical full qualification](../final-integrated-qualification.md)
-also passed the configured PostgreSQL 16.13/17.9/18.3 matrix. Those are old-source
-results; the current integrated matrix remains a mandatory final gate.
+also passed the configured PostgreSQL16.13/17.9/18.3 matrix. Those remain old-source results. The new [exact-source final qualification](final-qualification.md) also passes those PostgreSQL jobs, isolated backup/recovery and configured restore assertions on89e883fc; it fails the separate sustained-load latency gate. No production upgrade is authorized by those fixture results.
 
 Restore to an empty, isolated target with a PostgreSQL client matching the
 server major and restore all three schemas coherently. Do not restore over a
@@ -117,5 +116,4 @@ maximum. Multiply per-instance/controller usage according to the actual fleet;
 include background server workers separately from client-session counts.
 
 No connection pool setting, durability option or acceptance threshold was
-weakened to obtain the earlier performance result. Final qualification must
-retain the fixed four-request-pool workload and record any diagnostic overhead.
+weakened to obtain the earlier performance result. The current failed final gate retained the fixed four-request-pool workload and preserved observer overhead/connection accounting; no setting was changed to seek a pass.

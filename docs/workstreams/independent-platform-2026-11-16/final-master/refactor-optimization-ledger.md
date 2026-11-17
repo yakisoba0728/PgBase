@@ -24,10 +24,22 @@ The repeated-HTTP evidence validator's c1/c8/c32/c4 protocol is distinct from th
 
 ## Preserved failures and limits
 
-- The author UI baseline was449/449. The modified full local run was457/458, with an untouched ApiView retry-render test timing out. That file alone subsequently passed3/3 without assertion or timeout changes. Shared-host contention is an inference; the failure remains preserved and requires a clean final complete UI CI result.
-- The historical sustained-load failure with547 dropped arrivals remains historical failure evidence. It is not explained away by this round.
+- The author UI baseline was449/449. The modified full local run was457/458, with an untouched ApiView retry-render test timing out. That file alone subsequently passed3/3 without assertion or timeout changes. Shared-host contention is an inference; the failure remains preserved. Final whole frontend CI passes78files/458tests includingApiView3/3; current functional acceptance is resolved without a historical causal claim.
+- The historical sustained-load failure with547 dropped arrivals remains a failure. Its original3,451,697-byte archive was recovered, hash-verified and retained in Git this round.
+- The new exact-source gate fails end-to-end p99:588.031143ms>250ms, with120000 complete requests and0drops/errors/incomplete. Independent raw-row recalculation matches. DB/WAL/I/O/pool associations do not establish a safe source correction; no second gate was run. Overall decision:BLOCKED / NOT_READY.
 - Independent PostgreSQL provisioning initially lacked pg_trgm; this prevented migration66 before either old/new behavior executed. Installing the source-matched extension is a fixture correction, not a runtime fix or a RED result.
 - Existing external-provider, storage ambiguity/tombstone, old-worker, external Jobs-effect and native scanner limitations remain in [risk register](risk-register.md).
+
+## Published correction and reversal points
+
+| Correction | Published isolated commit | Reversal consequence |
+| --- | --- | --- |
+| Storage ownership | `6d09071e0c8229eeb6fca345067ee4e957d20000` | Restores reproduced foreign-controller lease routing; requalify physical-PG and race cases. |
+| TS/Dart refresh | `a8fe0bf17c5a837921d09a969a489970a1819042` | Restores queued-session adoption defect; keep TS distribution consistent. |
+| Administrator actions | `06287fa8a4eb10f392976e2fac2c70363822957a` | Restores stale action/callback behavior; regenerate distribution. |
+| Evidence reader | `10ab48ca6fd6117bb8f285251c88edd1ce3de818` | Restores acceptance of invalid repeated-load evidence; does not resolve current load failure. |
+
+Frozen candidate `89e883fc700ef0250024427a1f09bb88affe0383` contains all four. These are reviewable reversal points, not instructions to revert automatically or change main.
 
 ## Reversal and compatibility
 

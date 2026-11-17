@@ -1,7 +1,6 @@
 # Main-to-PR change map
 
-Status: **IN_PROGRESS**. The counts below are the immutable starting inventory,
-not a prediction of the final diff after local corrections are integrated.
+Status: **CONSOLIDATED; overall qualification BLOCKED by the current latency gate**. The counts below remain the immutable starting inventory. The four bounded correction areas are integrated in candidate89e883fc and independently verified; the current mandatory performance gate fails.
 The [initial inventory](../evidence/final-master/initial-inventory.json) contains
 every path, category, byte length and SHA-256.
 
@@ -54,19 +53,18 @@ Source-relative operator guidance is in [migration and rollback](migration-and-r
 and [risk register](risk-register.md). This map is not a new exhaustive audit
 claim for every file in those modules.
 
-## New final-master corrections under integration
+## New final-master corrections integrated and independently verified
 
 | Local author identity | Reproduced problem / correction | Qualification state at this document snapshot |
 | --- | --- | --- |
-| `e59fc07668e0a282555f2f52dbddf890162254e0` with follow-up `4717aed` | Storage Put/Open/Delete and publication must use a lease owned by the receiving controller; scoped helper/test follow-up | Author RED/GREEN exists; separate DB/race review and final integrated CI owned by coordinator |
-| `8ccf8ca7b5a7a973dc209563e2b3256966da89be` | Queued TS/Dart refresh captures original generation before queue wait; obsolete work cannot refresh the replacement user | Author language regressions passed; independent and real-server qualification pending integration |
-| `b56b74022eced2c767429b435a2abc4031ec37ee` | Jobs and Storage migration callbacks retain invocation session ownership | Author focused tests passed; full UI/build/browser qualification pending |
-| `6add53b53b57e6fc3826820ac7b6580b493629cb` | Offline HTTP comparison validates registered stage order, latency population and pool bound | RED/GREEN and historical-log replay retained; no workload/runtime gate changed |
+| `e59fc07668e0a282555f2f52dbddf890162254e0` with follow-up `4717aed` | Storage Put/Open/Delete and publication must use a lease owned by the receiving controller; scoped helper/test follow-up | Independent unit and physical-PG RED/GREEN complete; final PG/race jobs pass |
+| `8ccf8ca7b5a7a973dc209563e2b3256966da89be` | Queued TS/Dart refresh captures original generation before queue wait; obsolete work cannot refresh the replacement user | Independent lifecycle RED/GREEN complete; final TS123/Dart142 and real-server contracts pass |
+| `b56b74022eced2c767429b435a2abc4031ec37ee` | Jobs and Storage migration callbacks retain invocation session ownership | Independent7RED→15GREEN; final full UI458/build/browser checks pass |
+| `6add53b53b57e6fc3826820ac7b6580b493629cb` | Offline HTTP comparison validates registered stage order, latency population and pool bound | Independent RED/GREEN and historical-log replay pass; current sustained gate fails latency with unchanged protocol |
 
 These are P2 correctness/evidence corrections. The documented reproductions do
 not claim a public HTTP privilege bypass, production data loss, or measured
-throughput improvement. Schema remains 69. Final published IDs, exact source
-trees and independent results belong to the final qualification ledger.
+throughput improvement. Schema remains69. From the starting source to frozen89e883fc, independent QA accounts for all65changed non-document entries across the four accepted correction areas (including generated assets); no extra runtime/tooling changes are hidden in the documentation closeout. Published IDs, exact source trees and current results are in [final qualification](final-qualification.md).
 
 ## Side branches: retain history, import no diagnostics blindly
 

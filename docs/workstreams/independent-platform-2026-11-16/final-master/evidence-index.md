@@ -1,6 +1,6 @@
 # Final-master evidence index
 
-Status: **IN_PROGRESS — current integrated qualification pending**. This is the
+Status: **BLOCKED / NOT_READY — current mandatory p99 gate failed**. This is the
 canonical navigation map for the new final-master round. Historical PASS/FAIL
 results retain their own source identities and do not qualify the new candidate.
 The coordinator's [README](README.md) and final qualification report own the
@@ -17,10 +17,24 @@ current acceptance decision.
 | What did the performance reviewer change? | [Performance/infrastructure review](performance-infrastructure-review.md) | [Author manifest](../evidence/final-master/performance/manifest.json), RED/GREEN logs and historical-log replay |
 | What did the previous complete qualification prove? | [Historical integrated report](../final-integrated-qualification.md) | [Historical functional logs](../evidence/final-integrated/functional/raw-log-manifest.json), [performance archive](../evidence/final-integrated/performance/final-gate/pgbase-final-mixed-http.zip), [security archives](../evidence/final-integrated/independent/security/) |
 
-New backend, SDK/UI, independent-QA and final-CI reports are linked from the
-coordinator's current README as they are integrated. Their author-side tests and
-independent reviews remain distinct. No new full CI or scanner result is implied
-by this index's creation.
+## Current qualification and raw evidence
+
+| Review | Current source-bound result | Primary records |
+| --- | --- | --- |
+| [Final qualification](final-qualification.md) | Run43982303611, attempt1:14successful jobs and one failed mixed-http job;92/93required substantive steps pass. | [Full source/job/archive manifest](../evidence/final-master/final-ci/manifest.json), all15 decoded logs, final API snapshots |
+| [Independent final CI](final-ci-independent.md) | All15 checkouts match candidate89e883fc / syntheticb5c17b6 / treec9a4c21; all65changed non-doc paths accounted for; overallBLOCKED. | [Independent source/step/hash checks](../evidence/final-master/independent-final-ci/) |
+| [Independent performance](final-performance-independent.md) |120000complete,0drops/errors/incomplete; p99 588.031143ms>250. Raw quantiles independently reproduce the failure. | [Original final ZIP](../evidence/final-master/final-ci/artifacts/final-mixed-http.zip), [verification and bounded diagnosis](../evidence/final-master/independent-performance/) |
+| [Fresh security](final-security-review.md) |25source warnings with scoped path dispositions;32image records,30needs_review and2amd64 exclusions. | [Exact57-record triage](../evidence/final-master/fresh-security/triage.json), five original security/SBOM/runtime archives |
+| [Correction QA](independent-qa.md) | Separate original-source RED / corrected-source GREEN for four accepted P2 correction areas. | [Reviewer execution records](../evidence/final-master/independent/) |
+| Historical failure recovery | Run43820007603 remains FAIL with547drops/errors; original archive recovered and9/9retention checks pass. | [Original failed ZIP and metadata](../evidence/final-master/historical-failed-gate/), [independent retention verification](../evidence/final-master/independent-performance/historical-failure-retention.json) |
+
+All10current hosted archives were downloaded and matched to API sizes and SHA-256. **Nine original ZIPs are retained in Git**, including all three small PostgreSQL benchmark archives. The51,295,460-byte release binary ZIP is retained only on Actions; both original phase manifests and all eight executable hashes are durable repository evidence. Its verified hosted expiry is **2027-02-15 08:47:34 KST**. A future rebuild is not claimed byte-identical. [Artifact retention](../evidence/final-master/final-ci/artifact-retention.json) records every archive/member hash, job/source and expiry.
+
+Current failure ZIP:3,717,310bytes, SHA-256 `560f35fa19fb6a18c96c7bc517759beeedb6604dc2fbdd2de044c38113e7e393`. Recovered historical failure ZIP:3,451,697bytes, SHA-256 `d2411a4837ffd38a5fd3c2b67423240f07de4eed9ed0f5d4038af59ca628cf6e`. Both preserve their original failed output and complete available CSV; the older artifact lacks some durability metadata, which stays unknown.
+
+Each job log is the connector-decoded UTF-8 response, deterministically compressed with a verified lossless roundtrip. Both decoded and stored hashes are retained. No identity claim is made for an original HTTP log-download ZIP. New verification scripts parse retained bytes; they do not launch workloads or scanners.
+
+Later commits contain only documentation/evidence. [Publication mapping](../evidence/final-master/closeout-publication-map.json) distinguishes local and remote commit IDs; the final containing documentation HEAD is identified in PR148's latest handoff. The pre-consolidation PR description is retained [verbatim](../evidence/final-master/pr-description-before.md).
 
 ## Exact historical qualification identity
 
@@ -37,12 +51,14 @@ by this index's creation.
 
 The historical run has 15 successful jobs. Its 200 RPS / 600 second result was
 120,000 completed, zero drops/errors/incomplete requests and p99 22.221162 ms.
-These are historical measurements; the new final candidate requires its own
-qualification. Full source/job/step mappings remain in the
+These remain historical measurements. The new final candidate
+received its own qualification and failed the p99 gate; this historical pass does not supersede it. Full source/job/step mappings remain in the
 [functional result](../evidence/final-integrated/functional/functional-result.json)
 and [artifact index](../evidence/final-integrated/coordinator/artifact-index.json).
 
 ## Classification and preservation
+
+The completed catalog contains **792 entries**:15CANONICAL,569HISTORICAL,205PRIMARY_EVIDENCE and3REDUNDANT. It is an additive navigation catalog, not792independent test executions. All617original files and18duplicate groups pass the final hash/byte verification;0original files are modified or removed. [Closeout verification](../evidence/final-master/closeout-verification.json) also confirms that all1,932non-document Git entries retain the frozen candidate's modes/blobs, and the folded continuation history is identical.
 
 The manifest classifies each indexed item as `CANONICAL`, `PRIMARY_EVIDENCE`,
 `HISTORICAL`, `REDUNDANT` or `EPHEMERAL`. Classification describes its role in
@@ -86,11 +102,7 @@ sidecar or an exact path/hash match. A missing field is JSON `null`, accompanied
 by a reason and the closest original sidecar when available. The manifest does
 not treat the commit storing a log as the source that executed its test.
 
-The historical performance ZIP, five security/runtime/SBOM ZIPs and 14 complete
-functional logs are durable Git copies. The old 51 MB release-phase archive and
-three small benchmark archives remain API references with recorded digests and
-expiry; this round neither deletes a local original nor pretends those remote
-objects were independently downloaded. Existing source history is retained.
+The prior run's historical performance ZIP, five security/runtime/SBOM ZIPs and14complete functional logs remain durable Git copies. That prior run's51MB release-phase archive and three benchmark archives retain their original API references/digests/expiry; no new download of those four old artifacts is claimed. This differs from the ten freshly downloaded current-run artifacts described above. Existing source history is retained.
 The [artifact index](../evidence/final-integrated/coordinator/artifact-index.json)
 distinguishes API-reported hashes from local recomputation.
 
@@ -98,7 +110,7 @@ To rebuild the current additive catalog and verify its bytes from the repository
 root:
 
 ```sh
-python3 docs/workstreams/independent-platform-2026-11-16/final-master/evidence/build_manifest.py
+python3 docs/workstreams/independent-platform-2026-11-16/final-master/evidence/build_manifest.py --status BLOCKED
 python3 docs/workstreams/independent-platform-2026-11-16/final-master/evidence/build_manifest.py --verify
 ```
 

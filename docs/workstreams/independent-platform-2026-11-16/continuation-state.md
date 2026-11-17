@@ -1,17 +1,52 @@
 # Current continuation — final master consolidation
 
-This is the current entry point for the new final round. **IN_PROGRESS; NOT_READY pending mandatory final CI.**
+## BLOCKED / NOT_READY: current performance gate fails
 
-- Main unchanged: `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`; NO_MAIN_ROLLBACK_NEEDED.
-- Sole integration PR148 remains Open/Draft/Unmerged.
-- Reviewed correction checkpoint published: `ebb3e10c9c8a19fc1825801ffc187c22e52131ea`.
-- Four P2 correction areas have original-source RED and corrected-source GREEN evidence from a separate QA agent. Author and independent execution identities are explicitly mapped.
-- Actual PostgreSQL17.9 namespace/publication and schema68→69 regression checks pass; real TS/Dart HTTP contracts pass.
-- Existing617 raw evidence files remain intact. Runtime optimization adoption is0; no new speed claim.
-- Next: freeze the final candidate, observe one complete Full source qualification including200RPS×600seconds, preserve and independently verify logs/artifacts/source-tree mapping, then update final documents and one representative PR handoff comment.
-- Do not rerun historical development phases, reimport branch-only diagnostics, alter main, merge, deploy, publish releases or weaken tests. Do not assume a background agent continues after the chat ends.
+This entry supersedes the historical READY and next-action text folded below. The completed final round stops here; no automatic background work is assumed.
 
-Use [final-master/README.md](final-master/README.md), [final qualification](final-master/final-qualification.md), [evidence index](final-master/evidence-index.md), and [source publication mapping](evidence/final-master/publication-map.json). Final verdict must follow the new exact-source CI.
+- Main remains `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`; **NO_MAIN_ROLLBACK_NEEDED**.
+- PR #148 remains Open / Draft / Unmerged, with auto-merge disabled. Do not merge or deploy this checkpoint.
+- Frozen tested source: `89e883fc700ef0250024427a1f09bb88affe0383`.
+- Actual CI checkout: `b5c17b6f989bb11575e83544d37cc37fc6385d19`.
+- Shared full tree: `c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55`.
+- Equivalent local candidate: `51ea9dfae53d295c3bc55fcab6db2db78bfeccca`.
+- [Full qualification 43982303611](https://github.com/yakisoba0728/PgBase/actions/runs/43982303611), attempt1: **14 jobs pass / mixed-http fails**, with **92/93 substantive mandatory steps passing**.
+- One sustained run:200RPS×600s;120000scheduled/enqueued/attempted/completed;0drops/errors/unscheduled/incomplete; end-to-end **p99 588.031143ms >250ms**. Independent raw-row recalculation confirms all five quantile series and7726arrivals above250ms.
+- All four P2 corrections have separate old-source RED/corrected-source GREEN evidence. Current PG16.13/17.9/18.3, Go/static/race, TS123/Dart142/live contracts, UI458, Chromium26/Firefox6/WebKit6, recovery/platform/artifact gates pass.
+- Security warnings remain source25(1CRITICAL/17HIGH/7MEDIUM), with path-specific dispositions; image32(21MEDIUM/9LOW/2UNKNOWN), including **30 needs_review** and2amd64-only exclusions. Scan success does not erase them.
+- Original617evidence files remain unchanged. The historical547-drop original ZIP is recovered; current15logs and9original artifact ZIPs are retained. The release binary archive has verified manifests/hashes in Git and hosted expiry2027-02-15 08:47:34KST.
+- Post-CI commits contain documentation/evidence only, with `[skip ci]`. The final documentation HEAD is recorded in PR148's latest handoff; it differs from the tested source. [Publication mapping](evidence/final-master/closeout-publication-map.json) records equivalent local/remote trees.
+- Five actual subagents completed their assigned roles, with at most three concurrent subagents (four including Coordinator). No new runtime optimization was adopted.
+
+## Exact next-work boundary
+
+DB WAL sync, host I/O wait and connection/worker queueing align with long-tail windows. Historical and current hosted hardware differ. These facts do not establish a unique cause, a hardware-only explanation or a correctable code regression.
+
+**Do not rerun the same candidate to seek a passing host.** A second final200RPS×600s run is permitted only after a bounded investigation reproduces a concrete cause, an actual safe source correction is made, and separate QA approves that correction. Retain pool4, durability, workload, assertions, timeouts and250ms threshold. If no such correction can be demonstrated, this checkpoint stays BLOCKED.
+
+Do not reopen unrelated completed phases, blindly import diagnostic side branches, change main, or merge/deploy/tag/release/publish packages. Native dependency review, uncertain storage quiescence, old workers, external Jobs effects and real-provider acceptance remain in the [risk register](final-master/risk-register.md).
+
+## Resume by reading and verifying retained evidence
+
+From the repository root, inspect the branch and source without modifying it:
+
+```bash
+git status --short
+git log -5 --oneline
+git show --no-patch --format=fuller 89e883fc700ef0250024427a1f09bb88affe0383
+python3 docs/workstreams/independent-platform-2026-11-16/final-master/evidence/build_manifest.py --verify
+
+PGBASE_EVIDENCE=docs/workstreams/independent-platform-2026-11-16/evidence
+PGBASE_CI_RESULT=$(mktemp)
+python3 "$PGBASE_EVIDENCE/final-master/independent-final-ci/verify_retained_ci.py" \
+  "$PGBASE_EVIDENCE/final-master/final-ci" "$PGBASE_CI_RESULT"
+```
+
+The final command is expected to exit1 with evidence_integrity=PASS and qualification=NOT_READY_BLOCKED. It only reads retained metadata/logs and writes a temporary result. Do not reinterpret that exit as a new runtime failure or change the validator to make it green.
+
+[Performance reproduction commands](evidence/final-master/independent-performance/README.md#offline-reproduction) extract the original ZIP and independently recalculate the failing gate; their main verifier also deliberately exits1. Use a clean frozen-candidate worktree and preserve source89e883fc plus actual checkoutb5c17b6 objects. The existing session's frozen worktree is `/workspace/scratch/27f5e00d0baa/worktrees/frozen-candidate`; the commands support a new clean checkout if scratch is unavailable.
+
+Current entry points: [final qualification](final-master/final-qualification.md), [independent CI](final-master/final-ci-independent.md), [independent performance](final-master/final-performance-independent.md), [fresh security](final-master/final-security-review.md), and [evidence index](final-master/evidence-index.md).
 
 <details>
 <summary>Preserved previous continuation history</summary>
