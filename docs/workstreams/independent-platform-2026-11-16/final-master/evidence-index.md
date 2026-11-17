@@ -8,6 +8,8 @@ current acceptance decision.
 
 ## Start here
 
+The **2026-11-17 bounded recovery** ended `BLOCKED / NOT_READY`: zero runtime patches and zero new final-gate runs. See [recovery report](performance-blocker-recovery.md), [three-hypothesis diagnosis](../evidence/final-master/performance-blocker-recovery/agent-a/diagnosis.md), [focused runtime controls](../evidence/final-master/performance-blocker-recovery/agent-b/runtime-review.md), and [separate QA](../evidence/final-master/performance-blocker-recovery/agent-c/independent-qa.md). The [previous manifest](../evidence/final-master/performance-blocker-recovery/evidence-manifest-before.json) is retained verbatim; the current machine manifest includes the new evidence and refreshed canonical-document hashes while preserving the original 617-file baseline.
+
 | Question | Canonical entry point | Primary evidence |
 | --- | --- | --- |
 | What is changing relative to main? | [Change map](change-map.md) | [Initial inventory](../evidence/final-master/initial-inventory.json), [live GitHub provenance](../evidence/final-master/github-provenance.json) |

@@ -1,5 +1,11 @@
 # Final master qualification
 
+## 2026-11-17 bounded blocker recovery — still NOT_READY
+
+[Performance blocker recovery](performance-blocker-recovery.md) supersedes the prior next-action text below without replacing its source-bound results. Three separate agents reanalyzed the original failed load, inspected the measured runtime paths, and independently verified raw evidence. Delay was localized to sampled durable COMMIT and associated pool/queue waiting, but no correctable software cause was reproduced. Six existing parent controls plus three subtests passed with race on isolated PostgreSQL 17.9; they do not qualify the 200 RPS gate. No runtime patch, new final candidate, full-CI execution, or final performance retry was adopted.
+
+Starting PR HEAD was `77bc070047c5a19d68439b75cb7b65bcde5d1c9a`. Published recovery evidence checkpoint is `c16370534fcce6b9859d99b6e8a5bb966a16150d` (tree `6f5de55b19b22be953dc759299732ec20ad30044`). Final closeout publication is documentation/evidence only; its exact immutable HEAD/tree is in PR #148's handoff. All 1,932 non-document entries remain equivalent to the last tested candidate. Independent evidence integrity passes; correction approval and permission under the agreed prerequisites to run a new final gate are absent. The decision remains **BLOCKED / NOT_READY**, with main untouched and PR Open / Draft / Unmerged.
+
 ## Decision: BLOCKED / NOT_READY
 
 The frozen candidate's mandatory sustained-load latency gate failed. [Full source qualification 43982303611](https://github.com/yakisoba0728/PgBase/actions/runs/43982303611), attempt 1, completed with **14 successful jobs and one failed mixed-http job**. All 120,000 arrivals completed without drops or unexpected errors, but end-to-end **p99 588.031143 ms exceeds the unchanged 250 ms limit**. Independent reviewers recalculated the original request rows and reproduced that result.

@@ -1,16 +1,20 @@
 # Current continuation — performance blocker recovery (2026-11-17)
 
-## Recovery checkpoint: investigation in progress; NOT_READY
+## Recovery complete: BLOCKED / NOT_READY
 
 - Starting remote PR #148 HEAD: `77bc070047c5a19d68439b75cb7b65bcde5d1c9a`, tree `07fc4145c03d636c1416e2e838ad701cebc3b03b`; rechecked through GitHub and `git ls-remote`.
 - Main remains `8f551de4423a6b64d9c0ac94fff9b9bd07264f2a`. PR remains Open / Draft / Unmerged. This checkpoint contains documentation only and does not authorize a merge.
-- Three actual subagents are working in separate worktrees: Performance Diagnosis, Runtime Implementation, Independent QA. They are examining only WAL/COMMIT, pool/queue, and environment/observer hypotheses.
-- Confirmed cause: none yet. Runtime fixes: none. New runtime qualifications: none. Independent correction approval: pending evidence.
+- Latest published recovery evidence checkpoint: `c16370534fcce6b9859d99b6e8a5bb966a16150d`, tree `6f5de55b19b22be953dc759299732ec20ad30044`. Later closeout commits contain documentation/evidence only; the final publication SHA/tree is recorded in PR #148's handoff.
+- Three actual subagents completed their separate worktrees: Performance Diagnosis, Runtime Implementation, Independent QA; maximum three subagents concurrently. Only WAL/COMMIT, pool/queue, and environment/observer hypotheses were investigated.
+- Localized delay: seven active COMMIT samples already aged over 250 ms (maximum 284.166 ms); 117 blocking edges end in WAL-waiting COMMIT; 1,038 active-WAL observations coincide with all four request connections acquired. These are sampled observations, not unique transactions or exact WAL wait durations. The cause of slow durable COMMIT remains unproved.
+- Runtime fixes: zero. No avoidable connection/transaction hold or safely removable lock was reproduced. New focused unchanged-source controls: six parent tests plus three subtests across three packages PASS with race / PostgreSQL 17.9; no failed/skipped executed controls. Fixture startup/connectivity failures are separately retained and are not runtime RED evidence.
+- Independent QA: raw evidence integrity PASS; all 120,000 request rows and the original 588.031143 ms result confirmed; historical 547-drop failure preserved. Correction approval is unavailable because no reproduced defect or safe patch exists. Further final-gate execution is not approved.
 - Existing full qualification [43982303611](https://github.com/yakisoba0728/PgBase/actions/runs/43982303611) remains completed, 14 successful jobs / one failed mixed-http job. No CI is running for this recovery.
 - The last tested source/checkout/tree and the 588ms/547-drop historical failures remain preserved below. Existing functional results are not extended to new runtime code.
-- Next step: analyze existing raw evidence, reproduce a specific defect with a bounded focused experiment if justified, and obtain separate QA before adopting a minimal correction. No unchanged-source 600-second retry is permitted.
-- Publication commits use `[skip ci]` only for documentation/evidence. The one new final gate remains conditional on a demonstrated safe correction and independent approval.
+- Next permitted recovery requires a short trace with actual transaction/query identities and acquire/COMMIT/release timings, a reproduced avoidable software defect, a safe minimal correction, and separate QA. Only then freeze the new source for one complete qualification. No unchanged-source 600-second retry is permitted.
+- New full-CI runs: zero. New final performance runs: zero. Publication commits use `[skip ci]` only for documentation/evidence; no pending CI was cancelled. This bounded recovery has ended, with no background work or retry scheduled.
 - [Starting GitHub snapshot](evidence/final-master/performance-blocker-recovery/start-github-state.json).
+- [Recovery decision and exact resumption conditions](final-master/performance-blocker-recovery.md), [raw diagnosis](evidence/final-master/performance-blocker-recovery/agent-a/diagnosis.md), [runtime controls](evidence/final-master/performance-blocker-recovery/agent-b/runtime-review.md), [independent QA](evidence/final-master/performance-blocker-recovery/agent-c/independent-qa.md).
 
 ## Prior final-master checkpoint (preserved)
 

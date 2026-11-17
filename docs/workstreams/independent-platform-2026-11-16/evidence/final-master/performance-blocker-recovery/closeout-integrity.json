@@ -1,0 +1,16 @@
+{
+  "start_head": "77bc070047c5a19d68439b75cb7b65bcde5d1c9a",
+  "tested_candidate": "89e883fc700ef0250024427a1f09bb88affe0383",
+  "actual_ci_checkout": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+  "tested_tree": "c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55",
+  "non_document_entries": 1932,
+  "non_document_modes_blobs_identical": true,
+  "recovery_runtime_changes": 0,
+  "new_full_ci_runs": 0,
+  "new_final_performance_runs": 0,
+  "prior_manifest_preserved_sha256": "ad6087d85b152ff17ce96521e1e6471f392d05af4b56b365427fc945fcfa29cd",
+  "report_sha256": "e8235cc654800cc58e81a48c5933a3160e473dcc3c5908b35c2be78f25a1d9c8",
+  "report_local_links_valid": true,
+  "all_changed_tracked_paths_documentation": true,
+  "decision": "BLOCKED / NOT_READY"
+}

@@ -1,0 +1,87 @@
+{
+  "audit": "PASS",
+  "checks": {
+    "exact_six_expected_parents": true,
+    "three_query_subtests": true,
+    "three_expected_packages": true,
+    "no_fail_or_skip_events": true,
+    "nine_run_events": true,
+    "go_exit_zero": true,
+    "stderr_empty": true,
+    "recorded_head_tree": true,
+    "go_version": true,
+    "race_integration_once_command": true,
+    "gomaxprocs_four": true,
+    "no_load_test_selected": true,
+    "durability_on_and_pg17_9": true,
+    "listener_pool_and_held_four_twice": true,
+    "no_remaining_test_database_rows": true,
+    "postgres_stopped": true,
+    "initial_six_failures_are_connection_refused": true
+  },
+  "parent_tests": [
+    "TestInTxRollsBackOnError",
+    "TestInTxRollsBackOnPanic",
+    "TestInTxExpiredDeadlineRollsBackAndReleasesConnection",
+    "TestListenerPreservesRequestPoolCapacityAcrossReconnectAndShutdown",
+    "TestPinnedRecordCatalogBlocksSchemaDDLUntilTheRecordTransactionEnds",
+    "TestReadKernelQueryCountIsBoundedByPlanShapeInsteadOfRootCount"
+  ],
+  "subtests": [
+    "TestReadKernelQueryCountIsBoundedByPlanShapeInsteadOfRootCount/plain_scalar_stays_at_one_root_query_plus_traversal_resolution",
+    "TestReadKernelQueryCountIsBoundedByPlanShapeInsteadOfRootCount/multiple_relation_hydration_grows_only_by_fixed_batches_and_fields",
+    "TestReadKernelQueryCountIsBoundedByPlanShapeInsteadOfRootCount/nested_expansion_grows_by_nodes_rather_than_roots"
+  ],
+  "packages": [
+    "github.com/yakisoba0728/PgBase/internal/database",
+    "github.com/yakisoba0728/PgBase/internal/schema",
+    "github.com/yakisoba0728/PgBase/internal/query"
+  ],
+  "settings": {
+    "before": {
+      "fsync": "on",
+      "full_page_writes": "on",
+      "max_connections": "100",
+      "server_version": "17.9",
+      "shared_buffers": "16384",
+      "synchronous_commit": "on"
+    },
+    "after": {
+      "fsync": "on",
+      "full_page_writes": "on",
+      "max_connections": "100",
+      "server_version": "17.9",
+      "shared_buffers": "16384",
+      "synchronous_commit": "on"
+    }
+  },
+  "listener_output": [
+    "listener_capacity_integration_test.go:121: request_pool_max=4 held_requests=4 total_fixture_backends=5 listener_writer_locks=1 fsync=on synchronous_commit=on full_page_writes=on",
+    "listener_capacity_integration_test.go:133: request_pool_max=4 held_requests=4 total_fixture_backends=5 listener_writer_locks=1 fsync=on synchronous_commit=on full_page_writes=on"
+  ],
+  "reviewed_source_blobs": {
+    "internal/database/tx_integration_test.go": "eedec8b20f2465ebf3d156bf0593d8e37136afbd",
+    "internal/schema/listener_capacity_integration_test.go": "b1bee3027cafc5a46473f76bf955afc105465e04",
+    "internal/schema/service_integration_test.go": "04e022942404a903290310da263325544cdd8148",
+    "internal/query/read_kernel_query_count_integration_test.go": "cbbff16a20728d640b9654fb00bfa6c9bfe3e9bd"
+  },
+  "sha256": {
+    "focused-controls-race.jsonl": "cc2b34bb6f97c5bac709e2a637854777a38875f3c0af2868a933fe8ee4c2125d",
+    "focused-race.jsonl": "5411a988630d7bb7904109a90e28d1398f74c74fd131c644bcbf90abf5cf8853",
+    "run-focused-controls.sh": "b0b0c7db2fa82a262662fad37bda4f49987a0d132318d0217dbc24321c6f5434",
+    "focused-source.txt": "d93c6fa1d4b8ac0eca093ac6f1f2ae583477c1fe0bcd0cc4dce3f0dca24736ee",
+    "focused-postgresql-settings-before.txt": "d5e863a823c6f852fed7e39fead018df1af5bfeb186d86573d4385b9eb308c94",
+    "focused-postgresql-settings-after.txt": "d5e863a823c6f852fed7e39fead018df1af5bfeb186d86573d4385b9eb308c94",
+    "focused-database-cleanup.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "focused-fixture-teardown.txt": "ca19178a35ab4153b75b494963b66ce8243e1b94c173107c87b44d09db23652d",
+    "focused-fixture-postgres.log": "e68fd00f757244ea52490f106deaa9f5079e655d45cd44f224cf1f6993317ec7"
+  },
+  "scope": "Independent raw-log, runner, settings, cleanup and exact-source test review only; no new test execution or patch approval.",
+  "qualification": "BLOCKED / NOT_READY",
+  "limits": [
+    "Recorded HEAD/tree plus current immutable source inspection are source provenance; focused-source.txt alone is not a full worktree-cleanliness attestation.",
+    "Only listener capacity explicitly forces pool four; other controls retain their existing fixture configuration.",
+    "These successful unchanged-source controls are not a RED/GREEN reproduction of the588ms latency failure.",
+    "PostgreSQL shutdown evidence confirms the fixture stopped; temporary data-directory deletion is not asserted."
+  ]
+}
