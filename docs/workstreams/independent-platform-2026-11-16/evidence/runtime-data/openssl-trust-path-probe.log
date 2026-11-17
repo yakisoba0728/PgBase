@@ -1,4 +1,0 @@
-X509_get_default_cert_file /usr/lib/ssl/cert.pem
-X509_get_default_cert_dir /usr/lib/ssl/certs
-absent-native-default-file status 1 certificates 0
-explicit-generated-bundle status 1 certificates 148

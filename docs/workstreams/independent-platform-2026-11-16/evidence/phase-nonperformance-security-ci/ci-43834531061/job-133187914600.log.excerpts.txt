@@ -1,6 +1,0 @@
-2026-11-16T08:51:02.0948312Z [command]/usr/bin/git log -1 --format=%H
-2026-11-16T08:51:02.0993881Z 495ea346467f5d90fc9d250531c9c8718233b6d3
-2026-11-16T08:52:52.1891946Z   skip-queries: false
-2026-11-16T08:52:53.0397421Z No precomputed diff ranges found; skipping diff-informed analysis stage.
-2026-11-16T08:54:03.4914742Z [37/37 eval 1.7s] Evaluation done; writing results to codeql/go-queries/Security/CWE-681/IncorrectIntegerConversionQuery.bqrs.
-2026-11-16T08:54:07.8593319Z Ran 12 tests in 0.008s

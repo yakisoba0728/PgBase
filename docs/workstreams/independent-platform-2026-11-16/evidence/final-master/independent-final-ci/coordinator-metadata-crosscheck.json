@@ -1,7 +1,0 @@
-{
-  "run_source_match": true,
-  "run_conclusion_match": true,
-  "job_statuses_match": true,
-  "step_statuses_match": true,
-  "artifact_metadata_match": true
-}

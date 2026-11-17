@@ -1,4 +1,0 @@
-00:00 +0: loading test/realtime_lifecycle_test.dart
-00:00 +0: a draining subscription cannot adopt another identity
-00:00 +1: an old disposer cannot stop a replacement session listener
-00:00 +2: All tests passed!

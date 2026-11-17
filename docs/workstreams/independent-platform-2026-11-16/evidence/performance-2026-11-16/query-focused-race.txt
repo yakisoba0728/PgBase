@@ -1,2 +1,0 @@
-ok  	github.com/yakisoba0728/PgBase/internal/cursor	1.044s
-ok  	github.com/yakisoba0728/PgBase/internal/query	1.284s

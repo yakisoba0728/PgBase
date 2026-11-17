@@ -1,6 +1,0 @@
-fsync|on
-full_page_writes|on
-max_connections|100
-server_version|17.9
-shared_buffers|16384
-synchronous_commit|on

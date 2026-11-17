@@ -3,6 +3,3 @@
 # Bundled editor code contains Markdown hard-break spaces inside template strings.
 # Preserve those bytes and continue checking whitespace in handwritten sources.
 ui/admin/dist/assets/*.js whitespace=-blank-at-eol
-# Raw test logs retain exact producer bytes; their manifests verify integrity.
-# Whitespace policies for handwritten source do not rewrite captured evidence.
-docs/workstreams/independent-platform-2026-11-16/evidence/**/*.log -whitespace

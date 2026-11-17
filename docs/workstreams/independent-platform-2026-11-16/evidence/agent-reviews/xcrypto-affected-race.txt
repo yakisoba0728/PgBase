@@ -1,5 +1,0 @@
-ok  	github.com/yakisoba0728/PgBase/internal/adminauth	4.068s
-ok  	github.com/yakisoba0728/PgBase/internal/userauth	1.749s
-ok  	github.com/yakisoba0728/PgBase/internal/passwordfield	2.861s
-ok  	github.com/yakisoba0728/PgBase/internal/mailer	1.019s
-ok  	github.com/yakisoba0728/PgBase/internal/cursor	1.020s

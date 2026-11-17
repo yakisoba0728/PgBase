@@ -57,9 +57,9 @@ Existing integration contracts include fresh install/idempotence,
 schema-68 dump, restores to a new database, detaches inherited Storage before
 migration, preserves bytes, and upgrades/reapplies schema 69. Separate S3
 snapshot contracts restore to independent local files. Source-bound coverage is
-explained in the [Storage CI report](../phase-nonperformance-storage-ci.md);
-the later [historical full qualification](../final-integrated-qualification.md)
-also passed the configured PostgreSQL16.13/17.9/18.3 matrix. Those remain old-source results. The new [exact-source final qualification](final-qualification.md) also passes those PostgreSQL jobs, isolated backup/recovery and configured restore assertions on89e883fc; it fails the separate sustained-load latency gate. No production upgrade is authorized by those fixture results.
+explained in the Storage CI report;
+the later historical full qualification
+also passed the configured PostgreSQL16.13/17.9/18.3 matrix. Those remain old-source results. The new exact-source final qualification also passes those PostgreSQL jobs, isolated backup/recovery and configured restore assertions on89e883fc; it fails the separate sustained-load latency gate. No production upgrade is authorized by those fixture results.
 
 Restore to an empty, isolated target with a PostgreSQL client matching the
 server major and restore all three schemas coherently. Do not restore over a

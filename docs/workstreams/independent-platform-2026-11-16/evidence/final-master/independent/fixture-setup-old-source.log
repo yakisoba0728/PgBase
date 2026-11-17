@@ -1,6 +1,0 @@
-=== RUN   TestStorageControllerForeignLeaseKeepsObjectNamespaceAndPublicationOwner
-    storage_lease_ownership_integration_test.go:28: apply system migration 66 (search_and_service_logs): ERROR: extension "pg_trgm" is not available (SQLSTATE 0A000)
---- FAIL: TestStorageControllerForeignLeaseKeepsObjectNamespaceAndPublicationOwner (0.22s)
-FAIL
-FAIL	github.com/yakisoba0728/PgBase/internal/filestore	0.270s
-FAIL

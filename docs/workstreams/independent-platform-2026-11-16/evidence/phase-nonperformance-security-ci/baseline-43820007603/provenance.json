@@ -1,9 +1,0 @@
-{
-  "historical_local_copy": true,
-  "fresh_download": false,
-  "description": "Stored previously reviewed baseline bytes, matched to prior GitHub artifact digest metadata; included to make the bounded comparison repeatable.",
-  "workflow_run": 43820007603,
-  "head": "a1a652289f0bc817f18db257282c758e66b4a672",
-  "analyzed_merge": "f5295856078d06a0e68a00365e0223a48b1a206e",
-  "head_tree": "7c1fc6ed40fc8d908156702d8a3fe4a13c8930d1"
-}

@@ -1,8 +1,0 @@
-2026-11-16T06:47:09Z
-10dc0f8b59f1d59b5a6e745a07618ec2849fc06d
-a2bcc03f25e79e66bfb94f135011653e956672dc
-A  internal/api/realtime_expansion_context_integration_test.go
-A  internal/api/realtime_record_failure_test.go
-go version go1.26.11 linux/amd64
-PostgreSQL 17.9 on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
-COMMAND: go test -race -tags=integration ./internal/api -run \^TestRealtime\(RelationFilter\|ExpansionUsesCurrentRequestPolicyContext\|ExpansionFailure\|MissingOrDeniedCurrentRecord\) -count=1 -json

@@ -1,8 +1,0 @@
-{"Time":"2026-11-16T11:47:08.628668878+09:00","Action":"start","Package":"github.com/yakisoba0728/PgBase/migrations/system"}
-{"Time":"2026-11-16T11:47:08.651691934+09:00","Action":"run","Package":"github.com/yakisoba0728/PgBase/migrations/system","Test":"TestHistoricalMigrationChecksumsRemainImmutable"}
-{"Time":"2026-11-16T11:47:08.651745303+09:00","Action":"output","Package":"github.com/yakisoba0728/PgBase/migrations/system","Test":"TestHistoricalMigrationChecksumsRemainImmutable","Output":"=== RUN   TestHistoricalMigrationChecksumsRemainImmutable\n"}
-{"Time":"2026-11-16T11:47:08.65202728+09:00","Action":"output","Package":"github.com/yakisoba0728/PgBase/migrations/system","Test":"TestHistoricalMigrationChecksumsRemainImmutable","Output":"--- PASS: TestHistoricalMigrationChecksumsRemainImmutable (0.00s)\n"}
-{"Time":"2026-11-16T11:47:08.652181107+09:00","Action":"pass","Package":"github.com/yakisoba0728/PgBase/migrations/system","Test":"TestHistoricalMigrationChecksumsRemainImmutable","Elapsed":0}
-{"Time":"2026-11-16T11:47:08.652215478+09:00","Action":"output","Package":"github.com/yakisoba0728/PgBase/migrations/system","Output":"PASS\n"}
-{"Time":"2026-11-16T11:47:09.653935636+09:00","Action":"output","Package":"github.com/yakisoba0728/PgBase/migrations/system","Output":"ok  \tgithub.com/yakisoba0728/PgBase/migrations/system\t1.023s\n"}
-{"Time":"2026-11-16T11:47:09.654028002+09:00","Action":"pass","Package":"github.com/yakisoba0728/PgBase/migrations/system","Elapsed":1.025}

@@ -1,7 +1,0 @@
-2026-11-16T06:46:22Z
-7b53cb58e66d6e62d6416fc39ea676eecb3e2d6c
-bbc76aeb0e9429b3330306b11180d4b6d78da03d
-?? docs/workstreams/independent-platform-2026-11-16/evidence/phase-a-backend/
-go version go1.26.11 linux/amd64
-PostgreSQL 17.9 on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
-COMMAND: go test -race -tags=integration ./internal/api ./pgbase ./internal/jobs -run \^\(TestRealtime\(RelationFilter\|ExpansionUsesCurrentRequestPolicyContext\|ExpansionFailure\|MissingOrDeniedCurrentRecord\)\|TestExtensionDatabaseSerializationFailureRollsBack\|TestJavaScriptTrustedDatabaseRollbackAndLogicalObjectIsolation\|TestPocketBaseRunInTransactionUsesInvocationBoundPostgresTransaction\|TestTrustedSavepointRollbackFailurePreventsOuterCommit\|TestExtensionHostCloseBoundsRollbackWhenDatabaseRepliesStop\|TestRecordHooksFollowExternalTransactionOutcomeExactlyOnce\|TestJobManagementFencesExpiredHandlerCompletion\|TestScheduleCannotReplaceAnActiveClaim\|TestExpiredCompletionWithoutManagementCannotRenewItsAuthority\|TestAuthRecordHTTPRulesUseActualRequestMetadata\) -count=2 -json

@@ -1,9 +1,0 @@
-postgres (PostgreSQL) 17.9
-=== RUN   TestRetentionCannotCrossAnUnexpiredSequence
---- PASS: TestRetentionCannotCrossAnUnexpiredSequence (0.52s)
-=== RUN   TestRetentionCatchesUpInBoundedPassesWhileDeliveringNewEvents
---- PASS: TestRetentionCatchesUpInBoundedPassesWhileDeliveringNewEvents (0.58s)
-=== RUN   TestRetentionCanceledLockWaitCannotAdvanceTheFloor
---- PASS: TestRetentionCanceledLockWaitCannotAdvanceTheFloor (0.46s)
-PASS
-ok  	github.com/yakisoba0728/PgBase/internal/realtime	2.589s
