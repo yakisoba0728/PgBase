@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-2026-11-17 최신 결과: 플랫폼 강화 작업을 [PR #148](https://github.com/yakisoba0728/PgBase/pull/148)로 squash 병합했다(main `d64c729f`, schema 69). 같은 날 운영에 배포했다(schema 69). 세부는 [현재 상태](docs/project-status.md) §15와 [다음 작업](docs/next-work.md)을 따른다.
+2026-11-17 최신 결과: 플랫폼 강화 작업을 [PR #148](https://github.com/yakisoba0728/PgBase/pull/148)로 squash 병합했다(main `d64c729f`, schema 69). 같은 날 운영에 배포했고(schema 69) [v0.4.0](https://github.com/yakisoba0728/PgBase/releases/tag/v0.4.0)을 게시했다. 세부는 [현재 상태](docs/project-status.md) §15와 [다음 작업](docs/next-work.md)을 따른다.
 
 2026-11-15 최신 결과: 관리자 UI 개편을 [PR #142](https://github.com/yakisoba0728/PgBase/pull/142)로, 이어서 크기 확대·모션 강화를 [PR #144](https://github.com/yakisoba0728/PgBase/pull/144)로 병합해 main `5cb9ea0d`를 운영에 배포했다(schema 67 그대로, migration 없음). 세부·검증 범위·남은 일은 [현재 상태](docs/project-status.md) §13과 [다음 작업](docs/next-work.md)을 따른다. 아래 문단과 미완료 표시는 당시 이력이다.
 
@@ -17,7 +17,10 @@ main `8f551de4`(schema 67)에서 분기한 [PR #148](https://github.com/yakisoba
 - [x] 검증: 전체 qualification [run 44053449983](https://github.com/yakisoba0728/PgBase/actions/runs/44053449983) 15개 job 통과, 병합 후 main push CI.
 - [x] PR 정리: 증거·과정 문서 862개 삭제(원본은 `3c163037`), 보조 원격 브랜치 4개 삭제.
 - [x] 운영 배포: 2026-11-17T10:50Z 앱 정지 → DB·파일 백업과 격리 환경 67→69 업그레이드 검증 → Dokploy `compose.deploy`(deployment `VhpSigLR47xTP_3szBatk`, done) → 사후 검증. 중단 약 1분 40초. schema 69/69·dirty=false, doctor 통과, 레코드·관리자·사용자 건수와 환경 변수·파일 volume 보존, 배포 바이너리가 준비 이미지와 일치, health 200.
-- [ ] 운영 사후 확인 중 하지 않은 것: 로그인 후 화면과 CRUD, realtime·jobs·파일 동작. 백업은 같은 서버(`/etc/dokploy/backups/pgbase/20261117T105028Z-hardening`)에만 있다. schema 69에서 이전 binary로만 되돌리는 롤백은 지원하지 않는다.
+- [x] 운영 초기화: 2026-11-17T23:06–23:08Z 소유자 지시로 운영 데이터를 초기화했다: 컨테이너 제거, DB·파일 volume 삭제, 서버의 `/etc/dokploy/backups/pgbase` 백업 5개 삭제 후 main `57507741`을 빈 volume에 다시 배포(deployment `tVnKvWxa8-6nrvlipXBMS`, done). 69/69·dirty=false, doctor 통과, 관리자·사용자·컬렉션 0, `/api/admin/status`는 `setupRequired: true`, health 200.
+- [ ] 운영 첫 관리자 생성: 공개 호스트가 setup 대기 상태다. 소유자가 setup token으로 직접 만든다. SMTP 등 운영 설정도 다시 넣어야 한다.
+- [ ] 운영에서 로그인 후 화면과 CRUD, realtime·jobs·파일 동작은 확인하지 않았다. 운영 백업은 없다. Dokploy API key가 작업 세션 기록에 노출돼 교체가 필요하다.
+- [x] 릴리스: tag `v0.4.0`(main `57507741`), 릴리스 gate [run 44069969545](https://github.com/yakisoba0728/PgBase/actions/runs/44069969545) 통과(Windows self-update는 건너뜀), 이미지 `sha256:aa5a9bf0…`를 `v0.4.0`·`latest`로 승격, GitHub 릴리스 게시(첨부 8개). main push CI의 `internal/cli` watch test가 한 번 실패했고 재실행에서 통과했다(timing flake, 미수정).
 - [ ] 쓰기 요청당 WAL flush 약 2.5회(record transaction + outbox 전달)는 그대로다. 줄이려면 전달·내구성 계약 변경이 필요하다.
 - [ ] 부하 gate 통과는 1회 실행이고 호스트 fsync 속도를 비교하지 않았다.
 - [ ] CodeQL 25건(조치 불필요 분류)과 이미지 의존성 32건 중 30건 검토 대기([risk register](docs/workstreams/independent-platform-2026-11-16/final-master/risk-register.md)).
