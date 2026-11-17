@@ -1,0 +1,31 @@
+{
+  "classification": "HISTORICAL_FAILURE_RETAINED",
+  "source_sha": "a1a652289f0bc817f18db257282c758e66b4a672",
+  "source_git_tree": "7c1fc6ed40fc8d908156702d8a3fe4a13c8930d1",
+  "ci_checkout_sha": "f5295856078d06a0e68a00365e0223a48b1a206e",
+  "run_id": 43820007603,
+  "job_id": 133140689239,
+  "result": "FAIL",
+  "scheduled": 120000,
+  "completed": 119453,
+  "dropped": 547,
+  "artifact_id": 14204951142,
+  "sha256": "d2411a4837ffd38a5fd3c2b67423240f07de4eed9ed0f5d4038af59ca628cf6e",
+  "hosted_expires_at": "2026-11-30T07:07:55Z",
+  "retention": "Original ZIP retained in Git; hosted expiry does not expire this copy.",
+  "command": "GitHub download_workflow_artifact for artifact14204951142; SHA256/ZIP integrity checked; no workload rerun",
+  "artifacts": [
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/historical-failed-gate/original-artifact.zip",
+      "sha256": "d2411a4837ffd38a5fd3c2b67423240f07de4eed9ed0f5d4038af59ca628cf6e",
+      "bytes": 3451697,
+      "classification": "HISTORICAL",
+      "source_sha": "a1a652289f0bc817f18db257282c758e66b4a672",
+      "source_git_tree": "7c1fc6ed40fc8d908156702d8a3fe4a13c8930d1",
+      "run_id": 43820007603,
+      "job_id": 133140689239,
+      "command": "Download original GitHub artifact14204951142; preserve failed run43820007603",
+      "removal_allowed": false
+    }
+  ]
+}

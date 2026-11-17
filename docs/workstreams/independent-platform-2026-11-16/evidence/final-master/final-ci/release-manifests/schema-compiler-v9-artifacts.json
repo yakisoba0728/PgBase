@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "rollout": "schema-compiler-v9",
+  "artifacts": [
+    {
+      "phase": "Predecessor",
+      "commit": "d3fb5eb9e5480ea1fdba30fcd81ff85608e2755b",
+      "version": "v0.0.8-rc.1",
+      "path": "pgbase-schema-compiler-v9-predecessor",
+      "digest": "sha256:00282ba19cdc815db754cc73371b31e6b7511a3aca1957f83f37875163c8546c",
+      "toolchain": {
+        "goVersion": "go1.26.11",
+        "goOS": "linux",
+        "goArch": "amd64"
+      }
+    },
+    {
+      "phase": "P0",
+      "commit": "f93c2c755848dc4757ad76c469bf8aa24bf9b63d",
+      "version": "v0.0.9-alpha.0",
+      "path": "pgbase-schema-compiler-v9-p0",
+      "digest": "sha256:7a729244745d95ca43a461e8f7fd812425b280d992ff118826555c1b35d59889",
+      "toolchain": {
+        "goVersion": "go1.26.11",
+        "goOS": "linux",
+        "goArch": "amd64"
+      }
+    },
+    {
+      "phase": "F",
+      "commit": "87a89145958c6716662e03137328fba5e1dc39f3",
+      "version": "v0.0.9-rc.0",
+      "path": "pgbase-schema-compiler-v9-f",
+      "digest": "sha256:04e4772015b41fe64571f73aba33273679fc23b568888f12662d761f21cd2e7c",
+      "toolchain": {
+        "goVersion": "go1.26.11",
+        "goOS": "linux",
+        "goArch": "amd64"
+      }
+    }
+  ]
+}

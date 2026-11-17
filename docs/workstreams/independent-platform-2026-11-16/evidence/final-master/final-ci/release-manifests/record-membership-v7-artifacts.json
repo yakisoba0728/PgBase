@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "rollout": "record-membership-v7",
+  "artifacts": [
+    {
+      "phase": "A0",
+      "commit": "9672d695c315dbcf36f993cec78eebe9fa5faac9",
+      "version": "v0.0.7-alpha.0",
+      "path": "pgbase-record-membership-v7-a0",
+      "digest": "sha256:2e9f4f27ec770cedbb48932f5cac01a01d795a9feb601a3c21efd1a2f60c8223",
+      "toolchain": {
+        "goVersion": "go1.26.11",
+        "goOS": "linux",
+        "goArch": "amd64"
+      }
+    },
+    {
+      "phase": "A",
+      "commit": "451e715938e9d58f50970080d34142776ef256b2",
+      "version": "v0.0.7-alpha.1",
+      "path": "pgbase-record-membership-v7-a",
+      "digest": "sha256:80f57c7c015c8471d04361b93b782a64c4a479fce31db35bdaee3127f151571e",
+      "toolchain": {
+        "goVersion": "go1.26.11",
+        "goOS": "linux",
+        "goArch": "amd64"
+      }
+    },
+    {
+      "phase": "B",
+      "commit": "4676b81e3c940d9a65da11837093686379457d0f",
+      "version": "v0.0.7-beta.0",
+      "path": "pgbase-record-membership-v7-b",
+      "digest": "sha256:237c5559fc8d5b4e666f3bd5b3c619dc654dfec033e44eeb29dc4628f25d9b92",
+      "toolchain": {
+        "goVersion": "go1.26.11",
+        "goOS": "linux",
+        "goArch": "amd64"
+      }
+    },
+    {
+      "phase": "C",
+      "commit": "07c0eddd5c6dedb99dd2cdfa3e1e85f4583dcbc4",
+      "version": "v0.0.7-rc.0",
+      "path": "pgbase-record-membership-v7-c",
+      "digest": "sha256:9d923856e8f9008e45f5a5bed7cabc46f7a560af959d67a8ca0391714455fb8e",
+      "toolchain": {
+        "goVersion": "go1.26.11",
+        "goOS": "linux",
+        "goArch": "amd64"
+      }
+    },
+    {
+      "phase": "Operator",
+      "commit": "f7ec0ff54953417dd0b41331f0b9d02b023195d8",
+      "version": "v0.0.7-rc.1",
+      "path": "pgbase-record-membership-v7-operator",
+      "digest": "sha256:27df484af7eb0b5ae7ab5bdccdf6da3b8e0dd52572f78670d9978f1b6fda2ffd",
+      "toolchain": {
+        "goVersion": "go1.26.11",
+        "goOS": "linux",
+        "goArch": "amd64"
+      }
+    }
+  ]
+}

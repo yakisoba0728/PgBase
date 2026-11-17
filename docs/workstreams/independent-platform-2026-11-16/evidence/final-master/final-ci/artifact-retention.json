@@ -1,0 +1,438 @@
+{
+  "status": "VERIFIED; QUALIFICATION_BLOCKED_BY_PERFORMANCE",
+  "run_id": 43982303611,
+  "artifact_count": 10,
+  "original_archives_retained_in_git": 9,
+  "release_binary_archive_retained_in_git": false,
+  "artifacts": [
+    {
+      "artifact_id": 14285017010,
+      "name": "benchmark-postgresql-17.9",
+      "bytes": 2768,
+      "sha256": "0920238cbf69103a8dca167afbe958e3f6b93d2c0058731656cd54249abbbf2e",
+      "api_digest_matches": true,
+      "archive_crc_verified": true,
+      "run_id": 43982303611,
+      "source_sha": "89e883fc700ef0250024427a1f09bb88affe0383",
+      "checkout_sha": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "source_tree": "c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55",
+      "expires_at": "2026-12-01T00:03:56Z",
+      "artifact_url": "https://github.com/yakisoba0728/PgBase/actions/runs/43982303611/artifacts/14285017010",
+      "retention": "ORIGINAL_ZIP_IN_GIT",
+      "repository_path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/final-ci/artifacts/benchmark-postgresql-17.9.zip",
+      "durable_manifest_paths": null,
+      "members": [
+        {
+          "path": "benchmark.txt",
+          "bytes": 18770,
+          "sha256": "0cc98a19e43e2d81e51441deaf1e154701379a47ec3278b70903edfe408ba47f"
+        }
+      ],
+      "limitation": null,
+      "job_id": 133701569828
+    },
+    {
+      "artifact_id": 14284576564,
+      "name": "benchmark-postgresql-16.13",
+      "bytes": 2758,
+      "sha256": "f84e58bf36571f00b40280d9f73a51675a3e1886479d8439260151e2ddfedfc1",
+      "api_digest_matches": true,
+      "archive_crc_verified": true,
+      "run_id": 43982303611,
+      "source_sha": "89e883fc700ef0250024427a1f09bb88affe0383",
+      "checkout_sha": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "source_tree": "c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55",
+      "expires_at": "2026-12-01T00:00:00Z",
+      "artifact_url": "https://github.com/yakisoba0728/PgBase/actions/runs/43982303611/artifacts/14284576564",
+      "retention": "ORIGINAL_ZIP_IN_GIT",
+      "repository_path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/final-ci/artifacts/benchmark-postgresql-16.13.zip",
+      "durable_manifest_paths": null,
+      "members": [
+        {
+          "path": "benchmark.txt",
+          "bytes": 18781,
+          "sha256": "f06471a76c9496dc8e9fbefaf926fe2cbd49631632c350b7de7dda99db9f8e13"
+        }
+      ],
+      "limitation": null,
+      "job_id": 133701569741
+    },
+    {
+      "artifact_id": 14284520157,
+      "name": "source-security-go-b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "bytes": 92485,
+      "sha256": "98211b1ead7518cfce32e81c34a65dcad41ebaceb1437395b961bb4390483b54",
+      "api_digest_matches": true,
+      "archive_crc_verified": true,
+      "run_id": 43982303611,
+      "source_sha": "89e883fc700ef0250024427a1f09bb88affe0383",
+      "checkout_sha": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "source_tree": "c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55",
+      "expires_at": "2026-11-30T23:50:02Z",
+      "artifact_url": "https://github.com/yakisoba0728/PgBase/actions/runs/43982303611/artifacts/14284520157",
+      "retention": "ORIGINAL_ZIP_IN_GIT",
+      "repository_path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/final-ci/artifacts/source-security-go.zip",
+      "durable_manifest_paths": null,
+      "members": [
+        {
+          "path": "findings.json",
+          "bytes": 23099,
+          "sha256": "7e6e9f0e0229d55e2d5a7fb6041b90048ad2993d4d33f222ef09d9f286d23035"
+        },
+        {
+          "path": "summary.json",
+          "bytes": 879,
+          "sha256": "8593451a24f1f3fc80dd4fed164a7162012ad219d3a9c110cc845f87f738546c"
+        },
+        {
+          "path": "go.sarif",
+          "bytes": 1562286,
+          "sha256": "18c2570a5b8e3f0fc3fe854ecc63a7b89f1513b9fc425c2a277d1c7cdbfec516"
+        }
+      ],
+      "limitation": null,
+      "job_id": 133701569733
+    },
+    {
+      "artifact_id": 14284260280,
+      "name": "source-security-javascript-typescript-b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "bytes": 122821,
+      "sha256": "640d57acdd4a7a2ea1fbce405e0c3fc86c4abe20e31d75dc6a3a28cce9c9ec73",
+      "api_digest_matches": true,
+      "archive_crc_verified": true,
+      "run_id": 43982303611,
+      "source_sha": "89e883fc700ef0250024427a1f09bb88affe0383",
+      "checkout_sha": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "source_tree": "c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55",
+      "expires_at": "2026-11-30T23:49:01Z",
+      "artifact_url": "https://github.com/yakisoba0728/PgBase/actions/runs/43982303611/artifacts/14284260280",
+      "retention": "ORIGINAL_ZIP_IN_GIT",
+      "repository_path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/final-ci/artifacts/source-security-js.zip",
+      "durable_manifest_paths": null,
+      "members": [
+        {
+          "path": "findings.json",
+          "bytes": 769,
+          "sha256": "8776e40db0bcc8d8e9ff9ee14a08fdb38da74c4748f4d7251f55b59928a92998"
+        },
+        {
+          "path": "javascript.sarif",
+          "bytes": 1275723,
+          "sha256": "a26e99fdc7159dbbfd4e9c4fa5eb763e296acc20c8c2c252109bacfd0592d648"
+        },
+        {
+          "path": "summary.json",
+          "bytes": 715,
+          "sha256": "d2a00d9390ca3bb3f014c65bcada1d3a0ec036b85eda701b428b77e4190e57d0"
+        }
+      ],
+      "limitation": null,
+      "job_id": 133701569579
+    },
+    {
+      "artifact_id": 14284191475,
+      "name": "benchmark-postgresql-18.3",
+      "bytes": 2726,
+      "sha256": "4ff2842b885267842189ceff639aa68223f993c621e54643464e240dfe16d68d",
+      "api_digest_matches": true,
+      "archive_crc_verified": true,
+      "run_id": 43982303611,
+      "source_sha": "89e883fc700ef0250024427a1f09bb88affe0383",
+      "checkout_sha": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "source_tree": "c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55",
+      "expires_at": "2026-11-30T23:56:37Z",
+      "artifact_url": "https://github.com/yakisoba0728/PgBase/actions/runs/43982303611/artifacts/14284191475",
+      "retention": "ORIGINAL_ZIP_IN_GIT",
+      "repository_path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/final-ci/artifacts/benchmark-postgresql-18.3.zip",
+      "durable_manifest_paths": null,
+      "members": [
+        {
+          "path": "benchmark.txt",
+          "bytes": 18728,
+          "sha256": "34900c5763e0f403b43bbcebc7f3207b28215439b09445eef26c04271cfb0f60"
+        }
+      ],
+      "limitation": null,
+      "job_id": 133701569796
+    },
+    {
+      "artifact_id": 14283838362,
+      "name": "mixed-http-b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "bytes": 3717310,
+      "sha256": "560f35fa19fb6a18c96c7bc517759beeedb6604dc2fbdd2de044c38113e7e393",
+      "api_digest_matches": true,
+      "archive_crc_verified": true,
+      "run_id": 43982303611,
+      "source_sha": "89e883fc700ef0250024427a1f09bb88affe0383",
+      "checkout_sha": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "source_tree": "c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55",
+      "expires_at": "2026-12-01T00:01:49Z",
+      "artifact_url": "https://github.com/yakisoba0728/PgBase/actions/runs/43982303611/artifacts/14283838362",
+      "retention": "ORIGINAL_ZIP_IN_GIT",
+      "repository_path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/final-ci/artifacts/final-mixed-http.zip",
+      "durable_manifest_paths": null,
+      "members": [
+        {
+          "path": "mixed-environment.txt",
+          "bytes": 4030,
+          "sha256": "7fa80b6f1d5f499ef2149d80bec4e19f0b11f298628f38fa1518eb99cd7fd782"
+        },
+        {
+          "path": "open-loop-http.txt",
+          "bytes": 1749,
+          "sha256": "1d6c373516d80f4178fb1fd8b5652c2f92cc4a85bb5390b30ba35900057cc01b"
+        },
+        {
+          "path": "mixed-http.txt",
+          "bytes": 5415,
+          "sha256": "0de26ffb7eedb564998a410a3b6f7409a59d10ae691ddc42692487d636add4a2"
+        },
+        {
+          "path": "load-evidence/database-container-stats.txt",
+          "bytes": 1172510,
+          "sha256": "cf45d3b2caa975258a692fb3cf0b20fc38aa095c7c27318d2ba7db259eafea08"
+        },
+        {
+          "path": "load-evidence/host-observer-start.txt",
+          "bytes": 33,
+          "sha256": "956b63126f4401d7c6f0db244e89eae4ee73ca5fae85ad04f9b8d6080a134f70"
+        },
+        {
+          "path": "load-evidence/host-vmstat.txt",
+          "bytes": 117506,
+          "sha256": "45864dcc3b174e68219a6d9b33be065b582997d64aa243e7beb27df76e9dc70b"
+        },
+        {
+          "path": "load-evidence/open-loop-database.json",
+          "bytes": 16604351,
+          "sha256": "480a25b9a1c712a6f4bad65ddac425f0942209e4d9427dd4eee972f4c2c07848"
+        },
+        {
+          "path": "load-evidence/open-loop-samples.csv",
+          "bytes": 8097656,
+          "sha256": "095ba9f0ab2b8bd5b535c5b1ee971867e354dc93d48ef3e91138860363a9cca6"
+        }
+      ],
+      "limitation": null,
+      "job_id": 133701568842
+    },
+    {
+      "artifact_id": 14283756375,
+      "name": "release-phase-artifacts",
+      "bytes": 51295460,
+      "sha256": "0a2562910ca4cac764148f9cb69ab8e0d49874b2a9fa54f2d47205ea37bceb6e",
+      "api_digest_matches": true,
+      "archive_crc_verified": true,
+      "run_id": 43982303611,
+      "source_sha": "89e883fc700ef0250024427a1f09bb88affe0383",
+      "checkout_sha": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "source_tree": "c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55",
+      "expires_at": "2027-02-14T23:47:34Z",
+      "artifact_url": "https://github.com/yakisoba0728/PgBase/actions/runs/43982303611/artifacts/14283756375",
+      "retention": "HOSTED_BINARY_ARCHIVE_WITH_DURABLE_MANIFESTS",
+      "repository_path": null,
+      "durable_manifest_paths": [
+        "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/final-ci/release-manifests/schema-compiler-v9-artifacts.json",
+        "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/final-ci/release-manifests/record-membership-v7-artifacts.json",
+        "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/final-ci/release-manifests/artifact-integrity.json"
+      ],
+      "members": [
+        {
+          "path": "release-phase-artifacts.tar.gz",
+          "bytes": 51418541,
+          "sha256": "20048f8680cb918410cd23ef0de82033fab6c64a9dac05b301008d027a6ee43a"
+        }
+      ],
+      "limitation": "The original 51,295,460-byte archive was downloaded and verified, but is not committed. Git retains both original release manifests and all eight binary hashes. Hosted archive retention ends at expires_at; reproduction is not byte-identity evidence for a future rebuild.",
+      "job_id": 133701569883
+    },
+    {
+      "artifact_id": 14283383266,
+      "name": "pgbase-image-scan-sarif",
+      "bytes": 15493,
+      "sha256": "fb9b85f1ca93b8652e6388c80791c1d455254922833b50d8d5bf87a045dddb7e",
+      "api_digest_matches": true,
+      "archive_crc_verified": true,
+      "run_id": 43982303611,
+      "source_sha": "89e883fc700ef0250024427a1f09bb88affe0383",
+      "checkout_sha": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "source_tree": "c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55",
+      "expires_at": "2027-02-14T23:47:34Z",
+      "artifact_url": "https://github.com/yakisoba0728/PgBase/actions/runs/43982303611/artifacts/14283383266",
+      "retention": "ORIGINAL_ZIP_IN_GIT",
+      "repository_path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/final-ci/artifacts/image-scan.zip",
+      "durable_manifest_paths": null,
+      "members": [
+        {
+          "path": "pgbase-image.sarif",
+          "bytes": 759,
+          "sha256": "55138d27fff435469c0a3a8e923ab9aaa4a41e6781a4966449f34438ecbea2bc"
+        },
+        {
+          "path": "pgbase-image-all-severities.sarif",
+          "bytes": 149111,
+          "sha256": "324bc2b6ae13b997ca1f898fde60d49d4d0ee2b9198f73154d0ffb404b588487"
+        }
+      ],
+      "limitation": null,
+      "job_id": 133701569385
+    },
+    {
+      "artifact_id": 14283254119,
+      "name": "pgbase-sbom",
+      "bytes": 115338,
+      "sha256": "4c00896110171a886057c58a84831b47253a6f02b18c663d6f82fdb3268e265d",
+      "api_digest_matches": true,
+      "archive_crc_verified": true,
+      "run_id": 43982303611,
+      "source_sha": "89e883fc700ef0250024427a1f09bb88affe0383",
+      "checkout_sha": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "source_tree": "c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55",
+      "expires_at": "2027-02-14T23:47:34Z",
+      "artifact_url": "https://github.com/yakisoba0728/PgBase/actions/runs/43982303611/artifacts/14283254119",
+      "retention": "ORIGINAL_ZIP_IN_GIT",
+      "repository_path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/final-ci/artifacts/sbom.zip",
+      "durable_manifest_paths": null,
+      "members": [
+        {
+          "path": "pgbase-sbom",
+          "bytes": 811394,
+          "sha256": "b29bbe82b12c6448adb73411a4919fe3fc754206fbb48c177f2ea1f8b430564d"
+        }
+      ],
+      "limitation": null,
+      "job_id": 133701569385
+    },
+    {
+      "artifact_id": 14283099740,
+      "name": "runtime-assets-b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "bytes": 206512,
+      "sha256": "47fa7b0a945d95c1edd3d60941893f9f14fbbb1ad4080492ed570d20cb40b992",
+      "api_digest_matches": true,
+      "archive_crc_verified": true,
+      "run_id": 43982303611,
+      "source_sha": "89e883fc700ef0250024427a1f09bb88affe0383",
+      "checkout_sha": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "source_tree": "c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55",
+      "expires_at": "2026-11-30T23:49:51Z",
+      "artifact_url": "https://github.com/yakisoba0728/PgBase/actions/runs/43982303611/artifacts/14283099740",
+      "retention": "ORIGINAL_ZIP_IN_GIT",
+      "repository_path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/final-ci/artifacts/runtime-assets.zip",
+      "durable_manifest_paths": null,
+      "members": [
+        {
+          "path": "certs/ca-certificates.crt",
+          "bytes": 222073,
+          "sha256": "e9c7b63ee2623386e9b0a3ee32f499d01a8ea23dc83b8383ddff9f8e749543b7"
+        },
+        {
+          "path": "image-id.txt",
+          "bytes": 72,
+          "sha256": "694562f3b724a9e28089378ee429150c0525a669422cf52f3a52170c1fd5a056"
+        },
+        {
+          "path": "manifest.json",
+          "bytes": 69073,
+          "sha256": "61c39349487a0f92eb4bff7dc8e03208abe56bca09f527e42472763b5ef5c336"
+        },
+        {
+          "path": "package-status/base-files",
+          "bytes": 720,
+          "sha256": "ebfb743383af695719a4120649fe23d50180a01dfa07a6ea4b3abfe023f4d37b"
+        },
+        {
+          "path": "package-status/base-files.md5sums",
+          "bytes": 1897,
+          "sha256": "4a289988bb2d713edc723f8b0388b1409f10eeb700afc352135e1cc48793a643"
+        },
+        {
+          "path": "package-status/ca-certificates",
+          "bytes": 830,
+          "sha256": "0ab308c74d16a47ee67082a749c416268cb530e1f8fa124118a0dc808e461518"
+        },
+        {
+          "path": "package-status/ca-certificates.md5sums",
+          "bytes": 16471,
+          "sha256": "ef040f6734e7bddcb8298dcaf4b0624efdb5fb4990d122a622a59b5a773cefb0"
+        },
+        {
+          "path": "package-status/libc6",
+          "bytes": 1597,
+          "sha256": "9c86e863af247bb3264be971b2a3c150b659559ab02b18127b92d8caf74c5449"
+        },
+        {
+          "path": "package-status/liblz4-1",
+          "bytes": 702,
+          "sha256": "81b762e7adccd6f970ac0cfca35ff67aabab301630d0d263bf6e621a627526dd"
+        },
+        {
+          "path": "package-status/libssl3",
+          "bytes": 586,
+          "sha256": "f3f1b967060c6c55f60343cee8604d6aa6304f535cc2489d9dfe81da5b3ba38a"
+        },
+        {
+          "path": "package-status/libzstd1",
+          "bytes": 550,
+          "sha256": "5de9e07270970b2d9a363ceffdf6e6d608818aa2290da4218e9bd76ce6fd8d9d"
+        },
+        {
+          "path": "package-status/media-types",
+          "bytes": 883,
+          "sha256": "62f0651d9c8af8743038dd1b69a1927bbe3301fae7ea7fe4ae18638c2c328a8a"
+        },
+        {
+          "path": "package-status/media-types.md5sums",
+          "bytes": 211,
+          "sha256": "cb5891e815e23843440ef27a34260d48f1bbf6e7007be81ccda938fc4e94182d"
+        },
+        {
+          "path": "package-status/netbase",
+          "bytes": 484,
+          "sha256": "98fedccdacaea717f25b010c087fa8606e1c5895ff16ba7be9f5d1ca8f7d9b5f"
+        },
+        {
+          "path": "package-status/netbase.md5sums",
+          "bytes": 135,
+          "sha256": "260709411b3d0a1a1f10975bf9d3bed328389ffb46ea14d1948b619ab2caf38e"
+        },
+        {
+          "path": "package-status/postgresql-client-16",
+          "bytes": 1188,
+          "sha256": "247cc37df07ad2311c9a93129bc44f2bce80dd10039903366d1ea0868fd20d2c"
+        },
+        {
+          "path": "package-status/postgresql-client-17",
+          "bytes": 1189,
+          "sha256": "77a6445ae359be16f7637063cba2bd73e023d9438d029c924ad7b8c8c64ccf41"
+        },
+        {
+          "path": "package-status/postgresql-client-18",
+          "bytes": 1187,
+          "sha256": "6a3defbc4e2a9486de380156e52dd68553b61aedc291123e372e80f41128f00b"
+        },
+        {
+          "path": "package-status/tzdata",
+          "bytes": 671,
+          "sha256": "baac04806d3b1801e22714a2f427bd6de118e175cc1127154fb5a4a7d9ba1f00"
+        },
+        {
+          "path": "package-status/tzdata.md5sums",
+          "bytes": 64880,
+          "sha256": "69ec18681cc8949898eade6791440c4e13c22e6605ec3b0d8e6840fe11278bb3"
+        },
+        {
+          "path": "trust-environment.json",
+          "bytes": 56,
+          "sha256": "862af2fdabf8ee28d658f0592861ecbadb1ff538f8a6d95382223b71532472ba"
+        },
+        {
+          "path": "tzdata.zi",
+          "bytes": 111533,
+          "sha256": "1708f2c388c5b602defbc56eba3237a9615f8cd28dbbf2f58d7534ff434af5a6"
+        }
+      ],
+      "limitation": null,
+      "job_id": 133701569385
+    }
+  ]
+}
