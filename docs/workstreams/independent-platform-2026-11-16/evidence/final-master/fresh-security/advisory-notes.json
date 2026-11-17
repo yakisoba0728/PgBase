@@ -1,0 +1,47 @@
+{
+  "recorded_at": "2026-11-17T00:05:36.811908+00:00",
+  "method": "Official primary pages opened through web retrieval during this fresh review; paraphrases only. The retained SARIF provides the scanner version of each full description.",
+  "items": [
+    {
+      "url": "https://openssl-library.org/news/secadv/20261110.txt",
+      "observed": "Four QUIC/GCM-SIV records exclude 3.0 upstream. The CMS record includes 3.0; TLS/QUIC do not use its CMS path."
+    },
+    {
+      "url": "https://security-tracker.debian.org/tracker/CVE-2026-88822",
+      "observed": "Captured 3.0.22 Bookworm package remains vulnerable in Debian status."
+    },
+    {
+      "url": "https://security-tracker.debian.org/tracker/CVE-2026-88823",
+      "observed": "Same installed Bookworm package remains vulnerable in Debian status."
+    },
+    {
+      "url": "https://security-tracker.debian.org/tracker/CVE-2026-95691",
+      "observed": "Same installed Bookworm package remains vulnerable in Debian status."
+    },
+    {
+      "url": "https://security-tracker.debian.org/tracker/CVE-2026-95692",
+      "observed": "Same installed Bookworm package remains vulnerable in Debian status."
+    },
+    {
+      "url": "https://security-tracker.debian.org/tracker/CVE-2026-100290",
+      "observed": "Regex allocation-failure memory corruption is architecture-independent; captured Bookworm version remains vulnerable."
+    },
+    {
+      "url": "https://security-tracker.debian.org/tracker/CVE-2026-115819",
+      "observed": "Wide scanf extra-zero overwrite is architecture-independent; captured Bookworm version remains vulnerable."
+    },
+    {
+      "url": "https://security-tracker.debian.org/tracker/CVE-2026-97399",
+      "observed": "The described strncasecmp implementation is Power8-specific."
+    },
+    {
+      "url": "https://security-tracker.debian.org/tracker/CVE-2025-27587",
+      "observed": "The described signing timing issue is PowerPC-specific; upstream also disputes scope."
+    },
+    {
+      "url": "https://security-tracker.debian.org/tracker/CVE-2026-19499",
+      "observed": "Description starts at 2.38, but Debian lists installed 2.36 as vulnerable; unresolved mapping retained."
+    }
+  ],
+  "limits": "No upstream commit or Debian source-patch backport audit was performed."
+}
