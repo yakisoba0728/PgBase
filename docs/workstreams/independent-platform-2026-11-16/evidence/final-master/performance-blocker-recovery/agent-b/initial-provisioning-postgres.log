@@ -1,0 +1,10 @@
+2026-11-17 10:57:38.875 KST [21] LOG:  starting PostgreSQL 17.9 on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2026-11-17 10:57:38.875 KST [21] LOG:  listening on IPv4 address "127.0.0.1", port 55437
+2026-11-17 10:57:38.879 KST [21] LOG:  could not create Unix socket for address "/workspace/scratch/287fb4d961b2/agent-b-pg-socket/.s.PGSQL.55437": Operation not permitted
+2026-11-17 10:57:38.879 KST [21] WARNING:  could not create Unix-domain socket in directory "/workspace/scratch/287fb4d961b2/agent-b-pg-socket"
+2026-11-17 10:57:38.879 KST [21] FATAL:  could not create any Unix-domain sockets
+2026-11-17 10:57:38.880 KST [21] LOG:  database system is shut down
+2026-11-17 10:57:52.439 KST [8] LOG:  starting PostgreSQL 17.9 on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2026-11-17 10:57:52.439 KST [8] LOG:  listening on IPv4 address "127.0.0.1", port 55437
+2026-11-17 10:57:52.445 KST [11] LOG:  database system was shut down at 2026-11-17 10:57:38 KST
+2026-11-17 10:57:52.451 KST [8] LOG:  database system is ready to accept connections

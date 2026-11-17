@@ -1,0 +1,221 @@
+{
+  "audit": "PASS",
+  "qualification": "BLOCKED / NOT_READY",
+  "execution_scope": "Read-only existing ZIP/CSV/source inspection; no workload, scanner or database execution",
+  "source": {
+    "initial_head": "77bc070047c5a19d68439b75cb7b65bcde5d1c9a",
+    "initial_tree": "07fc4145c03d636c1416e2e838ad701cebc3b03b",
+    "candidate": "89e883fc700ef0250024427a1f09bb88affe0383",
+    "candidate_tree": "c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55",
+    "checkout": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+    "checkout_tree": "c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55",
+    "non_document_changes_after_candidate": [],
+    "checks": {
+      "equal_tested_trees": true,
+      "source_equivalence": true
+    }
+  },
+  "current_failed_gate": {
+    "archive": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/final-ci/artifacts/final-mixed-http.zip",
+    "sha256": "560f35fa19fb6a18c96c7bc517759beeedb6604dc2fbdd2de044c38113e7e393",
+    "bytes": 3717310,
+    "csv_sha256": "095ba9f0ab2b8bd5b535c5b1ee971867e354dc93d48ef3e91138860363a9cca6",
+    "artifact_checkout": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+    "checks": {
+      "archive_hash": true,
+      "archive_crc": true,
+      "rows_120000": true,
+      "indices_unique_complete_ordered": true,
+      "schedule_200rps_600s": true,
+      "workload_mix_owners": true,
+      "completed_expected": true,
+      "attempted_expected": true,
+      "dropped_expected": true,
+      "error_population_expected": true,
+      "success_status_semantics": true,
+      "latency_decomposition": true,
+      "pool4_observations": true,
+      "retained_test_failure": true,
+      "exact_current_checkout": true,
+      "e2e_p99_failure_reproduced": true,
+      "7726_late_arrivals": true,
+      "all_durability_on": true
+    },
+    "rows": 120000,
+    "completed": 120000,
+    "attempted": 120000,
+    "errors": {},
+    "incomplete": 0,
+    "quantiles_ns_attempted_population": {
+      "scheduled_to_validated_ns": {
+        "50": 6264600,
+        "95": 319624000,
+        "99": 588031143
+      },
+      "http_service_ns": {
+        "50": 5854931,
+        "95": 152715202,
+        "99": 277767335
+      },
+      "generator_queue_ns": {
+        "50": 254344,
+        "95": 157578606,
+        "99": 426305938
+      },
+      "generator_ns": {
+        "50": 221794,
+        "95": 906199,
+        "99": 1065102
+      },
+      "worker_queue_ns": {
+        "50": 3535,
+        "95": 157205185,
+        "99": 425904449
+      }
+    },
+    "arrivals_over_250ms": 7726,
+    "durability": {
+      "before": {
+        "fsync": "on",
+        "synchronous_commit": "on",
+        "full_page_writes": "on"
+      },
+      "after": {
+        "fsync": "on",
+        "synchronous_commit": "on",
+        "full_page_writes": "on"
+      }
+    },
+    "observations": 6000,
+    "observer_interval_ms": 100,
+    "observer_query_ns": {
+      "50": 438089,
+      "95": 1043553,
+      "99": 2296910
+    },
+    "active_wait_samples": {
+      "": 2206,
+      "WalSync": 1460,
+      "WALWrite": 2846,
+      "ClientRead": 346,
+      "VacuumDelay": 39,
+      "WalInitSync": 10,
+      "advisory": 165,
+      "WalWrite": 5,
+      "BufferContent": 1
+    },
+    "wal_deltas": {
+      "wal_records": 3132583,
+      "wal_bytes": 432181885,
+      "wal_write": 178387,
+      "wal_sync": 178309,
+      "wal_write_time": 2169.203,
+      "wal_sync_time": 143354.714
+    },
+    "summary": "open_loop_load_integration_test.go:307: offered_rps=200 seconds=600 intended=120000 enqueued=120000 attempted=120000 completed=120000 dropped=0 unscheduled=0 errors=0 error_rate=0.000000 achieved_rps=200.00 elapsed=10m0.000612834s pool_max=4 pool_waits=108914 pool_wait=44m13.122243438s pool_canceled=0 bytes_per_request=615814.5 allocs_per_request=9045.1 gc_cycles=1271 gc_pause=126.178154ms runtime_busy_cpu_seconds=404.278245 runtime_gc_cpu_seconds=46.073618 heap_before=96764608 heap_after=100894720"
+  },
+  "historical_547_drop_failure": {
+    "archive": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/historical-failed-gate/original-artifact.zip",
+    "sha256": "d2411a4837ffd38a5fd3c2b67423240f07de4eed9ed0f5d4038af59ca628cf6e",
+    "bytes": 3451697,
+    "csv_sha256": "6022b6f8e720facbc6902dd1e199844197b4d3edfb46c04c41a34f61765fe711",
+    "artifact_checkout": "f5295856078d06a0e68a00365e0223a48b1a206e",
+    "checks": {
+      "archive_hash": true,
+      "archive_crc": true,
+      "rows_120000": true,
+      "indices_unique_complete_ordered": true,
+      "schedule_200rps_600s": true,
+      "workload_mix_owners": true,
+      "completed_expected": true,
+      "attempted_expected": true,
+      "dropped_expected": true,
+      "error_population_expected": true,
+      "success_status_semantics": true,
+      "latency_decomposition": true,
+      "pool4_observations": true,
+      "retained_test_failure": true
+    },
+    "rows": 120000,
+    "completed": 119453,
+    "attempted": 119453,
+    "errors": {
+      "arrival queue full": 547
+    },
+    "incomplete": 547,
+    "quantiles_ns_attempted_population": {
+      "scheduled_to_validated_ns": {
+        "50": 5532500,
+        "95": 37428454,
+        "99": 209489023
+      },
+      "http_service_ns": {
+        "50": 4933295,
+        "95": 36824311,
+        "99": 117252525
+      },
+      "generator_queue_ns": {
+        "50": 198988,
+        "95": 899205,
+        "99": 46819356
+      },
+      "generator_ns": {
+        "50": 192211,
+        "95": 821838,
+        "99": 1056497
+      },
+      "worker_queue_ns": {
+        "50": 3245,
+        "95": 5498,
+        "99": 46575953
+      }
+    },
+    "arrivals_over_250ms": 927,
+    "durability": {
+      "before": {
+        "fsync": "on",
+        "synchronous_commit": "on",
+        "full_page_writes": "NOT_RECORDED"
+      },
+      "after": {
+        "fsync": "on",
+        "synchronous_commit": "on",
+        "full_page_writes": "NOT_RECORDED"
+      }
+    },
+    "observations": 6000,
+    "observer_interval_ms": 100,
+    "observer_query_ns": {
+      "50": 421551,
+      "95": 892599,
+      "99": 2281495
+    },
+    "active_wait_samples": {
+      "ClientRead": 353,
+      "": 2850,
+      "WalSync": 413,
+      "WALWrite": 473,
+      "WalInitSync": 16,
+      "DataFileExtend": 2,
+      "WalWrite": 8,
+      "advisory": 16,
+      "VacuumDelay": 29,
+      "DataFileRead": 1
+    },
+    "wal_deltas": {
+      "wal_records": 3054085,
+      "wal_bytes": 431062954,
+      "wal_write": 182810,
+      "wal_sync": 182731,
+      "wal_write_time": 1969.2440000000001,
+      "wal_sync_time": 50820.011
+    },
+    "summary": "open_loop_load_integration_test.go:307: offered_rps=200 seconds=600 intended=120000 enqueued=119453 attempted=119453 completed=119453 dropped=547 unscheduled=0 errors=547 error_rate=0.004558 achieved_rps=199.09 elapsed=10m0.004157017s pool_max=4 pool_waits=31893 pool_wait=11m3.657311194s pool_canceled=1 bytes_per_request=612463.0 allocs_per_request=8997.9 gc_cycles=1280 gc_pause=107.458109ms runtime_busy_cpu_seconds=343.933796 runtime_gc_cpu_seconds=43.811725 heap_before=81323608 heap_after=72314504"
+  },
+  "limits": [
+    "Sampled wait counts and aggregate WAL timing establish association, not an exclusive causal explanation.",
+    "No new runtime correction or RED/GREEN reproduction exists at this checkpoint.",
+    "Historical missing full_page_writes metadata stays unknown; it is not inferred from newer source.",
+    "Completed counts with zero errors do not certify data integrity alone; existing exact-source SQL/owner checks and CI logs remain required."
+  ]
+}
