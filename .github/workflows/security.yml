@@ -83,7 +83,11 @@ jobs:
         working-directory: ui/admin
         run: |
           npm ci --ignore-scripts
-          npm audit --audit-level=high
+          # Gate on what ships in the UI bundle. Build and test tooling is
+          # reported without failing the job: an advisory there with no patched
+          # release (picomatch GHSA-fc5q-39xc-vjpf) otherwise blocks every merge.
+          npm audit --omit=dev --audit-level=high
+          npm audit --audit-level=high || echo "::warning::npm audit reports high severity advisories in development dependencies"
 
       - name: Select the image under test
         id: image
