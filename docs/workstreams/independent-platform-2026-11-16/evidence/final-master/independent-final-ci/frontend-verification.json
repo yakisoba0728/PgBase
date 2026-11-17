@@ -1,0 +1,77 @@
+{
+  "job_id": 133701569311,
+  "job_name": "frontend / test",
+  "conclusion": "success",
+  "source_sha": "89e883fc700ef0250024427a1f09bb88affe0383",
+  "ci_checkout_sha": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+  "tree": "c9a4c21a136fe6f9de0d854d0f7453aedb6a5b55",
+  "source_log_path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/final-ci/logs/job-133701569311.log.gz",
+  "gzip_sha256": "d81a399658138243232df582fc8a0733fbe4d795826a39d9113ef9942c798ca7",
+  "retained_decoded_utf8_sha256": "76b72a314852f8453d2f6e6e32b51df2400ec83edbaf2446670e8ba7ca68f46c",
+  "retained_decoded_bytes": 54300,
+  "log_encoding_note": "GitHub connector decoded UTF8 text retained by coordinator, reencoded UTF8 then gzip; not a separate original job-log ZIP digest.",
+  "test_files_passed": 78,
+  "tests_passed": 458,
+  "apiview_tests_passed": 3,
+  "previous_local_timeout_status": "Complete final CI suite passes; original local failure retained and its cause remains unproved.",
+  "required_steps": [
+    "Typecheck",
+    "Test",
+    "Rebuild the embedded administrator UI from an empty directory",
+    "Verify the committed embedded output reproduces exactly"
+  ],
+  "steps": [
+    {
+      "name": "Set up job",
+      "conclusion": "success"
+    },
+    {
+      "name": "Check out repository",
+      "conclusion": "success"
+    },
+    {
+      "name": "Validate release candidate binding",
+      "conclusion": "skipped"
+    },
+    {
+      "name": "Set up Node.js",
+      "conclusion": "success"
+    },
+    {
+      "name": "Install dependencies",
+      "conclusion": "success"
+    },
+    {
+      "name": "Verify browser example security boundaries",
+      "conclusion": "success"
+    },
+    {
+      "name": "Typecheck",
+      "conclusion": "success"
+    },
+    {
+      "name": "Test",
+      "conclusion": "success"
+    },
+    {
+      "name": "Rebuild the embedded administrator UI from an empty directory",
+      "conclusion": "success"
+    },
+    {
+      "name": "Verify the committed embedded output reproduces exactly",
+      "conclusion": "success"
+    },
+    {
+      "name": "Post Set up Node.js",
+      "conclusion": "success"
+    },
+    {
+      "name": "Post Check out repository",
+      "conclusion": "success"
+    },
+    {
+      "name": "Complete job",
+      "conclusion": "success"
+    }
+  ]
+}

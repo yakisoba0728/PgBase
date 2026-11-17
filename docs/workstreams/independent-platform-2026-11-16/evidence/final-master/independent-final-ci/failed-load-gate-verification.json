@@ -1,0 +1,126 @@
+{
+  "observed_at": "2026-11-17T00:05:19.588505+00:00",
+  "source": "89e883fc700ef0250024427a1f09bb88affe0383",
+  "checkout": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+  "run": 43982303611,
+  "job": 133701568842,
+  "artifact": {
+    "id": 14283838362,
+    "name": "mixed-http-b5c17b6f989bb11575e83544d37cc37fc6385d19",
+    "bytes": 3717310,
+    "sha256": "560f35fa19fb6a18c96c7bc517759beeedb6604dc2fbdd2de044c38113e7e393",
+    "api_digest": "sha256:560f35fa19fb6a18c96c7bc517759beeedb6604dc2fbdd2de044c38113e7e393",
+    "bytes_match_api": true,
+    "digest_matches_api": true,
+    "expires_at": "2026-12-01T00:01:49Z",
+    "members": [
+      {
+        "path": "mixed-environment.txt",
+        "bytes": 4030,
+        "sha256": "7fa80b6f1d5f499ef2149d80bec4e19f0b11f298628f38fa1518eb99cd7fd782"
+      },
+      {
+        "path": "open-loop-http.txt",
+        "bytes": 1749,
+        "sha256": "1d6c373516d80f4178fb1fd8b5652c2f92cc4a85bb5390b30ba35900057cc01b"
+      },
+      {
+        "path": "mixed-http.txt",
+        "bytes": 5415,
+        "sha256": "0de26ffb7eedb564998a410a3b6f7409a59d10ae691ddc42692487d636add4a2"
+      },
+      {
+        "path": "load-evidence/database-container-stats.txt",
+        "bytes": 1172510,
+        "sha256": "cf45d3b2caa975258a692fb3cf0b20fc38aa095c7c27318d2ba7db259eafea08"
+      },
+      {
+        "path": "load-evidence/host-observer-start.txt",
+        "bytes": 33,
+        "sha256": "956b63126f4401d7c6f0db244e89eae4ee73ca5fae85ad04f9b8d6080a134f70"
+      },
+      {
+        "path": "load-evidence/host-vmstat.txt",
+        "bytes": 117506,
+        "sha256": "45864dcc3b174e68219a6d9b33be065b582997d64aa243e7beb27df76e9dc70b"
+      },
+      {
+        "path": "load-evidence/open-loop-database.json",
+        "bytes": 16604351,
+        "sha256": "480a25b9a1c712a6f4bad65ddac425f0942209e4d9427dd4eee972f4c2c07848"
+      },
+      {
+        "path": "load-evidence/open-loop-samples.csv",
+        "bytes": 8097656,
+        "sha256": "095ba9f0ab2b8bd5b535c5b1ee971867e354dc93d48ef3e91138860363a9cca6"
+      }
+    ]
+  },
+  "sample_path": "load-evidence/open-loop-samples.csv",
+  "rows": 120000,
+  "error_rows": 0,
+  "indices_exact": true,
+  "schedule_exact_200rps": true,
+  "workload_counts": {
+    "create": 12000,
+    "update": 12000,
+    "delete": 12000,
+    "get": 12000,
+    "page": 72000
+  },
+  "status_counts": {
+    "201": 12000,
+    "200": 96000,
+    "204": 12000
+  },
+  "quantile_rule": "Nearest rank: sorted_ns[(n * percentile + 99) // 100 - 1], matching open_loop_load_integration_test.go.",
+  "quantiles": {
+    "scheduled_to_validated_ns": {
+      "samples": 120000,
+      "p50_ns": 6264600,
+      "p95_ns": 319624000,
+      "p99_ns": 588031143,
+      "max_ns": 926935542
+    },
+    "http_service_ns": {
+      "samples": 120000,
+      "p50_ns": 5854931,
+      "p95_ns": 152715202,
+      "p99_ns": 277767335,
+      "max_ns": 605531576
+    },
+    "generator_queue_ns": {
+      "samples": 120000,
+      "p50_ns": 254344,
+      "p95_ns": 157578606,
+      "p99_ns": 426305938,
+      "max_ns": 721936153
+    },
+    "generator_ns": {
+      "samples": 120000,
+      "p50_ns": 221794,
+      "p95_ns": 906199,
+      "p99_ns": 1065102,
+      "max_ns": 8576000
+    },
+    "worker_queue_ns": {
+      "samples": 120000,
+      "p50_ns": 3535,
+      "p95_ns": 157205185,
+      "p99_ns": 425904449,
+      "max_ns": 721815487
+    }
+  },
+  "latency_gate": {
+    "metric": "scheduled_to_validated p99",
+    "observed_ns": 588031143,
+    "limit_ns": 250000000,
+    "comparison": "observed <= limit",
+    "pass": false,
+    "above_limit_rows": 7726
+  },
+  "environment_first_line": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+  "environment_checkout_matches": true,
+  "qualification": "NOT_READY_BLOCKED",
+  "causality": "Raw quantiles and failure verified. This check does not establish why latency increased; unchanged harness or past passes do not dismiss this result."
+}

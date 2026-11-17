@@ -1,0 +1,89 @@
+{
+  "created_at": "2026-11-17T00:13:12.016232+00:00",
+  "source": "89e883fc700ef0250024427a1f09bb88affe0383",
+  "reviewer": "/root/independent_qa",
+  "verdict": "NOT_READY_BLOCKED",
+  "runtime_tests_or_ci_reruns_by_this_phase": 0,
+  "files": [
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/final-master/final-ci-independent.md",
+      "bytes": 15440,
+      "sha256": "ee87e155c3afb237effc618585bac2a500b824878fe11b1b77004fe3c3bf1f0e"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/benchmark-artifact-integrity.json",
+      "bytes": 1525,
+      "sha256": "5d3e2208452ec750062e5cc937e99f52a0661353af2012efadcf10cbb3a62579"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/completed-ci-verification.json",
+      "bytes": 24016,
+      "sha256": "d87af4df2490afd293804115b94f12a165d427d4c0c717eae3274ee49e0d71a3"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/coordinator-metadata-crosscheck.json",
+      "bytes": 159,
+      "sha256": "6a78aa1e0970caf9f00fe10cd67d2e42c816d6e192cd6341c958867345f3ab90"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/coverage-observations.json",
+      "bytes": 13825,
+      "sha256": "817ebacc2e5d3055b8b4b711a9c63efbf12d68c272d3f895350aee22b84c5947"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/failed-load-gate-verification.json",
+      "bytes": 3896,
+      "sha256": "90b0aa3f28f17126bdba8712926a1b2c1ce513e6e6aefdf8638d27af85fae9e3"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/final-live-state.json",
+      "bytes": 61894,
+      "sha256": "f145aec75524fd61ce1ffd8e4dc5a9af111113e22358825802b43818fbfb050d"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/frontend-verification.json",
+      "bytes": 2314,
+      "sha256": "f17475ea51315fb8088118caf39ee9ea333abf637a8be159252159669bdd2f1d"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/frozen-source-verification.json",
+      "bytes": 7029,
+      "sha256": "5a4ff49893c0017f10fde80a987ef8e43674058fc8899d83a764121c0fed9690"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/go-suite-package-counts.json",
+      "bytes": 14950,
+      "sha256": "56980d14e9c69c562ad8ce38014949f3f780c767a880b850f0d2375f38187077"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/initial-artifact-integrity.json",
+      "bytes": 20029,
+      "sha256": "0edcb0b26ee71028173f759491d6cb7326f396efa2161399e00b142485c7d920"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/initial-live-state.json",
+      "bytes": 6538,
+      "sha256": "2e7256abea6b54fbf901a6c7dcc2fa70c2e8af6b275b9288b7414f8bc9b0bc87"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/reviewer-crosschecks.json",
+      "bytes": 9265,
+      "sha256": "9ac8ad76844ef8c8eb590cd3b3ca2ca22220af1a5b1eaeaa1c101a1fdafa51ca"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/security-raw-crosscheck.json",
+      "bytes": 2185,
+      "sha256": "b85fb26baeb3e3c664fd634dd03c97b30a64e1f728e3d3ba903506a5f04bfd82"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/source-composition-complete.json",
+      "bytes": 211486,
+      "sha256": "0c3475ddc2acd7461064bd7004e60de9003f7fc26bf1f59cb09e53669eaf1d3e"
+    },
+    {
+      "path": "docs/workstreams/independent-platform-2026-11-16/evidence/final-master/independent-final-ci/verify_retained_ci.py",
+      "bytes": 11040,
+      "sha256": "1cc02199acca3313136ed1c7dc8864ec43fae7c9be6f4c2f24b9f9fb8ee71dcb"
+    }
+  ]
+}

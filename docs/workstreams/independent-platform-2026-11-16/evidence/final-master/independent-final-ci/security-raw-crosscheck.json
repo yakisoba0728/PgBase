@@ -1,0 +1,64 @@
+{
+  "observed_at": "2026-11-17T00:08:34.978783+00:00",
+  "source": "89e883fc700ef0250024427a1f09bb88affe0383",
+  "checkout": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+  "run": 43982303611,
+  "source_artifacts": [
+    {
+      "path": "artifacts/source-security-go.zip",
+      "sha256": "98211b1ead7518cfce32e81c34a65dcad41ebaceb1437395b961bb4390483b54",
+      "result_count": 24,
+      "source_commit": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "workflow_run": "43982303611",
+      "reports": [
+        {
+          "file": "go.sarif",
+          "sha256": "18c2570a5b8e3f0fc3fe854ecc63a7b89f1513b9fc425c2a277d1c7cdbfec516",
+          "tool": "CodeQL",
+          "version": "2.27.4",
+          "automationId": "source-security/go/",
+          "resultCount": 24,
+          "incrementalMode": null,
+          "diffRangeRestricted": false,
+          "successfullyExtractedFileCount": 485,
+          "ruleDescriptorCount": 35
+        }
+      ]
+    },
+    {
+      "path": "artifacts/source-security-js.zip",
+      "sha256": "640d57acdd4a7a2ea1fbce405e0c3fc86c4abe20e31d75dc6a3a28cce9c9ec73",
+      "result_count": 1,
+      "source_commit": "b5c17b6f989bb11575e83544d37cc37fc6385d19",
+      "workflow_run": "43982303611",
+      "reports": [
+        {
+          "file": "javascript.sarif",
+          "sha256": "a26e99fdc7159dbbfd4e9c4fa5eb763e296acc20c8c2c252109bacfd0592d648",
+          "tool": "CodeQL",
+          "version": "2.27.4",
+          "automationId": "source-security/javascript-typescript/",
+          "resultCount": 1,
+          "incrementalMode": null,
+          "diffRangeRestricted": false,
+          "successfullyExtractedFileCount": 331,
+          "ruleDescriptorCount": 103
+        }
+      ]
+    }
+  ],
+  "source_raw_total": 25,
+  "source_raw_severity": {
+    "HIGH": 17,
+    "CRITICAL": 1,
+    "MEDIUM": 7
+  },
+  "image_raw_total": 32,
+  "image_raw_severity": {
+    "MEDIUM": 21,
+    "LOW": 9,
+    "UNKNOWN": 2
+  },
+  "image_high_critical_gate_results": 0,
+  "interpretation": "Counts and artifact/source scope verified independently; applicability dispositions are separately reviewed in the security reviewer report. Successful scan is not zero raw findings."
+}

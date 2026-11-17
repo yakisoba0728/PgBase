@@ -1,0 +1,50 @@
+[
+  {
+    "artifact_id": 14285017010,
+    "name": "benchmark-postgresql-17.9",
+    "bytes": 2768,
+    "sha256": "0920238cbf69103a8dca167afbe958e3f6b93d2c0058731656cd54249abbbf2e",
+    "api_digest": "sha256:0920238cbf69103a8dca167afbe958e3f6b93d2c0058731656cd54249abbbf2e",
+    "size_match": true,
+    "digest_match": true,
+    "members": [
+      {
+        "path": "benchmark.txt",
+        "bytes": 18770,
+        "sha256": "0cc98a19e43e2d81e51441deaf1e154701379a47ec3278b70903edfe408ba47f"
+      }
+    ]
+  },
+  {
+    "artifact_id": 14284576564,
+    "name": "benchmark-postgresql-16.13",
+    "bytes": 2758,
+    "sha256": "f84e58bf36571f00b40280d9f73a51675a3e1886479d8439260151e2ddfedfc1",
+    "api_digest": "sha256:f84e58bf36571f00b40280d9f73a51675a3e1886479d8439260151e2ddfedfc1",
+    "size_match": true,
+    "digest_match": true,
+    "members": [
+      {
+        "path": "benchmark.txt",
+        "bytes": 18781,
+        "sha256": "f06471a76c9496dc8e9fbefaf926fe2cbd49631632c350b7de7dda99db9f8e13"
+      }
+    ]
+  },
+  {
+    "artifact_id": 14284191475,
+    "name": "benchmark-postgresql-18.3",
+    "bytes": 2726,
+    "sha256": "4ff2842b885267842189ceff639aa68223f993c621e54643464e240dfe16d68d",
+    "api_digest": "sha256:4ff2842b885267842189ceff639aa68223f993c621e54643464e240dfe16d68d",
+    "size_match": true,
+    "digest_match": true,
+    "members": [
+      {
+        "path": "benchmark.txt",
+        "bytes": 18728,
+        "sha256": "34900c5763e0f403b43bbcebc7f3207b28215439b09445eef26c04271cfb0f60"
+      }
+    ]
+  }
+]
