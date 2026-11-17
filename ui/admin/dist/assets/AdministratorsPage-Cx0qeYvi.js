@@ -1,0 +1,1 @@
+import{Lr as e,jr as t}from"./Feedback-B1yCd9P6.js";import{dr as n}from"./index-QQrxcjSW.js";import{n as r,t as i}from"./AdministratorsView-Do8sbUSW.js";var a=t();function o(){let t=e();return(0,a.jsx)(n,{title:t(`nav.administrators`),actions:(0,a.jsx)(i,{}),children:(0,a.jsx)(r,{})})}export{o as AdministratorsPage};

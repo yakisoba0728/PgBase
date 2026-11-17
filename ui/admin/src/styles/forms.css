@@ -91,6 +91,36 @@
   padding: 0 var(--sp-8);
 }
 
+/* A native file input in the control box: its picker takes the small secondary button look and the file name
+   centers beside it. Browsers otherwise pin their own button to the top edge. */
+.field-control[type="file"] {
+  padding: 0 var(--sp-12) 0 var(--sp-4);
+  color: var(--text-hint);
+  line-height: calc(var(--control) - 2px);
+  cursor: pointer;
+}
+
+.field-control[type="file"]::file-selector-button {
+  height: calc(var(--control) - 2px - 2 * var(--sp-4));
+  margin: 0 var(--sp-12) 0 0;
+  padding: 0 var(--sp-12);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  vertical-align: middle;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease-out);
+}
+
+.field-control[type="file"]:hover::file-selector-button {
+  background: var(--surface-3);
+}
+
 /* Layout only: a control in a row (toolbar, key list) takes its content's width instead of the row's. */
 .field-control.control-fit {
   width: auto;
