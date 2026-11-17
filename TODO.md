@@ -1,8 +1,26 @@
 # pgBase 구현 현황 / TODO
 
+2026-11-17 최신 결과: 플랫폼 강화 작업을 [PR #148](https://github.com/yakisoba0728/PgBase/pull/148)로 squash 병합했다(main `d64c729f`, schema 69). 운영은 아직 schema 67이고 배포하지 않았다. 세부는 [현재 상태](docs/project-status.md) §15와 [다음 작업](docs/next-work.md)을 따른다.
+
 2026-11-15 최신 결과: 관리자 UI 개편을 [PR #142](https://github.com/yakisoba0728/PgBase/pull/142)로, 이어서 크기 확대·모션 강화를 [PR #144](https://github.com/yakisoba0728/PgBase/pull/144)로 병합해 main `5cb9ea0d`를 운영에 배포했다(schema 67 그대로, migration 없음). 세부·검증 범위·남은 일은 [현재 상태](docs/project-status.md) §13과 [다음 작업](docs/next-work.md)을 따른다. 아래 문단과 미완료 표시는 당시 이력이다.
 
 2026-11-13 최신 결과: PR #124·#125·#133 병합, main CI·전체 릴리스 gate 통과, v0.3.1 게시와 운영 schema 66 배포 완료. [다음 작업](docs/next-work.md), [운영 준비 보완](docs/production-readiness-2026-11-13.md), [배포 기록](docs/deployment-2026-11-13.md)을 따른다. 아래 미완료 표시는 날짜별 실행 당시의 이력이며 현재 열린 작업으로 합산하지 않는다. 운영 백업 생성/설정은 소유자 요청으로 제외했다. npm/pub.dev 공개는 별도 소유자 결정이다.
+
+## 2026-11-17 — 플랫폼 강화 병합(`refactor/independent-platform-20261116`)
+
+main `8f551de4`(schema 67)에서 분기한 [PR #148](https://github.com/yakisoba0728/PgBase/pull/148)을 squash 병합했다(main `d64c729f`). 세부는 [현재 상태](docs/project-status.md) §15.
+
+- [x] system migration `000068`(realtime 대기열)·`000069`(variant 정리 의도 보존) 추가. schema 67 → 69.
+- [x] 부하 gate 실패 원인 수정: record 읽기(`List`·`ListPocketBase`·`Get`)가 소유한 transaction을 `synchronous_commit=off`로 commit. 200 RPS × 600초 p99 588ms → 13.2ms(기준 250ms, CI 1회).
+- [x] 보안: 백업 압축 해제 크기 제한, 관리자 TOTP 6자리 검증, OIDC token 시각·키 제약, OAuth avatar redirect 제한, 메일 템플릿 escape.
+- [x] 저장소·realtime·jobs·SDK·관리자 UI의 세션·정리 결함 수정(`fix` 커밋 55개).
+- [x] 검증: 전체 qualification [run 44053449983](https://github.com/yakisoba0728/PgBase/actions/runs/44053449983) 15개 job 통과, 병합 후 main push CI.
+- [x] PR 정리: 증거·과정 문서 862개 삭제(원본은 `3c163037`), 보조 원격 브랜치 4개 삭제.
+- [ ] 운영 배포: schema 67 → 69 migration을 먼저 적용해야 하고 롤백에 제한이 있다. 소유자 결정.
+- [ ] 쓰기 요청당 WAL flush 약 2.5회(record transaction + outbox 전달)는 그대로다. 줄이려면 전달·내구성 계약 변경이 필요하다.
+- [ ] 부하 gate 통과는 1회 실행이고 호스트 fsync 속도를 비교하지 않았다.
+- [ ] CodeQL 25건(조치 불필요 분류)과 이미지 의존성 32건 중 30건 검토 대기([risk register](docs/workstreams/independent-platform-2026-11-16/final-master/risk-register.md)).
+- [ ] 병합된 브랜치 `refactor/independent-platform-20261116`은 지우지 않았다.
 
 ## 2026-11-15 — 관리자 UI 개편(`feat/admin-ui-overhaul`)
 
