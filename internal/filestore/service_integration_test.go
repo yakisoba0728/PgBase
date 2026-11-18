@@ -149,7 +149,10 @@ func TestUploadPublishAuthorizationDeleteAndCleanup(t *testing.T) {
 			if !errors.Is(uploadErr, ErrStorageConflict) {
 				t.Fatalf("upload with a queued transition = %v, want ErrStorageConflict", uploadErr)
 			}
-		case <-time.After(250 * time.Millisecond):
+		// A rejected upload cleans up for up to the one second cleanup budget
+		// before it returns, so the wait must exceed that; a real self-deadlock
+		// never returns at all.
+		case <-time.After(5 * time.Second):
 			cancelUpload()
 			uploadErr := <-done
 			t.Fatalf("upload publication blocked behind its own lease: %v", uploadErr)
