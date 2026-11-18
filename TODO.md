@@ -1,6 +1,6 @@
 # pgBase 구현 현황 / TODO
 
-2026-11-18 최신 결과: 관리자 UI 전체 화면 점검에서 나온 깨짐 약 45건을 [PR #151](https://github.com/yakisoba0728/PgBase/pull/151)·[PR #153](https://github.com/yakisoba0728/PgBase/pull/153)으로 고쳐 main `c2872ba6`을 운영에 배포했다(schema 69 그대로, migration 없음). frontend audit gate는 [PR #152](https://github.com/yakisoba0728/PgBase/pull/152)로 배포 의존성만 막도록 바꿨다. 세부는 [현재 상태](docs/project-status.md) §16과 [다음 작업](docs/next-work.md)을 따른다.
+2026-11-18 최신 결과: 미룬 UI 항목 4개([PR #157](https://github.com/yakisoba0728/PgBase/pull/157))와 간헐 실패 test 두 건([PR #155](https://github.com/yakisoba0728/PgBase/pull/155)·[PR #156](https://github.com/yakisoba0728/PgBase/pull/156))을 처리해 main `df18bfe3`을 운영에 배포했다(schema 69 그대로, migration 없음). 세부는 [현재 상태](docs/project-status.md) §17과 [다음 작업](docs/next-work.md)을 따른다.
 
 2026-11-17 최신 결과: 플랫폼 강화 작업을 [PR #148](https://github.com/yakisoba0728/PgBase/pull/148)로 squash 병합했다(main `d64c729f`, schema 69). 같은 날 운영에 배포했고(schema 69) [v0.4.0](https://github.com/yakisoba0728/PgBase/releases/tag/v0.4.0)을 게시했다. 세부는 [현재 상태](docs/project-status.md) §15와 [다음 작업](docs/next-work.md)을 따른다.
 
@@ -18,9 +18,11 @@ main `68b401f7`(schema 69)에서 `ui/admin`만 바꿨다. 서버 API·schema는 
 - [x] 검증: unit 78파일/459 tests, 깨끗한 build와 dist 일치, 수정 전후 캡처 비교로 회귀 6건을 찾아 수정 후 재확인, PR 필수 CI 5개와 main push CI 통과.
 - [x] [PR #152](https://github.com/yakisoba0728/PgBase/pull/152)(main, 소유자 결정): frontend audit gate를 `npm audit --omit=dev --audit-level=high`로 변경. picomatch GHSA-fc5q-39xc-vjpf가 최신 버전까지 해당하고 `vite`·`vitest` 경로로만 들어와 모든 PR의 필수 `audit`이 실패했다. 전체 audit은 경고로만 남긴다. picomatch 패치가 나오면 되돌릴지 재검토한다.
 - [x] 운영 배포: 2026-11-18T00:36Z Dokploy deployment `EwTLVfPE0j_Zh-fU_YuRo` done. 배포 commit `c2872ba6`, 69/69·dirty=false, doctor 통과, health 200, 진입 JS·CSS가 commit된 dist와 SHA-256 일치. 운영에 데이터가 없어(관리자 0) 배포 전 백업은 뜨지 않았다.
-- [ ] 고치지 않은 것: 네이티브 날짜·시간 입력의 표기(브라우저 로케일을 따름), 화면 쪽 email·URL·필수 검증(서버가 오류를 하나씩만 돌려줌), 모바일 표의 보조 열 숨기기, jobs pane 옆 목록 눌림과 그 상태의 logs 필터 쌓임, 라이트 테마 비활성 danger 버튼 대비.
+- [x] 미룬 항목([PR #157](https://github.com/yakisoba0728/PgBase/pull/157), main `df18bfe3`): 화면 쪽 email·URL·필수 검증, 휴대폰 사용자·logs 목록의 보조 열, jobs pane 옆 목록, 비활성 danger 버튼. 2026-11-18T11:03Z 운영 배포(deployment `YdD8IuTr2pKJfgaPM2RxR`).
+- [ ] 고치지 않은 것: 네이티브 날짜·시간 입력의 표기(브라우저 로케일을 따름, 자체 위젯 필요), 휴대폰 logs 요청 칸, pane을 닫은 jobs 목록의 긴 결과 문구.
 - [ ] 확인하지 못한 것: Safari·Firefox, 데이터가 있는 백업 목록(점검 서버에 `pg_dump` 없음), setup 화면, 모바일 overlay, 운영 로그인 후 화면.
-- [ ] `internal/filestore` `TestUploadPublishAuthorizationDeleteAndCleanup/queued_storage_transition_does_not_deadlock_upload_publication`가 PR #151 CI에서 한 번 실패하고 재실행에서 통과했다("upload publication blocked behind its own lease: storage settings conflict"). PR #148이 바꾼 저장소 lease 경로의 실제 경합일 수 있다. 미조사.
+- [x] 간헐 실패 test: `internal/filestore` 업로드 게시([PR #155](https://github.com/yakisoba0728/PgBase/pull/155), 250ms 대기가 1초 정리 예산보다 짧았음)와 `internal/cli` watch([PR #156](https://github.com/yakisoba0728/PgBase/pull/156), 상태 줄 출력 전에 stdout을 읽음). 둘 다 test만 수정.
+- [ ] PR #157 CI에서 PostgreSQL backend가 `exit code 2`로 끝나 통합 검사가 한 번 실패(재실행 통과). 원인 test 미확인.
 - [ ] 개발 환경: Homebrew node가 `libsimdjson.34.dylib`를 찾지 못해 실행되지 않는다. 이번 작업은 `/usr/local/bin/node`로 했다.
 
 ## 2026-11-17 — 플랫폼 강화 병합(`refactor/independent-platform-20261116`)
@@ -35,7 +37,8 @@ main `8f551de4`(schema 67)에서 분기한 [PR #148](https://github.com/yakisoba
 - [x] PR 정리: 증거·과정 문서 862개 삭제(원본은 `3c163037`), 보조 원격 브랜치 4개 삭제.
 - [x] 운영 배포: 2026-11-17T10:50Z 앱 정지 → DB·파일 백업과 격리 환경 67→69 업그레이드 검증 → Dokploy `compose.deploy`(deployment `VhpSigLR47xTP_3szBatk`, done) → 사후 검증. 중단 약 1분 40초. schema 69/69·dirty=false, doctor 통과, 레코드·관리자·사용자 건수와 환경 변수·파일 volume 보존, 배포 바이너리가 준비 이미지와 일치, health 200.
 - [x] 운영 초기화: 2026-11-17T23:06–23:08Z 소유자 지시로 운영 데이터를 초기화했다: 컨테이너 제거, DB·파일 volume 삭제, 서버의 `/etc/dokploy/backups/pgbase` 백업 5개 삭제 후 main `57507741`을 빈 volume에 다시 배포(deployment `tVnKvWxa8-6nrvlipXBMS`, done). 69/69·dirty=false, doctor 통과, 관리자·사용자·컬렉션 0, `/api/admin/status`는 `setupRequired: true`, health 200.
-- [ ] 운영 첫 관리자 생성: 공개 호스트가 setup 대기 상태다. 소유자가 setup token으로 직접 만든다. SMTP 등 운영 설정도 다시 넣어야 한다.
+- [x] 운영 첫 관리자 생성: 소유자가 만들었다(2026-11-18 사전 점검에서 관리자 1명 확인).
+- [ ] 운영 설정: SMTP 등 운영 설정은 소유자가 다시 넣어야 한다.
 - [ ] 운영에서 로그인 후 화면과 CRUD, realtime·jobs·파일 동작은 확인하지 않았다. 운영 백업은 없다. Dokploy API key가 작업 세션 기록에 노출돼 교체가 필요하다.
 - [x] 릴리스: tag `v0.4.0`(main `57507741`), 릴리스 gate [run 44069969545](https://github.com/yakisoba0728/PgBase/actions/runs/44069969545) 통과(Windows self-update는 건너뜀), 이미지 `sha256:aa5a9bf0…`를 `v0.4.0`·`latest`로 승격, GitHub 릴리스 게시(첨부 8개). main push CI의 `internal/cli` watch test가 한 번 실패했고 재실행에서 통과했다(timing flake, 미수정).
 - [ ] 쓰기 요청당 WAL flush 약 2.5회(record transaction + outbox 전달)는 그대로다. 줄이려면 전달·내구성 계약 변경이 필요하다.
@@ -98,7 +101,7 @@ main은 `7fbf1db`([PR #107](https://github.com/yakisoba0728/PgBase/pull/107))이
 - [x] [PR #107](https://github.com/yakisoba0728/PgBase/pull/107) `7fbf1db`: PocketBase 스타일 관리자 UI 재구축([기록](docs/admin-ui-rebuild.md))과 한국어 지원([기록](docs/admin-korean-ui.md)). API 계약·schema 변경 없음.
 - [x] 서버 배포: `https://pgbase.yaki.kr`(Dokploy Compose)에 `c1e6ef3` 배포, health 200([배포 기록](docs/deployment-2026-11-12.md)). 아래 "실제 staging TLS/proxy/외부 PostgreSQL 배포" 항목은 staging·upgrade/rollback·복구 증거를 요구하므로 이 배포로 닫지 않는다.
 - [x] 11-12 main 로컬 확인: build, vet, `go test ./...` 63 package, UI typecheck·742 tests 통과(로컬 Go 1.27.1). integration·race·브라우저·SDK test는 실행하지 않음.
-- [ ] 서버 첫 관리자 생성(O7): 공개 호스트가 setup 대기 상태다. 소유자가 직접 만든다.
+- [x] 서버 첫 관리자 생성(O7): 소유자가 만들었다(2026-11-18 확인).
 - [ ] 서버 밖 백업(O8): 배포 전 DB dump가 같은 서버 volume에만 있고 파일 volume 백업이 없다.
 - [ ] 예약 Security 확인(O9): 10-26·11-02·11-09 실패(11-09는 `npm audit` high 1건). PR #106 이후 push Security는 통과했고 다음 예약 실행 성공이 남았다.
 - [ ] 11월 UI 작업의 릴리스(O10): 최신 릴리스는 v0.2.3(`5c495e1`). 소유자 결정.
