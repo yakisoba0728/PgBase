@@ -213,13 +213,50 @@ export function buildInput(
   for (const field of editableFields(fields)) {
     const draft = drafts[field.name];
     const explicitFalse = field.type === "boolean" && (field.required || typeof field.default === "boolean") && draft === false;
+    if (isNew && emptyDraft(draft) && !explicitFalse && missingRequired(field)) errors[field.name] = "required";
     if (isNew ? emptyDraft(draft) && !explicitFalse : sameDraft(draft, initial[field.name])) continue;
     if (field.type === "password" && draft === "") continue;
     const parsed = fromDraft(field, draft);
-    if (parsed.ok) input[field.name] = parsed.value;
-    else errors[field.name] = parsed.error;
+    if (!parsed.ok) errors[field.name] = parsed.error;
+    else {
+      const code = valueError(field, parsed.value);
+      if (code) errors[field.name] = code;
+      else input[field.name] = parsed.value;
+    }
   }
   return { input, errors };
+}
+
+// Checks run before the request, limited to what the server rejects in every validation mode; the rest
+// (lengths, patterns, domains, uniqueness) stays with the server, whose codes share these messages.
+
+/** A required field left out of a create, which the server fills only from a default or an autogenerate pattern
+ *  (system fields, such as an auth collection's, may be filled by the server and are left to it). */
+const missingRequired = (field: CollectionField) =>
+  field.required && !field.system && field.type !== "boolean" && (field.default === undefined || field.default === null) && !field.options?.autogeneratePattern;
+
+/** "required", "email" or "url" for a value about to be sent; null when it may go. */
+function valueError(field: CollectionField, value: unknown): "required" | "email" | "url" | null {
+  const kind = fieldKind(field);
+  // JSON null may satisfy a required jsonb column, and a required plain text field may be "" in postgres mode.
+  if (field.required && ((value === null && kind !== "json") || (value === "" && (kind === "editor" || kind === "email" || kind === "url")))) return "required";
+  if (typeof value !== "string" || value === "") return null;
+  if (kind === "email" && !validEmail(value)) return "email";
+  if (kind === "url" && !validUrl(value)) return "url";
+  return null;
+}
+
+/** One "@" with something on both sides and no spaces; the server makes the full RFC 5322 check. */
+export const validEmail = (value: string) => /^[^\s@]+@[^\s@]+$/.test(value);
+
+/** An absolute http(s) URL with a host. */
+export function validUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && url.hostname !== "";
+  } catch {
+    return false;
+  }
 }
 
 /** Live check for the JSON textarea. */

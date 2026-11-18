@@ -119,6 +119,33 @@ describe("record form drafts", () => {
     expect(initialDrafts(booleans, { id: "existing", enabled: null, disabled: null })).toEqual({ enabled: false, disabled: false });
   });
 
+  it("rejects empty required fields, malformed emails and non-http URLs before sending", () => {
+    const form = [
+      field("title", "text", { required: true }),
+      field("slug", "text", { required: true, options: { autogeneratePattern: "[a-z]{8}" } }),
+      field("rank", "integer", { required: true, default: 0 }),
+      field("mail", "text", { options: { format: "email" } }),
+      field("site", "text", { options: { format: "url" } }),
+      field("body", "editor", { required: true }),
+      field("count", "integer", { required: true }),
+      field("meta", "jsonb", { required: true, default: {} }),
+    ];
+    const blank = initialDrafts(form);
+    // Create: required fields without a default or generator must be filled.
+    expect(buildInput(form, blank, blank, true).errors).toEqual({ title: "required", body: "required", count: "required" });
+    const filled = { ...blank, title: "T", body: "<p>x</p>", count: "1" };
+    expect(buildInput(form, { ...filled, mail: "nope", site: "ftp://example.com" }, blank, true).errors).toEqual({ mail: "email", site: "url" });
+    expect(buildInput(form, { ...filled, site: "not a url" }, blank, true).errors).toEqual({ site: "url" });
+    const ok = buildInput(form, { ...filled, mail: " a@b.co ", site: "https://example.com/x" }, blank, true);
+    expect(ok.errors).toEqual({});
+    expect(ok.input).toMatchObject({ mail: "a@b.co", site: "https://example.com/x" });
+    // Update: clearing a required number or editor is refused; a required plain text may be "" (postgres mode).
+    const initial = { ...filled, mail: "a@b.co", site: "http://x.dev" };
+    expect(buildInput(form, { ...initial, count: "", body: "", title: "" }, initial, false).errors).toEqual({ count: "required", body: "required" });
+    // An optional email or URL may be cleared.
+    expect(buildInput(form, { ...initial, mail: "", site: "" }, initial, false)).toEqual({ input: { mail: null, site: null }, errors: {} });
+  });
+
   it("edits relations as id lists, geo points as exact coordinates, and keeps editor values non-null", () => {
     const more = [field("tags", "relation", { relation: { cardinality: "multiple" } as CollectionField["relation"] }), field("at", "geoPoint"), field("body", "editor")];
     const initial = initialDrafts(more, { id: "x", tags: ["a,b", "c"], at: { lon: 0, lat: 0 }, body: "<p>x</p>" });

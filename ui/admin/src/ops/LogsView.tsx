@@ -132,8 +132,8 @@ export function LogsView() {
                     <th>{t("ops.logs.time")}</th>
                     <th>{t("ops.logs.status")}</th>
                     <th>{t("ops.logs.request")}</th>
-                    <th className="num">{t("ops.logs.duration")}</th>
-                    <th>{t("ops.logs.attributes")}</th>
+                    <th className="num ops-minor">{t("ops.logs.duration")}</th>
+                    <th className="ops-minor">{t("ops.logs.attributes")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -147,8 +147,8 @@ export function LogsView() {
                           <span className="ops-method">{item.method}</span>
                           <span className="mono">{item.route}</span>
                         </td>
-                        <td className="num">{String(item.durationMs)} ms</td>
-                        <td>
+                        <td className="num ops-minor">{String(item.durationMs)} ms</td>
+                        <td className="ops-minor">
                           {item.clientIP && <span className="chip mono">{item.clientIP}</span>}
                           {item.authKind && <span className="chip">{item.authKind}</span>}
                         </td>

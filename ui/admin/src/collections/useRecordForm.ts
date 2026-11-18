@@ -158,7 +158,15 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
     record,
     isNew,
     drafts,
-    setDraft: (name: string, value: Draft) => setDrafts((previous) => ({ ...previous, [name]: value })),
+    setDraft: (name: string, value: Draft) => {
+      setDrafts((previous) => ({ ...previous, [name]: value }));
+      // An edited field drops its error; the next save checks it again.
+      setErrors((previous) => {
+        if (!(name in previous)) return previous;
+        const { [name]: _dropped, ...rest } = previous;
+        return rest;
+      });
+    },
     files,
     setFiles: (name: string, list: File[]) => setFiles((previous) => ({ ...previous, [name]: list })),
     progress,

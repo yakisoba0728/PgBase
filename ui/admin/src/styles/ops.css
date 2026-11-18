@@ -160,3 +160,41 @@
   min-width: 260px;
 }
 
+/* On a phone duration and attributes wait in the entry's pane, so the request keeps its width with less to scroll. */
+@media (max-width: 599px) {
+  .ops-grid td.ops-request {
+    min-width: 200px;
+  }
+
+  .ops-grid .ops-minor {
+    display: none;
+  }
+}
+
+/* Jobs: the list is a container, so with the pane open beside it (or on a phone) the columns the pane repeats
+   step aside instead of pushing the row past the edge. Where supported, scroll-state keeps the sticky header's
+   shadow (data.css); the size container does not depend on it. */
+.grid-scroll.ops-jobs {
+  container-name: ops-jobs;
+  container-type: inline-size;
+}
+
+@supports (container-type: scroll-state) {
+  .grid-scroll.ops-jobs {
+    container-type: inline-size scroll-state;
+  }
+}
+
+@container ops-jobs (max-width: 720px) {
+  .ops-jobs-schedule,
+  .ops-jobs-zone {
+    display: none;
+  }
+}
+
+@container ops-jobs (max-width: 480px) {
+  .ops-jobs-next {
+    display: none;
+  }
+}
+
