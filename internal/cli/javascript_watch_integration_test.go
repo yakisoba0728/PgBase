@@ -58,8 +58,12 @@ func TestJavaScriptWatchKeepsValidGenerationAndDoesNotRunMigrations(t *testing.T
 	waitWatchResponse(t, endpoint, `{"version":"one"}`)
 	writeWatchSource(t, directory, "two")
 	waitWatchResponse(t, endpoint, `{"version":"two"}`)
-	if strings.Count(stdout.String(), "JavaScript generation") < 2 {
-		t.Fatalf("generation output = %q", stdout.String())
+	// The new generation starts serving before the watcher prints its status
+	// line, so the response can be observed first; wait for the line.
+	for deadline := time.Now().Add(4 * time.Second); strings.Count(stdout.String(), "JavaScript generation") < 2; time.Sleep(25 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("generation output = %q", stdout.String())
+		}
 	}
 	connection, err := pgx.Connect(ctx, options.DatabaseURL)
 	if err != nil {
