@@ -56,8 +56,9 @@ a.btn {
   cursor: default;
 }
 
-/* A disabled primary button takes the disabled secondary look: white on a faded accent is unreadable in the light theme. */
-.btn:disabled:not(.btn-secondary, .btn-transparent, .btn-danger, .txt-danger, [aria-busy="true"]) {
+/* A disabled filled button (primary, danger) takes the disabled secondary look: white on a faded accent or danger
+   is unreadable in the light theme. */
+.btn:disabled:not(.btn-secondary, .btn-transparent, .txt-danger, [aria-busy="true"]) {
   background: var(--surface-2);
   color: var(--text);
 }

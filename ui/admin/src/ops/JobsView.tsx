@@ -81,7 +81,7 @@ export function JobsView() {
         </Select>
         {(q || state) && <Button size="sm" variant="transparent" onClick={() => update({ q: null, state: null }, { replace: true })}>{t("ops.clearFilters")}</Button>}
       </div>
-      <TableScroll className="ops-top">
+      <TableScroll className="ops-top ops-jobs">
         <QueryView query={jobs} empty={<EmptyState icon={RiTimerLine}>{t("ops.jobs.empty")}</EmptyState>} isEmpty={(data) => data.items.length === 0}>
           {(data) => (
             <>
@@ -90,11 +90,11 @@ export function JobsView() {
                 <thead>
                   <tr>
                     <th>{t("ops.jobs.name")}</th>
-                    <th>{t("ops.jobs.schedule")}</th>
-                    <th>{t("ops.jobs.timezone")}</th>
+                    <th className="ops-jobs-schedule">{t("ops.jobs.schedule")}</th>
+                    <th className="ops-jobs-zone">{t("ops.jobs.timezone")}</th>
                     <th>{t("ops.jobs.state")}</th>
-                    <th>{t("ops.jobs.lastRun")}</th>
-                    <th>{t("ops.jobs.nextRun")}</th>
+                    <th className="ops-jobs-last">{t("ops.jobs.lastRun")}</th>
+                    <th className="ops-jobs-next">{t("ops.jobs.nextRun")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -103,11 +103,11 @@ export function JobsView() {
                     const state = stateOf(t, job);
                     return (
                       <Row key={job.id} current={openId === job.id} onOpen={() => update({ job: job.id })}>
-                        <td className="mono">{job.name}</td>
-                        <td><ScheduleText schedule={job.schedule} /></td>
-                        <td className="mono">{job.timezone}</td>
+                        <td className="mono ops-jobs-name">{job.name}</td>
+                        <td className="ops-jobs-schedule"><ScheduleText schedule={job.schedule} /></td>
+                        <td className="mono ops-jobs-zone">{job.timezone}</td>
                         <td><span className="dot" data-tone={state.tone}>{state.label}</span></td>
-                        <td>
+                        <td className="ops-jobs-last">
                           {job.lastStartedAt ? (
                             <>
                               <span className="mono">{time(job.lastStartedAt)}</span>
@@ -119,7 +119,7 @@ export function JobsView() {
                             <span className="na">–</span>
                           )}
                         </td>
-                        <td className="mono">{job.enabled ? time(job.nextRunAt) : <span className="na">–</span>}</td>
+                        <td className="mono ops-jobs-next">{job.enabled ? time(job.nextRunAt) : <span className="na">–</span>}</td>
                       </Row>
                     );
                   })}
