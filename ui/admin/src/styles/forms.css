@@ -1,5 +1,7 @@
+/* One column as wide as the form: a wide child (a table) scrolls in its own box instead of widening the form. */
 .form {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-sm);
 }
 

@@ -35,11 +35,13 @@ const sortableSystem = ["id", "created_at"];
 const rowHeight = tokenPx("--row", 48);
 const headHeight = tokenPx("--row-head", 40) + tokenPx("--sp-4", 4);
 const checkWidth = tokenPx("--grid-check", 44);
-const idWidth = 316;
+// A full uuid; on a phone (the max-width: 599px rule in records.css) a truncated one, so the content columns show.
+const idColumnWidth = () => (typeof matchMedia === "function" && matchMedia("(max-width: 599px)").matches ? 140 : 316);
 
 /** The records grid: fixed layout, sticky header and id column, only the visible rows in the DOM. */
 export function RecordsTable({ collection, catalog, columns, records, sort, onSort, openId, onOpen, selected, onSelect, scroller, onPeek }: RecordsTableProps) {
   const t = useT();
+  const idWidth = idColumnWidth();
   const sqlView = Boolean(collection.view?.sql);
   const byName = useMemo(() => new Map(collection.fields.map((field) => [field.name, field])), [collection.fields]);
   const rows = useVirtualRows(scroller, records.length, rowHeight);

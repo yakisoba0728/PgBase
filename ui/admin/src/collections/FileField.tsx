@@ -122,7 +122,7 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
             ? staged.map((file, index) => (
                 <li key={`${file.name}:${index}`}>
                   <span className="file-thumb"><RiUploadLine size={14} aria-hidden /></span>
-                  <span title={file.name}>{file.name}</span>
+                  <span className="file-name" title={file.name}>{file.name}</span>
                   <span className="txt-hint">{formatBytes(file.size)}</span>
                   <IconButton label={t("file.unstage", { name: file.name })} icon={RiCloseLine} onClick={() => onStage(staged.filter((_, at) => at !== index))} />
                 </li>
@@ -141,8 +141,8 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
               ))}
           {uploads.map((item) => (
             <li key={`up:${item.name}`} className="file-uploading">
-              <span title={item.name}>{item.name}</span>
-              <progress max={1} value={item.progress} aria-label={t("file.progress", { name: item.name })} />
+              <span className="file-name" title={item.name}>{item.name}</span>
+              <progress className="progress-bar" max={1} value={item.progress} aria-label={t("file.progress", { name: item.name })} />
             </li>
           ))}
           {recordId !== null && files.data?.length === 0 && !uploads.length && <li className="txt-hint">{t("records.noFiles")}</li>}

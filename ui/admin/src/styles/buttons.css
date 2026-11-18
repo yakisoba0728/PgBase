@@ -56,6 +56,12 @@ a.btn {
   cursor: default;
 }
 
+/* A disabled primary button takes the disabled secondary look: white on a faded accent is unreadable in the light theme. */
+.btn:disabled:not(.btn-secondary, .btn-transparent, .btn-danger, .txt-danger, [aria-busy="true"]) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 /* Loading is not disabled-looking: the button keeps its colour and shows the spinner (it is disabled for clicks). */
 .btn[aria-busy="true"] {
   opacity: 1;

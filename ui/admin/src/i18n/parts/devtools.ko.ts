@@ -13,7 +13,7 @@ export const devtoolsKo: Record<keyof typeof devtoolsEn, string> = {
 
   "devtools.import.tab": "가져오기",
   "devtools.import.document": "가져올 문서",
-  "devtools.import.placeholder": "pgbase.schema/v1 문서를 붙여 넣거나 파일을 불러오세요.",
+  "devtools.import.placeholder": "pgbase.schema/v1 문서를 붙여 넣으세요.",
   "devtools.import.load": "파일 불러오기",
   "devtools.import.readFailed": "파일을 읽지 못했습니다.",
   "devtools.import.deleteMissing": "문서에 없는 컬렉션 삭제",

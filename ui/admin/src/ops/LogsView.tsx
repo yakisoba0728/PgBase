@@ -73,6 +73,8 @@ export function LogsView() {
   const time = useTimeFormat();
   const { params, update } = useSearchState();
   const filter = logFilterFrom(params);
+  // The validated class, so a malformed ?status= reads as "all" everywhere.
+  const status = filter.statusClass ? String(filter.statusClass) : "";
   const logs = useHeld(useInfiniteQuery(logsQuery(filter)));
   const queryClient = useQueryClient();
   const items = logs.data?.pages.flatMap((page) => page.items) ?? [];
@@ -83,9 +85,9 @@ export function LogsView() {
 
   const list = (
     <>
-      <LogStats range={{ from: filter.from, to: filter.to }} active={params.get("status") ?? ""} onPick={set("status")} />
+      <LogStats range={{ from: filter.from, to: filter.to }} active={status} onPick={set("status")} />
       <div className="toolbar ops-filters">
-        <Select size="sm" className="control-fit" aria-label={t("ops.logs.status")} value={params.get("status") ?? ""} onChange={(event) => set("status")(event.target.value)}>
+        <Select size="sm" className="control-fit" aria-label={t("ops.logs.status")} value={status} onChange={(event) => set("status")(event.target.value)}>
           <option value="">{t("ops.logs.anyStatus")}</option>
           {[1, 2, 3, 4, 5].map((c) => (
             <option key={c} value={c}>{c}xx</option>

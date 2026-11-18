@@ -47,6 +47,16 @@
   right: var(--sp-4);
 }
 
+/* Opaque in the block's own surface, so long lines scroll under it instead of through it; hover layers on top. */
+.code-block .code-block-copy {
+  background: var(--surface-1);
+  box-shadow: 0 0 0 var(--sp-4) var(--surface-1);
+}
+
+.code-block .code-block-copy:hover {
+  background: linear-gradient(var(--hover) 0 0), var(--surface-1);
+}
+
 /* Monospace editor. */
 .code-area {
   width: 100%;

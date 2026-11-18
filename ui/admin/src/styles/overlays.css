@@ -91,6 +91,11 @@ dialog::backdrop {
   color: var(--text-hint);
 }
 
+/* A field right after the message (the typed confirmation) keeps the form's gap from it. */
+.modal-body > p + .field-wrap {
+  margin-top: var(--space-sm);
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

@@ -46,7 +46,9 @@
 }
 
 /* Rows: tone, not borders. The open row takes the accent, edited rows a state dot. */
+/* A container, so its rows follow the list's width (a pane open beside it), not the viewport's. */
 .schema-rows {
+  container: schema-rows / inline-size;
   display: grid;
   gap: 1px;
   margin: 0;
@@ -231,15 +233,23 @@
 }
 
 /* The collection's danger zone: last on the page, set apart by a rule. */
-.schema-content > .form-section:last-child {
+.schema-content > .schema-section:has(> .danger-zone) {
   margin-top: var(--space);
+  padding-top: var(--space);
   box-shadow: 0 -1px 0 var(--line);
 }
 
-.danger-zone > div {
-  display: flex;
+/* Buttons in one column, descriptions in the other, so the descriptions line up and take the rest of the width. */
+.danger-zone {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: var(--sp-10);
+  justify-items: start;
+  gap: var(--sp-8) var(--sp-10);
+}
+
+.danger-zone > div {
+  display: contents;
 }
 
 /* New collection: three plain choices. */
@@ -275,6 +285,17 @@
 
 .schema-choice span {
   color: var(--text-hint);
+}
+
+/* A narrow list (a pane open beside it): the flags give their width to the type, so a relation's target stays readable. */
+@container schema-rows (max-width: 760px) {
+  .schema-row-main {
+    grid-template-columns: var(--icon) minmax(90px, 0.7fr) minmax(0, 2fr) 0 auto var(--icon-sm);
+  }
+
+  .schema-row-main .schema-flags {
+    display: none;
+  }
 }
 
 @media (max-width: 899px) {

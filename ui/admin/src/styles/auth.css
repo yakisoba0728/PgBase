@@ -1,6 +1,8 @@
 /* Auth collections and users: settings forms, provider rows, state chips, user actions. */
 .auth-form {
   display: grid;
+  /* One column that never grows past the container: a wide child scrolls in its own box. */
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: var(--space);
   max-width: 760px;
@@ -110,6 +112,20 @@
   margin-right: auto;
   color: var(--text-hint);
   font-size: var(--font-size-sm);
+}
+
+/* Several buttons in one row wrap as a group and stay at the right edge. */
+.auth-action-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--sp-6);
+  margin-left: auto;
+}
+
+/* The users list's id: a fixed width, the full value in the title and the pane. */
+.grid td.auth-id {
+  max-width: 120px;
 }
 
 .auth-link-row a,

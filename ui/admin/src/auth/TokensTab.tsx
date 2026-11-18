@@ -8,7 +8,7 @@ import { tokenPoliciesQuery } from "./queries";
 import { problemText, reportFailure, useDraft } from "./useDraft";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { SaveBar } from "../components/SaveBar";
-import { Table } from "../components/Table";
+import { Table, TableScroll } from "../components/Table";
 import { Input } from "../components/Field";
 
 const purposes: TokenPolicyPurpose[] = ["session", "verify", "password_reset", "email_change", "otp", "impersonation"];
@@ -81,28 +81,30 @@ export function TokensTab({ collection, policies }: { collection: AuthCollection
       </div>
       <div className="page-content">
         <form id="auth-tokens" className="auth-form auth-form-wide" onSubmit={onSubmit} noValidate><fieldset disabled={save.isPending} className="form">
-          <Table className="auth-table" label={t("auth.tab.tokens")}>
-            <thead>
-              <tr>
-                <th>{t("auth.tokens.purpose")}</th>
-                <th>{t("auth.tokens.ttl")}</th>
-                <th>{t("auth.tokens.version")}</th>
-                <th>{t("auth.tokens.newKey")}</th>
-                <th>{t("auth.tokens.newVersion")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {purposes.map((purpose) => (
-                <tr key={purpose}>
-                  <td className="mono">{purpose}</td>
-                  {cell(purpose, "ttlSeconds", t("auth.tokens.ttl"), { placeholder: byPurpose.has(purpose) ? undefined : t("auth.tokens.default") })}
-                  <td className="mono txt-hint">{byPurpose.get(purpose)?.keyVersion ?? t("auth.tokens.default")}</td>
-                  {cell(purpose, "key", t("auth.tokens.newKey"), { type: "password" })}
-                  {cell(purpose, "keyVersion", t("auth.tokens.newVersion"))}
+          <TableScroll>
+            <Table className="auth-table" label={t("auth.tab.tokens")}>
+              <thead>
+                <tr>
+                  <th>{t("auth.tokens.purpose")}</th>
+                  <th>{t("auth.tokens.ttl")}</th>
+                  <th>{t("auth.tokens.version")}</th>
+                  <th>{t("auth.tokens.newKey")}</th>
+                  <th>{t("auth.tokens.newVersion")}</th>
                 </tr>
-              ))}
-            </tbody>
-          </Table>
+              </thead>
+              <tbody>
+                {purposes.map((purpose) => (
+                  <tr key={purpose}>
+                    <td className="mono">{purpose}</td>
+                    {cell(purpose, "ttlSeconds", t("auth.tokens.ttl"), { placeholder: byPurpose.has(purpose) ? undefined : t("auth.tokens.default") })}
+                    <td className="mono txt-hint">{byPurpose.get(purpose)?.keyVersion ?? t("auth.tokens.default")}</td>
+                    {cell(purpose, "key", t("auth.tokens.newKey"), { type: "password" })}
+                    {cell(purpose, "keyVersion", t("auth.tokens.newVersion"))}
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </TableScroll>
           <p className="txt-hint">{t("auth.tokens.hint")}</p>
         </fieldset></form>
       </div>

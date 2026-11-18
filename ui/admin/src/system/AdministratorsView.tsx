@@ -269,8 +269,8 @@ export function CurrentPasswordField({ value, error, onChange }: { value?: strin
   );
 }
 
-/** New password with confirmation; the server ends the account's sessions. It also needs your current password. */
-export function PasswordForm({ self, busy, error, currentError, onSubmit, onCancel }: { self: boolean; busy: boolean; error?: string; currentError?: string; onSubmit: (password: string, current: string) => void; onCancel?: () => void }) {
+/** New password with confirmation; the server ends the account's sessions. It also needs your current password. `noIntro` leaves the explanation to the surrounding section. */
+export function PasswordForm({ self, busy, error, currentError, onSubmit, onCancel, noIntro }: { self: boolean; busy: boolean; error?: string; currentError?: string; onSubmit: (password: string, current: string) => void; onCancel?: () => void; noIntro?: boolean }) {
   const t = useT();
   const [mismatch, setMismatch] = useState(false);
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -284,7 +284,7 @@ export function PasswordForm({ self, busy, error, currentError, onSubmit, onCanc
   };
   return (
     <form className={onCancel ? "form" : "form sys-narrow"} onSubmit={submit}><fieldset disabled={busy} className="form">
-      <p className="txt-hint">{self ? t("system.admins.setPasswordSelf") : t("system.admins.setPasswordHint")}</p>
+      {!noIntro && <p className="txt-hint">{self ? t("system.admins.setPasswordSelf") : t("system.admins.setPasswordHint")}</p>}
       {error && !currentError && <p className="field-error" role="alert">{error}</p>}
       <CurrentPasswordField error={currentError} />
       <Field label={t("system.admins.newPassword")} name="newPassword" type="password" required minLength={12} maxLength={1024} autoComplete="new-password" hint={t("system.admins.passwordHint")} />

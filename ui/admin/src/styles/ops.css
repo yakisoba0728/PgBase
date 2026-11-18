@@ -2,6 +2,7 @@
 /* Statistics strip: status-class bars, then quiet figures. */
 .ops-stats {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: var(--space);
   min-height: 84px;
@@ -156,6 +157,6 @@
 .ops-grid td.ops-request {
   width: 100%;
   max-width: 0;
-  min-width: 320px;
+  min-width: 260px;
 }
 

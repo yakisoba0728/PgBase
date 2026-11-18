@@ -1,0 +1,3 @@
+import{c as e,jr as t}from"./Feedback-DTBAkugA.js";var n=t();function r({text:t,label:r,wrap:i}){let a=typeof t==`string`?[{text:t}]:t;return(0,n.jsxs)(`div`,{className:`code-block`,"data-wrap":i?``:void 0,children:[(0,n.jsx)(`div`,{className:`code-block-body`,tabIndex:0,role:`region`,"aria-label":r,children:a.map((e,t)=>(0,n.jsx)(`pre`,{className:`mono`,"data-danger":e.danger?``:void 0,children:e.text},t))}),(0,n.jsx)(e,{className:`code-block-copy`,value:()=>a.map(e=>e.text).join(typeof t==`string`?``:`;
+
+`)})]})}export{r as t};

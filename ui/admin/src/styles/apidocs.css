@@ -100,3 +100,12 @@
   max-width: 920px;
 }
 
+/* The examples are long expressions, not short labels: they get a share of the row and wrap inside it. */
+.api-syntax .facts > div {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+}
+
+.api-syntax .facts dt {
+  overflow-wrap: anywhere;
+}
+

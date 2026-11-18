@@ -110,7 +110,7 @@ function TemplateForm({ collection, administration, purpose, initial, configured
         <div className="auth-form auth-form-wide">
           {views}
           {isStale(save.error) && <StaleNotice busy={save.isPending} onReload={reload} onOverwrite={() => save.mutate(true)} />}
-          <form id="auth-template" className="auth-form" onSubmit={onSubmit} noValidate><fieldset disabled={save.isPending} className="form">
+          <form id="auth-template" onSubmit={onSubmit} noValidate><fieldset disabled={save.isPending} className="form">
             <p className="txt-hint">{configured ? t("auth.mail.custom") : t("auth.mail.builtIn")} {t("auth.mail.placeholders", { placeholder })}</p>
             <Field label={t("auth.mail.subject")} value={draft.subject} error={error("subject")} onChange={(event) => patch({ subject: event.target.value })} />
             <Field kind="textarea" label={t("auth.mail.text")} mono rows={6} spellCheck={false} value={draft.body} error={error("body")} onChange={(event) => patch({ body: event.target.value })} />

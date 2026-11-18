@@ -53,9 +53,11 @@
   font-size: var(--font-size-sm);
 }
 
+/* Too narrow for every mode (a phone): the control wraps under the head and scrolls; labels never break. */
 .rule-modes {
   display: inline-flex;
   gap: var(--sp-2);
+  max-width: 100%;
   margin-left: auto;
   padding: var(--sp-2);
   border-radius: var(--radius-sm);
@@ -63,6 +65,7 @@
 }
 
 .rule-mode {
+  flex: none;
   height: var(--control-xs);
   padding: 0 var(--sp-12);
   border: 0;
@@ -71,6 +74,7 @@
   color: var(--text-hint);
   font-size: var(--font-size-sm);
   font-weight: var(--weight-medium);
+  white-space: nowrap;
   cursor: pointer;
   transition: background var(--dur), color var(--dur);
 }
@@ -163,6 +167,7 @@
 
   .rule-modes {
     margin-left: 0;
+    overflow-x: auto;
   }
 }
 

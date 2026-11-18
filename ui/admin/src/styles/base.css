@@ -19,6 +19,13 @@ body {
   scrollbar-color: var(--surface-3) transparent;
 }
 
+/* Korean breaks between words, not inside them; a run too long for its line (an id, a URL) still wraps anywhere.
+   Rules that set their own word-break (break-all for tokens and code) keep it. */
+:root:lang(ko) {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
 h1,
 h2,
 h3,

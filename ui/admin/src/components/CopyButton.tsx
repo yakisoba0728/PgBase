@@ -25,8 +25,8 @@ interface CopyButtonProps {
   label?: string;
   /** Shows the label beside the icon (a secondary button) instead of an icon-only button. */
   text?: boolean;
-  /** Icon-only size, as for IconButton. */
-  size?: "xs";
+  /** "xs" for the icon-only button (as for IconButton), "sm" for the text button (as for Button); default size otherwise. */
+  size?: "xs" | "sm";
   className?: string;
 }
 
@@ -46,8 +46,8 @@ export function CopyButton({ value, label, text, size, className }: CopyButtonPr
     void copyText(typeof value === "function" ? value() : value).then(setDone);
   };
   return text ? (
-    <Button variant="secondary" icon={icon} className={className} data-copied={done || undefined} onClick={onClick}>{name}</Button>
+    <Button variant="secondary" size={size === "sm" ? "sm" : undefined} icon={icon} className={className} data-copied={done || undefined} onClick={onClick}>{name}</Button>
   ) : (
-    <IconButton label={name} icon={icon} size={size} className={className} data-copied={done || undefined} onClick={onClick} />
+    <IconButton label={name} icon={icon} size={size === "xs" ? "xs" : undefined} className={className} data-copied={done || undefined} onClick={onClick} />
   );
 }

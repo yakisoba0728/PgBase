@@ -7,6 +7,15 @@
   box-shadow: inset 0 -1px 0 var(--line);
 }
 
+/* In-page tabs scroll sideways when narrow, like the page tabs, instead of widening what holds them. */
+.tabs {
+  min-width: 0;
+  padding-right: var(--space);
+  overflow-x: auto;
+  scrollbar-width: none;
+  mask: linear-gradient(#000 0 0) bottom / 100% 2px no-repeat, linear-gradient(to right, #000 calc(100% - var(--space)), transparent);
+}
+
 /* One underline that slides to the current tab (useTabIndicator measures it); tabs keep their own as the fallback. */
 :is(.tabs, .page-tabs)[data-indicator]::after {
   content: "";
@@ -82,7 +91,8 @@
   padding: 0 0 var(--space-xs);
 }
 
-.toolbar form {
+.toolbar form,
+.toolbar > .searchbar {
   flex: 1;
   max-width: 600px;
 }
@@ -442,7 +452,7 @@
   background: var(--hover);
 }
 
-.file-list li span:first-of-type {
+.file-list .file-name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -461,7 +471,8 @@
   padding: 0 0 var(--space-xs);
 }
 
-.toolbar form {
+.toolbar form,
+  .toolbar > .searchbar {
     flex-basis: 100%;
     max-width: none;
   }

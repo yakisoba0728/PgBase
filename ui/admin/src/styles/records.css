@@ -72,6 +72,12 @@
   right: var(--sp-6);
 }
 
+/* While the button shows, the id ends short of it, with an ellipsis. */
+.grid tr:hover .id-cell .cell-text,
+.grid tr:focus-within .id-cell .cell-text {
+  padding-right: calc(var(--control-xs) - var(--sp-6));
+}
+
 .th-label {
   display: inline-flex;
   align-items: center;
@@ -121,11 +127,6 @@
   border-radius: var(--radius-xs);
   background: var(--surface-2);
   color: var(--text-hint);
-}
-
-/* Beats data.css ".file-list li span:first-of-type", which stretches the first span. */
-.file-list li span.file-thumb.file-thumb {
-  flex: none;
 }
 
 .file-thumb img {
@@ -277,7 +278,7 @@
   position: relative;
 }
 
-.pane-progress {
+progress.pane-progress {
   width: 120px;
 }
 
@@ -458,13 +459,22 @@
   padding: 0;
 }
 
+/* A multi-select field: one checkbox per allowed value. */
+.field-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--sp-16);
+}
+
 @media (max-width: 599px) {
   .records-toolbar .toolbar-count,
   .records-toolbar .toolbar-selection {
     margin-right: auto;
   }
 
+  /* The id column scrolls with the rest (narrowed in RecordsTable); relative keeps the copy button in its cell. */
   .records-grid .sticky-id {
-    position: static;
+    position: relative;
+    left: auto;
   }
 }

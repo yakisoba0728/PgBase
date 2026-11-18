@@ -116,7 +116,7 @@ export function JobsView() {
                               </span>
                             </>
                           ) : (
-                            <span className="na">{t("ops.jobs.never")}</span>
+                            <span className="na">–</span>
                           )}
                         </td>
                         <td className="mono">{job.enabled ? time(job.nextRunAt) : <span className="na">–</span>}</td>
@@ -197,7 +197,7 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
         <Facts items={[
           { label: t("ops.jobs.state"), value: <span className="dot" data-tone={stateOf(t, job).tone}>{stateOf(t, job).label}</span> },
           { label: t("ops.jobs.nextRun"), value: job.enabled ? time(job.nextRunAt, true) : null },
-          { label: t("ops.jobs.lastStarted"), value: job.lastStartedAt ? time(job.lastStartedAt, true) : <span className="na">{t("ops.jobs.never")}</span> },
+          { label: t("ops.jobs.lastStarted"), value: job.lastStartedAt ? time(job.lastStartedAt, true) : null },
           { label: t("ops.jobs.lastFinished"), value: job.lastFinishedAt ? time(job.lastFinishedAt, true) : null },
           { label: t("ops.jobs.result"), value: job.failed ? t("ops.jobs.failed", { count: job.attempts }) : job.lastFinishedAt ? t("ops.jobs.ok") : null, tone: job.failed ? "danger" : undefined },
           { label: t("ops.jobs.id"), value: job.id, mono: true, copy: true },

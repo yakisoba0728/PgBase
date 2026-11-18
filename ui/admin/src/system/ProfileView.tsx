@@ -87,8 +87,8 @@ function PasswordSection() {
   });
   const error = !change.isError ? undefined : change.error instanceof ApiError && change.error.code === "invalid_profile" ? t("system.admins.invalidPassword") : errorText(t, change.error);
   return (
-    <FormSection title={t("system.profile.password")}>
-      <PasswordForm self busy={change.isPending} error={error} currentError={currentPasswordError(t, change.error)} onSubmit={(value, current) => change.mutate({ value, current })} />
+    <FormSection title={t("system.profile.password")} hint={t("system.admins.setPasswordSelf")}>
+      <PasswordForm self noIntro busy={change.isPending} error={error} currentError={currentPasswordError(t, change.error)} onSubmit={(value, current) => change.mutate({ value, current })} />
     </FormSection>
   );
 }

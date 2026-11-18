@@ -55,7 +55,7 @@ export const deadEventsQuery = infiniteQueryOptions({
 export function logFilterFrom(params: URLSearchParams): Omit<RequestLogFilter, "before"> {
   const status = Number(params.get("status"));
   return {
-    statusClass: status >= 1 && status <= 5 ? (status as RequestLogFilter["statusClass"]) : undefined,
+    statusClass: Number.isInteger(status) && status >= 1 && status <= 5 ? (status as RequestLogFilter["statusClass"]) : undefined,
     method: params.get("method") || undefined,
     route: params.get("route") || undefined,
     q: params.get("q")?.trim() || undefined,

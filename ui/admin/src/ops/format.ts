@@ -14,7 +14,14 @@ const isNumber = (value: string) => /^\d{1,2}$/.test(value);
 export function describeSchedule(schedule: string): { key: MessageKey; vars?: Record<string, string> } | null {
   const text = schedule.trim();
   const every = /^@every\s+(\S+)$/.exec(text);
-  if (every) return { key: "ops.jobs.every", vars: { interval: every[1] } };
+  if (every) {
+    // Whole hours or minutes read as words; anything else (seconds, fractions) stays as the Go duration.
+    const parts = /^(?:(\d+)h)?(?:(\d+)m)?(?:0s)?$/.exec(every[1]);
+    const minutes = parts && (parts[1] || parts[2]) ? Number(parts[1] ?? 0) * 60 + Number(parts[2] ?? 0) : 0;
+    if (minutes > 0 && minutes % 60 === 0) return { key: "ops.jobs.everyHours", vars: { count: String(minutes / 60) } };
+    if (minutes > 0) return { key: "ops.jobs.everyMinutes", vars: { count: String(minutes) } };
+    return { key: "ops.jobs.every", vars: { interval: every[1] } };
+  }
   const parts = text.split(/\s+/);
   if (parts.length !== 5) return null;
   const [minute, hour, day, month, weekday] = parts;

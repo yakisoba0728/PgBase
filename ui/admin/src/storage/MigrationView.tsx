@@ -44,7 +44,7 @@ export function MigrationView() {
           <div className="storage-form">
             <section className="storage-block" aria-label={t("storage.migration.source")}>
               <h2 className="subtitle">{t("storage.migration.source")}</h2>
-              <p className="mono">{describeSettings(t, current)}</p>
+              <p className={current.driver === "local" ? undefined : "mono"}>{describeSettings(t, current)}</p>
             </section>
             {starting ? (
               <section className="storage-block" aria-label={t("storage.migration.latest")}>
