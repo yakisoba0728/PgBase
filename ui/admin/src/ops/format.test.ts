@@ -10,7 +10,10 @@ describe("ops format", () => {
   });
 
   it("summarises common schedules and leaves the rest alone", () => {
-    expect(describeSchedule("@every 1h")).toEqual({ key: "ops.jobs.every", vars: { interval: "1h" } });
+    expect(describeSchedule("@every 24h")).toEqual({ key: "ops.jobs.everyHours", vars: { count: "24" } });
+    expect(describeSchedule("@every 10m")).toEqual({ key: "ops.jobs.everyMinutes", vars: { count: "10" } });
+    expect(describeSchedule("@every 1h30m")).toEqual({ key: "ops.jobs.everyMinutes", vars: { count: "90" } });
+    expect(describeSchedule("@every 90s")).toEqual({ key: "ops.jobs.every", vars: { interval: "90s" } });
     expect(describeSchedule("*/15 * * * *")).toEqual({ key: "ops.jobs.everyMinutes", vars: { count: "15" } });
     expect(describeSchedule("5 * * * *")).toEqual({ key: "ops.jobs.hourly", vars: { minute: "05" } });
     expect(describeSchedule("0 2 * * *")).toEqual({ key: "ops.jobs.daily", vars: { time: "02:00" } });

@@ -4,11 +4,13 @@ import { RiCheckLine, type RemixiconComponentType } from "@remixicon/react";
 /**
  * Places a top-layer panel beside its anchor: below when there is room, otherwise above;
  * "end" aligns right edges (toolbar buttons), "start" aligns left edges (navigation, cells).
+ * `needed` is the panel's full height once known; without it, 260px below counts as room.
  */
-export function placeNear(panel: HTMLElement, anchor: DOMRect, align: "start" | "end" = "end", width = 0) {
+export function placeNear(panel: HTMLElement, anchor: DOMRect, align: "start" | "end" = "end", width = 0, needed?: number) {
   const style = panel.style;
   const room = { below: window.innerHeight - anchor.bottom - 12, above: anchor.top - 12 };
-  const below = room.below > 260 || room.below >= room.above;
+  const fits = needed === undefined ? room.below > 260 : room.below >= needed;
+  const below = fits || room.below >= room.above;
   style.top = below ? `${anchor.bottom + 4}px` : "";
   style.bottom = below ? "" : `${window.innerHeight - anchor.top + 4}px`;
   // The open/close shift moves away from the anchor (overlays.css).
@@ -88,6 +90,10 @@ export function Dropdown({ label, icon: Icon, heading, text, align = "end", chil
 
   const onToggle = (event: ToggleEvent<HTMLDivElement>) => {
     setOpen(event.newState === "open");
+    // Placed again by the menu's real height (measurable only once shown): one taller than the room below opens
+    // above when that has more room, instead of being cut at an item. It is still fading in, so the move is unseen.
+    const anchor = button.current?.getBoundingClientRect();
+    if (event.newState === "open" && menu.current && anchor) placeNear(menu.current, anchor, align, 0, menu.current.scrollHeight);
     // Only when focus has not moved into the menu already (a fast keyboard choice must not be undone).
     if (event.newState === "open" && !menu.current?.contains(document.activeElement)) items()[0]?.focus();
   };

@@ -368,6 +368,9 @@ a.nav-op:focus-visible {
   padding: 0 var(--space);
   overflow-x: auto;
   scrollbar-width: none;
+  /* More tabs past the edge fade out in the end padding (only overflowing tabs reach it); the bottom 2px, the
+     underline and the current tab's indicator, are kept whole. */
+  mask: linear-gradient(#000 0 0) bottom / 100% 2px no-repeat, linear-gradient(to right, #000 calc(100% - var(--space)), transparent);
 }
 
 /* Entrance: once per screen, since the shell remounts a screen per route (tab changes and refetches keep it). */
@@ -508,7 +511,7 @@ a.nav-op:focus-visible {
   align-items: center;
   gap: var(--sp-6);
   height: var(--pane-header);
-  padding: 0 var(--space-xs) 0 var(--space);
+  padding: 0 var(--space-xs) 0 var(--space-sm);
   flex: none;
 }
 
@@ -533,9 +536,11 @@ a.nav-op:focus-visible {
   padding: var(--sp-2) var(--space-sm) var(--space);
 }
 
-/* Default-size buttons, end-aligned; .pane-footer-start pushes a destructive one to the start. */
+/* Default-size buttons, end-aligned; .pane-footer-start pushes a destructive one to the start. A row too wide for a
+   phone wraps instead of pushing its last button off the edge. */
 .pane-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-xs);
@@ -546,6 +551,19 @@ a.nav-op:focus-visible {
 
 .pane-footer-start {
   margin-right: auto;
+}
+
+/* One button size per footer: a small button placed here (SaveBar's) takes the default size of its neighbours. */
+.pane-footer .btn-sm {
+  height: var(--control);
+  padding: 0 var(--sp-20);
+  border-radius: var(--radius);
+  font-size: inherit;
+  gap: var(--sp-8);
+}
+
+.pane-footer .btn-sm:is(:has(> svg:first-child), :has(> .loader:first-child)) {
+  padding-left: var(--sp-16);
 }
 
 /* A pane whose body and footer belong to one form. */
@@ -680,9 +698,14 @@ a.nav-op:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  margin: 0 calc(-1 * var(--sp-8)) var(--sp-4) 0;
+  margin: 0 0 var(--sp-4);
   padding-bottom: var(--sp-16);
   box-shadow: 0 1px 0 var(--line);
+}
+
+/* The last icon's glyph lines up with the inputs' edge; the hairline stays level with them. */
+.guest-head > button:last-of-type {
+  margin-right: calc(-1 * var(--sp-8));
 }
 
 .guest-brand {

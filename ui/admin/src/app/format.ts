@@ -30,12 +30,16 @@ export function formatDuration(ms: number): string {
 export function useTimeFormat() {
   const language = useLanguage();
   return useMemo(() => {
-    const short = new Intl.DateTimeFormat(language, { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+    const parts = { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" } as const;
+    const short = new Intl.DateTimeFormat(language, parts);
+    // Another year is spelled out so it never reads as this year; the common case stays compact for list columns.
+    const shortYear = new Intl.DateTimeFormat(language, { ...parts, year: "2-digit" });
     const full = new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "medium" });
     return (value: string | number | undefined, long = false) => {
       if (value === undefined || value === "") return "";
       const date = new Date(value);
-      return Number.isNaN(date.getTime()) ? String(value) : (long ? full : short).format(date);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return (long ? full : date.getFullYear() === new Date().getFullYear() ? short : shortYear).format(date);
     };
   }, [language]);
 }

@@ -44,9 +44,9 @@ export function AuthCollectionsIndex() {
                 <tr>
                   <th>{t("auth.collections.name")}</th>
                   <th>{t("auth.collections.registration")}</th>
-                  <th>{t("auth.collections.fields")}</th>
+                  <th className="num">{t("auth.collections.fields")}</th>
                   <th>{t("auth.collections.recordId")}</th>
-                  <th>id</th>
+                  <th>ID</th>
                 </tr>
               </thead>
               <tbody>

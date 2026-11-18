@@ -1,4 +1,4 @@
-import { lazy, Suspense, useId } from "react";
+import { lazy, Suspense, useId, useRef } from "react";
 import type { CollectionField } from "../api/collections";
 import type { RecordData } from "../api/records";
 import { Checkbox, Field } from "../components/Field";
@@ -28,6 +28,9 @@ export function FieldInput({ field, value, onChange, error, readOnly, expand, on
   const id = useId();
   const kind = fieldKind(field);
   const text = typeof value === "string" ? value : "";
+  // Text with a line break edits in a textarea, and stays one so deleting the break does not swap the control under the caret.
+  const multiline = useRef(false);
+  if (field.type === "text" && text.includes("\n")) multiline.current = true;
   const shared = {
     label: field.name,
     aside: field.type,
@@ -76,12 +79,30 @@ export function FieldInput({ field, value, onChange, error, readOnly, expand, on
       return <GeoPointInput field={field} value={Array.isArray(value) ? value : []} onChange={onChange} error={error} readOnly={readOnly} />;
     case "select": {
       const options = (field.options?.allowedValues ?? []).map((option) => ({ value: option, label: option }));
-      return <Field {...shared} kind="select" value={text} onChange={onText} options={[{ value: "", label: "" }, ...options]} />;
+      return <Field {...shared} kind="select" value={text} onChange={onText} options={[{ value: "", label: t("common.na") }, ...options]} />;
     }
     case "multiselect": {
-      const options = (field.options?.allowedValues ?? []).map((option) => ({ value: option, label: option }));
-      const onSelect = (event: { target: HTMLSelectElement }) => onChange(Array.from(event.target.selectedOptions, (option) => option.value));
-      return <Field {...shared} kind="select" multiple value={Array.isArray(value) ? value : []} onChange={onSelect} options={options} rows={Math.min(6, options.length)} />;
+      const chosen = Array.isArray(value) ? value : [];
+      const allowed = field.options?.allowedValues ?? [];
+      // In allowed-value order, as the list box gave it, so unchecking and rechecking restores the same array.
+      const toggle = (option: string, on: boolean) => onChange(allowed.filter((item) => (item === option ? on : chosen.includes(item))));
+      return (
+        <div className="field-wrap">
+          <div className="field" data-invalid={error ? "" : undefined}>
+            <span className="field-label" id={id}>
+              {field.name}
+              {field.required && <span className="field-required" aria-hidden>*</span>}
+              <span className="mono">{field.type}</span>
+            </span>
+            <div className="field-checks" role="group" aria-labelledby={id} aria-describedby={error || field.help ? `${id}-note` : undefined}>
+              {allowed.map((option) => (
+                <Checkbox key={option} label={option} checked={chosen.includes(option)} disabled={readOnly} onChange={(event) => toggle(option, event.target.checked)} />
+              ))}
+            </div>
+          </div>
+          {(error || field.help) && <p id={`${id}-note`} className={error ? "field-error" : "field-hint"} role={error ? "alert" : undefined}>{error ?? field.help}</p>}
+        </div>
+      );
     }
     case "date":
       return <Field {...shared} aside={`${field.type} · UTC`} type="datetime-local" step={1} value={text} onChange={onText} />;
@@ -95,6 +116,7 @@ export function FieldInput({ field, value, onChange, error, readOnly, expand, on
     case "password":
       return <Field {...shared} type="password" value={text} onChange={onText} autoComplete="new-password" required={false} hint={field.help ?? t("records.passwordHint")} />;
     default:
+      if (kind === "text" && multiline.current) return <Field {...shared} kind="textarea" value={text} onChange={onText} />;
       return <Field {...shared} value={text} onChange={onText} />;
   }
 }

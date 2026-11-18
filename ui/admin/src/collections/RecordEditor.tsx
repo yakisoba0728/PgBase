@@ -144,7 +144,7 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
           )}
           <SaveBar form={formId} dirty={form.dirty} busy={form.save.isPending} onDiscard={form.isNew ? onClose : form.reset}
             saveLabel={form.isNew ? t("records.create") : t("records.save")} saveDisabled={relationPending || (!form.dirty && !form.isNew)}>
-            {form.progress !== null && <progress className="pane-progress" max={1} value={form.progress} aria-label={t("file.uploadingAll")} />}
+            {form.progress !== null && <progress className="progress-bar pane-progress" max={1} value={form.progress} aria-label={t("file.uploadingAll")} />}
           </SaveBar>
         </footer>
       )}

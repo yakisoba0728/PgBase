@@ -1,6 +1,6 @@
 import { useSearchState } from "../app/search";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useSmallScreen } from "../app/shell";
 import { Facts } from "../components/Facts";
 import { ErrorState } from "../components/Feedback";
@@ -31,7 +31,13 @@ const filterSyntax: [string, MessageKey][] = [
   ["limit=20&cursor=…", "api.filter.cursor"],
 ];
 
-function EndpointPane({ endpoint, collection, audience, language, ruleText, onLanguage, onClose }: { endpoint: Endpoint; collection: Collection; audience: Audience; language: Language; ruleText: string; onLanguage: (language: Language) => void; onClose: () => void }) {
+/** An endpoint's rule as shown: the expression itself (code), or a phrase for open, session-only and preset rules. */
+interface RuleText {
+  text: string;
+  code: boolean;
+}
+
+function EndpointPane({ endpoint, collection, audience, language, rule, onLanguage, onClose }: { endpoint: Endpoint; collection: Collection; audience: Audience; language: Language; rule: RuleText; onLanguage: (language: Language) => void; onClose: () => void }) {
   const t = useT();
   const origin = window.location.origin;
   const sample = codeSample(language, endpoint, collection, origin, audience);
@@ -41,11 +47,12 @@ function EndpointPane({ endpoint, collection, audience, language, ruleText, onLa
       <div className="pane-body api-pane">
         <div className="api-route">
           <span className="api-method" data-method={endpoint.method}>{endpoint.method}</span>
-          <code className="mono">{endpoint.path}</code>
+          {/* A long route breaks after a slash; inside a segment only as a last resort. */}
+          <code className="mono">{endpoint.path.split("/").map((segment, index) => <Fragment key={index}>{index > 0 && <>/<wbr /></>}{segment}</Fragment>)}</code>
           <CopyButton label={t("api.copy")} value={origin + endpoint.path} />
         </div>
         <Facts items={[
-          { label: t("api.rule"), value: ruleText, mono: Boolean(endpoint.rule) },
+          { label: t("api.rule"), value: rule.text, mono: rule.code },
           { label: t("api.auth"), value: t(endpoint.userOnly || (audience === "user" && endpoint.rule) ? "api.auth.bearer" : "api.auth.none") },
         ]} />
         {endpoint.query && (
@@ -102,14 +109,16 @@ export function ApiView({ collection }: { collection: Collection }) {
   const set = (key: string, value: string | null) => update({ [key]: value }, { replace: true });
   const close = () => { setClosed(true); set("endpoint", null); };
 
-  const ruleText = (endpoint: Endpoint) => {
-    if (endpoint.id === "batch") return t("api.rule.perOperation");
-    if (!endpoint.rule) return t(endpoint.userOnly ? "api.rule.session" : "api.rule.open");
+  const ruleText = (endpoint: Endpoint): RuleText => {
+    const phrase = (text: string) => ({ text, code: false });
+    if (endpoint.id === "batch") return phrase(t("api.rule.perOperation"));
+    if (!endpoint.rule) return phrase(t(endpoint.userOnly ? "api.rule.session" : "api.rule.open"));
     const rule = rules.data?.rules[endpoint.rule];
-    if (!rule) return rules.isError ? "—" : "…";
-    if (access.data && !access.data.enabled) return t("api.rule.gateOff");
+    if (!rule) return phrase(rules.isError ? "—" : "…");
+    if (access.data && !access.data.enabled) return phrase(t("api.rule.gateOff"));
     const draft = draftFromRule(rule);
-    return draft.mode === "expression" ? draft.expression : draft.mode === "custom" ? stringifyJson(rule) : t(`rules.mode.${draft.mode}`);
+    if (draft.mode === "expression") return { text: draft.expression, code: true };
+    return draft.mode === "custom" ? { text: stringifyJson(rule), code: true } : phrase(t(`rules.mode.${draft.mode}`));
   };
 
   const list = (
@@ -126,7 +135,7 @@ export function ApiView({ collection }: { collection: Collection }) {
               <button type="button" className="row-btn api-row" aria-current={selected?.id === endpoint.id} onClick={() => set("endpoint", endpoint.id)}>
                 <span className="api-method" data-method={endpoint.method}>{endpoint.method}</span>
                 <span className="api-path mono">{endpoint.path}</span>
-                <span className="api-row-rule">{ruleText(endpoint)}</span>
+                <span className="api-row-rule">{ruleText(endpoint).text}</span>
               </button>
             </li>
           ))}
@@ -139,7 +148,7 @@ export function ApiView({ collection }: { collection: Collection }) {
     </>
   );
   const pane = selected ? (
-    <EndpointPane onClose={close} endpoint={selected} collection={collection} audience={audience} language={language} ruleText={ruleText(selected)} onLanguage={(value) => set("lang", value === "curl" ? null : value)} />
+    <EndpointPane onClose={close} endpoint={selected} collection={collection} audience={audience} language={language} rule={ruleText(selected)} onLanguage={(value) => set("lang", value === "curl" ? null : value)} />
   ) : null;
   return <SplitView list={list} pane={pane} paneLabel={t("api.detail")} onClose={close} />;
 }

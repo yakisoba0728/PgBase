@@ -82,6 +82,11 @@
   .form-section > :not(header) {
     grid-column: 1;
   }
+
+  /* The label column gives way on a phone, so values keep the room to stay on one or two lines. */
+  .facts > div {
+    grid-template-columns: clamp(88px, 35%, 160px) minmax(0, 1fr);
+  }
 }
 
 .facts dd[data-tone] {

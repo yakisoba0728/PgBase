@@ -129,7 +129,7 @@ export function FieldRows({ editor }: { editor: SchemaEditor }) {
     </Dropdown>
   );
   return (
-    <Section title={t("schema.fields")} count={draft.fields.length} action={add}>
+    <Section title={t("schema.fields")} count={draft.fields.length + 3} action={add}>
       <ul ref={list} className="schema-rows">
         <LockedRow name="id" type={draft.recordId.kind === "text" ? "text" : "uuid"} />
         {draft.fields.map((field, position) => {
@@ -181,7 +181,7 @@ export function FieldRows({ editor }: { editor: SchemaEditor }) {
 export function ViewFieldRows({ fields, textId = false }: { fields: CollectionField[]; textId?: boolean }) {
   const t = useT();
   return (
-    <Section title={t("schema.fields")} count={fields.length}>
+    <Section title={t("schema.fields")} count={fields.length + 1}>
       <ul className="schema-rows">
         <LockedRow name="id" type={textId ? "text" : "uuid"} />
         {fields.map((field) => <LockedRow key={field.id} name={field.name} type={field.type} />)}

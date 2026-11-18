@@ -83,8 +83,8 @@ export function PolicyTab({ collection, administration, children }: { collection
             <Checkbox label={t("auth.policy.mfaEnabled")} checked={draft.mfaEnabled} onChange={(event) => patch({ mfaEnabled: event.target.checked })} />
             <div className="auth-grid">
               {number("mfaDurationSeconds", t("auth.policy.mfaDuration"), "60–86400")}
-              <Field label={t("auth.policy.mfaRule")} mono spellCheck={false} placeholder='{"field":"verified","equals":true}' value={draft.mfaRule} error={error("mfaRule")} hint={t("auth.policy.mfaRuleHint")} onChange={(event) => patch({ mfaRule: event.target.value })} />
             </div>
+            <Field label={t("auth.policy.mfaRule")} mono spellCheck={false} placeholder='{"field":"verified","equals":true}' value={draft.mfaRule} error={error("mfaRule")} hint={t("auth.policy.mfaRuleHint")} onChange={(event) => patch({ mfaRule: event.target.value })} />
           </FormSection>
           <FormSection title={t("auth.policy.otp")} hint={t("auth.policy.otpHint")}>
             <Checkbox label={t("auth.policy.otpEnabled")} checked={draft.otpEnabled} onChange={(event) => patch({ otpEnabled: event.target.checked })} />

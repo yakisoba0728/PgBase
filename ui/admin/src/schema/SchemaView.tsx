@@ -7,7 +7,6 @@ import type { CollectionScaffolds } from "../api/schema";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { Field } from "../components/Field";
-import { FormSection } from "../components/FormSection";
 import { SaveBar } from "../components/SaveBar";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
@@ -93,8 +92,8 @@ function DangerZone({ collection, editor }: { collection: Collection; editor: Sc
     onError: (error) => toast(deleteRefusal(t, error), "danger"),
   });
   return (
-    <FormSection title={t("common.dangerZone")}>
-      <div className="action-list danger-zone">
+    <Section title={t("common.dangerZone")}>
+      <div className="danger-zone">
         {collection.type !== "view" && (
           <div>
             <Button size="sm" variant="danger" onClick={() => setAction("truncate")}>{t("schema.truncate")}</Button>
@@ -117,7 +116,7 @@ function DangerZone({ collection, editor }: { collection: Collection; editor: Sc
         onConfirm={() => action && run.mutate(action)}
         onCancel={close}
       />
-    </FormSection>
+    </Section>
   );
 }
 

@@ -142,9 +142,11 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
         </div>
         <div className="auth-action">
           <span>{t("auth.user.access")}</span>
-          <Button size="sm" variant="secondary" onClick={() => ask({ kind: "sendReset" })}>{t("auth.user.sendReset")}</Button>
-          <Button size="sm" variant="secondary" onClick={() => ask({ kind: "revoke" })}>{t("auth.user.revoke")}</Button>
-          <Button size="sm" variant="secondary" disabled={!user.active} title={user.active ? undefined : t("auth.user.impersonateDisabled")} onClick={() => ask({ kind: "impersonate" })}>{t("auth.user.impersonate")}</Button>
+          <span className="auth-action-group">
+            <Button size="sm" variant="secondary" onClick={() => ask({ kind: "sendReset" })}>{t("auth.user.sendReset")}</Button>
+            <Button size="sm" variant="secondary" onClick={() => ask({ kind: "revoke" })}>{t("auth.user.revoke")}</Button>
+            <Button size="sm" variant="secondary" disabled={!user.active} title={user.active ? undefined : t("auth.user.impersonateDisabled")} onClick={() => ask({ kind: "impersonate" })}>{t("auth.user.impersonate")}</Button>
+          </span>
         </div>
       </div>
 

@@ -64,7 +64,7 @@ function ExportPicker({ schema: loaded }: { schema: SchemaDocument }) {
         <div className="toolbar toolbar-inset">
           <span className="dt-muted">{t("devtools.export.size", { lines: text.split("\n").length })}</span>
           <div className="actions">
-            <CopyButton text value={text} />
+            <CopyButton text size="sm" value={text} />
             <Button size="sm" icon={RiDownloadLine} onClick={() => downloadJson("pgbase-schema.json", exported)}>{t("devtools.download")}</Button>
           </div>
         </div>

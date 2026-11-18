@@ -142,7 +142,7 @@ function UserTable({ t, rows, names, openId, fresh, onOpen }: { t: Translate; ro
           <th>{t("auth.users.status")}</th>
           <th>{t("auth.users.verified")}</th>
           <th>{t("auth.users.created")}</th>
-          <th>id</th>
+          <th>ID</th>
         </tr>
       </thead>
       <tbody>
@@ -155,7 +155,7 @@ function UserTable({ t, rows, names, openId, fresh, onOpen }: { t: Translate; ro
               <td><span className="dot" data-tone={user.active ? "success" : "danger"}>{user.active ? t("auth.users.active") : t("auth.users.disabled")}</span></td>
               <td><span className="dot" data-tone={user.verified ? "success" : undefined}>{user.verified ? t("auth.users.yes") : t("auth.users.no")}</span></td>
               <td className="mono">{time(user.createdAt)}</td>
-              <td className="mono txt-hint">{user.id}</td>
+              <td className="mono txt-hint auth-id" title={user.id}>{user.id}</td>
             </Row>
           );
         })}

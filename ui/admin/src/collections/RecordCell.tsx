@@ -71,7 +71,7 @@ export const RecordCell = memo(function RecordCell({ field, name, record, collec
   );
   switch (view.kind) {
     case "empty":
-      return <td><span className="na">{t("common.na")}</span></td>;
+      return <td className={fieldKind(field) === "number" ? "num" : undefined}><span className="na">{t("common.na")}</span></td>;
     case "number":
       return <td className="num">{view.text}</td>;
     case "bool":

@@ -124,6 +124,15 @@ function OptionFields({ field, catalog, collectionName, set, setRelation }: {
   );
 }
 
+/** An example default in the field's own JSON shape: a multi-select (jsonb with allowed values) takes an array. */
+function defaultExample(field: DraftField): string {
+  if (field.type === "text") return '"draft"';
+  if (field.type === "boolean") return "false";
+  if (field.type !== "jsonb") return "0";
+  const first = field.options?.allowedValues?.[0];
+  return first === undefined ? "{}" : JSON.stringify([first]);
+}
+
 /** Detail pane for one field. Edits go straight into the draft; nothing is saved until Apply. */
 export function FieldPane({ editor, field, catalog }: { editor: SchemaEditor; field: DraftField; catalog: Collection[] }) {
   const t = useT();
@@ -169,7 +178,7 @@ export function FieldPane({ editor, field, catalog }: { editor: SchemaEditor; fi
           </div>
           <OptionFields field={field} catalog={catalog} collectionName={editor.draft.name} set={set} setRelation={setRelation} />
           {flags.default && (
-            <Field label={t("schema.default")} mono spellCheck={false} placeholder={field.type === "text" ? '"draft"' : field.type === "boolean" ? "false" : "0"} hint={t("schema.defaultHint")}
+            <Field label={t("schema.default")} mono spellCheck={false} placeholder={defaultExample(field)} hint={t("schema.defaultHint")}
               value={field.defaultText} onChange={(event) => update({ defaultText: event.target.value })} />
           )}
           <Field label={t("schema.help")} maxLength={300} value={field.help ?? ""} onChange={(event) => update({ help: event.target.value })} />
