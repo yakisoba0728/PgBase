@@ -187,13 +187,27 @@
 
 @container ops-jobs (max-width: 720px) {
   .ops-jobs-schedule,
-  .ops-jobs-zone {
+  .ops-jobs-zone,
+  .ops-jobs-next {
     display: none;
+  }
+
+  /* The name takes the width left over and ends in an ellipsis; the last run's result goes under its time. */
+  .grid td.ops-jobs-name {
+    width: 100%;
+    max-width: 0;
+    min-width: 120px;
+  }
+
+  .ops-jobs-last .ops-aside {
+    display: block;
+    margin-left: 0;
   }
 }
 
+/* On a phone the list keeps name and state; the last run is in the job's pane. */
 @container ops-jobs (max-width: 480px) {
-  .ops-jobs-next {
+  .ops-jobs-last {
     display: none;
   }
 }

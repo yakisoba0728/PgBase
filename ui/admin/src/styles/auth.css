@@ -133,6 +133,12 @@
   .grid .auth-minor {
     display: none;
   }
+
+  /* The email takes the width status leaves and ends in an ellipsis, so a long address cannot push status off screen. */
+  .grid td.auth-email {
+    width: 100%;
+    max-width: 0;
+  }
 }
 
 .auth-link-row a,

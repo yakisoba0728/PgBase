@@ -93,7 +93,7 @@ export function JobsView() {
                     <th className="ops-jobs-schedule">{t("ops.jobs.schedule")}</th>
                     <th className="ops-jobs-zone">{t("ops.jobs.timezone")}</th>
                     <th>{t("ops.jobs.state")}</th>
-                    <th>{t("ops.jobs.lastRun")}</th>
+                    <th className="ops-jobs-last">{t("ops.jobs.lastRun")}</th>
                     <th className="ops-jobs-next">{t("ops.jobs.nextRun")}</th>
                   </tr>
                 </thead>
@@ -103,11 +103,11 @@ export function JobsView() {
                     const state = stateOf(t, job);
                     return (
                       <Row key={job.id} current={openId === job.id} onOpen={() => update({ job: job.id })}>
-                        <td className="mono">{job.name}</td>
+                        <td className="mono ops-jobs-name">{job.name}</td>
                         <td className="ops-jobs-schedule"><ScheduleText schedule={job.schedule} /></td>
                         <td className="mono ops-jobs-zone">{job.timezone}</td>
                         <td><span className="dot" data-tone={state.tone}>{state.label}</span></td>
-                        <td>
+                        <td className="ops-jobs-last">
                           {job.lastStartedAt ? (
                             <>
                               <span className="mono">{time(job.lastStartedAt)}</span>

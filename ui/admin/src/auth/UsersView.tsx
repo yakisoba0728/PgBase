@@ -150,7 +150,7 @@ function UserTable({ t, rows, names, openId, fresh, onOpen }: { t: Translate; ro
           const user = fresh && fresh.id === row.id ? fresh : row;
           return (
             <Row key={user.id} current={user.id === openId} onOpen={() => onOpen(user.id)}>
-              <td>{user.email}</td>
+              <td className="auth-email">{user.email}</td>
               <td className="mono auth-minor">{names.get(user.authCollectionId) ?? user.authCollectionId}</td>
               <td><span className="dot" data-tone={user.active ? "success" : "danger"}>{user.active ? t("auth.users.active") : t("auth.users.disabled")}</span></td>
               <td className="auth-minor"><span className="dot" data-tone={user.verified ? "success" : undefined}>{user.verified ? t("auth.users.yes") : t("auth.users.no")}</span></td>
