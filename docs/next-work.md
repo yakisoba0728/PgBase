@@ -1,6 +1,6 @@
 # 다음 작업과 완료 기준
 
-2026-11-18 기준: main과 운영 모두 `c2872ba6`(schema 69)이다. 관리자 UI 전체 화면 점검의 수정([PR #151](https://github.com/yakisoba0728/PgBase/pull/151)·[PR #153](https://github.com/yakisoba0728/PgBase/pull/153))을 배포했다. 운영은 여전히 관리자가 없는 setup 대기 상태다. 범위와 검증은 [현재 상태](project-status.md) §16을 따른다.
+2026-11-18 기준: main과 운영의 runtime은 `df18bfe3`(schema 69)이다. 미룬 UI 항목 4개([PR #157](https://github.com/yakisoba0728/PgBase/pull/157))와 간헐 실패 test 두 건([PR #155](https://github.com/yakisoba0728/PgBase/pull/155)·[PR #156](https://github.com/yakisoba0728/PgBase/pull/156))을 처리해 배포했다. 운영에는 첫 관리자가 만들어져 있다. 범위와 검증은 [현재 상태](project-status.md) §17을 따른다.
 
 2026-11-17 기준: main은 `d64c729f`(schema 69)이고 운영은 main `57507741`을 빈 데이터로 새로 설치한 상태다. 플랫폼 강화([PR #148](https://github.com/yakisoba0728/PgBase/pull/148))를 병합하고 같은 날 배포했으며, main `57507741`을 [v0.4.0](https://github.com/yakisoba0728/PgBase/releases/tag/v0.4.0)으로 게시했다. 범위와 검증은 [현재 상태](project-status.md) §15를 따른다.
 
@@ -21,9 +21,12 @@
 | 완료 | 운영 초기화(소유자 지시) | DB·파일 volume과 서버 백업을 지우고 main `57507741`을 빈 상태로 재배포. 69/69, doctor 통과, setup 대기 |
 | 완료 | 관리자 UI 전체 화면 점검([PR #151](https://github.com/yakisoba0728/PgBase/pull/151)·[PR #153](https://github.com/yakisoba0728/PgBase/pull/153)) | 173장 캡처로 찾은 깨짐 약 45건 수정, 회귀 6건 수정 후 재확인. unit 459·필수 CI 통과, 운영 배포(schema 69 그대로) |
 | 완료(소유자 결정) | frontend audit gate 범위([PR #152](https://github.com/yakisoba0728/PgBase/pull/152)) | 배포 의존성만 막고 개발 의존성은 경고. picomatch GHSA-fc5q-39xc-vjpf 패치가 나오면 재검토 |
-| 남음 | `internal/filestore` 업로드 게시 test 간헐 실패 | "upload publication blocked behind its own lease". PR #148의 lease 경로 경합 여부 조사 필요 |
-| 남음 | UI 점검에서 미룬 항목 | 날짜·시간 입력 표기, 화면 쪽 email·URL·필수 검증, 모바일 표 보조 열, jobs pane 옆 목록, 비활성 danger 버튼 대비. Safari·Firefox·setup 화면·모바일 overlay 미확인 |
-| 소유자 작업 | 운영 첫 관리자·설정 | setup token으로 첫 관리자를 만들고 SMTP 등 운영 설정을 다시 넣는다. 그 전까지 공개 호스트는 setup 대기 상태다 |
+| 완료 | 간헐 실패 test 두 건([PR #155](https://github.com/yakisoba0728/PgBase/pull/155)·[PR #156](https://github.com/yakisoba0728/PgBase/pull/156)) | `internal/filestore`는 250ms 대기가 1초 정리 예산보다 짧았고, `internal/cli` watch는 상태 줄 출력 전에 stdout을 읽었다. 둘 다 test만 수정, 제품 경합 아님 |
+| 완료 | UI 점검에서 미룬 항목([PR #157](https://github.com/yakisoba0728/PgBase/pull/157)) | 화면 쪽 email·URL·필수 검증, 휴대폰 사용자·logs 목록의 보조 열, jobs pane 옆 목록, 비활성 danger 버튼. 로컬 서버 렌더링으로 확인, unit 460·필수 CI 통과, 운영 배포 |
+| 남음 | CI PostgreSQL 재초기화 | PR #157 통합 검사에서 backend가 `exit code 2`로 끝나 서버가 재초기화됐다(재실행 통과). 원인 test 미확인 |
+| 남음 | UI 한계 | 날짜·시간 입력 표기(자체 위젯 필요), 휴대폰 logs 요청 칸, pane을 닫은 jobs 목록의 긴 결과 문구. Safari·Firefox·setup 화면·모바일 overlay 미확인 |
+| 소유자 결정 | v0.4.1 릴리스 | v0.4.0 이후 UI 수정(#151, #153, #157)이 tag 없이 main과 운영에 있다 |
+| 소유자 작업 | 운영 설정 | 첫 관리자는 만들어졌다. SMTP 등 운영 설정을 다시 넣는다 |
 | 소유자 작업 | Dokploy API key 교체 | 작업 세션 기록에 key가 노출됐다 |
 | 남음 | 운영 사후 확인 | 로그인 후 화면·CRUD·realtime·jobs·파일 동작은 운영에서 확인하지 않았다. 운영 백업은 없다 |
 | 소유자 결정 | 쓰기 경로 WAL flush | 쓰기 요청당 약 2.5회. outbox 전달 commit을 완화하면 줄지만 전달·내구성 계약이 바뀐다 |

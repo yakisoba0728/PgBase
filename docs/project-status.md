@@ -501,3 +501,26 @@ UI를 다시 만들며 서버 응답과 코드에서 관찰한 사항이다. `fr
 - Safari·Firefox, 데이터가 있는 백업 목록(점검 서버에 `pg_dump` 없음), setup 화면, 모바일 overlay, 운영 로그인 후 화면은 확인하지 않았다. 마지막 수정(schema 행 폭) 뒤의 전체 전후 비교는 해당 화면만 직접 봤다.
 - `internal/filestore`의 `TestUploadPublishAuthorizationDeleteAndCleanup/queued_storage_transition_does_not_deadlock_upload_publication`가 PR #151 CI에서 한 번 실패했다(재실행 통과). 원인은 조사하지 않았다.
 
+## 17. 2026-11-18 간헐 실패 test 두 건과 미룬 UI 항목(`fix/admin-ui-deferred`)
+
+기록일: 2026-11-18 KST. §16에서 남긴 간헐 실패와 미룬 UI 항목을 처리해 main `df18bfe3`을 운영에 배포했다. 제품 코드는 `ui/admin`만 바뀌었고 서버 API·schema 69는 그대로다.
+
+- **`internal/filestore` 간헐 실패**([PR #155](https://github.com/yakisoba0728/PgBase/pull/155)): 교착이 아니었다. 실패 당시 반환된 오류는 test가 기대하는 `ErrStorageConflict`였고 하위 test 전체가 0.40초였다. 거부된 업로드는 반환 전에 `failUpload`로 정리하는데 이 정리는 `database.cleanupTimeout`(1초)까지 쓸 수 있다. test는 250ms만 기다렸다. 대기를 5초로 늘렸다. 실제 교착은 반환하지 않으므로 여전히 잡힌다. 로컬(PostgreSQL 17.9, `-race`)에서는 CPU 부하를 걸어도 19–27ms라 느린 경우를 재현하지 못했다. 진단 근거는 CI 로그와 코드 경로다.
+- **`internal/cli` watch 간헐 실패**([PR #156](https://github.com/yakisoba0728/PgBase/pull/156)): `TestJavaScriptWatchKeepsValidGenerationAndDoesNotRunMigrations`가 main push에서 한 번 실패했다. watcher는 새 generation의 서버를 먼저 띄우고(`javascript_watch.go:112`) 그 뒤에 `JavaScript generation … running`을 출력한다(`:125`). test는 새 응답을 보자마자 stdout을 한 번만 읽었다. 4초 안에서 다시 읽도록 바꿨고 검증 내용(상태 줄 2개)은 같다. 자연 재현은 90회 0건이었다. 상태 줄 앞에 500ms 지연을 임시로 넣으면 기존 test는 5/5 실패, 수정본은 5/5 통과했다. PR 단계 통합 검사는 `internal/cli`를 돌리지 않는다.
+- **미룬 UI 항목**([PR #157](https://github.com/yakisoba0728/PgBase/pull/157)), 5개 중 4개:
+  - 레코드 편집기가 저장 전에 필수·email·URL을 검사해 기존 `validation.*` 문구를 필드 아래에 표시한다. 필드를 고치면 그 오류가 지워진다. 서버보다 엄격하지 않게 했다: 서버가 채우는 필드(boolean, system, default, autogenerate)는 생성 시 필수로 보지 않고, 필수 text를 수정에서 `""`로 비우는 것과 필수 JSON의 null은 서버가 받으므로 막지 않는다.
+  - 599px 이하 사용자 목록은 이메일과 상태만 남기고, 이메일이 남는 폭에서 말줄임한다.
+  - 599px 이하 logs 목록은 소요 시간과 attributes를 숨기고 요청 칸 최소 폭을 200px로 한다(데스크톱 260px 그대로).
+  - jobs 목록을 size container로 만들었다. 720px 이하(pane 열림 또는 휴대폰)에서 일정·시간대·다음 실행을 숨기고 이름이 남는 폭을 쓰며 마지막 결과가 시각 아래 줄로 내려간다. 480px 이하에서는 이름과 상태만 남는다.
+  - 비활성 danger 버튼은 비활성 보조 버튼 모양을 쓴다.
+- **검증**: `npm run typecheck`, `npm test`(78파일/460 tests), 깨끗한 build. 일회성 PostgreSQL 17.9와 해당 빌드의 로컬 서버를 1280px 다크·라이트와 390px로 렌더링했다. 검증 오류가 뜨는 동안 레코드 요청 0건, 유효한 레코드는 저장. 첫 수정본은 실제 길이의 내용에서 두 목록이 여전히 넘쳤다(사용자 436px, pane 옆 jobs 876px). 추가 commit 뒤 사용자 390=390, pane 옆 jobs 519=519, 휴대폰 jobs 390=390, pane을 닫은 1280px은 6개 열 그대로다. 실행 이력이 있는 job은 API 응답을 stub해 확인했고, busy danger 버튼은 복제한 버튼에 `aria-busy`를 붙여 확인했다.
+- **운영 배포**(2026-11-18T11:03–11:04Z): 사전 점검(앱 healthy, `c2872ba6`, 69/69, doctor 통과, 관리자 1·사용자 0·컬렉션 0) 뒤 Dokploy deployment `YdD8IuTr2pKJfgaPM2RxR` done(33초). 배포 commit `df18bfe3`, 69/69·dirty=false, migrate 종료 코드 0, doctor 통과, `/health/live`·`/health/ready`·`/admin/` 200, 진입 JS·CSS 파일 이름이 commit된 dist와 일치. 관리자·사용자·컬렉션 수는 배포 전후 같다. UI와 test만 바뀌어 배포 전 백업은 뜨지 않았다. 사전 점검에서 관리자가 1명이라 운영은 더 이상 setup 대기 상태가 아니다.
+- **정리**: PR이 병합된 원격 브랜치 8개를 지웠다. 원격에는 `main`만 있다.
+
+하지 않은 것과 한계:
+
+- 날짜·시간 입력은 그대로다. 이미 `.field-control` 모양의 `datetime-local`에 UTC 표시가 붙어 있고, 입력란 안의 표기는 브라우저 로케일을 따른다. 바꾸려면 자체 위젯이 필요하다.
+- 휴대폰 logs 목록은 시각·상태 열이 폭을 먼저 차지해 요청 칸이 처음에는 일부만 보인다. pane을 닫은 1280px jobs 목록은 마지막 결과 문구가 길면 가로 스크롤이 생긴다. 둘 다 이전과 같은 동작이다.
+- PR #157 CI에서 `PostgreSQL integration / 17.9`가 한 번 실패했다(재실행 통과). CI의 PostgreSQL에서 backend 하나가 `exit code 2`로 끝나 서버가 재초기화됐고, 이후 test가 `the database system is in recovery mode`로 실패했다. 어떤 test가 원인인지는 찾지 못했다. 이 PR은 `ui/admin`만 바꾼다.
+- 운영에 로그인해 바뀐 화면을 직접 확인하지 않았다. Safari·Firefox도 확인하지 않았다.
+- v0.4.0 이후의 UI 수정(#151, #153, #157)은 main과 운영에 있지만 릴리스 tag가 없다.
