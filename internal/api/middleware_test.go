@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/yakisoba0728/PgBase/internal/observability"
 )
 
 func TestAccessLogUsesRouteTemplateWithoutRawRequestData(t *testing.T) {
@@ -34,6 +36,42 @@ func TestAccessLogUsesRouteTemplateWithoutRawRequestData(t *testing.T) {
 		if strings.Contains(encoded, sentinel) {
 			t.Fatalf("access log leaked raw request data %q: %s", sentinel, encoded)
 		}
+	}
+}
+
+func TestAccessLogSkipsOnlySuccessfulRoutineRequests(t *testing.T) {
+	for _, test := range []struct {
+		method, route string
+		routine       bool
+	}{
+		{http.MethodGet, "/health/ready", true},
+		{http.MethodGet, "/health/live", true},
+		{http.MethodGet, "/admin/", true},
+		{http.MethodGet, "/api/admin/collections", true},
+		{http.MethodHead, "/api/admin/status", true},
+		{http.MethodPost, "/api/admin/auth/login", false},
+		{http.MethodPatch, "/api/admin/settings", false},
+		{http.MethodGet, "/api/admin/schema/export", false},
+		{http.MethodGet, "/api/admin/files/{fileId}", false},
+		{http.MethodGet, "/api/v1/collections/{collection}/records", false},
+		{http.MethodGet, "unmatched", false},
+	} {
+		if got := routineRequest(test.method, test.route); got != test.routine {
+			t.Errorf("routineRequest(%s %s) = %v, want %v", test.method, test.route, got, test.routine)
+		}
+	}
+
+	stored := &observability.RequestLog{}
+	handler := mustRouter(t, Dependencies{RequestLog: stored})
+	live := httptest.NewRecorder()
+	handler.ServeHTTP(live, httptest.NewRequest(http.MethodGet, "/health/live", nil))
+	if items := stored.Page(0, 0).Items; live.Code != http.StatusOK || len(items) != 0 {
+		t.Fatalf("successful probe: status = %d, stored entries = %#v", live.Code, items)
+	}
+	// A failed console read is still diagnostic: no session here.
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/admin/collections", nil))
+	if items := stored.Page(0, 0).Items; len(items) != 1 || items[0].Route != "/api/admin/collections" || items[0].Status < 400 {
+		t.Fatalf("failed console read: stored entries = %#v", items)
 	}
 }
 

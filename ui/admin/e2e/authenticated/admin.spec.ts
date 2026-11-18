@@ -479,7 +479,7 @@ test.describe.serial("administrator security", () => {
 test("shows request log entries", async ({ page }) => {
   await page.goto("/admin/logs");
   const rows = page.getByRole("table", { name: "Logs" }).getByRole("row");
-  // The header row plus at least one entry: earlier tests and this page's own requests are logged.
+  // The header row plus at least one entry: the sign-in and the earlier tests' changes are logged (console reads are not).
   await expect(rows.nth(1)).toBeVisible();
 });
 
