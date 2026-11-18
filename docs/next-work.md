@@ -1,5 +1,7 @@
 # 다음 작업과 완료 기준
 
+2026-11-18 기준: main과 운영 모두 `c2872ba6`(schema 69)이다. 관리자 UI 전체 화면 점검의 수정([PR #151](https://github.com/yakisoba0728/PgBase/pull/151)·[PR #153](https://github.com/yakisoba0728/PgBase/pull/153))을 배포했다. 운영은 여전히 관리자가 없는 setup 대기 상태다. 범위와 검증은 [현재 상태](project-status.md) §16을 따른다.
+
 2026-11-17 기준: main은 `d64c729f`(schema 69)이고 운영은 main `57507741`을 빈 데이터로 새로 설치한 상태다. 플랫폼 강화([PR #148](https://github.com/yakisoba0728/PgBase/pull/148))를 병합하고 같은 날 배포했으며, main `57507741`을 [v0.4.0](https://github.com/yakisoba0728/PgBase/releases/tag/v0.4.0)으로 게시했다. 범위와 검증은 [현재 상태](project-status.md) §15를 따른다.
 
 2026-11-15 기준: main은 `5cb9ea0d`(schema 67)이고 같은 commit이 운영에 배포돼 있다. 최신 릴리스 tag는 v0.3.1(schema 66)이라 그 뒤의 백엔드 재작성(PR #135–#137, schema 67), PR #138–#141, 관리자 UI 개편([PR #142](https://github.com/yakisoba0728/PgBase/pull/142))과 크기·모션 후속([PR #144](https://github.com/yakisoba0728/PgBase/pull/144))은 tag 없이 main에만 있다. 이번 UI 개편의 범위와 검증은 [현재 상태](project-status.md) §13을 따른다. 아래 2026-11-13 문단과 표는 당시 기록에 이번 항목을 더한 것이다.
@@ -17,6 +19,10 @@
 | 완료 | 로딩·토스트 통일과 조회 최적화([PR #146](https://github.com/yakisoba0728/PgBase/pull/146)) | 토스트 하단 중앙·3 tone, 재조회 시 이전 내용 유지, cache 정책과 prefetch, count 생략·hydration 배치·`LIKE` 컴파일·gzip. unit 403·browser 23·필수 CI 통과, 운영 배포(schema 67 그대로) |
 | 완료 | 플랫폼 강화 병합([PR #148](https://github.com/yakisoba0728/PgBase/pull/148)) | schema 68·69, 읽기 commit의 WAL flush 대기 제거, 보안·저장소·realtime·SDK 결함 수정. 전체 qualification 15개 job 통과, 부하 gate p99 13.2ms(기준 250ms, 1회). main 병합, 운영 배포(schema 69/69) |
 | 완료 | 운영 초기화(소유자 지시) | DB·파일 volume과 서버 백업을 지우고 main `57507741`을 빈 상태로 재배포. 69/69, doctor 통과, setup 대기 |
+| 완료 | 관리자 UI 전체 화면 점검([PR #151](https://github.com/yakisoba0728/PgBase/pull/151)·[PR #153](https://github.com/yakisoba0728/PgBase/pull/153)) | 173장 캡처로 찾은 깨짐 약 45건 수정, 회귀 6건 수정 후 재확인. unit 459·필수 CI 통과, 운영 배포(schema 69 그대로) |
+| 완료(소유자 결정) | frontend audit gate 범위([PR #152](https://github.com/yakisoba0728/PgBase/pull/152)) | 배포 의존성만 막고 개발 의존성은 경고. picomatch GHSA-fc5q-39xc-vjpf 패치가 나오면 재검토 |
+| 남음 | `internal/filestore` 업로드 게시 test 간헐 실패 | "upload publication blocked behind its own lease". PR #148의 lease 경로 경합 여부 조사 필요 |
+| 남음 | UI 점검에서 미룬 항목 | 날짜·시간 입력 표기, 화면 쪽 email·URL·필수 검증, 모바일 표 보조 열, jobs pane 옆 목록, 비활성 danger 버튼 대비. Safari·Firefox·setup 화면·모바일 overlay 미확인 |
 | 소유자 작업 | 운영 첫 관리자·설정 | setup token으로 첫 관리자를 만들고 SMTP 등 운영 설정을 다시 넣는다. 그 전까지 공개 호스트는 setup 대기 상태다 |
 | 소유자 작업 | Dokploy API key 교체 | 작업 세션 기록에 key가 노출됐다 |
 | 남음 | 운영 사후 확인 | 로그인 후 화면·CRUD·realtime·jobs·파일 동작은 운영에서 확인하지 않았다. 운영 백업은 없다 |

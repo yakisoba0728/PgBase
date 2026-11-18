@@ -480,3 +480,24 @@ UI를 다시 만들며 서버 응답과 코드에서 관찰한 사항이다. `fr
 - 목록 조회 할당 최적화 측정에서 일부 p99가 올랐다(동시 1 목록 5.3ms → 36.0ms 등). 읽기 commit 수정 뒤에 다시 재지 않았다.
 - CodeQL 25건의 분류와 이미지 의존성 30건은 검토하지 않았다.
 
+## 16. 2026-11-18 관리자 UI 전체 화면 점검(`fix/admin-ui-audit`)
+
+기록일: 2026-11-18 KST. 소유자가 setup 화면의 파일 입력이 깨진 것을 보고 "이런 자잘한 것이 많다"고 했다. 그 한 건을 [PR #151](https://github.com/yakisoba0728/PgBase/pull/151)로 고친 뒤 전체 화면을 점검해 [PR #153](https://github.com/yakisoba0728/PgBase/pull/153)으로 병합했다(main `c2872ba6`). `ui/admin`만 바꿨고 서버 API·schema 69는 그대로다.
+
+- **방법**: 일회성 PostgreSQL 17.9와 현재 빌드로 로컬 서버를 띄우고, 14개 필드 타입을 가진 컬렉션(레코드 17건)·관계 대상·뷰·인증 컬렉션과 사용자·service token·업로드 파일을 넣었다. Playwright로 모든 route·탭·pane·대화상자를 데스크톱 1280px 다크·라이트, 모바일 390px 다크로 173장 캡처했다. 화면 묶음 4개를 따로 검토해 49건(중복 제거 약 45건)을 원인 위치와 함께 모았고, 파일이 겹치지 않게 넷으로 나눠 고쳤다.
+- **공통**: `:lang(ko)`에 `word-break: keep-all`. pane header와 body의 왼쪽 패딩 통일, pane footer 버튼 높이 통일. 비활성 주 버튼은 비활성 보조 버튼과 같은 모양(라이트 테마에서 흰 글자가 읽히지 않던 문제). `.tabs`·`.page-tabs`·설정 섹션 줄은 가로 스크롤과 끝 fade. `Popover`는 아래 공간이 모자라면 위로 연다. 짧은 시각 형식은 올해가 아닐 때만 2자리 연도를 붙인다. `.form`·`.auth-form`의 grid 열을 `minmax(0, 1fr)`로 고정해 넓은 자식이 폼을 넓히지 않는다.
+- **레코드**: 허용 값이 있는 다중 선택을 네이티브 `<select multiple>` 대신 `Checkbox` 묶음으로, 줄바꿈이 있는 text를 textarea로. 파일 행의 이름 칸이 남는 폭을 차지하고, 업로드 progress는 `.progress-bar`. 숫자 열의 빈 값 오른쪽 정렬, hover 시 id가 복사 버튼 앞에서 말줄임, 599px 이하 id 열 140px.
+- **schema·API·규칙**: 위험 구역을 다른 section과 같은 구조로. 목록이 760px보다 좁으면 flag 칸을 접고 상태 칸을 내용 폭으로 해 관계 대상이 다 보인다. 필드 개수에 잠긴 행 포함, 기본값 placeholder를 타입에 맞춤. API 경로는 `/` 뒤에서 줄바꿈, 규칙 값은 표현식일 때만 mono. 모바일 규칙 화면의 접근 모드 라벨 nowrap.
+- **인증·시스템·운영**: 다단계 인증 규칙 칸을 한 줄 전체로, 메일 탭 폭 통일, 토큰 탭 표를 `TableScroll`로. 사용자 목록 id 칸 120px 말줄임, 머리글 `ID`, 숫자 열 머리글 정렬. 프로필 비밀번호 section 설명 위치. 저장소의 "로컬 디스크"에서 mono 제거. logs 통계 줄바꿈과 요청 칸 최소 폭 260px, 상태 필터는 검증된 값만 사용(`?status=2xx`가 "2xxxx"로 표시되던 문제). jobs 일정은 `@every`를 시간·분으로 표기하고(`ops.jobs.everyHours` 추가, 쓰이지 않게 된 `ops.jobs.never` 삭제) 빈 값은 "–".
+- **검증**: `npm run typecheck`, `npm test`(78파일/459 tests), 깨끗한 build, `go test ./ui/admin/ ./internal/repositorypolicy/`. 수정 뒤 같은 캡처를 다시 찍어 전후를 비교했고, 회귀 6건(연도 추가로 넓어진 시각 열, 너무 좁아진 logs 요청 칸, fade 없이 잘린 `.tabs`, 활성처럼 보이는 비활성 주 버튼, 복사 버튼 옆으로 비치는 코드, 여전히 잘리던 관계 대상)을 고친 뒤 세 번째·네 번째 캡처로 확인했다. PR 필수 CI 5개와 main push CI(Backend·Frontend·Security) 통과.
+- **audit gate**([PR #152](https://github.com/yakisoba0728/PgBase/pull/152), 소유자 결정): picomatch GHSA-fc5q-39xc-vjpf(high)가 `<=4.0.7`, 즉 최신 버전까지 해당해 패치가 없다. `vite`·`vitest` → `tinyglobby` 경로로만 들어오고 배포물에는 없다. 필수 `audit`이 모든 PR에서 실패해 gate를 `npm audit --omit=dev --audit-level=high`로 바꾸고, 전체 audit은 workflow 경고로 남겼다. 빌드·테스트 도구의 high 권고는 더 이상 병합을 막지 않는다.
+- **운영 배포**(2026-11-18T00:36–00:37Z): UI와 CI 설정만 바뀌어 migration이 없다. 사전 점검(앱 healthy, 69/69, doctor 통과, 관리자·사용자·컬렉션 0) 뒤 Dokploy `compose.deploy` deployment `EwTLVfPE0j_Zh-fU_YuRo` done(34초). 배포 commit `c2872ba6`, 69/69·dirty=false, doctor 통과, `/health/live`·`/health/ready`·`/admin/` 200, 세션 없는 `/api/admin/session` 401, 미등록 경로 404, 진입 JS·CSS가 commit된 dist와 SHA-256 일치. 운영에 데이터가 없어 배포 전 백업은 뜨지 않았다. `/api/admin/status`는 여전히 `setupRequired: true`다.
+
+하지 않은 것과 한계:
+
+- 네이티브 `datetime-local` 입력은 그대로다. 캡처에서 `mm/dd/yyyy`로 보였지만 이 표기는 앱이 아니라 브라우저 로케일을 따른다.
+- 화면 쪽 email·URL·필수 검증은 넣지 않았다. 서버가 첫 실패 필드 하나만 돌려줘 오류가 한 번에 하나씩만 보인다.
+- 모바일 표의 보조 열 숨기기, jobs pane 옆 목록 눌림과 그 상태의 logs 필터 쌓임, 라이트 테마 비활성 danger 버튼의 낮은 대비.
+- Safari·Firefox, 데이터가 있는 백업 목록(점검 서버에 `pg_dump` 없음), setup 화면, 모바일 overlay, 운영 로그인 후 화면은 확인하지 않았다. 마지막 수정(schema 행 폭) 뒤의 전체 전후 비교는 해당 화면만 직접 봤다.
+- `internal/filestore`의 `TestUploadPublishAuthorizationDeleteAndCleanup/queued_storage_transition_does_not_deadlock_upload_publication`가 PR #151 CI에서 한 번 실패했다(재실행 통과). 원인은 조사하지 않았다.
+

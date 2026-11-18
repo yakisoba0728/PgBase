@@ -1,10 +1,27 @@
 # pgBase 구현 현황 / TODO
 
+2026-11-18 최신 결과: 관리자 UI 전체 화면 점검에서 나온 깨짐 약 45건을 [PR #151](https://github.com/yakisoba0728/PgBase/pull/151)·[PR #153](https://github.com/yakisoba0728/PgBase/pull/153)으로 고쳐 main `c2872ba6`을 운영에 배포했다(schema 69 그대로, migration 없음). frontend audit gate는 [PR #152](https://github.com/yakisoba0728/PgBase/pull/152)로 배포 의존성만 막도록 바꿨다. 세부는 [현재 상태](docs/project-status.md) §16과 [다음 작업](docs/next-work.md)을 따른다.
+
 2026-11-17 최신 결과: 플랫폼 강화 작업을 [PR #148](https://github.com/yakisoba0728/PgBase/pull/148)로 squash 병합했다(main `d64c729f`, schema 69). 같은 날 운영에 배포했고(schema 69) [v0.4.0](https://github.com/yakisoba0728/PgBase/releases/tag/v0.4.0)을 게시했다. 세부는 [현재 상태](docs/project-status.md) §15와 [다음 작업](docs/next-work.md)을 따른다.
 
 2026-11-15 최신 결과: 관리자 UI 개편을 [PR #142](https://github.com/yakisoba0728/PgBase/pull/142)로, 이어서 크기 확대·모션 강화를 [PR #144](https://github.com/yakisoba0728/PgBase/pull/144)로 병합해 main `5cb9ea0d`를 운영에 배포했다(schema 67 그대로, migration 없음). 세부·검증 범위·남은 일은 [현재 상태](docs/project-status.md) §13과 [다음 작업](docs/next-work.md)을 따른다. 아래 문단과 미완료 표시는 당시 이력이다.
 
 2026-11-13 최신 결과: PR #124·#125·#133 병합, main CI·전체 릴리스 gate 통과, v0.3.1 게시와 운영 schema 66 배포 완료. [다음 작업](docs/next-work.md), [운영 준비 보완](docs/production-readiness-2026-11-13.md), [배포 기록](docs/deployment-2026-11-13.md)을 따른다. 아래 미완료 표시는 날짜별 실행 당시의 이력이며 현재 열린 작업으로 합산하지 않는다. 운영 백업 생성/설정은 소유자 요청으로 제외했다. npm/pub.dev 공개는 별도 소유자 결정이다.
+
+## 2026-11-18 — 관리자 UI 전체 화면 점검(`fix/admin-ui-audit`)
+
+main `68b401f7`(schema 69)에서 `ui/admin`만 바꿨다. 서버 API·schema는 그대로다. 세부는 [현재 상태](docs/project-status.md) §16.
+
+- [x] [PR #151](https://github.com/yakisoba0728/PgBase/pull/151)(main `13f7a7ce`): setup 화면 복원 탭의 네이티브 파일 입력을 house 버튼 모양으로 정렬.
+- [x] 전체 점검: 일회성 로컬 서버에 예시 데이터를 넣고 모든 화면을 173장 캡처(데스크톱 다크·라이트, 모바일 다크). 화면 묶음 4개를 따로 검토해 약 45건을 찾았다.
+- [x] [PR #153](https://github.com/yakisoba0728/PgBase/pull/153)(main `c2872ba6`): 공통(한국어 단어 단위 줄바꿈, pane 시작선·하단 버튼 높이, 라이트 테마 비활성 주 버튼, 탭 줄 끝 fade, 위로 열리는 메뉴, 올해가 아닌 날짜의 연도), 레코드(다중 선택 체크박스, 여러 줄 텍스트, 파일 행 정렬, 모바일 id 열), schema·API(위험 구역, 관계 대상 폭, 필드 개수, 경로 줄바꿈), 인증·시스템·운영(모바일 넘침, 사용자 id 열, jobs 일정 표기, logs 상태 필터).
+- [x] 검증: unit 78파일/459 tests, 깨끗한 build와 dist 일치, 수정 전후 캡처 비교로 회귀 6건을 찾아 수정 후 재확인, PR 필수 CI 5개와 main push CI 통과.
+- [x] [PR #152](https://github.com/yakisoba0728/PgBase/pull/152)(main, 소유자 결정): frontend audit gate를 `npm audit --omit=dev --audit-level=high`로 변경. picomatch GHSA-fc5q-39xc-vjpf가 최신 버전까지 해당하고 `vite`·`vitest` 경로로만 들어와 모든 PR의 필수 `audit`이 실패했다. 전체 audit은 경고로만 남긴다. picomatch 패치가 나오면 되돌릴지 재검토한다.
+- [x] 운영 배포: 2026-11-18T00:36Z Dokploy deployment `EwTLVfPE0j_Zh-fU_YuRo` done. 배포 commit `c2872ba6`, 69/69·dirty=false, doctor 통과, health 200, 진입 JS·CSS가 commit된 dist와 SHA-256 일치. 운영에 데이터가 없어(관리자 0) 배포 전 백업은 뜨지 않았다.
+- [ ] 고치지 않은 것: 네이티브 날짜·시간 입력의 표기(브라우저 로케일을 따름), 화면 쪽 email·URL·필수 검증(서버가 오류를 하나씩만 돌려줌), 모바일 표의 보조 열 숨기기, jobs pane 옆 목록 눌림과 그 상태의 logs 필터 쌓임, 라이트 테마 비활성 danger 버튼 대비.
+- [ ] 확인하지 못한 것: Safari·Firefox, 데이터가 있는 백업 목록(점검 서버에 `pg_dump` 없음), setup 화면, 모바일 overlay, 운영 로그인 후 화면.
+- [ ] `internal/filestore` `TestUploadPublishAuthorizationDeleteAndCleanup/queued_storage_transition_does_not_deadlock_upload_publication`가 PR #151 CI에서 한 번 실패하고 재실행에서 통과했다("upload publication blocked behind its own lease: storage settings conflict"). PR #148이 바꾼 저장소 lease 경로의 실제 경합일 수 있다. 미조사.
+- [ ] 개발 환경: Homebrew node가 `libsimdjson.34.dylib`를 찾지 못해 실행되지 않는다. 이번 작업은 `/usr/local/bin/node`로 했다.
 
 ## 2026-11-17 — 플랫폼 강화 병합(`refactor/independent-platform-20261116`)
 
