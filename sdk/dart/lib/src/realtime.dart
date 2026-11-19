@@ -111,15 +111,24 @@ final class RealtimeService {
   /// Subscribes to collection topics and reserved `@` application topics.
   /// Collection callbacks receive [RealtimeEvent]; application callbacks
   /// receive [RealtimeCustomEvent] with arbitrary JSON [RealtimeCustomEvent.data].
-  Future<Future<void> Function()> subscribe(
-    String topic,
+  Future<Future<void> Function()> subscribe(String topic, Function listener) =>
+      _subscribeTopics([topic], listener);
+
+  /// Registers all topics with one atomic server replacement.
+  Future<Future<void> Function()> subscribeMany(
+    Iterable<String> topics,
+    Function listener,
+  ) => _subscribeTopics(topics.toSet().toList(), listener);
+
+  Future<Future<void> Function()> _subscribeTopics(
+    List<String> topics,
     Function listener,
   ) async {
     final generation = _client.auth.generation;
     Future<Future<void> Function()> start() {
       if (generation != _client.auth.generation)
         throw const PgBaseCancellation();
-      return _subscribe(topic, listener, generation);
+      return _subscribe(topics, listener, generation);
     }
 
     final result = _subscribing == null
@@ -137,45 +146,73 @@ final class RealtimeService {
   }
 
   Future<Future<void> Function()> _subscribe(
-    String topic,
+    List<String> topics,
     Function listener,
     int generation,
   ) async {
-    if (!_validTopic(topic))
+    if (topics.isEmpty || topics.any((topic) => !_validTopic(topic)))
       throw const PgBaseProtocolError('invalid_realtime_topic');
     if (_stop?.isCancelled ?? false) await _running;
-    // A stopped transport may take time to drain; retain the caller's original
-    // identity across that asynchronous boundary.
-    if (generation != _client.auth.generation)
+    // Reinstall established topics before attempting to add new ones.
+    final previousStop = _stop;
+    while (_running != null &&
+        !(_ready?.isCompleted ?? true) &&
+        !(previousStop?.isCancelled ?? true)) {
+      await _ready!.future;
+    }
+    if (generation != _client.auth.generation ||
+        (_running != null && (previousStop?.isCancelled ?? false)))
       throw const PgBaseCancellation();
-    final listeners = _listeners[topic] ??= {};
-    final added = listeners.add(listener);
+    final registrations = topics.map((topic) {
+      final listeners = _listeners[topic] ??= {};
+      return (
+        topic: topic,
+        listeners: listeners,
+        added: listeners.add(listener),
+      );
+    }).toList();
     _ensureRunning();
     final stop = _stop;
     try {
-      if (_clientId != null)
-        await _sync();
-      else
+      if (_clientId != null) {
+        if (!await _sync())
+          throw const PgBaseProtocolError('realtime_connection_changed');
+      } else {
         await _ready!.future;
+      }
       if (generation != _client.auth.generation ||
           (stop?.isCancelled ?? true) ||
-          !identical(_listeners[topic], listeners) ||
-          !listeners.contains(listener))
+          registrations.any(
+            (item) =>
+                !identical(_listeners[item.topic], item.listeners) ||
+                !item.listeners.contains(listener),
+          ))
         throw const PgBaseCancellation();
     } catch (_) {
-      if (added) {
-        listeners.remove(listener);
-        if (listeners.isEmpty && identical(_listeners[topic], listeners))
-          _listeners.remove(topic);
-        if (_listeners.isEmpty && !(_stop?.isCancelled ?? true))
-          await unsubscribe();
+      for (final item in registrations) {
+        if (item.added) _removeListener(item.topic, item.listeners, listener);
       }
+      if (_listeners.isEmpty && !(_stop?.isCancelled ?? true))
+        await unsubscribe();
       rethrow;
     }
     return () async {
-      if (identical(_stop, stop) && identical(_listeners[topic], listeners))
-        await unsubscribe(topic, listener);
+      if (!identical(_stop, stop)) return;
+      for (final item in registrations) {
+        _removeListener(item.topic, item.listeners, listener);
+      }
+      await _updateSubscriptions();
     };
+  }
+
+  void _removeListener(
+    String topic,
+    Set<Function> listeners,
+    Function listener,
+  ) {
+    if (!identical(_listeners[topic], listeners)) return;
+    listeners.remove(listener);
+    if (listeners.isEmpty) _listeners.remove(topic);
   }
 
   /// Subscribes to an application topic while preserving its raw UTF-8 name.
@@ -206,9 +243,14 @@ final class RealtimeService {
       listeners?.remove(listener);
       if (listeners?.isEmpty ?? false) _listeners.remove(topic);
     }
+    await _updateSubscriptions();
+  }
+
+  Future<void> _updateSubscriptions() async {
     if (_listeners.isEmpty) {
       _stop?.cancel();
       _clientId = null;
+      _failReady(const PgBaseCancellation());
       _emit(RealtimeState.stopped, reason: RealtimeStopReason.unsubscribed);
       return;
     }
@@ -217,7 +259,7 @@ final class RealtimeService {
 
   void _ensureRunning() {
     if (_running != null) return;
-    _ready = Completer<void>();
+    _newReadiness();
     final stop = _stop = CancellationToken();
     final generation = _client.auth.generation;
     final authChanges = _client.auth.changes.listen((next) {
@@ -232,24 +274,35 @@ final class RealtimeService {
         });
   }
 
-  Future<void> _sync() {
+  void _newReadiness() {
+    _ready = Completer<void>();
+    // A reconnect can stop with nobody waiting for its readiness.
+    unawaited(
+      _ready!.future.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    );
+  }
+
+  Future<bool> _sync() {
     final stop = _stop;
+    final clientId = _clientId;
     final result = _syncing.then((_) async {
       if (!identical(stop, _stop) ||
           (stop?.isCancelled ?? true) ||
-          _clientId == null)
-        return;
+          clientId == null ||
+          clientId != _clientId)
+        return false;
       await _client.request(
         'POST',
         '/api/realtime',
         body: JsonObject({
-          'clientId': JsonString(_clientId!),
+          'clientId': JsonString(clientId),
           'subscriptions': JsonArray(
             _listeners.keys.map(JsonString.new).toList(),
           ),
         }),
         cancellation: stop,
       );
+      return true;
     });
     _syncing = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     return result;
@@ -304,17 +357,20 @@ final class RealtimeService {
             final code = rawCode is JsonString
                 ? rawCode.value
                 : 'subscription_failed';
-            _finish(
-              PgBaseError(
-                code == 'cursor_expired'
-                    ? 410
-                    : code == 'invalid_cursor'
-                    ? 400
-                    : 0,
-                code,
-              ),
-              RealtimeStopReason.terminal,
+            final error = PgBaseError(
+              code == 'cursor_expired'
+                  ? 410
+                  : code == 'invalid_cursor'
+                  ? 400
+                  : 0,
+              code,
             );
+            final retryable = data is JsonObject ? data['retryable'] : null;
+            if (code == 'subscription_failed' &&
+                retryable is JsonBool &&
+                retryable.value)
+              throw error;
+            _finish(error, RealtimeStopReason.terminal);
             return;
           }
           if (message.event == 'PB_CONNECT') {
@@ -395,6 +451,7 @@ final class RealtimeService {
         }
         reconnects++;
         _clientId = null;
+        if (_ready?.isCompleted ?? false) _newReadiness();
         _emit(
           RealtimeState.reconnecting,
           attempt: reconnects,

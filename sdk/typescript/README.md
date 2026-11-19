@@ -68,6 +68,8 @@ await client.realtime.subscribe("notes/*", (event) => console.log(event));
 // Later: stopObserving() removes this observer without unsubscribing records.
 ```
 
+`subscribeMany(topics, listener)` registers a group with one server replacement and returns one disposer for the group. During reconnect, an added group waits for the established subscriptions to be restored before requesting admission.
+
 `onStatus` immediately delivers an immutable snapshot; `realtime.status` returns the current snapshot. States are `connecting`, `connected`, `reconnecting`, and `stopped`. Stopped reasons are `terminal`, `exhausted`, `unsubscribed`, or `reset`; the initial stopped snapshot has no reason. Reconnecting notices include the next attempt and original error. Empty sessions consume the reconnect budget even after a successful handshake; delivering an event to a subscribed topic resets it. A terminal `PB_ERROR` or HTTP failure preserves its `PgBaseError` code, including `cursor_expired` and `invalid_cursor`, and stops retries. Initial readiness still rejects as before.
 
 Synchronous throws and rejected promises from event callbacks are reported with `source: "listener"` and `topic`, leaving delivery and connection state intact. Application helpers preserve the original application topic in these notices. Status observer failures are isolated and do not recursively produce notices. Async callbacks are not awaited, so an application needing ordered asynchronous processing must serialize its own work.

@@ -109,6 +109,10 @@ await client.realtime.subscribe('notes/*', (RealtimeEvent event) {
 // stopObserving() removes the observer without unsubscribing records.
 ```
 
+`subscribeMany(topics, listener)` registers a group with one server replacement
+and returns one disposer for the group. During reconnect, an added group waits
+for existing subscriptions to be restored before requesting admission.
+
 `onStatus` immediately delivers an immutable `RealtimeStatus` snapshot;
 `realtime.status` reads the current snapshot. `RealtimeState` distinguishes
 connecting, connected, reconnecting and stopped. `RealtimeStopReason` distinguishes

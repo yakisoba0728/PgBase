@@ -1,5 +1,5 @@
 import type { PgBaseClient } from "./index.js";
-import type { RecordData, RealtimeSubscriptionOptions, RealtimeEvent, RealtimeCustomEvent, RealtimeStatus } from "./types.js";
+import type { RecordData, RealtimeSubscriptionOptions, RealtimeEvent, RealtimeCustomEvent, RealtimeSubscriptionEvent, RealtimeStatus } from "./types.js";
 /** Multiplexes realtime topics over one durable SSE connection. */
 export declare class RealtimeService {
     private readonly client;
@@ -26,14 +26,20 @@ export declare class RealtimeService {
     resetCursor(): Promise<void>;
     subscribe(topic: `@${string}`, listener: (event: RealtimeCustomEvent) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
     subscribe<T extends RecordData = RecordData>(topic: string, listener: (event: RealtimeEvent<T>) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
+    /** Registers all topics with one atomic server replacement. */
+    subscribeMany(topics: readonly string[], listener: (event: RealtimeSubscriptionEvent) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
+    private subscribeTopics;
     private subscribeNow;
+    private removeListener;
     /**
      * Subscribes to an application-owned topic without exposing its reserved
      * realtime wire name. The callback receives the original UTF-8 topic.
      */
     subscribeApplication(topic: string, listener: (event: RealtimeCustomEvent) => void): Promise<() => Promise<void>>;
     unsubscribe(topic?: string, listener?: (event: any) => void): Promise<void>;
+    private updateSubscriptions;
     private ensureRunning;
+    private newReadiness;
     private sync;
     private run;
     private fail;

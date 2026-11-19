@@ -104,3 +104,36 @@ test("auth changes in one realtime listener stop the remaining copied listeners"
     assert.deepEqual(second, []);
   } finally { await client.realtime.unsubscribe(); }
 });
+
+test("reconnect retains the checkpoint and rejects only newly denied topics", async () => {
+  const streams = [];
+  const syncs = [];
+  let reconnecting;
+  const began = new Promise((resolve) => { reconnecting = resolve; });
+  const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, init) => {
+    if (init.method === "POST") {
+      const topics = JSON.parse(init.body).subscriptions;
+      syncs.push(topics);
+      return topics.includes("denied/*")
+        ? Response.json({ error: { code: "access_denied" } }, { status: 403 })
+        : new Response(null, { status: 204 });
+    }
+    return new Response(new ReadableStream({ start(controller) {
+      streams.push({ controller, checkpoint: init.headers.get("Last-Event-ID") });
+      controller.enqueue(new TextEncoder().encode(`event: PB_CONNECT\ndata: {"clientId":"session-${streams.length}"}\n\n`));
+      init.signal.addEventListener("abort", () => { try { controller.close(); } catch {} }, { once: true });
+    } }));
+  } });
+  client.realtime.onStatus((status) => { if (status.state === "reconnecting") reconnecting(status); });
+  const topics = Array.from({ length: 100 }, (_, i) => `notes/${i}`);
+  try {
+    await client.realtime.subscribeMany(topics, () => {}, { maxReconnects: 1, reconnectDelayMs: 10 });
+    assert.deepEqual(syncs, [topics]);
+    streams[0].controller.enqueue(new TextEncoder().encode('id: 9007199254740993\nevent: cursor\ndata: {}\n\nevent: PB_ERROR\ndata: {"code":"subscription_failed","retryable":true}\n\n'));
+    assert.equal((await began).error.code, "subscription_failed");
+    await assert.rejects(client.realtime.subscribe("denied/*", () => {}), { code: "access_denied" });
+    assert.equal(streams[1].checkpoint, "9007199254740993");
+    assert.deepEqual(syncs, [topics, topics, [...topics, "denied/*"]]);
+    assert.equal(client.realtime.status.state, "connected");
+  } finally { await client.realtime.unsubscribe(); }
+});

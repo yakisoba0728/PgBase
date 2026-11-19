@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:pgbase/pgbase.dart';
 import 'package:test/test.dart';
 
@@ -96,6 +98,91 @@ void main() {
       expect(events.map((event) => event.action), ['create', 'update']);
     } finally {
       await realtime.unsubscribe();
+    }
+  });
+
+  test('reconnect restores existing topics before rejecting new ones', () async {
+    final streams = <StreamController<List<int>>>[];
+    final checkpoints = <String?>[];
+    final syncs = <List<dynamic>>[];
+    final reconnecting = Completer<RealtimeStatus>();
+    final transport = MockClient.streaming((request, body) async {
+      if (request.method == 'POST') {
+        final topics =
+            (jsonDecode(await body.transform(utf8.decoder).join())
+                    as Map)['subscriptions']
+                as List;
+        syncs.add(topics);
+        if (topics.contains('denied/*')) {
+          return http.StreamedResponse(
+            Stream.value(utf8.encode('{"error":{"code":"access_denied"}}')),
+            403,
+          );
+        }
+        return http.StreamedResponse(const Stream.empty(), 204);
+      }
+      final controller = StreamController<List<int>>();
+      streams.add(controller);
+      checkpoints.add(request.headers['last-event-id']);
+      controller.add(
+        utf8.encode(
+          'event: PB_CONNECT\ndata: {"clientId":"session-${streams.length}"}\n\n',
+        ),
+      );
+      return http.StreamedResponse(controller.stream, 200);
+    });
+    final client = PgBaseClient(
+      Uri.parse('http://pgbase.test'),
+      httpClient: transport,
+    );
+    final realtime = RealtimeService(
+      client,
+      maxReconnects: 1,
+      reconnectDelay: const Duration(milliseconds: 10),
+    );
+    realtime.onStatus((status) {
+      if (status.state == RealtimeState.reconnecting)
+        reconnecting.complete(status);
+    });
+    final topics = List.generate(100, (i) => 'notes/$i');
+    try {
+      await realtime.subscribeMany(topics, (_) {});
+      expect(syncs, [topics]);
+      streams.first.add(
+        utf8.encode(
+          'id: 9007199254740993\nevent: cursor\ndata: {}\n\nevent: PB_ERROR\ndata: {"code":"subscription_failed","retryable":true}\n\n',
+        ),
+      );
+      expect(
+        (await reconnecting.future).error,
+        isA<PgBaseError>().having(
+          (error) => error.code,
+          'code',
+          'subscription_failed',
+        ),
+      );
+      await expectLater(
+        realtime.subscribe('denied/*', (_) {}),
+        throwsA(
+          isA<PgBaseError>().having(
+            (error) => error.code,
+            'code',
+            'access_denied',
+          ),
+        ),
+      );
+      expect(checkpoints, [null, '9007199254740993']);
+      expect(syncs, [
+        topics,
+        topics,
+        [...topics, 'denied/*'],
+      ]);
+      expect(realtime.status.state, RealtimeState.connected);
+    } finally {
+      await realtime.unsubscribe();
+      for (final stream in streams) {
+        await stream.close();
+      }
     }
   });
 }
