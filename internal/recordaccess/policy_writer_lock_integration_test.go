@@ -4,6 +4,7 @@ package recordaccess
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -89,5 +90,43 @@ func TestAbsentPolicyFirstInsertsSerializeOnCollection(t *testing.T) {
 	}
 	if accessCount != 1 || ruleCount != 1 {
 		t.Fatalf("access=%d rules=%d", accessCount, ruleCount)
+	}
+
+	service := NewRuleService(pool, schemas)
+	policy, err := service.Get(ctx, "policy_lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"list", "update"} {
+		next := accessrule.OwnerRules()
+		if action == "list" {
+			next.List = accessrule.Rule{Op: "deny"}
+		} else {
+			next.Update = accessrule.Rule{Op: "deny"}
+		}
+		go func() {
+			_, err := service.SetAtRevision(ctx, "policy_lock", next, &policy.Revision)
+			done <- err
+		}()
+	}
+	var writes, stale int
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-done:
+			switch {
+			case err == nil:
+				writes++
+			case errors.Is(err, ErrRuleRevisionConflict):
+				stale++
+			default:
+				t.Fatal(err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("conditional rule writer did not finish")
+		}
+	}
+	stored, err := service.Get(ctx, "policy_lock")
+	if err != nil || writes != 1 || stale != 1 || stored.Revision != policy.Revision+1 {
+		t.Fatalf("writes=%d stale=%d revision=%d err=%v", writes, stale, stored.Revision, err)
 	}
 }

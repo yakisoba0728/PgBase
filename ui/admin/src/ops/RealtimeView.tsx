@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiCheckboxCircleLine, RiReplyLine } from "@remixicon/react";
-import { retryRealtimeEvent, type RealtimeStatus } from "../api/realtime";
+import { retryRealtimeEvent, type RealtimeQueueStatus } from "../api/realtime";
+import type { Int64 } from "../api/logs";
 import { captureSessionScope } from "../api/http";
 import { errorText, windowOpen, windowShifted } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
@@ -14,7 +15,7 @@ import { Table } from "../components/Table";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
 import { formatDuration } from "../app/format";
-import { deadEventsQuery, realtimeKey, realtimeQuery } from "./queries";
+import { deadEventsQuery, realtimeHistoryQuery, realtimeKey, realtimeQuery } from "./queries";
 import { useTimeFormat } from "../app/format";
 import "../styles/ops.css";
 
@@ -25,14 +26,15 @@ export function RealtimeActions() {
 /** Outbox delivery counts (polled) and the dead events, each with a retry. */
 export function RealtimeView() {
   const status = useQuery(realtimeQuery);
-  return <QueryView query={status} skeleton="cards">{(data) => <Outbox data={data} />}</QueryView>;
+  const history = useQuery(realtimeHistoryQuery);
+  return <QueryView query={status} skeleton="cards">{(data) => <Outbox data={data} delivered={history.data?.delivered} />}</QueryView>;
 }
 
-function Outbox({ data }: { data: RealtimeStatus }) {
+function Outbox({ data, delivered }: { data: RealtimeQueueStatus; delivered?: Int64 }) {
   const t = useT();
   const time = useTimeFormat();
   const dead = String(data.dead) !== "0";
-  const lag = data.oldestPending ? Date.now() - new Date(data.oldestPending).getTime() : null;
+  const lag = data.oldestPending ? Math.max(0, Date.now() - new Date(data.oldestPending).getTime()) : null;
 
   return (
     <div className="page-content ops-realtime">
@@ -52,7 +54,7 @@ function Outbox({ data }: { data: RealtimeStatus }) {
         </div>
         <div>
           <dt>{t("ops.realtime.delivered")}</dt>
-          <dd className="mono tick" key={String(data.delivered)}>{String(data.delivered)}</dd>
+          <dd className="mono tick" key={String(delivered)}>{delivered === undefined ? "–" : String(delivered)}</dd>
         </div>
         <div>
           <dt>{t("ops.realtime.cursorFloor")}</dt>

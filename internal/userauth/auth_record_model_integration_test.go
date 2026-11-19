@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
+	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/passwordfield"
 	"github.com/yakisoba0728/PgBase/internal/schema"
@@ -279,6 +280,19 @@ func TestPrivateAuthEmailRequiresActiveSameRealmManager(t *testing.T) {
 		if err != nil || record.Email != want {
 			t.Fatalf("actor=%s email=%q want=%q err=%v", actor, record.Email, want, err)
 		}
+		list, err := service.ListAuthorizedAuthRecords(ctx, collectionID, actor, 100)
+		if err != nil {
+			t.Fatalf("actor=%s list: %v", actor, err)
+		}
+		for _, listed := range list {
+			if listed.ID == target.ID {
+				if listed.Email != want {
+					t.Fatalf("actor=%s listed email=%q want=%q", actor, listed.Email, want)
+				}
+				return
+			}
+		}
+		t.Fatalf("actor=%s list did not include target", actor)
 	}
 	assertPrivateAuthEmail(manager.ID, target.Email)
 
@@ -330,10 +344,11 @@ func TestAuthRecordRelationValidatesTargetAndAppliesSetNull(t *testing.T) {
 	ctx := context.Background()
 	targetID := uuid.New()
 	targetName := "people_" + targetID.String()[:8]
-	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: targetID, Name: targetName, RegistrationEnabled: true}); err != nil {
+	policy := schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 36, Pattern: `^[A-Za-z0-9-]+$`}
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: targetID, Name: targetName, RegistrationEnabled: true, RecordID: &policy}); err != nil {
 		t.Fatal(err)
 	}
-	target, err := service.CreateAuthRecord(ctx, targetID, CreateAuthRecordInput{Email: "target@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{}})
+	target, err := service.CreateAuthRecord(ctx, targetID, CreateAuthRecordInput{ID: "TextManager", Email: "target@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,9 +361,22 @@ func TestAuthRecordRelationValidatesTargetAndAppliesSetNull(t *testing.T) {
 	if _, err := service.CreateAuthRecord(ctx, sourceID, CreateAuthRecordInput{Email: "badref@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{"manager": uuid.New().String()}}); !errors.Is(err, ErrValidation) {
 		t.Fatalf("missing target=%v", err)
 	}
-	source, err := service.CreateAuthRecord(ctx, sourceID, CreateAuthRecordInput{Email: "source@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{"manager": target.ID.String()}})
+	source, err := service.CreateAuthRecord(ctx, sourceID, CreateAuthRecordInput{Email: "source@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{"manager": target.PublicID}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	other, err := service.CreateAuthRecord(ctx, sourceID, CreateAuthRecordInput{Email: "other-source@example.test", Password: "correct horse battery staple", Active: true, Fields: map[string]any{"manager": target.PublicID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, next, err := service.ListAuthRecords(ctx, sourceID, uuid.Nil, 10)
+	if err != nil || len(listed) != 2 || next != uuid.Nil {
+		t.Fatalf("list = %+v, next=%v, error=%v", listed, next, err)
+	}
+	for _, record := range listed {
+		if record.Fields["manager"] != target.PublicID || (record.PublicID != source.PublicID && record.PublicID != other.PublicID) {
+			t.Fatalf("listed identity projection = %+v", record)
+		}
 	}
 	if err := service.DeleteAuthRecord(ctx, targetID, target.ID); err != nil {
 		t.Fatal(err)
@@ -458,5 +486,81 @@ func TestCustomAuthPasswordFieldsHashRedactAndPatch(t *testing.T) {
 	}
 	if passwordfield.Verify(systemHash, "correct horse battery staple") != nil {
 		t.Fatal("custom password patch changed system credential password")
+	}
+}
+
+type authPageQueryCounter struct {
+	database.DBTX
+	queries int
+}
+
+func (db *authPageQueryCounter) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	db.queries++
+	return db.DBTX.Query(ctx, sql, args...)
+}
+
+func (db *authPageQueryCounter) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	db.queries++
+	return db.DBTX.QueryRow(ctx, sql, args...)
+}
+
+func TestAuthorizedAuthRecordPageBatchesIdentityAndManageReads(t *testing.T) {
+	ctx := t.Context()
+	pool := newUserAuthPool(t)
+	service := NewService(pool, stubPasswords{}, []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	realm, targetRealm := uuid.New(), uuid.New()
+	targetName := "target_" + targetRealm.String()[:8]
+	policy := schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 36, Pattern: `^[A-Za-z0-9]+$`}
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: targetRealm, Name: targetName, RecordID: &policy}); err != nil {
+		t.Fatal(err)
+	}
+	target, err := service.CreateAuthRecord(ctx, targetRealm, CreateAuthRecordInput{
+		ID: "SharedTarget", Email: "shared-target@example.test", Password: "correct horse battery staple", Active: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := []schema.FieldInput{
+		{Name: "can_manage", Type: schema.TypeBoolean},
+		{Name: "peer", Type: schema.TypeRelation, Relation: &schema.RelationInput{TargetCollection: targetName, Cardinality: schema.RelationSingle}},
+	}
+	rules := AuthCollectionRules{List: "verified = true", Manage: "@request.auth.can_manage = true && verified = true"}
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: realm, Name: "list_batch", Fields: fields, Rules: rules}); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := service.CreateAuthRecord(ctx, realm, CreateAuthRecordInput{
+		Email: "page-manager@example.test", Password: "correct horse battery staple", Verified: true, Active: true,
+		Fields: map[string]any{"can_manage": true, "peer": target.PublicID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		with users as (
+			insert into pgbase_meta.users(id,auth_collection_id,email,password_hash,verified,active,created_at,updated_at)
+			select gen_random_uuid(),$1,'page-'||i||'@example.test','x',true,true,now(),now() from generate_series(1,99) i
+			returning id
+		)
+		insert into pgbase_meta.user_auth_profiles(user_id,attributes,updated_at)
+		select id,jsonb_build_object('peer',$2::text),now() from users`, realm, target.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		counted := &authPageQueryCounter{DBTX: tx}
+		page, err := service.listAuthorizedAuthRecordPage(ctx, counted, realm, manager.ID, 100)
+		if err != nil {
+			return err
+		}
+		if len(page) != 100 || counted.queries > 9 {
+			t.Fatalf("page records=%d, query round trips=%d", len(page), counted.queries)
+		}
+		for _, record := range page {
+			if record.PublicID == "" || record.Fields["peer"] != target.PublicID || record.Email == "" {
+				t.Fatalf("projected page record=%+v", record)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

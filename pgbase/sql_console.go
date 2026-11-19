@@ -34,7 +34,9 @@ func newSQLConsole(
 		runner.Close()
 		return nil, nil, fmt.Errorf("initialize SQL console ledger: %w", err)
 	}
-	service, err := sqlconsole.NewServiceWithOptions(ctx, runner, ledger, options.TokenSecret, configured.serviceOptions())
+	serviceOptions := configured.serviceOptions()
+	serviceOptions.Logger = options.Logger
+	service, err := sqlconsole.NewServiceWithOptions(ctx, runner, ledger, options.TokenSecret, serviceOptions)
 	if err != nil {
 		runner.Close()
 		return nil, nil, fmt.Errorf("initialize SQL console service: %w", err)

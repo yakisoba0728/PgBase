@@ -59,7 +59,7 @@ func (s *Service) RequestEmailOTPInCollection(ctx context.Context, collectionID 
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var enabled bool
 		var duration, maxAttempts int
-		if err := tx.QueryRow(ctx, `select otp_enabled,otp_duration_seconds,otp_max_attempts from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for update`, collectionID).Scan(&enabled, &duration, &maxAttempts); err != nil {
+		if err := tx.QueryRow(ctx, `select otp_enabled,otp_duration_seconds,otp_max_attempts from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, collectionID).Scan(&enabled, &duration, &maxAttempts); err != nil {
 			return err
 		}
 		if !enabled {
@@ -123,7 +123,7 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 	var operationErr error
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var enabled bool
-		if err := tx.QueryRow(ctx, `select otp_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for update`, collectionID).Scan(&enabled); err != nil || !enabled {
+		if err := tx.QueryRow(ctx, `select otp_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, collectionID).Scan(&enabled); err != nil || !enabled {
 			operationErr = ErrInvalidCredentials
 			return nil
 		}
@@ -131,7 +131,7 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 		var stored []byte
 		var attempts, maxAttempts int
 		var keyVersion string
-		err := tx.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.created_at,o.code_hash,o.token_key_version,o.attempts,o.max_attempts from pgbase_meta.user_email_otps o join pgbase_meta.users u on u.id=o.user_id where o.id=$1 and o.auth_collection_id=$2 and o.consumed_at is null and o.expires_at>CURRENT_TIMESTAMP and u.active for update of o,u`, id, collectionID).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt, &stored, &keyVersion, &attempts, &maxAttempts)
+		err := scanSessionUser(tx.QueryRow(ctx, `select `+sessionUserColumns+`,o.code_hash,o.token_key_version,o.attempts,o.max_attempts from pgbase_meta.user_email_otps o join pgbase_meta.users u on u.id=o.user_id where o.id=$1 and o.auth_collection_id=$2 and o.consumed_at is null and o.expires_at>CURRENT_TIMESTAMP and u.active for update of o,u`, id, collectionID), &user, &stored, &keyVersion, &attempts, &maxAttempts)
 		if errors.Is(err, pgx.ErrNoRows) {
 			operationErr = ErrInvalidCredentials
 			return nil

@@ -51,6 +51,23 @@ func beginRealtime(hooks RealtimeLifecycle, ctx context.Context, phase string, e
 	}
 }
 
+func realtimeStreamContext(request context.Context, drain func() context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(request, 30*time.Minute)
+	if drain == nil {
+		return ctx, cancel
+	}
+	shutdown := drain()
+	if shutdown.Err() != nil {
+		cancel()
+		return ctx, cancel
+	}
+	stop := context.AfterFunc(shutdown, cancel)
+	return ctx, func() {
+		stop()
+		cancel()
+	}
+}
+
 // Admission is bounded globally and per user; all memory remains bounded even
 // when clients hold idle connections or stop reading from their sockets.
 func realtimeHandler(dependencies Dependencies) http.Handler {
@@ -81,7 +98,7 @@ func realtimeHandler(dependencies Dependencies) http.Handler {
 		}
 		mu.Unlock()
 		if !admitted {
-			connectErr = errors.New("realtime admission limit reached")
+			connectErr = errRealtimeConnectionLimit
 			writeAPIError(w, r, APIError{Status: 429, Code: "realtime_limit", Message: "Too many realtime connections"})
 			return
 		}
@@ -100,7 +117,7 @@ func realtimeHandler(dependencies Dependencies) http.Handler {
 			writeRealtimeError(w, r, err)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
+		ctx, cancel := realtimeStreamContext(r.Context(), dependencies.RealtimeDrainContext)
 		defer cancel()
 		read := func(cursor *int64) ([]realtime.Event, int64, error) {
 			event := &RealtimeLifecycleEvent{UserID: id, Collection: r.PathValue("collection"), Cursor: cursor}

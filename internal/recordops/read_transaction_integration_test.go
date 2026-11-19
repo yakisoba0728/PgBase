@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/schema"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
 func TestReadsShareTheWriteTransactionAndRespectRollback(t *testing.T) {
@@ -88,5 +89,72 @@ func TestReadsShareTheWriteTransactionAndRespectRollback(t *testing.T) {
 	}
 	if _, err := tx.Exec(ctx, "select 1"); !errors.Is(err, pgx.ErrTxClosed) {
 		t.Fatalf("transaction not closed: %v", err)
+	}
+}
+
+func TestRecordReadsReusePinnedCatalog(t *testing.T) {
+	databaseURL, pool, schemas, records, principal := newRecordOperationsTestWithURL(t)
+	ctx := t.Context()
+	testutil.RetireRecordMembershipV4(t, ctx, pool)
+	record, err := records.Create(ctx, CreateRequest{
+		Principal: principal, RequestID: "read-pins-seed", Collection: "records",
+		Input: map[string]json.RawMessage{"title": json.RawMessage(`"fixture"`)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := schemas.Catalog(ctx); err != nil {
+		t.Fatal(err)
+	}
+	trace := &membershipSQLTrace{}
+	config, err := pgx.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Tracer = trace
+	conn, err := pgx.ConnectConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	ctx = WithTransaction(ctx, tx)
+	trace.start()
+	list := ListRequest{Principal: principal, RequestID: "read-pins-list", Collection: "records"}
+	for _, check := range []struct {
+		name string
+		run  func() error
+	}{
+		{"get", func() error {
+			_, err := records.Get(ctx, GetRequest{Principal: principal, RequestID: "read-pins-get", Collection: "records", ID: record.InternalID})
+			return err
+		}},
+		{"list", func() error {
+			_, err := records.List(ctx, list)
+			return err
+		}},
+		{"offset list", func() error {
+			_, err := records.ListPocketBase(ctx, PocketBaseListRequest{ListRequest: list, Page: 1, PerPage: 10})
+			return err
+		}},
+	} {
+		mark := trace.mark()
+		if err := check.run(); err != nil {
+			t.Fatalf("%s: %v", check.name, err)
+		}
+		pins := 0
+		const schemaPin = "select version from pgbase_meta.schema_state where singleton for share"
+		for _, statement := range trace.statementsFrom(mark) {
+			if statement == schemaPin {
+				pins++
+			}
+		}
+		if pins != 1 {
+			t.Fatalf("%s used %d direct schema pins, want 1", check.name, pins)
+		}
 	}
 }

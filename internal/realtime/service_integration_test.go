@@ -406,3 +406,32 @@ func TestReadForPublicOutboxReplaysRenamedFieldsUnderCurrentHiddenPolicy(t *test
 		t.Fatal("currently hidden field replayed")
 	}
 }
+
+func TestReplaySnapshotSharesPoolCheckoutAcrossTopics(t *testing.T) {
+	s, user, collection := realtimeFixture(t)
+	id := seedEvent(t, s, user, collection)
+	if err := s.Deliver(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	before := s.pool.Stats().AcquireCount
+	var head int64
+	if err := s.WithReplaySnapshot(ctx, func(read ReplayLookup) error {
+		var after int64
+		for range 50 {
+			events, cursor, err := read(ReadRequest{
+				Principal: identity.Subject{Kind: identity.User, ID: user}, Collection: "notes", After: &after,
+			})
+			if err != nil || len(events) != 1 || events[0].EventID != id || (head != 0 && cursor != head) {
+				t.Fatalf("topic replay=%+v cursor=%d: %v", events, cursor, err)
+			}
+			head = cursor
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.pool.Stats().AcquireCount - before; got != 1 {
+		t.Fatalf("50 topic reads used %d pool checkouts, want 1", got)
+	}
+}

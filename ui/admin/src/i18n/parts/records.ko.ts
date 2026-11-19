@@ -95,6 +95,8 @@ export const recordsKo: Record<keyof typeof recordsEn, string> = {
   "records.filterHelpText": "단어만 쓰면 텍스트 필드에서 찾고, 식을 쓰면 정확히 거릅니다. 예:",
   "records.filterOps": "연산자: = != > >= < <= ~(포함) !~, &&와 ||로 연결. :lower 수식어. Cmd/Ctrl+Enter로 적용.",
   "records.fixFilter": "위 필터를 고치거나 지우세요.",
+  "records.shifted": "최근에 불러온 레코드 {count}개를 표시합니다.",
+  "records.toStart": "처음으로 돌아가기",
   "records.toTop": "맨 위로",
 
   "query.filterRejected": "필터 오류:",

@@ -62,7 +62,7 @@ it("preserves every same-tab 412 edit when persistent storage is blocked", async
   const blocked = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
   const first = renderHook(() => useRecordForm({ collection: edited, loaded: { record: { id: "r", title: "old" }, etag: '"1"' }, onCreated: vi.fn(), onDeleted: vi.fn() }), { wrapper });
   act(() => { first.result.current.setDraft("title", "mine"); first.result.current.setDraft("api_token", "secret"); });
-  act(() => first.result.current.reload(true));
+  await act(() => first.result.current.reload(true));
   first.unmount();
   const second = renderHook(() => useRecordForm({ collection: edited, loaded: { record: { id: "r", title: "remote" }, etag: '"2"' }, onCreated: vi.fn(), onDeleted: vi.fn() }), { wrapper });
   expect(second.result.current.drafts).toMatchObject({ title: "mine", api_token: "secret" });

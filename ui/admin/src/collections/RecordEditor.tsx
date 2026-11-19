@@ -64,7 +64,7 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     // Cmd/Ctrl+S submits even while Save is disabled: an untouched record is not re-sent.
-    if (!readOnly && !relationPending && !form.save.isPending && (form.dirty || form.isNew)) form.save.mutate();
+    if (!readOnly && !relationPending && !form.conflict && !form.reloading && !form.save.isPending && (form.dirty || form.isNew)) form.save.mutate();
   };
 
   const duplicate = () => {
@@ -85,21 +85,20 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
           </Dropdown>
         )}
       </PaneHeader>
-      {/* Inert while saving: edits typed now would be lost when the saved version replaces the form. */}
-      <div className="pane-body" inert={form.save.isPending}>
+      <div className="pane-body" aria-busy={form.reloading}>
         {form.conflict && (
           <Notice title={t("records.conflictTitle")} actions={<>
-            <Button size="sm" onClick={() => form.reload(true)}>{t("records.reloadKeep")}</Button>
-            <Button size="sm" variant="transparent" onClick={() => form.reload(false)}>{t("records.reloadDiscard")}</Button>
+            <Button size="sm" disabled={form.reloading} onClick={() => void form.reload(true)}>{t("records.reloadKeep")}</Button>
+            <Button size="sm" variant="transparent" disabled={form.reloading} onClick={() => void form.reload(false)}>{t("records.reloadDiscard")}</Button>
           </>}>{t("records.conflictText")}</Notice>
         )}
         {form.restoredAt !== null && !form.conflict && (
-          <Notice role="status" actions={<Button size="sm" variant="transparent" onClick={form.dropRestored}>{t("records.restoredDiscard")}</Button>}>
+          <Notice role="status" actions={<Button size="sm" variant="transparent" disabled={form.reloading} onClick={form.dropRestored}>{t("records.restoredDiscard")}</Button>}>
             {t("records.restored", { time: time(form.restoredAt, true) })}
           </Notice>
         )}
         {readOnly && <p className="field-hint">{t("records.viewReadOnly")}</p>}
-        <form ref={formRef} id={formId} className="form" onSubmit={onSubmit} noValidate>
+        <form ref={formRef} id={formId} className="form" inert={form.save.isPending || form.reloading} onSubmit={onSubmit} noValidate>
           {form.isNew && collection.recordId?.kind === "text" && (
             <Field
               label="id"
@@ -117,7 +116,7 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
           )}
           {collection.fields.map((field) => {
             if (field.type === "file")
-              return <FileField key={field.id} collection={collection.name} recordId={form.record?.id ?? null} field={field} readOnly={readOnly || form.save.isPending || form.remove.isPending} staged={form.files[field.name] ?? []} onStage={(list) => form.setFiles(field.name, list)} onRecordChanged={() => form.reload(true)} />;
+              return <FileField key={field.id} collection={collection.name} recordId={form.record?.id ?? null} field={field} readOnly={readOnly || form.save.isPending || form.remove.isPending} staged={form.files[field.name] ?? []} onStage={(list) => form.setFiles(field.name, list)} onRecordChanged={() => void form.reload(true)} />;
             if (field.type === "autodate") {
               const value = form.record?.[field.name];
               return <Field key={field.id} label={field.name} aside={field.type} value={typeof value === "string" ? shortDate(value) : ""} placeholder={t("records.autodateHint")} readOnly />;
@@ -140,10 +139,10 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
       {!readOnly && (
         <footer className="pane-footer">
           {form.record && (
-            <Button variant="danger" className="pane-footer-start" onClick={() => setConfirmDelete(true)}>{t("common.delete")}</Button>
+            <Button variant="danger" className="pane-footer-start" disabled={form.reloading || form.conflict} onClick={() => setConfirmDelete(true)}>{t("common.delete")}</Button>
           )}
-          <SaveBar form={formId} dirty={form.dirty} busy={form.save.isPending} onDiscard={form.isNew ? onClose : form.reset}
-            saveLabel={form.isNew ? t("records.create") : t("records.save")} saveDisabled={relationPending || (!form.dirty && !form.isNew)}>
+          <SaveBar form={formId} dirty={form.dirty} busy={form.save.isPending || form.reloading} onDiscard={form.isNew ? onClose : form.reset}
+            saveLabel={form.isNew ? t("records.create") : t("records.save")} saveDisabled={form.conflict || form.reloading || relationPending || (!form.dirty && !form.isNew)}>
             {form.progress !== null && <progress className="progress-bar pane-progress" max={1} value={form.progress} aria-label={t("file.uploadingAll")} />}
           </SaveBar>
         </footer>
@@ -155,10 +154,11 @@ function RecordForm({ collection, loaded, onClose, onCreated, onCreate }: Omit<R
         confirmLabel={t("common.delete")}
         danger
         busy={form.remove.isPending}
+        confirmDisabled={form.reloading || form.conflict}
         onConfirm={() => form.remove.mutate(undefined, { onSettled: () => setConfirmDelete(false) })}
         onCancel={() => setConfirmDelete(false)}
       />
-      <UnsavedGuard {...form.guard} dirty={form.dirty || relationPending} busy={form.save.isPending || form.remove.isPending || relationPending} />
+      <UnsavedGuard {...form.guard} dirty={form.dirty || relationPending} busy={form.reloading || form.save.isPending || form.remove.isPending || relationPending} />
     </>
   );
 }

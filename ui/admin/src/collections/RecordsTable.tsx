@@ -249,9 +249,10 @@ const RecordRow = memo(function RecordRow({ index, record, collection, catalog, 
           <CopyButton size="xs" className="icon-btn-raised" label={t("common.copyId")} value={record.id} />
         </span>
       </td>
-      {columns.map((name) => (
-        <RecordCell key={name} name={name} field={byName.get(name)} record={record} collection={collection.name} catalog={catalog} settled={settled} onPeek={onPeek} />
-      ))}
+      {columns.map((name) => {
+        const field = byName.get(name);
+        return <RecordCell key={name} name={name} field={field} record={record} collection={collection.name} catalog={catalog} settled={field?.type === "file" && settled} onPeek={onPeek} />;
+      })}
     </tr>
   );
 });

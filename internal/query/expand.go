@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
-	"github.com/yakisoba0728/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/membership"
 	"github.com/yakisoba0728/PgBase/internal/recordartifact"
 	"github.com/yakisoba0728/PgBase/internal/relation"
 	"github.com/yakisoba0728/PgBase/internal/schema"
@@ -60,11 +60,17 @@ type getResult struct {
 }
 
 func (s *Service) Get(ctx context.Context, request GetRequest) (Record, error) {
-	result, err := s.readGet(ctx, request)
+	result, err := s.readGet(ctx, request, s.inTxCatalog)
 	return result.record, err
 }
 
-func (s *Service) readGet(ctx context.Context, request GetRequest) (getResult, error) {
+// GetPinned uses a catalog which the caller already pinned on this transaction.
+func (s *Service) GetPinned(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, request GetRequest) (Record, error) {
+	result, err := s.readGet(ctx, request, pinnedCatalogReader(tx, catalog))
+	return result.record, err
+}
+
+func (s *Service) readGet(ctx context.Context, request GetRequest, readCatalog catalogReader) (getResult, error) {
 	if err := s.ready(); err != nil {
 		return getResult{}, err
 	}
@@ -75,7 +81,7 @@ func (s *Service) readGet(ctx context.Context, request GetRequest) (getResult, e
 		return getResult{}, validation("id", "invalid")
 	}
 	var result getResult
-	err := s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+	err := readCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		return s.readGetInTx(ctx, tx, catalog, collection, request, &result)
 	}, request.Collection)
 	if err != nil {
@@ -104,7 +110,7 @@ func (s *Service) readNativeGetInTx(
 	}
 	statement := CompileSelectByID(collection, request.ID)
 	if request.Principal.Kind == identity.User || request.Principal.Kind == identity.Anonymous {
-		rules, _, err := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
+		rules, _, err := loadReadRules(ctx, tx, collection.AccessCollectionID())
 		if err != nil {
 			return err
 		}
@@ -188,9 +194,12 @@ func (s *Service) readNativeGetInTx(
 }
 
 type listResult struct {
-	page       RecordPage
-	expanded   []ExpandedRecord
-	querySteps int
+	page        RecordPage
+	expanded    []ExpandedRecord
+	querySteps  int
+	byteLimited bool
+	plan        rootPlan
+	traversal   membership.Traversal
 	// ordered is false for a random sort, whose page never carries a cursor.
 	ordered bool
 }
@@ -205,7 +214,7 @@ func (r listResult) exactTotal(request ListRequest) (int64, bool) {
 	return int64(request.Offset + len(r.page.Items)), true
 }
 
-func (s *Service) readList(ctx context.Context, request ListRequest) (result listResult, err error) {
+func (s *Service) readList(ctx context.Context, request ListRequest, readCatalog catalogReader) (result listResult, err error) {
 	started := time.Now()
 	relationOperation := requestTextAddressesRelation(request.Expand, request.Filter, request.Sort)
 	defer s.finishReadOperation(
@@ -225,7 +234,7 @@ func (s *Service) readList(ctx context.Context, request ListRequest) (result lis
 	if err != nil {
 		return listResult{}, err
 	}
-	err = s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+	err = readCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		var operation bool
 		var readErr error
 		result, operation, readErr = s.readListInTx(ctx, tx, catalog, collection, request, filterNode, requestedSort)
@@ -236,7 +245,7 @@ func (s *Service) readList(ctx context.Context, request ListRequest) (result lis
 		total, exact := result.exactTotal(request)
 		var countErr error
 		if !exact {
-			total, countErr = s.countListInTx(ctx, tx, catalog, collection, request, filterNode, maximumListTotal+1)
+			total, countErr = countPageMatches(ctx, tx, collection, result, maximumListTotal+1)
 		}
 		result.page.TotalCapped = total > maximumListTotal
 		total = min(total, maximumListTotal)
@@ -289,11 +298,13 @@ func (s *Service) readNativeListInTx(
 	rootRequest := rootPageReadRequest{
 		plan: rootPlan, cursorToken: request.Cursor, limit: request.Limit,
 		operationTime: traversal.TransactionTime, traversal: traversal, offset: request.Offset,
+		project: request.projectRoot,
 	}
 	if usage == nil {
-		if multipleRelationFieldCount(collection) != 0 {
+		if multipleRelationFieldCount(collection) != 0 || request.projectRoot != nil && collectionHasRelation(collection) {
 			rootRequest.hydrator = newRootHydrator(tx, catalog, collection, request.Principal)
 			rootRequest.hydrator.ruleContext = request.RuleContext
+			rootRequest.hydrator.project = request.projectRoot
 		} else if collectionHasRelation(collection) {
 			rootRequest.hydrate = func(items []map[string]any) error {
 				return filterRelationValues(ctx, tx, catalog, collection, items, request.Principal, request.RuleContext)
@@ -319,7 +330,10 @@ func (s *Service) readNativeListInTx(
 		for _, item := range root.page.Items {
 			hideRecordFields(collection, request.Principal, item)
 		}
-		return listResult{page: projection.applyPage(root.page), ordered: !rootPlan.order().random()}, relationOperation, nil
+		return listResult{
+			page: projection.applyPage(root.page), byteLimited: root.byteLimited, ordered: !rootPlan.order().random(),
+			plan: rootPlan, traversal: traversal,
+		}, relationOperation, nil
 	}
 
 	expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, collection, root.page.Items, expansion, request.Principal, request.RuleContext, usage)
@@ -350,7 +364,8 @@ func (s *Service) readNativeListInTx(
 	}
 	return listResult{
 		page:     projection.applyPage(RecordPage{Items: items, NextCursor: cursor}),
-		expanded: expanded[:keep], querySteps: usage.querySteps, ordered: !rootPlan.order().random(),
+		expanded: expanded[:keep], querySteps: usage.querySteps, byteLimited: root.byteLimited || keep < len(expanded),
+		ordered: !rootPlan.order().random(), plan: rootPlan, traversal: traversal,
 	}, relationOperation, nil
 }
 
@@ -387,7 +402,7 @@ func (s *Service) planNativeRead(ctx context.Context, tx pgx.Tx, catalog schema.
 		return rootPlan{}, err
 	}
 	if request.Principal.Kind == identity.User || request.Principal.Kind == identity.Anonymous {
-		rules, revision, err := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
+		rules, revision, err := loadReadRules(ctx, tx, collection.AccessCollectionID())
 		if err != nil {
 			return rootPlan{}, err
 		}
@@ -402,13 +417,12 @@ func (s *Service) planNativeRead(ctx context.Context, tx pgx.Tx, catalog schema.
 	return plan, nil
 }
 
-// countListInTx counts matching records; a positive limit stops counting there.
-func (s *Service) countListInTx(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, request ListRequest, filterNode filterNode, limit int) (int64, error) {
-	plan, err := s.planRead(ctx, tx, catalog, collection, request, filterNode, nil)
-	if err != nil {
-		return 0, err
-	}
-	return s.countPlanInTx(ctx, tx, collection, plan, limit)
+// Count with the same bound filter and traversal as the list. Sort-only
+// joins are unnecessary and can repeat root records.
+func countPageMatches(ctx context.Context, tx pgx.Tx, collection schema.Collection, result listResult, limit int) (int64, error) {
+	plan := result.plan
+	plan.relation.order.terms = nil
+	return countMatchingRows(ctx, tx, collection, plan, result.traversal, limit)
 }
 
 func (s *Service) countPlanInTx(ctx context.Context, tx pgx.Tx, collection schema.Collection, plan rootPlan, limit int) (int64, error) {
@@ -416,6 +430,10 @@ func (s *Service) countPlanInTx(ctx context.Context, tx pgx.Tx, collection schem
 	if err != nil {
 		return 0, err
 	}
+	return countMatchingRows(ctx, tx, collection, plan, traversal, limit)
+}
+
+func countMatchingRows(ctx context.Context, tx pgx.Tx, collection schema.Collection, plan rootPlan, traversal membership.Traversal, limit int) (int64, error) {
 	var highWater *int64
 	if !collection.IsSQLView() {
 		highWater = &traversal.HighWater
@@ -443,7 +461,7 @@ func authorizePrincipal(ctx context.Context, tx pgx.Tx, collection schema.Collec
 	if principal.Kind == identity.Administrator {
 		return nil
 	}
-	return recordaccess.AuthorizeSubject(ctx, tx, collection.AccessCollectionID(), principal, action)
+	return authorizeReadSubject(ctx, tx, collection.AccessCollectionID(), principal, action)
 }
 
 func validateExpandedRecordSize(record ExpandedRecord, maximumBytes int) error {
@@ -537,7 +555,7 @@ func (s *Service) fetchExpansionTargets(
 	if len(ids) == 0 {
 		return targets, nil
 	}
-	if err := recordaccess.AuthorizeSubject(ctx, tx, collection.AccessCollectionID(), principal, "view"); err != nil {
+	if err := authorizeReadSubject(ctx, tx, collection.AccessCollectionID(), principal, "view"); err != nil {
 		return nil, err
 	}
 	selectedMultiFields := multipleRelationFieldNames(collection)
@@ -548,7 +566,7 @@ func (s *Service) fetchExpansionTargets(
 	}
 	statement := compileExpandTargetSelect(collection, ids)
 	if principal.Kind == identity.User || principal.Kind == identity.Anonymous {
-		rules, _, err := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
+		rules, _, err := loadReadRules(ctx, tx, collection.AccessCollectionID())
 		if err != nil {
 			return nil, err
 		}

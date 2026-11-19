@@ -265,3 +265,41 @@ func TestRuntimeBoundsQueueAndCloseCancelsActiveAndWaitingCalls(t *testing.T) {
 		t.Fatal("closed runtime accepted a new invocation")
 	}
 }
+
+type preparedInputHost struct {
+	recordingHost
+	input json.RawMessage
+}
+
+func (h *preparedInputHost) PrepareInput(context.Context, json.RawMessage, int64) (json.RawMessage, error) {
+	return h.input, nil
+}
+
+func TestRuntimeEnforcesInputLimitAfterPreparingRequest(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v2","routes":[{"method":"POST","pattern":"/prepared","access":"public","handler":{"module":"route.js","export":"run"}}]}`)
+	writeFile(t, directory, "route.js", `exports.run=(input)=>input;`)
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withinLimit := json.RawMessage(`{"body":"readable text"}`)
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{MaximumInputBytes: len(withinLimit)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	invocation := jsvm.Invocation{
+		Handler: bundle.Manifest().Routes[0].Handler,
+		Input:   json.RawMessage(`{}`),
+		Host:    &preparedInputHost{input: withinLimit},
+	}
+	if got, err := runtime.Invoke(t.Context(), invocation); err != nil || string(got) != string(withinLimit) {
+		t.Fatalf("at input bound: got %s, err=%v", got, err)
+	}
+	invocation.Host = &preparedInputHost{input: json.RawMessage(`{"body":"oversize input"}`)}
+	var limitErr *jsvm.Error
+	if _, err := runtime.Invoke(t.Context(), invocation); !errors.As(err, &limitErr) || limitErr.Code != jsvm.CodeLimitExceeded {
+		t.Fatalf("over input bound: err=%#v", err)
+	}
+}

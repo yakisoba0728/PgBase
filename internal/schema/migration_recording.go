@@ -17,7 +17,8 @@ type MigrationRecording struct {
 }
 
 // MigrationRecorder durably queues source in the schema transaction, then
-// materializes it only after commit. Materialize errors remain retryable state.
+// materializes it only after commit. The recording transaction holds the schema
+// writer lock through commit. Materialize errors remain retryable state.
 type MigrationRecorder interface {
 	RecordSchemaMigration(context.Context, pgx.Tx, MigrationRecording) error
 	MaterializeSchemaMigration(context.Context, uuid.UUID) error

@@ -343,3 +343,58 @@ func TestConcurrentActionConfirmationConsumesExactlyOnce(t *testing.T) {
 		t.Fatalf("confirmation race succeeded/rejected = %d/%d, want 1/1", succeeded, rejected)
 	}
 }
+
+type registrationAlertGate struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (g registrationAlertGate) Send(_ context.Context, _ mailer.Message) error {
+	g.started <- struct{}{}
+	<-g.release
+	return nil
+}
+
+func TestRegistrationReleasesPasswordSlotBeforeSendingAlert(t *testing.T) {
+	service, _ := newEmailActionService(t)
+	ctx := t.Context()
+	const password = "correct horse battery staple"
+	if _, err := service.Register(ctx, "login-existing@example.test", password, "existing-origin"); err != nil {
+		t.Fatal(err)
+	}
+	gate := registrationAlertGate{started: make(chan struct{}, 2), release: make(chan struct{})}
+	if err := service.ConfigureEmailActions(gate, "http://localhost:8090", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.PutMailTemplate(ctx, DefaultCollectionID, MailTemplate{Purpose: "auth_alert", Subject: "New login", Body: "{{alert}}"}); err != nil {
+		t.Fatal(err)
+	}
+	var registrations sync.WaitGroup
+	results := make(chan error, 2)
+	defer func() {
+		close(gate.release)
+		registrations.Wait()
+		close(results)
+		for err := range results {
+			if err != nil {
+				t.Errorf("signup: %v", err)
+			}
+		}
+	}()
+	for _, email := range []string{"register-first@example.test", "register-second@example.test"} {
+		registrations.Go(func() {
+			_, err := service.Register(ctx, email, password, email)
+			results <- err
+		})
+	}
+	for range 2 {
+		select {
+		case <-gate.started:
+		case <-time.After(10 * time.Second):
+			t.Fatal("signup did not reach the alert sender")
+		}
+	}
+	if _, err := service.Login(ctx, "login-existing@example.test", password, "existing-origin"); err != nil {
+		t.Fatalf("login while signup alerts are pending: %v", err)
+	}
+}

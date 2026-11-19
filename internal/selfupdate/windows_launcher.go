@@ -22,7 +22,7 @@ func LaunchWindowsHelper(request WindowsHelperRequest) error {
 	if err != nil {
 		return ErrReplaceFailed
 	}
-	mode, err := executableMode(executable)
+	digest, mode, err := fileDigestAndMode(executable)
 	if err != nil {
 		return ErrReplaceFailed
 	}
@@ -38,7 +38,7 @@ func LaunchWindowsHelper(request WindowsHelperRequest) error {
 	if err = os.Remove(helperPath); err != nil {
 		return ErrReplaceFailed
 	}
-	if err = copyRegular(executable, helperPath, mode); err != nil {
+	if err = copyRegular(executable, helperPath, mode.Perm(), digest); err != nil {
 		_ = os.Remove(helperPath)
 		return ErrReplaceFailed
 	}
@@ -51,11 +51,6 @@ func LaunchWindowsHelper(request WindowsHelperRequest) error {
 		return ErrReplaceFailed
 	}
 	return nil
-}
-
-func executableMode(path string) (os.FileMode, error) {
-	_, mode, err := fileDigestAndMode(path)
-	return mode.Perm(), err
 }
 
 // RunWindowsHelperArgument decodes the process-local helper request.

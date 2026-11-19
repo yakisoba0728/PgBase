@@ -84,6 +84,15 @@ func TestManagedBackupHTTPRestoresAndActivatesFreshTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = conn.Close(context.Background())
+	stream, err := (&http.Client{Timeout: 30 * time.Second}).Get(origin + "/api/realtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Body.Close()
+	first := make([]byte, len("event: PB_CONNECT\n"))
+	if _, err = io.ReadFull(stream.Body, first); err != nil || string(first) != "event: PB_CONNECT\n" {
+		t.Fatalf("initial stream frame %q: %v", first, err)
+	}
 	restored := managedJSON[backup.Job](t, http.MethodPost, origin+"/api/admin/backups/"+created.BackupID+"/restore", nil, cookie, csrf, http.StatusAccepted)
 	restored = waitManagedJob(t, origin, restored.ID, cookie)
 	if restored.Status != "completed" {

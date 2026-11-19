@@ -61,6 +61,7 @@ func TestOfflineBackupDoesNotCountItsValidationConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	pool.Close()
+	testutil.WaitForDatabaseSessionsToClose(t, url)
 	root := t.TempDir()
 	raw, err := json.Marshal(pgbase.RestoreTarget{DatabaseURL: url, FilesDirectory: t.TempDir()})
 	if err != nil {

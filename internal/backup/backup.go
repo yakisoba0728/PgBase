@@ -24,6 +24,7 @@ import (
 )
 
 const FormatVersion = 1
+const maximumManifestBytes = 16 << 20
 
 var versionPattern = regexp.MustCompile(`(?:PostgreSQL\)?\s+)(\d+)\.`)
 var restoreCommitWitness = regexp.MustCompile(`(?m)^\d+; \d+ \d+ TABLE pgbase_meta schema_migrations `)
@@ -47,8 +48,12 @@ func checksum(ctx context.Context, path, name string) (result File, resultErr er
 		return File{}, err
 	}
 	defer func() { resultErr = errors.Join(resultErr, f.Close()) }()
+	return copyChecksum(ctx, io.Discard, f, name)
+}
+
+func copyChecksum(ctx context.Context, destination io.Writer, source io.Reader, name string) (File, error) {
 	h := sha256.New()
-	n, err := io.Copy(h, contextReader{ctx: ctx, reader: f})
+	n, err := io.Copy(io.MultiWriter(destination, h), contextReader{ctx: ctx, reader: source})
 	return File{Path: name, Size: n, SHA256: hex.EncodeToString(h.Sum(nil))}, err
 }
 
@@ -64,15 +69,27 @@ func cleanRelative(name string) (string, error) {
 }
 
 func safeTree(ctx context.Context, root string) ([]File, error) {
+	result := []File{}
+	err := walkBackupFiles(ctx, root, func(path, name string) error {
+		item, err := checksum(ctx, path, name)
+		if err == nil {
+			result = append(result, item)
+		}
+		return err
+	})
+	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
+	return result, err
+}
+
+func walkBackupFiles(ctx context.Context, root string, visit func(path, name string) error) error {
 	info, err := os.Lstat(root)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, errors.New("file source must be a real directory")
+		return errors.New("file source must be a real directory")
 	}
-	result := []File{}
-	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -96,14 +113,8 @@ func safeTree(ctx context.Context, root string) ([]File, error) {
 		if _, err = cleanRelative(name); err != nil {
 			return err
 		}
-		item, err := checksum(ctx, path, name)
-		if err == nil {
-			result = append(result, item)
-		}
-		return err
+		return visit(path, name)
 	})
-	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
-	return result, err
 }
 
 type contextReader struct {
@@ -368,78 +379,95 @@ func Verify(directory string) (Manifest, error) {
 // VerifyContext validates the manifest, hashes every artifact, and rejects
 // extra files while honoring cancellation throughout potentially large trees.
 func VerifyContext(ctx context.Context, directory string) (Manifest, error) {
+	manifest, _, artifacts, err := readBackupLayout(ctx, directory)
+	if err != nil {
+		return Manifest{}, err
+	}
+	for _, entry := range artifacts {
+		actual, err := checksum(ctx, filepath.Join(directory, filepath.FromSlash(entry.Path)), entry.Path)
+		if err != nil {
+			return Manifest{}, err
+		}
+		if actual != entry {
+			return Manifest{}, errors.New("backup artifact hash mismatch")
+		}
+	}
+	return manifest, nil
+}
+
+// readBackupLayout validates the inventory without reading file contents.
+// The artifact paths it returns are relative to the archive root.
+func readBackupLayout(ctx context.Context, directory string) (Manifest, []byte, []File, error) {
 	var manifest Manifest
 	if err := ctx.Err(); err != nil {
-		return manifest, err
+		return manifest, nil, nil, err
 	}
 	root, err := os.Lstat(directory)
 	if err != nil || !root.IsDir() || root.Mode()&os.ModeSymlink != 0 {
-		return manifest, errors.New("backup must be a real directory")
+		return manifest, nil, nil, errors.New("backup must be a real directory")
 	}
 	manifestPath := filepath.Join(directory, "manifest.json")
 	manifestInfo, err := os.Lstat(manifestPath)
-	if err != nil || !manifestInfo.Mode().IsRegular() || manifestInfo.Mode()&os.ModeSymlink != 0 || manifestInfo.Size() > 16<<20 {
-		return manifest, errors.New("missing or unsafe backup manifest")
+	if err != nil || !manifestInfo.Mode().IsRegular() || manifestInfo.Mode()&os.ModeSymlink != 0 || manifestInfo.Size() > maximumManifestBytes {
+		return manifest, nil, nil, errors.New("missing or unsafe backup manifest")
 	}
 	encoded, err := os.ReadFile(manifestPath)
 	if err != nil {
-		return manifest, err
+		return manifest, nil, nil, err
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(encoded)))
 	decoder.DisallowUnknownFields()
 	if err = decoder.Decode(&manifest); err != nil || manifest.Format != FormatVersion || manifest.PostgreSQLMajor < 10 || manifest.Database.Path != "database.dump" {
-		return Manifest{}, errors.New("invalid backup manifest")
+		return Manifest{}, nil, nil, errors.New("invalid backup manifest")
 	}
 	var extra any
 	if err = decoder.Decode(&extra); err != io.EOF {
-		return Manifest{}, errors.New("invalid backup manifest")
+		return Manifest{}, nil, nil, errors.New("invalid backup manifest")
 	}
-	seen := make(map[string]bool)
-	all := append([]File{manifest.Database}, manifest.Files...)
-	for index, entry := range all {
+	expected := make(map[string]struct{}, len(manifest.Files))
+	artifacts := append([]File{manifest.Database}, manifest.Files...)
+	for index, entry := range artifacts {
 		if err := ctx.Err(); err != nil {
-			return Manifest{}, err
+			return Manifest{}, nil, nil, err
 		}
-		clean, err := cleanRelative(entry.Path)
+		_, err := cleanRelative(entry.Path)
 		digest, digestErr := hex.DecodeString(entry.SHA256)
 		if err != nil || entry.Size < 0 || digestErr != nil || len(digest) != sha256.Size {
-			return Manifest{}, errors.New("invalid backup manifest")
+			return Manifest{}, nil, nil, errors.New("invalid backup manifest")
 		}
 		if index > 0 {
-			if seen[entry.Path] {
-				return Manifest{}, errors.New("duplicate backup path")
+			if _, duplicate := expected[entry.Path]; duplicate {
+				return Manifest{}, nil, nil, errors.New("duplicate backup path")
 			}
-			seen[entry.Path] = true
+			if index > 1 && manifest.Files[index-2].Path > entry.Path {
+				return Manifest{}, nil, nil, errors.New("backup file inventory mismatch")
+			}
+			expected[entry.Path] = struct{}{}
+			artifacts[index].Path = "files/" + entry.Path
 		}
-		path := filepath.Join(directory, clean)
-		if index > 0 {
-			path = filepath.Join(directory, "files", clean)
-		}
+		path := filepath.Join(directory, filepath.FromSlash(artifacts[index].Path))
 		info, err := os.Lstat(path)
 		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-			return Manifest{}, errors.New("missing or unsafe backup artifact")
+			return Manifest{}, nil, nil, errors.New("missing or unsafe backup artifact")
 		}
-		actual, err := checksum(ctx, path, entry.Path)
-		if err != nil {
-			return Manifest{}, err
-		}
-		if actual.Size != entry.Size || actual.SHA256 != entry.SHA256 {
-			return Manifest{}, errors.New("backup artifact hash mismatch")
+		if info.Size() != entry.Size {
+			return Manifest{}, nil, nil, errors.New("backup artifact size mismatch")
 		}
 	}
-	actualFiles, err := safeTree(ctx, filepath.Join(directory, "files"))
+	err = walkBackupFiles(ctx, filepath.Join(directory, "files"), func(_ string, name string) error {
+		if _, present := expected[name]; !present {
+			return errors.New("backup file inventory mismatch")
+		}
+		delete(expected, name)
+		return nil
+	})
 	if err != nil {
-		return Manifest{}, err
+		return Manifest{}, nil, nil, err
 	}
-	if len(actualFiles) != len(manifest.Files) {
-		return Manifest{}, errors.New("backup file inventory mismatch")
+	if len(expected) != 0 {
+		return Manifest{}, nil, nil, errors.New("backup file inventory mismatch")
 	}
-	for index := range actualFiles {
-		if actualFiles[index] != manifest.Files[index] {
-			return Manifest{}, errors.New("backup file inventory mismatch")
-		}
-	}
-	return manifest, nil
+	return manifest, encoded, artifacts, nil
 }
 
 func Restore(ctx context.Context, directory, databaseURL, files string) error {

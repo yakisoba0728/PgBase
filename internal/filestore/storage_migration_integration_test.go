@@ -209,6 +209,95 @@ func (s *migrationDeleteFailureStore) Delete(context.Context, string) error {
 	return s.err
 }
 
+type migrationBlockingDeleteStore struct {
+	ObjectStore
+	started, release chan struct{}
+}
+
+func (s *migrationBlockingDeleteStore) Delete(ctx context.Context, _ string) error {
+	close(s.started)
+	select {
+	case <-s.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestObjectMigrationCleanupAllowsActiveFilePublicationWhileTransitionWaits(t *testing.T) {
+	ctx, pool, controller, migrationID, _, source, destination := newLocalMigrationFixture(t, nil)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	service := NewObjectMigrationService(controller)
+	service.buildStore = migrationStoreFactory(source, destination)
+	if copied, err := service.copyOne(ctx, migrationID); err != nil || !copied {
+		t.Fatalf("copy=%t err=%v", copied, err)
+	}
+	if err := service.Cancel(ctx, migrationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `update pgbase_meta.file_storage_source_cleanup set not_before=CURRENT_TIMESTAMP-interval '1 second' where migration_id=$1`, migrationID); err != nil {
+		t.Fatal(err)
+	}
+	blocking := &migrationBlockingDeleteStore{ObjectStore: destination, started: make(chan struct{}), release: make(chan struct{})}
+	service.buildStore = migrationStoreFactory(source, blocking)
+	cleaned := make(chan error, 1)
+	go func() {
+		worked, err := service.CleanupOne(ctx)
+		if err == nil && !worked {
+			err = errors.New("no cleanup row was completed")
+		}
+		cleaned <- err
+	}()
+	select {
+	case <-blocking.started:
+	case err := <-cleaned:
+		t.Fatalf("cleanup stopped before reaching the object store: %v", err)
+	case <-ctx.Done():
+		t.Fatal("cleanup did not reach the object store")
+	}
+	var canTransition bool
+	if err := pool.QueryRow(ctx, `select pg_try_advisory_xact_lock($1)`, storageTransitionLock).Scan(&canTransition); err != nil || canTransition {
+		t.Fatalf("legacy storage transition acquired=%t err=%v", canTransition, err)
+	}
+	changed := make(chan error, 1)
+	go func() {
+		_, err := controller.Update(ctx, StorageUpdate{Driver: "local", Revision: 1})
+		changed <- err
+	}()
+	for {
+		var waiting bool
+		err := pool.QueryRow(ctx, `select exists(select 1 from pg_locks
+			where locktype='advisory' and database=(select oid from pg_database where datname=current_database())
+			and classid=($1::bigint >> 32)::oid and objid=($1::bigint & 4294967295)::oid and objsubid=1 and not granted)`, storageCleanupLock).Scan(&waiting)
+		if err != nil {
+			t.Fatalf("transition did not queue behind cleanup: %v", err)
+		}
+		if waiting {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	lease, release, err := controller.BeginStorageOperation(ctx)
+	if err != nil {
+		t.Fatalf("active storage lease blocked behind cleanup: %v", err)
+	}
+	err = pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return controller.GuardStoragePublication(lease, tx)
+	})
+	release()
+	if err != nil {
+		t.Fatalf("active storage publication blocked behind cleanup: %v", err)
+	}
+	close(blocking.release)
+	if err := <-cleaned; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-changed; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestObjectMigrationCleanupPersistsFailureBackoff(t *testing.T) {
 	ctx, pool, controller, migrationID, key, source, destination := newLocalMigrationFixture(t, nil)
 	service := NewObjectMigrationService(controller)
@@ -269,11 +358,12 @@ func TestObjectMigrationCleanupPreservesActiveLocalNamespace(t *testing.T) {
 func TestObjectMigrationCleanupDefersUncertainS3Namespaces(t *testing.T) {
 	for _, test := range []struct {
 		name    string
-		active  bool
+		status  string
 		failure string
 	}{
-		{"active storage", true, "source namespace may overlap active storage"},
-		{"in-flight destination", false, "source namespace may overlap an active migration"},
+		{"active storage", "", "source namespace may overlap active storage"},
+		{"in-flight destination", "copying", "source namespace may overlap a pending or resumable migration"},
+		{"resumable destination", "failed", "source namespace may overlap a pending or resumable migration"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, pool, controller, migrationID, key, _, _ := newLocalMigrationFixture(t, nil)
@@ -297,13 +387,13 @@ func TestObjectMigrationCleanupDefersUncertainS3Namespaces(t *testing.T) {
 			if _, err := pool.Exec(ctx, `insert into pgbase_meta.file_storage_source_cleanup(migration_id,object_key,source_config_ciphertext,not_before) values($1,$2,$3,CURRENT_TIMESTAMP-interval '1 second')`, migrationID, key, encode(source)); err != nil {
 				t.Fatal(err)
 			}
-			if test.active {
+			if test.status == "" {
 				if _, err := pool.Exec(ctx, `update pgbase_meta.file_storage_settings set driver='s3',s3_bucket=$1,s3_region='us-east-1',s3_endpoint=$2 where singleton`, destination.Bucket, destination.Endpoint); err != nil {
 					t.Fatal(err)
 				}
 			} else {
 				local := encode(storageSnapshot{Driver: "local", LocalDirectory: controller.localDirectory})
-				if _, err := pool.Exec(ctx, `insert into pgbase_meta.file_storage_migrations(id,status,base_revision,source_config_ciphertext,destination_config_ciphertext,request_hash) values($1,'copying',1,$2,$3,$4)`, uuid.New(), local, encode(destination), []byte("in-flight")); err != nil {
+				if _, err := pool.Exec(ctx, `insert into pgbase_meta.file_storage_migrations(id,status,base_revision,source_config_ciphertext,destination_config_ciphertext,request_hash) values($1,$2,1,$3,$4,$5)`, uuid.New(), test.status, local, encode(destination), []byte("migration")); err != nil {
 					t.Fatal(err)
 				}
 			}

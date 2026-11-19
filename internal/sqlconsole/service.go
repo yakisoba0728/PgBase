@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -65,6 +66,7 @@ type Service struct {
 	mu        sync.Mutex
 	closed    bool
 	jobs      map[uuid.UUID]*executionJob
+	completed []*executionJob
 	sessions  map[SessionKey]*sessionLimiter
 	closeDone chan struct{}
 }
@@ -73,6 +75,7 @@ type ServiceOptions struct {
 	WriteEnabled   bool
 	DefaultTimeout time.Duration
 	MaximumTimeout time.Duration
+	Logger         *slog.Logger
 }
 
 type sessionLimiter struct {
@@ -90,6 +93,7 @@ type executionJob struct {
 	pendingOnce sync.Once
 	canceled    bool
 	persistErr  error
+	resultCost  int
 }
 
 func NewService(ctx context.Context, executor Executor, ledger *Ledger, secret []byte, writeEnabled bool) (*Service, error) {
@@ -118,13 +122,42 @@ func NewServiceWithOptions(ctx context.Context, executor Executor, ledger *Ledge
 		return nil, fmt.Errorf("finish SQL console startup: %w", err)
 	}
 	serviceContext, cancel := context.WithCancel(context.Background())
-	return &Service{
+	service := &Service{
 		executor: executor, ledger: ledger, coordinator: coordinator, secret: append([]byte(nil), secret...), writeEnabled: options.WriteEnabled,
 		defaultTimeout: options.DefaultTimeout, maximumTimeout: options.MaximumTimeout,
 		ctx: serviceContext, cancel: cancel, global: make(chan struct{}, MaximumGlobalRunning),
 		pending: make(chan struct{}, MaximumPending), jobs: make(map[uuid.UUID]*executionJob),
 		sessions: make(map[SessionKey]*sessionLimiter), closeDone: make(chan struct{}),
-	}, nil
+	}
+	logger := options.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	service.wait.Add(1)
+	go service.cleanHistory(logger)
+	return service, nil
+}
+
+func (service *Service) cleanHistory(logger *slog.Logger) {
+	defer service.wait.Done()
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-service.ctx.Done():
+			return
+		case <-ticker.C:
+			service.mu.Lock()
+			service.expireCompleted(time.Now())
+			service.mu.Unlock()
+			ctx, cancel := context.WithTimeout(service.ctx, 5*time.Second)
+			err := service.ledger.Cleanup(ctx)
+			if err != nil && service.ctx.Err() == nil {
+				logger.WarnContext(ctx, "prune SQL console history", "error", err)
+			}
+			cancel()
+		}
+	}
 }
 
 func (service *Service) Submit(ctx context.Context, actor Actor, request Request) (Execution, error) {
@@ -250,12 +283,16 @@ func (service *Service) replayed(actor Actor, durable Execution) (Execution, err
 	if job.persistErr != nil {
 		return Execution{}, fmt.Errorf("%w: %v", ErrClosed, job.persistErr)
 	}
+	if !job.execution.ResultUntil.IsZero() && !time.Now().Before(job.execution.ResultUntil) {
+		return durable, nil
+	}
 	return CloneExecution(job.execution), nil
 }
 
 func (service *Service) run(job *executionJob) {
 	defer service.wait.Done()
 	defer service.releaseSession(job)
+	defer job.cancel()
 	if !acquireSemaphore(job.ctx, job.limiter.semaphore) {
 		service.releasePending(job)
 		service.finishWithoutRun(job, StatusCanceled, failureFromError(job.ctx.Err(), "canceled"), nil)
@@ -325,31 +362,25 @@ func (service *Service) finishWithoutRun(job *executionJob, status Status, failu
 	finishContext, cancel := context.WithTimeout(context.Background(), time.Second)
 	persistErr := service.ledger.Finish(finishContext, job.actor.AdministratorID, execution)
 	cancel()
+	cached := CloneExecution(execution)
+	cost := resultMemoryCost(cached.Result)
 	// Poll, cancel and replay must not observe terminal success before its
 	// durable finish. A cancel during persistence cannot undo a committed run.
 	service.mu.Lock()
+	job.identity = LedgerIdentity{}
 	if persistErr != nil {
 		job.persistErr = fmt.Errorf("persist SQL console terminal state: %w", persistErr)
 		service.closed = true
 	} else {
-		job.execution = CloneExecution(execution)
+		job.execution = cached
+		job.resultCost = cost
+		service.cacheCompleted(job, time.Now())
 	}
 	service.mu.Unlock()
 	if persistErr != nil {
 		service.cancel()
 	}
-	service.scheduleExpiry(job)
 	return execution
-}
-
-func (service *Service) scheduleExpiry(job *executionJob) {
-	time.AfterFunc(ResultTTL, func() {
-		service.mu.Lock()
-		defer service.mu.Unlock()
-		if current := service.jobs[job.execution.ID]; current == job && terminalStatus(current.execution.Status) {
-			delete(service.jobs, job.execution.ID)
-		}
-	})
 }
 
 func (service *Service) releasePending(job *executionJob) {
@@ -390,12 +421,11 @@ func (service *Service) Get(ctx context.Context, actor Actor, executionID uuid.U
 			service.mu.Unlock()
 			return Execution{}, fmt.Errorf("%w: %v", ErrClosed, err)
 		}
-		execution := CloneExecution(job.execution)
-		service.mu.Unlock()
-		if !execution.ResultUntil.IsZero() && time.Now().After(execution.ResultUntil) {
-			return service.ledger.Get(ctx, actor.AdministratorID, executionID)
+		if job.execution.ResultUntil.IsZero() || time.Now().Before(job.execution.ResultUntil) {
+			execution := CloneExecution(job.execution)
+			service.mu.Unlock()
+			return execution, nil
 		}
-		return execution, nil
 	}
 	service.mu.Unlock()
 	execution, err := service.ledger.Get(ctx, actor.AdministratorID, executionID)
@@ -422,6 +452,9 @@ func (service *Service) Cancel(_ context.Context, actor Actor, executionID uuid.
 		return Execution{}, fmt.Errorf("%w: %v", ErrClosed, job.persistErr)
 	}
 	if terminalStatus(job.execution.Status) {
+		if !time.Now().Before(job.execution.ResultUntil) {
+			return Execution{}, ErrNotFound
+		}
 		return CloneExecution(job.execution), nil
 	}
 	job.canceled = true

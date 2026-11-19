@@ -12,6 +12,8 @@ One pgBase project owns one PostgreSQL database. That database contains the `pgb
 
 Multiple pgBase instances for the same project may share the database. They must use the same `PGBASE_TOKEN_SECRET`, `PGBASE_PUBLIC_URL`, trusted proxy policy, and administrator-facing origin policy. Schema changes are serialized in PostgreSQL and other instances synchronize through PostgreSQL `LISTEN`; readiness is false while an instance cannot synchronize.
 
+For multiplex realtime, configure load-balancer affinity so `GET /api/realtime` and later `POST /api/realtime` calls for the same client reach the same instance. Validate the rule against two live instances by opening a stream through the load balancer, reading the `PB_CONNECT` client ID, and sending subscription replacements with that ID while the stream stays open. Replacements must return 204 consistently. A 404 `realtime_client_not_found` for an active ID indicates that the request reached another instance. Configure affinity for every SDK transport in use and preserve SSE streaming. Application-topic broadcasts reach subscribers connected to the publishing instance.
+
 Running instances check the shared runtime settings revision each second and apply newer settings after a successful refresh. Age-based request-log cleanup checks its settings revision in PostgreSQL before deleting rows. During a rolling upgrade to a build with this check, keep the existing retention period until every replica runs the new build. A replica running an older build can still delete logs using its previous retention period.
 
 The official nonroot distroless runtime includes version-matched PostgreSQL 16/17/18 backup clients and their shared libraries. Managed backup create/restore works with a read-only runtime root when the private backup volume, file store and `/tmp` are writable by UID/GID 65532. Provision durable backup capacity for archives and restore staging; the development Compose `/tmp` limit is not a backup repository. See [backup runtime requirements](backup-s3.md).
@@ -104,6 +106,8 @@ Only a stable SemVer release moves `latest`. Each channel has its own promotion 
 
 The final runtime image carries the canonical release version in both the binary and its OCI version label. The exact version tag's registry state is read back before any channel is touched; if it already points at a different digest the whole promotion fails without mutating a channel, and the exact tag is never force-retagged. After promotion, both the exact tag and channel are read back for the candidate digest and version label. Promotion deletes no tags, and the before/after digest and version evidence is retained as a build artifact.
 
+If promotion created the exact version tag and failed before updating the moving channel, rerun only the failed jobs of that workflow. That attempt receives the original verified candidate digest from the completed build and gate jobs. Rerunning every job builds a new digest and will fail the exact-tag check. Keep the exact tag and use the original successful build and gate records when investigating a failed promotion.
+
 An older channel created before OCI version labels were added fails closed. For a one-time migration only, set the repository variable `PGBASE_RELEASE_CHANNEL_BOOTSTRAP_VERSION` to the channel's current canonical exact version (for example `v1.2.2`) before releasing a strictly newer version. Promotion proceeds only when that immutable exact tag exists and has exactly the channel's current digest. Remove the variable immediately after the successful promotion; never use it to guess a missing version or bypass a missing exact tag.
 
 ## Configuration
@@ -163,6 +167,8 @@ alter role pgbase_sql_reader in database pgbase set default_transaction_read_onl
 ```
 
 Grant `SELECT` on the readable columns of every collection, and on a new collection or field after a schema change, before the console is next restarted; a missing grant fails the startup check. Never grant a password column. Statements see PostgreSQL data directly, so collection access rules do not apply to them: the console is an administrator tool, and its history records who ran what.
+
+The console keeps raw results in process memory for up to five minutes. The cache holds at most 256 completed executions, with estimated result memory limited to 16 MiB per administrator session and 64 MiB per process. If a limit is reached, older results are evicted and polling or idempotent replay returns the durable execution metadata.
 
 ## Record mutation safety
 

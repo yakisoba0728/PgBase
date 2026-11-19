@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -39,6 +40,7 @@ type Dependencies struct {
 	UserAuth                    UserAuth
 	RecordAccess                RecordAccess
 	Realtime                    Realtime
+	RealtimeDrainContext        func() context.Context
 	ApplicationRealtimeBroker   *ApplicationRealtimeBroker
 	RealtimeLifecycle           RealtimeLifecycle
 	EmailActions                EmailActions

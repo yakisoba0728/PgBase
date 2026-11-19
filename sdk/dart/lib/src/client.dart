@@ -35,7 +35,8 @@ final class PgBaseClient {
 
   final PgBaseTransport transport;
   final AuthStore auth;
-  late final RealtimeService realtime = RealtimeService(this);
+  RealtimeService? _realtime;
+  RealtimeService get realtime => _realtime ??= RealtimeService(this);
   final Map<String, CancellationToken> _requestControllers = {};
   bool _autoCancellation = true;
   Future<UserSession>? _pendingRefresh;
@@ -43,7 +44,10 @@ final class PgBaseClient {
   int? _refreshGeneration;
   int? _refreshOrigin;
 
-  void close() => transport.close();
+  void close() {
+    unawaited(_realtime?.unsubscribe());
+    transport.close();
+  }
 
   /// Cancel older reads with the same URL or requests with an explicit key.
   /// Enabled by default; mutations require an explicit key to participate.
@@ -585,12 +589,9 @@ final class PgBaseClient {
     cancelRequest(requestKey);
     final token = CancellationToken();
     _requestControllers[requestKey] = token;
-    if (external?.isCancelled ?? false) {
-      token.cancel();
-    } else {
-      external?.whenCancelled.then((_) => token.cancel());
-    }
+    final detach = external?.onCancel(token.cancel);
     return _RequestCancellation(token, () {
+      detach?.call();
       if (identical(_requestControllers[requestKey], token)) {
         _requestControllers.remove(requestKey);
       }
@@ -723,6 +724,7 @@ final class PgBaseClient {
               details: error.details,
               etag: error.etag,
               requestId: error.requestId,
+              retryAfter: error.retryAfter,
             );
         }
         rethrow;

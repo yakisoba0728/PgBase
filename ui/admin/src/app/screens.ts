@@ -32,14 +32,3 @@ export function preloadScreen(pathname: string) {
     if (path === route || path.startsWith(`${route}/`)) void run().catch(() => {});
   }
 }
-
-/** Every screen, once the browser is idle after the shell has shown, so later first visits skip the loading stage. */
-export function preloadScreensWhenIdle(): () => void {
-  const all = () => loaders.forEach(([, run]) => void run().catch(() => {}));
-  if (typeof requestIdleCallback === "function") {
-    const handle = requestIdleCallback(all, { timeout: 5000 });
-    return () => cancelIdleCallback(handle);
-  }
-  const timer = setTimeout(all, 2000);
-  return () => clearTimeout(timer);
-}

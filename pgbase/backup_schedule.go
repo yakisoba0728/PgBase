@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/yakisoba0728/PgBase/internal/backup"
@@ -20,45 +21,58 @@ const managedBackupJobName = "pgbase.managed-backup"
 // Retention precedence: a positive backups.keep wins; zero falls back to the
 // Backup storage retention (seeded once from PGBASE_BACKUPS_RETENTION), where
 // zero keeps every archive.
-func installManagedBackupSchedule(ctx context.Context, worker *jobs.Service, manager *backup.Manager, settings *runtimesettings.Controller, logger *slog.Logger) error {
+func installManagedBackupSchedule(ctx context.Context, worker *jobs.Service, manager *backup.Manager, settings *runtimesettings.Controller, logger *slog.Logger) (func(context.Context), error) {
 	if worker == nil || manager == nil || settings == nil {
-		return nil
+		return nil, nil
 	}
 	if err := adoptInertBackupSettings(ctx, worker, settings, logger); errors.Is(err, runtimesettings.ErrInvalid) {
 		// Without a persisted clear the row must not exist, or the next start
 		// would skip adoption; keep the previous behaviour until it is saved.
 		logger.ErrorContext(ctx, "managed backup schedule not installed: save the runtime settings again (a legacy rate-limit label blocks the update)", "error", err)
-		return nil
+		return nil, nil
 	} else if err != nil {
-		return err
+		return nil, err
 	}
 	if err := worker.Register(ctx, managedBackupJobName, "@every 24h", "UTC", false, func(ctx context.Context, _ jobs.Job) error {
 		// Another instance may have changed keep since this process loaded it.
-		if err := settings.Reload(ctx); err != nil {
+		if err := settings.Refresh(ctx); err != nil {
 			return err
+		}
+		if !settings.Get().Backups.Enabled {
+			return nil
 		}
 		_, err := manager.CreateManaged(ctx)
 		return err
 	}); err != nil {
-		return err
+		return nil, err
 	}
+	var mu sync.Mutex
 	var applied *runtimesettings.Backups
-	apply := func(value runtimesettings.Settings) {
-		manager.SetRetention(value.Backups.Keep)
-		if applied != nil && *applied == value.Backups {
+	reconcile := func(ctx context.Context) {
+		mu.Lock()
+		defer mu.Unlock()
+		desired := settings.Get().Backups
+		manager.SetRetention(desired.Keep)
+		if applied != nil && *applied == desired {
 			return
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := configureManagedBackupSchedule(ctx, worker, value.Backups); err != nil {
-			logger.ErrorContext(ctx, "reconfigure managed backup schedule", "error", err)
+		if err := configureManagedBackupSchedule(ctx, worker, desired); err != nil {
+			if !errors.Is(err, jobs.ErrNotManageable) && ctx.Err() == nil {
+				logger.ErrorContext(ctx, "reconfigure managed backup schedule", "error", err)
+			}
 			return
 		}
-		applied = &value.Backups
+		applied = &desired
 	}
-	apply(settings.Get())
-	settings.Subscribe(apply)
-	return nil
+	reconcile(ctx)
+	settings.Subscribe(func(runtimesettings.Settings) {
+		applyCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		reconcile(applyCtx)
+	})
+	// A schedule edit cannot revoke a live lease. The settings refresher
+	// retries the same desired state on later ticks, even without a new revision.
+	return reconcile, nil
 }
 
 // adoptInertBackupSettings runs while the durable job row does not exist yet.

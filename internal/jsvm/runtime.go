@@ -451,6 +451,9 @@ func (r *Runtime) invoke(ctx context.Context, ref HandlerRef, input json.RawMess
 			}
 			return nil, &Error{Code: CodeInvalidResult, cause: err}
 		}
+		if len(input) > r.limits.MaximumInputBytes {
+			return nil, &Error{Code: CodeLimitExceeded}
+		}
 	}
 	if onSkipSuccessActivityLog != nil && javaScriptHandlerSkipsSuccessActivityLog(vm, handlerValue) {
 		onSkipSuccessActivityLog()

@@ -15,11 +15,12 @@ const maximumCatalogWireBytes = 16 << 20
 var ErrCatalogLimitExceeded = errors.New("catalog exceeds the serialized size limit")
 
 type Catalog struct {
-	Version     int64                       `json:"version"`
-	Collections map[string]Collection       `json:"collections"`
-	Incoming    map[uuid.UUID][]RelationRef `json:"-"`
-	wire        []byte
-	deleteGraph *catalogDeleteGraph
+	Version       int64                       `json:"version"`
+	Collections   map[string]Collection       `json:"collections"`
+	Incoming      map[uuid.UUID][]RelationRef `json:"-"`
+	wire          []byte
+	deleteGraph   *catalogComputation
+	reverseExpand *catalogComputation
 }
 
 func collectionByID(catalog Catalog, id uuid.UUID) (Collection, bool) {
@@ -31,26 +32,31 @@ func collectionByID(catalog Catalog, id uuid.UUID) (Collection, bool) {
 	return Collection{}, false
 }
 
-// catalogDeleteGraph is the delete graph one catalog version shares with every
-// request pinned to it. schema cannot import the package that owns the type, so
-// the compiled value crosses that boundary as any. A failure is cached with the
-// value because the input is immutable: a second attempt would fail identically.
-type catalogDeleteGraph struct {
+// A compiled catalog shares lazily built metadata with every request pinned
+// to the version. The consuming package owns the value's concrete type.
+type catalogComputation struct {
 	once  sync.Once
 	value any
 	err   error
 }
 
-// DeleteGraph runs build at most once per catalog version and returns the
-// result every later caller shares. Compilation is deferred because a process
-// that never deletes never needs it. Only a compiled snapshot carries the
-// shared slot; a caller-owned copy may be mutated, so it builds its own graph.
-func (c Catalog) DeleteGraph(build func(Catalog) (any, error)) (any, error) {
-	if c.deleteGraph == nil {
+func (cache *catalogComputation) load(c Catalog, build func(Catalog) (any, error)) (any, error) {
+	if cache == nil {
 		return build(c)
 	}
-	c.deleteGraph.once.Do(func() { c.deleteGraph.value, c.deleteGraph.err = build(c) })
-	return c.deleteGraph.value, c.deleteGraph.err
+	cache.once.Do(func() { cache.value, cache.err = build(c) })
+	return cache.value, cache.err
+}
+
+// DeleteGraph shares the first delete graph built on an immutable catalog.
+func (c Catalog) DeleteGraph(build func(Catalog) (any, error)) (any, error) {
+	return c.deleteGraph.load(c, build)
+}
+
+// ReverseExpand shares the first reverse expansion index built on an
+// immutable catalog. Caller-owned catalog copies build their own index.
+func (c Catalog) ReverseExpand(build func(Catalog) (any, error)) (any, error) {
+	return c.reverseExpand.load(c, build)
 }
 
 type compiledCatalog struct {
@@ -80,7 +86,8 @@ func compileCatalogWithLimit(source Catalog, wireLimit int) (*compiledCatalog, e
 		return nil, err
 	}
 	immutable.wire = wire
-	immutable.deleteGraph = &catalogDeleteGraph{}
+	immutable.deleteGraph = &catalogComputation{}
+	immutable.reverseExpand = &catalogComputation{}
 	return &compiledCatalog{catalog: immutable, expectedPhysicalSchema: expectedPhysicalSchema}, nil
 }
 

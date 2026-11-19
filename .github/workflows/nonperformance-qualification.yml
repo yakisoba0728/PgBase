@@ -18,9 +18,10 @@ concurrency:
 jobs:
   backend:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'nonperformance-qualification')
-    uses: ./.github/workflows/nonperformance-backend.yml
+    uses: ./.github/workflows/backend.yml
     with:
       full_validation: true
+      skip_benchmarks: true
   security:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'nonperformance-qualification')
     uses: ./.github/workflows/security.yml
@@ -31,7 +32,9 @@ jobs:
     uses: ./.github/workflows/frontend.yml
   browser-and-recovery:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'nonperformance-qualification')
-    uses: ./.github/workflows/nonperformance-e2e.yml
+    uses: ./.github/workflows/e2e.yml
+    with:
+      extra_browser_engines: true
   source-analysis:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'nonperformance-qualification')
     uses: ./.github/workflows/source-security.yml

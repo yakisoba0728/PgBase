@@ -78,11 +78,13 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		67: "cf267ab4c2caeeaede06efa375b15d537826824778e45490e213f90b6255c722",
 		68: "dab0da5d06a2b23cf0848c55458bdeb4930a41d9bcebe876168b7b30ddae2af4",
 		69: "a69218f58c350a8f413fce7d94fe2fcf1e98965b5526af18cf963ee989c96355",
+		70: "2cbf8827e85e6e2b17c12419f643541e75cd816e5149450ceaf3f0710b84c5a6",
+		71: "1d70f5e83ef9849f840c4b88c17086b93b406bcc054e65e02ca3068179c9d89a",
 		55: "157df7385a28770bcf64dff7ba195b5a719100c68accc6b38a0dd0cb97884bef",
 	}
 	migrations := system.Migrations()
-	if len(migrations) != 64 || migrations[len(migrations)-1].Version != 69 ||
-		migrations[len(migrations)-1].Name != "durable_variant_cleanup" || migrations[7].Version != 8 ||
+	if len(migrations) != 66 || migrations[len(migrations)-1].Version != 71 ||
+		migrations[len(migrations)-1].Name != "auth_cleanup_and_token_listing" || migrations[7].Version != 8 ||
 		migrations[7].Name != "schema_companion_indexes" ||
 		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" ||
 		migrations[9].Version != 10 || migrations[9].Name != "public_users" ||

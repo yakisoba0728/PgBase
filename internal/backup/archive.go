@@ -20,55 +20,57 @@ const maximumArchiveEntries = 100_000
 
 // Pack emits a portable, verified backup directory. The archive contains no
 // absolute paths, links, permissions, credentials, or deployment configuration.
+// The destination must be discarded if Pack returns an error.
 func Pack(ctx context.Context, directory string, destination io.Writer) error {
 	return packArchive(ctx, directory, destination, maximumUnpackedBytes)
 }
 
-func packArchive(ctx context.Context, directory string, destination io.Writer, maximumExpanded int64) (resultErr error) {
-	manifest, err := VerifyContext(ctx, directory)
+func packArchive(ctx context.Context, directory string, destination io.Writer, maximumExpanded int64) error {
+	_, err := packVerifiedArchive(ctx, directory, destination, maximumExpanded)
+	return err
+}
+
+func packVerifiedArchive(ctx context.Context, directory string, destination io.Writer, maximumExpanded int64) (_ Manifest, resultErr error) {
+	manifest, encoded, artifacts, err := readBackupLayout(ctx, directory)
 	if err != nil {
-		return err
+		return Manifest{}, err
 	}
-	info, err := os.Stat(filepath.Join(directory, "manifest.json"))
-	if err != nil {
-		return err
+	if len(manifest.Files) > maximumArchiveEntries-2 {
+		return Manifest{}, errors.New("backup archive exceeds limit")
 	}
-	if len(manifest.Files) > maximumArchiveEntries-2 || info.Size() > 16<<20 {
-		return errors.New("backup archive exceeds limit")
-	}
-	remaining := maximumExpanded - info.Size()
-	for _, file := range append([]File{manifest.Database}, manifest.Files...) {
+	remaining := maximumExpanded - int64(len(encoded))
+	for _, file := range artifacts {
 		if file.Size > remaining {
-			return errors.New("backup archive exceeds limit")
+			return Manifest{}, errors.New("backup archive exceeds limit")
 		}
 		remaining -= file.Size
 	}
 	gz := gzip.NewWriter(&boundedArchiveWriter{writer: destination, remaining: MaximumArchiveBytes})
 	tw := tar.NewWriter(&boundedArchiveWriter{writer: gz, remaining: maximumExpanded})
 	defer func() { resultErr = errors.Join(resultErr, tw.Close(), gz.Close()) }()
-	names := []string{"manifest.json", "database.dump"}
-	for _, file := range manifest.Files {
-		names = append(names, "files/"+file.Path)
+	if err = tw.WriteHeader(&tar.Header{Name: "manifest.json", Mode: 0600, Size: int64(len(encoded)), Typeflag: tar.TypeReg}); err != nil {
+		return Manifest{}, err
 	}
-	for _, name := range names {
-		path := filepath.Join(directory, filepath.FromSlash(name))
-		info, err := os.Stat(path)
+	if _, err = tw.Write(encoded); err != nil {
+		return Manifest{}, err
+	}
+	for _, entry := range artifacts {
+		if err = tw.WriteHeader(&tar.Header{Name: entry.Path, Mode: 0600, Size: entry.Size, Typeflag: tar.TypeReg}); err != nil {
+			return Manifest{}, err
+		}
+		file, err := os.Open(filepath.Join(directory, filepath.FromSlash(entry.Path)))
 		if err != nil {
-			return err
+			return Manifest{}, err
 		}
-		if err = tw.WriteHeader(&tar.Header{Name: name, Mode: 0600, Size: info.Size(), Typeflag: tar.TypeReg}); err != nil {
-			return err
-		}
-		file, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		_, copyErr := io.Copy(tw, contextReader{ctx, file})
+		actual, copyErr := copyChecksum(ctx, tw, file, entry.Path)
 		if err = errors.Join(copyErr, file.Close()); err != nil {
-			return err
+			return Manifest{}, err
+		}
+		if actual != entry {
+			return Manifest{}, errors.New("backup artifact hash mismatch")
 		}
 	}
-	return nil
+	return manifest, nil
 }
 
 // Unpack accepts only a bounded manifest, database dump and object tree. Every
@@ -126,7 +128,7 @@ func unpackArchive(ctx context.Context, source io.Reader, directory string, maxi
 		}
 		// Compare before adding: an attacker-controlled tar size can be close
 		// to MaxInt64 and wrap a cumulative total past the extraction budget.
-		if header.Size > maximumExpanded-total || (name == "manifest.json" && header.Size > 16<<20) {
+		if header.Size > maximumExpanded-total || (name == "manifest.json" && header.Size > maximumManifestBytes) {
 			return errors.New("backup archive exceeds limit")
 		}
 		total += header.Size

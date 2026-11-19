@@ -32,3 +32,12 @@ func (s *Service) guardStoragePublication(ctx context.Context, tx pgx.Tx) error 
 func (s *Service) BeginStorageOperation(ctx context.Context) (context.Context, func(), error) {
 	return s.beginStorageOperation(ctx)
 }
+
+// PinBackupStorage binds object reads to the current destination until the
+// backup closes its snapshot connection. Acquire the backup GC lock first.
+func (s *Service) PinBackupStorage(ctx context.Context, conn *pgx.Conn) (context.Context, error) {
+	if controller, ok := s.objects.(*StorageController); ok {
+		return controller.lockStorageOperation(ctx, conn)
+	}
+	return ctx, nil
+}

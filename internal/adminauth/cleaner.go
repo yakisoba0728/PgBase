@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/authpolicy"
 	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
@@ -20,13 +21,14 @@ const (
 )
 
 type Cleaner struct {
-	pool     *database.Pool
-	clock    Clock
-	cleanFn  func(context.Context) error
-	retryMin time.Duration
-	retryMax time.Duration
-	interval time.Duration
-	logger   *slog.Logger
+	pool        *database.Pool
+	clock       Clock
+	cleanFn     func(context.Context) error
+	userCleanFn func(context.Context) error
+	retryMin    time.Duration
+	retryMax    time.Duration
+	interval    time.Duration
+	logger      *slog.Logger
 }
 
 func NewCleaner(pool *database.Pool, clock Clock, loggers ...*slog.Logger) *Cleaner {
@@ -38,6 +40,11 @@ func NewCleaner(pool *database.Pool, clock Clock, loggers ...*slog.Logger) *Clea
 		cleaner.logger = loggers[0]
 	}
 	return cleaner
+}
+
+// SetUserCleanup installs the user credential sweep before Run starts.
+func (c *Cleaner) SetUserCleanup(clean func(context.Context) error) {
+	c.userCleanFn = clean
 }
 
 // Run cleans immediately, then repeats hourly until the context is canceled.
@@ -66,7 +73,7 @@ func (c *Cleaner) Run(ctx context.Context) error {
 			}
 			delay = retry
 			if c.logger != nil {
-				c.logger.WarnContext(ctx, "administrator authentication cleanup failed", "error", err, "retry_in", delay)
+				c.logger.WarnContext(ctx, "authentication cleanup failed", "error", err, "retry_in", delay)
 			}
 			retry *= 2
 			if retry > retryMax {
@@ -91,7 +98,18 @@ func (c *Cleaner) cleanDatabase(ctx context.Context) error {
 	if err := c.deleteRateLimits(ctx, cutoff); err != nil {
 		return err
 	}
-	return c.deleteSessions(ctx, cutoff)
+	if err := c.deleteSessions(ctx, cutoff); err != nil {
+		return err
+	}
+	for _, table := range []string{"admin_email_otps", "admin_password_resets"} {
+		if err := authpolicy.DeleteExpiredRows(ctx, c.pool, table, "expires_at", 0); err != nil {
+			return err
+		}
+	}
+	if c.userCleanFn != nil {
+		return c.userCleanFn(ctx)
+	}
+	return nil
 }
 
 func (c *Cleaner) deleteRateLimits(ctx context.Context, cutoff time.Time) error {
@@ -106,6 +124,7 @@ func (c *Cleaner) deleteRateLimits(ctx context.Context, cutoff time.Time) error 
 					select ctid
 					from pgbase_meta.admin_rate_limits
 					where updated_at < $1
+					  and (blocked_until is null or blocked_until <= statement_timestamp())
 					order by updated_at, ctid
 					limit 1000
 					for update skip locked

@@ -4,6 +4,8 @@ export const rulesEn = {
 
   "rules.title": "Rules",
   "rules.saved": "Rules saved.",
+  "rules.stale": "These rules changed while you were editing. Reload the latest rules, then review your edits before saving.",
+  "rules.reloadLatest": "Reload latest rules",
   "rules.accessTitle": "User and guest access",
   "rules.accessLabel": "Allow requests from users and guests",
   "rules.accessOn": "The rules below decide each request.",

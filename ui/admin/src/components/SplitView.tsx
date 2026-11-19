@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { RiCloseLine } from "@remixicon/react";
 import { useSmallScreen } from "../app/shell";
 import { useShortcut } from "../app/keys";
@@ -11,6 +11,7 @@ const storageKey = "pgbase.split";
 // Kept in step with .split-pane's max-width (layout.css), which leaves the list at least minList.
 const minPane = 380;
 const minList = 320;
+const focusable = "a[href], button, input, select, textarea, summary, [tabindex], [contenteditable='true']";
 
 interface SplitViewProps {
   list: ReactNode;
@@ -43,11 +44,47 @@ export function SplitView({ list, pane, paneLabel, onClose }: SplitViewProps) {
       if (lost && previous?.isConnected) previous.focus();
     };
   }, [open]);
-  useEffect(() => {
-    if (open && small) (panel.current?.querySelector<HTMLElement>("button, input, select, textarea, [tabindex='0']") ?? panel.current)?.focus();
+  useLayoutEffect(() => {
+    const pane = panel.current;
+    if (!open || !small || !pane) return;
+    const previous = document.activeElement as HTMLElement | null;
+    // Each sibling subtree of the pane and its ancestors is covered by the full-screen detail.
+    const covered: Element[] = [];
+    for (let child: Element = pane; child.parentElement && child !== document.body; child = child.parentElement) {
+      for (const sibling of child.parentElement.children) {
+        if (sibling === child || sibling.hasAttribute("inert")) continue;
+        sibling.setAttribute("inert", "");
+        covered.push(sibling);
+      }
+    }
+    if (!pane.contains(document.activeElement)) (pane.querySelector<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex='0']") ?? pane).focus();
+    return () => {
+      for (const sibling of covered) sibling.removeAttribute("inert");
+      if (!pane.isConnected && previous?.isConnected) previous.focus();
+    };
   }, [open, small]);
 
-  useShortcut("Escape", onClose, { inFields: true, enabled: open });
+  useShortcut("Escape", onClose, { inFields: true, enabled: open && !small });
+
+  const onPaneKey = (event: KeyboardEvent<HTMLElement>) => {
+    if (!small || event.defaultPrevented || event.nativeEvent.isComposing || !(event.target instanceof HTMLElement)) return;
+    // Native nested dialogs and popovers handle their own keyboard events.
+    if (event.target.closest("dialog[open], [popover]")) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const targets = [...event.currentTarget.querySelectorAll<HTMLElement>(focusable)].filter(
+      (element) => element.tabIndex >= 0 && !element.matches(":disabled") && !element.closest("[inert]") && element.getClientRects().length,
+    );
+    const first = targets[0], last = targets.at(-1);
+    if (!first || document.activeElement === event.currentTarget || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first)?.focus();
+    }
+  };
 
   const clamp = (next: number) => {
     const total = root.current?.clientWidth ?? window.innerWidth;
@@ -95,7 +132,7 @@ export function SplitView({ list, pane, paneLabel, onClose }: SplitViewProps) {
             onPointerUp={onPointerUp}
             onKeyDown={onKeyDown}
           />
-          <section ref={panelRef} tabIndex={-1} className="split-pane" aria-label={paneLabel} style={{ width }}>
+          <section ref={panelRef} tabIndex={-1} className="split-pane" role={small ? "dialog" : undefined} aria-modal={small || undefined} aria-label={paneLabel} style={{ width }} onKeyDown={onPaneKey}>
             {pane}
           </section>
         </>
@@ -113,6 +150,8 @@ function leaveCopy(node: HTMLElement, split: HTMLElement | null) {
   const scrolled = [...node.querySelectorAll<HTMLElement>(".pane-body")].map((body) => body.scrollTop);
   queueMicrotask(() => {
     if (!split?.isConnected) return;
+    copy.removeAttribute("role");
+    copy.removeAttribute("aria-modal");
     copy.removeAttribute("aria-label");
     copy.removeAttribute("tabindex");
     for (const element of copy.querySelectorAll("[id]")) element.removeAttribute("id");

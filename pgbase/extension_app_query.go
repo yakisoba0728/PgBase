@@ -1,6 +1,7 @@
 package pgbase
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -74,22 +75,50 @@ func (host *extensionHost) callAppRecordQuery(ctx context.Context, method string
 	}
 	switch method {
 	case "app.record.findByIds", "app.record.expandMany":
-		items := make([]map[string]any, 0, len(request.IDs))
 		if len(request.IDs) > 1000 {
 			return nil, extensionError("invalid_record_request", errors.New("too many ids"))
 		}
-		for _, id := range request.IDs {
+		maximumBytes := host.bridge.maximumOutputBytes
+		if maximumBytes <= 0 {
+			maximumBytes = 4 << 20
+		}
+		const suffix = "]}"
+		limitErr := func() error {
+			return extensionError("record_result_limit", errors.New("record lookup result exceeds JavaScript output limit"))
+		}
+		var output bytes.Buffer
+		output.WriteString(`{"items":[`)
+		if output.Len()+len(suffix) > maximumBytes {
+			return nil, limitErr()
+		}
+		for index, id := range request.IDs {
+			if index != 0 {
+				output.WriteByte(',')
+			}
+			// Every record data value costs at least two JSON bytes.
+			if output.Len()+2+len(suffix) > maximumBytes {
+				return nil, limitErr()
+			}
 			raw, err := call("records.get", extensionRecordRequest{Collection: request.Collection, ID: id, Expand: request.Expand})
 			if err != nil {
 				return nil, err
 			}
-			var item extensionRecordResult
-			if decodeExtensionInput(raw, &item) != nil {
-				return nil, extensionError("invalid_record_result", nil)
+			var item struct {
+				Data json.RawMessage `json:"data"`
 			}
-			items = append(items, item.Data)
+			if err := json.Unmarshal(raw, &item); err != nil {
+				return nil, extensionError("invalid_record_result", err)
+			}
+			if item.Data == nil {
+				item.Data = json.RawMessage("null")
+			}
+			if output.Len()+len(item.Data)+len(suffix) > maximumBytes {
+				return nil, limitErr()
+			}
+			output.Write(item.Data)
 		}
-		return json.Marshal(extensionRecordPage{Items: items})
+		output.WriteString(suffix)
+		return output.Bytes(), nil
 	case "app.record.count":
 		count, err := host.bridge.records.Count(ctx, recordops.ListRequest{Principal: host.principal, RequestID: host.requestID, Collection: request.Collection, Filter: request.Filter, Sort: request.Sort})
 		return marshalExtensionResult(count, err)

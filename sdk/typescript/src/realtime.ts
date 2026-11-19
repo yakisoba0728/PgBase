@@ -43,10 +43,19 @@ export class RealtimeService {
   async subscribe(topic: `@${string}`, listener: (event: RealtimeCustomEvent) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
   async subscribe<T extends RecordData = RecordData>(topic: string, listener: (event: RealtimeEvent<T>) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
   async subscribe(topic: string, listener: (event: any) => void, options: RealtimeSubscriptionOptions = {}): Promise<() => Promise<void>> {
+    return this.subscribeTopics([topic], listener, options);
+  }
+
+  /** Registers all topics with one atomic server replacement. */
+  subscribeMany(topics: readonly string[], listener: (event: RealtimeSubscriptionEvent) => void, options: RealtimeSubscriptionOptions = {}): Promise<() => Promise<void>> {
+    return this.subscribeTopics([...new Set(topics)], listener, options);
+  }
+
+  private subscribeTopics(topics: string[], listener: (event: any) => void, options: RealtimeSubscriptionOptions): Promise<() => Promise<void>> {
     const generation = this.client.auth.generation;
     const start = () => {
       if (generation !== this.client.auth.generation) throw new PgBaseError(0, "realtime_unsubscribed");
-      return this.subscribeNow(topic, listener, options, generation);
+      return this.subscribeNow(topics, listener, options, generation);
     };
     const result = this.subscribing ? this.subscribing.then(start) : start();
     const tail = result.catch(() => {});
@@ -55,39 +64,48 @@ export class RealtimeService {
     return result;
   }
 
-  private async subscribeNow(topic: string, listener: (event: any) => void, options: RealtimeSubscriptionOptions, generation: number): Promise<() => Promise<void>> {
-    if (!validRealtimeTopic(topic)) throw new PgBaseError(0, "invalid_realtime_topic");
+  private async subscribeNow(topics: string[], listener: (event: any) => void, options: RealtimeSubscriptionOptions, generation: number): Promise<() => Promise<void>> {
+    if (topics.length === 0 || topics.some((topic) => !validRealtimeTopic(topic))) throw new PgBaseError(0, "invalid_realtime_topic");
     if (options.maxReconnects !== undefined && (!Number.isInteger(options.maxReconnects) || options.maxReconnects < 0)) throw new PgBaseError(0, "invalid_reconnect_options");
     if (options.reconnectDelayMs !== undefined && (!Number.isFinite(options.reconnectDelayMs) || options.reconnectDelayMs < 0)) throw new PgBaseError(0, "invalid_reconnect_options");
     if (this.controller?.signal.aborted && this.running) await this.running;
-    // Draining an aborted transport is asynchronous. The caller still belongs
-    // to the identity under which subscribe() started, even after that wait.
-    if (generation !== this.client.auth.generation) throw new PgBaseError(0, "realtime_unsubscribed");
-    let set = this.listeners.get(topic);
-    if (!set) { set = new Set(); this.listeners.set(topic, set); }
-    const added = !set.has(listener);
-    set.add(listener);
+    // Reinstall established topics first. A denied new topic must not make the
+    // reconnect that restores the old topics fail.
+    const previousController = this.controller;
+    while (this.running && !this.readySettled && !previousController?.signal.aborted) await this.ready;
+    if (generation !== this.client.auth.generation || (this.running && previousController?.signal.aborted)) throw new PgBaseError(0, "realtime_unsubscribed");
+    const registrations = topics.map((topic) => {
+      let set = this.listeners.get(topic);
+      if (!set) { set = new Set(); this.listeners.set(topic, set); }
+      const added = !set.has(listener);
+      set.add(listener);
+      return { topic, set, added };
+    });
     this.ensureRunning(options);
     const controller = this.controller;
     try {
-      if (this.clientId) await this.sync();
-      else await this.ready;
-      if (generation !== this.client.auth.generation || controller?.signal.aborted || this.listeners.get(topic) !== set || !set.has(listener)) {
+      if (this.clientId) {
+        if (!await this.sync()) throw new PgBaseError(0, "realtime_connection_changed");
+      } else await this.ready;
+      if (generation !== this.client.auth.generation || controller?.signal.aborted || registrations.some(({ topic, set }) => this.listeners.get(topic) !== set || !set.has(listener))) {
         throw new PgBaseError(0, "realtime_unsubscribed");
       }
     } catch (error) {
-      if (added) {
-        set.delete(listener);
-        if (set.size === 0 && this.listeners.get(topic) === set) this.listeners.delete(topic);
-        if (this.listeners.size === 0 && !this.controller?.signal.aborted) await this.unsubscribe();
-      }
+      for (const { topic, set, added } of registrations) if (added) this.removeListener(topic, set, listener);
+      if (this.listeners.size === 0 && !this.controller?.signal.aborted) await this.unsubscribe();
       throw error;
     }
-    // A cleanup retained by an old screen must not remove a listener that was
-    // subsequently registered with the same function in another session.
     return async () => {
-      if (this.controller === controller && this.listeners.get(topic) === set) await this.unsubscribe(topic, listener);
+      if (this.controller !== controller) return;
+      for (const { topic, set } of registrations) this.removeListener(topic, set, listener);
+      await this.updateSubscriptions();
     };
+  }
+
+  private removeListener(topic: string, set: Set<(event: any) => void>, listener: (event: any) => void): void {
+    if (this.listeners.get(topic) !== set) return;
+    set.delete(listener);
+    if (set.size === 0) this.listeners.delete(topic);
   }
 
   /**
@@ -103,6 +121,10 @@ export class RealtimeService {
     if (topic === undefined) this.listeners.clear();
     else if (listener === undefined) this.listeners.delete(topic);
     else { const set = this.listeners.get(topic); set?.delete(listener); if (set?.size === 0) this.listeners.delete(topic); }
+    await this.updateSubscriptions();
+  }
+
+  private async updateSubscriptions(): Promise<void> {
     if (this.listeners.size === 0) {
       this.controller?.abort();
       this.clientId = undefined;
@@ -116,17 +138,25 @@ export class RealtimeService {
     if (this.running) return;
     this.maxReconnects = options.maxReconnects ?? 5;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 250;
-    this.readySettled = false;
-    this.ready = new Promise<void>((resolve, reject) => { this.resolveReady = resolve; this.rejectReady = reject; });
+    this.newReadiness();
     const controller = this.controller = new AbortController();
     const stopOnAuthChange = this.client.auth._onChange(() => { void this.unsubscribe(); });
     this.running = Promise.resolve().then(() => this.run(controller)).finally(() => { stopOnAuthChange(); this.running = undefined; this.ready = undefined; this.resolveReady = undefined; this.rejectReady = undefined; });
   }
-  private sync(): Promise<void> {
+  private newReadiness(): void {
+    this.readySettled = false;
+    this.ready = new Promise<void>((resolve, reject) => { this.resolveReady = resolve; this.rejectReady = reject; });
+    // A reconnect can exhaust its budget with nobody awaiting readiness.
+    void this.ready.catch(() => {});
+  }
+
+  private sync(): Promise<boolean> {
     const controller = this.controller;
+    const clientId = this.clientId;
     const result = this.syncing.then(async () => {
-      if (controller !== this.controller || controller?.signal.aborted || !this.clientId) return;
-      await this.client._request<void>("/api/realtime", { method: "POST", body: JSON.stringify({ clientId: this.clientId, subscriptions: [...this.listeners.keys()] }) }, controller?.signal);
+      if (controller !== this.controller || controller?.signal.aborted || !clientId || clientId !== this.clientId) return false;
+      await this.client._request<void>("/api/realtime", { method: "POST", body: JSON.stringify({ clientId, subscriptions: [...this.listeners.keys()] }) }, controller?.signal);
+      return true;
     });
     this.syncing = result.catch(() => {});
     return result;
@@ -144,7 +174,9 @@ export class RealtimeService {
           const data = JSON.parse(message.data) as unknown;
           if (message.event === "PB_ERROR") {
             const code = typeof data === "object" && data !== null && "code" in data && typeof data.code === "string" ? data.code : "subscription_failed";
-            return this.fail(new PgBaseError(code === "cursor_expired" ? 410 : code === "invalid_cursor" ? 400 : 0, code));
+            const error = new PgBaseError(code === "cursor_expired" ? 410 : code === "invalid_cursor" ? 400 : 0, code);
+            if (code === "subscription_failed" && typeof data === "object" && data !== null && "retryable" in data && data.retryable === true) throw error;
+            return this.fail(error);
           }
           if (message.event === "PB_CONNECT") {
             this.clientId = typeof data === "object" && data !== null && "clientId" in data ? String(data.clientId ?? "") : "";
@@ -176,6 +208,7 @@ export class RealtimeService {
       }
       if (controller.signal.aborted || this.listeners.size === 0) return;
       this.clientId = undefined;
+      if (this.readySettled) this.newReadiness();
       if (reconnects >= this.maxReconnects) return this.fail(reconnectError ?? new PgBaseError(0, "realtime_reconnect_exhausted"), "exhausted");
       reconnects += 1;
       this.notify({ state: "reconnecting", attempt: reconnects, source: "transport", error: reconnectError ?? new PgBaseError(0, "realtime_stream_ended") });

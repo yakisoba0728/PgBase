@@ -43,13 +43,6 @@ func (s *Service) resolveRelationPublicID(ctx context.Context, db recordidentity
 	return s.recordIdentities.Resolve(ctx, db, schema.Collection{ID: target.id, RecordID: target.policy}, public)
 }
 
-func (s *Service) publicRelationID(ctx context.Context, db recordidentity.DB, target relationIdentityTarget, internal uuid.UUID) (string, error) {
-	if target.kind == "auth" {
-		return s.recordIdentities.PublicAuth(ctx, db, target.id, internal)
-	}
-	return s.recordIdentities.Public(ctx, db, schema.Collection{ID: target.id, RecordID: target.policy}, internal)
-}
-
 func (s *Service) resolveAuthRelationIdentities(ctx context.Context, db recordidentity.DB, attributes map[string]any, fields []schema.FieldInput) error {
 	for _, field := range fields {
 		if field.Type != schema.TypeRelation || attributes[field.Name] == nil {
@@ -92,47 +85,86 @@ func (s *Service) resolveAuthRelationIdentities(ctx context.Context, db recordid
 }
 
 func (s *Service) projectAuthRelationIdentities(ctx context.Context, db recordidentity.DB, attributes map[string]any, fields []schema.FieldInput) error {
-	for _, field := range fields {
-		if field.Type != schema.TypeRelation || attributes[field.Name] == nil {
-			continue
+	return s.projectAuthRelationDocuments(ctx, db, []map[string]any{attributes}, fields)
+}
+
+func (s *Service) projectAuthRelationDocuments(ctx context.Context, db recordidentity.DB, documents []map[string]any, fields []schema.FieldInput) error {
+	targetIDs := make(map[string]map[uuid.UUID]string)
+	collect := func(name string, id uuid.UUID) (string, error) {
+		if targetIDs[name] == nil {
+			targetIDs[name] = make(map[uuid.UUID]string)
 		}
-		target, err := loadRelationIdentityTarget(ctx, db, field.Relation.TargetCollection)
+		canonical := id.String()
+		targetIDs[name][id] = canonical
+		return canonical, nil
+	}
+	for _, attributes := range documents {
+		if err := rewriteAuthRelationIdentities(attributes, fields, collect); err != nil {
+			return err
+		}
+	}
+	for name, ids := range targetIDs {
+		target, err := loadRelationIdentityTarget(ctx, db, name)
 		if err != nil {
 			return err
 		}
-		if field.Relation.Cardinality == schema.RelationMultiple {
-			values, ok := attributes[field.Name].([]any)
-			if !ok {
-				return ErrValidation
+		if target.kind == "auth" || target.policy.Kind == schema.RecordIDText {
+			if err := recordidentity.LoadPublicIDs(ctx, db, target.kind, target.id, ids); err != nil {
+				return err
 			}
-			for i, raw := range values {
-				text, ok := raw.(string)
-				if !ok {
-					return ErrValidation
-				}
-				id, err := uuid.Parse(text)
-				if err != nil {
-					return ErrValidation
-				}
-				values[i], err = s.publicRelationID(ctx, db, target, id)
-				if err != nil {
-					return err
-				}
-			}
-			continue
 		}
-		text, ok := attributes[field.Name].(string)
+	}
+	project := func(name string, id uuid.UUID) (string, error) {
+		return targetIDs[name][id], nil
+	}
+	for _, attributes := range documents {
+		if err := rewriteAuthRelationIdentities(attributes, fields, project); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rewriteAuthRelationIdentities(attributes map[string]any, fields []schema.FieldInput, lookup func(string, uuid.UUID) (string, error)) error {
+	rewrite := func(target string, raw any) (string, error) {
+		text, ok := raw.(string)
 		if !ok {
-			return ErrValidation
+			return "", ErrValidation
 		}
 		id, err := uuid.Parse(text)
 		if err != nil {
-			return ErrValidation
+			return "", ErrValidation
 		}
-		attributes[field.Name], err = s.publicRelationID(ctx, db, target, id)
+		if id == uuid.Nil {
+			return "", recordidentity.ErrInvalid
+		}
+		return lookup(target, id)
+	}
+	for _, field := range fields {
+		raw := attributes[field.Name]
+		if field.Type != schema.TypeRelation || raw == nil {
+			continue
+		}
+		target := field.Relation.TargetCollection
+		if field.Relation.Cardinality == schema.RelationMultiple {
+			values, ok := raw.([]any)
+			if !ok {
+				return ErrValidation
+			}
+			for i, value := range values {
+				public, err := rewrite(target, value)
+				if err != nil {
+					return err
+				}
+				values[i] = public
+			}
+			continue
+		}
+		public, err := rewrite(target, raw)
 		if err != nil {
 			return err
 		}
+		attributes[field.Name] = public
 	}
 	return nil
 }

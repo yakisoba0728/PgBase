@@ -7,6 +7,9 @@ import { fieldKind, type Draft } from "./fields";
 
 const memory = new Map<string, StoredDraft>();
 export function keepDraft(scope: DraftScope, fields: Record<string, Draft>) { memory.set(key(scope), { fields, savedAt: Date.now() }); }
+export function forgetKeptDraft(scope: DraftScope, draft: StoredDraft | null | undefined = memory.get(key(scope))) {
+  if (draft !== null && memory.get(key(scope)) === draft) memory.delete(key(scope));
+}
 
 const prefix = "pgbase.records.draft:";
 const maxAge = 7 * 24 * 3600 * 1000;
@@ -16,8 +19,8 @@ const sensitiveName = /(password|passwd|secret|token|api_?key|credential)/i;
 export interface DraftScope {
   admin: string;
   collection: string;
-  /** "new" for the create form. */
-  record: string;
+  /** Null for the create form. */
+  record: string | null;
 }
 
 interface StoredDraft {
@@ -25,7 +28,13 @@ interface StoredDraft {
   fields: Record<string, Draft>;
 }
 
-const key = (scope: DraftScope) => `${prefix}${[scope.admin, scope.collection, scope.record].map(encodeURIComponent).join(":")}`;
+const key = (scope: DraftScope) => {
+  const owner = `${prefix}${encodeURIComponent(scope.admin)}:${encodeURIComponent(scope.collection)}:`;
+  // A colon is always escaped in a record ID. The ambiguous legacy "new" key belongs to neither form.
+  if (scope.record === null) return `${owner}create:`;
+  if (scope.record === "new") return `${owner}record:new`;
+  return owner + encodeURIComponent(scope.record);
+};
 
 /** Fields whose edits may be persisted: plain values only, never passwords, files or server-set dates. */
 function persistable(field: CollectionField): boolean {
@@ -44,7 +53,7 @@ export function changedFields(fields: CollectionField[], drafts: Record<string, 
 
 export function readDraft(scope: DraftScope, fields: CollectionField[], now = Date.now()): StoredDraft | null {
   const keptInMemory = memory.get(key(scope));
-  if (keptInMemory) { memory.delete(key(scope)); return keptInMemory; }
+  if (keptInMemory) return keptInMemory;
   try {
     const value = JSON.parse(localStorage.getItem(key(scope)) ?? "null") as StoredDraft | null;
     if (!value || typeof value.savedAt !== "number" || typeof value.fields !== "object") return null;

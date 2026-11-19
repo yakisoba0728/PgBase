@@ -6,7 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/yakisoba0728/PgBase/internal/config"
@@ -50,7 +52,7 @@ func runJavaScriptWatch(ctx context.Context, args []string, env environment, str
 
 func superviseJavaScript(ctx context.Context, sourceOptions pgbase.Options, poll time.Duration, streams IO) (resultErr error) {
 	sourceDirectory := sourceOptions.JavaScript.Directory
-	snapshot, err := createJavaScriptSnapshot(sourceOptions.JavaScript)
+	snapshot, err := createJavaScriptSnapshot(ctx, sourceOptions.JavaScript)
 	if err != nil {
 		return configurationError{err: err, message: "JavaScript bundle is invalid: " + err.Error()}
 	}
@@ -74,6 +76,7 @@ func superviseJavaScript(ctx context.Context, sourceOptions pgbase.Options, poll
 		runErr := <-result
 		return errors.Join(fmt.Errorf("write JavaScript generation status: %w", err), closeErr, runErr)
 	}
+	var rejectedDigest string
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 	for {
@@ -89,15 +92,21 @@ func superviseJavaScript(ctx context.Context, sourceOptions pgbase.Options, poll
 		case <-ticker.C:
 			candidateOptions := *sourceOptions.JavaScript
 			candidateOptions.Directory = sourceDirectory
-			candidate, candidateErr := createJavaScriptSnapshot(&candidateOptions)
+			candidate, candidateErr := createJavaScriptSnapshot(ctx, &candidateOptions, snapshot.digest, rejectedDigest)
 			if candidateErr != nil {
+				if candidate.digest != rejectedDigest {
+					rejectedDigest = ""
+				}
 				_, _ = fmt.Fprintf(streams.stderr(), "pgbase: JavaScript reload rejected: %v\n", candidateErr)
 				continue
 			}
-			if candidate.digest == snapshot.digest {
-				_ = os.RemoveAll(candidate.directory)
+			if candidate.directory == "" {
+				if candidate.digest == snapshot.digest {
+					rejectedDigest = ""
+				}
 				continue
 			}
+			rejectedDigest = ""
 			candidateRunOptions := sourceOptions
 			candidateOptions.Directory = candidate.directory
 			candidateRunOptions.JavaScript = &candidateOptions
@@ -112,6 +121,10 @@ func superviseJavaScript(ctx context.Context, sourceOptions pgbase.Options, poll
 			newApp, newResult, startErr := startWatchedApplication(ctx, candidateRunOptions)
 			if startErr != nil {
 				_ = os.RemoveAll(candidate.directory)
+				if ctx.Err() != nil {
+					return startErr
+				}
+				rejectedDigest = candidate.digest
 				restoredApp, restoredResult, restoreErr := startWatchedApplication(ctx, currentOptions)
 				if restoreErr != nil {
 					return errors.Join(fmt.Errorf("start JavaScript generation: %w", startErr), fmt.Errorf("restore previous generation: %w", restoreErr))
@@ -137,7 +150,7 @@ func fmtWatchedApplicationStopped(ctx context.Context, runErr error) error {
 	return fmt.Errorf("watched PgBase application stopped: %w", runErr)
 }
 
-func createJavaScriptSnapshot(options *pgbase.JavaScriptOptions) (watchedJavaScriptSnapshot, error) {
+func createJavaScriptSnapshot(ctx context.Context, options *pgbase.JavaScriptOptions, ignoredDigests ...string) (watchedJavaScriptSnapshot, error) {
 	if options == nil {
 		return watchedJavaScriptSnapshot{}, errors.New("JavaScript options are unavailable")
 	}
@@ -145,25 +158,62 @@ func createJavaScriptSnapshot(options *pgbase.JavaScriptOptions) (watchedJavaScr
 	if err != nil {
 		return watchedJavaScriptSnapshot{}, err
 	}
+	digest := bundle.Digest()
+	if slices.Contains(ignoredDigests, digest) {
+		return watchedJavaScriptSnapshot{digest: digest}, nil
+	}
 	directory, err := bundle.WriteSnapshot("")
 	if err != nil {
 		return watchedJavaScriptSnapshot{}, err
 	}
 	validated := *options
 	validated.Directory = directory
-	if _, err := pgbase.ValidateJavaScript(context.Background(), validated); err != nil {
+	if _, err := pgbase.ValidateJavaScript(ctx, validated); err != nil {
 		_ = os.RemoveAll(directory)
-		return watchedJavaScriptSnapshot{}, err
+		return watchedJavaScriptSnapshot{digest: digest}, err
 	}
-	return watchedJavaScriptSnapshot{directory: directory, digest: bundle.Digest()}, nil
+	return watchedJavaScriptSnapshot{directory: directory, digest: digest}, nil
 }
 
 func startWatchedApplication(ctx context.Context, options pgbase.Options) (*pgbase.App, <-chan error, error) {
+	if options.Hooks == nil {
+		options.Hooks = &pgbase.HookRegistry{}
+	}
+	started := make(chan struct{})
+	remove, err := options.Hooks.On(pgbase.HookAppServe, pgbase.Hook{
+		// Application serve completion runs after the listener is bound and
+		// activated. Signal before other after-hooks can consume their budget.
+		Priority: math.MinInt,
+		After: func(_ context.Context, event *pgbase.HookEvent) {
+			if event.Err == nil {
+				close(started)
+			}
+		},
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	defer remove()
+
 	app, err := pgbase.New(ctx, options)
 	if err != nil {
 		return nil, nil, fmt.Errorf("construct watched PgBase application: %w", err)
 	}
 	result := make(chan error, 1)
 	go func() { result <- app.Run(ctx) }()
-	return app, result, nil
+
+	select {
+	case <-started:
+		return app, result, nil
+	case runErr := <-result:
+		err = fmtWatchedApplicationStopped(ctx, runErr)
+		if err == nil {
+			err = ctx.Err()
+		}
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+	shutdown, cancel := context.WithTimeout(context.Background(), options.ShutdownTimeout)
+	defer cancel()
+	return nil, nil, errors.Join(err, app.Close(shutdown))
 }

@@ -66,7 +66,7 @@ export type BackupEntry = { id: string; createdAt: string; size: number; postgre
 export type BackupJob = { id: string; operation: "create" | "restore"; backupId: string; status: "running" | "completed" | "failed"; phase: string; error?: string; createdAt: string; updatedAt: string };
 
 export class AdminAPIError extends Error {
-  constructor(readonly status: number, readonly code: string, readonly details: Record<string, string[]> = {}) { super(code); this.name = "AdminAPIError"; }
+  constructor(readonly status: number, readonly code: string, readonly details: Record<string, string[]> = {}, readonly retryAfter?: string) { super(code); this.name = "AdminAPIError"; }
 }
 
 /** The preview binds the exact request body and replay identity. Inspect the
@@ -117,17 +117,43 @@ export class ApprovedSchemaImportPlan implements SchemaImportPlan {
 export class PgBaseAdminClient {
   #csrf = "";
   #generation = 0;
+  #transition = 0;
+  #pendingAuth?: Promise<unknown>;
   readonly #fetch: typeof fetch;
   constructor(readonly baseURL: string, options: { fetch?: typeof fetch } = {}) { this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis); }
 
-  async login(email: string, password: string, signal?: AbortSignal): Promise<AdministratorSession> {
-    return this.adopt("/api/admin/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }, signal);
+  login(email: string, password: string, options?: AbortSignal | { otpCode?: string; signal?: AbortSignal }): Promise<AdministratorSession> {
+    const { otpCode, signal } = options && "aborted" in options ? { signal: options, otpCode: undefined } : options ?? {};
+    return this.transitionAuth(() => this.adopt("/api/admin/auth/login", { method: "POST", body: JSON.stringify({ email, password, otpCode }) }, signal));
   }
-  resume(signal?: AbortSignal): Promise<AdministratorSession> { return this.adopt("/api/admin/session", {}, signal); }
-  async logout(signal?: AbortSignal): Promise<void> {
-    const generation = this.#generation;
-    await this.request("/api/admin/auth/logout", { method: "POST" }, signal);
-    if (generation === this.#generation) { this.#csrf = ""; this.#generation++; }
+  resume(signal?: AbortSignal): Promise<AdministratorSession> {
+    return this.transitionAuth(() => this.adopt("/api/admin/session", {}, signal));
+  }
+  logout(signal?: AbortSignal): Promise<void> {
+    return this.transitionAuth(async () => {
+      const generation = this.#generation;
+      await this.request("/api/admin/auth/logout", { method: "POST" }, signal);
+      if (generation === this.#generation) { this.#csrf = ""; this.#generation++; }
+    });
+  }
+  private transitionAuth<T>(apply: () => Promise<T>): Promise<T> {
+    // The browser applies Set-Cookie before fetch resolves. Keep the cookie and
+    // CSRF update together even when a later operation supersedes this result.
+    const transition = ++this.#transition;
+    const run = async () => {
+      try {
+        const result = await apply();
+        if (transition === this.#transition) return result;
+      } catch (error) {
+        if (transition === this.#transition) throw error;
+      }
+      throw new AdminAPIError(403, "session_changed");
+    };
+    const operation = this.#pendingAuth ? this.#pendingAuth.then(run, run) : run();
+    this.#pendingAuth = operation;
+    const clear = () => { if (this.#pendingAuth === operation) this.#pendingAuth = undefined; };
+    void operation.then(clear, clear);
+    return operation;
   }
   catalog(signal?: AbortSignal): Promise<{ version: number; collections: Record<string, CollectionDefinition> }> { return this.request("/api/admin/collections", {}, signal); }
   generateAppleClientSecret(input: AppleClientSecretInput, signal?: AbortSignal): Promise<{ secret: string }> {
@@ -275,7 +301,7 @@ export class PgBaseAdminClient {
     if (!response.ok) {
       if (response.status === 401) { this.#csrf = ""; this.#generation++; }
       const data = body as { error?: { code?: string; details?: Record<string, string[]> } } | undefined;
-      throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details);
+      throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details, response.headers.get("Retry-After") ?? undefined);
     }
     return body as T;
   }

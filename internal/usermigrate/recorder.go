@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,32 +58,86 @@ func (r *AutoRecorder) RecordSchemaMigration(ctx context.Context, tx pgx.Tx, rec
 	if r == nil || tx == nil || record.OperationID == uuid.Nil || record.CommittedAt.IsZero() {
 		return errors.New("invalid automatic user migration recording")
 	}
-	name := normalizeRecordedName(record.Name)
-	id := record.CommittedAt.UTC().Format("20060102150405") + "_" + name + "_" + strings.ReplaceAll(record.OperationID.String(), "-", "")
+	committedAt := record.CommittedAt.UTC()
+	suffix := "_" + normalizeRecordedName(record.Name) + "_" + strings.ReplaceAll(record.OperationID.String(), "-", "")
+	var storedID, storedFilename string
+	var storedSource, storedRevision []byte
+	var storedCreatedAt time.Time
+	err := tx.QueryRow(ctx, `select migration_id,filename,source,revision,created_at
+		from pgbase_meta.user_migration_sources where operation_id=$1`, record.OperationID).
+		Scan(&storedID, &storedFilename, &storedSource, &storedRevision, &storedCreatedAt)
+	if err == nil {
+		// Use the original ID to verify exact bytes, including sources written by older binaries.
+		if recordedMigrationSuffix(storedID) != suffix || !committedAt.Truncate(time.Second).Equal(storedCreatedAt.Truncate(time.Second)) {
+			return errors.New("automatic user migration operation conflicts with queued source")
+		}
+		generated, err := GenerateSnapshotSource(storedID, "migrations", record.Before, record.After)
+		if err != nil {
+			return err
+		}
+		revision := sha256.Sum256(generated.Source)
+		if storedFilename != generated.Filename || !bytes.Equal(storedSource, generated.Source) || !bytes.Equal(storedRevision, revision[:]) {
+			return errors.New("automatic user migration operation conflicts with queued source")
+		}
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+
+	// The caller holds the schema writer lock through commit. Allocating from that
+	// transaction's ID tail keeps filename order stable even when clocks go backward.
+	var latestID string
+	err = tx.QueryRow(ctx, `select migration_id from pgbase_meta.user_migration_sources order by migration_id desc limit 1`).Scan(&latestID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	id, err := nextRecordedMigrationID(committedAt, latestID, suffix)
+	if err != nil {
+		return err
+	}
 	generated, err := GenerateSnapshotSource(id, "migrations", record.Before, record.After)
 	if err != nil {
 		return err
 	}
 	revision := sha256.Sum256(generated.Source)
-	commandTag, err := tx.Exec(ctx, `insert into pgbase_meta.user_migration_sources(
+	_, err = tx.Exec(ctx, `insert into pgbase_meta.user_migration_sources(
 		operation_id,migration_id,filename,source,revision,status,attempts,created_at,updated_at
-	) values($1,$2,$3,$4,$5,'pending',0,$6,$6) on conflict(operation_id) do nothing`,
-		record.OperationID, generated.ID, generated.Filename, generated.Source, revision[:], record.CommittedAt.UTC())
+	) values($1,$2,$3,$4,$5,'pending',0,$6,$6)`,
+		record.OperationID, generated.ID, generated.Filename, generated.Source, revision[:], committedAt)
 	if err != nil {
 		return fmt.Errorf("queue automatic user migration source: %w", err)
 	}
-	if commandTag.RowsAffected() == 1 {
-		return nil
-	}
-	var storedID, storedFilename string
-	var storedSource, storedRevision []byte
-	if err := tx.QueryRow(ctx, `select migration_id,filename,source,revision from pgbase_meta.user_migration_sources where operation_id=$1`, record.OperationID).Scan(&storedID, &storedFilename, &storedSource, &storedRevision); err != nil {
-		return err
-	}
-	if storedID != generated.ID || storedFilename != generated.Filename || !bytes.Equal(storedSource, generated.Source) || !bytes.Equal(storedRevision, revision[:]) {
-		return errors.New("automatic user migration operation conflicts with queued source")
-	}
 	return nil
+}
+
+func recordedMigrationSuffix(id string) string {
+	_, suffix, _ := strings.Cut(id, "_")
+	first, rest, _ := strings.Cut(suffix, "_")
+	if _, err := strconv.ParseInt(first, 10, 64); err == nil && len(first) == 19 {
+		suffix = rest
+	}
+	return "_" + suffix
+}
+
+func nextRecordedMigrationID(committedAt time.Time, latestID, suffix string) (string, error) {
+	const timestampFormat = "20060102150405"
+	stamp := committedAt.Format(timestampFormat)
+	var ordinal int64
+	if latestStamp, rest, found := strings.Cut(latestID, "_"); found && latestStamp >= stamp {
+		previous, _, _ := strings.Cut(rest, "_")
+		if n, err := strconv.ParseInt(previous, 10, 64); err == nil && len(previous) == 19 && n < 1<<63-1 {
+			stamp, ordinal = latestStamp, n+1
+		} else {
+			// Legacy names sort after a numeric ordinal, so move past their entire second.
+			latestTime, err := time.Parse(timestampFormat, latestStamp)
+			if err != nil {
+				return "", fmt.Errorf("read latest automatic migration timestamp: %w", err)
+			}
+			stamp = latestTime.Add(time.Second).Format(timestampFormat)
+		}
+	}
+	return fmt.Sprintf("%s_%019d%s", stamp, ordinal, suffix), nil
 }
 
 func normalizeRecordedName(name string) string {
@@ -238,16 +293,32 @@ func (r *AutoRecorder) Status(ctx context.Context) ([]SourceStatus, error) {
 }
 
 func (r *AutoRecorder) Recover(ctx context.Context) error {
-	statuses, err := r.Status(ctx)
+	return r.recoverSources(ctx, `select operation_id from pgbase_meta.user_migration_sources
+		where status in ('pending', 'written') order by migration_id`)
+}
+
+func (r *AutoRecorder) recoverPending(ctx context.Context) error {
+	// Failed attempts advance updated_at so persistent per-file errors cannot
+	// starve later sources when the batch is full.
+	return r.recoverSources(ctx, `select operation_id from pgbase_meta.user_migration_sources
+		where status='pending' order by updated_at, operation_id limit 64`)
+}
+
+func (r *AutoRecorder) recoverSources(ctx context.Context, query string) error {
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return err
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return err
 	}
 	var failures []error
-	for _, status := range statuses {
-		if status.Status != "pending" && status.Status != "written" {
-			continue
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			return errors.Join(append(failures, ctx.Err())...)
 		}
-		if err := r.MaterializeSchemaMigration(ctx, status.OperationID); err != nil {
+		if err := r.MaterializeSchemaMigration(ctx, id); err != nil {
 			failures = append(failures, err)
 		}
 	}
@@ -255,16 +326,19 @@ func (r *AutoRecorder) Recover(ctx context.Context) error {
 }
 
 func (r *AutoRecorder) Run(ctx context.Context) error {
+	if err := r.Recover(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		r.logger.Error("recover automatic user migration sources at startup", "error", err)
+	}
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
 	for {
-		if err := r.Recover(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			r.logger.Error("recover automatic user migration sources", "error", err)
-		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			if err := r.recoverPending(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				r.logger.Error("recover pending automatic user migration sources", "error", err)
+			}
 		}
 	}
 }

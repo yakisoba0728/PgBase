@@ -5,15 +5,20 @@ package usermigrate
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
+	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -250,4 +255,123 @@ func databaseRecordingTime(t *testing.T, pool interface {
 		t.Fatal(err)
 	}
 	return value.UTC()
+}
+
+func TestRecordedMigrationReplayOrderSurvivesLegacyIDsAndClockRollback(t *testing.T) {
+	ctx := t.Context()
+	pool := userMigrationPool(t)
+	actor := uuid.New()
+	insertSnapshotAdministrator(t, pool, actor, "migration-order@example.test")
+	service := schema.NewService(pool, &schema.Cache{}, nil)
+	before := exportSnapshot(t, pool)
+	applySnapshotChangeForTest(t, service, actor, schema.NewCreateChange(schema.CreateCollectionInput{Name: "z_first"}))
+	middle := exportSnapshot(t, pool)
+	applySnapshotChangeForTest(t, service, actor, schema.NewCreateChange(schema.CreateCollectionInput{Name: "a_second"}))
+	after := exportSnapshot(t, pool)
+
+	recorder, err := NewAutoRecorder(pool, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instant := time.Date(2026, 11, 19, 12, 0, 0, 100000000, time.UTC)
+	legacyOp := uuid.MustParse("0199ab10-0000-7000-8000-000000000240")
+	legacy, err := GenerateSnapshotSource("20261119120000_z_0199ab10000070008000000000000240", "migrations", before, before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyRev := sha256.Sum256(legacy.Source)
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.user_migration_sources
+		(operation_id, migration_id, filename, source, revision, created_at, updated_at)
+		values ($1, $2, $3, $4, $5, $6, $6)`, legacyOp, legacy.ID, legacy.Filename, legacy.Source, legacyRev[:], instant); err != nil {
+		t.Fatal(err)
+	}
+	first := schema.MigrationRecording{OperationID: uuid.New(), Name: "z_first", Before: before, After: middle, CommittedAt: instant.Add(10 * time.Millisecond)}
+	second := schema.MigrationRecording{OperationID: uuid.New(), Name: "a_second", Before: middle, After: after, CommittedAt: instant.Add(-time.Second)}
+	for _, record := range []schema.MigrationRecording{
+		{OperationID: legacyOp, Name: "z", Before: before, After: before, CommittedAt: instant},
+		first, second, first,
+	} {
+		if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			return recorder.RecordSchemaMigration(ctx, tx, record)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var legacyBytes []byte
+	if err := pool.QueryRow(ctx, "select source from pgbase_meta.user_migration_sources where operation_id=$1", legacyOp).Scan(&legacyBytes); err != nil || !bytes.Equal(legacyBytes, legacy.Source) {
+		t.Fatalf("legacy source changed, err=%v", err)
+	}
+
+	rows, err := pool.Query(ctx, "select operation_id from pgbase_meta.user_migration_sources order by migration_id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordered, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	want := []uuid.UUID{legacyOp, first.OperationID, second.OperationID}
+	if err != nil || !slices.Equal(ordered, want) {
+		t.Fatalf("replay order = %v, expected %v, err=%v", ordered, want, err)
+	}
+
+	target := userMigrationPool(t)
+	snapshots := map[uuid.UUID]schema.MigrationRecording{first.OperationID: first, second.OperationID: second}
+	for _, op := range ordered[1:] {
+		record := snapshots[op]
+		if err := target.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			return schema.ApplyMigrationSnapshot(ctx, tx, record.Before, record.After, func(catalog schema.Catalog, collection schema.Collection, raw json.RawMessage) error {
+				rules, err := accessrule.Parse(raw)
+				if err != nil {
+					return err
+				}
+				return recordaccess.ValidateRules(catalog, collection, rules)
+			})
+		}); err != nil {
+			t.Fatalf("replay %s: %v", record.Name, err)
+		}
+	}
+}
+
+func TestPeriodicRecoveryOnlyReadsPendingSources(t *testing.T) {
+	ctx := t.Context()
+	pool := userMigrationPool(t)
+	recorder, err := NewAutoRecorder(pool, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := exportSnapshot(t, pool)
+	firstRecordedAt := time.Now().Add(-time.Minute)
+	for index, name := range []string{"written", "pending"} {
+		if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			return recorder.RecordSchemaMigration(ctx, tx, schema.MigrationRecording{
+				OperationID: uuid.New(), Name: name, Before: snapshot, After: snapshot, CommittedAt: firstRecordedAt.Add(time.Duration(index) * time.Second),
+			})
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	statuses, err := recorder.Status(ctx)
+	if err != nil || len(statuses) != 2 {
+		t.Fatalf("status = %v, err=%v", statuses, err)
+	}
+	if err := recorder.MaterializeSchemaMigration(ctx, statuses[0].OperationID); err != nil {
+		t.Fatal(err)
+	}
+	firstPath := filepath.Join(recorder.directory, statuses[0].Filename)
+	if err := os.Remove(firstPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.recoverPending(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(firstPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("periodic recovery revisited a written file, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(recorder.directory, statuses[1].Filename)); err != nil {
+		t.Fatalf("periodic recovery did not process pending file, err=%v", err)
+	}
+	if err := recorder.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(firstPath); err != nil {
+		t.Fatalf("explicit recovery did not restore written file, err=%v", err)
+	}
 }

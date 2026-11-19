@@ -5,6 +5,7 @@ final class PgBaseError implements Exception {
     this.details = const {},
     this.etag,
     this.requestId,
+    this.retryAfter,
   });
 
   final int status;
@@ -12,6 +13,7 @@ final class PgBaseError implements Exception {
   final Map<String, List<String>> details;
   final String? etag;
   final String? requestId;
+  final String? retryAfter;
 
   @override
   String toString() => 'PgBaseError($status, $code)';
@@ -60,6 +62,7 @@ final class MfaChallengeError extends PgBaseError {
     super.details,
     super.etag,
     super.requestId,
+    super.retryAfter,
   });
 
   final MfaChallenge challenge;

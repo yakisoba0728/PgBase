@@ -16,8 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/yakisoba0728/PgBase/internal/durablefile"
 )
 
 const probeLimit = 64 << 10
@@ -164,7 +162,7 @@ func Apply(ctx context.Context, options ApplyOptions) (Status, error) {
 	}
 	backupPath := filepath.Join(state, entry.Backup)
 	if _, statErr := os.Lstat(backupPath); os.IsNotExist(statErr) {
-		if err = copyRegular(target, backupPath, targetMode.Perm()); err != nil {
+		if err = copyRegular(target, backupPath, targetMode.Perm(), entry.OldSHA256); err != nil {
 			return Status{}, ErrReplaceFailed
 		}
 	} else if statErr != nil {
@@ -438,7 +436,7 @@ func rollbackLocked(ctx context.Context, state, target string, entry journal, pr
 	if _, statErr := os.Lstat(stage); !os.IsNotExist(statErr) {
 		return Status{}, ErrRollbackFailed
 	}
-	if err = copyRegular(backup, stage, mode.Perm()); err != nil {
+	if err = copyRegular(backup, stage, mode.Perm(), entry.OldSHA256); err != nil {
 		return Status{}, ErrRollbackFailed
 	}
 	if err = replaceFile(stage, target); err != nil {
@@ -576,16 +574,22 @@ func fileDigestAndMode(path string) (string, os.FileMode, error) {
 	return hex.EncodeToString(digest.Sum(nil)), info.Mode(), nil
 }
 
-func copyRegular(source, target string, mode os.FileMode) error {
+func copyRegular(source, target string, mode os.FileMode, expectedDigest string) error {
 	from, err := openRegularFile(source)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = from.Close() }()
-	return durablefile.WriteExclusive(target, mode, func(destination *os.File) error {
-		_, err := io.Copy(destination, from)
-		return err
-	}, func(_ string, err error) error { return err })
+	return writeExclusiveAtomic(target, mode, func(destination *os.File) error {
+		digest := sha256.New()
+		if _, err := io.Copy(io.MultiWriter(destination, digest), from); err != nil {
+			return err
+		}
+		if hex.EncodeToString(digest.Sum(nil)) != expectedDigest {
+			return ErrReplaceFailed
+		}
+		return nil
+	})
 }
 
 func syncFile(path string) error {

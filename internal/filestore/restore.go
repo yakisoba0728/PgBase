@@ -16,7 +16,7 @@ func ResetRestoredStorage(ctx context.Context, pool *database.Pool) error {
 		return ErrInvalid
 	}
 	return pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, storageTransitionLock); err != nil {
+		if err := lockStorageTransition(ctx, tx); err != nil {
 			return err
 		}
 		// Pending rows describe uploads that were not committed into the backup

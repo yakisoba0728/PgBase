@@ -389,7 +389,7 @@ func TestEveryFrontendInstallSkipsLifecycleScripts(t *testing.T) {
 			t.Errorf("%s runs %d npm ci commands but only %d skip lifecycle scripts", name, installs, guarded)
 		}
 	}
-	if !strings.Contains(sources["e2e.yml"], "npx playwright install --with-deps chromium") {
+	if !strings.Contains(sources["e2e.yml"], `npx playwright install --with-deps "${browsers[@]}"`) {
 		t.Error("e2e.yml no longer installs the Playwright browser as an explicit command")
 	}
 }

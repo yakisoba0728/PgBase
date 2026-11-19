@@ -67,6 +67,9 @@ func (s *Service) Admit(ctx context.Context, method, path, actor, ip string) (De
 	if !ok {
 		return Decision{Allowed: true}, nil
 	}
+	if address, err := netip.ParseAddr(ip); err == nil {
+		ip = NetworkBucket(address)
+	}
 	mac := hmac.New(sha256.New, s.key)
 	mac.Write([]byte(rule.Label + "\x00" + rule.Audience + "\x00" + actor + "\x00" + ip))
 	bucket := hex.EncodeToString(mac.Sum(nil))
@@ -101,6 +104,15 @@ func find(rules []runtimesettings.APIRateRule, labels []string, audience string)
 		}
 	}
 	return runtimesettings.APIRateRule{}, false
+}
+
+// NetworkBucket keeps IPv6 clients in a /64 quota bucket.
+func NetworkBucket(address netip.Addr) string {
+	address = address.Unmap()
+	if address.Is6() {
+		return netip.PrefixFrom(address, 64).Masked().String()
+	}
+	return address.String()
 }
 
 type ipExclusions struct {

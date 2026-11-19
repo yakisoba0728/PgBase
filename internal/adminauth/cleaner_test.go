@@ -43,7 +43,7 @@ func TestCleanerRetriesTransientFailuresInsteadOfStopping(t *testing.T) {
 	if calls.Load() != 2 {
 		t.Fatalf("clean attempts = %d, want 2", calls.Load())
 	}
-	if !strings.Contains(logs.String(), "administrator authentication cleanup failed") ||
+	if !strings.Contains(logs.String(), "authentication cleanup failed") ||
 		!strings.Contains(logs.String(), "temporary database failure") {
 		t.Fatalf("cleaner retry was not observable: %q", logs.String())
 	}

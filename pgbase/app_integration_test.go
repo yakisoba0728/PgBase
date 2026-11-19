@@ -231,7 +231,7 @@ func TestNewRejectsDatabaseWithPendingMigrationsWhenAutoMigrateIsDisabled(t *tes
 
 func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 	migrations := system.Migrations()
-	if len(migrations) < 20 || migrations[len(migrations)-1].Version != 69 {
+	if len(migrations) < 20 || migrations[len(migrations)-1].Version != 71 {
 		t.Fatalf("unexpected schema-compiler-generation manifest: %d migrations", len(migrations))
 	}
 	tests := []struct {
@@ -252,8 +252,8 @@ func TestPublicIdentityArtifactStartsOnlyOnCompleteHistory(t *testing.T) {
 		{name: "v9 rejected without auto-upgrade", through: 9, autoMigrate: true},
 		{name: "v10 rejected", through: 10},
 		{name: "v11 rejected", through: 11},
-		{name: "v67 rejected", through: len(migrations) - 1},
-		{name: "v67 rejected without auto-upgrade", through: len(migrations) - 1, autoMigrate: true},
+		{name: "previous release rejected", through: len(migrations) - 1},
+		{name: "previous release rejected without auto-upgrade", through: len(migrations) - 1, autoMigrate: true},
 		{name: "latest accepted", through: len(migrations), wantAccept: true},
 		{name: "dirty latest rejected", through: len(migrations), dirty: true},
 		{name: "dirty v6 rejected", through: 6, dirty: true},
@@ -721,5 +721,44 @@ func drainCursorTTL(t *testing.T, ctx context.Context, app *App) {
 		v4_decode_until = transaction_timestamp() - interval '1 minute',
 		updated_at = transaction_timestamp() where singleton`); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAppShutdownDrainsHealthyRealtimeStream(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	app, err := New(ctx, Options{
+		DatabaseURL: testutil.NewDatabase(t), TokenSecret: make([]byte, 32),
+		AutoMigrate: true, ShutdownTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.listen = func(string, string) (net.Listener, error) { return listener, nil }
+	done := make(chan error, 1)
+	go func() { done <- app.Run(ctx) }()
+	client := &http.Client{Timeout: 5 * time.Second}
+	stream, err := client.Get("http://" + listener.Addr().String() + "/api/realtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Body.Close()
+	first := make([]byte, len("event: PB_CONNECT\n"))
+	if _, err = io.ReadFull(stream.Body, first); err != nil || string(first) != "event: PB_CONNECT\n" {
+		t.Fatalf("initial stream frame %q: %v", first, err)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("app did not shut down")
 	}
 }

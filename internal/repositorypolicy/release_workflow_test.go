@@ -229,31 +229,6 @@ func TestPlaywrightReleaseGateDoesNotMaskFailuresWithRetries(t *testing.T) {
 	}
 }
 
-func TestSecurityWorkflowLimitsTheGatedSARIFReportToHighSeverityFindings(t *testing.T) {
-	contents, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "security.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	workflow := string(contents)
-	start := strings.Index(workflow, "      - name: Record image findings as SARIF\n")
-	if start < 0 {
-		t.Fatal("security workflow has no gated SARIF report step")
-	}
-	end := strings.Index(workflow[start+1:], "\n      - name:")
-	if end < 0 {
-		t.Fatal("security workflow has no step after the gated SARIF report")
-	}
-	step := workflow[start : start+1+end]
-	for _, marker := range []string{
-		"severity: HIGH,CRITICAL",
-		"limit-severities-for-sarif: true",
-	} {
-		if !strings.Contains(step, marker) {
-			t.Fatalf("gated SARIF report is missing %q", marker)
-		}
-	}
-}
-
 func TestRoutineSecurityChecksDeferImageWorkToExplicitOrReleaseRuns(t *testing.T) {
 	contents, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "security.yml"))
 	if err != nil {
@@ -280,9 +255,9 @@ func TestRoutineSecurityChecksDeferImageWorkToExplicitOrReleaseRuns(t *testing.T
 	}
 	for _, stepName := range []string{
 		"Generate SPDX SBOM",
-		"Record image findings as SARIF",
-		"Record every severity as SARIF",
-		"Scan production image",
+		"Scan production image once",
+		"Convert the scan to SARIF reports",
+		"Enforce the production image severity gate",
 	} {
 		start := strings.Index(workflow, "      - name: "+stepName+"\n")
 		if start < 0 {

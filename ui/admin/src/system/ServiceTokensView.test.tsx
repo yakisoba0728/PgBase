@@ -38,6 +38,30 @@ it("says so when the linked token does not exist", async () => {
   expect(await screen.findByText("Not found.")).toBeInTheDocument();
 });
 
+it("reaches older tokens through paging, the active filter, and a direct link", async () => {
+  const older = { ...token, id: "older", name: "long-running deploy" };
+  const listed = vi.mocked(system.listServiceTokens);
+  listed.mockImplementation(async (params) => {
+    if (params?.after || params?.active || params?.id === older.id) return { items: [older] };
+    return { items: [token], nextAfter: token.id };
+  });
+  renderAt("?token=older");
+  const pane = within(await screen.findByRole("region", { name: "Service token" }));
+  expect(await pane.findByText(older.name)).toBeInTheDocument();
+  expect(listed).toHaveBeenCalledWith({ id: older.id }, expect.any(AbortSignal));
+
+  const table = within(await screen.findByRole("table", { name: "Service tokens" }));
+  fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+  expect(await table.findByText(older.name)).toBeInTheDocument();
+  expect(listed).toHaveBeenCalledWith({ after: token.id, active: undefined }, expect.any(AbortSignal));
+
+  fireEvent.click(screen.getByRole("checkbox", { name: "Active tokens only" }));
+  const filtered = within(await screen.findByRole("table", { name: "Service tokens" }));
+  expect(filtered.getByText(older.name)).toBeInTheDocument();
+  expect(filtered.queryByText(token.name)).not.toBeInTheDocument();
+  expect(listed).toHaveBeenCalledWith({ after: undefined, active: true }, expect.any(AbortSignal));
+});
+
 it("selects scopes by column and row, with indeterminate states and a filter that never submits", async () => {
   vi.spyOn(collections, "listCollections").mockResolvedValue({
     version: 1,

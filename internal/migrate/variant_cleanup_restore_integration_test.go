@@ -26,7 +26,12 @@ func TestVariantCleanupRestoresSchema68BeforeUpgrade(t *testing.T) {
 	}
 	t.Cleanup(source.Close)
 	legacy := New(source, nil)
-	legacy.migrations = legacy.migrations[:len(legacy.migrations)-1]
+	for index, migration := range legacy.migrations {
+		if migration.Version == 69 {
+			legacy.migrations = legacy.migrations[:index]
+			break
+		}
+	}
 	if legacy.migrations[len(legacy.migrations)-1].Version != 68 {
 		t.Fatal("fixture must start at schema68")
 	}
@@ -78,7 +83,7 @@ func TestVariantCleanupRestoresSchema68BeforeUpgrade(t *testing.T) {
 		}
 	}
 	status, err := New(restored, nil).Status(ctx)
-	if err != nil || status.Current != 69 || status.Latest != 69 || status.Dirty || !status.Compatible {
+	if err != nil || status.Current != 71 || status.Latest != 71 || status.Dirty || !status.Compatible {
 		t.Fatalf("restored migration status=%+v err=%v", status, err)
 	}
 	var driver, bucket, access string

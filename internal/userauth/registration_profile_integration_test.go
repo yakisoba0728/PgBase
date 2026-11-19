@@ -196,9 +196,18 @@ func TestSignupProfileEnforcesRelationAndIdentityPolicies(t *testing.T) {
 		t.Fatalf("missing relation target accepted: %v", err)
 	}
 	input["team"] = json.RawMessage(`"` + target.User.PublicID + `"`)
-	member, err := service.RegisterInCollectionWithFields(ctx, id, "member@example.test", "correct horse battery staple", "valid-team", input)
+	member, err := service.RegisterInCollectionWithFields(ctx, id, "Member@example.test", "correct horse battery staple", "valid-team", input)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, identity := range []string{"Member@example.test", "member@example.test", "member"} {
+		loggedIn, err := service.LoginInCollection(ctx, id, identity, "correct horse battery staple", "identity-login")
+		if err != nil || loggedIn.User.ID != member.User.ID {
+			t.Fatalf("login with %q: %v", identity, err)
+		}
+	}
+	if _, err := service.LoginInCollection(ctx, id, "Member", "correct horse battery staple", "identity-login"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("handle case was normalized: %v", err)
 	}
 	if _, err := service.RegisterInCollectionWithFields(ctx, id, "duplicate@example.test", "correct horse battery staple", "duplicate-handle", input); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate identity accepted: %v", err)

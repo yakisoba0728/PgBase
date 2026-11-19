@@ -249,6 +249,7 @@ func newWithCatalogPreflight(
 	applicationRealtimeBroker := api.NewApplicationRealtimeBroker()
 	dependencies, extensionMailer, userService, err := withUserServices(api.Dependencies{
 		Realtime:                  realtimeService,
+		RealtimeDrainContext:      app.realtimeDrainContext,
 		ApplicationRealtimeBroker: applicationRealtimeBroker,
 		RequestLog:                requestLog,
 		RuntimeSettings:           runtimeSettings,
@@ -325,7 +326,8 @@ func newWithCatalogPreflight(
 	if scheduledBackups == nil {
 		scheduledBackups = normalized.Backups.manager
 	}
-	if err := installManagedBackupSchedule(ctx, jobService, scheduledBackups, runtimeSettings, normalized.Logger); err != nil {
+	reconcileBackupSchedule, err := installManagedBackupSchedule(ctx, jobService, scheduledBackups, runtimeSettings, normalized.Logger)
+	if err != nil {
 		return nil, fmt.Errorf("install managed backup schedule: %w", err)
 	}
 	dependencies.MaximumFileUploadBytes = normalized.Files.MaximumBytes + 64<<10
@@ -334,6 +336,10 @@ func newWithCatalogPreflight(
 		return nil, err
 	}
 	handler = requestHooks(normalized.Hooks, handler)
+	cleaner := adminauth.NewCleaner(pool, nil, normalized.Logger)
+	if userService != nil {
+		cleaner.SetUserCleanup(userService.CleanExpiredCredentials)
+	}
 	*app = App{
 		schemaCache:           schemaCache,
 		options:               normalized,
@@ -341,13 +347,14 @@ func newWithCatalogPreflight(
 		requestLog:            dependencies.RequestLog,
 		realtimeBroker:        applicationRealtimeBroker,
 		runtimeSettings:       runtimeSettings,
+		backupSchedule:        reconcileBackupSchedule,
 		pool:                  pool,
 		records:               recordService,
 		backupGate:            gate,
 		handler:               handler,
 		publicSite:            publicHandler,
 		readiness:             readiness,
-		cleaner:               adminauth.NewCleaner(pool, nil, normalized.Logger),
+		cleaner:               cleaner,
 		recordCleaner:         recordops.NewIdempotencyCleaner(pool, normalized.Logger),
 		realtimeWorker:        realtimeService,
 		schemaOperations:      schemaService,
@@ -363,6 +370,7 @@ func newWithCatalogPreflight(
 		listen:                net.Listen,
 		lifecycleClosing:      make(chan struct{}),
 	}
+	app.resumeRealtime()
 	bindRuntimeSettingsLifecycle(app, runtimeSettings)
 	extensions.appControl = newExtensionAppControl(app, normalized.JavaScript)
 	extensions.requestLog = app.requestLog

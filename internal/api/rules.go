@@ -14,7 +14,7 @@ import (
 
 type RecordRules interface {
 	Get(context.Context, string) (recordaccess.RulePolicy, error)
-	Set(context.Context, string, accessrule.Rules) (recordaccess.RulePolicy, error)
+	SetAtRevision(context.Context, string, accessrule.Rules, *int64) (recordaccess.RulePolicy, error)
 	Preview(context.Context, string, recordaccess.RulePreview) ([]recordaccess.RuleDecision, error)
 }
 
@@ -25,51 +25,24 @@ func ruleRoutes(dependencies Dependencies) []route {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var result recordaccess.RulePolicy
 		var err error
-		if r.Method == "GET" {
-			result, err = dependencies.RecordRules.Get(r.Context(), r.PathValue("collection"))
+		collection := r.PathValue("collection")
+		compat := r.URL.Query().Get("compat") == "pocketbase"
+		if r.Method == http.MethodGet {
+			result, err = dependencies.RecordRules.Get(r.Context(), collection)
 		} else {
-			if r.URL.Query().Get("compat") == "pocketbase" {
-				var input struct {
-					Rules accessrule.PocketBaseRules `json:"pocketbaseRules"`
-				}
-				if decodeStrictJSON(r, &input) != nil {
-					writeRuleError(w, r, accessrule.ErrInvalid)
-					return
-				}
-				rules, parseErr := accessrule.FromPocketBaseRulesParsed(input.Rules, query.ParseAccessRule)
-				if parseErr != nil {
-					writeRuleError(w, r, parseErr)
-					return
-				}
-				result, err = dependencies.RecordRules.Set(r.Context(), r.PathValue("collection"), rules)
-				if err != nil {
-					writeRuleError(w, r, err)
-					return
-				}
-				w.Header().Set("Cache-Control", "no-store")
-				writeJSON(w, http.StatusOK, map[string]any{"collection": result.Collection, "pocketbaseRules": result.Rules.PocketBase(), "revision": result.Revision})
-				return
-			}
-			var input struct {
-				Rules json.RawMessage `json:"rules"`
-			}
-			if decodeStrictJSON(r, &input) != nil {
-				writeRuleError(w, r, accessrule.ErrInvalid)
-				return
-			}
-			rules, parseErr := query.ParseAccessRules(input.Rules)
+			rules, expected, parseErr := decodeRuleUpdate(r, compat)
 			if parseErr != nil {
 				writeRuleError(w, r, parseErr)
 				return
 			}
-			result, err = dependencies.RecordRules.Set(r.Context(), r.PathValue("collection"), rules)
+			result, err = dependencies.RecordRules.SetAtRevision(r.Context(), collection, rules, expected)
 		}
 		if err != nil {
 			writeRuleError(w, r, err)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		if r.URL.Query().Get("compat") == "pocketbase" {
+		if compat {
 			writeJSON(w, http.StatusOK, map[string]any{"collection": result.Collection, "pocketbaseRules": result.Rules.PocketBase(), "revision": result.Revision})
 			return
 		}
@@ -96,6 +69,29 @@ func ruleRoutes(dependencies Dependencies) []route {
 	}
 }
 
+func decodeRuleUpdate(r *http.Request, compat bool) (accessrule.Rules, *int64, error) {
+	if compat {
+		var input struct {
+			Rules    accessrule.PocketBaseRules `json:"pocketbaseRules"`
+			Revision *int64                     `json:"revision"`
+		}
+		if decodeStrictJSON(r, &input) != nil || (input.Revision != nil && *input.Revision < 0) {
+			return accessrule.Rules{}, nil, accessrule.ErrInvalid
+		}
+		rules, err := accessrule.FromPocketBaseRulesParsed(input.Rules, query.ParseAccessRule)
+		return rules, input.Revision, err
+	}
+	var input struct {
+		Rules    json.RawMessage `json:"rules"`
+		Revision *int64          `json:"revision"`
+	}
+	if decodeStrictJSON(r, &input) != nil || (input.Revision != nil && *input.Revision < 0) {
+		return accessrule.Rules{}, nil, accessrule.ErrInvalid
+	}
+	rules, err := query.ParseAccessRules(input.Rules)
+	return rules, input.Revision, err
+}
+
 func writeRuleError(w http.ResponseWriter, r *http.Request, err error) {
 	response := APIError{Status: 503, Code: "rules_unavailable", Message: "Record rules are unavailable"}
 	if errors.Is(err, accessrule.ErrInvalid) {
@@ -111,6 +107,9 @@ func writeRuleError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, recordaccess.ErrUnsupported) {
 		writeRecordError(w, r, err)
 		return
+	}
+	if errors.Is(err, recordaccess.ErrRuleRevisionConflict) {
+		response = APIError{Status: http.StatusPreconditionFailed, Code: "precondition_failed", Message: "Collection rules have changed"}
 	}
 	if errors.Is(err, recordaccess.ErrNotFound) {
 		response = APIError{Status: 404, Code: "not_found", Message: "Collection not found"}

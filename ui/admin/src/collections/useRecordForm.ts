@@ -10,7 +10,7 @@ import { en } from "../i18n/en";
 import { useT, type Translate } from "../i18n";
 import { buildInput, initialDrafts, isDirty, type Draft } from "./fields";
 import { addToLists, recordQuery, removeFromLists, replaceInLists } from "./queries";
-import { changedFields, keepDraft, clearDraft, readDraft, writeDraft, type DraftScope } from "./recordDraft";
+import { forgetKeptDraft, changedFields, keepDraft, clearDraft, readDraft, writeDraft, type DraftScope } from "./recordDraft";
 
 const trackedParams = ["record", "new"];
 
@@ -52,16 +52,20 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
   const record: RecordData | undefined = loaded?.record;
   const isNew = !loaded;
   const fields = collection.fields;
-  const scope: DraftScope = useMemo(() => ({ admin, collection: collection.id, record: record?.id ?? "new" }), [admin, collection.id, record?.id]);
+  const scope: DraftScope = useMemo(() => ({ admin, collection: collection.id, record: record?.id ?? null }), [admin, collection.id, record?.id]);
   const initial = useMemo(() => initialDrafts(fields, record), [fields, record]);
   // Edits left from a reload, a closed tab, a duplicate or a 412 reload, laid over the latest values.
   const [restored, setRestored] = useState(() => readDraft(scope, fields));
+  // Consume the same-tab snapshot only after the replacement form commits.
+  useEffect(() => forgetKeptDraft(scope, restored), [scope, restored]);
   const [drafts, setDrafts] = useState(() => ({ ...initial, ...restored?.fields }));
   const [files, setFiles] = useState<Record<string, File[]>>({});
   const [newId, setNewId] = useState("");
   const [progress, setProgress] = useState<number | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [conflict, setConflict] = useState(false);
+  const [reloading, setReloading] = useState(false);
+  const reloadInFlight = useRef(false);
   // Reused only to retry the same create after a transport failure.
   const idempotencyKey = useRef<string | null>(null);
   const dirty = isDirty(fields, drafts, initial) || Object.values(files).some((list) => list.length > 0) || newId !== "";
@@ -144,14 +148,38 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
   });
 
   /** Loads the latest version; with `keepEdits` the changed fields are laid over it again. */
-  const reload = (keepEdits: boolean) => {
+  const reload = async (keepEdits: boolean) => {
+    if (!loaded || reloadInFlight.current) return;
+    reloadInFlight.current = true;
+    setReloading(true);
+    const { queryKey } = recordQuery(collection.name, loaded.record.id);
     if (keepEdits) {
       const changed = Object.fromEntries(Object.entries(drafts).filter(([name, value]) => JSON.stringify(value) !== JSON.stringify(initial[name])));
       if (Object.keys(changed).length) keepDraft(scope, changed);
+    } else settle();
+
+    try {
+      await queryClient.invalidateQueries({ queryKey }, { throwOnError: true });
+      if (queryClient.getQueryData<RecordWithETag>(queryKey)?.etag === loaded.etag) {
+        // An unchanged validator leaves this form mounted.
+        forgetKeptDraft(scope);
+        if (!keepEdits) {
+          setRestored(null);
+          setDrafts(initial);
+          setErrors({});
+          settled.current = false;
+        }
+      }
+      setConflict(false);
+    } catch (error) {
+      forgetKeptDraft(scope);
+      settled.current = false;
+      persistRef.current();
+      toast(errorText(t, error), "danger");
+    } finally {
+      reloadInFlight.current = false;
+      setReloading(false);
     }
-    else settle();
-    setConflict(false);
-    if (loaded) void queryClient.invalidateQueries({ queryKey: recordQuery(collection.name, loaded.record.id).queryKey });
   };
 
   return {
@@ -159,6 +187,7 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
     isNew,
     drafts,
     setDraft: (name: string, value: Draft) => {
+      if (reloadInFlight.current) return;
       setDrafts((previous) => ({ ...previous, [name]: value }));
       // An edited field drops its error; the next save checks it again.
       setErrors((previous) => {
@@ -175,6 +204,7 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
     errors,
     dirty,
     conflict,
+    reloading,
     reload,
     restoredAt: restored?.savedAt ?? null,
     /** Drops recovered edits and shows the stored values again. */
@@ -188,7 +218,7 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
     /** Prepares the create form with this record's values; false when browser storage refused it. */
     duplicate: () => {
       const values = changedFields(fields, drafts, initialDrafts(fields)) ?? {};
-      return writeDraft({ ...scope, record: "new" }, values);
+      return writeDraft({ ...scope, record: null }, values);
     },
     /** Back to the stored values (Discard). */
     reset: () => {
@@ -202,6 +232,6 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
     save,
     remove,
     /** Props for the unsaved-changes guard: leaving the record asks; a reload keeps a local draft. */
-    guard: { dirty, busy: save.isPending || remove.isPending, release: () => settled.current, leaves: leavesRecord, onDiscard: settle, onUnload: () => persistRef.current() },
+    guard: { dirty, busy: reloading || save.isPending || remove.isPending, release: () => settled.current, leaves: leavesRecord, onDiscard: settle, onUnload: () => persistRef.current() },
   };
 }

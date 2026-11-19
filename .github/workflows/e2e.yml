@@ -19,6 +19,11 @@ on:
         required: false
         default: ""
         type: string
+      extra_browser_engines:
+        description: Run representative Firefox and WebKit workflows after Chromium
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -184,7 +189,15 @@ jobs:
       # command rather than a side effect of an install hook.
       - name: Install the Playwright browser and its system dependencies
         working-directory: ui/admin
-        run: npx playwright install --with-deps chromium
+        env:
+          EXTRA_BROWSER_ENGINES: ${{ inputs.extra_browser_engines }}
+        shell: bash
+        run: |
+          browsers=(chromium)
+          if [[ "$EXTRA_BROWSER_ENGINES" == true ]]; then
+            browsers+=(firefox webkit)
+          fi
+          npx playwright install --with-deps "${browsers[@]}"
 
       - name: Verify browser onboarding and authenticated workflows
         working-directory: ui/admin
@@ -193,6 +206,18 @@ jobs:
           PGBASE_AUTHENTICATED_BROWSER_BASE_URL: http://127.0.0.1:18091
           PGBASE_MANAGED_BACKUP_BROWSER_BASE_URL: http://127.0.0.1:18092
         run: npm run test:e2e
+
+      # Keep the original Chromium suite intact, then use separately isolated
+      # serial projects for representative Firefox and WebKit user flows.
+      - name: Verify Firefox and WebKit representative workflows
+        if: inputs.extra_browser_engines
+        working-directory: ui/admin
+        env:
+          PGBASE_ONBOARDING_BROWSER_BASE_URL: http://127.0.0.1:18090
+          PGBASE_AUTHENTICATED_BROWSER_BASE_URL: http://127.0.0.1:18091
+          PGBASE_MANAGED_BACKUP_BROWSER_BASE_URL: http://127.0.0.1:18092
+          PGBASE_BROWSER_SMOKE_ENGINES: firefox,webkit
+        run: npm run test:e2e -- --project='*-smoke-*'
 
       - name: Verify hardened runtime
         shell: bash
@@ -233,6 +258,8 @@ jobs:
           name: e2e-failure-logs
           path: |
             e2e.log
+            ui/admin/test-results/
+            ui/admin/playwright-report/
             compose.log
             compose-auth.log
             compose-backup.log

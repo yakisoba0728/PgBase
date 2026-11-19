@@ -68,8 +68,8 @@ func TestSecurityWorkflowScansWithoutABlanketUnfixedExemption(t *testing.T) {
 	}
 	for _, contract := range []string{
 		"deployments/security/trivy-allowlist.yaml",
-		"format: sarif",
-		"severity: HIGH,CRITICAL",
+		"--format sarif",
+		"--severity HIGH,CRITICAL",
 	} {
 		if !strings.Contains(workflow, contract) {
 			t.Errorf("security.yml is missing %q", contract)
@@ -187,29 +187,32 @@ func joinFolded(existing, addition string) string {
 // rather than first noticed on the day it breaks the build.
 func TestSecurityWorkflowRecordsEverySeverityBesideTheGatedScan(t *testing.T) {
 	workflow := readFile(t, "../.github/workflows/security.yml")
-
+	if got := strings.Count(workflow, "uses: aquasecurity/trivy-action@"); got != 1 {
+		t.Fatalf("image scans = %d, want 1", got)
+	}
 	for _, required := range []string{
-		"output: pgbase-image.sarif",
-		"output: pgbase-image-all-severities.sarif",
+		"output: pgbase-image-scan.json",
 		"severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+		"trivy convert --format sarif --output pgbase-image-all-severities.sarif pgbase-image-scan.json",
+		"trivy convert --format sarif --severity HIGH,CRITICAL --output pgbase-image.sarif pgbase-image-scan.json",
+		"trivy convert --scanners vuln,secret --format table --severity HIGH,CRITICAL --exit-code 1 pgbase-image-scan.json",
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("security.yml is missing %q", required)
 		}
 	}
 
-	// Both reports have to survive the job, not just be produced by it.
-	upload := workflow[strings.Index(workflow, "name: pgbase-image-scan-sarif"):]
-	for _, artifact := range []string{"pgbase-image.sarif", "pgbase-image-all-severities.sarif"} {
-		if !strings.Contains(upload[:min(len(upload), 400)], artifact) {
-			t.Errorf("the scan SARIF artifact does not carry %q", artifact)
-		}
+	_, upload, found := strings.Cut(workflow, "name: pgbase-image-scan-sarif")
+	if !found {
+		t.Fatal("security.yml does not upload the image reports")
 	}
-
-	// The failing scan itself stays narrow; widening it would turn every
-	// unfixed LOW into a release blocker.
-	gate := workflow[strings.Index(workflow, "name: Scan production image"):]
-	if !strings.Contains(gate[:min(len(gate), 400)], "severity: HIGH,CRITICAL") {
-		t.Error("the production image gate no longer scans exactly HIGH,CRITICAL")
+	upload, _, _ = strings.Cut(upload, "\n      - name:")
+	if strings.Contains(upload, "pgbase-image-scan.json") {
+		t.Error("keep the raw scan on the runner, where the report converters use it")
+	}
+	for _, artifact := range []string{"pgbase-image.sarif", "pgbase-image-all-severities.sarif"} {
+		if !strings.Contains(upload, artifact) {
+			t.Errorf("the scan artifact does not carry %q", artifact)
+		}
 	}
 }

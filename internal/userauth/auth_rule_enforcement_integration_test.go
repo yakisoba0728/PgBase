@@ -230,6 +230,12 @@ func TestAuxiliaryOAuthDeletionCannotRaceAwayLastSignInMethod(t *testing.T) {
 	if err := service.pool.QueryRow(ctx, `select id from pgbase_meta.user_oauth_identities where user_id=$1`, registered.User.ID).Scan(&lastID); err != nil {
 		t.Fatal(err)
 	}
+	if err := service.DeleteAuthAuxiliary(ctx, DefaultCollectionID, registered.User.ID, "externalAuths", lastID); !errors.Is(err, ErrValidation) {
+		t.Fatalf("OTP without mail delivery should preserve the last OAuth link: %v", err)
+	}
+	if err := service.ConfigureEmailActions(&capturedSender{}, "http://localhost:8090", time.Hour); err != nil {
+		t.Fatal(err)
+	}
 	if err := service.DeleteAuthAuxiliary(ctx, DefaultCollectionID, registered.User.ID, "externalAuths", lastID); err != nil {
 		t.Fatalf("OTP alternative did not permit last OAuth unlink: %v", err)
 	}

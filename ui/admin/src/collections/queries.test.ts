@@ -59,18 +59,18 @@ describe("pooled", () => {
 describe("countText", () => {
   const t = (key: MessageKey, vars?: Record<string, string | number>) => translate("en", key, vars);
   it("shows the server's bounded total while pages remain", () => {
-    expect(countText(t, 200, true, { items: [], totalItems: 1234 })).toBe("200 of 1,234 loaded");
-    expect(countText(t, 200, true, { items: [], totalItems: 10000, totalCapped: true })).toBe("200 of 10,000+ loaded");
-    expect(countText(t, 3, false, { items: [], totalItems: 5 })).toBe("3 records");
+    expect(countText(t, 200, true, { totalItems: 1234 })).toBe("200 of 1,234 loaded");
+    expect(countText(t, 200, true, { totalItems: 10000, totalCapped: true })).toBe("200 of 10,000+ loaded");
+    expect(countText(t, 3, false, { totalItems: 5 })).toBe("3 records");
   });
 });
 
 it("seeds per-field file caches from the record page, including empty fields", async () => {
  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
  const spy = vi.spyOn(api, "listRecords").mockResolvedValue({ items: [{ id: "row" }], fileMetadata: { row: { attachment: [] } } });
- await client.fetchInfiniteQuery(recordsQuery("notes", "", "", "", true));
+ await client.fetchInfiniteQuery(recordsQuery("notes", "", "", "", { fileFields: "attachment" }));
  expect(client.getQueryData(recordFilesQuery("notes", "row", "attachment").queryKey)).toEqual([]);
- expect(spy).toHaveBeenCalledWith("notes", expect.objectContaining({ files: true }));
+ expect(spy).toHaveBeenCalledWith("notes", expect.objectContaining({ files: true, fileFields: "attachment" }));
  spy.mockRestore();
  client.clear();
 });
@@ -97,6 +97,20 @@ it("asks for file metadata only when the collection has a file field", async () 
   expect(spy.mock.calls[0][1]?.files).toBeUndefined();
   await client.fetchInfiniteQuery(recordsListQuery(collection([field("title", "text"), field("cover", "file")]), "ada", ""));
   expect(spy.mock.calls[1][1]).toMatchObject({ files: true, filter: "title:lower ~ 'ada'" });
+  spy.mockRestore();
+  client.clear();
+});
+
+it("projects grid values and file metadata to visible fields", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const spy = vi.spyOn(api, "listRecords").mockResolvedValue({ items: [] });
+  const schema = collection([field("title", "text"), field("content", "jsonb"), field("cover", "file"), field("hidden_file", "file")]);
+  const visible = recordsListQuery(schema, "", "", ["title", "cover"]);
+  expect(visible.maxPages).toBe(10);
+  await client.fetchInfiniteQuery(visible);
+  expect(spy).toHaveBeenLastCalledWith("notes", expect.objectContaining({ fields: "id,title", files: true, fileFields: "cover" }));
+  await client.fetchInfiniteQuery(recordsListQuery(schema, "", "", ["title"]));
+  expect(spy).toHaveBeenLastCalledWith("notes", expect.objectContaining({ fields: "id,title", files: undefined, fileFields: undefined }));
   spy.mockRestore();
   client.clear();
 });

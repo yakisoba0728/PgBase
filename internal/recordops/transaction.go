@@ -72,10 +72,7 @@ func (s *Service) deleteTx(ctx context.Context, collectionName string, operation
 // synchronous COMMIT would wait for a WAL flush that protects nothing. Only a
 // transaction owned here relaxes it; a borrowed one may carry its owner's writes.
 func (s *Service) readTx(ctx context.Context, collectionName string, operation func(pgx.Tx, schema.Catalog, schema.Collection) error) error {
-	return s.pinnedTxOptions(ctx, collectionName, pgx.TxOptions{
-		IsoLevel:   pgx.RepeatableRead,
-		BeginQuery: "begin isolation level repeatable read; set local synchronous_commit = off",
-	}, nil, operation)
+	return s.pinnedTxOptions(ctx, collectionName, database.ReadSnapshotOptions(), nil, operation)
 }
 
 func (s *Service) pinnedTx(

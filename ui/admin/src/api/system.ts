@@ -175,8 +175,16 @@ export interface IssueServiceTokenInput {
   scopes: ServiceTokenScope[];
 }
 
-export function listServiceTokens(signal?: AbortSignal): Promise<{ items: ServiceToken[] }> {
-  return request("GET", "/api/admin/service-tokens", { signal });
+export interface ServiceTokenPage {
+  items: ServiceToken[];
+  nextAfter?: string;
+}
+
+export function listServiceTokens(
+  params: { after?: string; id?: string; active?: true } = {},
+  signal?: AbortSignal,
+): Promise<ServiceTokenPage> {
+  return request("GET", "/api/admin/service-tokens", { query: params, signal });
 }
 
 export function issueServiceToken(input: IssueServiceTokenInput): Promise<IssuedServiceToken> {

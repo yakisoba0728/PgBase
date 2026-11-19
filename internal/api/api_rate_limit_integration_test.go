@@ -29,6 +29,7 @@ func TestAPIRateLimitHTTPRejectsAndHonorsTrustedForwardedClient(t *testing.T) {
 	s := runtimesettings.Default()
 	s.RateLimits.Enabled = true
 	s.RateLimits.Rules = []runtimesettings.APIRateRule{{Label: "/health/live", Duration: 60, MaxRequests: 1}}
+	s.RateLimits.ExcludedIPs = []string{"192.0.2.0/24", "2001:db8:12::/64", "2001:db8:13::1"}
 	limiter := apiratelimit.New(pool, []byte("01234567890123456789012345678901"), s)
 	h := mustRouter(t, Dependencies{APIRateLimits: limiter, TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}})
 	request := func(ip string) *httptest.ResponseRecorder {
@@ -47,5 +48,18 @@ func TestAPIRateLimitHTTPRejectsAndHonorsTrustedForwardedClient(t *testing.T) {
 	}
 	if w := request("203.0.113.10"); w.Code != http.StatusOK {
 		t.Fatalf("separate forwarded actor=%d", w.Code)
+	}
+	for _, excluded := range []string{"192.0.2.1", "2001:db8:12::1", "2001:db8:13::1"} {
+		for range 2 {
+			if w := request(excluded); w.Code != http.StatusOK {
+				t.Fatalf("excluded address %s returned %d", excluded, w.Code)
+			}
+		}
+	}
+	if w := request("2001:db8:13::2"); w.Code != http.StatusOK {
+		t.Fatalf("first non-excluded IPv6 request returned %d", w.Code)
+	}
+	if w := request("2001:db8:13::3"); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("second non-excluded request in the same IPv6 /64 returned %d", w.Code)
 	}
 }

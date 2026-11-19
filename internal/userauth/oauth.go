@@ -130,28 +130,18 @@ func (s *Service) unlinkOAuthIdentityByID(ctx context.Context, collectionID, use
 
 func (s *Service) unlinkOAuthIdentity(ctx context.Context, collectionID, userID uuid.UUID, provider string, identityID uuid.UUID) error {
 	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		var actualCollection uuid.UUID
-		var passwordEnabled, realmPasswordEnabled, otpEnabled bool
-		if err := tx.QueryRow(ctx, `select auth_collection_id,password_enabled from pgbase_meta.users where id=$1 and active for update`, userID).Scan(&actualCollection, &passwordEnabled); errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
-		} else if err != nil {
-			return err
-		}
-		if collectionID != uuid.Nil && actualCollection != collectionID {
-			return ErrNotFound
-		}
-		if err := tx.QueryRow(ctx, `select password_enabled,otp_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, actualCollection).Scan(&realmPasswordEnabled, &otpEnabled); err != nil {
+		actualCollection, canSignIn, err := s.lockOAuthRemovalUser(ctx, tx, collectionID, userID)
+		if err != nil {
 			return err
 		}
 		var count int
 		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2`, actualCollection, userID).Scan(&count); err != nil {
 			return err
 		}
-		if !(passwordEnabled && realmPasswordEnabled) && !otpEnabled && count <= 1 {
+		if !canSignIn && count <= 1 {
 			return ErrValidation
 		}
 		var tag pgconn.CommandTag
-		var err error
 		if identityID != uuid.Nil {
 			tag, err = tx.Exec(ctx, `delete from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2 and id=$3`, actualCollection, userID, identityID)
 		} else {
@@ -165,6 +155,39 @@ func (s *Service) unlinkOAuthIdentity(ctx context.Context, collectionID, userID 
 		}
 		return nil
 	})
+}
+
+// lockOAuthRemovalUser checks the non-OAuth sign-in methods under the policy
+// and user locks. OTP issuance uses the same policy-before-user order.
+func (s *Service) lockOAuthRemovalUser(ctx context.Context, tx pgx.Tx, collectionID, userID uuid.UUID) (uuid.UUID, bool, error) {
+	if collectionID == uuid.Nil {
+		if err := tx.QueryRow(ctx, `select auth_collection_id from pgbase_meta.users where id=$1 and active`, userID).Scan(&collectionID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				err = ErrNotFound
+			}
+			return uuid.Nil, false, err
+		}
+	}
+	var realmPassword, otpEnabled, realmSMTP bool
+	if err := tx.QueryRow(ctx, `select password_enabled,otp_enabled,
+		exists(select 1 from pgbase_meta.auth_smtp_configs where auth_collection_id=$1)
+		from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, collectionID).Scan(&realmPassword, &otpEnabled, &realmSMTP); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = ErrNotFound
+		}
+		return uuid.Nil, false, err
+	}
+	var passwordEnabled bool
+	var email string
+	if err := tx.QueryRow(ctx, `select password_enabled,email from pgbase_meta.users where id=$1 and auth_collection_id=$2 and active for update`, userID, collectionID).Scan(&passwordEnabled, &email); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = ErrNotFound
+		}
+		return uuid.Nil, false, err
+	}
+	_, emailErr := normalizeEmail(email)
+	canUseOTP := otpEnabled && emailErr == nil && (realmSMTP || s.mailer != nil)
+	return collectionID, passwordEnabled && realmPassword || canUseOTP, nil
 }
 
 type OAuthIdentitySummary struct {
@@ -326,7 +349,7 @@ func (s *Service) CompleteOAuthWithFields(ctx context.Context, provider, state, 
 				return ErrValidation
 			}
 			var hash string
-			err = tx.QueryRow(ctx, `select id,auth_collection_id,email,verified,created_at,password_hash from pgbase_meta.users where id=$1 and active for update`, *linkUser).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt, &hash)
+			err = scanSessionUser(tx.QueryRow(ctx, `select `+sessionUserColumns+`,u.password_hash from pgbase_meta.users u where id=$1 and active for update`, *linkUser), &user, &hash)
 			if errors.Is(err, pgx.ErrNoRows) {
 				// A new account needs a provider-verified email. Providers that do
 				// not expose one remain usable through the explicit password-bound
@@ -358,7 +381,7 @@ func (s *Service) CompleteOAuthWithFields(ctx context.Context, provider, state, 
 				return err
 			}
 		} else {
-			err = tx.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.verified,u.created_at from pgbase_meta.user_oauth_identities i join pgbase_meta.users u on u.id=i.user_id where i.auth_collection_id=$1 and i.provider=$2 and i.subject=$3 and u.active for update of u`, persistedCollectionID, provider, identity.Subject).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt)
+			err = scanSessionUser(tx.QueryRow(ctx, `select `+sessionUserColumns+` from pgbase_meta.user_oauth_identities i join pgbase_meta.users u on u.id=i.user_id where i.auth_collection_id=$1 and i.provider=$2 and i.subject=$3 and u.active for update of u`, persistedCollectionID, provider, identity.Subject), &user)
 			if errors.Is(err, pgx.ErrNoRows) {
 				var registrationEnabled bool
 				if err := tx.QueryRow(ctx, `select registration_enabled from pgbase_meta.auth_collections where id=$1 for share`, persistedCollectionID).Scan(&registrationEnabled); errors.Is(err, pgx.ErrNoRows) {

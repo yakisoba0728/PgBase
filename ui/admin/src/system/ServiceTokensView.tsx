@@ -1,14 +1,14 @@
 import { useRef, useState, type FormEvent } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiAddLine, RiErrorWarningLine, RiKey2Line } from "@remixicon/react";
 import { ApiError } from "../api/http";
 import { issueServiceToken, revokeServiceToken, type ServiceToken, type ServiceTokenScope } from "../api/system";
-import { errorText } from "../app/queries";
+import { errorText, windowOpen, windowShifted } from "../app/queries";
 import { collectionsQuery } from "../collections/queries";
 import { Button, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
-import { EmptyState, Notice, Skeleton } from "../components/Feedback";
-import { QueryView } from "../components/QueryView";
+import { EmptyState, LoadMore, Notice, WindowNotice } from "../components/Feedback";
+import { QueryView, useHeld } from "../components/QueryView";
 import { Row, Table, TableScroll } from "../components/Table";
 import { Checkbox, Field, GroupCheckbox, Searchbar } from "../components/Field";
 import { SplitView, PaneHeader } from "../components/SplitView";
@@ -16,7 +16,7 @@ import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
 import { useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
-import { serviceTokensQuery } from "./queries";
+import { serviceTokenQuery, serviceTokensKey, serviceTokensQuery } from "./queries";
 import { SecretView, TaskDialog } from "../components/Dialog";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { Facts } from "../components/Facts";
@@ -36,7 +36,7 @@ export function ServiceTokensActions() {
   const { update } = useSearchState();
   return (
     <>
-      <RefreshButton queryKey={serviceTokensQuery.queryKey} />
+      <RefreshButton queryKey={serviceTokensKey} />
       <Button size="sm" icon={RiAddLine} data-new onClick={() => update({ token: "new" })}>{t("system.tokens.new")}</Button>
     </>
   );
@@ -46,19 +46,34 @@ export function ServiceTokensView() {
   const t = useT();
   const time = useTimeFormat();
   const { params, update } = useSearchState();
-  const query = useQuery(serviceTokensQuery);
+  const [activeOnly, setActiveOnly] = useState(false);
+  const options = serviceTokensQuery(activeOnly);
+  const query = useHeld(useInfiniteQuery(options), activeOnly);
+  const queryClient = useQueryClient();
   const collections = useQuery(collectionsQuery);
   const names = new Map((collections.data ?? []).map((collection) => [collection.id, collection.name]));
-  const items = query.data?.items ?? [];
+  const items = query.data?.pages.flatMap((page) => page.items) ?? [];
   const openId = params.get("token");
-  const open = items.find((item) => item.id === openId);
+  const listed = items.find((item) => item.id === openId);
+  const single = useQuery({ ...serviceTokenQuery(openId ?? ""), enabled: Boolean(openId && openId !== "new" && !listed) });
+  const open = listed ?? single.data;
+  const shifted = windowShifted(query.data);
   const close = () => update({ token: null });
 
   const list = (
     <TableScroll>
-      <QueryView query={query} empty={<EmptyState icon={RiKey2Line}>{t("system.tokens.empty")}</EmptyState>} isEmpty={(data) => data.items.length === 0}>
+      <div className="toolbar">
+        <Checkbox label={t("system.tokens.activeOnly")} checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)} />
+      </div>
+      <QueryView query={query} empty={<EmptyState icon={RiKey2Line}>{t(activeOnly ? "system.tokens.emptyActive" : "system.tokens.empty")}</EmptyState>} isEmpty={() => items.length === 0 && !shifted}>
         {() => (
           <>
+            {shifted && (
+              <WindowNotice action={t("system.admins.toStart")} onReset={(button) => {
+                button.closest(".grid-scroll")?.scrollTo(0, 0);
+                void queryClient.resetQueries({ queryKey: options.queryKey, exact: true });
+              }}>{t("system.tokens.shifted", { count: items.length })}</WindowNotice>
+            )}
             <Table label={t("nav.tokens")}>
               <thead>
                 <tr>
@@ -84,7 +99,7 @@ export function ServiceTokensView() {
                 })}
               </tbody>
             </Table>
-            {items.length >= 64 && <p className="grid-foot txt-hint">{t("system.tokens.capped")}</p>}
+            <LoadMore query={query} auto={windowOpen(query.data)} />
           </>
         )}
       </QueryView>
@@ -94,9 +109,7 @@ export function ServiceTokensView() {
   let pane = null;
   if (openId === "new") pane = <IssueToken onClose={close} onIssued={(id) => update({ token: id })} />;
   else if (open) pane = <TokenPane key={open.id} token={open} names={names} onClose={close} />;
-  // The full list is loaded, so a token missing from it once it settles does not exist (a just-issued one arrives with the refetch).
-  else if (openId && query.data && !query.isFetching) pane = <EmptyState icon={RiErrorWarningLine}>{t("common.notFound")}</EmptyState>;
-  else if (openId && !query.isError) pane = <Skeleton variant="pane" />;
+  else if (openId) pane = <QueryView query={single} skeleton="pane" empty={<EmptyState icon={RiErrorWarningLine}>{t("common.notFound")}</EmptyState>} isEmpty={(data) => data === null}>{() => null}</QueryView>;
   return <SplitView list={list} pane={pane} paneLabel={t("system.tokens.detail")} onClose={close} />;
 }
 function TokenPane({ token, names, onClose }: { token: ServiceToken; names: Map<string, string>; onClose: () => void }) {
@@ -111,7 +124,7 @@ function TokenPane({ token, names, onClose }: { token: ServiceToken; names: Map<
     onError: (error) => toast(errorText(t, error), "danger"),
     onSettled: () => {
       setConfirming(false);
-      void queryClient.invalidateQueries({ queryKey: serviceTokensQuery.queryKey });
+      void queryClient.invalidateQueries({ queryKey: serviceTokensKey });
     },
   });
   const byCollection = new Map<string, string[]>();
@@ -150,7 +163,7 @@ function IssueToken({ onClose, onIssued }: { onClose: () => void; onIssued: (id:
   const [scopes, setScopes] = useState<Set<string>>(new Set());
   const issue = useMutation({
     mutationFn: issueServiceToken,
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: serviceTokensQuery.queryKey }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: serviceTokensKey }),
   });
   const close = () => { if (!issue.isPending) onClose(); };
   const setMany = (keys: string[], on: boolean) =>

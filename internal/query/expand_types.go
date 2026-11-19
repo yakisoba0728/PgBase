@@ -34,7 +34,9 @@ type ListRequest struct {
 	RuleContext             *accessrule.RequestContext
 	// Offset is used only by the explicit PocketBase page adapter. Native
 	// cursor callers leave it zero and retain keyset pagination.
-	Offset int
+	Offset      int
+	offsetPage  bool
+	projectRoot func(map[string]any) map[string]any
 	// Total adds a bounded count of all matching records to the page.
 	Total bool
 }

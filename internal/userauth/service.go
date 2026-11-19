@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/mail"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -74,9 +75,6 @@ func (s *Service) RegisterInCollectionWithFields(ctx context.Context, collection
 	if err != nil {
 		return Session{}, err
 	}
-	if err := s.maybeCleanup(ctx); err != nil {
-		return Session{}, err
-	}
 	ratePolicy := s.currentRatePolicy()
 	var registrationEnabled bool
 	if err := s.pool.QueryRow(ctx, `select registration_enabled from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&registrationEnabled); errors.Is(err, pgx.ErrNoRows) {
@@ -98,8 +96,8 @@ func (s *Service) RegisterInCollectionWithFields(ctx context.Context, collection
 	if err != nil {
 		return Session{}, err
 	}
-	defer releaseHash()
 	passwordHash, err := s.passwords.Hash(password)
+	releaseHash()
 	if err != nil {
 		return Session{}, err
 	}
@@ -134,10 +132,13 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	}
 	defer release()
 	identity := strings.TrimSpace(email)
-	normalized, emailErr := normalizeEmail(identity)
+	normalizedEmail, emailErr := normalizeEmail(identity)
+	accountIdentity := identity
+	if emailErr == nil && slices.Contains(policy.IdentityFields, "email") {
+		accountIdentity = normalizedEmail
+	}
 	if len(policy.IdentityFields) != 1 || policy.IdentityFields[0] != "email" {
 		emailErr = nil
-		normalized = identity
 	}
 	if err := validateClientAddress(clientAddress); err != nil {
 		return Session{}, err
@@ -147,11 +148,8 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	if err != nil {
 		return Session{}, err
 	}
-	if err := s.maybeCleanup(ctx); err != nil {
-		return Session{}, err
-	}
 	ratePolicy := s.currentRatePolicy()
-	accountSubject := collectionID.String() + "\x00" + normalized
+	accountSubject := collectionID.String() + "\x00" + accountIdentity
 	if emailErr != nil {
 		// All malformed emails share one fixed-size bucket. Valid unknown emails
 		// use their normalized form exactly like existing accounts, so account
@@ -168,8 +166,8 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	var user User
 	var hash string
 	lookupErr := error(ErrInvalidCredentials)
-	if emailErr == nil && passwordErr == nil && normalized != "" {
-		user, hash, lookupErr = userByIdentityDB(ctx, s.pool, collectionID, policy.IdentityFields, normalized)
+	if emailErr == nil && passwordErr == nil && identity != "" {
+		user, hash, lookupErr = userByIdentityDB(ctx, s.pool, collectionID, policy.IdentityFields, identity, normalizedEmail)
 		if lookupErr != nil && !errors.Is(lookupErr, ErrInvalidCredentials) {
 			return Session{}, lookupErr
 		}
@@ -209,10 +207,13 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 // userByIdentityDB permits email plus declared text profile fields.  Field names
 // are read from validated policy rather than interpolated into SQL, keeping the
 // JSON lookup parameterized and preventing profile-field SQL injection.
-func userByIdentityDB(ctx context.Context, db database.DBTX, collectionID uuid.UUID, fields []string, identity string) (User, string, error) {
+func userByIdentityDB(ctx context.Context, db database.DBTX, collectionID uuid.UUID, fields []string, identity, normalizedEmail string) (User, string, error) {
 	for _, field := range fields {
 		if field == "email" {
-			u, hash, err := userByEmailDB(ctx, db, collectionID, identity, false)
+			if normalizedEmail == "" {
+				continue
+			}
+			u, hash, err := userByEmailDB(ctx, db, collectionID, normalizedEmail, false)
 			if err == nil {
 				return u, hash, nil
 			}
@@ -261,15 +262,18 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	if err := s.ready(); err != nil {
 		return Principal{}, err
 	}
-	hash, hashErr := s.sessionHash(ctx, s.pool, rawToken)
-	if hashErr != nil {
-		return Principal{}, ErrInvalidCredentials
-	}
 	release, err := admit(s.sessionSlots)
 	if err != nil {
 		return Principal{}, err
 	}
 	defer release()
+	hash, err := s.sessionHash(ctx, s.pool, rawToken)
+	if errors.Is(err, ErrValidation) {
+		return Principal{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return Principal{}, err
+	}
 	var p Principal
 	err = s.pool.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.created_at,s.expires_at,s.session_kind='impersonation',coalesce(s.impersonating_admin_id,'00000000-0000-0000-0000-000000000000') from pgbase_meta.user_sessions s join pgbase_meta.users u on u.id=s.user_id left join pgbase_meta.admin_sessions ads on ads.id=s.impersonating_admin_session_id left join pgbase_meta.admins a on a.id=s.impersonating_admin_id where s.token_hash=$1 and s.revoked_at is null and s.expires_at>CURRENT_TIMESTAMP and u.active and (s.session_kind='user' or (ads.revoked_at is null and ads.expires_at>CURRENT_TIMESTAMP and a.active))`, hash).Scan(&p.User.ID, &p.User.AuthCollectionID, &p.User.Email, &p.User.EmailVisibility, &p.User.Verified, &p.User.CreatedAt, &p.ExpiresAt, &p.Impersonated, &p.ImpersonatingAdministratorID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -290,15 +294,18 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	if err := s.ready(); err != nil {
 		return err
 	}
-	hash, hashErr := s.sessionHash(ctx, s.pool, rawToken)
-	if hashErr != nil {
-		return ErrValidation
-	}
 	release, err := admit(s.sessionSlots)
 	if err != nil {
 		return err
 	}
 	defer release()
+	hash, err := s.sessionHash(ctx, s.pool, rawToken)
+	if errors.Is(err, ErrInvalidCredentials) {
+		return ErrValidation
+	}
+	if err != nil {
+		return err
+	}
 	_, err = s.pool.Exec(ctx, `update pgbase_meta.user_sessions set revoked_at=coalesce(revoked_at,CURRENT_TIMESTAMP) where token_hash=$1`, hash)
 	if err != nil {
 		return fmt.Errorf("revoke user session: %w", err)
@@ -425,6 +432,12 @@ func (s *Service) insertSession(ctx context.Context, db database.DBTX, user User
 		return Session{}, err
 	}
 	return Session{User: user, RawToken: token, ExpiresAt: expires}, nil
+}
+
+const sessionUserColumns = "u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.created_at"
+
+func scanSessionUser(row pgx.Row, user *User, trailing ...any) error {
+	return row.Scan(append([]any{&user.ID, &user.AuthCollectionID, &user.Email, &user.EmailVisibility, &user.Verified, &user.CreatedAt}, trailing...)...)
 }
 
 func userByEmailDB(ctx context.Context, db database.DBTX, collectionID uuid.UUID, email string, lock bool) (User, string, error) {
@@ -587,74 +600,6 @@ func (s *Service) databaseNow(ctx context.Context) (time.Time, error) {
 	return now.UTC(), nil
 }
 
-// maybeCleanup bounds persistent authentication garbage without requiring a
-// background goroutine or an application lifecycle hook. Each sweep deletes
-// at most 100 rows from each table and runs once per 64 credential requests
-// (including the first request after process start).
-func (s *Service) maybeCleanup(ctx context.Context) error {
-	if (s.cleanupCounter.Add(1)-1)%64 != 0 {
-		return nil
-	}
-	if _, err := s.pool.Exec(ctx, `
-		with stale as (
-			select id from pgbase_meta.user_sessions
-			where expires_at <= CURRENT_TIMESTAMP
-			   or revoked_at <= CURRENT_TIMESTAMP - interval '15 minutes'
-			order by expires_at
-			limit 100 for update skip locked
-		)
-		delete from pgbase_meta.user_sessions as sessions
-		using stale where sessions.id = stale.id`); err != nil {
-		return fmt.Errorf("delete stale user sessions: %w", err)
-	}
-	if _, err := s.pool.Exec(ctx, `
-		with stale as (
-			select subject_hash from pgbase_meta.user_auth_rate_limits
-			where updated_at <= CURRENT_TIMESTAMP - make_interval(secs=>$1)
-			  and coalesce(blocked_until<=CURRENT_TIMESTAMP,true)
-			order by updated_at
-			limit 100 for update skip locked
-		)
-		delete from pgbase_meta.user_auth_rate_limits as limits
-		using stale where limits.subject_hash = stale.subject_hash`, int64(max(30*time.Minute, s.currentRatePolicy().Window).Seconds())); err != nil {
-		return fmt.Errorf("delete stale user rate limits: %w", err)
-	}
-	if _, err := s.pool.Exec(ctx, `
-		with stale as (
-			select id from pgbase_meta.user_email_actions
-			where expires_at <= CURRENT_TIMESTAMP
-			   or consumed_at <= CURRENT_TIMESTAMP - interval '15 minutes'
-			order by expires_at
-			limit 100 for update skip locked
-		)
-		delete from pgbase_meta.user_email_actions as actions
-		using stale where actions.id = stale.id`); err != nil {
-		return fmt.Errorf("delete stale user email actions: %w", err)
-	}
-	if _, err := s.pool.Exec(ctx, `
-		with stale as (
-			select id from pgbase_meta.user_oauth_states
-			where expires_at <= CURRENT_TIMESTAMP
-			   or consumed_at <= CURRENT_TIMESTAMP - interval '15 minutes'
-			order by expires_at limit 100 for update skip locked
-		)
-		delete from pgbase_meta.user_oauth_states as states
-		using stale where states.id = stale.id`); err != nil {
-		return fmt.Errorf("delete stale OAuth states: %w", err)
-	}
-	if _, err := s.pool.Exec(ctx, `
-		with stale as (
-			select id from pgbase_meta.user_mfa_challenges
-			where expires_at <= CURRENT_TIMESTAMP
-			   or consumed_at <= CURRENT_TIMESTAMP - interval '15 minutes'
-			order by expires_at limit 100 for update skip locked
-		)
-		delete from pgbase_meta.user_mfa_challenges as challenges
-		using stale where challenges.id = stale.id`); err != nil {
-		return fmt.Errorf("delete stale MFA challenges: %w", err)
-	}
-	return nil
-}
 func admit(ch chan struct{}) (func(), error) {
 	select {
 	case ch <- struct{}{}:

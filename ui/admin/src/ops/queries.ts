@@ -2,7 +2,7 @@ import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { pageWindow } from "../app/queries";
 import { listJobs } from "../api/jobs";
 import { getRequestLog, getRequestLogStatistics, listRequestLogs, type RequestLogFilter } from "../api/logs";
-import { getRealtimeStatus, listDeadRealtimeEvents } from "../api/realtime";
+import { getRealtimeQueueStatus, getRealtimeStatus, listDeadRealtimeEvents } from "../api/realtime";
 import { localToRfc3339 } from "./format";
 
 export const logsKey = ["logs"] as const;
@@ -39,8 +39,15 @@ export const realtimeKey = ["realtime"] as const;
 
 export const realtimeQuery = queryOptions({
   queryKey: [...realtimeKey, "status"],
-  queryFn: ({ signal }) => getRealtimeStatus(signal),
+  queryFn: ({ signal }) => getRealtimeQueueStatus(signal),
   refetchInterval: 5000,
+});
+
+export const realtimeHistoryQuery = queryOptions({
+  queryKey: [...realtimeKey, "history"],
+  queryFn: ({ signal }) => getRealtimeStatus(signal),
+  staleTime: 60000,
+  refetchInterval: 60000,
 });
 
 /** Dead events, newest first; "load more" follows the opaque cursor, and older pages push the newest ones out. */

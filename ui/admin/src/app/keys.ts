@@ -33,10 +33,10 @@ const typing = (target: EventTarget | null) =>
 
 function overlayOpen(): boolean {
   try {
-    return document.querySelector("dialog[open], :popover-open") !== null;
+    return document.querySelector("dialog[open], [aria-modal=true], :popover-open") !== null;
   } catch {
     // Engines without :popover-open (jsdom) only have dialogs to check.
-    return document.querySelector("dialog[open]") !== null;
+    return document.querySelector("dialog[open], [aria-modal=true]") !== null;
   }
 }
 

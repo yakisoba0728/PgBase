@@ -117,3 +117,36 @@ func TestPocketBaseMailWrappersForwardPublicSignatures(t *testing.T) {
 		t.Fatalf("auth mail metadata lost: %v", host.calls)
 	}
 }
+
+type collectionQueryHost struct{}
+
+func (collectionQueryHost) Call(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{"items":[{"id":"a","name":"alpha","type":"base"},{"id":"b","name":"beta","type":"base"},{"id":"g","name":"gamma","type":"auth"}]}`), nil
+}
+
+func TestCollectionQueryPreservesBooleanGrouping(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/collections","access":"administrator","handler":{"module":"route.js","export":"run"},"capabilities":["app-control"]}]}`)
+	writeFile(t, directory, "route.js", `exports.run=()=>{
+		const alpha=$dbx.hashExp({name:"alpha"}),base=$dbx.hashExp({type:"base"}),gamma=$dbx.hashExp({name:"gamma"}),beta=$dbx.hashExp({name:"beta"});
+		const names=(query)=>query.all().map(v=>v.name);
+		return {mixed:names($app.collectionQuery().where(alpha).andWhere(base).orWhere(gamma)),
+			chained:names($app.collectionQuery().where(alpha).orWhere(beta).orWhere(gamma)),
+			reset:names($app.collectionQuery().orWhere(alpha).where(beta))};
+	};`)
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	out, err := runtime.Invoke(t.Context(), jsvm.Invocation{
+		Handler: bundle.Manifest().Routes[0].Handler, Capabilities: []string{"app-control"}, Host: collectionQueryHost{},
+	})
+	if err != nil || string(out) != `{"chained":["alpha","beta","gamma"],"mixed":["alpha","gamma"],"reset":["beta"]}` {
+		t.Fatalf("collection query output=%s err=%v", out, err)
+	}
+}

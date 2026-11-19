@@ -18,7 +18,7 @@ async function eventually(check) {
   assert.fail("condition was not reached");
 }
 
-function loadExample({ logout }) {
+function loadExample({ logout, list = async () => ({ items: [] }) }) {
   const handlers = new Map();
   const elements = new Map();
   for (const id of ["status", "note-form", "logout", "base-url", "email", "password", "notes", "file-record-id", "note", "reset-email", "action-token", "new-password", "file-input", "file-field", "register", "login", "create", "request-reset", "confirm-reset", "request-verification", "confirm-verification", "request-email-change", "confirm-email-change", "upload-file"]) {
@@ -29,7 +29,8 @@ function loadExample({ logout }) {
       textContent: "",
       files: [],
       addEventListener: (_event, handler) => handlers.set(id, handler),
-      replaceChildren: () => {},
+      children: [],
+      replaceChildren(...children) { this.children = children; },
     });
   }
   const streams = [];
@@ -40,7 +41,7 @@ function loadExample({ logout }) {
     async logout() { return logout(); }
     records() {
       return {
-        list: async () => ({ items: [] }),
+        list,
         events: ({ signal }) => {
           const gate = deferred();
           streams.push({ signal, gate });
@@ -73,11 +74,10 @@ function loadExample({ logout }) {
   await eventually(() => page.streams.length === 1);
   await page.handlers.get("logout")();
   assert.equal(page.elements.get("status").textContent, "Sign out failed: offline");
-  assert.equal(page.elements.get("logout").disabled, false);
-  await eventually(() => page.streams.length === 2);
-  assert.equal(page.streams[1].signal.aborted, false);
-  page.streams[1].gate.resolve({ operation: "update" });
-  await eventually(() => page.elements.get("status").textContent === "Note update; refreshing private list");
+  assert.equal(page.elements.get("logout").disabled, true);
+  assert.equal(page.elements.get("note-form").hidden, true);
+  assert.equal(page.streams.length, 1);
+  assert.equal(page.streams[0].signal.aborted, true);
 }
 
 {
@@ -93,4 +93,24 @@ function loadExample({ logout }) {
 
   page.streams[1].gate.reject({ code: "network_lost" });
   await eventually(() => page.elements.get("status").textContent === "Live updates stopped: network_lost");
+}
+
+
+{
+  let calls = 0;
+  const page = loadExample({ logout: async () => {}, list: async () => {
+    if (++calls === 1) return { items: [{ id: "old", title: "Old note" }] };
+    throw { code: "unavailable" };
+  } });
+  await page.handlers.get("login")();
+  assert.equal(page.elements.get("notes").children.length, 1);
+  page.elements.get("note").value = "prior draft";
+  page.elements.get("file-record-id").value = "old";
+  await page.handlers.get("logout")();
+  await page.handlers.get("login")();
+  assert.equal(page.elements.get("status").textContent, "Could not load notes: unavailable");
+  assert.equal(page.elements.get("note-form").hidden, true);
+  assert.equal(page.elements.get("notes").children.length, 0);
+  assert.equal(page.elements.get("note").value, "");
+  assert.equal(page.elements.get("file-record-id").value, "");
 }

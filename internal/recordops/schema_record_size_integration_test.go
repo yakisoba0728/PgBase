@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -81,6 +82,43 @@ func TestSchemaChangesHonorTheEncodedRecordSizeBoundary(t *testing.T) {
 			}
 			schemaBoundaryAssertPhysicalChange(t, ctx, pool, test.collection, test.change)
 		})
+	}
+}
+
+func TestLongerFieldNameCannotOversizeAnExistingRecord(t *testing.T) {
+	_, schemas, records, principal := newRecordOperationsTest(t)
+	ctx := t.Context()
+	collection := applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{
+		Name: "rename_size", Fields: []schema.FieldInput{{Name: "label", Type: schema.TypeText}, {Name: "metadata", Type: schema.TypeJSONB}},
+	})
+	create := func(filler int) MutationResult {
+		t.Helper()
+		result, err := records.Create(ctx, CreateRequest{
+			Principal: principal, RequestID: fmt.Sprintf("rename-size-%d", filler), Collection: collection.Name,
+			Input: map[string]json.RawMessage{
+				"label": json.RawMessage(`"same"`), "metadata": json.RawMessage(`"` + strings.Repeat("x", filler) + `"`),
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	sample := create(0)
+	full := create(schema.MaximumRecordBytes - schemaBoundaryRecordBytes(t, sample.Record.Data) - 10)
+	change := schema.NewUpdateChange(schema.UpdateCollectionInput{Name: collection.Name, Fields: []schema.FieldInput{
+		{ID: &collection.Fields[0].ID, Name: "label_describing_this_particular_sample_value", Type: schema.TypeText},
+		{ID: &collection.Fields[1].ID, Name: "metadata", Type: schema.TypeJSONB},
+	}})
+	plan, err := schemas.Preview(ctx, change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = schemas.Apply(ctx, schema.LegacyApply(change, plan, principal.ID))
+	assertQueryValidation(t, err, "record", "record_too_large")
+	got := schemaBoundaryGet(t, ctx, records, principal, collection.Name, full.InternalID)
+	if got.Data["label"] != "same" {
+		t.Fatalf("original field changed after rejected rename: %v", got.Data["label"])
 	}
 }
 

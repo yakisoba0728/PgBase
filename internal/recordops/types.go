@@ -154,21 +154,6 @@ type BatchOperation struct {
 	Upsert *UpdateRequest
 }
 
-func (operation BatchOperation) kind() string {
-	switch {
-	case operation.Create != nil:
-		return "create"
-	case operation.Update != nil:
-		return "update"
-	case operation.Delete != nil:
-		return "delete"
-	case operation.Upsert != nil:
-		return "upsert"
-	default:
-		return ""
-	}
-}
-
 type RecordPage = query.RecordPage
 type PocketBasePage = query.PocketBasePage
 type PocketBaseListRequest struct {

@@ -634,10 +634,19 @@ void main() {
         ),
       );
       await client.oldLoginStarted.future;
-      final newer = admin.login('new@example.test', 'password');
-      await newer;
+      final newer = admin.login(
+        'new@example.test',
+        'password',
+        otpCode: '123456',
+      );
+      expect(client.requests, hasLength(1));
       client.oldLoginResponse.complete(_adminLoginResponse('old'));
       await rejected;
+      await newer;
+      expect(
+        jsonDecode(utf8.decode(client.requests[1].body)),
+        containsPair('otpCode', '123456'),
+      );
       await admin.configureJob('daily', '0 0 * * *', true);
 
       final mutation = client.requests.last;

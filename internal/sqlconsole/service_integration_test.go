@@ -95,6 +95,46 @@ func TestServiceEnforcesConcurrencyAdmissionAndSessionOwnership(t *testing.T) {
 	}
 }
 
+func TestServiceFinishesAndListsWhileHistoryCleanupIsBlocked(t *testing.T) {
+	fixture := newRunnerFixture(t)
+	ledger, err := NewLedger(fixture.pool.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	service, err := NewService(ctx, fixture.runner, ledger, []byte("test-secret-for-history-cleanup-contention"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close(context.Background())
+
+	connection, err := fixture.pool.owner.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Release()
+	transaction, err := connection.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transaction.Rollback(context.Background())
+	if _, err := transaction.Exec(ctx, `LOCK TABLE pgbase_meta.sql_console_write_identities IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatal(err)
+	}
+
+	actor := testActor(fixture.pool.actorID, "cleanup-contention")
+	request := Request{ExecutionID: uuid.New(), Mode: ModeRead, Statements: []Statement{{SQL: "select 1"}}}
+	if _, err := service.Submit(ctx, actor, request); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, service, actor, request.ExecutionID, StatusSucceeded)
+	page, err := service.List(ctx, actor, Cursor{})
+	if err != nil || len(page.Executions) != 1 || page.Executions[0].Status != StatusSucceeded {
+		t.Fatalf("history with cleanup blocked: %#v, %v", page, err)
+	}
+}
+
 func TestServicePersistsRejectReplayResultExpiryAndActualCancel(t *testing.T) {
 	fixture := newRunnerFixture(t)
 	ledger, _ := NewLedger(fixture.pool.owner)

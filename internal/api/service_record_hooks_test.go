@@ -11,6 +11,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/lifecycle"
 	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
+	"github.com/yakisoba0728/PgBase/internal/serviceauth"
 )
 
 func TestServiceAndPublicRecordsHonorHooksAndBatchSettings(t *testing.T) {
@@ -51,6 +52,39 @@ func TestServiceAndPublicRecordsHonorHooksAndBatchSettings(t *testing.T) {
 			response = serve(dependencies, "/api/v1/"+prefix+"/collections/batch", `{"operations":[{"operation":"delete","collection":"posts","id":"first"}]}`)
 			if response.Code != http.StatusServiceUnavailable || service.calls != 0 {
 				t.Fatalf("batch calls=%d status=%d body=%s", service.calls, response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+type failingServiceAuthentication struct {
+	ServiceTokens
+	err error
+}
+
+func (f failingServiceAuthentication) Authenticate(context.Context, string) (serviceauth.Principal, error) {
+	return serviceauth.Principal{}, f.err
+}
+
+func TestServiceTokenAdmissionDistinguishesUnavailableAuthentication(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"invalid", serviceauth.ErrInvalidToken, http.StatusUnauthorized},
+		{"unavailable", errors.New("backend unavailable"), http.StatusServiceUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/records", nil)
+			request.Header.Set("Authorization", "Bearer "+strings.Repeat("a", 32))
+			response := httptest.NewRecorder()
+			handler := serviceSessionMiddleware(failingServiceAuthentication{err: test.err}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				t.Fatal("authentication failure admitted the request")
+			}))
+			handler.ServeHTTP(response, request)
+			if response.Code != test.want {
+				t.Fatalf("status = %d, want %d", response.Code, test.want)
 			}
 		})
 	}

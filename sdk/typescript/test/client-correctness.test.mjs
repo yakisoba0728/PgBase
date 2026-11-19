@@ -320,3 +320,16 @@ test("OAuth removes cancellation listeners after a callback completes", async ()
   }, signal);
   assert.equal(listeners, 0);
 });
+
+
+test("public requests validate the origin before fetch and retain Retry-After", async () => {
+  let calls = 0;
+  const client = new PgBaseClient("https://pgbase.test", { fetch: async () => {
+    calls++;
+    return Response.json({ error: { code: "rate_limited" } }, { status: 429, headers: { "Retry-After": "7" } });
+  } });
+  await assert.rejects(client.send("https://unrelated.test/status"), { code: "invalid_path" });
+  assert.equal(calls, 0);
+  await assert.rejects(client.send("/status"), { code: "rate_limited", retryAfter: "7" });
+  assert.equal(calls, 1);
+});

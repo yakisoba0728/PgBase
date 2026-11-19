@@ -146,34 +146,26 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      # The findings are recorded before the gate runs, so a failing scan still
-      # leaves a machine-readable report to triage rather than only console
-      # output in a red job.
-      - name: Record image findings as SARIF
+      # One scan fixes the image, advisory data and allowlist used by every report.
+      - name: Scan production image once
         if: steps.image.outputs.image_ref != ''
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ steps.image.outputs.image_ref }}
-          format: sarif
-          output: pgbase-image.sarif
-          exit-code: "0"
-          severity: HIGH,CRITICAL
-          limit-severities-for-sarif: true
-          trivyignores: ${{ inputs.source_commit != '' && '.release-gate-policy/deployments/security/trivy-allowlist.yaml' || 'deployments/security/trivy-allowlist.yaml' }}
-
-      # The gate only judges HIGH and CRITICAL, but a full-severity record is
-      # what lets someone see a MEDIUM becoming a HIGH between releases rather
-      # than discovering it the day it breaks the build.
-      - name: Record every severity as SARIF
-        if: steps.image.outputs.image_ref != ''
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ steps.image.outputs.image_ref }}
-          format: sarif
-          output: pgbase-image-all-severities.sarif
+          format: json
+          output: pgbase-image-scan.json
           exit-code: "0"
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
           trivyignores: ${{ inputs.source_commit != '' && '.release-gate-policy/deployments/security/trivy-allowlist.yaml' || 'deployments/security/trivy-allowlist.yaml' }}
+
+      - name: Convert the scan to SARIF reports
+        if: steps.image.outputs.image_ref != ''
+        env:
+          TRIVY_IGNOREFILE: /dev/null
+        shell: bash
+        run: |
+          trivy convert --format sarif --output pgbase-image-all-severities.sarif pgbase-image-scan.json
+          trivy convert --format sarif --severity HIGH,CRITICAL --output pgbase-image.sarif pgbase-image-scan.json
 
       - name: Upload image scan SARIF
         if: ${{ always() && steps.image.outputs.image_ref != '' }}
@@ -189,12 +181,8 @@ jobs:
       # There is no blanket exemption for unfixed findings: an unfixed HIGH or
       # CRITICAL is still something an operator would ship, so the scan fails
       # unless a dated, owned allowlist entry accepts that advisory by name.
-      - name: Scan production image
+      - name: Enforce the production image severity gate
         if: steps.image.outputs.image_ref != ''
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ steps.image.outputs.image_ref }}
-          format: table
-          exit-code: "1"
-          severity: HIGH,CRITICAL
-          trivyignores: ${{ inputs.source_commit != '' && '.release-gate-policy/deployments/security/trivy-allowlist.yaml' || 'deployments/security/trivy-allowlist.yaml' }}
+        env:
+          TRIVY_IGNOREFILE: /dev/null
+        run: trivy convert --scanners vuln,secret --format table --severity HIGH,CRITICAL --exit-code 1 pgbase-image-scan.json

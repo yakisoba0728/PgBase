@@ -323,15 +323,22 @@ test("administrator error-body failures cannot masquerade as a new session's fai
   await rejected;
 });
 
-test("an older administrator login cannot publish its stale identity", async () => {
+test("administrator auth transitions serialize cookie changes and send optional OTP", async () => {
   let finish;
-  let calls = 0;
-  const client = new PgBaseAdminClient("http://pgbase.test", { fetch: async () => {
-    if (++calls === 1) return new Promise((resolve) => { finish = resolve; });
-    return Response.json({ administrator: { id: "new" }, csrfToken: "new-csrf" });
+  const calls = [];
+  const client = new PgBaseAdminClient("http://pgbase.test", { fetch: async (url, init) => {
+    calls.push({ path: url.pathname, body: init.body && JSON.parse(init.body), csrf: init.headers.get("X-PgBase-CSRF") });
+    if (calls.length === 1) return new Promise((resolve) => { finish = resolve; });
+    if (calls.length === 2) return Response.json({ administrator: { id: "new" }, csrfToken: "new-csrf" });
+    return new Response(null, { status: 204 });
   } });
   const rejected = assert.rejects(client.login("old@example.test", "password"), { code: "session_changed" });
-  assert.equal((await client.login("new@example.test", "password")).administrator.id, "new");
+  const newer = client.login("new@example.test", "password", { otpCode: "123456" });
+  assert.equal(calls.length, 1);
   finish(Response.json({ administrator: { id: "old" }, csrfToken: "old-csrf" }));
   await rejected;
+  assert.equal((await newer).administrator.id, "new");
+  assert.equal(calls[1].body.otpCode, "123456");
+  await client.logout();
+  assert.equal(calls[2].csrf, "new-csrf");
 });

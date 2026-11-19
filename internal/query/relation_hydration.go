@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
-	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/relation"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
@@ -102,7 +101,7 @@ func filterRelationValues(ctx context.Context, tx pgx.Tx, catalog schema.Catalog
 		if !ok {
 			return schema.ErrConflict
 		}
-		if err := recordaccess.AuthorizeSubject(ctx, tx, target.AccessCollectionID(), principal, "view"); err != nil {
+		if err := authorizeReadSubject(ctx, tx, target.AccessCollectionID(), principal, "view"); err != nil {
 			return err
 		}
 		set := map[uuid.UUID]bool{}
@@ -113,7 +112,7 @@ func filterRelationValues(ctx context.Context, tx pgx.Tx, catalog schema.Catalog
 			}
 			continue
 		}
-		rules, _, err := recordaccess.LoadRules(ctx, tx, target.AccessCollectionID())
+		rules, _, err := loadReadRules(ctx, tx, target.AccessCollectionID())
 		if err != nil {
 			return err
 		}

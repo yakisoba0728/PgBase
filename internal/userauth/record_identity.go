@@ -54,15 +54,6 @@ func (s *Service) projectAuthRecord(ctx context.Context, db recordidentity.DB, r
 	return nil
 }
 
-func (s *Service) projectAuthRecords(ctx context.Context, records []AuthRecord) error {
-	for i := range records {
-		if err := s.projectAuthRecord(ctx, s.pool, &records[i]); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (s *Service) projectUser(ctx context.Context, db recordidentity.DB, user *User) error {
 	if user == nil || user.ID == uuid.Nil {
 		return nil

@@ -23,6 +23,7 @@ type rootPageReadRequest struct {
 	charge   func(int) error
 	hydrate  func([]map[string]any) error
 	hydrator *rootHydrator
+	project  func(map[string]any) map[string]any
 	offset   int
 }
 
@@ -34,6 +35,7 @@ type rootPageReadResult struct {
 	totalHydrated    int
 	maxRetainedRoots int
 	cursorV5         *cursor.V5Descriptor
+	byteLimited      bool
 }
 
 func (s *Service) readRootPageInTx(
@@ -119,11 +121,20 @@ func (s *Service) readRootPageInTx(
 	responseBytes := 0
 	hasMore := false
 	err := scanRootRows(ctx, tx, plan, after, pageLimit+1, request.offset, func(candidate pageCandidate) (bool, error) {
+		if len(result.candidates) == pageLimit {
+			hasMore = true
+			return false, nil
+		}
+		if request.project != nil {
+			candidate.root = request.project(candidate.root)
+			candidate.wire = candidate.root
+		}
 		encoded, err := json.Marshal(candidate.root)
 		if err != nil {
 			return false, fmt.Errorf("measure record page item: %w", err)
 		}
 		if len(result.candidates) > 0 && responseBytes+len(encoded) > maximumRecordPageBytes {
+			result.byteLimited = true
 			hasMore = true
 			return false, nil
 		}
@@ -136,12 +147,6 @@ func (s *Service) readRootPageInTx(
 		}
 		result.candidates = append(result.candidates, candidate)
 		responseBytes += len(encoded)
-		if len(result.candidates) > pageLimit {
-			result.candidates[pageLimit] = pageCandidate{}
-			result.candidates = result.candidates[:pageLimit:pageLimit]
-			hasMore = true
-			return false, nil
-		}
 		return true, nil
 	})
 	if err != nil {
@@ -213,7 +218,11 @@ func (s *Service) readSequentialRootPage(
 		err := scanRootRows(ctx, tx, request.plan, after, batchLimit+1, offset, func(candidate pageCandidate) (bool, error) {
 			noteRetainedRoots(&result, result.candidates, 1)
 			if byteBound && len(batch) < batchLimit {
-				encoded, err := json.Marshal(candidate.root)
+				record := candidate.root
+				if request.project != nil {
+					record = request.project(record)
+				}
+				encoded, err := json.Marshal(record)
 				if err != nil {
 					return false, fmt.Errorf("measure record page item: %w", err)
 				}
@@ -403,6 +412,7 @@ func isResponseTooLarge(err error) bool {
 }
 
 func finishRootPage(result rootPageReadResult, keep int, cursor string) rootPageReadResult {
+	result.byteLimited = result.byteLimited || keep < len(result.candidates)
 	for index := keep; index < len(result.candidates); index++ {
 		result.candidates[index] = pageCandidate{}
 	}

@@ -2,15 +2,79 @@ package query
 
 import (
 	"context"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/yakisoba0728/PgBase/internal/identity"
-	"github.com/yakisoba0728/PgBase/internal/recordaccess"
-	"github.com/yakisoba0728/PgBase/internal/schema"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
+	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
+
+type readPoliciesKey struct{}
+
+type readGrant struct {
+	collection uuid.UUID
+	principal  Principal
+	action     string
+}
+
+type readRules struct {
+	rules    accessrule.Rules
+	revision int64
+}
+
+type readPolicies struct {
+	grants map[readGrant]struct{}
+	rules  map[uuid.UUID]readRules
+}
+
+// Scope the cache to a single read attempt. The first check still locks the
+// rows through the transaction, and a borrowed caller starts a new cache for
+// each query so its updates are visible to later queries.
+func withReadPolicies(ctx context.Context, principal Principal) context.Context {
+	if principal.Kind == identity.Administrator {
+		return ctx
+	}
+	return context.WithValue(ctx, readPoliciesKey{}, &readPolicies{
+		grants: make(map[readGrant]struct{}),
+		rules:  make(map[uuid.UUID]readRules),
+	})
+}
+
+func authorizeReadSubject(ctx context.Context, tx pgx.Tx, collection uuid.UUID, principal Principal, action string) error {
+	policies, _ := ctx.Value(readPoliciesKey{}).(*readPolicies)
+	if policies == nil {
+		return recordaccess.AuthorizeSubject(ctx, tx, collection, principal, action)
+	}
+	key := readGrant{collection, principal, action}
+	if _, ok := policies.grants[key]; ok {
+		return nil
+	}
+	if err := recordaccess.AuthorizeSubject(ctx, tx, collection, principal, action); err != nil {
+		return err
+	}
+	policies.grants[key] = struct{}{}
+	return nil
+}
+
+func loadReadRules(ctx context.Context, tx pgx.Tx, collection uuid.UUID) (accessrule.Rules, int64, error) {
+	policies, _ := ctx.Value(readPoliciesKey{}).(*readPolicies)
+	if policies == nil {
+		return recordaccess.LoadRules(ctx, tx, collection)
+	}
+	if cached, ok := policies.rules[collection]; ok {
+		return cached.rules, cached.revision, nil
+	}
+	rules, revision, err := recordaccess.LoadRules(ctx, tx, collection)
+	if err == nil {
+		policies.rules[collection] = readRules{rules, revision}
+	}
+	return rules, revision, err
+}
 
 // policyCollection retains the physical read relation while resolving owner
 // and rule sidecars through a declarative view's source collection.
@@ -42,11 +106,11 @@ func bindRelationPolicies(ctx context.Context, tx pgx.Tx, plan *relationListPlan
 				return err
 			}
 			hop.policyTarget = policyTarget
-			if err := recordaccess.AuthorizeSubject(ctx, tx, hop.target.AccessCollectionID(), principal, "view"); err != nil {
+			if err := authorizeReadSubject(ctx, tx, hop.target.AccessCollectionID(), principal, "view"); err != nil {
 				return err
 			}
 			if principal.Kind == identity.User || principal.Kind == identity.Anonymous {
-				rules, revision, err := recordaccess.LoadRules(ctx, tx, hop.target.AccessCollectionID())
+				rules, revision, err := loadReadRules(ctx, tx, hop.target.AccessCollectionID())
 				if err != nil {
 					return err
 				}
@@ -171,7 +235,7 @@ func bindOutputRuleScope(ctx context.Context, tx pgx.Tx, catalog schema.Catalog,
 	sort.Slice(ids, func(i, j int) bool { return ids[i].String() < ids[j].String() })
 	var result strings.Builder
 	for _, id := range ids {
-		_, revision, err := recordaccess.LoadRules(ctx, tx, id)
+		_, revision, err := loadReadRules(ctx, tx, id)
 		if err != nil {
 			return "", err
 		}

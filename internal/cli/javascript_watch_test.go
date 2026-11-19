@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/dop251/goja"
 	"github.com/yakisoba0728/PgBase/pgbase"
 )
 
@@ -40,7 +41,7 @@ func TestJavaScriptWatchSnapshotPreservesNativeRuntimeSelection(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(directory, "app.js"), []byte(`if(typeof $app!=="undefined")throw new Error("legacy globals in native snapshot"); exports.hello=()=>({status:200,json:{ok:true}});`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := createJavaScriptSnapshot(&pgbase.JavaScriptOptions{Directory: directory})
+	snapshot, err := createJavaScriptSnapshot(t.Context(), &pgbase.JavaScriptOptions{Directory: directory})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,5 +49,30 @@ func TestJavaScriptWatchSnapshotPreservesNativeRuntimeSelection(t *testing.T) {
 	manifest, err := pgbase.ValidateJavaScript(context.Background(), pgbase.JavaScriptOptions{Directory: snapshot.directory})
 	if err != nil || manifest.Format != "pgbase.scripts/v2" || manifest.Digest != snapshot.digest {
 		t.Fatalf("native snapshot format/digest=%s/%s, %v", manifest.Format, manifest.Digest, err)
+	}
+}
+
+func TestJavaScriptWatchSkipsValidatingUnchangedDigest(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "pgbase.scripts.json"), []byte(`{"format":"pgbase.scripts/v2","routes":[{"method":"GET","pattern":"/watch","access":"public","handler":{"module":"app.js","export":"route"}}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "app.js"), []byte(`exports.route=()=>({status:200});`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	validations := 0
+	options := &pgbase.JavaScriptOptions{Directory: directory, OnInit: func(*goja.Runtime) error {
+		validations++
+		return nil
+	}}
+	first, err := createJavaScriptSnapshot(t.Context(), options)
+	if err != nil || validations == 0 {
+		t.Fatalf("initial validation calls=%d err=%v", validations, err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(first.directory) })
+	validations = 0
+	unchanged, err := createJavaScriptSnapshot(t.Context(), options, first.digest)
+	if err != nil || unchanged.directory != "" || unchanged.digest != first.digest || validations != 0 {
+		t.Fatalf("unchanged bundle produced a snapshot: %+v validations=%d err=%v", unchanged, validations, err)
 	}
 }

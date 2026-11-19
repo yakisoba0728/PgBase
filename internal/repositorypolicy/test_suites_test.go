@@ -137,12 +137,72 @@ func TestBackendWorkflowKeepsLeanAndReleasePostgresMatrices(t *testing.T) {
 		"scripts/test-go-integration.sh \"${test_arguments[@]}\"",
 		"github.event_name != 'pull_request' || inputs.candidate_image != ''",
 		"PGBASE_INTEGRATION_PACKAGES",
-		"./internal/migrate ./internal/sqlconsole ./internal/filestore ./internal/userauth ./pgbase",
+		"./internal/migrate ./internal/sqlconsole ./internal/filestore ./internal/userauth ./internal/jobs ./internal/recordops ./pgbase",
 		"'./...'",
 	} {
 		if !strings.Contains(text, marker) {
 			t.Errorf("backend workflow is missing %q", marker)
 		}
+	}
+}
+
+func TestQualificationWorkflowModesAndSDKCoverage(t *testing.T) {
+	workflows := filepath.Join("..", "..", ".github", "workflows")
+	for _, test := range []struct {
+		name string
+		want []string
+		omit []string
+	}{
+		{
+			name: "backend.yml",
+			want: []string{
+				"name: Go unit", "name: Observability artifacts", "name: PostgreSQL integration /",
+				"skip_benchmarks:", "!inputs.skip_benchmarks && (inputs.candidate_image != '' || github.event_name == 'workflow_dispatch' || inputs.full_validation)",
+				"name: Analyze and test Dart SDK\n        if: startsWith(matrix.postgres.version, '17.') && !matrix.postgres.shard",
+				"if [[ \"$POSTGRES_VERSION\" == 17.* ]]; then\n            npm --prefix sdk/typescript test\n          else\n            npm --prefix sdk/typescript run build",
+				"name: Verify live SDK contracts on this PostgreSQL major\n        if: ${{ !matrix.postgres.shard }}",
+				"go test -tags='integration sdkconformance' ./pgbase -run '^TestSDK' -count=1 -v",
+			},
+		},
+		{
+			name: "e2e.yml",
+			want: []string{
+				"extra_browser_engines:", "browsers=(chromium)", "browsers+=(firefox webkit)",
+				"name: Verify Firefox and WebKit representative workflows\n        if: inputs.extra_browser_engines",
+				"PGBASE_BROWSER_SMOKE_ENGINES: firefox,webkit",
+			},
+		},
+		{
+			name: "full-qualification.yml",
+			want: []string{"uses: ./.github/workflows/backend.yml", "uses: ./.github/workflows/e2e.yml", "extra_browser_engines: true"},
+			omit: []string{"skip_benchmarks: true"},
+		},
+		{
+			name: "nonperformance-qualification.yml",
+			want: []string{"uses: ./.github/workflows/backend.yml", "skip_benchmarks: true", "uses: ./.github/workflows/e2e.yml", "extra_browser_engines: true"},
+		},
+		{
+			name: "release-gate.yml",
+			want: []string{"uses: ./.github/workflows/backend.yml", "uses: ./.github/workflows/e2e.yml", "candidate_image: ${{ inputs.candidate_image }}"},
+			omit: []string{"skip_benchmarks: true", "extra_browser_engines: true"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(workflows, test.name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, marker := range test.want {
+				if !strings.Contains(string(raw), marker) {
+					t.Errorf("workflow is missing %q", marker)
+				}
+			}
+			for _, marker := range test.omit {
+				if strings.Contains(string(raw), marker) {
+					t.Errorf("workflow unexpectedly contains %q", marker)
+				}
+			}
+		})
 	}
 }
 

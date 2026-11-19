@@ -169,9 +169,10 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
     </>
   );
 
+  const userLabel = user.email || user.id;
   return (
     <div className="pane-form">
-      <PaneHeader title={user.email} copy={{ label: t("common.copyId"), value: user.id }} onClose={onClose} />
+      <PaneHeader title={userLabel} copy={{ label: t("common.copyId"), value: user.id }} onClose={onClose} />
       {resolved.data ? (
         <ProfileForm key={`${resolved.data.record.id}:${resolved.data.record.updatedAt}`} userId={user.id} collection={resolved.data.collection} record={resolved.data.record} release={release} onDelete={() => ask({ kind: "delete" })}>
           {top}
@@ -183,9 +184,9 @@ export function UserPane({ user, onClose }: { user: ManagedUser; onClose: () => 
         </div>
       )}
 
-      <ConfirmDialog open={action !== null} title={text ? t(text.title, { email: user.email, provider: action?.kind === "unlink" ? action.provider : "" }) : ""} message={text ? t(text.text, { email: user.email }) : undefined}
+      <ConfirmDialog open={action !== null} title={text ? t(text.title, { email: userLabel, provider: action?.kind === "unlink" ? action.provider : "" }) : ""} message={text ? t(text.text, { email: userLabel }) : undefined}
         confirmLabel={text ? t(text.confirm) : undefined} danger={text?.danger} busy={run.isPending}
-        typed={action?.kind === "delete" || action?.kind === "revoke" ? { phrase: user.email, label: t("common.typeToConfirm", { name: user.email }) } : undefined} onConfirm={() => action && run.mutate(action)} onCancel={() => setAction(null)}>
+        typed={action?.kind === "delete" || action?.kind === "revoke" ? { phrase: userLabel, label: t("common.typeToConfirm", { name: userLabel }) } : undefined} onConfirm={() => action && run.mutate(action)} onCancel={() => setAction(null)}>
         {action?.kind === "impersonate" && (
           <Field kind="select" label={t("auth.user.duration")} value={duration} onChange={(event) => setDuration(event.target.value)}
             options={["60", "300", "600", "900"].map((value) => ({ value, label: t("auth.user.minutes", { count: Number(value) / 60 }) }))} />
@@ -233,7 +234,7 @@ function ProfileForm({ userId, collection, record, release, onDelete, children }
     event.preventDefault();
     const { changes, problems: found } = profileChanges(fields, draft.profile, initial.profile);
     const all: Problems = Object.fromEntries(Object.entries(found).map(([key, value]) => [`profile.${key}`, value]));
-    if (!bareEmail(draft.email)) all.email = "email";
+    if (draft.email !== initial.email && !bareEmail(draft.email)) all.email = "email";
     form.setProblems(all);
     if (Object.keys(all).length === 0) save.mutate(changes);
   };

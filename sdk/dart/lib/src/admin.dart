@@ -25,6 +25,9 @@ final class PgBaseAdminClient {
   String _csrf = '';
   String? _cookie;
   int _generation = 0;
+  int _transition = 0;
+  Future<void>? _pendingAuth;
+  final Set<CancellationToken> _backupDownloads = {};
 
   void close() => transport.close();
 
@@ -33,43 +36,79 @@ final class PgBaseAdminClient {
     String email,
     String password, {
     CancellationToken? cancellation,
-  }) => _adopt(
-    '/api/admin/setup',
-    JsonObject({
-      'setupToken': JsonString(setupToken),
-      'email': JsonString(email),
-      'password': JsonString(password),
-    }),
-    cancellation,
+  }) => _transitionAuth(
+    () => _adopt(
+      '/api/admin/setup',
+      JsonObject({
+        'setupToken': JsonString(setupToken),
+        'email': JsonString(email),
+        'password': JsonString(password),
+      }),
+      cancellation,
+    ),
   );
 
   Future<JsonObject> login(
     String email,
     String password, {
+    String? otpCode,
     CancellationToken? cancellation,
-  }) => _adopt(
-    '/api/admin/auth/login',
-    JsonObject({'email': JsonString(email), 'password': JsonString(password)}),
-    cancellation,
+  }) => _transitionAuth(
+    () => _adopt(
+      '/api/admin/auth/login',
+      JsonObject({
+        'email': JsonString(email),
+        'password': JsonString(password),
+        if (otpCode != null) 'otpCode': JsonString(otpCode),
+      }),
+      cancellation,
+    ),
   );
   Future<JsonObject> resume({CancellationToken? cancellation}) =>
-      _adopt('/api/admin/session', null, cancellation, method: 'GET');
-
-  Future<void> logout({CancellationToken? cancellation}) async {
-    final generation = _generation;
-    try {
-      await request(
-        'POST',
-        '/api/admin/auth/logout',
-        cancellation: cancellation,
+      _transitionAuth(
+        () => _adopt('/api/admin/session', null, cancellation, method: 'GET'),
       );
-    } finally {
-      if (generation == _generation) {
-        _csrf = '';
-        _cookie = null;
-        _generation++;
+
+  Future<void> logout({CancellationToken? cancellation}) =>
+      _transitionAuth(() async {
+        final generation = _generation;
+        try {
+          await request(
+            'POST',
+            '/api/admin/auth/logout',
+            cancellation: cancellation,
+          );
+        } finally {
+          if (generation == _generation) {
+            _csrf = '';
+            _cookie = null;
+            _invalidateSession();
+          }
+        }
+      });
+
+  Future<T> _transitionAuth<T>(Future<T> Function() apply) {
+    final transition = ++_transition;
+    Future<T> run() async {
+      try {
+        final result = await apply();
+        if (transition == _transition) return result;
+      } catch (_) {
+        if (transition == _transition) rethrow;
       }
+      throw const PgBaseError(403, 'session_changed');
     }
+
+    final operation = _pendingAuth?.then((_) => run()) ?? run();
+    final tail = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _pendingAuth = tail;
+    tail.then((_) {
+      if (identical(_pendingAuth, tail)) _pendingAuth = null;
+    });
+    return operation;
   }
 
   /// Fully integrated escape hatch for every documented administrator route.
@@ -402,7 +441,11 @@ final class PgBaseAdminClient {
     cancellation: cancellation,
   );
   Future<JsonObject> user(String id, {CancellationToken? cancellation}) =>
-      _object('GET', '/api/admin/users/${Uri.encodeComponent(id)}', cancellation: cancellation);
+      _object(
+        'GET',
+        '/api/admin/users/${Uri.encodeComponent(id)}',
+        cancellation: cancellation,
+      );
 
   Future<JsonObject> administratorAccounts({
     int? limit,
@@ -417,6 +460,7 @@ final class PgBaseAdminClient {
     },
     cancellation: cancellation,
   );
+
   /// Requires the acting administrator's current password, like the other
   /// administrator-security changes (403 `current_password_invalid`).
   Future<JsonObject> createAdministrator(
@@ -448,6 +492,7 @@ final class PgBaseAdminClient {
     }),
     cancellation: cancellation,
   );
+
   /// Replaces another administrator's password; the server refuses your own
   /// ID (409), which needs PATCH /api/admin/profile with the current password.
   Future<void> setAdministratorPassword(
@@ -498,6 +543,48 @@ final class PgBaseAdminClient {
       ),
     );
     return response.bytes;
+  }
+
+  /// Streams a backup without accumulating it in memory. The caller should
+  /// discard a partial destination if the stream ends with an error.
+  Stream<List<int>> downloadBackupStream(
+    String id, {
+    CancellationToken? cancellation,
+  }) async* {
+    final generation = _generation;
+    final stop = CancellationToken();
+    final detach = cancellation?.onCancel(stop.cancel);
+    _backupDownloads.add(stop);
+    PgBaseResponse? failure;
+    try {
+      final response = await transport.downloadStream(
+        '/api/admin/backups/${Uri.encodeComponent(id)}',
+        headers: _headers('GET', {'accept': 'application/gzip'}),
+        cancellation: stop,
+      );
+      _assertCurrent(generation);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        failure = PgBaseResponse(
+          status: response.statusCode,
+          headers: response.headers,
+          bytes: await response.stream.toBytes(),
+        );
+      } else {
+        await for (final chunk in response.stream) {
+          _assertCurrent(generation);
+          yield chunk;
+        }
+      }
+      _assertCurrent(generation);
+    } catch (_) {
+      _assertCurrent(generation);
+      rethrow;
+    } finally {
+      _backupDownloads.remove(stop);
+      detach?.call();
+      stop.cancel();
+    }
+    if (failure != null) _accept(failure, generation);
   }
 
   Future<void> deleteBackup(
@@ -569,7 +656,8 @@ final class PgBaseAdminClient {
     CancellationToken? cancellation, {
     String method = 'POST',
   }) async {
-    final generation = ++_generation;
+    _invalidateSession();
+    final generation = _generation;
     final value = await request(
       method,
       path,
@@ -659,6 +747,13 @@ final class PgBaseAdminClient {
     return response;
   }
 
+  void _invalidateSession() {
+    _generation++;
+    for (final download in List.of(_backupDownloads)) {
+      download.cancel();
+    }
+  }
+
   void _assertCurrent(int generation) {
     if (generation != _generation) {
       throw const PgBaseError(403, 'session_changed');
@@ -671,7 +766,7 @@ final class PgBaseAdminClient {
       if (response.status == 401 && generation == _generation) {
         _csrf = '';
         _cookie = null;
-        _generation++;
+        _invalidateSession();
       }
       throw pgBaseError(response);
     }

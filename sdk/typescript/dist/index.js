@@ -302,7 +302,7 @@ export class PgBaseClient {
         if (!response.ok) {
             const body = await responseJSON(response, () => undefined);
             const error = body?.error;
-            throw new PgBaseError(response.status, error?.code ?? "request_failed", error?.details ?? {}, response.headers.get("ETag") ?? undefined);
+            throw new PgBaseError(response.status, error?.code ?? "request_failed", error?.details ?? {}, response.headers.get("ETag") ?? undefined, response.headers.get("Retry-After") ?? undefined);
         }
         if (!response.body) {
             throw new PgBaseError(0, "event_stream_unavailable");
@@ -322,6 +322,10 @@ export class PgBaseClient {
         return inAuthScope(this.auth, async () => (await this._response(path, init, signal, requestKey)).body);
     }
     async fetchResponse(path, init = {}, signal) {
+        const base = new URL(this.baseURL);
+        const url = new URL(path, base);
+        if (url.origin !== base.origin)
+            throw new PgBaseError(0, "invalid_path");
         const headers = new Headers(init.headers);
         headers.set("Accept", "application/json");
         if (this.auth.token) {
@@ -330,11 +334,11 @@ export class PgBaseClient {
         if (init.body !== undefined && !(init.body instanceof FormData)) {
             headers.set("Content-Type", "application/json");
         }
-        const response = await this.fetcher(new URL(path, this.baseURL), { ...init, headers, signal });
+        const response = await this.fetcher(url, { ...init, headers, signal });
         if (!response.ok) {
             const body = await responseJSON(response, () => undefined);
             const error = body?.error;
-            throw new PgBaseError(response.status, error?.code ?? "request_failed", error?.details ?? {}, response.headers.get("ETag") ?? undefined);
+            throw new PgBaseError(response.status, error?.code ?? "request_failed", error?.details ?? {}, response.headers.get("ETag") ?? undefined, response.headers.get("Retry-After") ?? undefined);
         }
         return response;
     }

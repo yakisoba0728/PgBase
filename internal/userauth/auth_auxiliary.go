@@ -237,25 +237,19 @@ func (s *Service) AdminDeleteAuthAuxiliaryScope(ctx context.Context, administrat
 			if q.CollectionID == uuid.Nil || q.UserID == uuid.Nil || expired {
 				return ErrValidation
 			}
-			var actual uuid.UUID
-			var password, realmPasswordEnabled, otp bool
+			actual, canSignIn, err := s.lockOAuthRemovalUser(ctx, tx, q.CollectionID, q.UserID)
+			if err != nil {
+				return err
+			}
 			var count int
-			if err = tx.QueryRow(ctx, `select auth_collection_id,password_enabled from pgbase_meta.users where id=$1 and active for update`, q.UserID).Scan(&actual, &password); err != nil {
-				return err
-			}
-			if actual != q.CollectionID {
-				return ErrNotFound
-			}
-			if err = tx.QueryRow(ctx, `select password_enabled,otp_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, actual).Scan(&realmPasswordEnabled, &otp); err != nil {
-				return err
-			}
 			if err = tx.QueryRow(ctx, `select count(*) from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2`, actual, q.UserID).Scan(&count); err != nil {
 				return err
 			}
-			if count > 0 && !(password && realmPasswordEnabled) && !otp {
+			if count > 0 && !canSignIn {
 				return ErrValidation
 			}
-			tag, err = tx.Exec(ctx, `delete from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2`, actual, q.UserID)
+			_, err = tx.Exec(ctx, `delete from pgbase_meta.user_oauth_identities where auth_collection_id=$1 and user_id=$2`, actual, q.UserID)
+			return err
 		case "mfas":
 			if expired {
 				tag, err = tx.Exec(ctx, `delete from pgbase_meta.user_mfa_challenges where expires_at<=CURRENT_TIMESTAMP or consumed_at is not null`)

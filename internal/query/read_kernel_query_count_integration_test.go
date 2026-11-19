@@ -4,6 +4,7 @@ package query
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -12,7 +13,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/membership"
+	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -89,6 +94,54 @@ func TestCountUsesOneAggregateInsteadOfReadingPages(t *testing.T) {
 	}
 	if _, err := tx.Exec(ctx, "select 1"); err != nil {
 		t.Fatalf("count closed the caller's transaction: %v", err)
+	}
+}
+
+func TestListTotalReusesBoundRelationPoliciesAndTraversal(t *testing.T) {
+	databaseURL, pool, schemas, records := newR0QueryServiceTest(t)
+	ctx := t.Context()
+	fixture := createRelationFilterSortFixture(t, ctx, pool, schemas, records)
+	catalog, err := schemas.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow := accessrule.Rule{Op: "allow"}
+	rules, err := json.Marshal(accessrule.Rules{List: allow, View: allow, Create: allow, Update: allow, Delete: allow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"relation_query_posts", "relation_query_people"} {
+		if _, err := recordaccess.NewService(pool).Set(ctx, name, true); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, "INSERT INTO pgbase_meta.collection_rules(collection_id,rules) VALUES($1,$2)", catalog.Collections[name].ID, rules); err != nil {
+			t.Fatal(err)
+		}
+	}
+	syncMembershipOrdinals(t, ctx, pool)
+	traversals := 0
+	resolve := records.resolveTraversal
+	records.resolveTraversal = func(ctx context.Context, tx pgx.Tx, collection uuid.UUID) (membership.Traversal, error) {
+		traversals++
+		return resolve(ctx, tx, collection)
+	}
+	page, statements := tracedList(t, databaseURL, records, ListRequest{
+		Principal: Principal{Kind: identity.Anonymous}, Collection: "relation_query_posts",
+		Filter: "(owner.name = 'Ada' || owner.name = 'Bob')", Sort: "owner.name", Expand: "owner", Limit: 1, Total: true,
+	})
+	if len(page.Items) != 1 || page.Items[0]["id"] != fixture.postAda.String() || page.TotalItems == nil || *page.TotalItems != 2 || page.NextCursor == "" {
+		t.Fatalf("list with relation total = %#v", page)
+	}
+	gates := countStatements(statements, "SELECT enabled FROM pgbase_meta.collection_access")
+	policies := countStatements(statements, "SELECT rules,revision FROM pgbase_meta.collection_rules")
+	totals := countStatements(statements, "SELECT COUNT(")
+	if gates != 2 || policies != 2 || totals != 1 || traversals != 1 {
+		t.Fatalf("gates=%d policies=%d totals=%d traversals=%d\n%s", gates, policies, totals, traversals, formatQueryTrace(statements))
+	}
+	for _, statement := range statements {
+		if strings.HasPrefix(statement, "SELECT COUNT(") && strings.Contains(statement, "rq_sort") {
+			t.Fatalf("aggregate rendered sort joins: %s", statement)
+		}
 	}
 }
 

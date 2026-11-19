@@ -43,14 +43,14 @@ The stock `pgbase` executable can generate snapshots and files. Run `migration l
 
 `migration history` compares compiled source with database history and reports `pending`, `applied`, `checksum_mismatch`, `source_gap`, or `history_only`. History problems remain visible even when normal `list`/`up` validation would stop at the first mismatch. `migration history-sync ID` is an explicit recovery operation for a generated migration whose schema is already present but whose history row is missing. It accepts only the next source migration, requires embedded before/after snapshots, compares the current database to the exact target snapshot under the migration and schema locks, and then inserts the checksum-pinned history row without running migration callbacks or changing schema version. It cannot adopt handwritten migration source.
 
-Administrator schema changes can be recorded automatically by setting `Options.UserMigrationAutoRecordDirectory` or `PGBASE_USER_MIGRATION_AUTO_RECORD_DIR`. Recording is disabled when the directory is empty. When enabled, PgBase stores the exact generated source in PostgreSQL in the same transaction as each committed collection mutation or schema import, then writes the `.go` file after commit. A filesystem failure leaves a durable `pending` row and does not turn a committed schema request into a failure. Use these commands to inspect or retry it:
+Administrator schema changes can be recorded automatically by setting `Options.UserMigrationAutoRecordDirectory` or `PGBASE_USER_MIGRATION_AUTO_RECORD_DIR`. Recording is disabled when the directory is empty. When enabled, PgBase stores the exact generated source in PostgreSQL in the same transaction as each committed collection mutation or schema import, then writes the `.go` file after commit. A filesystem failure leaves a durable `pending` row and does not turn a committed schema request into a failure. New files sort in commit order, including changes recorded in the same second. Existing IDs and their source bytes are preserved. If old pending files from the same second replay in the wrong order, review their before/after snapshots and regenerate those pending files in commit order. Preserve IDs and files already applied to any database. Use these commands to inspect or retry recorded sources:
 
 ```sh
 pgbase migration auto-status
 pgbase migration recover
 ```
 
-Recovery is idempotent. A byte-identical existing file is accepted; a different file at the reserved name is left untouched and reported as `conflict`. Pending recovery also runs in the application background while automatic recording is enabled.
+Recovery is idempotent. A byte-identical existing file is accepted; a different file at the reserved name is left untouched and reported as `conflict`. While automatic recording is enabled, startup and explicit recovery also verify previously written files. The periodic background worker retries pending files in bounded batches. Instances that materialize files continuously should share the configured directory.
 
 Do not edit a migration after applying it. Add a later migration that corrects or reverses the change. Keep `Down` as the exact inverse of `Up` and use only the provided `pgx.Tx`; opening an independent connection would escape atomic rollback.
 

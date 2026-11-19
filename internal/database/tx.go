@@ -46,6 +46,15 @@ func (p *Pool) BorrowedTransaction(ctx context.Context) (pgx.Tx, bool, error) {
 	return tx, true, nil
 }
 
+// ReadSnapshotOptions are for owned transactions that change no data. Row
+// locks can still emit WAL, so synchronous commit would wait for an unnecessary flush.
+func ReadSnapshotOptions() pgx.TxOptions {
+	return pgx.TxOptions{
+		IsoLevel:   pgx.RepeatableRead,
+		BeginQuery: "begin isolation level repeatable read; set local synchronous_commit = off",
+	}
+}
+
 // RequireReadCommitted protects operations whose lock ordering requires a fresh
 // snapshot after waiting. A borrowed transaction is never silently reconfigured.
 func RequireReadCommitted(ctx context.Context, tx pgx.Tx) error {

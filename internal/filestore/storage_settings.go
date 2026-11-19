@@ -25,7 +25,18 @@ import (
 var ErrStorageConflict = errors.New("storage settings conflict")
 
 const storageTransitionLock int64 = 0x7067626173650034
+const storageCleanupLock int64 = 0x706762617365003a
 const maximumStorageOperations = 64
+
+func lockStorageTransition(ctx context.Context, tx pgx.Tx) error {
+	// Wait behind retired-source cleanup before joining the exclusive transition
+	// queue, where PostgreSQL would also make new shared file leases wait.
+	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, storageCleanupLock); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, storageTransitionLock)
+	return err
+}
 
 type StorageConfig struct {
 	Driver, LocalDirectory, Bucket, Region, Endpoint, AccessKey, SecretKey string
@@ -84,24 +95,12 @@ func (c *StorageController) BeginStorageOperation(ctx context.Context) (context.
 		<-c.operations
 		return ctx, nil, err
 	}
-	if _, err = conn.Exec(ctx, `select pg_advisory_lock_shared($1)`, storageTransitionLock); err != nil {
-		_ = database.CloseCoordinationSession(context.Background(), conn)
-		<-c.operations
-		return ctx, nil, err
-	}
-	settings, encrypted, err := loadStorageSettings(ctx, conn)
+	leased, err := c.lockStorageOperation(ctx, conn)
 	if err != nil {
 		_ = database.CloseCoordinationSession(context.Background(), conn)
 		<-c.operations
 		return ctx, nil, err
 	}
-	store, err := c.storeForSettings(ctx, settings, encrypted)
-	if err != nil {
-		_ = database.CloseCoordinationSession(context.Background(), conn)
-		<-c.operations
-		return ctx, nil, err
-	}
-	backend := conn.PgConn().PID()
 	var once sync.Once
 	release := func() {
 		once.Do(func() {
@@ -110,7 +109,23 @@ func (c *StorageController) BeginStorageOperation(ctx context.Context) (context.
 		})
 	}
 	stop := context.AfterFunc(ctx, release)
-	return context.WithValue(ctx, storageLeaseContextKey{}, storageLease{controller: c, store: store, revision: settings.Revision, backend: backend, conn: conn}), func() { stop(); release() }, nil
+	return leased, func() { stop(); release() }, nil
+}
+
+// The caller owns conn and releases the session lock by closing it.
+func (c *StorageController) lockStorageOperation(ctx context.Context, conn *pgx.Conn) (context.Context, error) {
+	if _, err := conn.Exec(ctx, `select pg_advisory_lock_shared($1)`, storageTransitionLock); err != nil {
+		return ctx, err
+	}
+	settings, encrypted, err := loadStorageSettings(ctx, conn)
+	if err != nil {
+		return ctx, err
+	}
+	store, err := c.storeForSettings(ctx, settings, encrypted)
+	if err != nil {
+		return ctx, err
+	}
+	return context.WithValue(ctx, storageLeaseContextKey{}, storageLease{controller: c, store: store, revision: settings.Revision, backend: conn.PgConn().PID(), conn: conn}), nil
 }
 
 func NewStorageController(ctx context.Context, pool *database.Pool, tokenSecret []byte, startup StorageConfig) (*StorageController, error) {
@@ -321,7 +336,7 @@ func (c *StorageController) Update(ctx context.Context, in StorageUpdate) (Stora
 	}
 	var result StorageSettings
 	err := c.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, storageTransitionLock); err != nil {
+		if err := lockStorageTransition(ctx, tx); err != nil {
 			return err
 		}
 		var old StorageSettings

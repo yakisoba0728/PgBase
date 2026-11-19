@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+
+	"github.com/yakisoba0728/PgBase/internal/apiratelimit"
 )
 
 func clientAddress(r *http.Request, trustedProxies []netip.Prefix) (string, bool) {
@@ -16,7 +18,7 @@ func clientAddress(r *http.Request, trustedProxies []netip.Prefix) (string, bool
 	if err != nil {
 		return address, true
 	}
-	return rateLimitAddress(parsed), true
+	return apiratelimit.NetworkBucket(parsed), true
 }
 
 // clientIP resolves the true peer through explicitly trusted proxies without
@@ -51,14 +53,6 @@ func clientIP(r *http.Request, trustedProxies []netip.Prefix) (string, bool) {
 		}
 	}
 	return peer.String(), true
-}
-
-func rateLimitAddress(address netip.Addr) string {
-	address = address.Unmap()
-	if address.Is6() {
-		return netip.PrefixFrom(address, 64).Masked().String()
-	}
-	return address.String()
 }
 
 func remoteAddress(value string) (netip.Addr, bool) {

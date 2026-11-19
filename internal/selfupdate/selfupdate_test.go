@@ -31,6 +31,22 @@ const (
 	newCommit = "2222222222222222222222222222222222222222"
 )
 
+func TestCopyRegularDoesNotPublishAnUnverifiedCopy(t *testing.T) {
+	directory := t.TempDir()
+	source := filepath.Join(directory, "source")
+	target := filepath.Join(directory, "target")
+	if err := os.WriteFile(source, []byte("partial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyRegular(source, target, 0600, checksumBytes([]byte("complete"))); !errors.Is(err, ErrReplaceFailed) {
+		t.Fatalf("invalid copy error = %v", err)
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "source" {
+		t.Fatalf("failed copy left published or temporary files: %v, %v", entries, err)
+	}
+}
+
 func TestCopyRegularDoesNotRemoveAnExistingDestination(t *testing.T) {
 	directory := t.TempDir()
 	source := filepath.Join(directory, "source")
@@ -41,7 +57,7 @@ func TestCopyRegularDoesNotRemoveAnExistingDestination(t *testing.T) {
 	if err := os.WriteFile(target, []byte("existing"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := copyRegular(source, target, 0o700); err == nil {
+	if err := copyRegular(source, target, 0o700, checksumBytes([]byte("source"))); err == nil {
 		t.Fatal("copyRegular replaced an existing destination")
 	}
 	got, err := os.ReadFile(target)
@@ -557,11 +573,13 @@ func TestRecoverRollbackStartedAtEveryPublicationEdge(t *testing.T) {
 	oldBinary := buildFixture(t, "v0.1.0", oldCommit, "")
 	newBinary := buildFixture(t, "v0.2.0", newCommit, "")
 	for _, test := range []struct {
-		name          string
-		targetIsOld   bool
-		rollbackStage bool
+		name            string
+		targetIsOld     bool
+		rollbackStage   bool
+		copyInterrupted bool
 	}{
 		{name: "before_copy"},
+		{name: "during_copy", copyInterrupted: true},
 		{name: "after_copy", rollbackStage: true},
 		{name: "after_rename", targetIsOld: true},
 	} {
@@ -594,7 +612,12 @@ func TestRecoverRollbackStartedAtEveryPublicationEdge(t *testing.T) {
 				Old: Build{Version: "v0.1.0", Commit: oldCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}, New: Build{Version: "v0.2.0", Commit: newCommit, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH},
 				OldSHA256: oldDigest, NewSHA256: newDigest, ManifestSHA256: strings.Repeat("a", 64), SignatureSHA256: strings.Repeat("b", 64), TrustFingerprint: strings.Repeat("c", 64)}
 			if test.rollbackStage {
-				copyFixture(t, oldBinary, filepath.Join(directory, ".pgbase.pgbase-rollback"))
+				copyFixture(t, oldBinary, filepath.Join(directory, "."+filepath.Base(target)+".pgbase-rollback"))
+			}
+			if test.copyInterrupted {
+				if err = os.WriteFile(filepath.Join(directory, ".pgbase-update-copy-interrupted"), []byte("partial"), 0600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if err = writeJournal(state, entry); err != nil {
 				t.Fatal(err)
