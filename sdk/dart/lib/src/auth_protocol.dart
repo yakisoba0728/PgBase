@@ -396,12 +396,18 @@ PgBaseError pgBaseError(PgBaseResponse response) {
         details: details,
         etag: response.etag,
         requestId: requestId,
+        retryAfter: response.headers['retry-after'],
       );
     }
   } on PgBaseProtocolError {
     // Fall through to a stable transport error.
   }
-  return PgBaseError(response.status, 'request_failed', etag: response.etag);
+  return PgBaseError(
+    response.status,
+    'request_failed',
+    etag: response.etag,
+    retryAfter: response.headers['retry-after'],
+  );
 }
 
 JsonObject _profileAttributes(JsonValue value) {

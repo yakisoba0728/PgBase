@@ -48,6 +48,9 @@ Migration: handle `session_changed` as an obsolete result, discard session-speci
 
 ## Administrator session lifetime
 
+Cookie-changing operations on one administrator client run in order. Resume the
+session after a different client or browser tab changes the shared cookie.
+
 Administrator JSON, exact-text and backup-download requests belong to the session generation in which they started. Starting a new `login`/`resume`, completing logout, or accepting a current-session 401 invalidates responses from the previous generation, including delayed bodies and HTTP/transport failures. Such requests reject with `AdminAPIError(403, "session_changed")`; old identity/data cannot be published into the new login by a late SDK result. A current-session error keeps its original status/details.
 
 Migration: callers that previously consumed a stale successful response or handled an old 401 after another login must now discard `session_changed`, clear their own session-scoped caches and issue a fresh read when appropriate. Do not automatically retry a mutation: the server may already have committed it. This guards one client instance's local lifetime; it does not detect a cookie changed by another browser tab without `resume`/`login` on that instance, or cancel an in-flight browser Set-Cookie update.

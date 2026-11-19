@@ -3,11 +3,13 @@ export class AdminAPIError extends Error {
     status;
     code;
     details;
-    constructor(status, code, details = {}) {
+    retryAfter;
+    constructor(status, code, details = {}, retryAfter) {
         super(code);
         this.status = status;
         this.code = code;
         this.details = details;
+        this.retryAfter = retryAfter;
         this.name = "AdminAPIError";
     }
 }
@@ -58,22 +60,52 @@ export class PgBaseAdminClient {
     baseURL;
     #csrf = "";
     #generation = 0;
+    #transition = 0;
+    #pendingAuth;
     #fetch;
     constructor(baseURL, options = {}) {
         this.baseURL = baseURL;
         this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     }
-    async login(email, password, signal) {
-        return this.adopt("/api/admin/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }, signal);
+    login(email, password, options) {
+        const { otpCode, signal } = options && "aborted" in options ? { signal: options, otpCode: undefined } : options ?? {};
+        return this.transitionAuth(() => this.adopt("/api/admin/auth/login", { method: "POST", body: JSON.stringify({ email, password, otpCode }) }, signal));
     }
-    resume(signal) { return this.adopt("/api/admin/session", {}, signal); }
-    async logout(signal) {
-        const generation = this.#generation;
-        await this.request("/api/admin/auth/logout", { method: "POST" }, signal);
-        if (generation === this.#generation) {
-            this.#csrf = "";
-            this.#generation++;
-        }
+    resume(signal) {
+        return this.transitionAuth(() => this.adopt("/api/admin/session", {}, signal));
+    }
+    logout(signal) {
+        return this.transitionAuth(async () => {
+            const generation = this.#generation;
+            await this.request("/api/admin/auth/logout", { method: "POST" }, signal);
+            if (generation === this.#generation) {
+                this.#csrf = "";
+                this.#generation++;
+            }
+        });
+    }
+    transitionAuth(apply) {
+        // The browser applies Set-Cookie before fetch resolves. Keep the cookie and
+        // CSRF update together even when a later operation supersedes this result.
+        const transition = ++this.#transition;
+        const run = async () => {
+            try {
+                const result = await apply();
+                if (transition === this.#transition)
+                    return result;
+            }
+            catch (error) {
+                if (transition === this.#transition)
+                    throw error;
+            }
+            throw new AdminAPIError(403, "session_changed");
+        };
+        const operation = this.#pendingAuth ? this.#pendingAuth.then(run, run) : run();
+        this.#pendingAuth = operation;
+        const clear = () => { if (this.#pendingAuth === operation)
+            this.#pendingAuth = undefined; };
+        void operation.then(clear, clear);
+        return operation;
     }
     catalog(signal) { return this.request("/api/admin/collections", {}, signal); }
     generateAppleClientSecret(input, signal) {
@@ -234,7 +266,7 @@ export class PgBaseAdminClient {
                 this.#generation++;
             }
             const data = body;
-            throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details);
+            throw new AdminAPIError(response.status, data?.error?.code ?? "request_failed", data?.error?.details, response.headers.get("Retry-After") ?? undefined);
         }
         return body;
     }

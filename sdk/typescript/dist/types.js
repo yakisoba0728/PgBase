@@ -3,12 +3,14 @@ export class PgBaseError extends Error {
     code;
     details;
     etag;
-    constructor(status, code, details = {}, etag) {
+    retryAfter;
+    constructor(status, code, details = {}, etag, retryAfter) {
         super(code);
         this.status = status;
         this.code = code;
         this.details = details;
         this.etag = etag;
+        this.retryAfter = retryAfter;
         this.name = "PgBaseError";
     }
 }

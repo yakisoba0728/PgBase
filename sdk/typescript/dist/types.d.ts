@@ -225,7 +225,8 @@ export declare class PgBaseError extends Error {
     readonly code: string;
     readonly details: Record<string, string[]>;
     readonly etag?: string | undefined;
-    constructor(status: number, code: string, details?: Record<string, string[]>, etag?: string | undefined);
+    readonly retryAfter?: string | undefined;
+    constructor(status: number, code: string, details?: Record<string, string[]>, etag?: string | undefined, retryAfter?: string | undefined);
 }
 export declare class MFAChallengeError extends PgBaseError {
     readonly challenge: MFAChallenge;

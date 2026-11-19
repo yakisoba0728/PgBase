@@ -723,6 +723,7 @@ final class PgBaseClient {
               details: error.details,
               etag: error.etag,
               requestId: error.requestId,
+              retryAfter: error.retryAfter,
             );
         }
         rethrow;

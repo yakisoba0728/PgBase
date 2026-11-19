@@ -112,6 +112,7 @@ export class PgBaseError extends Error {
     readonly code: string,
     readonly details: Record<string, string[]> = {},
     readonly etag?: string,
+    readonly retryAfter?: string,
   ) {
     super(code);
     this.name = "PgBaseError";

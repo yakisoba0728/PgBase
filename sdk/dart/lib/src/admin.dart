@@ -25,6 +25,8 @@ final class PgBaseAdminClient {
   String _csrf = '';
   String? _cookie;
   int _generation = 0;
+  int _transition = 0;
+  Future<void>? _pendingAuth;
 
   void close() => transport.close();
 
@@ -33,43 +35,79 @@ final class PgBaseAdminClient {
     String email,
     String password, {
     CancellationToken? cancellation,
-  }) => _adopt(
-    '/api/admin/setup',
-    JsonObject({
-      'setupToken': JsonString(setupToken),
-      'email': JsonString(email),
-      'password': JsonString(password),
-    }),
-    cancellation,
+  }) => _transitionAuth(
+    () => _adopt(
+      '/api/admin/setup',
+      JsonObject({
+        'setupToken': JsonString(setupToken),
+        'email': JsonString(email),
+        'password': JsonString(password),
+      }),
+      cancellation,
+    ),
   );
 
   Future<JsonObject> login(
     String email,
     String password, {
+    String? otpCode,
     CancellationToken? cancellation,
-  }) => _adopt(
-    '/api/admin/auth/login',
-    JsonObject({'email': JsonString(email), 'password': JsonString(password)}),
-    cancellation,
+  }) => _transitionAuth(
+    () => _adopt(
+      '/api/admin/auth/login',
+      JsonObject({
+        'email': JsonString(email),
+        'password': JsonString(password),
+        if (otpCode != null) 'otpCode': JsonString(otpCode),
+      }),
+      cancellation,
+    ),
   );
   Future<JsonObject> resume({CancellationToken? cancellation}) =>
-      _adopt('/api/admin/session', null, cancellation, method: 'GET');
-
-  Future<void> logout({CancellationToken? cancellation}) async {
-    final generation = _generation;
-    try {
-      await request(
-        'POST',
-        '/api/admin/auth/logout',
-        cancellation: cancellation,
+      _transitionAuth(
+        () => _adopt('/api/admin/session', null, cancellation, method: 'GET'),
       );
-    } finally {
-      if (generation == _generation) {
-        _csrf = '';
-        _cookie = null;
-        _generation++;
+
+  Future<void> logout({CancellationToken? cancellation}) =>
+      _transitionAuth(() async {
+        final generation = _generation;
+        try {
+          await request(
+            'POST',
+            '/api/admin/auth/logout',
+            cancellation: cancellation,
+          );
+        } finally {
+          if (generation == _generation) {
+            _csrf = '';
+            _cookie = null;
+            _generation++;
+          }
+        }
+      });
+
+  Future<T> _transitionAuth<T>(Future<T> Function() apply) {
+    final transition = ++_transition;
+    Future<T> run() async {
+      try {
+        final result = await apply();
+        if (transition == _transition) return result;
+      } catch (_) {
+        if (transition == _transition) rethrow;
       }
+      throw const PgBaseError(403, 'session_changed');
     }
+
+    final operation = _pendingAuth?.then((_) => run()) ?? run();
+    final tail = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _pendingAuth = tail;
+    tail.then((_) {
+      if (identical(_pendingAuth, tail)) _pendingAuth = null;
+    });
+    return operation;
   }
 
   /// Fully integrated escape hatch for every documented administrator route.
@@ -402,7 +440,11 @@ final class PgBaseAdminClient {
     cancellation: cancellation,
   );
   Future<JsonObject> user(String id, {CancellationToken? cancellation}) =>
-      _object('GET', '/api/admin/users/${Uri.encodeComponent(id)}', cancellation: cancellation);
+      _object(
+        'GET',
+        '/api/admin/users/${Uri.encodeComponent(id)}',
+        cancellation: cancellation,
+      );
 
   Future<JsonObject> administratorAccounts({
     int? limit,
@@ -417,6 +459,7 @@ final class PgBaseAdminClient {
     },
     cancellation: cancellation,
   );
+
   /// Requires the acting administrator's current password, like the other
   /// administrator-security changes (403 `current_password_invalid`).
   Future<JsonObject> createAdministrator(
@@ -448,6 +491,7 @@ final class PgBaseAdminClient {
     }),
     cancellation: cancellation,
   );
+
   /// Replaces another administrator's password; the server refuses your own
   /// ID (409), which needs PATCH /api/admin/profile with the current password.
   Future<void> setAdministratorPassword(

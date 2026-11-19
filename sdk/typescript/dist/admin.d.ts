@@ -370,7 +370,8 @@ export declare class AdminAPIError extends Error {
     readonly status: number;
     readonly code: string;
     readonly details: Record<string, string[]>;
-    constructor(status: number, code: string, details?: Record<string, string[]>);
+    readonly retryAfter?: string | undefined;
+    constructor(status: number, code: string, details?: Record<string, string[]>, retryAfter?: string | undefined);
 }
 /** The preview binds the exact request body and replay identity. Inspect the
  * copy returned by preview; editing it cannot change what apply submits. */
@@ -410,9 +411,13 @@ export declare class PgBaseAdminClient {
     constructor(baseURL: string, options?: {
         fetch?: typeof fetch;
     });
-    login(email: string, password: string, signal?: AbortSignal): Promise<AdministratorSession>;
+    login(email: string, password: string, options?: AbortSignal | {
+        otpCode?: string;
+        signal?: AbortSignal;
+    }): Promise<AdministratorSession>;
     resume(signal?: AbortSignal): Promise<AdministratorSession>;
     logout(signal?: AbortSignal): Promise<void>;
+    private transitionAuth;
     catalog(signal?: AbortSignal): Promise<{
         version: number;
         collections: Record<string, CollectionDefinition>;
