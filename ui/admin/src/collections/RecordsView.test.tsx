@@ -175,3 +175,46 @@ it("does not dispatch remaining bulk deletes after its administrator changes", a
   await act(async () => { finish.forEach((resolve) => resolve()); });
   expect(remove).toHaveBeenCalledTimes(6);
 });
+
+it("hides destructive actions while a new filter shows the previous rows", async () => {
+  const restore = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
+  Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value() {} });
+  try {
+    vi.spyOn(records, "listRecords").mockImplementation(async (_collection, options = {}) =>
+      options.filter ? new Promise(() => {}) : { items: [{ id: "old" }] },
+    );
+    const router = show();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Select old" }));
+    expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
+    await act(() => router.navigate("/?filter=" + encodeURIComponent("id = 'new'")));
+    await screen.findByRole("progressbar", { name: "Loading" });
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  } finally {
+    if (restore) Object.defineProperty(HTMLElement.prototype, "scrollTo", restore);
+    else Reflect.deleteProperty(HTMLElement.prototype, "scrollTo");
+  }
+});
+
+it("deletes the records named by an open confirmation even if the filter changes", async () => {
+  vi.spyOn(records, "listRecords").mockImplementation(async (_collection, options = {}) =>
+    ({ items: [{ id: options.filter ? "new" : "old" }] }),
+  );
+  const remove = vi.spyOn(records, "deleteRecord").mockResolvedValue();
+  const router = show();
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Select old" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  const dialog = within(await screen.findByRole("dialog"));
+  const title = dialog.getByRole("heading").textContent;
+  const previousScrollTo = HTMLElement.prototype.scrollTo;
+  HTMLElement.prototype.scrollTo = () => {};
+  try {
+    await act(() => router.navigate("/?filter=" + encodeURIComponent("id = 'new'")));
+    await screen.findByRole("checkbox", { name: "Select new" });
+  } finally {
+    HTMLElement.prototype.scrollTo = previousScrollTo;
+  }
+  expect(dialog.getByRole("heading").textContent).toBe(title);
+  fireEvent.change(dialog.getByRole("textbox", { name: "Type posts to confirm" }), { target: { value: "posts" } });
+  fireEvent.click(dialog.getByRole("button", { name: "Delete" }));
+  await waitFor(() => expect(remove).toHaveBeenCalledExactlyOnceWith("posts", "old"));
+});

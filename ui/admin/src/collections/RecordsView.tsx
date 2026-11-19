@@ -96,7 +96,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
   const columns = useColumnPrefs(collection);
   const records = useHeld(useInfiniteQuery(recordsListQuery(collection, url.filter, url.sort, columns.visible)), collection.name);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [confirmBulk, setConfirmBulk] = useState(false);
+  const [confirmBulk, setConfirmBulk] = useState<{ source: string[] | { filter: string }; title: string; message: string } | null>(null);
   const [task, setTask] = useState<BulkTask | null>(null);
   const running = task?.state === "running";
   // Leaving the screen stops a bulk task from issuing further requests.
@@ -131,14 +131,15 @@ export function RecordsView({ collection }: { collection: Collection }) {
     if (!element) return;
     const onScroll = () => {
       setScrolled(element.scrollTop > 1200);
-      if (hasNextPage && !isFetchingNextPage && !isFetchNextPageError && element.scrollHeight - element.scrollTop - element.clientHeight < 800) void fetchNextPage();
+      if (!records.isHeld && hasNextPage && !isFetchingNextPage && !isFetchNextPageError && element.scrollHeight - element.scrollTop - element.clientHeight < 800) void fetchNextPage();
     };
     element.addEventListener("scroll", onScroll, { passive: true });
     return () => element.removeEventListener("scroll", onScroll);
-  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
+  }, [records.isHeld, hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
 
   const select = useCallback(
     (ids: string[], checked: boolean) => {
+      if (records.isHeld) return;
       setMatchScope(null);
       setSelected((previous) => {
         const next = new Set(previous);
@@ -146,7 +147,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
         return next;
       });
     },
-    [],
+    [records.isHeld],
   );
   const onPeek = useCallback((label: string, text: string, anchor: HTMLElement) => setPeek({ label, text, anchor }), []);
 
@@ -225,10 +226,9 @@ export function RecordsView({ collection }: { collection: Collection }) {
     url.setFilter(text);
   };
 
-  // Only rows still on screen count, so a filter change cannot widen a delete.
-  const chosen = items.filter((record) => selected.has(record.id));
+  const chosen = records.isHeld ? [] : items.filter((record) => selected.has(record.id));
   const count = chosen.length;
-  const matchingAll = !readOnly && matchScope === scopeFilter;
+  const matchingAll = !records.isHeld && !readOnly && matchScope === scopeFilter;
   const first = records.data?.pages[0];
   const total = first?.totalItems === undefined ? undefined : `${first.totalItems.toLocaleString()}${first.totalCapped ? "+" : ""}`;
   const loaded = countText(t, items.length, records.hasNextPage, records.data?.pages[0]);
@@ -356,7 +356,11 @@ export function RecordsView({ collection }: { collection: Collection }) {
             setSelected(new Set());
             setMatchScope(null);
           }}>{t("records.clearSelection")}</Button>
-          <Button size="sm" variant="danger" icon={RiDeleteBinLine} disabled={running} onClick={() => setConfirmBulk(true)}>{t("common.delete")}</Button>
+          <Button size="sm" variant="danger" icon={RiDeleteBinLine} disabled={running} onClick={() => setConfirmBulk({
+            source: matchingAll ? { filter: scopeFilter } : chosen.map((record) => record.id),
+            title: matchingAll ? (total ? t("records.deleteMatchingTitle", { total }) : t("records.deleteMatchingTitleUnknown")) : t("records.deleteManyTitle", { count }),
+            message: matchingAll ? (scopeFilter ? t("records.deleteMatchingText", { filter: url.filter }) : t("records.deleteEverythingText")) : t("records.deleteManyText"),
+          })}>{t("common.delete")}</Button>
         </div>
       ) : (
         <span className="toolbar-count">{records.data ? loaded : ""}</span>
@@ -427,17 +431,18 @@ export function RecordsView({ collection }: { collection: Collection }) {
       </div>
       <ValuePeek peek={peek} onClose={() => setPeek(null)} />
       <ConfirmDialog
-        open={confirmBulk}
-        title={matchingAll ? (total ? t("records.deleteMatchingTitle", { total }) : t("records.deleteMatchingTitleUnknown")) : t("records.deleteManyTitle", { count })}
-        message={matchingAll ? (scopeFilter ? t("records.deleteMatchingText", { filter: url.filter }) : t("records.deleteEverythingText")) : t("records.deleteManyText")}
+        open={confirmBulk !== null}
+        title={confirmBulk?.title ?? ""}
+        message={confirmBulk?.message}
         confirmLabel={t("common.delete")}
         danger
         typed={{ phrase: collection.name, label: t("common.typeToConfirm", { name: collection.name }) }}
         onConfirm={() => {
-          setConfirmBulk(false);
-          void runDelete(matchingAll ? { filter: scopeFilter } : chosen.map((record) => record.id));
+          if (!confirmBulk || running) return;
+          setConfirmBulk(null);
+          void runDelete(confirmBulk.source);
         }}
-        onCancel={() => setConfirmBulk(false)}
+        onCancel={() => setConfirmBulk(null)}
       />
     </>
   );

@@ -108,3 +108,29 @@ it("keeps at most ten pages, offers a way back to the start and still shows a us
   expect(screen.getByText("u1@example.test")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Back to start" })).not.toBeInTheDocument();
 });
+
+it("updates the password of an OAuth user whose email is unset", async () => {
+  vi.spyOn(users, "getUser").mockResolvedValue({ ...user, email: "" });
+  vi.mocked(collections.listAuthRecords).mockResolvedValue({ items: [{ ...record, email: "" }] } as Awaited<ReturnType<typeof collections.listAuthRecords>>);
+  const update = vi.spyOn(collections, "updateAuthRecord").mockResolvedValue(record);
+  renderUsers();
+  const pane = within(await screen.findByRole("region", { name: "User" }));
+  fireEvent.change(await pane.findByLabelText(/^New password/), { target: { value: "new strong password" } });
+  fireEvent.click(pane.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(update).toHaveBeenCalledWith("c", user.id, { password: "new strong password" }));
+});
+
+it("requires the user ID to confirm deletion when an OAuth user has no email", async () => {
+  vi.spyOn(users, "getUser").mockResolvedValue({ ...user, email: "" });
+  vi.mocked(collections.listAuthRecords).mockResolvedValue({ items: [{ ...record, email: "" }] } as Awaited<ReturnType<typeof collections.listAuthRecords>>);
+  const remove = vi.spyOn(collections, "deleteAuthRecord").mockResolvedValue();
+  renderUsers();
+  const pane = within(await screen.findByRole("region", { name: "User" }));
+  fireEvent.click(await pane.findByRole("button", { name: "Delete user" }));
+  const dialog = within(screen.getByRole("dialog"));
+  const confirm = dialog.getByRole("button", { name: "Delete" });
+  expect(confirm).toBeDisabled();
+  fireEvent.change(dialog.getByRole("textbox", { name: `Type ${user.id} to confirm` }), { target: { value: user.id } });
+  fireEvent.click(confirm);
+  await waitFor(() => expect(remove).toHaveBeenCalledExactlyOnceWith("c", user.id));
+});

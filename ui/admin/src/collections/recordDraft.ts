@@ -16,8 +16,8 @@ const sensitiveName = /(password|passwd|secret|token|api_?key|credential)/i;
 export interface DraftScope {
   admin: string;
   collection: string;
-  /** "new" for the create form. */
-  record: string;
+  /** Null for the create form. */
+  record: string | null;
 }
 
 interface StoredDraft {
@@ -25,7 +25,13 @@ interface StoredDraft {
   fields: Record<string, Draft>;
 }
 
-const key = (scope: DraftScope) => `${prefix}${[scope.admin, scope.collection, scope.record].map(encodeURIComponent).join(":")}`;
+const key = (scope: DraftScope) => {
+  const owner = `${prefix}${encodeURIComponent(scope.admin)}:${encodeURIComponent(scope.collection)}:`;
+  // A colon is always escaped in a record ID. The ambiguous legacy "new" key belongs to neither form.
+  if (scope.record === null) return `${owner}create:`;
+  if (scope.record === "new") return `${owner}record:new`;
+  return owner + encodeURIComponent(scope.record);
+};
 
 /** Fields whose edits may be persisted: plain values only, never passwords, files or server-set dates. */
 function persistable(field: CollectionField): boolean {

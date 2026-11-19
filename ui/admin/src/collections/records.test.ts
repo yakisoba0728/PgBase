@@ -36,6 +36,25 @@ describe("record drafts", () => {
     expect(changedFields(fields, { title: "b", secret: "pw", api_token: "y", done: true }, initial)).toEqual({ title: "b", done: true });
   });
 
+  it("isolates create drafts, existing records named new, and the ambiguous legacy key", () => {
+    const creating = { ...scope, record: null };
+    const existing = { ...scope, record: "new" };
+    const legacy = "pgbase.records.draft:a:c:new";
+    localStorage.setItem(legacy, JSON.stringify({ savedAt: 1000, fields: { title: "ambiguous" } }));
+    try {
+      expect(readDraft(creating, fields, 2000)).toBeNull();
+      expect(readDraft(existing, fields, 2000)).toBeNull();
+      writeDraft(creating, { title: "create" }, 1000);
+      writeDraft(existing, { title: "existing" }, 1000);
+      expect(readDraft(creating, fields, 2000)?.fields).toEqual({ title: "create" });
+      expect(readDraft(existing, fields, 2000)?.fields).toEqual({ title: "existing" });
+    } finally {
+      clearDraft(creating);
+      clearDraft(existing);
+      localStorage.removeItem(legacy);
+    }
+  });
+
   it("restores fresh drafts, drops expired or mistyped ones", () => {
     writeDraft(scope, { title: "b", done: "yes" }, 1000);
     expect(readDraft(scope, fields, 2000)?.fields).toEqual({ title: "b" });

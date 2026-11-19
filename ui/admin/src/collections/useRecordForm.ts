@@ -52,7 +52,7 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
   const record: RecordData | undefined = loaded?.record;
   const isNew = !loaded;
   const fields = collection.fields;
-  const scope: DraftScope = useMemo(() => ({ admin, collection: collection.id, record: record?.id ?? "new" }), [admin, collection.id, record?.id]);
+  const scope: DraftScope = useMemo(() => ({ admin, collection: collection.id, record: record?.id ?? null }), [admin, collection.id, record?.id]);
   const initial = useMemo(() => initialDrafts(fields, record), [fields, record]);
   // Edits left from a reload, a closed tab, a duplicate or a 412 reload, laid over the latest values.
   const [restored, setRestored] = useState(() => readDraft(scope, fields));
@@ -188,7 +188,7 @@ export function useRecordForm({ collection, loaded, onCreated, onDeleted }: Opti
     /** Prepares the create form with this record's values; false when browser storage refused it. */
     duplicate: () => {
       const values = changedFields(fields, drafts, initialDrafts(fields)) ?? {};
-      return writeDraft({ ...scope, record: "new" }, values);
+      return writeDraft({ ...scope, record: null }, values);
     },
     /** Back to the stored values (Discard). */
     reset: () => {
