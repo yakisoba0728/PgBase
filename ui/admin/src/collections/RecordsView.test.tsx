@@ -23,8 +23,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); client.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-function show(at = "/") {
-  const collection = { id: "c", name: "posts", type: "base", fields: [] } as unknown as Collection;
+function show(at = "/", collection = { id: "c", name: "posts", type: "base", fields: [] } as unknown as Collection) {
   const router = createMemoryRouter([{ path: "*", element: <RecordsView collection={collection} /> }], { initialEntries: [at] });
   render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
   return router;
@@ -217,4 +216,59 @@ it("deletes the records named by an open confirmation even if the filter changes
   fireEvent.change(dialog.getByRole("textbox", { name: "Type posts to confirm" }), { target: { value: "posts" } });
   fireEvent.click(dialog.getByRole("button", { name: "Delete" }));
   await waitFor(() => expect(remove).toHaveBeenCalledExactlyOnceWith("posts", "old"));
+});
+
+it("keeps a ten-page record window and can reset to the first page", async () => {
+  const previousScrollTo = HTMLElement.prototype.scrollTo;
+  HTMLElement.prototype.scrollTo = () => {};
+  try {
+    vi.spyOn(records, "listRecords").mockImplementation(async (_collection, options = {}) => {
+      const page = Number(options.cursor ?? 1);
+      return { items: [{ id: `r${page}` }], nextCursor: page <= 11 ? String(page + 1) : undefined, totalItems: page === 1 ? 12 : undefined };
+    });
+    show();
+    await screen.findByRole("checkbox", { name: "Select r1" });
+    for (let page = 2; page <= 11; page++) {
+      fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+      await screen.findByRole("checkbox", { name: `Select r${page}` });
+    }
+    expect(screen.queryByRole("checkbox", { name: "Select r1" })).not.toBeInTheDocument();
+    expect(screen.getByText("10 of 12 loaded")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back to start" }));
+    await screen.findByRole("checkbox", { name: "Select r1" });
+    expect(screen.queryByRole("button", { name: "Back to start" })).not.toBeInTheDocument();
+  } finally {
+    HTMLElement.prototype.scrollTo = previousScrollTo;
+  }
+});
+
+it("reads complete records when exporting a selection from projected grid results", async () => {
+  const collection = { id: "projected", name: "posts", type: "base", fields: [
+    { id: "title", name: "title", type: "text" }, { id: "body", name: "body", type: "text" },
+  ] } as unknown as Collection;
+  const preference = "pgbase.records.columns:projected";
+  localStorage.setItem(preference, JSON.stringify({ hidden: ["body"] }));
+  try {
+    Object.assign(HTMLElement.prototype, { showPopover() {}, hidePopover() {} });
+    const save = vi.spyOn(download, "downloadBlob").mockImplementation(() => {});
+    const list = vi.spyOn(records, "listRecords").mockImplementation(async (_collection, options = {}) =>
+      ({ items: [{ id: "r1", title: "Shown", ...(options.fields ? {} : { body: "Also exported" }) }] }),
+    );
+    show("/", collection);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Select r1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Selected/, hidden: true }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    expect(list).toHaveBeenLastCalledWith("posts", expect.objectContaining({ filter: "id = 'r1'" }));
+    expect(list.mock.lastCall?.[1]?.fields).toBeUndefined();
+    const json = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(save.mock.calls[0][1]);
+    });
+    expect(JSON.parse(json)).toEqual([{ id: "r1", title: "Shown", body: "Also exported" }]);
+  } finally {
+    localStorage.removeItem(preference);
+  }
 });

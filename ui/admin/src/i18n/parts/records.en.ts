@@ -93,6 +93,8 @@ export const recordsEn = {
   "records.filterHelpText": "Plain words search the text fields. An expression filters exactly. Examples:",
   "records.filterOps": "Operators: = != > >= < <= ~ (contains) !~, joined by && and ||. Modifier :lower. Cmd/Ctrl+Enter applies.",
   "records.fixFilter": "Fix the filter above or clear it.",
+  "records.shifted": "Showing the latest {count} loaded records.",
+  "records.toStart": "Back to start",
   "records.toTop": "Back to top",
 
   "query.filterRejected": "Filter rejected:",

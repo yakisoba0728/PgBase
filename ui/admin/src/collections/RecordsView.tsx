@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Searchbar } from "../components/Field";
 import {
@@ -13,12 +13,12 @@ import {
 } from "@remixicon/react";
 import type { Collection } from "../api/collections";
 import { ApiError, captureSessionScope } from "../api/http";
-import { deleteRecord, deleteRecordsBatch, listRecords, type RecordData } from "../api/records";
-import { errorText } from "../app/queries";
+import { deleteRecord, deleteRecordsBatch, listRecords, type RecordData, type RecordPage } from "../api/records";
+import { errorText, windowOpen, windowShifted } from "../app/queries";
 import { Button, IconButton, RefreshButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { Dropdown, DropdownItem } from "../components/Popover";
-import { EmptyState, LoadMore } from "../components/Feedback";
+import { EmptyState, LoadMore, WindowNotice } from "../components/Feedback";
 import { JobProgress } from "../components/JobProgress";
 import { QueryView, useHeld } from "../components/QueryView";
 import { TableScroll } from "../components/Table";
@@ -36,6 +36,7 @@ import { useColumnPrefs } from "./columns";
 import { collectionsQuery, countText, recordsListQuery, removeFromLists } from "./queries";
 import { RecordEditor } from "./RecordEditor";
 import { RecordsTable } from "./RecordsTable";
+import { idsFilter } from "./relation";
 import { buildFilter, useRecordsUrl } from "./useRecordsUrl";
 import "../styles/records.css";
 
@@ -67,6 +68,8 @@ function queryProblem(t: Translate, error: unknown): string | null {
   return `${t(part === "filter" ? "query.filterRejected" : "query.sortRejected")} ${key in en ? t(key as keyof typeof en) : code}`;
 }
 
+type ExportSelection = { ids: string[]; kind: "selected" | "loaded" };
+
 /** A bulk delete or export in progress, or its outcome when it needs attention (a clean finish is a toast). */
 interface BulkTask {
   kind: "delete" | "export";
@@ -79,6 +82,7 @@ interface BulkTask {
   failed?: string[];
   /** Export: bytes already written before it stopped. */
   file?: RecordExport;
+  exportSelection?: ExportSelection;
   abort: AbortController;
 }
 
@@ -94,7 +98,10 @@ export function RecordsView({ collection }: { collection: Collection }) {
   const queryClient = useQueryClient();
   const catalog = useQuery(collectionsQuery).data ?? [];
   const columns = useColumnPrefs(collection);
-  const records = useHeld(useInfiniteQuery(recordsListQuery(collection, url.filter, url.sort, columns.visible)), collection.name);
+  const list = recordsListQuery(collection, url.filter, url.sort, columns.visible);
+  const records = useHeld(useInfiniteQuery(list), collection.name);
+  const shifted = windowShifted(records.data);
+  const autoPage = !records.isHeld && windowOpen(records.data);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulk, setConfirmBulk] = useState<{ source: string[] | { filter: string }; title: string; message: string } | null>(null);
   const [task, setTask] = useState<BulkTask | null>(null);
@@ -121,7 +128,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
   // Typed text is applied on submit; it follows URL changes from elsewhere (clear, history).
   const [text, setText] = useState(url.filter);
   useEffect(() => setText(url.filter), [url.filter]);
-  const items = records.data?.pages.flatMap((page) => page.items) ?? [];
+  const items = useMemo(() => records.data?.pages.flatMap((page) => page.items) ?? [], [records.data]);
   const readOnly = collection.type === "view";
 
   // Loads the next page when the user scrolls near the end; the button stays for keyboard users.
@@ -131,11 +138,11 @@ export function RecordsView({ collection }: { collection: Collection }) {
     if (!element) return;
     const onScroll = () => {
       setScrolled(element.scrollTop > 1200);
-      if (!records.isHeld && hasNextPage && !isFetchingNextPage && !isFetchNextPageError && element.scrollHeight - element.scrollTop - element.clientHeight < 800) void fetchNextPage();
+      if (autoPage && hasNextPage && !isFetchingNextPage && !isFetchNextPageError && element.scrollHeight - element.scrollTop - element.clientHeight < 800) void fetchNextPage();
     };
     element.addEventListener("scroll", onScroll, { passive: true });
     return () => element.removeEventListener("scroll", onScroll);
-  }, [records.isHeld, hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
+  }, [autoPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
 
   const select = useCallback(
     (ids: string[], checked: boolean) => {
@@ -229,49 +236,77 @@ export function RecordsView({ collection }: { collection: Collection }) {
   const chosen = records.isHeld ? [] : items.filter((record) => selected.has(record.id));
   const count = chosen.length;
   const matchingAll = !records.isHeld && !readOnly && matchScope === scopeFilter;
-  const first = records.data?.pages[0];
+  const firstSeen = useRef<{ key: string; stats: Pick<RecordPage, "totalItems" | "totalCapped"> }>(undefined);
+  const identity = JSON.stringify(list.queryKey);
+  if (!records.isHeld && records.data && !shifted) {
+    const { totalItems, totalCapped } = records.data.pages[0];
+    firstSeen.current = { key: identity, stats: { totalItems, totalCapped } };
+  }
+  const first = firstSeen.current?.key === identity ? firstSeen.current.stats : undefined;
   const total = first?.totalItems === undefined ? undefined : `${first.totalItems.toLocaleString()}${first.totalCapped ? "+" : ""}`;
-  const loaded = countText(t, items.length, records.hasNextPage, records.data?.pages[0]);
+  const loaded = countText(t, items.length, records.hasNextPage || shifted, first);
   const problem = records.isError ? queryProblem(t, records.error) : null;
 
-  const runExport = async () => {
+  const runExport = async (selection?: ExportSelection) => {
     const scope = captureSessionScope();
     const abort = start("export", t("records.exportProgress", { count: 0 }));
     const file = new RecordExport();
     try {
-      let cursor: string | undefined;
-      let complete = false;
-      for (let at = 0; at < maxPages; at++) {
-        abort.signal.throwIfAborted();
-        const page = await scope.run(() => listRecords(collection.name, { filter: scopeFilter || undefined, sort: url.sort || undefined, cursor, limit: 200, total: cursor ? undefined : true, signal: abort.signal }));
-        const fits = file.append(page.items);
+      const append = (rows: RecordData[], total?: number) => {
+        const fits = file.append(rows);
         const done = file.count;
-        setTask((current) => {
-          if (current?.abort !== abort) return current;
-          // A capped count is only a lower bound: no invented percentage.
-          const known = current.total ?? (page.totalItems !== undefined && !page.totalCapped ? page.totalItems : undefined);
-          return { ...current, done, total: known, detail: t("records.exportProgress", { count: done }) };
-        });
-        cursor = page.nextCursor;
-        if (!fits || !cursor) {
-          complete = fits;
-          break;
+        setTask((current) => current?.abort === abort
+          ? { ...current, done, total: current.total ?? total, detail: t("records.exportProgress", { count: done }) }
+          : current);
+        return fits;
+      };
+      let complete = false;
+      if (selection) {
+        // The grid may have projected hidden fields away. Fetch complete versions of
+        // the exact IDs selected, in groups small enough for the filter and response limits.
+        complete = true;
+        for (let at = 0; at < selection.ids.length; at += 4) {
+          abort.signal.throwIfAborted();
+          const ids = selection.ids.slice(at, at + 4);
+          const page = await scope.run(() => listRecords(collection.name, { filter: idsFilter(ids), limit: ids.length, signal: abort.signal }));
+          const byID = new Map(page.items.map((item) => [item.id, item]));
+          if (!append(ids.flatMap((id) => byID.get(id) ?? []), selection.ids.length)) {
+            complete = false;
+            break;
+          }
+        }
+      } else {
+        let cursor: string | undefined;
+        for (let at = 0; at < maxPages; at++) {
+          abort.signal.throwIfAborted();
+          const page = await scope.run(() => listRecords(collection.name, { filter: scopeFilter || undefined, sort: url.sort || undefined, cursor, limit: 200, total: cursor ? undefined : true, signal: abort.signal }));
+          const fits = append(page.items, page.totalCapped ? undefined : page.totalItems);
+          cursor = page.nextCursor;
+          if (!fits || !cursor) {
+            complete = fits;
+            break;
+          }
         }
       }
       abort.signal.throwIfAborted();
       scope.check();
-      downloadBlob(`${collection.name}${complete ? "" : "-partial"}.json`, file.blob());
+      downloadBlob(`${collection.name}${selection ? `-${selection.kind}` : ""}${complete ? "" : "-partial"}.json`, file.blob());
       if (complete) {
         setTask(null);
         toast(t("records.exported", { count: file.count }));
       } else setTask({ kind: "export", state: "attention", detail: t("records.exportedPartial", { count: file.count }), abort });
     } catch (error) {
       if (error instanceof ApiError && error.code === "session_changed") { setTask(null); return; }
-      setTask(abort.signal.aborted ? null : { kind: "export", state: "failed", detail: t("records.exportStopped", { count: file.count }), error: errorText(t, error), file, abort });
+      setTask(abort.signal.aborted ? null : { kind: "export", state: "failed", detail: t("records.exportStopped", { count: file.count }), error: errorText(t, error), file, exportSelection: selection, abort });
     }
   };
 
   const exportRows = (rows: RecordData[], kind: "selected" | "loaded") => {
+    if (running || records.isHeld) return;
+    if (list.queryKey[3].fields) {
+      void runExport({ ids: rows.map((row) => row.id), kind });
+      return;
+    }
     const file = new RecordExport();
     const complete = file.append(rows);
     downloadBlob(`${collection.name}-${kind}${complete ? "" : "-partial"}.json`, file.blob());
@@ -297,7 +332,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
           ) : (
             <>
               {task.failed && task.failed.length > 0 && <Button size="sm" variant="secondary" onClick={() => void runDelete(task.failed!)}>{t("records.retryFailed", { count: task.failed.length })}</Button>}
-              {task.kind === "export" && task.state === "failed" && <Button size="sm" variant="secondary" onClick={() => void runExport()}>{t("common.retry")}</Button>}
+              {task.kind === "export" && task.state === "failed" && <Button size="sm" variant="secondary" onClick={() => void runExport(task.exportSelection)}>{t("common.retry")}</Button>}
               {task.file && task.file.count > 0 && <Button size="sm" variant="transparent" onClick={() => downloadBlob(`${collection.name}-partial.json`, task.file!.blob())}>{t("records.savePartial", { count: task.file.count })}</Button>}
               <IconButton label={t("common.dismiss")} icon={RiCloseLine} onClick={() => setTask(null)} />
             </>
@@ -386,7 +421,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
     </div>
   );
 
-  const list = (
+  const listView = (
     <>
       {toolbar}
       {problem && (
@@ -396,6 +431,12 @@ export function RecordsView({ collection }: { collection: Collection }) {
         </p>
       )}
       {taskView}
+      {shifted && !records.isHeld && (
+        <WindowNotice action={t("records.toStart")} onReset={() => {
+          scroller.current?.scrollTo({ top: 0 });
+          void queryClient.resetQueries({ queryKey: list.queryKey, exact: true });
+        }}>{t("records.shifted", { count: items.length })}</WindowNotice>
+      )}
       <div className="records-body">
       <TableScroll className="records-scroll" ref={scroller}>
         {problem && !records.data ? (
@@ -430,7 +471,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
                   scroller={scroller}
                   onPeek={onPeek}
                 />
-                <LoadMore query={records} />
+                <LoadMore query={records} auto={autoPage} />
               </>
             )}
           </QueryView>
@@ -461,7 +502,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
   const paneOpen = url.record !== null || (url.creating && !readOnly);
   return (
     <SplitView
-      list={list}
+      list={listView}
       paneLabel={t("records.detail")}
       onClose={url.close}
       pane={paneOpen ? <RecordEditor key={url.record ?? "new"} collection={collection} recordId={url.record} onClose={url.close} onCreated={url.open} onCreate={url.create} /> : null}

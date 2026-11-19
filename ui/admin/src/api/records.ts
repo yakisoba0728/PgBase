@@ -50,6 +50,8 @@ export interface ListRecordsOptions {
   /** Adds a bounded count of all matching records (ask on the first page only). */
   total?: true;
   files?: true;
+  /** When requesting file metadata, restrict it to these comma-separated field names. */
+  fileFields?: string;
   signal?: AbortSignal;
 }
 

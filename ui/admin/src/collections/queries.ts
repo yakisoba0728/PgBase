@@ -3,7 +3,7 @@ import { infiniteQueryOptions, queryOptions, useQuery, type InfiniteData, type Q
 import { listCollections, type Collection } from "../api/collections";
 import { captureSessionScope } from "../api/http";
 import { fileURL, getRecord, listRecordFiles, listRecords, mintFileToken, publicFileURL, type RecordData, type RecordPage, type StoredFile } from "../api/records";
-import { freshFor } from "../app/queries";
+import { freshFor, pageWindow } from "../app/queries";
 import type { Translate } from "../i18n";
 import { storedVisibleColumns } from "./columns";
 import { expandFor } from "./relation";
@@ -42,35 +42,48 @@ export function useCollection(name: string) {
 // The server's page maximum: fewer round trips when scrolling through large collections.
 const pageSize = 200;
 
-/** `files`: the collection has a file field, so pages carry their file metadata (extra work on the server otherwise). */
-export const recordsQuery = (collection: string, filter: string, sort: string, expand: string, files = false) =>
+export const recordsQuery = (collection: string, filter: string, sort: string, expand: string, { fields = "", fileFields = "" } = {}) =>
   infiniteQueryOptions({
-    queryKey: ["records", collection, "list", { filter, sort, expand }],
+    queryKey: ["records", collection, "list", { filter, sort, expand, fields, fileFields }] as const,
     queryFn: async ({ pageParam, signal, client }) => {
-      const page = await listRecords(collection, { filter: filter || undefined, sort: sort || undefined, expand: expand || undefined, cursor: pageParam, limit: pageSize, total: pageParam ? undefined : true, files: files || undefined, signal });
+      const page = await listRecords(collection, {
+        filter: filter || undefined, sort: sort || undefined, expand: expand || undefined, fields: fields || undefined,
+        cursor: pageParam, limit: pageSize, total: pageParam ? undefined : true,
+        files: fileFields ? true : undefined, fileFields: fileFields || undefined, signal,
+      });
       for (const [id, fields] of Object.entries(page.fileMetadata ?? {})) {
         for (const [field, files] of Object.entries(fields)) client.setQueryData(recordFilesQuery(collection, id, field).queryKey, files);
       }
-      return page;
+      const { fileMetadata: _fileMetadata, ...rows } = page;
+      return rows;
     },
-    initialPageParam: undefined as string | undefined,
+    ...pageWindow,
     getNextPageParam: (page) => page.nextCursor,
     // Refetching an infinite list replays every loaded page; past a few pages that is left to Refresh.
     refetchOnMount: (query) => (query.state.data?.pages.length ?? 0) <= 3,
     refetchOnReconnect: (query) => (query.state.data?.pages.length ?? 0) <= 3,
   });
 
-/** The Records grid's list for the URL's filter and sort and this device's columns; the grid and its prefetch share it, so both use one key. */
-export const recordsListQuery = (collection: Collection, filter: string, sort: string, visible = storedVisibleColumns(collection)) =>
-  recordsQuery(collection.name, buildFilter(filter, collection.fields), sort, expandFor(collection, visible), collection.fields.some((field) => field.type === "file"));
+/** The grid and its prefetch share a query for the current filter, sort and visible fields. */
+export function recordsListQuery(collection: Collection, filter: string, sort: string, visible = storedVisibleColumns(collection)) {
+  const columns = new Set(visible);
+  const files = new Set(collection.fields.filter((field) => field.type === "file").map((field) => field.name));
+  const fileFields = [...files].filter((field) => columns.has(field)).sort().join(",");
+  const expand = expandFor(collection, visible);
+  const showsEveryValue = ["created_at", "updated_at", ...collection.fields.filter((field) => field.type !== "password" && field.type !== "file").map((field) => field.name)].every((field) => columns.has(field));
+  const projection = [...new Set(["id", ...visible.filter((name) => !files.has(name)), ...(expand ? ["expand"] : [])])].sort();
+  const fields = !showsEveryValue && projection.length <= 100 ? projection.join(",") : "";
+  // Very wide file layouts use the normal per-field fallback, keeping the request URL bounded.
+  return recordsQuery(collection.name, buildFilter(filter, collection.fields), sort, expand, { fields, fileFields: fileFields.length <= 2048 ? fileFields : "" });
+}
 
 /** "200 of 1,234 loaded" while pages remain (the first page carries the bounded total), else the loaded count. */
-export function countText(t: Translate, loaded: number, more: boolean, first?: RecordPage): string {
+export function countText(t: Translate, loaded: number, more: boolean, first?: Pick<RecordPage, "totalItems" | "totalCapped">): string {
   if (!more || first?.totalItems === undefined) return t("records.count", { count: loaded });
   return t(first.totalCapped ? "records.loadedOfAtLeast" : "records.loadedOf", { count: loaded, total: first.totalItems.toLocaleString() });
 }
 
-type ListKey = ["records", string, "list", { filter: string; sort: string; expand: string }];
+type ListKey = ["records", string, "list", { filter: string; sort: string; fields?: string }];
 
 /**
  * A saved record replaces its loaded row where neither membership nor place can have changed (no filter, the default
@@ -81,16 +94,18 @@ export function replaceInLists(queryClient: QueryClient, collection: string, rec
     const data = query.state.data as InfiniteData<RecordPage> | undefined;
     const row = data?.pages.flatMap((page) => page.items).find((item) => item.id === record.id);
     if (!data || !row) continue;
-    const { filter, sort } = (query.queryKey as ListKey)[3];
+    const { filter, sort, fields } = (query.queryKey as ListKey)[3];
     // A save does not return expand: a changed relation needs the server's labels.
     const relinked = Object.keys(row.expand ?? {}).some((name) => JSON.stringify(row[name]) !== JSON.stringify(record[name]));
     if (filter || sort || relinked) {
       void queryClient.resetQueries({ queryKey: query.queryKey, exact: true });
       continue;
     }
+    const selected = fields ? new Set(fields.split(",")) : undefined;
+    const values = selected ? Object.fromEntries(Object.entries(record).filter(([field]) => selected.has(field))) : record;
     queryClient.setQueryData<InfiniteData<RecordPage>>(query.queryKey, {
       ...data,
-      pages: data.pages.map((page) => ({ ...page, items: page.items.map((item) => (item.id === record.id ? { ...record, expand: item.expand } : item)) })),
+      pages: data.pages.map((page) => ({ ...page, items: page.items.map((item) => (item.id === record.id ? { ...values, id: record.id, expand: item.expand } : item)) })),
     });
   }
 }
