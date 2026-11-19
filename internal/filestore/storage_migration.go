@@ -69,7 +69,7 @@ func (s *ObjectMigrationService) Start(ctx context.Context, id uuid.UUID, destin
 	requestHash := sha256.Sum256(requestJSON)
 	var result StorageMigrationStatus
 	err = s.controller.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, storageTransitionLock); err != nil {
+		if err := lockStorageTransition(ctx, tx); err != nil {
 			return err
 		}
 		var existingHash []byte
@@ -582,7 +582,7 @@ func equalBytes(a, b []byte) bool {
 func (s *ObjectMigrationService) activate(ctx context.Context, id uuid.UUID) (bool, error) {
 	activated := false
 	err := s.controller.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, storageTransitionLock); err != nil {
+		if err := lockStorageTransition(ctx, tx); err != nil {
 			return err
 		}
 		// An uncertain remote Put may still finish in the source namespace.
@@ -656,10 +656,8 @@ func (s *ObjectMigrationService) fail(ctx context.Context, id uuid.UUID, cause e
 // CleanupOne removes one object from a retired source after the safety delay.
 // Failures remain durable and are retried by later maintenance runs.
 func (s *ObjectMigrationService) CleanupOne(ctx context.Context) (bool, error) {
-	// Avoid placing an exclusive transition request in PostgreSQL's advisory
-	// lock queue every maintenance tick when there is no cleanup work. A due
-	// row can appear after this hint; the next tick will claim it, while the
-	// locked query below remains authoritative for concurrent cleaners.
+	// Skip the fenced transaction on idle ticks. The row claim inside it is
+	// authoritative for concurrent cleaners.
 	var due bool
 	if err := s.controller.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.file_storage_source_cleanup where completed_at is null and not_before<=CURRENT_TIMESTAMP)`).Scan(&due); err != nil || !due {
 		return false, err
@@ -667,7 +665,13 @@ func (s *ObjectMigrationService) CleanupOne(ctx context.Context) (bool, error) {
 	worked := false
 	var deletionErr error
 	err := s.controller.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, storageTransitionLock); err != nil {
+		var locked bool
+		if err := tx.QueryRow(ctx, `select pg_try_advisory_xact_lock($1)`, storageCleanupLock).Scan(&locked); err != nil || !locked {
+			return err
+		}
+		// A shared lock permits active file operations and still excludes older
+		// transition workers that do not take the dedicated cleanup fence.
+		if err := tx.QueryRow(ctx, `select pg_try_advisory_xact_lock_shared($1)`, storageTransitionLock).Scan(&locked); err != nil || !locked {
 			return err
 		}
 		var migrationID uuid.UUID
@@ -689,7 +693,8 @@ func (s *ObjectMigrationService) CleanupOne(ctx context.Context) (bool, error) {
 			_, err = tx.Exec(ctx, `update pgbase_meta.file_storage_source_cleanup set not_before=CURRENT_TIMESTAMP+interval '1 hour',failure='source namespace may overlap active storage' where migration_id=$1 and object_key=$2`, migrationID, key)
 			return err
 		}
-		rows, err := tx.Query(ctx, `select source_config_ciphertext,destination_config_ciphertext from pgbase_meta.file_storage_migrations where status in ('copying','canceling','ready','activating')`)
+		// Failed migrations can resume using already verified objects.
+		rows, err := tx.Query(ctx, `select source_config_ciphertext,destination_config_ciphertext from pgbase_meta.file_storage_migrations where status in ('copying','canceling','ready','activating','failed')`)
 		if err != nil {
 			return err
 		}
@@ -717,17 +722,19 @@ func (s *ObjectMigrationService) CleanupOne(ctx context.Context) (bool, error) {
 			return err
 		}
 		if migrationUsesSource {
-			_, err = tx.Exec(ctx, `update pgbase_meta.file_storage_source_cleanup set not_before=CURRENT_TIMESTAMP+interval '1 hour',failure='source namespace may overlap an active migration' where migration_id=$1 and object_key=$2`, migrationID, key)
-			return err
-		}
-		source, err := s.buildStore(ctx, sourceSnapshot)
-		if err != nil {
+			_, err = tx.Exec(ctx, `update pgbase_meta.file_storage_source_cleanup set not_before=CURRENT_TIMESTAMP+interval '1 hour',failure='source namespace may overlap a pending or resumable migration' where migration_id=$1 and object_key=$2`, migrationID, key)
 			return err
 		}
 		deleteCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		err = source.Delete(deleteCtx, key)
-		if err != nil && !errors.Is(err, ErrNotFound) {
+		source, err := s.buildStore(deleteCtx, sourceSnapshot)
+		if err == nil {
+			err = source.Delete(deleteCtx, key)
+			if errors.Is(err, ErrNotFound) {
+				err = nil
+			}
+		}
+		if err != nil {
 			deletionErr = err
 			_, recordErr := tx.Exec(ctx, `update pgbase_meta.file_storage_source_cleanup set attempts=attempts+1,failure='source cleanup failed',not_before=CURRENT_TIMESTAMP+interval '15 minutes' where migration_id=$1 and object_key=$2`, migrationID, key)
 			return recordErr

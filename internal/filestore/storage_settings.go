@@ -25,7 +25,18 @@ import (
 var ErrStorageConflict = errors.New("storage settings conflict")
 
 const storageTransitionLock int64 = 0x7067626173650034
+const storageCleanupLock int64 = 0x706762617365003a
 const maximumStorageOperations = 64
+
+func lockStorageTransition(ctx context.Context, tx pgx.Tx) error {
+	// Wait behind retired-source cleanup before joining the exclusive transition
+	// queue, where PostgreSQL would also make new shared file leases wait.
+	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, storageCleanupLock); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, storageTransitionLock)
+	return err
+}
 
 type StorageConfig struct {
 	Driver, LocalDirectory, Bucket, Region, Endpoint, AccessKey, SecretKey string
@@ -321,7 +332,7 @@ func (c *StorageController) Update(ctx context.Context, in StorageUpdate) (Stora
 	}
 	var result StorageSettings
 	err := c.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, storageTransitionLock); err != nil {
+		if err := lockStorageTransition(ctx, tx); err != nil {
 			return err
 		}
 		var old StorageSettings
