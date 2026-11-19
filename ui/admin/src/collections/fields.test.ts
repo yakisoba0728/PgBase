@@ -20,6 +20,12 @@ const field = (name: string, type: FieldType, extra: Partial<CollectionField> = 
 });
 
 describe("cellView", () => {
+  it("only inspects the first few elements of a large JSON array", () => {
+    const data = Array.from({ length: 100_000 }, () => 1);
+    Object.defineProperty(data, "99", { get() { throw new Error("visited outside the preview"); } });
+    expect(cellView(field("large", "jsonb"), data)).toEqual({ kind: "json", text: "[1,1,1,1,…]" });
+  });
+
   it("shows numbers exactly as received", () => {
     const record = parseJson('{"big": 9007199254740993, "price": "1.50", "count": 42}') as Record<string, unknown>;
     expect(record.big).toBeInstanceOf(LosslessNumber);

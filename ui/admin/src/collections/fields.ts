@@ -84,16 +84,45 @@ export function cellView(field: CollectionField, value: unknown): CellView {
       const point = value as { lon?: unknown; lat?: unknown };
       return { kind: "number", text: `${String(point.lon)}, ${String(point.lat)}` };
     }
-    case "json": {
-      const text = stringify(value) ?? "";
-      return { kind: "json", text: text.length > 120 ? `${text.slice(0, 120)}…` : text };
-    }
+    case "json":
+      return { kind: "json", text: jsonPreview(value) };
     default: {
       // A cell shows one line; the full value is one click away (ValuePeek / the detail pane).
       const text = typeof value === "string" ? value : String(stringify(value));
       return { kind: "text", text: text.length > 300 ? `${text.slice(0, 300)}…` : text };
     }
   }
+}
+
+/** Inspects only a few shallow entries and a short prefix of each string. */
+function jsonPreview(value: unknown): string {
+  const limit = 120;
+  const entries = 4;
+  const quote = (text: string) => text.length > limit ? `${JSON.stringify(text.slice(0, limit)).slice(0, limit)}…` : JSON.stringify(text);
+  const visit = (item: unknown, depth: number): string => {
+    if (typeof item === "string") return quote(item);
+    if (Array.isArray(item)) {
+      if (!item.length) return "[]";
+      if (depth === 0) return "[…]";
+      return `[${item.slice(0, entries).map((child) => visit(child, depth - 1)).join(",")}${item.length > entries ? ",…" : ""}]`;
+    }
+    if (item && typeof item === "object" && !(item instanceof LosslessNumber)) {
+      if (depth === 0) return "{…}";
+      const values: string[] = [];
+      for (const key in item) {
+        if (!Object.hasOwn(item, key)) continue;
+        if (values.length === entries) {
+          values.push("…");
+          break;
+        }
+        values.push(`${quote(key)}:${visit((item as Record<string, unknown>)[key], depth - 1)}`);
+      }
+      return `{${values.join(",")}}`;
+    }
+    return stringify(item) ?? "";
+  };
+  const text = visit(value, 2);
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
 // ---------------------------------------------------------------------------

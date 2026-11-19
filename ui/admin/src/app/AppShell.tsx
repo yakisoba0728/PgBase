@@ -4,7 +4,6 @@ import { ScreenEntrance } from "../components/Page";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { useT } from "../i18n";
 import { AppNav } from "./AppNav";
-import { preloadScreensWhenIdle } from "./screens";
 import { drawerOpener, setDrawer, useDrawer, useHelp, usePalette, useRail, useSmallScreen } from "./shell";
 import { useShellShortcuts } from "./shortcuts";
 
@@ -28,7 +27,6 @@ export function AppShell() {
   const screenKey = `${match?.id}:${JSON.stringify(params)}`;
   // Whether a page of this screen (its loading skeleton included) has shown: a later one swaps in without the entrance.
   const entrance = useMemo(() => ({ current: false }), [screenKey]);
-  useEffect(preloadScreensWhenIdle, []);
   useEffect(() => {
     if (!drawer || !small) return;
     // The opener can be the loading skeleton's menu button, replaced once the screen mounts; then the live one gets focus back.
