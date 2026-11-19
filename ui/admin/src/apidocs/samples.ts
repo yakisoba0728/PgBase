@@ -1,7 +1,7 @@
 import { isLosslessNumber } from "lossless-json";
 import { stringifyJson } from "../api/http";
 import type { Collection } from "../api/collections";
-import { recordIdExample, requestBody, type Audience, type Endpoint } from "./endpoints";
+import { recordIdExample, requestBody, requiresBearer, type Audience, type Endpoint } from "./endpoints";
 
 // Code samples follow the real call shapes of sdk/typescript/src/index.ts and
 // sdk/dart/lib/src (records.dart, client.dart, auth_protocol.dart, files.dart).
@@ -19,7 +19,10 @@ function curl(endpoint: Endpoint, collection: Collection, origin: string, audien
   const path = endpoint.path.replace("{id}", recordIdExample(collection));
   const lines = [`curl${endpoint.id === "realtime" ? " -N" : ""}${endpoint.query ? " --get" : ""}${endpoint.method === "GET" || (endpoint.method === "POST" && endpoint.body) ? "" : ` -X ${endpoint.method}`} ${shellQuote(origin + path)}`];
   for (const [key, value] of Object.entries(endpoint.query ?? {})) lines.push(`--data-urlencode ${shellQuote(`${key}=${value}`)}`);
-  if (endpoint.userOnly || (audience === "user" && endpoint.rule)) lines.push(`-H "Authorization: Bearer $PGBASE_TOKEN"`);
+  if (requiresBearer(endpoint, audience)) {
+    const token = audience === "service" ? "$PGBASE_SERVICE_TOKEN" : "$PGBASE_TOKEN";
+    lines.push(`-H "Authorization: Bearer ${token}"`);
+  }
   for (const [key, value] of Object.entries(endpoint.headers ?? {})) lines.push(`-H ${shellQuote(`${key}: ${value}`)}`);
   if (endpoint.id.startsWith("files-")) lines.push(`-F 'file=@photo.jpg'`);
   if (endpoint.body) lines.push(`-H 'Content-Type: application/json'`, `--data ${shellQuote(stringifyJson(endpoint.body))}`);
@@ -107,6 +110,6 @@ function dart(endpoint: Endpoint, collection: Collection, origin: string): strin
 }
 
 export function codeSample(language: Language, endpoint: Endpoint, collection: Collection, origin: string, audience: Audience): string {
-  if (language === "curl") return curl(endpoint, collection, origin, audience);
+  if (language === "curl" || audience === "service") return curl(endpoint, collection, origin, audience);
   return language === "ts" ? typescript(endpoint, collection, origin) : dart(endpoint, collection, origin);
 }

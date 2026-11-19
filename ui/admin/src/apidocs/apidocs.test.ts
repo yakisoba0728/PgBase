@@ -47,6 +47,18 @@ describe("api reference", () => {
     );
   });
 
+  it("documents CRUD and batch for service tokens, and only reads for views", () => {
+    const endpoints = buildEndpoints({ ...notes, type: "auth" }, "service", true);
+    expect(endpoints.map((endpoint) => endpoint.id)).toEqual(["list", "view", "create", "update", "delete", "batch"]);
+    expect(buildEndpoints({ ...notes, type: "view" }, "service").map((endpoint) => endpoint.id)).toEqual(["list", "view"]);
+    for (const endpoint of endpoints) {
+      expect(endpoint.path).toMatch(/^\/api\/v1\/service\/collections\//);
+      expect(codeSample("curl", endpoint, notes, "https://example.test", "service")).toContain('Authorization: Bearer $PGBASE_SERVICE_TOKEN');
+    }
+    expect(codeSample("curl", endpoints[0], notes, "https://example.test", "service")).not.toContain("filter=");
+    expect(endpoints[5].path).toBe("/api/v1/service/collections/batch");
+  });
+
   it("quotes shell and Dart literals", () => {
     expect(shellQuote(`a'b "$x"`)).toBe(`"a'b \\"\\$x\\""`);
     expect(dartValue({ n: 1, s: "it's", l: [true] })).toBe(`JsonObject({'n': JsonNumber('1'), 's': const JsonString('it\\'s'), 'l': JsonArray([const JsonBool(true)])})`);
