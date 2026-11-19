@@ -3,6 +3,7 @@
 package pgbase
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,5 +101,55 @@ func TestExtensionAppRecordFindAllHonorsAggregateOutputBudget(t *testing.T) {
 	var page extensionRecordResult
 	if err := json.Unmarshal(result, &page); err != nil || len(page.Items) != 8 {
 		t.Fatalf("findAll items=%d err=%v", len(page.Items), err)
+	}
+}
+
+func TestExtensionAppBulkRecordReadsStopAtOutputBudget(t *testing.T) {
+	fixture := newPublicUsersApp(t, false)
+	adminCookie, csrf := setupPublicUsersAdministrator(t, fixture)
+	const collection = "bulk_read_budget"
+	createPublicUsersCollection(t, fixture, adminCookie, csrf, collection)
+	principal := identity.Subject{Kind: identity.Administrator, ID: uuid.New()}
+	var ids []string
+	for _, title := range []string{"first", "second"} {
+		result, err := fixture.app.extensions.records.Create(t.Context(), recordops.CreateRequest{
+			Principal: principal, RequestID: "bulk-read-" + title, Collection: collection,
+			Input: map[string]json.RawMessage{"title": json.RawMessage(fmt.Sprintf("%q", title))},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, fmt.Sprint(result.Record.Data["id"]))
+	}
+	host := &extensionHost{bridge: fixture.app.extensions, principal: principal, requestID: "bulk-read", valid: true}
+	oneRecord, err := host.callAppRecordQuery(t.Context(), "app.record.findByIds", extensionAppQueryRequest{Collection: collection, IDs: ids[:1]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooks := &HookRegistry{}
+	viewCalls := 0
+	if _, err := hooks.On(HookRecordViewRequest, Hook{Before: func(context.Context, *HookEvent) error {
+		viewCalls++
+		return nil
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	host.bridge.hooks = hooks
+	for _, method := range []string{"app.record.findByIds", "app.record.expandMany"} {
+		host.bridge.maximumOutputBytes = len(oneRecord)
+		viewCalls = 0
+		_, err := host.callAppRecordQuery(t.Context(), method, extensionAppQueryRequest{Collection: collection, IDs: ids})
+		var coded interface{ CodeValue() string }
+		if !errors.As(err, &coded) || coded.CodeValue() != "record_result_limit" || viewCalls != 1 {
+			t.Fatalf("%s budget error=%v, view calls=%d", method, err, viewCalls)
+		}
+
+		host.bridge.maximumOutputBytes = 1 << 20
+		raw, err := host.callAppRecordQuery(t.Context(), method, extensionAppQueryRequest{Collection: collection, IDs: []string{ids[1], ids[0], ids[1]}})
+		var page extensionRecordPage
+		if err != nil || json.Unmarshal(raw, &page) != nil || len(page.Items) != 3 ||
+			page.Items[0]["title"] != "second" || page.Items[1]["title"] != "first" || page.Items[2]["title"] != "second" {
+			t.Fatalf("%s changed record order or duplicates: %s, err=%v", method, raw, err)
+		}
 	}
 }
