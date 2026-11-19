@@ -205,6 +205,9 @@ var realtimePendingQueueSQL string
 //go:embed 000069_durable_variant_cleanup.sql
 var durableVariantCleanupSQL string
 
+//go:embed 000070_realtime_public_identity_lookup.sql
+var realtimePublicIdentityLookupSQL string
+
 //go:embed 000071_auth_cleanup_and_token_listing.sql
 var authCleanupAndTokenListingSQL string
 
@@ -318,6 +321,7 @@ var migrations = []Migration{
 	{Version: 67, Name: "file_field_name_length", SQL: fileFieldNameLengthSQL, SHA256: sha256.Sum256([]byte(fileFieldNameLengthSQL))},
 	{Version: 68, Name: "realtime_pending_queue", SQL: realtimePendingQueueSQL, SHA256: sha256.Sum256([]byte(realtimePendingQueueSQL))},
 	{Version: 69, Name: "durable_variant_cleanup", SQL: durableVariantCleanupSQL, SHA256: sha256.Sum256([]byte(durableVariantCleanupSQL))},
+	{Version: 70, Name: "realtime_public_identity_lookup", SQL: realtimePublicIdentityLookupSQL, SHA256: sha256.Sum256([]byte(realtimePublicIdentityLookupSQL))},
 	{Version: 71, Name: "auth_cleanup_and_token_listing", SQL: authCleanupAndTokenListingSQL, SHA256: sha256.Sum256([]byte(authCleanupAndTokenListingSQL))},
 }
 

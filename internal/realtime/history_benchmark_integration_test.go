@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,6 +110,36 @@ func seedDeliveredHistory(t testing.TB, s *Service, user, collection uuid.UUID, 
 		return err
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPublicIdentityLookupUsesReplayIndex(t *testing.T) {
+	service, _, collection := realtimeFixture(t)
+	ctx := t.Context()
+	if err := service.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		// Keep the assertion independent of how the planner prices tiny fixtures.
+		if _, err := tx.Exec(ctx, "SET LOCAL enable_seqscan=off"); err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, "EXPLAIN "+publicIdentityLookup, collection, "removed-record")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		var plan strings.Builder
+		for rows.Next() {
+			var line string
+			if err := rows.Scan(&line); err != nil {
+				return err
+			}
+			plan.WriteString(line + "\n")
+		}
+		if !strings.Contains(plan.String(), "record_outbox_public_identity_idx") {
+			t.Fatalf("lookup missed its expression index:\n%s", plan.String())
+		}
+		return rows.Err()
+	}); err != nil {
 		t.Fatal(err)
 	}
 }

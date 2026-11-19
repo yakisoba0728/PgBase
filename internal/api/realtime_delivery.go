@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"time"
 
@@ -148,16 +149,41 @@ func (h *realtimeHub) collectRealtimeMessages(r *http.Request, principal identit
 	if !ok {
 		return nil, 0, nil, errors.New("realtime reader unavailable")
 	}
+	if batch, ok := reader.(interface {
+		WithReplaySnapshot(context.Context, func(realtime.ReplayLookup) error) error
+	}); ok {
+		if !slices.ContainsFunc(subscriptions, func(sub realtimeSubscription) bool { return !sub.application }) {
+			return nil, 0, nil, nil
+		}
+		var messages []realtimePendingMessage
+		var checkpoint int64
+		var through *int64
+		err := batch.WithReplaySnapshot(r.Context(), func(read realtime.ReplayLookup) error {
+			var err error
+			messages, checkpoint, through, err = collectRealtimePages(r, principal, subscriptions, read)
+			return err
+		})
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		return messages, checkpoint, through, nil
+	}
+	return collectRealtimePages(r, principal, subscriptions, func(request realtime.ReadRequest) ([]realtime.Event, int64, error) {
+		return reader.ReadFor(r.Context(), request)
+	})
+}
+
+func collectRealtimePages(r *http.Request, principal identity.Subject, subscriptions []realtimeSubscription, read realtime.ReplayLookup) ([]realtimePendingMessage, int64, *int64, error) {
 	var messages []realtimePendingMessage
 	var through, checkpoint *int64
 	for _, sub := range subscriptions {
 		if sub.application {
 			continue
 		}
-		events, next, err := reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, PublicID: sub.recordID, Filter: sub.filter, Fields: sub.fields, After: sub.cursor, RuleContext: ruleRequestContext(r)})
+		events, next, err := read(realtime.ReadRequest{Principal: principal, Collection: sub.collection, PublicID: sub.recordID, Filter: sub.filter, Fields: sub.fields, After: sub.cursor, RuleContext: ruleRequestContext(r)})
 		relationFilter := errors.Is(err, realtime.ErrRelationFilterRequiresCurrentRecord)
 		if relationFilter {
-			events, next, err = reader.ReadFor(r.Context(), realtime.ReadRequest{Principal: principal, Collection: sub.collection, PublicID: sub.recordID, After: sub.cursor, RuleContext: ruleRequestContext(r)})
+			events, next, err = read(realtime.ReadRequest{Principal: principal, Collection: sub.collection, PublicID: sub.recordID, After: sub.cursor, RuleContext: ruleRequestContext(r)})
 		}
 		if err != nil {
 			return nil, 0, nil, err

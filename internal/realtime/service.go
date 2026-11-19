@@ -28,6 +28,8 @@ var ErrRelationFilterRequiresCurrentRecord = errors.New("realtime relation filte
 
 const batchSize = 100
 
+const publicIdentityLookup = `SELECT record_id FROM pgbase_meta.record_outbox WHERE collection_id=$1 AND envelope->'publicRecord'->>'id'=$2 ORDER BY created_at DESC LIMIT 1`
+
 type Service struct {
 	pool    *database.Pool
 	logger  *slog.Logger
@@ -82,101 +84,132 @@ func (s *Service) Read(ctx context.Context, userID uuid.UUID, collection string,
 }
 
 func (s *Service) ReadFor(ctx context.Context, request ReadRequest) ([]Event, int64, error) {
-	if s == nil || s.schemas == nil || !request.Principal.Valid() {
+	if !request.Principal.Valid() {
 		return nil, 0, recordaccess.ErrDenied
 	}
-	events := make([]Event, 0, batchSize)
+	var events []Event
 	var cursor int64
-	err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+	err := s.WithReplaySnapshot(ctx, func(read ReplayLookup) error {
+		var err error
+		events, cursor, err = read(request)
+		return err
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return events, cursor, nil
+}
+
+type ReplayLookup func(ReadRequest) ([]Event, int64, error)
+
+// WithReplaySnapshot shares catalog and cursor bounds for one delivery pass.
+// The lookup must only be used synchronously during the callback.
+func (s *Service) WithReplaySnapshot(ctx context.Context, visit func(ReplayLookup) error) error {
+	if s == nil || s.schemas == nil {
+		return recordaccess.ErrDenied
+	}
+	// Schema and policy row locks write lock WAL. This transaction changes no
+	// data, so releasing it does not need to wait for the WAL flush.
+	options := pgx.TxOptions{BeginQuery: "begin isolation level repeatable read; set local synchronous_commit = off"}
+	return s.pool.InTx(ctx, options, func(tx pgx.Tx) error {
 		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
 		if err != nil {
-			return err
-		}
-		collection, ok := catalog.Collections[request.Collection]
-		if !ok {
-			return recordaccess.ErrDenied
-		}
-		if err := recordaccess.AuthorizeSubject(ctx, tx, collection.ID, request.Principal, "list"); err != nil {
 			return err
 		}
 		var floor, head int64
 		if err := tx.QueryRow(ctx, `SELECT floor_sequence,GREATEST(floor_sequence,COALESCE((SELECT max(sequence) FROM pgbase_meta.realtime_events),0)) FROM pgbase_meta.realtime_retention WHERE singleton`).Scan(&floor, &head); err != nil {
 			return err
 		}
-		cursor = head
-		if request.After != nil {
-			cursor = *request.After
-		}
-		statement, args, err := s.eventQuery(ctx, tx, request, catalog, collection, cursor)
-		if err != nil {
-			return err
-		}
-		if request.After == nil {
-			return nil
-		}
-		if cursor < floor {
-			return ErrCursorExpired
-		}
-		if cursor > head || cursor < 0 {
-			return ErrCursorInvalid
-		}
-		rows, err := tx.Query(ctx, statement, args...)
-		if err != nil {
-			return err
-		}
-		type pendingEvent struct {
-			event        Event
-			snapshot     []byte
-			publicRecord []byte
-		}
-		pending := make([]pendingEvent, 0, batchSize)
-		for rows.Next() {
-			var event Event
-			var snapshot, publicRecord []byte
-			if err := rows.Scan(&event.Sequence, &event.EventID, &event.Collection, &event.RecordID, &event.Operation, &event.Version, &snapshot, &publicRecord); err != nil {
-				rows.Close()
-				return err
-			}
-			pending = append(pending, pendingEvent{event: event, snapshot: snapshot, publicRecord: publicRecord})
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return err
-		}
-		rows.Close()
-		for _, item := range pending {
-			event, snapshot := item.event, item.snapshot
-			event.Action = event.Operation
-			if len(item.publicRecord) > 0 && string(item.publicRecord) != "null" {
-				event.Record, err = publicSnapshot(collection, item.publicRecord)
-				if err == nil {
-					event.PublicID, _ = event.Record["id"].(string)
-				}
-				if err == nil && event.PublicID == "" {
-					err = errors.New("realtime public record identity missing")
-				}
-			} else {
-				event.Record, err = publicSnapshot(collection, snapshot)
-				if err == nil {
-					err = s.ids.Project(ctx, tx, catalog, collection, event.Record)
-				}
-				if err == nil {
-					event.PublicID, err = s.ids.Public(ctx, tx, collection, event.RecordID)
-				}
-			}
-			if err != nil {
-				return err
-			}
-			events = append(events, event)
-			cursor = event.Sequence
-		}
-		if len(events) < batchSize {
-			cursor = head
-		}
-		return nil
+		return visit(func(request ReadRequest) ([]Event, int64, error) {
+			return s.readWithSnapshot(ctx, tx, catalog, floor, head, request)
+		})
 	})
+}
+
+func (s *Service) readWithSnapshot(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, floor, head int64, request ReadRequest) ([]Event, int64, error) {
+	if !request.Principal.Valid() {
+		return nil, 0, recordaccess.ErrDenied
+	}
+	events := make([]Event, 0, batchSize)
+	collection, ok := catalog.Collections[request.Collection]
+	if !ok {
+		return nil, 0, recordaccess.ErrDenied
+	}
+	if err := recordaccess.AuthorizeSubject(ctx, tx, collection.ID, request.Principal, "list"); err != nil {
+		return nil, 0, err
+	}
+	cursor := head
+	if request.After != nil {
+		cursor = *request.After
+	}
+	statement, args, err := s.eventQuery(ctx, tx, request, catalog, collection, cursor)
 	if err != nil {
 		return nil, 0, err
+	}
+	if request.After == nil {
+		return events, cursor, nil
+	}
+	if cursor < floor {
+		return nil, 0, ErrCursorExpired
+	}
+	if cursor > head || cursor < 0 {
+		return nil, 0, ErrCursorInvalid
+	}
+	if cursor == head {
+		return events, cursor, nil
+	}
+	rows, err := tx.Query(ctx, statement, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	type pendingEvent struct {
+		event        Event
+		snapshot     []byte
+		publicRecord []byte
+	}
+	pending := make([]pendingEvent, 0, batchSize)
+	for rows.Next() {
+		var event Event
+		var snapshot, publicRecord []byte
+		if err := rows.Scan(&event.Sequence, &event.EventID, &event.Collection, &event.RecordID, &event.Operation, &event.Version, &snapshot, &publicRecord); err != nil {
+			rows.Close()
+			return nil, 0, err
+		}
+		pending = append(pending, pendingEvent{event: event, snapshot: snapshot, publicRecord: publicRecord})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, 0, err
+	}
+	rows.Close()
+	for _, item := range pending {
+		event, snapshot := item.event, item.snapshot
+		event.Action = event.Operation
+		if len(item.publicRecord) > 0 && string(item.publicRecord) != "null" {
+			event.Record, err = publicSnapshot(collection, item.publicRecord)
+			if err == nil {
+				event.PublicID, _ = event.Record["id"].(string)
+			}
+			if err == nil && event.PublicID == "" {
+				err = errors.New("realtime public record identity missing")
+			}
+		} else {
+			event.Record, err = publicSnapshot(collection, snapshot)
+			if err == nil {
+				err = s.ids.Project(ctx, tx, catalog, collection, event.Record)
+			}
+			if err == nil {
+				event.PublicID, err = s.ids.Public(ctx, tx, collection, event.RecordID)
+			}
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+		events = append(events, event)
+		cursor = event.Sequence
+	}
+	if len(events) < batchSize {
+		cursor = head
 	}
 	return events, cursor, nil
 }
@@ -222,7 +255,7 @@ func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest
 	if request.PublicID != "" {
 		request.RecordID, err = s.ids.Resolve(ctx, tx, collection, request.PublicID)
 		if errors.Is(err, recordidentity.ErrNotFound) {
-			err = tx.QueryRow(ctx, `SELECT record_id FROM pgbase_meta.record_outbox WHERE collection_id=$1 AND envelope->'publicRecord'->>'id'=$2 ORDER BY created_at DESC LIMIT 1`, collection.ID, request.PublicID).Scan(&request.RecordID)
+			err = tx.QueryRow(ctx, publicIdentityLookup, collection.ID, request.PublicID).Scan(&request.RecordID)
 			if errors.Is(err, pgx.ErrNoRows) {
 				err = recordidentity.ErrNotFound
 			}
