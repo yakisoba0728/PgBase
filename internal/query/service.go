@@ -61,7 +61,13 @@ func NewService(pool *database.Pool, schemas *schema.Service, cursorSecret []byt
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (RecordPage, error) {
-	result, err := s.readList(ctx, request)
+	result, err := s.readList(ctx, request, s.inTxCatalog)
+	return result.page, err
+}
+
+// ListPinned uses a catalog which the caller already pinned on this transaction.
+func (s *Service) ListPinned(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, request ListRequest) (RecordPage, error) {
+	result, err := s.readList(ctx, request, pinnedCatalogReader(tx, catalog))
 	return result.page, err
 }
 
@@ -97,6 +103,21 @@ func (s *Service) Count(ctx context.Context, request ListRequest) (total int64, 
 	return total, err
 }
 
+type catalogReader func(context.Context, func(pgx.Tx, schema.Catalog, schema.Collection) error, string) error
+
+func pinnedCatalogReader(tx pgx.Tx, catalog schema.Catalog) catalogReader {
+	return func(ctx context.Context, operation func(pgx.Tx, schema.Catalog, schema.Collection) error, collectionName string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		collection, ok := catalog.Collections[collectionName]
+		if !ok {
+			return ErrCollectionNotFound
+		}
+		return operation(tx, catalog, collection)
+	}
+}
+
 func (s *Service) inTxCatalog(ctx context.Context, operation func(pgx.Tx, schema.Catalog, schema.Collection) error, collectionName string) error {
 	if err := s.ready(); err != nil {
 		return err
@@ -115,7 +136,7 @@ func (s *Service) inTxCatalog(ctx context.Context, operation func(pgx.Tx, schema
 		return operation(tx, catalog, collection)
 	}
 	return database.Retry(ctx, func() error {
-		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+		return s.pool.InTx(ctx, database.ReadSnapshotOptions(), func(tx pgx.Tx) error {
 			catalog, err := s.schemas.EnsureCurrent(ctx, tx)
 			if err != nil {
 				return err

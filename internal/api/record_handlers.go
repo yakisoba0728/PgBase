@@ -152,7 +152,7 @@ func (e recordEndpoints) list(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		writeJSON(w, http.StatusOK, page)
+		writeRecordReadJSON(w, r, page, "")
 		return
 	}
 	page, err := e.service.List(r.Context(), request)
@@ -257,8 +257,27 @@ func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, r, err)
 		return
 	}
-	w.Header().Set("ETag", record.ETag)
-	writeJSON(w, http.StatusOK, record.Data)
+	writeRecordReadJSON(w, r, record.Data, record.ETag)
+}
+
+// Check the final public form after identity projection, compatibility aliases,
+// and enrichment, with the same framing as the router's atomic buffer.
+func writeRecordReadJSON(w http.ResponseWriter, r *http.Request, record any, etag string) {
+	body, err := json.Marshal(record)
+	if err != nil {
+		writeRecordError(w, r, err)
+		return
+	}
+	if len(body)+1 > maximumRecordPageResponseBytes {
+		writeRecordError(w, r, &query.ValidationError{Details: []query.ValidationDetail{{Field: "response", Code: "response_too_large"}}})
+		return
+	}
+	if etag != "" {
+		w.Header().Set("ETag", etag)
+	}
+	writeJSONHeader(w, http.StatusOK)
+	_, _ = w.Write(body)
+	_, _ = w.Write([]byte{'\n'})
 }
 
 func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {

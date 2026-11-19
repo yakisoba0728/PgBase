@@ -26,6 +26,7 @@ type rootHydrator struct {
 	catalog     schema.Catalog
 	principal   Principal
 	ruleContext *accessrule.RequestContext
+	project     func(map[string]any) map[string]any
 }
 
 func newRootHydrator(querier relation.RowsQuerier, catalog schema.Catalog, collection schema.Collection, principals ...Principal) *rootHydrator {
@@ -76,6 +77,9 @@ func (h *rootHydrator) replaySequential(ctx context.Context, stubs []rootStub, v
 				return id, record, decodeErr
 			},
 			func(id uuid.UUID, record map[string]any) bool {
+				if h.project != nil {
+					record = h.project(record)
+				}
 				candidate := pageCandidate{id: id, root: record, wire: record, cursorValues: cloneCursorValues(stubs[index].cursorValues), hydrated: true}
 				index++
 				keep, visitErr := visit(candidate)
@@ -118,6 +122,10 @@ func (h *rootHydrator) replaySequential(ctx context.Context, stubs []rootStub, v
 		return 0, err
 	}
 	for i := range collected {
+		if h.project != nil {
+			collected[i].root = h.project(collected[i].root)
+			collected[i].wire = collected[i].root
+		}
 		keep, err := visit(collected[i])
 		if err != nil {
 			return i, err

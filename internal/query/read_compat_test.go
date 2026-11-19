@@ -88,7 +88,7 @@ func (s *Service) ListRelationAware(ctx context.Context, request RelationListReq
 }
 
 func (s *Service) ListExpanded(ctx context.Context, request ListRequest) (ExpandedRecordPage, error) {
-	result, err := s.readList(ctx, request)
+	result, err := s.readList(ctx, request, s.inTxCatalog)
 	if err != nil {
 		return ExpandedRecordPage{}, err
 	}
@@ -98,6 +98,6 @@ func (s *Service) ListExpanded(ctx context.Context, request ListRequest) (Expand
 }
 
 func (s *Service) GetExpanded(ctx context.Context, request GetRequest) (ExpandedRecord, error) {
-	result, err := s.readGet(ctx, request)
+	result, err := s.readGet(ctx, request, s.inTxCatalog)
 	return result.expanded, err
 }

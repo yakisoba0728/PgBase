@@ -201,7 +201,15 @@ func (w Writer) scanCurrentWriterFence(
 	return WriteFence{state: status.State, generation: status.Generation}, nil
 }
 
+var writerMigrationVersions, writerMigrationChecksums, writerMigrationHistoryError = compileWriterMigrationHistory()
+
+// The embedded migration manifest is immutable for this process. Reuse the
+// same bind arguments while checking the live database history on every fence.
 func currentWriterMigrationHistory() ([]int64, []string, error) {
+	return writerMigrationVersions, writerMigrationChecksums, writerMigrationHistoryError
+}
+
+func compileWriterMigrationHistory() ([]int64, []string, error) {
 	migrations := system.Migrations()
 	if len(migrations) < 7 || migrations[5].Version != 6 || migrations[6].Version != 7 {
 		return nil, nil, ErrInvalidState

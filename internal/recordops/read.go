@@ -25,7 +25,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPag
 	}
 	err = s.readTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		var err error
-		page, err = s.reader.List(WithTransaction(ctx, tx), query.ListRequest{
+		page, err = s.reader.ListPinned(WithTransaction(ctx, tx), tx, catalog, query.ListRequest{
 			Principal: request.Principal, Collection: request.Collection, Cursor: request.Cursor,
 			Limit: request.Limit, Filter: request.Filter, Sort: request.Sort, Expand: request.Expand, Fields: request.Fields,
 			PocketBaseCompatibility: request.PocketBaseCompatibility,
@@ -51,7 +51,7 @@ func (s *Service) ListPocketBase(ctx context.Context, request PocketBaseListRequ
 	}
 	err = s.readTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		var err error
-		page, err = query.ListPocketBase(WithTransaction(ctx, tx), s.reader, query.PocketBaseListRequest{ListRequest: query.ListRequest{
+		page, err = s.reader.ListPocketBasePinned(WithTransaction(ctx, tx), tx, catalog, query.PocketBaseListRequest{ListRequest: query.ListRequest{
 			Principal: request.Principal, Collection: request.Collection, Cursor: request.Cursor,
 			Limit: request.Limit, Filter: request.Filter, Sort: request.Sort, Expand: request.Expand, Fields: request.Fields,
 			PocketBaseCompatibility: true, RuleContext: request.RuleContext,
@@ -106,7 +106,7 @@ func (s *Service) Get(ctx context.Context, request GetRequest) (record Record, e
 		if id == uuid.Nil {
 			return &Error{Code: CodeInvalidRequest}
 		}
-		record, err = s.reader.Get(WithTransaction(ctx, tx), query.GetRequest{Principal: request.Principal,
+		record, err = s.reader.GetPinned(WithTransaction(ctx, tx), tx, catalog, query.GetRequest{Principal: request.Principal,
 			Collection: request.Collection, ID: id, Expand: request.Expand, Fields: request.Fields,
 			PocketBaseCompatibility: request.PocketBaseCompatibility, RuleContext: request.RuleContext})
 		if err != nil {

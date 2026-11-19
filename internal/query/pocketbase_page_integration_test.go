@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -90,5 +91,45 @@ func TestPocketBaseListSkipTotalAvoidsCountAndRandomSortRuns(t *testing.T) {
 		if _, err := uuid.Parse(item["id"].(string)); err != nil {
 			t.Fatalf("random result id=%#v", item["id"])
 		}
+	}
+}
+
+func TestPocketBaseOffsetPageDoesNotSkipByteLimitedRows(t *testing.T) {
+	_, schemas, records := newRecordServiceTest(t)
+	const collection = "pb_page_budget"
+	applyRecordCollection(t, schemas, schema.CreateCollectionInput{Name: collection, Fields: []schema.FieldInput{
+		{Name: "title", Type: schema.TypeText, Indexed: true},
+		{Name: "body", Type: schema.TypeJSONB},
+	}})
+	ctx := t.Context()
+	for index := range 4 {
+		// Individually valid rows that together cross the escaped JSON budget.
+		if _, err := records.Create(ctx, collection, map[string]json.RawMessage{
+			"title": json.RawMessage(fmt.Sprintf(`"item-%d"`, index)),
+			"body":  json.RawMessage(`"` + strings.Repeat("<", 3<<20) + `"`),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	request := PocketBaseListRequest{
+		ListRequest: ListRequest{Principal: testReadPrincipal, Collection: collection, Sort: "title"},
+		Page:        1, PerPage: 3, SkipTotal: true,
+	}
+	_, err := ListPocketBase(ctx, records, request)
+	assertValidationDetail(t, err, "response", "response_too_large")
+
+	request.Sort = "@random"
+	_, err = ListPocketBase(ctx, records, request)
+	assertValidationDetail(t, err, "response", "response_too_large")
+
+	request.Sort, request.Fields, request.SkipTotal = "title", "title", false
+	first, err := ListPocketBase(ctx, records, request)
+	if err != nil || first.TotalItems != 4 || len(first.Items) != 3 || first.Items[2]["title"] != "item-2" {
+		t.Fatalf("projected first page: items=%v total=%d err=%v", first.Items, first.TotalItems, err)
+	}
+	request.Page = 2
+	next, err := ListPocketBase(ctx, records, request)
+	if err != nil || len(next.Items) != 1 || next.Items[0]["title"] != "item-3" {
+		t.Fatalf("projected next page: items=%v err=%v", next.Items, err)
 	}
 }

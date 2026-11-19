@@ -29,7 +29,16 @@ type PocketBaseListRequest struct {
 // ListPocketBase reads one offset page and its optional total in a single
 // repeatable-read snapshot. It is deliberately separate from List so native
 // callers keep the cursor wire contract.
-func ListPocketBase(ctx context.Context, s *Service, request PocketBaseListRequest) (page PocketBasePage, err error) {
+func ListPocketBase(ctx context.Context, s *Service, request PocketBaseListRequest) (PocketBasePage, error) {
+	return s.listPocketBase(ctx, request, s.inTxCatalog)
+}
+
+// ListPocketBasePinned uses a catalog already pinned on the caller's transaction.
+func (s *Service) ListPocketBasePinned(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, request PocketBaseListRequest) (PocketBasePage, error) {
+	return s.listPocketBase(ctx, request, pinnedCatalogReader(tx, catalog))
+}
+
+func (s *Service) listPocketBase(ctx context.Context, request PocketBaseListRequest, readCatalog catalogReader) (page PocketBasePage, err error) {
 	if err := s.ready(); err != nil {
 		return page, err
 	}
@@ -51,15 +60,21 @@ func ListPocketBase(ctx context.Context, s *Service, request PocketBaseListReque
 	}
 	request.ListRequest.Limit = request.PerPage
 	request.ListRequest.Offset = (request.Page - 1) * request.PerPage
+	request.ListRequest.offsetPage = true
 	request.ListRequest.Cursor = ""
 	request.ListRequest.PocketBaseCompatibility = true
 	page = PocketBasePage{Page: request.Page, PerPage: request.PerPage, TotalItems: -1, TotalPages: -1, Items: []map[string]any{}}
-	err = s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+	err = readCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		// Read first so a page that proves its own total skips the count; both
 		// statements share the repeatable-read snapshot either way.
 		result, _, readErr := s.readListInTx(ctx, tx, catalog, collection, request.ListRequest, filterNode, sortKeys)
 		if readErr != nil {
 			return readErr
+		}
+		if result.byteLimited {
+			// The next offset is based on PerPage. A byte-shortened
+			// successful page would skip its omitted rows.
+			return validation("response", "response_too_large")
 		}
 		page.Items = result.page.Items
 		if request.SkipTotal {
@@ -147,14 +162,23 @@ func (s *Service) readListInTx(ctx context.Context, tx pgx.Tx, catalog schema.Ca
 	if !request.PocketBaseCompatibility {
 		return s.readNativeListInTx(ctx, tx, catalog, collection, request, filter, sort)
 	}
-	fields := request.Fields
+	projection, err := compileRecordProjection(collection, request.Principal, request.Fields)
+	if err != nil {
+		return listResult{}, false, err
+	}
 	expanded := request.Expand != ""
-	var err error
 	request.Expand, err = normalizePocketBaseExpand(catalog, collection, request.Expand, s.expandLimits)
 	if err != nil {
 		return listResult{}, false, err
 	}
 	request.Fields, request.PocketBaseCompatibility = "", false
+	if request.offsetPage && !expanded && !projection.Empty() {
+		request.projectRoot = func(item map[string]any) map[string]any {
+			record := responseprojection.PocketBaseRecord(item, collection.ID.String(), collection.Name)
+			hideRecordFields(collection, request.Principal, record)
+			return projection.apply(record)
+		}
+	}
 	result, relation, err := s.readNativeListInTx(ctx, tx, catalog, collection, request, filter, pocketBaseSortKeys(collection, sort))
 	if err != nil {
 		return listResult{}, relation, err
@@ -165,9 +189,8 @@ func (s *Service) readListInTx(ctx context.Context, tx pgx.Tx, catalog schema.Ca
 			result.expanded[i] = ExpandedRecord{Root: cloneRecord(item)}
 		}
 	}
-	projection, err := compileRecordProjection(collection, request.Principal, fields)
-	if err != nil {
-		return listResult{}, relation, err
+	if request.projectRoot != nil {
+		return result, relation, nil
 	}
 	for i, item := range result.page.Items {
 		result.page.Items[i] = responseprojection.PocketBaseRecord(item, collection.ID.String(), collection.Name)

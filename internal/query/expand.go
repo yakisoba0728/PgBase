@@ -60,11 +60,17 @@ type getResult struct {
 }
 
 func (s *Service) Get(ctx context.Context, request GetRequest) (Record, error) {
-	result, err := s.readGet(ctx, request)
+	result, err := s.readGet(ctx, request, s.inTxCatalog)
 	return result.record, err
 }
 
-func (s *Service) readGet(ctx context.Context, request GetRequest) (getResult, error) {
+// GetPinned uses a catalog which the caller already pinned on this transaction.
+func (s *Service) GetPinned(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, request GetRequest) (Record, error) {
+	result, err := s.readGet(ctx, request, pinnedCatalogReader(tx, catalog))
+	return result.record, err
+}
+
+func (s *Service) readGet(ctx context.Context, request GetRequest, readCatalog catalogReader) (getResult, error) {
 	if err := s.ready(); err != nil {
 		return getResult{}, err
 	}
@@ -75,7 +81,7 @@ func (s *Service) readGet(ctx context.Context, request GetRequest) (getResult, e
 		return getResult{}, validation("id", "invalid")
 	}
 	var result getResult
-	err := s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+	err := readCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		return s.readGetInTx(ctx, tx, catalog, collection, request, &result)
 	}, request.Collection)
 	if err != nil {
@@ -188,9 +194,10 @@ func (s *Service) readNativeGetInTx(
 }
 
 type listResult struct {
-	page       RecordPage
-	expanded   []ExpandedRecord
-	querySteps int
+	page        RecordPage
+	expanded    []ExpandedRecord
+	querySteps  int
+	byteLimited bool
 	// ordered is false for a random sort, whose page never carries a cursor.
 	ordered bool
 }
@@ -205,7 +212,7 @@ func (r listResult) exactTotal(request ListRequest) (int64, bool) {
 	return int64(request.Offset + len(r.page.Items)), true
 }
 
-func (s *Service) readList(ctx context.Context, request ListRequest) (result listResult, err error) {
+func (s *Service) readList(ctx context.Context, request ListRequest, readCatalog catalogReader) (result listResult, err error) {
 	started := time.Now()
 	relationOperation := requestTextAddressesRelation(request.Expand, request.Filter, request.Sort)
 	defer s.finishReadOperation(
@@ -225,7 +232,7 @@ func (s *Service) readList(ctx context.Context, request ListRequest) (result lis
 	if err != nil {
 		return listResult{}, err
 	}
-	err = s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+	err = readCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
 		var operation bool
 		var readErr error
 		result, operation, readErr = s.readListInTx(ctx, tx, catalog, collection, request, filterNode, requestedSort)
@@ -289,11 +296,13 @@ func (s *Service) readNativeListInTx(
 	rootRequest := rootPageReadRequest{
 		plan: rootPlan, cursorToken: request.Cursor, limit: request.Limit,
 		operationTime: traversal.TransactionTime, traversal: traversal, offset: request.Offset,
+		project: request.projectRoot,
 	}
 	if usage == nil {
-		if multipleRelationFieldCount(collection) != 0 {
+		if multipleRelationFieldCount(collection) != 0 || request.projectRoot != nil && collectionHasRelation(collection) {
 			rootRequest.hydrator = newRootHydrator(tx, catalog, collection, request.Principal)
 			rootRequest.hydrator.ruleContext = request.RuleContext
+			rootRequest.hydrator.project = request.projectRoot
 		} else if collectionHasRelation(collection) {
 			rootRequest.hydrate = func(items []map[string]any) error {
 				return filterRelationValues(ctx, tx, catalog, collection, items, request.Principal, request.RuleContext)
@@ -319,7 +328,7 @@ func (s *Service) readNativeListInTx(
 		for _, item := range root.page.Items {
 			hideRecordFields(collection, request.Principal, item)
 		}
-		return listResult{page: projection.applyPage(root.page), ordered: !rootPlan.order().random()}, relationOperation, nil
+		return listResult{page: projection.applyPage(root.page), byteLimited: root.byteLimited, ordered: !rootPlan.order().random()}, relationOperation, nil
 	}
 
 	expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, collection, root.page.Items, expansion, request.Principal, request.RuleContext, usage)
@@ -350,7 +359,8 @@ func (s *Service) readNativeListInTx(
 	}
 	return listResult{
 		page:     projection.applyPage(RecordPage{Items: items, NextCursor: cursor}),
-		expanded: expanded[:keep], querySteps: usage.querySteps, ordered: !rootPlan.order().random(),
+		expanded: expanded[:keep], querySteps: usage.querySteps, byteLimited: root.byteLimited || keep < len(expanded),
+		ordered: !rootPlan.order().random(),
 	}, relationOperation, nil
 }
 

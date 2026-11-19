@@ -66,7 +66,7 @@ func (s *Service) Batch(ctx context.Context, request BatchRequest) (results []Mu
 			if operation.Upsert != nil {
 				members++
 			}
-			if operation.kind() == "" || members != 1 {
+			if members != 1 {
 				return &Error{Code: CodeInvalidRequest}
 			}
 			result, err := s.batchOperation(ctx, request, operation)
