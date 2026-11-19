@@ -388,8 +388,18 @@ button.link {
 }
 
 .wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-8);
   font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
+}
+
+/* Slightly taller than the text so the icon and the name read as one mark. */
+.brand-mark {
+  flex: none;
+  width: auto;
+  height: 1.1em;
 }
 
 .wordmark b {

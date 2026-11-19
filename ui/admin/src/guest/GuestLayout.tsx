@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ApiError } from "../api/http";
 import { LanguageMenu, ThemeMenu } from "../app/menus";
 import { errorText } from "../app/queries";
+import { BrandMark } from "../components/BrandMark";
 import { Notice } from "../components/Feedback";
 import { useT } from "../i18n";
 
@@ -15,7 +16,8 @@ export function GuestLayout({ title, lead, children }: { title: string; lead?: s
       <main className="guest-column">
         <header className="guest-head">
           <div className="guest-brand wordmark">
-            <b>Pg</b>Base
+            <BrandMark />
+            <span><b>Pg</b>Base</span>
           </div>
           <LanguageMenu />
           <ThemeMenu />

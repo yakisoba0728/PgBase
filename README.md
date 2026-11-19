@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/pgbase-logo-dark.svg">
+    <img src="docs/assets/pgbase-logo.svg" alt="PgBase" width="320">
+  </picture>
+</p>
+
 # PgBase
 
 PgBase is an independent PostgreSQL application backend with an embedded administrator UI. Build applications with typed collections and relations, authentication and action-level authorization, file storage, realtime events, background jobs and programmable extensions—without assembling a separate service for every feature.

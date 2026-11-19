@@ -3,6 +3,7 @@ import { Link, useHref } from "react-router";
 import { RiPuzzle2Line, RiSearchLine, RiSidebarFoldLine, RiSidebarUnfoldLine } from "@remixicon/react";
 import { keyLabel } from "./keys";
 import { CollectionNav } from "../collections/CollectionNav";
+import { BrandMark } from "../components/BrandMark";
 import { IconButton } from "../components/Button";
 import { NavGroup, NavItem } from "../components/Nav";
 import { useTabIndicator } from "../components/Tabs";
@@ -39,7 +40,8 @@ export function AppNav() {
     <aside className="nav" aria-label={t("nav.main")} onClick={onClick} onKeyDown={onKeyDown} onPointerOver={warm} onFocus={warm}>
       <div className="nav-top">
         <Link to="/" className="wordmark">
-          <b>Pg</b>Base
+          <BrandMark />
+          <span><b>Pg</b>Base</span>
         </Link>
         <IconButton className="nav-search" label={`${t("palette.open")} (${keyLabel("mod+k").join("")})`} icon={RiSearchLine} onClick={() => setPalette(true)} />
         <IconButton className="nav-collapse" label={rail ? t("nav.expand") : t("nav.collapse")} icon={rail ? RiSidebarUnfoldLine : RiSidebarFoldLine} onClick={toggleRail} />
