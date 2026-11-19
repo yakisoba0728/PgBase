@@ -70,6 +70,10 @@ func cleanupExecutions(ctx context.Context, transaction pgx.Tx) error {
 	)
 	delete from pgbase_meta.sql_console_executions e using expired x
 	where e.execution_id=x.execution_id and (e.mode='read' or e.execution_id in (select execution_id from retained))`,
-		fmt.Sprintf("%d seconds", int64(HistoryRetention/time.Second)))
+		historyRetentionInterval())
 	return err
+}
+
+func historyRetentionInterval() string {
+	return fmt.Sprintf("%d seconds", int64(HistoryRetention/time.Second))
 }

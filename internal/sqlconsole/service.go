@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -73,6 +74,7 @@ type ServiceOptions struct {
 	WriteEnabled   bool
 	DefaultTimeout time.Duration
 	MaximumTimeout time.Duration
+	Logger         *slog.Logger
 }
 
 type sessionLimiter struct {
@@ -118,13 +120,39 @@ func NewServiceWithOptions(ctx context.Context, executor Executor, ledger *Ledge
 		return nil, fmt.Errorf("finish SQL console startup: %w", err)
 	}
 	serviceContext, cancel := context.WithCancel(context.Background())
-	return &Service{
+	service := &Service{
 		executor: executor, ledger: ledger, coordinator: coordinator, secret: append([]byte(nil), secret...), writeEnabled: options.WriteEnabled,
 		defaultTimeout: options.DefaultTimeout, maximumTimeout: options.MaximumTimeout,
 		ctx: serviceContext, cancel: cancel, global: make(chan struct{}, MaximumGlobalRunning),
 		pending: make(chan struct{}, MaximumPending), jobs: make(map[uuid.UUID]*executionJob),
 		sessions: make(map[SessionKey]*sessionLimiter), closeDone: make(chan struct{}),
-	}, nil
+	}
+	logger := options.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	service.wait.Add(1)
+	go service.cleanHistory(logger)
+	return service, nil
+}
+
+func (service *Service) cleanHistory(logger *slog.Logger) {
+	defer service.wait.Done()
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-service.ctx.Done():
+			return
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(service.ctx, 5*time.Second)
+			err := service.ledger.Cleanup(ctx)
+			if err != nil && service.ctx.Err() == nil {
+				logger.WarnContext(ctx, "prune SQL console history", "error", err)
+			}
+			cancel()
+		}
+	}
 }
 
 func (service *Service) Submit(ctx context.Context, actor Actor, request Request) (Execution, error) {

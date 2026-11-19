@@ -292,7 +292,7 @@ func (ledger *Ledger) Finish(ctx context.Context, actorID uuid.UUID, execution E
 	if tag.RowsAffected() != 1 {
 		return ErrConflict
 	}
-	return ledger.Cleanup(ctx)
+	return nil
 }
 
 func (ledger *Ledger) Cleanup(ctx context.Context) error {
@@ -355,14 +355,12 @@ func (ledger *Ledger) Reconcile(ctx context.Context) error {
 }
 
 func (ledger *Ledger) List(ctx context.Context, actorID uuid.UUID, cursor Cursor) (Page, error) {
-	if err := ledger.Cleanup(ctx); err != nil {
-		return Page{}, err
-	}
 	rows, err := ledger.pool.Query(ctx, `select execution_id,mode,dry_run,status,created_at,started_at,finished_at,result_expires_at,
 		row_count,affected_rows,result_bytes,sql_state,failure_code,committed
 		from pgbase_meta.sql_console_executions
 		where administrator_id=$1 and ($2::timestamptz is null or (created_at,execution_id)<($2,$3))
-		order by created_at desc,execution_id desc limit $4`, actorID, nullableCursorTime(cursor), nullableCursorID(cursor), MaximumHistoryEntries+1)
+			and (finished_at is null or finished_at >= current_timestamp-$5::interval)
+			order by created_at desc,execution_id desc limit $4`, actorID, nullableCursorTime(cursor), nullableCursorID(cursor), MaximumHistoryEntries+1, historyRetentionInterval())
 	if err != nil {
 		return Page{}, err
 	}
