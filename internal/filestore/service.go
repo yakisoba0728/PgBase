@@ -21,6 +21,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/lifecycle"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 type Operation string
@@ -46,6 +47,10 @@ type FieldPolicy struct {
 
 type PolicyFunc func(context.Context, pgx.Tx, uuid.UUID, string) (FieldPolicy, error)
 
+// RecordMetadataCatalog opts the built-in base record service into set-based
+// administrator metadata. The catalog must remain pinned to the transaction.
+type RecordMetadataCatalog func(context.Context, pgx.Tx, uuid.UUID) (schema.Collection, error)
+
 type Options struct {
 	MaximumBytes       int64
 	MaximumImagePixels int64
@@ -55,6 +60,7 @@ type Options struct {
 	TokenTTL           time.Duration
 	Now                func() time.Time
 	Policy             PolicyFunc
+	MetadataCatalog    RecordMetadataCatalog
 	Hooks              *lifecycle.Registry
 }
 

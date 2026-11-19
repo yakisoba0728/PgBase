@@ -179,7 +179,19 @@ func withFileServices(ctx context.Context, dependencies api.Dependencies, pool *
 		}
 		return filestore.FieldPolicy{}, filestore.ErrNotFound
 	}
-	service, err := filestore.NewService(pool, objects, authorize, filestore.Options{MaximumBytes: options.Files.MaximumBytes, MaximumImagePixels: options.Files.MaximumImagePixels, ThumbnailDimension: options.Files.ThumbnailDimension, AllowedTypes: options.Files.AllowedTypes, TokenSecret: options.TokenSecret, TokenTTL: options.Files.DownloadTokenTTL, Policy: policy, Hooks: options.Hooks})
+	metadataCatalog := func(ctx context.Context, tx pgx.Tx, id uuid.UUID) (schema.Collection, error) {
+		catalog, err := schemas.EnsureCurrent(ctx, tx)
+		if err != nil {
+			return schema.Collection{}, err
+		}
+		for _, collection := range catalog.Collections {
+			if collection.ID == id {
+				return collection, nil
+			}
+		}
+		return schema.Collection{}, filestore.ErrNotFound
+	}
+	service, err := filestore.NewService(pool, objects, authorize, filestore.Options{MaximumBytes: options.Files.MaximumBytes, MaximumImagePixels: options.Files.MaximumImagePixels, ThumbnailDimension: options.Files.ThumbnailDimension, AllowedTypes: options.Files.AllowedTypes, TokenSecret: options.TokenSecret, TokenTTL: options.Files.DownloadTokenTTL, Policy: policy, MetadataCatalog: metadataCatalog, Hooks: options.Hooks})
 	if err != nil {
 		return api.Dependencies{}, nil, nil, fmt.Errorf("configure file service: %w", err)
 	}

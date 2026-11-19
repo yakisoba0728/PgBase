@@ -108,11 +108,26 @@ func TestNativeFileUploadAndListResolveTextAndUUIDLookingIDs(t *testing.T) {
 	if err := fixture.app.pool.QueryRow(t.Context(), `select id from pgbase_meta.admins where email=$1`, publicAdminEmail).Scan(&actor); err != nil {
 		t.Fatal(err)
 	}
-	applyN6SchemaChange(t, fixture.app.schemaOperations.(*schema.Service), actor, schema.NewCreateChange(schema.CreateCollectionInput{Name: "native_text_files", RecordID: &schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 40, Pattern: `^[A-Za-z0-9-]+$`}, Fields: []schema.FieldInput{{Name: "attachment", Type: schema.TypeFile}}}))
+	applyN6SchemaChange(t, fixture.app.schemaOperations.(*schema.Service), actor, schema.NewCreateChange(schema.CreateCollectionInput{Name: "native_text_files", RecordID: &schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 40, Pattern: `^[A-Za-z0-9-]+$`}, Fields: []schema.FieldInput{{Name: "attachment", Type: schema.TypeFile}, {Name: "other_file", Type: schema.TypeFile}}}))
 	response := publicUsersRequest(t, fixture, "POST", "/native-text-files", nil, "", admin, map[string]string{"X-PgBase-CSRF": csrf})
 	assertPublicUsersStatus(t, response, 200)
 	var count int
 	if err := fixture.app.pool.QueryRow(t.Context(), `select count(*) from pgbase_meta.record_files f join pgbase_meta.record_identities i on i.internal_id=f.record_id where i.external_id in ('ExactFile01','11111111-1111-4111-8111-111111111111') and f.status='ready'`).Scan(&count); err != nil || count != 2 {
 		t.Fatalf("native file identities count=%d err=%v", count, err)
+	}
+
+	page := publicUsersRequest(t, fixture, "GET", "/api/v1/collections/native_text_files/records?files=true&fileFields=attachment", nil, "", admin, nil)
+	assertPublicUsersStatus(t, page, 200)
+	var grid struct {
+		FileMetadata map[string]map[string][]struct {
+			ID uuid.UUID `json:"id"`
+		} `json:"fileMetadata"`
+	}
+	decodePublicUsersJSON(t, page, &grid)
+	for _, id := range []string{"ExactFile01", "11111111-1111-4111-8111-111111111111"} {
+		fields := grid.FileMetadata[id]
+		if len(fields) != 1 || len(fields["attachment"]) != 1 || fields["attachment"][0].ID == uuid.Nil {
+			t.Fatalf("metadata for %s: %#v", id, fields)
+		}
 	}
 }

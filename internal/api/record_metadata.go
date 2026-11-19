@@ -2,15 +2,22 @@ package api
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"strings"
+
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/filestore"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
-	"net/http"
 )
 
 type recordFileMetadata interface {
 	ListRecordMetadata(context.Context, identity.Subject, uuid.UUID, []string) (map[string]map[string][]filestore.File, error)
+}
+
+type recordFileMetadataFields interface {
+	ListRecordMetadataFields(context.Context, identity.Subject, uuid.UUID, []string, []string) (map[string]map[string][]filestore.File, error)
 }
 
 func (e recordEndpoints) writeRecordPage(w http.ResponseWriter, r *http.Request, principal identity.Subject, page recordops.RecordPage) {
@@ -38,7 +45,16 @@ func (e recordEndpoints) writeRecordPage(w http.ResponseWriter, r *http.Request,
 			ids = append(ids, id)
 		}
 	}
-	metadata, err := service.ListRecordMetadata(r.Context(), principal, id, ids)
+	var metadata map[string]map[string][]filestore.File
+	if selected, ok := e.files.(recordFileMetadataFields); ok && r.URL.Query().Get("fileFields") != "" {
+		metadata, err = selected.ListRecordMetadataFields(r.Context(), principal, id, ids, strings.Split(r.URL.Query().Get("fileFields"), ","))
+	} else {
+		metadata, err = service.ListRecordMetadata(r.Context(), principal, id, ids)
+	}
+	if errors.Is(err, filestore.ErrRecordMetadataLimit) {
+		writeJSON(w, http.StatusOK, page)
+		return
+	}
 	if err != nil {
 		writeFileError(w, r, err)
 		return
