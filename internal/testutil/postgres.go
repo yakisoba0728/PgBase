@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -53,6 +54,46 @@ func NewDatabase(t testing.TB) string {
 	})
 
 	return withDatabaseName(adminURL, databaseName)
+}
+
+// WaitForDatabaseSessionsToClose waits for PostgreSQL to process the
+// termination messages sent by already-closed fixture connections.
+func WaitForDatabaseSessionsToClose(t testing.TB, databaseURL string) {
+	t.Helper()
+	adminURL, err := requiredAdminURL(os.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	connection, err := pgx.Connect(ctx, adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = connection.Close(context.Background()) }()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var idle bool
+		err := connection.QueryRow(ctx, `select not exists(
+			select from pg_stat_activity where datname=$1 and backend_type='client backend'
+		)`, strings.TrimPrefix(target.Path, "/")).Scan(&idle)
+		if err != nil {
+			t.Fatalf("check fixture PostgreSQL sessions: %v", err)
+		}
+		if idle {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("PostgreSQL fixture sessions are still open")
+		case <-ticker.C:
+		}
+	}
 }
 
 func requiredAdminURL(lookup func(string) string) (string, error) {

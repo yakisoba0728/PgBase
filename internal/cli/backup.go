@@ -59,16 +59,10 @@ func runBackup(ctx context.Context, args []string, env environment, streams IO) 
 		return operationError(options.Logger, "connect to PostgreSQL", err)
 	}
 	defer func() { resultErr = errors.Join(resultErr, gate.Close(context.Background())) }()
+	if err := validateBackupStorage(ctx, gate); err != nil {
+		return operationError(options.Logger, operation+" backup", err)
+	}
 	err = runMonitoredBackup(ctx, gate, func(operationContext context.Context) error {
-		connection, err := pgx.Connect(operationContext, options.DatabaseURL)
-		if err != nil {
-			return err
-		}
-		validationErr := validateBackupStorage(operationContext, connection)
-		closeErr := connection.Close(operationContext)
-		if err := errors.Join(validationErr, closeErr); err != nil {
-			return err
-		}
 		if operation == "create" {
 			return backup.Create(operationContext, *directory, options.DatabaseURL, files)
 		}
@@ -81,7 +75,9 @@ func runBackup(ctx context.Context, args []string, env environment, streams IO) 
 	return err
 }
 
-func validateBackupStorage(ctx context.Context, connection *pgx.Conn) error {
+func validateBackupStorage(ctx context.Context, connection interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}) error {
 	var driver string
 	err := connection.QueryRow(ctx, `select driver from pgbase_meta.file_storage_settings where singleton`).Scan(&driver)
 	var postgresError *pgconn.PgError

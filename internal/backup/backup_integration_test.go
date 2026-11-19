@@ -34,6 +34,7 @@ func TestCreateAndRestoreDatabaseAndLocalFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	pool.Close()
+	testutil.WaitForDatabaseSessionsToClose(t, sourceURL)
 	sourceFiles := t.TempDir()
 	if err = os.Mkdir(filepath.Join(sourceFiles, "nested"), 0700); err != nil {
 		t.Fatal(err)
@@ -69,6 +70,7 @@ func TestCreateAndRestoreDatabaseAndLocalFiles(t *testing.T) {
 		t.Fatalf("backup omitted extension object: %#v", manifest.Files)
 	}
 	emptyBackupDirectory := filepath.Join(t.TempDir(), "empty-files-snapshot")
+	testutil.WaitForDatabaseSessionsToClose(t, sourceURL)
 	if err = Create(ctx, emptyBackupDirectory, sourceURL, t.TempDir()); err != nil {
 		t.Fatalf("create with empty configured file directory: %v", err)
 	}
@@ -92,6 +94,7 @@ func TestCreateAndRestoreDatabaseAndLocalFiles(t *testing.T) {
 	if err = conflictConn.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
+	testutil.WaitForDatabaseSessionsToClose(t, conflictURL)
 	failedFiles := filepath.Join(t.TempDir(), "failed-restore-files")
 	conflictCtx, cancelConflict := context.WithCancel(t.Context())
 	defer cancelConflict()

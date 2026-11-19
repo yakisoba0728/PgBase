@@ -48,6 +48,11 @@ func TryBackupGate(ctx context.Context, databaseURL string, exclusive, allowInse
 
 func (g *BackupGate) Active() bool { return g != nil && g.conn != nil }
 
+// QueryRow uses the gate's connection for preflight before monitoring starts.
+func (g *BackupGate) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
+	return g.conn.QueryRow(ctx, query, args...)
+}
+
 // Run fails if the dedicated advisory-lock session is lost. A running server
 // uses this as a required background component, so it stops accepting writes
 // instead of silently continuing after PostgreSQL releases the lock.

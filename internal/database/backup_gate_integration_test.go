@@ -25,6 +25,7 @@ func TestBackupGateExcludesWritersAndOtherBackupOperations(t *testing.T) {
 	if err := writer.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
+	testutil.WaitForDatabaseSessionsToClose(t, databaseURL)
 	exclusive, err := TryBackupGate(ctx, databaseURL, true, false)
 	if err != nil {
 		t.Fatal(err)
