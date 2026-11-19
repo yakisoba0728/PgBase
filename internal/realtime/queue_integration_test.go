@@ -106,3 +106,28 @@ func seedFollowingEvent(t *testing.T, s *Service, first uuid.UUID) uuid.UUID {
 	}
 	return event
 }
+
+func TestBatchPublicationSkipsAnExpiredLeaseAndKeepsOrder(t *testing.T) {
+	s, user, collection := realtimeFixture(t)
+	ctx := t.Context()
+	for range 3 {
+		seedEvent(t, s, user, collection)
+	}
+	claims, err := s.claim(ctx)
+	if err != nil || len(claims) != 3 {
+		t.Fatalf("claims=%v error=%v", claims, err)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.outbox_delivery SET lease_until=clock_timestamp()-interval '1 second' WHERE event_id=$1`, claims[1].id); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.publishBatch(ctx, claims); err != nil {
+		t.Fatal(err)
+	}
+	var delivered []uuid.UUID
+	if err := s.pool.QueryRow(ctx, `SELECT array_agg(event_id ORDER BY sequence) FROM pgbase_meta.realtime_events`).Scan(&delivered); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivered) != 2 || delivered[0] != claims[0].id || delivered[1] != claims[2].id {
+		t.Fatalf("batch delivered %v, want %v and %v", delivered, claims[0].id, claims[2].id)
+	}
+}

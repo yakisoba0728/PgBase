@@ -79,6 +79,15 @@ func (s *Service) Deliver(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if len(claims) > 1 {
+		if err := s.publishBatch(ctx, claims); err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// A bad event should retain its own retry state without blocking the rest.
+	}
 	var result error
 	for _, item := range claims {
 		if err := s.publish(ctx, item); err != nil && !errors.Is(err, errLeaseLost) {
@@ -115,6 +124,35 @@ func (s *Service) claim(ctx context.Context) ([]claim, error) {
 		return rows.Err()
 	})
 	return result, err
+}
+
+// publishBatch holds the same sequence lock through one durable commit for
+// a claim pass. A claim contains at most one version of any record.
+func (s *Service) publishBatch(ctx context.Context, claims []claim) error {
+	ids := make([]uuid.UUID, len(claims))
+	for i, item := range claims {
+		ids[i] = item.id
+	}
+	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, deliveryLock); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `WITH leased AS MATERIALIZED (
+		 SELECT d.event_id, claimed.position
+		 FROM unnest($1::uuid[]) WITH ORDINALITY AS claimed(event_id,position)
+		 JOIN pgbase_meta.outbox_delivery d USING (event_id)
+		 WHERE d.lease_token=$2 AND d.lease_until>clock_timestamp() AND d.delivered_at IS NULL
+		 FOR UPDATE OF d
+		), published AS (
+		 INSERT INTO pgbase_meta.realtime_events(event_id,owner_user_id,collection_id,collection_name,record_id,operation,record_version,delivered_at)
+		 SELECT o.event_id,o.owner_user_id,o.collection_id,o.collection_name,o.record_id,o.operation,o.record_version,clock_timestamp()
+		 FROM leased l JOIN pgbase_meta.record_outbox o USING (event_id) ORDER BY l.position
+		 ON CONFLICT (event_id) DO NOTHING
+		)
+		UPDATE pgbase_meta.outbox_delivery d SET delivered_at=clock_timestamp(),lease_token=NULL,lease_until=NULL
+		FROM leased l WHERE d.event_id=l.event_id`, ids, claims[0].token)
+		return err
+	})
 }
 
 func (s *Service) publish(ctx context.Context, item claim) error {
