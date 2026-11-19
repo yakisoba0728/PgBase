@@ -1,9 +1,33 @@
+import { stringify } from "lossless-json";
 import { ApiError } from "../api/http";
 import { settleLimited } from "../app/limit";
 import type { RecordData, RecordPage } from "../api/records";
 
-/** Records as exported: exactly the stored fields, without the expand data the grid asked for. */
-export const exportable = (records: RecordData[]) => records.map(({ expand: _expand, ...record }) => record);
+/** Holds only encoded chunks, so an export never retains previously loaded record objects. */
+export class RecordExport {
+  private readonly chunks: BlobPart[] = ["[\n"];
+  private readonly encoder = new TextEncoder();
+  private bytes = 4; // The opening and closing delimiters.
+  count = 0;
+
+  constructor(private readonly limit = 64 * 1024 * 1024) {}
+
+  append(rows: RecordData[]): boolean {
+    for (const { expand: _expand, ...record } of rows) {
+      const text = stringify(record) ?? "{}";
+      const chunk = this.encoder.encode(this.count ? `,\n${text}` : text);
+      if (this.bytes + chunk.length > this.limit) return false;
+      this.chunks.push(chunk);
+      this.bytes += chunk.length;
+      this.count++;
+    }
+    return true;
+  }
+
+  blob(): Blob {
+    return new Blob([...this.chunks, "\n]"], { type: "application/json" });
+  }
+}
 
 /**
  * Walks the cursor from the first page, stopping after `maxPages`; `complete` says whether it reached the end.

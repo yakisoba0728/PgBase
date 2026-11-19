@@ -2,7 +2,11 @@ import { stringify } from "lossless-json";
 
 /** Saves `value` as a pretty-printed JSON file (exact numbers kept). */
 export function downloadJson(filename: string, value: unknown): void {
-  const url = URL.createObjectURL(new Blob([stringify(value, null, 2) ?? "null"], { type: "application/json" }));
+  downloadBlob(filename, new Blob([stringify(value, null, 2) ?? "null"], { type: "application/json" }));
+}
+
+export function downloadBlob(filename: string, blob: Blob): void {
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;

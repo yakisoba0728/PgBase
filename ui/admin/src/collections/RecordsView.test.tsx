@@ -98,7 +98,7 @@ it("drops back to the loaded rows when one is unchecked", async () => {
 });
 
 it("shows export progress, and on a failure midway offers the rows fetched so far", async () => {
-  const save = vi.spyOn(download, "downloadJson").mockImplementation(() => {});
+  const save = vi.spyOn(download, "downloadBlob").mockImplementation(() => {});
   // jsdom has no popover API; the menu closes itself after a pick.
   Object.assign(HTMLElement.prototype, { showPopover() {}, hidePopover() {} });
   vi.spyOn(records, "listRecords").mockImplementation(async (_collection, options = {}) => {
@@ -112,7 +112,7 @@ it("shows export progress, and on a failure midway offers the rows fetched so fa
   const task = await screen.findByRole("region", { name: "Exporting records" });
   await within(task).findByText("Stopped after 2 rows; nothing was saved.");
   fireEvent.click(within(task).getByRole("button", { name: "Save 2 rows" }));
-  expect(save).toHaveBeenCalledWith("posts-partial.json", [{ id: "r1" }, { id: "r2" }]);
+  expect(save).toHaveBeenCalledWith("posts-partial.json", expect.objectContaining({ size: 28 }));
 });
 
 it("deletes through one batch request per chunk when batches are enabled", async () => {

@@ -29,8 +29,8 @@ import { ValuePeek, type Peek } from "../components/ValuePeek";
 import { en } from "../i18n/en";
 import { useT, type Translate } from "../i18n";
 import { settingsQuery } from "../system/queries";
-import { collectAll, deleteAll, exportable } from "./bulk";
-import { downloadJson } from "../app/download";
+import { collectAll, deleteAll, RecordExport } from "./bulk";
+import { downloadBlob } from "../app/download";
 import { ColumnSettings } from "./ColumnSettings";
 import { useColumnPrefs } from "./columns";
 import { collectionsQuery, countText, recordsListQuery, removeFromLists } from "./queries";
@@ -77,8 +77,8 @@ interface BulkTask {
   error?: string;
   /** Delete: the ids that failed, for "Retry failed". */
   failed?: string[];
-  /** Export: the rows fetched before it stopped. */
-  rows?: RecordData[];
+  /** Export: bytes already written before it stopped. */
+  file?: RecordExport;
   abort: AbortController;
 }
 
@@ -237,34 +237,45 @@ export function RecordsView({ collection }: { collection: Collection }) {
   const runExport = async () => {
     const scope = captureSessionScope();
     const abort = start("export", t("records.exportProgress", { count: 0 }));
-    let rows: RecordData[] = [];
+    const file = new RecordExport();
     try {
-      const { items: all, complete } = await collectAll(
-        (cursor) => scope.run(() => listRecords(collection.name, { filter: scopeFilter || undefined, sort: url.sort || undefined, cursor, limit: 200, total: cursor ? undefined : true, signal: abort.signal })),
-        maxPages,
-        {
-          signal: abort.signal,
-          onPage: (got, page) => {
-            rows = got;
-            setTask((current) => {
-              if (current?.abort !== abort) return current;
-              // A capped count is only a lower bound: no invented percentage.
-              const known = current.total ?? (page.totalItems !== undefined && !page.totalCapped ? page.totalItems : undefined);
-              return { ...current, done: got.length, total: known, detail: t("records.exportProgress", { count: got.length }) };
-            });
-          },
-        },
-      );
+      let cursor: string | undefined;
+      let complete = false;
+      for (let at = 0; at < maxPages; at++) {
+        abort.signal.throwIfAborted();
+        const page = await scope.run(() => listRecords(collection.name, { filter: scopeFilter || undefined, sort: url.sort || undefined, cursor, limit: 200, total: cursor ? undefined : true, signal: abort.signal }));
+        const fits = file.append(page.items);
+        const done = file.count;
+        setTask((current) => {
+          if (current?.abort !== abort) return current;
+          // A capped count is only a lower bound: no invented percentage.
+          const known = current.total ?? (page.totalItems !== undefined && !page.totalCapped ? page.totalItems : undefined);
+          return { ...current, done, total: known, detail: t("records.exportProgress", { count: done }) };
+        });
+        cursor = page.nextCursor;
+        if (!fits || !cursor) {
+          complete = fits;
+          break;
+        }
+      }
+      abort.signal.throwIfAborted();
       scope.check();
-      downloadJson(`${collection.name}${complete ? "" : "-partial"}.json`, exportable(all));
+      downloadBlob(`${collection.name}${complete ? "" : "-partial"}.json`, file.blob());
       if (complete) {
         setTask(null);
-        toast(t("records.exported", { count: all.length }));
-      } else setTask({ kind: "export", state: "attention", detail: t("records.exportedPartial", { count: all.length }), abort });
+        toast(t("records.exported", { count: file.count }));
+      } else setTask({ kind: "export", state: "attention", detail: t("records.exportedPartial", { count: file.count }), abort });
     } catch (error) {
       if (error instanceof ApiError && error.code === "session_changed") { setTask(null); return; }
-      setTask(abort.signal.aborted ? null : { kind: "export", state: "failed", detail: t("records.exportStopped", { count: rows.length }), error: errorText(t, error), rows, abort });
+      setTask(abort.signal.aborted ? null : { kind: "export", state: "failed", detail: t("records.exportStopped", { count: file.count }), error: errorText(t, error), file, abort });
     }
+  };
+
+  const exportRows = (rows: RecordData[], kind: "selected" | "loaded") => {
+    const file = new RecordExport();
+    const complete = file.append(rows);
+    downloadBlob(`${collection.name}-${kind}${complete ? "" : "-partial"}.json`, file.blob());
+    if (!complete) toast(t("records.exportedPartial", { count: file.count }), "danger");
   };
 
   const taskView = task && (
@@ -287,7 +298,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
             <>
               {task.failed && task.failed.length > 0 && <Button size="sm" variant="secondary" onClick={() => void runDelete(task.failed!)}>{t("records.retryFailed", { count: task.failed.length })}</Button>}
               {task.kind === "export" && task.state === "failed" && <Button size="sm" variant="secondary" onClick={() => void runExport()}>{t("common.retry")}</Button>}
-              {task.rows && task.rows.length > 0 && <Button size="sm" variant="transparent" onClick={() => downloadJson(`${collection.name}-partial.json`, exportable(task.rows!))}>{t("records.savePartial", { count: task.rows.length })}</Button>}
+              {task.file && task.file.count > 0 && <Button size="sm" variant="transparent" onClick={() => downloadBlob(`${collection.name}-partial.json`, task.file!.blob())}>{t("records.savePartial", { count: task.file.count })}</Button>}
               <IconButton label={t("common.dismiss")} icon={RiCloseLine} onClick={() => setTask(null)} />
             </>
           )}
@@ -368,8 +379,8 @@ export function RecordsView({ collection }: { collection: Collection }) {
       <ColumnSettings available={columns.available} prefs={columns.prefs} onChange={columns.save} />
       <Dropdown label={running && task?.kind === "export" ? t("records.exporting") : t("records.export")} icon={RiDownload2Line} heading={t("records.exportJson")}>
         {/* With every matching record selected, "All matching records" below is the selection. */}
-        {count > 0 && !matchingAll && <DropdownItem onSelect={() => downloadJson(`${collection.name}-selected.json`, exportable(chosen))}>{t("records.exportSelected", { count })}</DropdownItem>}
-        <DropdownItem onSelect={() => downloadJson(`${collection.name}-loaded.json`, exportable(items))}>{t("records.exportLoaded", { count: items.length })}</DropdownItem>
+        {count > 0 && !matchingAll && <DropdownItem onSelect={() => exportRows(chosen, "selected")}>{t("records.exportSelected", { count })}</DropdownItem>}
+        <DropdownItem onSelect={() => exportRows(items, "loaded")}>{t("records.exportLoaded", { count: items.length })}</DropdownItem>
         <DropdownItem onSelect={() => !running && void runExport()}>{t("records.exportAll")}</DropdownItem>
       </Dropdown>
     </div>

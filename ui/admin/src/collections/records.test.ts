@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Collection, CollectionField, FieldType } from "../api/collections";
 import { visibleRange } from "../components/virtualRows";
 import { ApiError } from "../api/http";
-import { collectAll, deleteAll } from "./bulk";
+import { collectAll, deleteAll, RecordExport } from "./bulk";
 import { moveColumn, orderedColumns, toggleColumn, visibleColumns } from "./columns";
 import { changedFields, keepDraft, clearDraft, readDraft, writeDraft } from "./recordDraft";
 import { expandFor, htmlText, labelField, recordLabel, relationSearchFilter } from "./relation";
@@ -23,6 +23,21 @@ describe("column preferences", () => {
     expect(moveColumn(available, moved, "title", -1)).toBe(moved);
     expect(toggleColumn(toggleColumn(moved, "body", false), "body", true).hidden).toEqual([]);
   });
+});
+
+it("caps JSON exports by encoded bytes while preserving complete records and exact values", async () => {
+  const file = new RecordExport(36);
+  expect(file.append([{ id: "1", label: "가", expand: { out: { id: "omit" } } }])).toBe(true);
+  expect(file.append([{ id: "2", label: "too large" }])).toBe(false);
+  expect(file.count).toBe(1);
+  expect(file.blob().size).toBeLessThanOrEqual(36);
+  const json = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file.blob());
+  });
+  expect(JSON.parse(json)).toEqual([{ id: "1", label: "가" }]);
 });
 
 describe("record drafts", () => {
