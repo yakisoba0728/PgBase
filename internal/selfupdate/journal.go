@@ -100,25 +100,42 @@ func writeEvidence(stateDir, suffix string, manifest, signature []byte) (string,
 		} else if !os.IsNotExist(err) {
 			return "", "", ErrRecoveryRequired
 		}
-		if err := writeRegular(path, item.data, 0600); err != nil {
+		if err := writeExclusiveAtomic(path, 0600, func(file *os.File) error {
+			_, err := file.Write(item.data)
+			return err
+		}); err != nil {
 			return "", "", ErrReplaceFailed
 		}
 	}
 	return checksumBytes(manifest), checksumBytes(signature), nil
 }
 
-func writeRegular(path string, data []byte, mode os.FileMode) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+// writeExclusiveAtomic publishes only complete files. A killed writer can leave
+// its temporary file behind, but a retry never uses that name as evidence.
+func writeExclusiveAtomic(path string, mode os.FileMode, write func(*os.File) error) error {
+	directory := filepath.Dir(path)
+	file, err := os.CreateTemp(directory, ".pgbase-update-copy-*")
 	if err != nil {
 		return err
 	}
-	if _, err = file.Write(data); err == nil {
+	temporary := file.Name()
+	defer func() {
+		_ = file.Close()
+		_ = os.Remove(temporary)
+	}()
+	if err = write(file); err == nil {
+		err = file.Chmod(mode)
+	}
+	if err == nil {
 		err = file.Sync()
 	}
 	if closeErr := file.Close(); err == nil {
 		err = closeErr
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return publishExclusive(temporary, path)
 }
 
 func checksumBytes(data []byte) string {

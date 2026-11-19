@@ -17,6 +17,14 @@ import statistics
 import sys
 
 
+NATIVE_ROWS = 500_000
+NATIVE_CASES = {
+    f"native/{workload}/c{concurrency}"
+    for workload in ("get", "list_50", "deep_cursor_50", "filtered_50")
+    for concurrency in (1, 8, 32)
+}
+
+
 def duration_ms(value):
     units = {"h": 3600000, "m": 60000, "s": 1000, "ms": 1,
              "us": 0.001, "µs": 0.001, "ns": 0.000001}
@@ -33,6 +41,8 @@ def read_query(path):
         if not match:
             continue
         rows, name, concurrency, samples, rest = match.groups()
+        if int(rows) != NATIVE_ROWS:
+            raise ValueError(f"{path}: expected {NATIVE_ROWS} native rows, found {rows}")
         words = rest.split()
         if len(words) % 2:
             raise ValueError("unpaired benchmark metrics: " + line)
@@ -44,8 +54,8 @@ def read_query(path):
         if int(samples) != 1000 or metrics["errors"] != 0:
             raise ValueError("incomplete or failed native measurement")
         result[key] = metrics
-    if len(result) != 12:
-        raise ValueError(f"{path}: expected 12 native cases, found {len(result)}")
+    if result.keys() != NATIVE_CASES:
+        raise ValueError(f"{path}: unexpected native cases; missing {sorted(NATIVE_CASES - result.keys())}, extra {sorted(result.keys() - NATIVE_CASES)}")
     return result
 
 

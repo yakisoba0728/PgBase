@@ -106,6 +106,8 @@ Only a stable SemVer release moves `latest`. Each channel has its own promotion 
 
 The final runtime image carries the canonical release version in both the binary and its OCI version label. The exact version tag's registry state is read back before any channel is touched; if it already points at a different digest the whole promotion fails without mutating a channel, and the exact tag is never force-retagged. After promotion, both the exact tag and channel are read back for the candidate digest and version label. Promotion deletes no tags, and the before/after digest and version evidence is retained as a build artifact.
 
+If promotion created the exact version tag and failed before updating the moving channel, rerun only the failed jobs of that workflow. That attempt receives the original verified candidate digest from the completed build and gate jobs. Rerunning every job builds a new digest and will fail the exact-tag check. Keep the exact tag and use the original successful build and gate records when investigating a failed promotion.
+
 An older channel created before OCI version labels were added fails closed. For a one-time migration only, set the repository variable `PGBASE_RELEASE_CHANNEL_BOOTSTRAP_VERSION` to the channel's current canonical exact version (for example `v1.2.2`) before releasing a strictly newer version. Promotion proceeds only when that immutable exact tag exists and has exactly the channel's current digest. Remove the variable immediately after the successful promotion; never use it to guess a missing version or bypass a missing exact tag.
 
 ## Configuration

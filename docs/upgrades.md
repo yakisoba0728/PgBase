@@ -32,6 +32,12 @@ pgBase is an early v0.x project. v0.x binaries, HTTP contracts, environment vari
 9. Through the administrator-authenticated HTTP record API, perform representative scalar and relation operations: create/read an ordered multiple relation, read an expanded single relation, and execute the configured `restrict`, `cascade`, or `set_null` path applicable to the project. Use `Idempotency-Key` and `If-Match`; do not validate the upgrade by writing pgBase-owned tables directly.
 10. Resume schema changes only after the rollout is accepted.
 
+## Recovering an interrupted binary update
+
+Run `pgbase update status --json` to inspect the update state. Keep the running service stopped during recovery. Rerun `pgbase update apply` with the original signed inputs to recover the interrupted update, or use `pgbase update rollback` to recover an interrupted rollback.
+
+An earlier updater could leave an incomplete backup, rollback stage or signed update evidence at its final path. If the retry still reports a recovery error, make a separate recovery copy of the installation and updater state directory before moving any files. From `journal.json`, verify the installed binary against `oldSha256` or `newSha256` and check the named `backup` against `oldSha256`. For `rollback_started`, quarantine a damaged `.<executable-name>.pgbase-rollback` only after verifying the backup and the installed binary. For `staged` or `aborted`, quarantine an incomplete backup only if the installed binary still matches `oldSha256`. If signed evidence was interrupted, verify the original manifest and signature before quarantining the incomplete evidence file. Retry using the original signed inputs. Keep the journal and any verified backup. Escalate unexpected checksums for operator review.
+
 ## One-migration compatibility rollout
 
 When release notes declare one additive migration as optional, use the release's preparatory artifact and the `P0 -> M -> F` sequence below. This exception supports only the two checksum-pinned histories named by that release: the history immediately before the migration and the history immediately after it. It does not make arbitrary old and new binaries compatible.

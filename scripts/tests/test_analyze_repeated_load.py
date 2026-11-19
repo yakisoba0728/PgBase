@@ -1,4 +1,4 @@
-"""The registered HTTP comparison must reject changed or incomplete workloads."""
+"""The registered load comparisons must reject changed or incomplete workloads."""
 
 import importlib.util
 from pathlib import Path
@@ -24,6 +24,39 @@ def http_log(workers=(1, 8, 32, 4), quantile_requests=1000, pool_max=4):
             "pool_wait=0s pool_canceled=0",
         ])
     return "\n".join(lines) + "\n"
+
+
+def native_log(rows=500000, workloads=("get", "list_50", "deep_cursor_50", "filtered_50"), workers=(1, 8, 32)):
+    return "\n".join(
+        f"BenchmarkConcurrentRecordReads/rows={rows}/{name}/concurrency={worker}-4 1000 0 errors"
+        for name in workloads
+        for worker in workers
+    )
+
+
+class NativeLoadEvidenceTests(unittest.TestCase):
+    def parse(self, text):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "query.log"
+            path.write_text(text)
+            return MODULE.read_query(path)
+
+    def test_accepts_registered_cases(self):
+        result = self.parse(native_log())
+        self.assertEqual(len(result), 12)
+        self.assertEqual(result["native/list_50/c1"]["rows"], 500000)
+
+    def test_rejects_a_different_fixture_size(self):
+        with self.assertRaisesRegex(ValueError, "expected 500000 native rows"):
+            self.parse(native_log(rows=100000))
+
+    def test_rejects_a_substituted_workload_or_concurrency(self):
+        for text in (
+            native_log(workloads=("count", "list_50", "deep_cursor_50", "filtered_50")),
+            native_log(workers=(2, 8, 32)),
+        ):
+            with self.assertRaisesRegex(ValueError, "unexpected native cases"):
+                self.parse(text)
 
 
 class RepeatedLoadEvidenceTests(unittest.TestCase):

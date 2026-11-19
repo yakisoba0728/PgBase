@@ -16,6 +16,8 @@ import subprocess
 import tempfile
 import time
 
+from analyze_repeated_load import NATIVE_ROWS
+
 from repeat_http_regression import BASE, PATCHES
 
 
@@ -32,7 +34,7 @@ def main():
     harness_path = "internal/query/load_benchmark_integration_test.go"
     harness = (repo / harness_path).read_bytes()
     (output / "common-query-harness.go").write_bytes(harness)
-    env = dict(os.environ, GOMAXPROCS="4", PGBASE_BENCH_ROWS="500000", PGBASE_BENCH_WARMUP="100",
+    env = dict(os.environ, GOMAXPROCS="4", PGBASE_BENCH_ROWS=str(NATIVE_ROWS), PGBASE_BENCH_WARMUP="100",
                PGBASE_BENCH_EXPLAIN="1", PGBASE_BENCH_SAMPLES="1", PGBASE_BENCH_FILTER_INDEX="0", PGBASE_BENCH_INDEX_WRITE="0")
 
     def git(*command, cwd=repo):

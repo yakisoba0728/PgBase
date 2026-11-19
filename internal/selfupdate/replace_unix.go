@@ -65,6 +65,13 @@ func replaceFile(source, target string) error {
 	return syncDirectory(filepath.Dir(target))
 }
 
+func publishExclusive(source, target string) error {
+	if err := os.Link(source, target); err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(target))
+}
+
 func syncDirectory(directory string) error {
 	file, err := os.Open(directory)
 	if err != nil {

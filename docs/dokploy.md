@@ -143,11 +143,12 @@ pgcompose run --rm --no-deps -T --entrypoint /bin/tar files-init -C /files -czf 
 
 ```sh
 pgcompose exec -T postgres pg_restore -U pgbase -d pgbase \
-  --exit-on-error --no-owner --no-acl < database.dump
+  --single-transaction --exit-on-error --no-owner --no-acl < database.dump
 pgcompose run --rm --no-deps -T --entrypoint /bin/sh files-init -ec \
   'tar -xzf - -C /files && chown -R 65532:65532 /files && chmod 700 /files' < files.tar.gz
 ```
 
+DB 또는 파일 복원이 실패하면 새 복구 환경을 사용하지 않는다. 다음 시도에서는 비어 있는 새 DB와 새 파일 volume을 사용한다.
 원본 volume은 복구 검증이 끝날 때까지 보존한다. 원래 암호화 키와 token secret을 사용하고,
 복원 DB에 맞는 소스 버전으로 시작한 뒤 readiness·레코드·파일 바이트를 확인한다.
 백업 archive는 신뢰할 수 있는 자체 생성 파일만 사용한다.
