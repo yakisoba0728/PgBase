@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"regexp"
 	"slices"
 	"time"
@@ -303,20 +304,22 @@ func updateAuthCollectionTx(ctx context.Context, tx pgx.Tx, id uuid.UUID, input 
 		if !identityFieldsMatchAuthSchema(identityFields, fields) {
 			return ErrValidation
 		}
-		rows, err := tx.Query(ctx, `select p.attributes from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id where u.auth_collection_id=$1 for update of p`, id)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var profileRaw []byte
-			var profile map[string]any
-			if rows.Scan(&profileRaw) != nil || decodeAuthProfile(profileRaw, &profile) != nil || !validateTypedProfile(profile, fields, true) {
-				return ErrConflict
+		if !reflect.DeepEqual(fields, stored.Fields) {
+			rows, err := tx.Query(ctx, `select p.attributes from pgbase_meta.user_auth_profiles p join pgbase_meta.users u on u.id=p.user_id where u.auth_collection_id=$1 for update of p`, id)
+			if err != nil {
+				return err
 			}
-		}
-		if rows.Err() != nil {
-			return rows.Err()
+			defer rows.Close()
+			for rows.Next() {
+				var profileRaw []byte
+				var profile map[string]any
+				if rows.Scan(&profileRaw) != nil || decodeAuthProfile(profileRaw, &profile) != nil || !validateTypedProfile(profile, fields, true) {
+					return ErrConflict
+				}
+			}
+			if rows.Err() != nil {
+				return rows.Err()
+			}
 		}
 		rv := input.Rules.databaseValues()
 		row := tx.QueryRow(ctx, `update pgbase_meta.auth_collections set registration_enabled=$2,profile_schema=$3,fields_json=$4,list_rule=$5,view_rule=$6,create_rule=$7,update_rule=$8,delete_rule=$9,auth_rule=$10,manage_rule=$11,updated_at=CURRENT_TIMESTAMP where id=$1 returning `+authCollectionColumns, id, input.RegistrationEnabled, profileRaw, fieldsRaw, rv[0], rv[1], rv[2], rv[3], rv[4], rv[5], rv[6])

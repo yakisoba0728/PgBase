@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/serviceauth"
 )
 
 type publicRecordPrincipalKey struct{}
@@ -27,6 +29,10 @@ func serviceSessionMiddleware(auth ServiceTokens, next http.Handler) http.Handle
 			return
 		}
 		principal, err := auth.Authenticate(r.Context(), parts[1])
+		if err != nil && !errors.Is(err, serviceauth.ErrInvalidToken) {
+			writeAPIError(w, r, APIError{Status: http.StatusServiceUnavailable, Code: "authentication_unavailable", Message: "Service token authentication is unavailable"})
+			return
+		}
 		if err != nil || principal.Subject.Kind != identity.Service || !principal.Subject.Valid() {
 			writeServiceCredentialError(w, r)
 			return

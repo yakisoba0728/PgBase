@@ -45,11 +45,17 @@ func (s *Service) RefreshSessionForCollection(ctx context.Context, collectionID 
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var lockedRealm uuid.UUID
 		if err := tx.QueryRow(ctx, `select id from pgbase_meta.auth_collections where id=$1 for share`, collectionID).Scan(&lockedRealm); err != nil {
-			return ErrInvalidCredentials
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrInvalidCredentials
+			}
+			return err
 		}
 		oldHash, err := s.sessionHash(ctx, tx, rawToken)
-		if err != nil {
+		if errors.Is(err, ErrValidation) {
 			return ErrInvalidCredentials
+		}
+		if err != nil {
+			return err
 		}
 		refreshed := base64.RawURLEncoding.EncodeToString(raw)
 		expires := now.Add(s.ttl)
@@ -83,7 +89,7 @@ func (s *Service) RefreshSessionForCollection(ctx context.Context, collectionID 
 			return fmt.Errorf("lock user session for refresh: %w", err)
 		}
 		if err := s.enforceAuthRuleForSession(ctx, tx, collectionID, user.ID); err != nil {
-			return ErrInvalidCredentials
+			return err
 		}
 		err = tx.QueryRow(ctx, `update pgbase_meta.user_sessions as sessions
 		set token_hash=$1, expires_at=$2

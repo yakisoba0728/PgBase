@@ -268,15 +268,18 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	if err := s.ready(); err != nil {
 		return Principal{}, err
 	}
-	hash, hashErr := s.sessionHash(ctx, s.pool, rawToken)
-	if hashErr != nil {
-		return Principal{}, ErrInvalidCredentials
-	}
 	release, err := admit(s.sessionSlots)
 	if err != nil {
 		return Principal{}, err
 	}
 	defer release()
+	hash, err := s.sessionHash(ctx, s.pool, rawToken)
+	if errors.Is(err, ErrValidation) {
+		return Principal{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return Principal{}, err
+	}
 	var p Principal
 	err = s.pool.QueryRow(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.created_at,s.expires_at,s.session_kind='impersonation',coalesce(s.impersonating_admin_id,'00000000-0000-0000-0000-000000000000') from pgbase_meta.user_sessions s join pgbase_meta.users u on u.id=s.user_id left join pgbase_meta.admin_sessions ads on ads.id=s.impersonating_admin_session_id left join pgbase_meta.admins a on a.id=s.impersonating_admin_id where s.token_hash=$1 and s.revoked_at is null and s.expires_at>CURRENT_TIMESTAMP and u.active and (s.session_kind='user' or (ads.revoked_at is null and ads.expires_at>CURRENT_TIMESTAMP and a.active))`, hash).Scan(&p.User.ID, &p.User.AuthCollectionID, &p.User.Email, &p.User.EmailVisibility, &p.User.Verified, &p.User.CreatedAt, &p.ExpiresAt, &p.Impersonated, &p.ImpersonatingAdministratorID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -297,15 +300,18 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	if err := s.ready(); err != nil {
 		return err
 	}
-	hash, hashErr := s.sessionHash(ctx, s.pool, rawToken)
-	if hashErr != nil {
-		return ErrValidation
-	}
 	release, err := admit(s.sessionSlots)
 	if err != nil {
 		return err
 	}
 	defer release()
+	hash, err := s.sessionHash(ctx, s.pool, rawToken)
+	if errors.Is(err, ErrInvalidCredentials) {
+		return ErrValidation
+	}
+	if err != nil {
+		return err
+	}
 	_, err = s.pool.Exec(ctx, `update pgbase_meta.user_sessions set revoked_at=coalesce(revoked_at,CURRENT_TIMESTAMP) where token_hash=$1`, hash)
 	if err != nil {
 		return fmt.Errorf("revoke user session: %w", err)

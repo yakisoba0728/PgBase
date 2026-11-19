@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -161,12 +162,15 @@ func (s *Service) sessionHash(ctx context.Context, db database.DBTX, raw string)
 	var purpose string
 	var cipher []byte
 	e = db.QueryRow(ctx, `select purpose,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and key_version=$2 and purpose in ('session','impersonation')`, realm, p[1]).Scan(&purpose, &cipher)
-	if e != nil {
+	if errors.Is(e, pgx.ErrNoRows) {
 		return nil, ErrInvalidCredentials
+	}
+	if e != nil {
+		return nil, fmt.Errorf("read session token policy: %w", e)
 	}
 	key, e := s.decrypt("auth-token-policy:"+purpose, cipher)
 	if e != nil {
-		return nil, ErrInvalidCredentials
+		return nil, fmt.Errorf("decrypt session token key: %w", e)
 	}
 	domain := "user-session\x00"
 	if purpose == "impersonation" {
