@@ -326,7 +326,8 @@ func newWithCatalogPreflight(
 	if scheduledBackups == nil {
 		scheduledBackups = normalized.Backups.manager
 	}
-	if err := installManagedBackupSchedule(ctx, jobService, scheduledBackups, runtimeSettings, normalized.Logger); err != nil {
+	reconcileBackupSchedule, err := installManagedBackupSchedule(ctx, jobService, scheduledBackups, runtimeSettings, normalized.Logger)
+	if err != nil {
 		return nil, fmt.Errorf("install managed backup schedule: %w", err)
 	}
 	dependencies.MaximumFileUploadBytes = normalized.Files.MaximumBytes + 64<<10
@@ -342,6 +343,7 @@ func newWithCatalogPreflight(
 		requestLog:            dependencies.RequestLog,
 		realtimeBroker:        applicationRealtimeBroker,
 		runtimeSettings:       runtimeSettings,
+		backupSchedule:        reconcileBackupSchedule,
 		pool:                  pool,
 		records:               recordService,
 		backupGate:            gate,

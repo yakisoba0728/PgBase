@@ -88,11 +88,13 @@ func newRetentionInstallation(t *testing.T, envRetention, pageRetention int, sto
 	return retentionInstallation{pool: pool, settings: settings, manager: manager, storage: storage, worker: jobs.NewService(pool, jobs.NewRegistry(), slog.New(slog.NewTextHandler(io.Discard, nil)))}
 }
 
-func (i retentionInstallation) install(t *testing.T) {
+func (i retentionInstallation) install(t *testing.T) func(context.Context) {
 	t.Helper()
-	if err := installManagedBackupSchedule(context.Background(), i.worker, i.manager, i.settings, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+	reconcile, err := installManagedBackupSchedule(context.Background(), i.worker, i.manager, i.settings, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
 		t.Fatal(err)
 	}
+	return reconcile
 }
 
 func (i retentionInstallation) backupAndCount(t *testing.T) int {
@@ -245,5 +247,36 @@ func TestManagedBackupUpgradeWithUnsavableSettingsKeepsPreviousBehaviour(t *test
 	}
 	if kept := installation.backupAndCount(t); kept != 2 {
 		t.Fatalf("kept %d archives, want 2", kept)
+	}
+}
+
+func TestManagedBackupDisabledDuringLeaseSkipsNextRunAndReconciles(t *testing.T) {
+	ctx := t.Context()
+	installation := newRetentionInstallation(t, 4, -1, runtimesettings.Backups{Enabled: true}, true)
+	reconcile := installation.install(t)
+	if !installation.jobEnabled(t) {
+		t.Fatal("job must start enabled")
+	}
+	if _, err := installation.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_token=$2,lease_until=clock_timestamp()+interval '1 minute' WHERE name=$1`, managedBackupJobName, uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+	document := installation.settings.Get()
+	document.Backups.Enabled = false
+	if _, err := installation.settings.Update(ctx, document); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installation.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_token=NULL,lease_until=NULL,next_run_at=clock_timestamp() WHERE name=$1`, managedBackupJobName); err != nil {
+		t.Fatal(err)
+	}
+	if err := installation.worker.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	running, err := installation.manager.RunningJobs(ctx)
+	if err != nil || len(running) != 0 {
+		t.Fatalf("disabled backup was launched: %v, %v", running, err)
+	}
+	reconcile(ctx)
+	if installation.jobEnabled(t) {
+		t.Fatal("durable job stayed enabled after the lease was released")
 	}
 }

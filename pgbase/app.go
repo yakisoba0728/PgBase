@@ -28,6 +28,7 @@ type App struct {
 	requestLog             *observability.RequestLog
 	realtimeBroker         *api.ApplicationRealtimeBroker
 	runtimeSettings        *runtimesettings.Controller
+	backupSchedule         func(context.Context)
 	options                Options
 	pool                   *database.Pool
 	records                *recordops.Service

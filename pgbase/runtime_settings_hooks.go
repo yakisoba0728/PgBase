@@ -10,16 +10,23 @@ import (
 )
 
 type runtimeSettingsRefresher struct {
-	settings *runtimesettings.Controller
-	logger   *slog.Logger
+	settings       *runtimesettings.Controller
+	logger         *slog.Logger
+	backupSchedule func(context.Context)
 }
 
 func (r runtimeSettingsRefresher) Run(ctx context.Context) error {
 	return sampleLoop(ctx, time.Second, func(ctx context.Context) {
 		refreshCtx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
-		if err := r.settings.Refresh(refreshCtx); err != nil && ctx.Err() == nil {
-			r.logger.ErrorContext(ctx, "refresh runtime settings", "error", err)
+		if err := r.settings.Refresh(refreshCtx); err != nil {
+			if ctx.Err() == nil {
+				r.logger.ErrorContext(ctx, "refresh runtime settings", "error", err)
+			}
+			return
+		}
+		if r.backupSchedule != nil {
+			r.backupSchedule(refreshCtx)
 		}
 	})
 }
