@@ -1,5 +1,7 @@
 # pgBase 구현 현황 / TODO
 
+2026-11-19 최신 결과: [PR #159](https://github.com/yakisoba0728/PgBase/pull/159)–[#164](https://github.com/yakisoba0728/PgBase/pull/164)와 [PR #166](https://github.com/yakisoba0728/PgBase/pull/166)을 squash 병합해 main이 `64512f78`이 됐다. [PR #162](https://github.com/yakisoba0728/PgBase/pull/162)가 system migration `000070`·`000071`(index만 추가)을 넣어 schema 69 → 71이다. 운영 배포 여부는 저장소로 확인하지 않음. 세부는 [현재 상태](docs/project-status.md) §18과 [다음 작업](docs/next-work.md)을 따른다.
+
 2026-11-18 최신 결과: 미룬 UI 항목 4개([PR #157](https://github.com/yakisoba0728/PgBase/pull/157))와 간헐 실패 test 두 건([PR #155](https://github.com/yakisoba0728/PgBase/pull/155)·[PR #156](https://github.com/yakisoba0728/PgBase/pull/156))을 처리해 main `df18bfe3`을 운영에 배포했다(schema 69 그대로, migration 없음). 세부는 [현재 상태](docs/project-status.md) §17과 [다음 작업](docs/next-work.md)을 따른다.
 
 2026-11-17 최신 결과: 플랫폼 강화 작업을 [PR #148](https://github.com/yakisoba0728/PgBase/pull/148)로 squash 병합했다(main `d64c729f`, schema 69). 같은 날 운영에 배포했고(schema 69) [v0.4.0](https://github.com/yakisoba0728/PgBase/releases/tag/v0.4.0)을 게시했다. 세부는 [현재 상태](docs/project-status.md) §15와 [다음 작업](docs/next-work.md)을 따른다.
@@ -7,6 +9,24 @@
 2026-11-15 최신 결과: 관리자 UI 개편을 [PR #142](https://github.com/yakisoba0728/PgBase/pull/142)로, 이어서 크기 확대·모션 강화를 [PR #144](https://github.com/yakisoba0728/PgBase/pull/144)로 병합해 main `5cb9ea0d`를 운영에 배포했다(schema 67 그대로, migration 없음). 세부·검증 범위·남은 일은 [현재 상태](docs/project-status.md) §13과 [다음 작업](docs/next-work.md)을 따른다. 아래 문단과 미완료 표시는 당시 이력이다.
 
 2026-11-13 최신 결과: PR #124·#125·#133 병합, main CI·전체 릴리스 gate 통과, v0.3.1 게시와 운영 schema 66 배포 완료. [다음 작업](docs/next-work.md), [운영 준비 보완](docs/production-readiness-2026-11-13.md), [배포 기록](docs/deployment-2026-11-13.md)을 따른다. 아래 미완료 표시는 날짜별 실행 당시의 이력이며 현재 열린 작업으로 합산하지 않는다. 운영 백업 생성/설정은 소유자 요청으로 제외했다. npm/pub.dev 공개는 별도 소유자 결정이다.
+
+## 2026-11-19 — 요청 로그·jobs·감사 지적 수정과 관리자 UI 추가(PR #159–#164, #166)
+
+main `45fee799`(schema 69)에서 PR 7개를 squash 병합했다(main `64512f78`, schema 71). 세부는 [현재 상태](docs/project-status.md) §18.
+
+- [x] [PR #159](https://github.com/yakisoba0728/PgBase/pull/159)(main `6a97e905`): 성공한 `/health/*` 요청과 `/admin/`·`/api/admin/*`의 `GET`/`HEAD` 요청을 저장되는 요청 로그에서 뺐다. 실패(4xx/5xx)·로그인·변경 요청·데이터를 내보내는 읽기(schema export, 관리자 파일·백업 다운로드)는 계속 저장한다. stderr access log는 그대로다.
+- [x] [PR #160](https://github.com/yakisoba0728/PgBase/pull/160)(main `df6646ef`): interval·cron job의 예약 발생 시각을 애플리케이션 시계 대신 PostgreSQL 시각으로 계산.
+- [x] [PR #161](https://github.com/yakisoba0728/PgBase/pull/161)(main `a5a27c28`): batch 응답 크기를 commit 전에 검사, 복원 commit 결과가 불확실하면 설치한 파일을 남김, S3 endpoint 정규화와 정리 지연, 요청 로그 기간 정리를 runtime settings revision으로 보호.
+- [x] [PR #162](https://github.com/yakisoba0728/PgBase/pull/162)(main `e9045acb`): 전체 감사 지적 일괄 수정(레코드·인증·백업·저장소·realtime·SQL console·관리자 UI·TypeScript/Dart SDK·CI workflow 통합). system migration `000070_realtime_public_identity_lookup`·`000071_auth_cleanup_and_token_listing` 추가(index만). 서비스 토큰 목록이 `{items,nextAfter?}` 페이지네이션으로 바뀌는 등 계약 변경이 있다.
+- [x] [PR #163](https://github.com/yakisoba0728/PgBase/pull/163)(main `23257b8c`): #162 뒤 main push Backend가 실패한 integration vet 오류를 고쳤다. 통합 test 두 곳을 페이지네이션 토큰 목록 시그니처로 맞춤(test만 변경).
+- [x] [PR #164](https://github.com/yakisoba0728/PgBase/pull/164)(main `4df28153`): 관리자 UI favicon, 내비·guest 카드 워드마크 아이콘, README 로고(`docs/assets/`).
+- [x] [PR #166](https://github.com/yakisoba0728/PgBase/pull/166)(main `64512f78`): 컬렉션 API 탭에 서비스 토큰 호출자 모드(절대 URL, Bearer curl 예시, endpoint별 필요 권한).
+- [x] CI: 각 PR의 필수 검사 통과. main push CI(Backend·Frontend·Security)는 `e9045acb`의 Backend 실패를 빼고 모두 통과했고, `23257b8c`부터 다시 모두 통과.
+- [ ] 운영 배포: 확인하지 않음(저장소에 배포 기록 없음). schema 71이므로 #162가 안내한 stop–migrate–start 절차가 필요하다.
+- [ ] #161 rollout 조건: S3 정리를 하는 worker와 요청 로그를 정리하는 replica를 모두 새 build로 올린 뒤에 새 보호를 전제로 한다.
+- [ ] #162 PR 본문 작성 시점에 통합 Go·PostgreSQL+MinIO·Chromium 실행은 "진행 중"으로 적혀 있었다. 그 결과는 확인하지 않음.
+- [ ] #164: 실제 backend에 연결한 로그인·내비게이션 화면은 확인하지 않았다(PR 본문 기준).
+- [ ] 릴리스: v0.4.0(schema 69) 이후 변경이 tag 없이 main에 있다. 현재 source는 schema 71을 요구한다.
 
 ## 2026-11-18 — 관리자 UI 전체 화면 점검(`fix/admin-ui-audit`)
 
