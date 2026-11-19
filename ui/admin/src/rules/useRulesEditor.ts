@@ -45,6 +45,8 @@ export function useRulesEditor(collection: Collection, basePath: string) {
   // Edits sit on top of the loaded policy; a save clears them, so nothing needs syncing.
   const [edits, setEdits] = useState<Partial<RuleDrafts>>({});
   const [accessEdit, setAccessEdit] = useState<boolean>();
+  const [revision, setRevision] = useState<number>();
+  const [conflict, setConflict] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<Action, string>>>({});
   const [results, setResults] = useState<Partial<Record<Action, string>>>({});
   const [testAs, setTestAs] = useState("");
@@ -57,11 +59,14 @@ export function useRulesEditor(collection: Collection, basePath: string) {
   const changedRules = loaded && drafts ? visible.filter((action) => !sameDraft(drafts[action], loaded[action])) : [];
   const accessChanged = accessEdit !== undefined && accessEdit !== access.data?.enabled;
   const dirty = changedRules.length > 0 || accessChanged;
+  const needsReview = conflict || (changedRules.length > 0 && revision !== rules.data?.revision);
 
   const update = (action: Action, patch: Partial<RuleDraft>) => {
-    if (!drafts) return;
+    if (!loaded || !drafts) return;
     previewVersion.current++;
-    setEdits((current) => ({ ...current, [action]: { ...drafts[action], ...patch } }));
+    const updated = { ...drafts[action], ...patch };
+    setEdits(({ [action]: _previous, ...other }) => sameDraft(updated, loaded[action]) ? other : { ...other, [action]: updated });
+    if (Object.keys(edits).length === 0) setRevision(rules.data?.revision);
     setErrors(({ [action]: _, ...rest }) => rest);
     setResults(({ [action]: _, ...rest }) => rest);
   };
@@ -70,7 +75,21 @@ export function useRulesEditor(collection: Collection, basePath: string) {
     setEdits({});
     setAccessEdit(undefined);
     setErrors({});
+    setRevision(undefined);
+    setConflict(false);
   };
+
+  const review = useMutation({
+    mutationFn: async () => {
+      const latest = await rules.refetch({ throwOnError: true });
+      return latest.data?.revision;
+    },
+    onSuccess: (latest) => {
+      setRevision(latest);
+      setConflict(false);
+    },
+    onError: (error) => toast(errorText(t, error), "danger"),
+  });
 
   const save = useMutation({
     mutationFn: async () => {
@@ -79,7 +98,7 @@ export function useRulesEditor(collection: Collection, basePath: string) {
       if (empty.length) throw Object.assign(new Error("empty"), { empty });
       // Close the gate before changing rules; opening it waits until the rules are stored.
       if (accessChanged && !accessEnabled) await setCollectionUserAccess(name, false);
-      if (changedRules.length) await setCollectionRules(name, planSave(drafts, visible));
+      if (changedRules.length && revision !== undefined) await setCollectionRules(name, planSave(drafts, visible), revision);
       if (accessChanged && accessEnabled) await setCollectionUserAccess(name, true);
     },
     onSuccess: async () => {
@@ -97,6 +116,10 @@ export function useRulesEditor(collection: Collection, basePath: string) {
       }
       // Whatever landed, the screen shows the server's rules from here on.
       void queryClient.invalidateQueries({ queryKey: rulesQueryKey(name) });
+      if (error instanceof ApiError && error.code === "precondition_failed") {
+        setConflict(true);
+        return;
+      }
       if (error instanceof ApiError && error.code === "invalid_rule") {
         const rejected = Object.entries(rejectedRules(error.details));
         if (rejected.length) {
@@ -153,6 +176,8 @@ export function useRulesEditor(collection: Collection, basePath: string) {
     accessEnabled,
     setAccess: setAccessEdit,
     dirty,
+    needsReview,
+    review,
     errors,
     results,
     testAs,

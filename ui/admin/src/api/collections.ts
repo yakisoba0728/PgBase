@@ -493,8 +493,8 @@ export function getCollectionRules(collection: string, signal?: AbortSignal): Pr
   return request("GET", `${base}/${seg(collection)}/rules`, { signal });
 }
 
-export function setCollectionRules(collection: string, rules: CollectionRules): Promise<RulePolicy> {
-  return request("PUT", `${base}/${seg(collection)}/rules`, { body: { rules } });
+export function setCollectionRules(collection: string, rules: CollectionRules, revision: number): Promise<RulePolicy> {
+  return request("PUT", `${base}/${seg(collection)}/rules`, { body: { rules, revision } });
 }
 
 

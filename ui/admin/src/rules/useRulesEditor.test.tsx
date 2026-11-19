@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../api/http";
 import type { Collection, CollectionRules } from "../api/collections";
 import { useRulesEditor } from "./useRulesEditor";
 
@@ -25,7 +26,7 @@ function editor() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  api.getCollectionRules.mockResolvedValue({ collection: "orders", rules: before });
+  api.getCollectionRules.mockResolvedValue({ collection: "orders", revision: 1, rules: before });
 });
 
 describe("native rule saves", () => {
@@ -38,7 +39,7 @@ describe("native rule saves", () => {
     await waitFor(() => expect(result.current.drafts).toBeDefined());
     act(() => result.current.update("list", { mode: "expression", expression: "status = 'open'" }));
     await act(() => result.current.save.mutateAsync());
-    expect(api.setCollectionRules).toHaveBeenCalledExactlyOnceWith("orders", { ...before, list: { op: "expression", expression: "status = 'open'" } });
+    expect(api.setCollectionRules).toHaveBeenCalledExactlyOnceWith("orders", { ...before, list: { op: "expression", expression: "status = 'open'" } }, 1);
     expect(result.current.guard.dirty).toBe(false);
     expect(result.current.drafts?.update.loaded).toEqual({ op: "owner" });
   });
@@ -108,4 +109,23 @@ it("does not attach a delayed preview to a newly edited rule", async () => {
   act(() => result.current.update("view", { mode: "admins" }));
   await act(async () => { resolve([{ recordId: "r", allowed: true }]); });
   expect(result.current.results.view).toBeUndefined();
+});
+
+it("pins edited rules to their original revision and preserves edits when reviewing newer rules", async () => {
+  const next: CollectionRules = { ...before, view: { op: "deny" } };
+  api.setCollectionRules.mockImplementationOnce(async () => {
+    api.getCollectionRules.mockResolvedValue({ collection: "orders", revision: 2, rules: next });
+    throw new ApiError(412, "precondition_failed", "Rules changed");
+  });
+  api.setCollectionRules.mockResolvedValue({ collection: "orders", revision: 3, rules: { ...next, list: { op: "allow" } } });
+  const { result } = editor();
+  await waitFor(() => expect(result.current.drafts).toBeDefined());
+  act(() => result.current.update("list", { mode: "everyone" }));
+  await act(() => result.current.save.mutateAsync().catch(() => undefined));
+  expect(api.setCollectionRules).toHaveBeenLastCalledWith("orders", { ...before, list: { op: "allow" } }, 1);
+  await waitFor(() => expect(result.current.needsReview).toBe(true));
+  await act(() => result.current.review.mutateAsync());
+  await waitFor(() => expect(result.current.needsReview).toBe(false));
+  await act(() => result.current.save.mutateAsync());
+  expect(api.setCollectionRules).toHaveBeenLastCalledWith("orders", { ...next, list: { op: "allow" } }, 2);
 });

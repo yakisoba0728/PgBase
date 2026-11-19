@@ -6,6 +6,8 @@ export const rulesKo: Record<keyof typeof rulesEn, string> = {
 
   "rules.title": "규칙",
   "rules.saved": "규칙을 저장했습니다.",
+  "rules.stale": "편집하는 동안 규칙이 변경되었습니다. 최신 규칙을 불러온 뒤 저장 전에 수정 내용을 검토하세요.",
+  "rules.reloadLatest": "최신 규칙 불러오기",
   "rules.accessTitle": "사용자·게스트 접근",
   "rules.accessLabel": "사용자와 게스트 요청 허용",
   "rules.accessOn": "아래 규칙이 요청마다 판단합니다.",

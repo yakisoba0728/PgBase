@@ -20,7 +20,10 @@ type nativeRulesService struct {
 	rules  accessrule.Rules
 }
 
-func (s *nativeRulesService) Set(_ context.Context, collection string, rules accessrule.Rules) (recordaccess.RulePolicy, error) {
+func (s *nativeRulesService) SetAtRevision(_ context.Context, collection string, rules accessrule.Rules, expected *int64) (recordaccess.RulePolicy, error) {
+	if expected != nil && *expected != int64(s.writes) {
+		return recordaccess.RulePolicy{}, recordaccess.ErrRuleRevisionConflict
+	}
 	s.writes++
 	s.rules = rules
 	return recordaccess.RulePolicy{Collection: collection, Rules: rules}, nil
@@ -87,5 +90,29 @@ func TestRuleErrorsNameTheActionAndPosition(t *testing.T) {
 	if json.Unmarshal(response.Body.Bytes(), &body) != nil || response.Code != http.StatusBadRequest || body.Error.Code != "invalid_rule" ||
 		fmt.Sprint(body.Error.Details) != "map[rules.update:[invalid_syntax] rules.update.position:[15]]" {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestRulesWriteRejectsStaleRevision(t *testing.T) {
+	service := &nativeRulesService{}
+	var handler http.Handler
+	for _, route := range ruleRoutes(Dependencies{RecordRules: service}) {
+		if route.method == http.MethodPut {
+			handler = route.handler
+		}
+	}
+	for _, want := range []int{http.StatusOK, http.StatusPreconditionFailed} {
+		body := `{"revision":0,"rules":{"list":{"op":"allow"},"view":{"op":"owner"},"create":{"op":"deny"},"update":{"op":"owner"},"delete":{"op":"deny"}}}`
+		request := httptest.NewRequest(http.MethodPut, "/api/admin/collections/posts/rules", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.SetPathValue("collection", "posts")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != want {
+			t.Fatalf("status=%d, want %d; body=%s", response.Code, want, response.Body.String())
+		}
+	}
+	if service.writes != 1 {
+		t.Fatalf("wrote %d times", service.writes)
 	}
 }

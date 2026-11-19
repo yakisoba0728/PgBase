@@ -8,6 +8,7 @@ import { authCollectionsQuery } from "../auth/queries";
 import { stringifyJson } from "../api/http";
 import type { Collection } from "../api/collections";
 import { Button } from "../components/Button";
+import { Notice } from "../components/Feedback";
 import { QueryView } from "../components/QueryView";
 import { Checkbox, Field } from "../components/Field";
 import { SaveBar } from "../components/SaveBar";
@@ -159,10 +160,15 @@ export function RulesView({ collection, basePath }: { collection: Collection; ba
         {() => (
           <div className="page-form">
             <div className="toolbar">
-              {source ? <p>{t("rules.inherited")} <Link to={`/collections/${encodeURIComponent(source)}/rules`}>{source}</Link></p> : <SaveBar dirty={editor.dirty} busy={editor.save.isPending} onDiscard={editor.discard} onSave={() => editor.save.mutate()} />}
+              {source ? <p>{t("rules.inherited")} <Link to={`/collections/${encodeURIComponent(source)}/rules`}>{source}</Link></p> : <SaveBar dirty={editor.dirty} busy={editor.save.isPending || editor.review.isPending} saveDisabled={!editor.dirty || editor.needsReview} onDiscard={editor.discard} onSave={() => editor.save.mutate()} />}
             </div>
             <fieldset className="page-content rules-layout" disabled={Boolean(source) || editor.save.isPending}>
               <div className="rules-main">
+                {editor.needsReview && (
+                  <Notice role="status" actions={<Button size="sm" loading={editor.review.isPending} onClick={() => editor.review.mutate()}>{t("rules.reloadLatest")}</Button>}>
+                    {t("rules.stale")}
+                  </Notice>
+                )}
 
                 <section className="stack-section">
                   <h2>{t("rules.accessTitle")}</h2>

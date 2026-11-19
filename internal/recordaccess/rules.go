@@ -13,6 +13,8 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
+var ErrRuleRevisionConflict = errors.New("record rule revision changed")
+
 type RulePolicy struct {
 	Collection string           `json:"collection"`
 	Rules      accessrule.Rules `json:"rules"`
@@ -47,6 +49,12 @@ func (s *RuleService) Get(ctx context.Context, name string) (RulePolicy, error) 
 }
 
 func (s *RuleService) Set(ctx context.Context, name string, rules accessrule.Rules) (RulePolicy, error) {
+	return s.SetAtRevision(ctx, name, rules, nil)
+}
+
+// SetAtRevision checks the optional expected revision under the policy writer lock.
+// Revision zero identifies the implicit owner policy before the first write.
+func (s *RuleService) SetAtRevision(ctx context.Context, name string, rules accessrule.Rules, expected *int64) (RulePolicy, error) {
 	result := RulePolicy{Collection: name, Rules: rules}
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
@@ -69,6 +77,15 @@ func (s *RuleService) Set(ctx context.Context, name string, rules accessrule.Rul
 
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM pgbase_meta.collection_access WHERE collection_id=$1 FOR UPDATE`, collection.ID); err != nil {
 			return err
+		}
+		if expected != nil {
+			_, revision, err := LoadRules(ctx, tx, collection.AccessCollectionID())
+			if err != nil {
+				return err
+			}
+			if revision != *expected {
+				return ErrRuleRevisionConflict
+			}
 		}
 		if err := ValidateRules(catalog, collection, rules); err != nil {
 			return err
