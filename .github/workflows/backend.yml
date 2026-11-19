@@ -12,6 +12,11 @@ on:
         required: false
         default: false
         type: boolean
+      skip_benchmarks:
+        description: Run functional qualification without benchmark collection
+        required: false
+        default: false
+        type: boolean
       candidate_image:
         description: Optional digest-pinned candidate supplied by the release gate
         required: false
@@ -339,30 +344,46 @@ jobs:
         with:
           node-version: 24.22.2
 
-      - name: Analyze and test Dart SDK
+      - name: Fetch Dart SDK dependencies for live conformance
         if: ${{ !matrix.postgres.shard }}
         working-directory: sdk/dart
+        run: dart pub get
+
+      # Run pure SDK checks once. The other PostgreSQL majors still prepare
+      # the SDKs and run the live tests against their own database service.
+      - name: Analyze and test Dart SDK
+        if: startsWith(matrix.postgres.version, '17.') && !matrix.postgres.shard
+        working-directory: sdk/dart
         run: |
-          dart pub get
           dart analyze
           dart test
 
-      - name: Install and verify TypeScript SDK against PgBase
+      - name: Prepare TypeScript SDK for live conformance
         if: ${{ !matrix.postgres.shard }}
+        shell: bash
         run: |
           npm --prefix sdk/typescript ci
           rm -rf sdk/typescript/dist
-          npm --prefix sdk/typescript test
-          # Include realtime and relation/text-identity contracts as well as
-          # the basic record fixture; the tag alone does not select tests.
-          go test -tags='integration sdkconformance' ./pgbase -run '^TestSDK' -count=1 -v
+          if [[ "$POSTGRES_VERSION" == 17.* ]]; then
+            npm --prefix sdk/typescript test
+          else
+            npm --prefix sdk/typescript run build
+          fi
+        env:
+          POSTGRES_VERSION: ${{ matrix.postgres.version }}
+
+      - name: Verify live SDK contracts on this PostgreSQL major
+        if: ${{ !matrix.postgres.shard }}
+        # Include realtime and relation/text-identity contracts as well as
+        # the basic record fixture; the tag alone does not select tests.
+        run: go test -tags='integration sdkconformance' ./pgbase -run '^TestSDK' -count=1 -v
 
       - name: Verify browser SDK example modules
-        if: inputs.source_commit == '' && !matrix.postgres.shard
+        if: inputs.source_commit == '' && startsWith(matrix.postgres.version, '17.') && !matrix.postgres.shard
         run: npm --prefix examples/user-notes test
 
       - name: Verify the TypeScript SDK distribution reproduces exactly
-        if: inputs.source_commit == '' && !matrix.postgres.shard
+        if: inputs.source_commit == '' && startsWith(matrix.postgres.version, '17.') && !matrix.postgres.shard
         shell: bash
         run: |
           set -euo pipefail
@@ -384,14 +405,14 @@ jobs:
         run: scripts/test-s3-fixture.sh down
 
       - name: Record benchmark baseline
-        if: (inputs.candidate_image != '' || github.event_name == 'workflow_dispatch' || inputs.full_validation) && !matrix.postgres.shard
+        if: ${{ !inputs.skip_benchmarks && (inputs.candidate_image != '' || github.event_name == 'workflow_dispatch' || inputs.full_validation) && !matrix.postgres.shard }}
         shell: bash
         run: |
           set -o pipefail
           go test -tags=integration ./internal/query ./internal/observability -run '^$' -bench . -benchmem 2>&1 | tee benchmark.txt
 
       - name: Upload benchmark baseline
-        if: ${{ always() && (inputs.candidate_image != '' || github.event_name == 'workflow_dispatch' || inputs.full_validation) && !matrix.postgres.shard }}
+        if: ${{ always() && !inputs.skip_benchmarks && (inputs.candidate_image != '' || github.event_name == 'workflow_dispatch' || inputs.full_validation) && !matrix.postgres.shard }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: benchmark-postgresql-${{ matrix.postgres.version }}
