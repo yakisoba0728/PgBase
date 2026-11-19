@@ -287,10 +287,16 @@ func accessLogMiddleware(logger *slog.Logger, settings *runtimesettings.Controll
 		if status == 0 {
 			status = http.StatusOK
 		}
-		if metadata.skipSuccessActivityLog && status >= http.StatusOK && status < http.StatusBadRequest {
+		succeeded := status >= http.StatusOK && status < http.StatusBadRequest
+		if metadata.skipSuccessActivityLog && succeeded {
 			return
 		}
 		for _, log := range logs {
+			// The process log still carries these; only the stored request
+			// log an operator browses leaves them out.
+			if succeeded && routineRequest(r.Method, requestRoute(r)) {
+				break
+			}
 			log.RecordContext(r.Method, requestRoute(r), status, time.Since(started), metadata.clientIP, metadata.authKind, metadata.authID)
 		}
 		attrs := []any{"request_id", requestID(r.Context()), "method", r.Method, "route", requestRoute(r), "status", status, "duration_ms", time.Since(started).Milliseconds()}
@@ -311,6 +317,25 @@ func accessLogMiddleware(logger *slog.Logger, settings *runtimesettings.Controll
 			logger.Info("http request", attrs...)
 		}
 	})
+}
+
+// routineRequest reports the requests the server and its own console make to
+// themselves: health probes and the administrator UI's reads. Logged on every
+// probe and page load they bury the application's traffic, so only their
+// failures are kept. Mutations, sign-ins and reads that move data out (schema
+// export, file content, backup downloads) stay in the log.
+func routineRequest(method, route string) bool {
+	if strings.HasPrefix(route, "/health/") {
+		return true
+	}
+	if method != http.MethodGet && method != http.MethodHead {
+		return false
+	}
+	switch route {
+	case "/api/admin/schema/export", "/api/admin/files/{fileId}", "/api/admin/backups/{id}":
+		return false
+	}
+	return route == "/admin/" || strings.HasPrefix(route, "/api/admin/")
 }
 
 // requestRoute returns only a registered ServeMux template. Raw request paths
