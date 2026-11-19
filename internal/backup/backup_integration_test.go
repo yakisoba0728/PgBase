@@ -4,6 +4,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/url"
@@ -92,7 +93,13 @@ func TestCreateAndRestoreDatabaseAndLocalFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	failedFiles := filepath.Join(t.TempDir(), "failed-restore-files")
-	if err = Restore(ctx, backupDirectory, conflictURL, failedFiles); err == nil {
+	conflictCtx, cancelConflict := context.WithCancel(t.Context())
+	defer cancelConflict()
+	if err = restore(conflictCtx, backupDirectory, conflictURL, failedFiles, func(ctx context.Context, name string, args, env []string) error {
+		err := run(ctx, name, args, env)
+		cancelConflict()
+		return err
+	}); err == nil {
 		t.Fatal("restore unexpectedly succeeded with conflicting schema")
 	}
 	if _, statErr := os.Stat(failedFiles); !os.IsNotExist(statErr) {
@@ -122,6 +129,36 @@ func TestCreateAndRestoreDatabaseAndLocalFiles(t *testing.T) {
 	if _, err = Verify(backupDirectory); err != nil {
 		t.Fatalf("source backup after restore = %v", err)
 	}
+	t.Run("unacknowledged commit retains files", func(t *testing.T) {
+		targetURL := testutil.NewDatabase(t)
+		targetFiles := filepath.Join(t.TempDir(), "restored-files")
+		restoreCtx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		missingAcknowledgment := errors.New("lost pg_restore acknowledgment")
+		err := restore(restoreCtx, backupDirectory, targetURL, targetFiles, func(ctx context.Context, name string, args, env []string) error {
+			if err := run(ctx, name, args, env); err != nil {
+				return err
+			}
+			cancel()
+			return missingAcknowledgment
+		})
+		if !errors.Is(err, missingAcknowledgment) || !strings.Contains(err.Error(), "installed files retained") {
+			t.Fatalf("restore error = %v", err)
+		}
+		conn, err := connectDatabase(t.Context(), targetURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close(t.Context())
+		var value string
+		if err := conn.QueryRow(t.Context(), `select value from app.backup_probe`).Scan(&value); err != nil || value != "restored" {
+			t.Fatalf("restored row = %q, %v", value, err)
+		}
+		content, err := os.ReadFile(filepath.Join(targetFiles, "nested", "object.bin"))
+		if err != nil || string(content) != "local-object" {
+			t.Fatalf("restored file = %q, %v", content, err)
+		}
+	})
 }
 
 func withPoolOption(t *testing.T, raw string) string {

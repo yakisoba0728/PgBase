@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
@@ -212,9 +213,38 @@ func (c *Controller) Get() Settings {
 	v := c.value
 	return clone(v)
 }
+
+// LogRetention returns the retention and its revision from the same snapshot.
+func (c *Controller) LogRetention() (time.Duration, int64) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return time.Duration(c.value.Logs.RetentionDays) * 24 * time.Hour, c.value.Revision
+}
+
+// Refresh publishes settings committed by another instance.
+func (c *Controller) Refresh(ctx context.Context) error {
+	return c.reload(ctx, true)
+}
+
 func (c *Controller) Reload(ctx context.Context) error {
+	return c.reload(ctx, false)
+}
+
+func (c *Controller) reload(ctx context.Context, onlyNewer bool) error {
 	c.notifyMu.Lock()
 	defer c.notifyMu.Unlock()
+	if onlyNewer {
+		var revision int64
+		if err := c.pool.QueryRow(ctx, `select revision from pgbase_meta.runtime_settings where singleton`).Scan(&revision); err != nil {
+			return err
+		}
+		c.mu.RLock()
+		unchanged := revision <= c.value.Revision
+		c.mu.RUnlock()
+		if unchanged {
+			return nil
+		}
+	}
 	var ciphertext, legacy []byte
 	v := Default()
 	var revision int64

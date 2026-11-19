@@ -3,12 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/yakisoba0728/PgBase/internal/lifecycle"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
+	"github.com/yakisoba0728/PgBase/internal/responseprojection"
 )
 
 type hookBatchService struct {
@@ -18,7 +20,48 @@ type hookBatchService struct {
 
 func (s *hookBatchService) Batch(_ context.Context, request recordops.BatchRequest) ([]recordops.MutationResult, error) {
 	s.calls++
-	return make([]recordops.MutationResult, len(request.Operations)), nil
+	results := make([]recordops.MutationResult, len(request.Operations))
+	return results, request.PrepareResponse(results)
+}
+
+func TestBatchResponseBudgetIncludesWireFraming(t *testing.T) {
+	result := recordops.MutationResult{Record: &recordops.Record{
+		Data: map[string]any{"id": "public-id", "target": "<&>", "omitted": "other"},
+		ETag: `"tag"`, Version: 7,
+	}}
+	projection, err := responseprojection.CompileProjection("id,target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := []recordops.MutationResult{result, {}}
+	for _, statuses := range [][]int{nil, {http.StatusOK, http.StatusNoContent}} {
+		encoded, err := encodeBatchResponse(results, statuses, projection, maximumBatchResponseBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var response struct {
+			Results []batchResult `json:"results"`
+		}
+		if err := json.Unmarshal(encoded, &response); err != nil || len(response.Results) != 2 {
+			t.Fatalf("response=%s, error=%v", encoded, err)
+		}
+		data := response.Results[0].Record
+		if len(statuses) != 0 {
+			data, _ = response.Results[0].Body.(map[string]any)
+			if response.Results[0].Headers["ETag"] != result.Record.ETag || response.Results[1].Status != http.StatusNoContent {
+				t.Fatalf("missing compatibility framing: %s", encoded)
+			}
+		}
+		if len(data) != 2 || data["id"] != "public-id" || data["target"] != "<&>" {
+			t.Fatalf("invalid public projection: %s", encoded)
+		}
+		if _, err := encodeBatchResponse(results, statuses, projection, len(encoded)); err != nil {
+			t.Fatalf("response at the byte limit: %v", err)
+		}
+		if _, err := encodeBatchResponse(results, statuses, projection, len(encoded)-1); !errors.Is(err, errResponseTooLarge) {
+			t.Fatalf("response one byte over the limit: %v", err)
+		}
+	}
 }
 
 func TestBatchHooksKeepHTTPResultStatusesAlignedWithOperations(t *testing.T) {

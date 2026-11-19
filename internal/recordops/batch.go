@@ -16,8 +16,8 @@ import (
 // The transaction kernel must accommodate the full supported setting range.
 const maximumBatchOperations = 100
 
-// Match the escaped record-page budget. The HTTP layer reserves a further
-// 32 KiB for event IDs, ETags, versions and the outer JSON envelope.
+// Bound the internal results as operations accumulate. HTTP callers also
+// check the final public response, which can grow when IDs are projected.
 const maximumBatchResponseBytes = 48<<20 + 4<<10
 
 type batchMutationKey struct{}
@@ -121,6 +121,9 @@ func (s *Service) Batch(ctx context.Context, request BatchRequest) (results []Mu
 				}
 				projectMutationResult(collection, request.Principal, &results[index])
 			}
+		}
+		if request.PrepareResponse != nil {
+			return request.PrepareResponse(results)
 		}
 		return nil
 	})

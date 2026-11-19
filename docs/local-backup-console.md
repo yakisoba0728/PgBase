@@ -17,7 +17,7 @@ Restore requires the same major version for the PostgreSQL server, `pg_restore`,
 pgbase backup restore --directory /srv/backups/pgbase-2026-09-09
 ```
 
-The database restore uses one transaction. Files are copied into a fresh staging directory and installed before the transactional `pg_restore` begins, so a successful database commit already has its files available. A failed restore removes only the new file target it installed. Restore never moves or removes files from the backup directory, so the same verified backup remains available for another recovery attempt.
+The database restore uses one transaction. PgBase installs files from a fresh staging directory before `pg_restore` begins, so they are available when the database commits. If `pg_restore` reports an error, PgBase removes the installed files only after confirming the database transaction rolled back. When the database may have committed, PgBase returns an error and retains the file target. Inspect the database and files together before clearing either target or retrying the restore. The verified backup remains available for another recovery attempt.
 
 Install `pg_dump` and `pg_restore` from the PostgreSQL major version used by the server. Connection settings are passed through libpq environment variables, and the password is written only to a temporary mode-0600 passfile; the database URL and password are not placed in child-process arguments.
 

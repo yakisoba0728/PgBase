@@ -19,6 +19,9 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 		if a.backupGate != nil && a.backupGate.Active() {
 			runners = append(runners, namedBackgroundRunner{"PostgreSQL writer gate", a.backupGate})
 		}
+		if a.runtimeSettings != nil {
+			runners = append(runners, namedBackgroundRunner{"runtime settings refresh", runtimeSettingsRefresher{a.runtimeSettings, a.options.Logger}})
+		}
 		for _, candidate := range []namedBackgroundRunner{
 			{"administrator authentication cleaner", a.cleaner},
 			{"record idempotency cleaner", a.recordCleaner},

@@ -381,7 +381,25 @@ func location(s StorageSettings) string {
 	if s.Driver == "local" {
 		return "local"
 	}
-	return strings.Join([]string{s.Driver, s.Bucket, strings.TrimRight(s.Endpoint, "/")}, "\x00")
+	return strings.Join([]string{s.Driver, s.Bucket, storageEndpointIdentity(s.Endpoint)}, "\x00")
+}
+
+func storageEndpointIdentity(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Hostname() == "" {
+		return endpoint
+	}
+	host := u.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		host = ip.String()
+	} else if !strings.Contains(host, ":") {
+		host = strings.TrimSuffix(strings.ToLower(host), ".")
+	}
+	port := u.Port()
+	if u.Scheme == "https" && port == "443" || u.Scheme == "http" && port == "80" {
+		port = ""
+	}
+	return u.Scheme + "://" + net.JoinHostPort(host, port)
 }
 func (c *StorageController) validate(s StorageSettings) error {
 	if s.Driver == "local" {

@@ -6,13 +6,15 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/jobs"
 	"github.com/yakisoba0728/PgBase/internal/observability"
+	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 )
 
-func newRequestLog(pool *database.Pool, options Options) *observability.RequestLog {
+func newRequestLog(pool *database.Pool, options Options, settings *runtimesettings.Controller) *observability.RequestLog {
 	return observability.NewRequestLog(pool, observability.RequestLogOptions{
-		Retention:     options.Operations.RequestLogRetention,
-		MaximumRows:   options.Operations.RequestLogMaximumRows,
-		QueueCapacity: options.Operations.RequestLogQueueCapacity,
+		Retention:        options.Operations.RequestLogRetention,
+		MaximumRows:      options.Operations.RequestLogMaximumRows,
+		QueueCapacity:    options.Operations.RequestLogQueueCapacity,
+		RuntimeRetention: settings.LogRetention,
 	})
 }
 

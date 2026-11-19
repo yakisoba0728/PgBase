@@ -19,6 +19,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/filestore"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/recordops"
+	"github.com/yakisoba0728/PgBase/internal/responseprojection"
 	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 )
 
@@ -214,16 +215,25 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	var results []recordops.MutationResult
+	var response []byte
 	err = finishLifecycle(finish, func() error {
-		results, err = service.Batch(r.Context(), recordops.BatchRequest{
+		results, err := service.Batch(r.Context(), recordops.BatchRequest{
 			Principal: principal, RequestID: requestID(r.Context()), Operations: event.Operations, Participants: participants, RuleContext: ruleRequestContext(r),
+			PrepareResponse: func(results []recordops.MutationResult) error {
+				var err error
+				response, err = encodeBatchResponse(results, statuses, projection, maximumBatchResponseBytes)
+				return err
+			},
 		})
 		event.Results = cloneMutationResults(results)
 		return err
 	})
 	if err != nil {
 		e.cleanupStaged(r, staged)
+		if errors.Is(err, errResponseTooLarge) {
+			writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "response_too_large", Message: "Batch response exceeds the limit"})
+			return
+		}
 		writeRecordError(w, r, err)
 		return
 	}
@@ -231,11 +241,21 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		e.files.CompleteStaged(staged.files(), nil)
 		e.cleanupStaged(r, staged)
 	}
-	response := make([]batchResult, 0, len(results))
-	for _, result := range results {
+	writeJSONHeader(w, http.StatusOK)
+	_, _ = w.Write(response)
+}
+
+func encodeBatchResponse(results []recordops.MutationResult, statuses []int, projection responseprojection.Projection, maximumBytes int) ([]byte, error) {
+	const suffix = "]}\n"
+	var response bytes.Buffer
+	response.WriteString(`{"results":[`)
+	for index, result := range results {
+		if index > 0 {
+			response.WriteByte(',')
+		}
 		item := batchResult{EventID: result.EventID.String()}
 		if len(statuses) > 0 {
-			item.Status = statuses[len(response)]
+			item.Status = statuses[index]
 		}
 		if result.Record != nil {
 			if len(statuses) > 0 {
@@ -247,11 +267,17 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 			item.ETag = result.Record.ETag
 			item.Version = result.Record.Version
 		}
-		response = append(response, item)
+		encoded, err := json.Marshal(item)
+		if err != nil {
+			return nil, err
+		}
+		if response.Len()+len(encoded)+len(suffix) > maximumBytes {
+			return nil, errResponseTooLarge
+		}
+		response.Write(encoded)
 	}
-	writeJSON(w, http.StatusOK, struct {
-		Results []batchResult `json:"results"`
-	}{response})
+	response.WriteString(suffix)
+	return response.Bytes(), nil
 }
 
 // cleanupStaged preserves request-independent staged-file hygiene while

@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/query"
+	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
 func TestBatchConditionalUpsertDoesNotCreateAbsentRecord(t *testing.T) {
@@ -75,6 +76,45 @@ func TestBatchRollsBackEveryRecordArtifact(t *testing.T) {
 		}
 		if count != 0 {
 			t.Fatalf("%s rows after rollback = %d", table, count)
+		}
+	}
+}
+
+func TestBatchResponseFailureRollsBackProjectedResults(t *testing.T) {
+	pool, schemas, records, principal := newRecordOperationsTest(t)
+	ctx := t.Context()
+	change := schema.NewCreateChange(schema.CreateCollectionInput{
+		Name:     "batch_public_id",
+		RecordID: &schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 32, Pattern: `^[a-z-]+$`},
+		Fields:   []schema.FieldInput{{Name: "title", Type: schema.TypeText}},
+	})
+	plan, err := schemas.Preview(ctx, change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := schemas.Apply(ctx, schema.LegacyApply(change, plan, principal.ID)); err != nil {
+		t.Fatal(err)
+	}
+	input := batchInput("must-roll-back")
+	input["id"] = json.RawMessage(`"public-id"`)
+	rejection := errors.New("response exceeds fixture limit")
+	results, err := records.Batch(ctx, BatchRequest{
+		Principal: principal, RequestID: "batch-response-rollback",
+		Operations: []BatchOperation{{Create: &CreateRequest{Collection: "batch_public_id", Input: input}}},
+		PrepareResponse: func(results []MutationResult) error {
+			if len(results) != 1 || results[0].Record == nil || results[0].Record.Data["id"] != "public-id" {
+				t.Errorf("prepare response did not receive the public record: %#v", results)
+			}
+			return rejection
+		},
+	})
+	if !errors.Is(err, rejection) || results != nil {
+		t.Fatalf("batch results=%#v err=%v", results, err)
+	}
+	for _, table := range []string{"app.batch_public_id", "pgbase_meta.record_identities", "pgbase_meta.record_revisions", "pgbase_meta.record_audit_events", "pgbase_meta.record_outbox"} {
+		var count int
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("%s rows after response rejection = %d, err=%v", table, count, err)
 		}
 	}
 }
