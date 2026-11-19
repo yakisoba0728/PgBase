@@ -164,6 +164,8 @@ alter role pgbase_sql_reader in database pgbase set default_transaction_read_onl
 
 Grant `SELECT` on the readable columns of every collection, and on a new collection or field after a schema change, before the console is next restarted; a missing grant fails the startup check. Never grant a password column. Statements see PostgreSQL data directly, so collection access rules do not apply to them: the console is an administrator tool, and its history records who ran what.
 
+The console keeps raw results in process memory for up to five minutes. The cache holds at most 256 completed executions, with estimated result memory limited to 16 MiB per administrator session and 64 MiB per process. If a limit is reached, older results are evicted and polling or idempotent replay returns the durable execution metadata.
+
 ## Record mutation safety
 
 Use a new 16–128 character `Idempotency-Key` for each logical record create and keep the same key and JSON body when retrying an unknown response. A successful first execution and replay both return 201 with the original `ETag` and `Location`; `Idempotency-Replayed` distinguishes them. Reusing the key for another body returns 409. Raw keys are not stored, and completed replay state expires after 24 hours; every instance drains expired rows in 256-row `SKIP LOCKED` transactions with a short yield between full batches.
