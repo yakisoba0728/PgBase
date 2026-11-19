@@ -63,7 +63,8 @@ func TestBackupRoutesAdmissionStreamingAndReceipts(t *testing.T) {
 	session := validSession()
 	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator, authenticateExpiry: time.Now().Add(time.Hour)}
 	backups := &consoleBackups{}
-	router := mustRouter(t, Dependencies{AdminAuth: auth, PublicURL: mustURL("https://admin.example.com"), Backups: backups})
+	stored := &observability.RequestLog{}
+	router := mustRouter(t, Dependencies{AdminAuth: auth, PublicURL: mustURL("https://admin.example.com"), Backups: backups, RequestLog: stored})
 	request := func(method, path, body, contentType string, csrf bool) *httptest.ResponseRecorder {
 		req := authenticatedRecordRequest(method, path, body, csrf)
 		if contentType != "" {
@@ -80,6 +81,15 @@ func TestBackupRoutesAdmissionStreamingAndReceipts(t *testing.T) {
 	if got := request("GET", "/api/admin/backups", "", "", false); got.Code != 200 || !strings.Contains(got.Body.String(), `"size":7`) {
 		t.Fatalf("list = %d %s", got.Code, got.Body.String())
 	}
+	if items := stored.Page(0, 0).Items; len(items) != 0 {
+		t.Fatalf("backup list should not produce stored entries: %#v", items)
+	}
+	if got := request("GET", "/api/admin/backups/id", "", "", false); got.Code != 200 || got.Body.String() != "archive" || got.Header().Get("Content-Disposition") == "" {
+		t.Fatalf("download = %d %#v %q", got.Code, got.Header(), got.Body.String())
+	}
+	if items := stored.Page(0, 0).Items; len(items) != 1 || items[0].Route != "/api/admin/backups/{id}" || items[0].Status != 200 {
+		t.Fatalf("backup download should produce one successful stored entry: %#v", items)
+	}
 	if got := request("POST", "/api/admin/backups", "", "", true); got.Code != 202 {
 		t.Fatalf("create = %d %s", got.Code, got.Body.String())
 	}
@@ -88,9 +98,6 @@ func TestBackupRoutesAdmissionStreamingAndReceipts(t *testing.T) {
 	}
 	if got := request("POST", "/api/admin/backups/upload", "gzip", "application/gzip", true); got.Code != 201 {
 		t.Fatalf("upload = %d %s", got.Code, got.Body.String())
-	}
-	if got := request("GET", "/api/admin/backups/id", "", "", false); got.Code != 200 || got.Body.String() != "archive" || got.Header().Get("Content-Disposition") == "" {
-		t.Fatalf("download = %d %#v %q", got.Code, got.Header(), got.Body.String())
 	}
 	if got := request("DELETE", "/api/admin/backups/id", "", "", false); got.Code != 403 {
 		t.Fatalf("unprotected delete = %d", got.Code)

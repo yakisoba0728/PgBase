@@ -323,7 +323,7 @@ func accessLogMiddleware(logger *slog.Logger, settings *runtimesettings.Controll
 // themselves: health probes and the administrator UI's reads. Logged on every
 // probe and page load they bury the application's traffic, so only their
 // failures are kept. Mutations, sign-ins and reads that move data out (schema
-// export, file content) stay in the log.
+// export, file content, backup downloads) stay in the log.
 func routineRequest(method, route string) bool {
 	if strings.HasPrefix(route, "/health/") {
 		return true
@@ -332,7 +332,7 @@ func routineRequest(method, route string) bool {
 		return false
 	}
 	switch route {
-	case "/api/admin/schema/export", "/api/admin/files/{fileId}":
+	case "/api/admin/schema/export", "/api/admin/files/{fileId}", "/api/admin/backups/{id}":
 		return false
 	}
 	return route == "/admin/" || strings.HasPrefix(route, "/api/admin/")
