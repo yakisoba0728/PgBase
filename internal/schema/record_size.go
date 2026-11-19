@@ -5,10 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -22,9 +22,9 @@ const MaximumRecordBytes = 8 << 20
 // not rewrite its values. The caller holds the schema write fence and runs this
 // after DDL, so a failure rolls back both physical and catalog changes.
 func validateChangedRecordSizes(ctx context.Context, tx pgx.Tx, before, after Collection) error {
-	existing := make(map[uuid.UUID]FieldType, len(before.Fields))
+	existing := make(map[uuid.UUID]Field, len(before.Fields))
 	for _, field := range before.Fields {
-		existing[field.ID] = field.Type
+		existing[field.ID] = field
 	}
 	grows := false
 	columns := []string{"root.id", "root.created_at", "root.updated_at"}
@@ -33,7 +33,8 @@ func validateChangedRecordSizes(ctx context.Context, tx pgx.Tx, before, after Co
 		if field.Type == TypeFile {
 			continue
 		}
-		grows = grows || existing[field.ID] != field.Type
+		previous := existing[field.ID]
+		grows = grows || previous.Type != field.Type || len(previous.Name) < len(field.Name)
 		column := "root." + pgx.Identifier{field.ColumnName}.Sanitize()
 		switch field.Type {
 		case TypeBigInt, TypeNumeric:
@@ -51,8 +52,13 @@ func validateChangedRecordSizes(ctx context.Context, tx pgx.Tx, before, after Co
 	if !grows {
 		return nil
 	}
-	rows, err := tx.Query(ctx, "select to_jsonb(record) from (select "+strings.Join(columns, ", ")+" from "+
-		pgx.Identifier{"app", after.TableName}.Sanitize()+" as root) as record")
+	// PostgreSQL JSONB text includes the original value escapes and extra
+	// whitespace that Go removes. ASCII field names keep their encoded length.
+	// Only the typed timestamps are rewritten by Go, to at most 32 bytes each
+	// including quotes. Send rows to Go only when that upper bound can overflow.
+	rows, err := tx.Query(ctx, "select body from (select to_jsonb(record) as body from (select "+strings.Join(columns, ", ")+" from "+
+		pgx.Identifier{"app", after.TableName}.Sanitize()+" as root) as record) as encoded "+
+		"where octet_length(convert_to(body::text, 'UTF8')) > $1", MaximumRecordBytes-32*len(timestamps))
 	if err != nil {
 		return fmt.Errorf("inspect schema record sizes: %w", err)
 	}
@@ -63,7 +69,7 @@ func validateChangedRecordSizes(ctx context.Context, tx pgx.Tx, before, after Co
 			return fmt.Errorf("decode schema record: %w", err)
 		}
 		// Match query.EncodeRecord's UTC timestamp spelling. RawMessage keeps
-		// JSONB numbers remain lossless and ValidateRecordSize applies the same
+		// JSONB numbers lossless and ValidateRecordSize applies the same
 		// compact, non-HTML-escaped representation as the record write bound.
 		for _, name := range timestamps {
 			if string(record[name]) == "null" {
