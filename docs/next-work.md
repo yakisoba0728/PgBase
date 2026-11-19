@@ -1,5 +1,7 @@
 # 다음 작업과 완료 기준
 
+2026-11-19 기준: main은 `64512f78`(schema 71)이다. 요청 로그 정리([PR #159](https://github.com/yakisoba0728/PgBase/pull/159)), jobs 예약 시각([PR #160](https://github.com/yakisoba0728/PgBase/pull/160)), batch·복원·로그 보호([PR #161](https://github.com/yakisoba0728/PgBase/pull/161)), 감사 지적 일괄 수정과 migration `000070`·`000071`([PR #162](https://github.com/yakisoba0728/PgBase/pull/162)), 그 후속 test 수정([PR #163](https://github.com/yakisoba0728/PgBase/pull/163)), 브랜드 마크([PR #164](https://github.com/yakisoba0728/PgBase/pull/164)), 컬렉션 API 탭 서비스 토큰 예시([PR #166](https://github.com/yakisoba0728/PgBase/pull/166))를 병합했다. 운영 배포 여부는 확인하지 않음. 범위와 검증은 [현재 상태](project-status.md) §18을 따른다.
+
 2026-11-18 기준: main과 운영의 runtime은 `df18bfe3`(schema 69)이다. 미룬 UI 항목 4개([PR #157](https://github.com/yakisoba0728/PgBase/pull/157))와 간헐 실패 test 두 건([PR #155](https://github.com/yakisoba0728/PgBase/pull/155)·[PR #156](https://github.com/yakisoba0728/PgBase/pull/156))을 처리해 배포했다. 운영에는 첫 관리자가 만들어져 있다. 범위와 검증은 [현재 상태](project-status.md) §17을 따른다.
 
 2026-11-17 기준: main은 `d64c729f`(schema 69)이고 운영은 main `57507741`을 빈 데이터로 새로 설치한 상태다. 플랫폼 강화([PR #148](https://github.com/yakisoba0728/PgBase/pull/148))를 병합하고 같은 날 배포했으며, main `57507741`을 [v0.4.0](https://github.com/yakisoba0728/PgBase/releases/tag/v0.4.0)으로 게시했다. 범위와 검증은 [현재 상태](project-status.md) §15를 따른다.
@@ -23,9 +25,17 @@
 | 완료(소유자 결정) | frontend audit gate 범위([PR #152](https://github.com/yakisoba0728/PgBase/pull/152)) | 배포 의존성만 막고 개발 의존성은 경고. picomatch GHSA-fc5q-39xc-vjpf 패치가 나오면 재검토 |
 | 완료 | 간헐 실패 test 두 건([PR #155](https://github.com/yakisoba0728/PgBase/pull/155)·[PR #156](https://github.com/yakisoba0728/PgBase/pull/156)) | `internal/filestore`는 250ms 대기가 1초 정리 예산보다 짧았고, `internal/cli` watch는 상태 줄 출력 전에 stdout을 읽었다. 둘 다 test만 수정, 제품 경합 아님 |
 | 완료 | UI 점검에서 미룬 항목([PR #157](https://github.com/yakisoba0728/PgBase/pull/157)) | 화면 쪽 email·URL·필수 검증, 휴대폰 사용자·logs 목록의 보조 열, jobs pane 옆 목록, 비활성 danger 버튼. 로컬 서버 렌더링으로 확인, unit 460·필수 CI 통과, 운영 배포 |
+| 완료 | 요청 로그 잡음 제거([PR #159](https://github.com/yakisoba0728/PgBase/pull/159)) | 성공한 health probe와 관리자 콘솔 자체 `GET`/`HEAD`를 저장 로그에서 제외. 실패·로그인·변경·내보내기 읽기는 계속 저장. 관리자가 어떤 화면을 열었는지는 더 이상 남지 않는다 |
+| 완료 | jobs 예약 시각([PR #160](https://github.com/yakisoba0728/PgBase/pull/160)) | interval·cron 발생 시각을 PostgreSQL 시각으로 계산. jobs 통합 package race 검사 PostgreSQL 17.9·18.6 통과(PR 본문) |
+| 완료 | batch·복원·저장소 정리·로그 정리 보호([PR #161](https://github.com/yakisoba0728/PgBase/pull/161)) | 초과 batch 응답은 commit 전 400으로 rollback, 불확실한 복원 commit에서 파일 보존, S3 endpoint 정규화, 로그 기간 정리를 settings revision으로 fence |
+| 완료 | 감사 지적 일괄 수정([PR #162](https://github.com/yakisoba0728/PgBase/pull/162)) | migration `000070`·`000071`(index만), schema 69 → 71. 서비스 토큰 목록 `{items,nextAfter?}`·규칙 PUT `revision`(오래되면 412)·offset 응답 budget 초과 시 검증 오류·realtime `retryable` 표시 등 계약 변경. 다중 instance realtime은 load-balancer affinity 필요 |
+| 완료 | #162 후속 test 수정([PR #163](https://github.com/yakisoba0728/PgBase/pull/163)) | #162 병합 뒤 main push Backend의 integration vet 실패를 해소. test만 변경 |
+| 완료 | 브랜드 마크([PR #164](https://github.com/yakisoba0728/PgBase/pull/164))·서비스 토큰 API 예시([PR #166](https://github.com/yakisoba0728/PgBase/pull/166)) | favicon·워드마크 아이콘·README 로고, 컬렉션 API 탭의 서비스 토큰 호출자 모드. UI unit 473(#164)·475(#166) 통과(PR 본문) |
+| 남음 | 운영 배포(schema 71) | 확인하지 않음. 69 → 71은 stop–migrate–start 절차. S3 정리 worker와 로그 정리 replica를 모두 새 build로 올린 뒤에 #161 보호를 전제로 한다 |
+| 남음 | #162 통합 검증 결과 | PR 본문 작성 시점에 통합 Go·PostgreSQL+MinIO·Chromium 실행이 진행 중이었다. 필수 검사 5개 통과는 확인했고 그 밖의 결과는 확인하지 않음 |
 | 남음 | CI PostgreSQL 재초기화 | PR #157 통합 검사에서 backend가 `exit code 2`로 끝나 서버가 재초기화됐다(재실행 통과). 원인 test 미확인 |
 | 남음 | UI 한계 | 날짜·시간 입력 표기(자체 위젯 필요), 휴대폰 logs 요청 칸, pane을 닫은 jobs 목록의 긴 결과 문구. Safari·Firefox·setup 화면·모바일 overlay 미확인 |
-| 소유자 결정 | v0.4.1 릴리스 | v0.4.0 이후 UI 수정(#151, #153, #157)이 tag 없이 main과 운영에 있다 |
+| 소유자 결정 | v0.4.0 이후 릴리스 | v0.4.0(schema 69) 이후 #151, #153, #157(main과 운영)과 #159–#164, #166(main, 운영 확인하지 않음)이 tag 없이 있다. #162로 source가 schema 71을 요구하므로 schema 69 그대로인 패치 릴리스가 아니다 |
 | 소유자 작업 | 운영 설정 | 첫 관리자는 만들어졌다. SMTP 등 운영 설정을 다시 넣는다 |
 | 소유자 작업 | Dokploy API key 교체 | 작업 세션 기록에 key가 노출됐다 |
 | 남음 | 운영 사후 확인 | 로그인 후 화면·CRUD·realtime·jobs·파일 동작은 운영에서 확인하지 않았다. 운영 백업은 없다 |
