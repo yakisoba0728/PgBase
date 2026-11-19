@@ -216,8 +216,6 @@ func newWithCatalogPreflight(
 		return nil, err
 	}
 	realtimeService := realtime.NewService(pool, normalized.Logger, schemaService)
-	requestLog := newRequestLog(pool, normalized)
-	app.requestLog = requestLog
 	runtimeSettingsKey := normalized.RuntimeSettingsEncryptionKey
 	if len(runtimeSettingsKey) == 0 {
 		runtimeSettingsKey = normalized.TokenSecret
@@ -226,6 +224,8 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, fmt.Errorf("initialize runtime settings: %w", err)
 	}
+	requestLog := newRequestLog(pool, normalized, runtimeSettings)
+	app.requestLog = requestLog
 	apiLimits := apiratelimit.New(pool, normalized.TokenSecret, runtimeSettings.Get())
 	runtimeSettings.Subscribe(apiLimits.Set)
 	applyAdminRatePolicy := func(value runtimesettings.Settings) {
@@ -237,15 +237,15 @@ func newWithCatalogPreflight(
 	// Request diagnostics intentionally never retain IP addresses or auth
 	// material. The persisted privacy switches remain a truthful declaration of
 	// that fixed redaction boundary while retention is applied live.
-	applyLogSettings := func(value runtimesettings.Settings) {
+	pruneLogs := func(runtimesettings.Settings) {
 		retentionCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if applyErr := requestLog.SetRetention(retentionCtx, time.Duration(value.Logs.RetentionDays)*24*time.Hour); applyErr != nil {
+		if applyErr := requestLog.PruneExpired(retentionCtx); applyErr != nil {
 			normalized.Logger.ErrorContext(retentionCtx, "apply request log retention", "error", applyErr)
 		}
 	}
-	applyLogSettings(runtimeSettings.Get())
-	runtimeSettings.Subscribe(applyLogSettings)
+	pruneLogs(runtimeSettings.Get())
+	runtimeSettings.Subscribe(pruneLogs)
 	applicationRealtimeBroker := api.NewApplicationRealtimeBroker()
 	dependencies, extensionMailer, userService, err := withUserServices(api.Dependencies{
 		Realtime:                  realtimeService,

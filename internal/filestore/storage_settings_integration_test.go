@@ -162,7 +162,8 @@ func TestStorageLeaseDoesNotExhaustRequestPoolAndLostLeaseCannotPublish(t *testi
 	}
 	lease := leasedCtx.Value(storageLeaseContextKey{}).(storageLease)
 	var terminated bool
-	if err := pool.QueryRow(ctx, `select pg_terminate_backend($1)`, int32(lease.backend)).Scan(&terminated); err != nil || !terminated {
+	// Wait for the backend to release its advisory lock before testing lease loss.
+	if err := pool.QueryRow(ctx, `select pg_terminate_backend($1,5000)`, int32(lease.backend)).Scan(&terminated); err != nil || !terminated {
 		t.Fatalf("terminate storage lease backend=%t err=%v", terminated, err)
 	}
 	err = pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -679,17 +680,13 @@ func (s *ObjectMigrationService) CleanupOne(ctx context.Context) (bool, error) {
 		if err != nil {
 			return err
 		}
-		current, currentSecret, err := s.controller.load(ctx)
+		current, _, err := loadStorageSettings(ctx, tx)
 		if err != nil {
 			return err
 		}
-		plainSecret, err := s.controller.decrypt(currentSecret)
-		if err != nil {
-			return err
-		}
-		active := storageSnapshot{Driver: current.Driver, LocalDirectory: s.controller.localDirectory, Bucket: current.Bucket, Region: current.Region, Endpoint: current.Endpoint, AccessKey: current.AccessKey, SecretKey: string(plainSecret), UsePathStyle: current.UsePathStyle, AllowInsecureLoopback: s.controller.allowInsecureLoopback}
-		if snapshotLocation(sourceSnapshot) == snapshotLocation(active) {
-			_, err = tx.Exec(ctx, `update pgbase_meta.file_storage_source_cleanup set not_before=CURRENT_TIMESTAMP+interval '1 hour',failure='source namespace is active' where migration_id=$1 and object_key=$2`, migrationID, key)
+		active := storageSnapshot{Driver: current.Driver, LocalDirectory: s.controller.localDirectory, Bucket: current.Bucket, Endpoint: current.Endpoint}
+		if storageNamespacesMayOverlap(sourceSnapshot, active) {
+			_, err = tx.Exec(ctx, `update pgbase_meta.file_storage_source_cleanup set not_before=CURRENT_TIMESTAMP+interval '1 hour',failure='source namespace may overlap active storage' where migration_id=$1 and object_key=$2`, migrationID, key)
 			return err
 		}
 		rows, err := tx.Query(ctx, `select source_config_ciphertext,destination_config_ciphertext from pgbase_meta.file_storage_migrations where status in ('copying','canceling','ready','activating')`)
@@ -710,7 +707,7 @@ func (s *ObjectMigrationService) CleanupOne(ctx context.Context) (bool, error) {
 			if decodeErr != nil {
 				return decodeErr
 			}
-			if snapshotLocation(sourceSnapshot) == snapshotLocation(from) || snapshotLocation(sourceSnapshot) == snapshotLocation(to) {
+			if storageNamespacesMayOverlap(sourceSnapshot, from) || storageNamespacesMayOverlap(sourceSnapshot, to) {
 				migrationUsesSource = true
 				break
 			}
@@ -720,7 +717,7 @@ func (s *ObjectMigrationService) CleanupOne(ctx context.Context) (bool, error) {
 			return err
 		}
 		if migrationUsesSource {
-			_, err = tx.Exec(ctx, `update pgbase_meta.file_storage_source_cleanup set not_before=CURRENT_TIMESTAMP+interval '1 hour',failure='source namespace is used by an active migration' where migration_id=$1 and object_key=$2`, migrationID, key)
+			_, err = tx.Exec(ctx, `update pgbase_meta.file_storage_source_cleanup set not_before=CURRENT_TIMESTAMP+interval '1 hour',failure='source namespace may overlap an active migration' where migration_id=$1 and object_key=$2`, migrationID, key)
 			return err
 		}
 		source, err := s.buildStore(ctx, sourceSnapshot)
@@ -750,6 +747,23 @@ func snapshotLocation(s storageSnapshot) string {
 		return "local\x00" + s.LocalDirectory
 	}
 	return location(StorageSettings{Driver: s.Driver, Bucket: s.Bucket, Endpoint: s.Endpoint})
+}
+
+func storageNamespacesMayOverlap(source, other storageSnapshot) bool {
+	if source.Driver == "s3" && other.Driver == "s3" {
+		// Different S3 endpoints can route to the same backing store. Only
+		// separate literal buckets within one endpoint establish a cleanup boundary.
+		return strings.EqualFold(source.Bucket, other.Bucket) ||
+			storageEndpointIdentity(source.Endpoint) != storageEndpointIdentity(other.Endpoint) ||
+			s3BucketMayBeAlias(source.Bucket) || s3BucketMayBeAlias(other.Bucket)
+	}
+	return snapshotLocation(source) == snapshotLocation(other)
+}
+
+func s3BucketMayBeAlias(bucket string) bool {
+	bucket = strings.ToLower(bucket)
+	return strings.ContainsAny(bucket, ":/") || strings.HasSuffix(bucket, "-s3alias") ||
+		strings.HasSuffix(bucket, "--ol-s3") || strings.HasSuffix(bucket, ".mrap")
 }
 
 func insertMigrationObjects(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {

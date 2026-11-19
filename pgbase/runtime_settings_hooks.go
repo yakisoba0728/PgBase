@@ -2,11 +2,27 @@ package pgbase
 
 import (
 	"context"
+	"log/slog"
 	"reflect"
 	"time"
 
 	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 )
+
+type runtimeSettingsRefresher struct {
+	settings *runtimesettings.Controller
+	logger   *slog.Logger
+}
+
+func (r runtimeSettingsRefresher) Run(ctx context.Context) error {
+	return sampleLoop(ctx, time.Second, func(ctx context.Context) {
+		refreshCtx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		if err := r.settings.Refresh(refreshCtx); err != nil && ctx.Err() == nil {
+			r.logger.ErrorContext(ctx, "refresh runtime settings", "error", err)
+		}
+	})
+}
 
 func bindRuntimeSettingsLifecycle(app *App, settings *runtimesettings.Controller) {
 	previous := settings.Get()

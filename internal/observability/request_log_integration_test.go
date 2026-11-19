@@ -13,6 +13,81 @@ import (
 	"github.com/yakisoba0728/PgBase/migrations/system"
 )
 
+func TestRequestLogRechecksRetentionRevisionAfterWaitingForSettings(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	databaseURL := testutil.NewDatabase(t)
+	testutil.ApplySystemMigrationPrefix(t, databaseURL, system.Migrations())
+	pool, err := database.Open(ctx, databaseURL, 5*time.Second, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	log := NewRequestLog(pool, RequestLogOptions{RuntimeRetention: func() (time.Duration, int64) {
+		return 7 * 24 * time.Hour, 1
+	}})
+	defer log.Shutdown(ctx)
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.runtime_settings (document) values ('{}');
+		insert into pgbase_meta.request_logs (occurred_at,method,route,status,duration_ms)
+		values (statement_timestamp()-interval '10 days','GET','/retained',200,0)`); err != nil {
+		t.Fatal(err)
+	}
+	connection, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Release()
+	tx, err := connection.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	if _, err := tx.Exec(ctx, `update pgbase_meta.runtime_settings set revision=2 where singleton`); err != nil {
+		t.Fatal(err)
+	}
+	var pid int
+	if err := tx.QueryRow(ctx, `select pg_backend_pid()`).Scan(&pid); err != nil {
+		t.Fatal(err)
+	}
+	pruned := make(chan error, 1)
+	go func() { pruned <- log.PruneExpired(ctx) }()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var blocked bool
+		if err := pool.QueryRow(ctx, `select exists (
+			select from pg_stat_activity
+			where datname=current_database() and $1=any(pg_blocking_pids(pid))
+		)`, pid).Scan(&blocked); err != nil {
+			t.Fatal(err)
+		}
+		if blocked {
+			break
+		}
+		select {
+		case err := <-pruned:
+			t.Fatalf("cleanup did not wait for the in-flight settings update: %v", err)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-ticker.C:
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-pruned:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if entries, err := log.Search(ctx, RequestFilter{Route: "/retained"}); err != nil || len(entries.Items) != 1 {
+		t.Fatalf("stale age pruning did not recheck the committed revision: %+v, %v", entries.Items, err)
+	}
+}
+
 func TestPersistentRequestLogRetentionSearchAndShutdown(t *testing.T) {
 	ctx := context.Background()
 	databaseURL := testutil.NewDatabase(t)

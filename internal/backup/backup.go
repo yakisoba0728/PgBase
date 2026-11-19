@@ -26,6 +26,7 @@ import (
 const FormatVersion = 1
 
 var versionPattern = regexp.MustCompile(`(?:PostgreSQL\)?\s+)(\d+)\.`)
+var restoreCommitWitness = regexp.MustCompile(`(?m)^\d+; \d+ \d+ TABLE pgbase_meta schema_migrations `)
 
 type File struct {
 	Path   string `json:"path"`
@@ -441,7 +442,11 @@ func VerifyContext(ctx context.Context, directory string) (Manifest, error) {
 	return manifest, nil
 }
 
-func Restore(ctx context.Context, directory, databaseURL, files string) (resultErr error) {
+func Restore(ctx context.Context, directory, databaseURL, files string) error {
+	return restore(ctx, directory, databaseURL, files, run)
+}
+
+func restore(ctx context.Context, directory, databaseURL, files string, execute func(context.Context, string, []string, []string) error) (resultErr error) {
 	manifest, err := VerifyContext(ctx, directory)
 	if err != nil {
 		return err
@@ -476,14 +481,6 @@ func Restore(ctx context.Context, directory, databaseURL, files string) (resultE
 	if files == "" && len(manifest.Files) != 0 {
 		return errors.New("backup contains local files but local file storage is not configured")
 	}
-	var staging string
-	installedFiles := false
-	databaseCommitted := false
-	defer func() {
-		if installedFiles && !databaseCommitted {
-			resultErr = errors.Join(resultErr, os.RemoveAll(files))
-		}
-	}()
 	if files != "" {
 		if _, err = os.Lstat(files); !os.IsNotExist(err) {
 			return errors.New("restore file directory already exists")
@@ -492,7 +489,7 @@ func Restore(ctx context.Context, directory, databaseURL, files string) (resultE
 		if err = os.MkdirAll(parent, 0700); err != nil {
 			return err
 		}
-		staging, err = os.MkdirTemp(parent, ".pgbase-files-")
+		staging, err := os.MkdirTemp(parent, ".pgbase-files-")
 		if err != nil {
 			return err
 		}
@@ -514,11 +511,39 @@ func Restore(ctx context.Context, directory, databaseURL, files string) (resultE
 			return err
 		}
 		staging = ""
-		installedFiles = true
 	}
-	if err = run(ctx, restoreTool, []string{"--dbname", "", "--single-transaction", "--no-owner", "--no-acl", "--exit-on-error", filepath.Join(directory, "database.dump")}, command.env); err != nil {
+	archive := filepath.Join(directory, "database.dump")
+	err = execute(ctx, restoreTool, []string{"--dbname", "", "--single-transaction", "--no-owner", "--no-acl", "--exit-on-error", archive}, command.env)
+	if err == nil || files == "" {
 		return err
 	}
-	databaseCommitted = true
-	return nil
+	probe, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	rolledBack, probeErr := restoreRolledBack(probe, databaseURL, restoreTool, archive, command.env)
+	if rolledBack {
+		return errors.Join(err, os.RemoveAll(files))
+	}
+	return fmt.Errorf("restore did not confirm database commit or rollback; installed files retained at %q: %w", files, errors.Join(err, probeErr))
+}
+
+func restoreRolledBack(ctx context.Context, databaseURL, tool, archive string, env []string) (bool, error) {
+	// The child may exit before its server backend finishes. Check for an idle
+	// database before taking a fresh snapshot that can see any completed commit.
+	_, idle, err := serverState(ctx, databaseURL)
+	if err != nil || !idle {
+		return false, err
+	}
+	empty, err := databaseEmpty(ctx, databaseURL)
+	if err != nil || !empty {
+		return false, err
+	}
+	// An empty target proves rollback only for an archive that would add a
+	// relation on commit. Every migrated PgBase archive has this table.
+	listing := exec.CommandContext(ctx, tool, "--list", archive)
+	listing.Env = env
+	contents, err := listing.Output()
+	if err != nil {
+		return false, fmt.Errorf("inspect restore archive: %w", err)
+	}
+	return restoreCommitWitness.Match(contents), nil
 }

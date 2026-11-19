@@ -22,6 +22,8 @@ type RequestLogOptions struct {
 	Retention                             time.Duration
 	MaximumRows, QueueCapacity, BatchSize int
 	FlushInterval                         time.Duration
+	// RuntimeRetention returns the age limit and revision of one settings snapshot.
+	RuntimeRetention func() (time.Duration, int64)
 }
 
 func (o RequestLogOptions) normalized() RequestLogOptions {
@@ -46,20 +48,19 @@ func (o RequestLogOptions) normalized() RequestLogOptions {
 // RequestLog always maintains the previous 1,000-entry ring. NewRequestLog
 // additionally persists entries through a bounded asynchronous writer.
 type RequestLog struct {
-	mu               sync.RWMutex
-	entries          [recentRequestCapacity]RequestEntry
-	sequence         uint64
-	pool             *database.Pool
-	options          RequestLogOptions
-	queue            chan RequestEntry
-	flush            chan chan error
-	stop             chan struct{}
-	shutdownErr      error
-	done             chan struct{}
-	dropped          atomic.Uint64
-	closed           atomic.Bool
-	retentionSeconds atomic.Int64
-	lifecycle        sync.RWMutex
+	mu          sync.RWMutex
+	entries     [recentRequestCapacity]RequestEntry
+	sequence    uint64
+	pool        *database.Pool
+	options     RequestLogOptions
+	queue       chan RequestEntry
+	flush       chan chan error
+	stop        chan struct{}
+	shutdownErr error
+	done        chan struct{}
+	dropped     atomic.Uint64
+	closed      atomic.Bool
+	lifecycle   sync.RWMutex
 }
 
 type RequestEntry struct {
@@ -101,7 +102,6 @@ type RequestStatistics struct {
 func NewRequestLog(pool *database.Pool, options RequestLogOptions) *RequestLog {
 	options = options.normalized()
 	l := &RequestLog{pool: pool, options: options, queue: make(chan RequestEntry, options.QueueCapacity), flush: make(chan chan error), stop: make(chan struct{}), done: make(chan struct{})}
-	l.retentionSeconds.Store(int64(options.Retention.Seconds()))
 	go l.writeLoop()
 	return l
 }
@@ -349,17 +349,32 @@ func (l *RequestLog) Truncate(ctx context.Context) error {
 	return nil
 }
 
-// SetRetention applies a new durable retention window immediately and makes
-// future writer cleanup use the same snapshot.
-func (l *RequestLog) SetRetention(ctx context.Context, retention time.Duration) error {
-	if l == nil || retention < 24*time.Hour {
-		return errors.New("invalid request log retention")
-	}
-	l.retentionSeconds.Store(int64(retention.Seconds()))
-	if l.pool == nil {
+// PruneExpired applies the configured age limit without enforcing the row cap.
+func (l *RequestLog) PruneExpired(ctx context.Context) error {
+	if l == nil || l.pool == nil {
 		return nil
 	}
-	_, err := l.pool.Exec(ctx, `DELETE FROM pgbase_meta.request_logs WHERE occurred_at < clock_timestamp()-make_interval(secs=>$1)`, l.retentionSeconds.Load())
+	return l.prune(ctx, 0)
+}
+
+func (l *RequestLog) prune(ctx context.Context, maximumRows int) error {
+	retention, revision := l.options.Retention, int64(0)
+	if source := l.options.RuntimeRetention; source != nil {
+		retention, revision = source()
+		if retention < 24*time.Hour || revision < 1 {
+			return errors.New("invalid runtime request log retention")
+		}
+	}
+	// Lock the matching settings row through the delete. A concurrent settings
+	// update either follows this cleanup or makes its age policy stale.
+	_, err := l.pool.Exec(ctx, `WITH current_policy AS MATERIALIZED (
+		SELECT revision FROM pgbase_meta.runtime_settings WHERE singleton AND revision=$3 FOR SHARE
+	)
+	DELETE FROM pgbase_meta.request_logs
+	WHERE (occurred_at < statement_timestamp()-make_interval(secs=>$1)
+			AND ($3=0 OR EXISTS (SELECT 1 FROM current_policy)))
+		OR ($2::bigint>0 AND id <= GREATEST(0,(SELECT max(id) FROM pgbase_meta.request_logs)-$2))`,
+		int64(retention.Seconds()), maximumRows, revision)
 	return err
 }
 
@@ -496,8 +511,7 @@ func (l *RequestLog) writeBatch(ctx context.Context, entries []RequestEntry) err
 			}
 		}
 	}
-	_, err := l.pool.Exec(ctx, `DELETE FROM pgbase_meta.request_logs WHERE occurred_at < clock_timestamp()-make_interval(secs=>$1) OR id <= GREATEST(0,(SELECT max(id) FROM pgbase_meta.request_logs)-$2)`, l.retentionSeconds.Load(), l.options.MaximumRows)
-	return errors.Join(failed, err)
+	return errors.Join(failed, l.prune(ctx, l.options.MaximumRows))
 }
 
 func (l *RequestLog) insertEntries(ctx context.Context, entries []RequestEntry) error {

@@ -128,6 +128,11 @@ type BatchRequest struct {
 	Operations   []BatchOperation
 	Participants []BatchParticipant
 	RuleContext  *accessrule.RequestContext
+
+	// PrepareResponse sees the public results before commit. An error rolls
+	// back the batch. It must not mutate the results or publish a response,
+	// since the transaction can still fail or be retried.
+	PrepareResponse func([]MutationResult) error
 }
 
 // BatchParticipant joins sidecar state to the same transaction after all

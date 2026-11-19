@@ -3,10 +3,82 @@
 package pgbase
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 )
+
+func TestStaleReplicaCannotPruneRequestsWithOldRetention(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	first := newPublicUsersApp(t, true).app
+	second, err := New(ctx, first.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer closeCancel()
+		if err := second.Close(closeCtx); err != nil {
+			t.Error(err)
+		}
+	})
+
+	updated := first.runtimeSettings.Get()
+	updated.Logs.RetentionDays = 30
+	updated, err = first.runtimeSettings.Update(ctx, updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := second.runtimeSettings.Get(); got.Logs.RetentionDays != 7 || got.Revision >= updated.Revision {
+		t.Fatalf("fixture replica must still have old settings: %+v", got.Logs)
+	}
+	if _, err := first.pool.Exec(ctx, `insert into pgbase_meta.request_logs
+		(occurred_at,method,route,status,duration_ms) values
+		(statement_timestamp()-interval '10 days','GET','/retained',200,0),
+		(statement_timestamp()-interval '40 days','GET','/expired',200,0)`); err != nil {
+		t.Fatal(err)
+	}
+	logPresent := func(route string) bool {
+		t.Helper()
+		var present bool
+		if err := first.pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.request_logs where route=$1)`, route).Scan(&present); err != nil {
+			t.Fatal(err)
+		}
+		return present
+	}
+	if err := second.requestLog.PruneExpired(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !logPresent("/retained") {
+		t.Fatal("stale immediate pruning deleted a retained log")
+	}
+	second.requestLog.Record("GET", "/flush", 200, 0)
+	if err := second.requestLog.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !logPresent("/retained") || !logPresent("/expired") {
+		t.Fatal("stale writer applied an age policy from the old revision")
+	}
+
+	if err := second.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for second.runtimeSettings.Get().Revision != updated.Revision || logPresent("/expired") {
+		select {
+		case <-ctx.Done():
+			t.Fatal("replica did not pick up the new retention revision and prune expired logs")
+		case <-ticker.C:
+		}
+	}
+	if !logPresent("/retained") {
+		t.Fatal("current retention deleted a retained log")
+	}
+}
 
 func TestRuntimeBatchLimitsApplyToKernelAndMultipart(t *testing.T) {
 	fixture := newPublicUsersAppOptions(t, true, func(options *Options) {

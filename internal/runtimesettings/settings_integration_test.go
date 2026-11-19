@@ -45,11 +45,19 @@ func TestControllersRejectStaleCASAndNeverRegressPublishedRevision(t *testing.T)
 	if _, err := second.Update(ctx, b); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale update error=%v, want conflict", err)
 	}
-	if err := second.Reload(ctx); err != nil {
+	notifications := 0
+	second.Subscribe(func(Settings) { notifications++ })
+	if err := second.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if got := second.Get(); got.Revision != 2 || got.Batch.Enabled {
-		t.Fatalf("reloaded snapshot=%#v", got)
+		t.Fatalf("refreshed snapshot=%#v", got)
+	}
+	if err := second.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if notifications != 1 {
+		t.Fatalf("revision refresh published %d times, want one publication", notifications)
 	}
 	// A stale read cannot overwrite a newer local snapshot.
 	second.mu.Lock()

@@ -76,12 +76,37 @@ func TestStorageNamespaceIgnoresTransportOptions(t *testing.T) {
 	}
 	s3 := storageSnapshot{Driver: "s3", Bucket: "bucket", Endpoint: "https://storage"}
 	changed = s3
-	changed.Region, changed.LocalDirectory, changed.UsePathStyle, changed.Endpoint = "other-region", "/unused", true, "https://storage/"
+	changed.Region, changed.LocalDirectory, changed.UsePathStyle, changed.Endpoint = "other-region", "/unused", true, "https://STORAGE.:443/"
 	if snapshotLocation(s3) != snapshotLocation(changed) {
 		t.Fatal("transport options changed S3 namespace")
 	}
 	changed.Bucket = "other-bucket"
 	if snapshotLocation(s3) == snapshotLocation(changed) {
 		t.Fatal("different S3 buckets share namespace")
+	}
+}
+
+func TestStorageNamespacesMayOverlap(t *testing.T) {
+	source := storageSnapshot{Driver: "s3", Bucket: "retired-files", Endpoint: "https://storage.example.invalid"}
+	for _, test := range []struct {
+		name string
+		peer storageSnapshot
+		want bool
+	}{
+		{"same bucket through equivalent address", storageSnapshot{Driver: "s3", Bucket: "retired-files", Endpoint: "https://STORAGE.EXAMPLE.INVALID:443/"}, true},
+		{"same bucket through unrelated address", storageSnapshot{Driver: "s3", Bucket: "retired-files", Endpoint: "https://other.example.invalid"}, true},
+		{"different bucket through unrelated address", storageSnapshot{Driver: "s3", Bucket: "other-files", Endpoint: "https://other.example.invalid"}, true},
+		{"default endpoint may alias explicit address", storageSnapshot{Driver: "s3", Bucket: "other-files"}, true},
+		{"different bucket within equivalent endpoint", storageSnapshot{Driver: "s3", Bucket: "other-files", Endpoint: "https://STORAGE.EXAMPLE.INVALID:443/"}, false},
+		{"alternate casing of bucket name", storageSnapshot{Driver: "s3", Bucket: "RETIRED-FILES", Endpoint: source.Endpoint}, true},
+		{"access point alias at the same endpoint", storageSnapshot{Driver: "s3", Bucket: "archive-s3alias", Endpoint: source.Endpoint}, true},
+		{"access point ARN at the same endpoint", storageSnapshot{Driver: "s3", Bucket: "arn:aws:s3:us-east-1:000000000000:accesspoint/archive", Endpoint: source.Endpoint}, true},
+		{"local storage is separate", storageSnapshot{Driver: "local", LocalDirectory: "/files"}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := storageNamespacesMayOverlap(source, test.peer); got != test.want {
+				t.Fatalf("storageNamespacesMayOverlap = %v, want %v", got, test.want)
+			}
+		})
 	}
 }
