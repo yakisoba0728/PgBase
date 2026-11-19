@@ -69,6 +69,37 @@ void main() {
     await transport.body.close();
     await rejected;
   });
+
+  test(
+    'streamed backup delivers early chunks and stops at a session change',
+    () async {
+      final transport = DelayedAdminClient(200);
+      final client = PgBaseAdminClient(
+        Uri.parse('http://pgbase.test'),
+        httpClient: transport,
+      );
+      await client.resume();
+      final first = Completer<List<int>>();
+      final failed = Completer<Object>();
+      final subscription = client
+          .downloadBackupStream('backup')
+          .listen((chunk) => first.complete(chunk), onError: failed.complete);
+      await transport.started.future;
+      transport.body.add([1, 2, 3]);
+      expect(await first.future, [1, 2, 3]);
+      await client.resume();
+      expect(
+        await failed.future,
+        isA<PgBaseError>().having(
+          (error) => error.code,
+          'code',
+          'session_changed',
+        ),
+      );
+      await subscription.cancel();
+      await transport.body.close();
+    },
+  );
 }
 
 final class DelayedAdminClient extends http.BaseClient {

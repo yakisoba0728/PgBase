@@ -52,6 +52,10 @@ work, revoke previously issued download URIs, or cover caller-owned direct
 Cookie-changing operations on one administrator client run in order. Resume the
 session after a different client or browser tab changes the shared cookie.
 
+Consume `downloadBackupStream(id)` into a sink for large archives. Its chunks
+are bound to the current administrator session. Discard a partial destination if
+the stream is cancelled or fails.
+
 Administrator requests, including backup uploads/downloads, are bound to their
 client's local session generation through complete response-body collection.
 After a new login/resume, logout, or current-session 401 invalidates that

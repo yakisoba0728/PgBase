@@ -98,6 +98,40 @@ void main() {
       }
     });
   }
+
+  test(
+    'closing a client disposes its stream without closing a borrowed transport',
+    () async {
+      final transport = _RealtimeTransport(holdFirstAbort: true);
+      final client = PgBaseClient(
+        Uri.parse('http://pgbase.test'),
+        httpClient: transport,
+      );
+      final events = <RealtimeEvent>[];
+      await client.realtime.subscribe(
+        'notes/*',
+        (RealtimeEvent event) => events.add(event),
+      );
+      client.close();
+      transport.connections.single.write(
+        'event: notes/*\ndata: {"action":"create","record":{"id":"after"}}\n\n',
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(events, isEmpty);
+      expect(client.realtime.status.state, RealtimeState.stopped);
+      await expectLater(
+        client.records('notes').list(),
+        throwsA(isA<PgBaseCancellation>()),
+      );
+      expect(
+        (await transport.send(
+          http.Request('POST', Uri.parse('http://pgbase.test/')),
+        )).statusCode,
+        204,
+      );
+      await transport.connections.single.close();
+    },
+  );
 }
 
 final class _RealtimeTransport extends http.BaseClient {

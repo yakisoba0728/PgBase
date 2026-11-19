@@ -9,11 +9,29 @@ import 'exact_json.dart';
 
 final class CancellationToken {
   final Completer<void> _abort = Completer<void>();
+  final Set<void Function()> _listeners = {};
 
   bool get isCancelled => _abort.isCompleted;
   Future<void> get whenCancelled => _abort.future;
+
+  /// Registers a callback and returns a function that detaches it.
+  void Function() onCancel(void Function() listener) {
+    if (isCancelled) {
+      listener();
+      return () {};
+    }
+    _listeners.add(listener);
+    return () => _listeners.remove(listener);
+  }
+
   void cancel() {
-    if (!_abort.isCompleted) _abort.complete();
+    if (isCancelled) return;
+    _abort.complete();
+    final listeners = List.of(_listeners);
+    _listeners.clear();
+    for (final listener in listeners) {
+      listener();
+    }
   }
 }
 
@@ -54,9 +72,34 @@ final class PgBaseTransport {
   final Uri baseUri;
   final http.Client _client;
   final bool _ownsClient;
+  final Set<CancellationToken> _active = {};
+  bool _closed = false;
 
   void close() {
+    if (_closed) return;
+    _closed = true;
+    for (final token in List.of(_active)) {
+      token.cancel();
+    }
     if (_ownsClient) _client.close();
+  }
+
+  ({CancellationToken token, void Function() dispose}) _track(
+    CancellationToken? external,
+  ) {
+    if (_closed || (external?.isCancelled ?? false)) {
+      throw const PgBaseCancellation();
+    }
+    final token = CancellationToken();
+    final detach = external?.onCancel(token.cancel);
+    _active.add(token);
+    return (
+      token: token,
+      dispose: () {
+        detach?.call();
+        _active.remove(token);
+      },
+    );
   }
 
   Uri uri(String path, [Map<String, String>? query]) {
@@ -71,19 +114,19 @@ final class PgBaseTransport {
     JsonValue? body,
     Map<String, String>? query,
     CancellationToken? cancellation,
-  }) async {
+  }) => _collect(cancellation, (stop) {
     final request = http.AbortableRequest(
       method,
       uri(path, query),
-      abortTrigger: cancellation?.whenCancelled,
+      abortTrigger: stop.whenCancelled,
     );
     request.headers.addAll({'accept': 'application/json', ...headers});
     if (body != null) {
       request.headers['content-type'] = 'application/json; charset=utf-8';
       request.bodyBytes = encodeExactJson(body);
     }
-    return _collect(request, cancellation);
-  }
+    return request;
+  });
 
   Future<PgBaseResponse> multipart(
     String method,
@@ -92,11 +135,11 @@ final class PgBaseTransport {
     required Map<String, UploadSource> files,
     Map<String, String> headers = const {},
     CancellationToken? cancellation,
-  }) async {
+  }) => _collect(cancellation, (stop) {
     final request = http.AbortableMultipartRequest(
       method,
       uri(path),
-      abortTrigger: cancellation?.whenCancelled,
+      abortTrigger: stop.whenCancelled,
     );
     request.headers.addAll({'accept': 'application/json', ...headers});
     request.fields.addAll(fields);
@@ -112,23 +155,22 @@ final class PgBaseTransport {
         ),
       );
     }
-    return _collect(request, cancellation);
-  }
+    return request;
+  });
 
   Future<PgBaseResponse> download(
     String path, {
     Map<String, String> headers = const {},
     Map<String, String>? query,
     CancellationToken? cancellation,
-  }) {
-    final request = http.AbortableRequest(
+  }) => _collect(
+    cancellation,
+    (stop) => http.AbortableRequest(
       'GET',
       uri(path, query),
-      abortTrigger: cancellation?.whenCancelled,
-    );
-    request.headers.addAll(headers);
-    return _collect(request, cancellation);
-  }
+      abortTrigger: stop.whenCancelled,
+    )..headers.addAll(headers),
+  );
 
   /// Streams an exact-length request body without taking ownership of [source].
   Future<PgBaseResponse> upload(
@@ -139,49 +181,60 @@ final class PgBaseTransport {
     Map<String, String> headers = const {},
     Map<String, String>? query,
     CancellationToken? cancellation,
-  }) async {
-    if (cancellation?.isCancelled ?? false) throw const PgBaseCancellation();
-    final request = _UploadRequest(
-      method,
-      uri(path, query),
-      source,
-      cancellation,
-    );
+  }) => _collect(cancellation, (stop) {
+    final request = _UploadRequest(method, uri(path, query), source, stop);
     request.headers.addAll({
       'accept': 'application/json',
       'content-type': contentType,
       ...headers,
     });
     request.contentLength = source.length;
-    try {
-      final response = await _client.send(request);
-      final bytes = await response.stream.toBytes();
-      return PgBaseResponse(
-        status: response.statusCode,
-        headers: _headers(response.headers),
-        bytes: Uint8List.fromList(bytes),
-      );
-    } on PgBaseCancellation {
-      rethrow;
-    } on http.RequestAbortedException {
-      throw const PgBaseCancellation();
-    } on http.ClientException catch (error) {
-      throw PgBaseNetworkError(error);
-    }
-  }
+    return request;
+  });
 
   Future<http.StreamedResponse> eventStream(
     String path, {
     required Map<String, String> headers,
     Map<String, String>? query,
     CancellationToken? cancellation,
+  }) => downloadStream(
+    path,
+    headers: headers,
+    query: query,
+    cancellation: cancellation,
+  );
+
+  Future<http.StreamedResponse> downloadStream(
+    String path, {
+    required Map<String, String> headers,
+    Map<String, String>? query,
+    CancellationToken? cancellation,
   }) async {
-    final request = http.AbortableRequest(
-      'GET',
-      uri(path, query),
-      abortTrigger: cancellation?.whenCancelled,
-    );
-    request.headers.addAll(headers);
+    final scope = _track(cancellation);
+    try {
+      final request = http.AbortableRequest(
+        'GET',
+        uri(path, query),
+        abortTrigger: scope.token.whenCancelled,
+      )..headers.addAll(headers);
+      final response = await _send(request);
+      return http.StreamedResponse(
+        _trackedBody(response.stream, scope.token, scope.dispose),
+        response.statusCode,
+        headers: response.headers,
+        contentLength: response.contentLength,
+        request: response.request,
+        isRedirect: response.isRedirect,
+        persistentConnection: response.persistentConnection,
+        reasonPhrase: response.reasonPhrase,
+      );
+    } catch (_) {
+      scope.dispose();
+      rethrow;
+    }
+  }
+
+  Future<http.StreamedResponse> _send(http.BaseRequest request) async {
     try {
       return await _client.send(request);
     } on http.RequestAbortedException {
@@ -192,22 +245,62 @@ final class PgBaseTransport {
   }
 
   Future<PgBaseResponse> _collect(
-    http.BaseRequest request,
-    CancellationToken? cancellation,
+    CancellationToken? external,
+    http.BaseRequest Function(CancellationToken) request,
   ) async {
+    final scope = _track(external);
     try {
-      final response = await _client.send(request);
-      final bytes = await response.stream.toBytes();
+      final response = await _send(request(scope.token));
+      final bytes = await http.ByteStream(
+        _trackedBody(response.stream, scope.token, scope.dispose),
+      ).toBytes();
       return PgBaseResponse(
         status: response.statusCode,
         headers: _headers(response.headers),
-        bytes: Uint8List.fromList(bytes),
+        bytes: bytes,
       );
     } on http.RequestAbortedException {
       throw const PgBaseCancellation();
     } on http.ClientException catch (error) {
       throw PgBaseNetworkError(error);
+    } finally {
+      scope.dispose();
     }
+  }
+
+  Stream<List<int>> _trackedBody(
+    Stream<List<int>> body,
+    CancellationToken stop,
+    void Function() dispose,
+  ) {
+    final output = StreamController<List<int>>();
+    late StreamSubscription<List<int>> input;
+    void Function()? detach;
+    output.onListen = () {
+      input = body.listen(
+        output.add,
+        onError: output.addError,
+        onDone: () {
+          detach?.call();
+          dispose();
+          if (!output.isClosed) unawaited(output.close());
+        },
+      );
+      output.onPause = input.pause;
+      output.onResume = input.resume;
+      detach = stop.onCancel(() {
+        if (output.isClosed) return;
+        unawaited(input.cancel());
+        output.addError(const PgBaseCancellation());
+        unawaited(output.close());
+      });
+    };
+    output.onCancel = () {
+      detach?.call();
+      dispose();
+      return input.cancel();
+    };
+    return output.stream;
   }
 
   Map<String, String> _headers(Map<String, String> headers) => Map.unmodifiable(

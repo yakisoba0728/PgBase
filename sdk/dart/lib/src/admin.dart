@@ -27,6 +27,7 @@ final class PgBaseAdminClient {
   int _generation = 0;
   int _transition = 0;
   Future<void>? _pendingAuth;
+  final Set<CancellationToken> _backupDownloads = {};
 
   void close() => transport.close();
 
@@ -81,7 +82,7 @@ final class PgBaseAdminClient {
           if (generation == _generation) {
             _csrf = '';
             _cookie = null;
-            _generation++;
+            _invalidateSession();
           }
         }
       });
@@ -544,6 +545,48 @@ final class PgBaseAdminClient {
     return response.bytes;
   }
 
+  /// Streams a backup without accumulating it in memory. The caller should
+  /// discard a partial destination if the stream ends with an error.
+  Stream<List<int>> downloadBackupStream(
+    String id, {
+    CancellationToken? cancellation,
+  }) async* {
+    final generation = _generation;
+    final stop = CancellationToken();
+    final detach = cancellation?.onCancel(stop.cancel);
+    _backupDownloads.add(stop);
+    PgBaseResponse? failure;
+    try {
+      final response = await transport.downloadStream(
+        '/api/admin/backups/${Uri.encodeComponent(id)}',
+        headers: _headers('GET', {'accept': 'application/gzip'}),
+        cancellation: stop,
+      );
+      _assertCurrent(generation);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        failure = PgBaseResponse(
+          status: response.statusCode,
+          headers: response.headers,
+          bytes: await response.stream.toBytes(),
+        );
+      } else {
+        await for (final chunk in response.stream) {
+          _assertCurrent(generation);
+          yield chunk;
+        }
+      }
+      _assertCurrent(generation);
+    } catch (_) {
+      _assertCurrent(generation);
+      rethrow;
+    } finally {
+      _backupDownloads.remove(stop);
+      detach?.call();
+      stop.cancel();
+    }
+    if (failure != null) _accept(failure, generation);
+  }
+
   Future<void> deleteBackup(
     String id, {
     CancellationToken? cancellation,
@@ -613,7 +656,8 @@ final class PgBaseAdminClient {
     CancellationToken? cancellation, {
     String method = 'POST',
   }) async {
-    final generation = ++_generation;
+    _invalidateSession();
+    final generation = _generation;
     final value = await request(
       method,
       path,
@@ -703,6 +747,13 @@ final class PgBaseAdminClient {
     return response;
   }
 
+  void _invalidateSession() {
+    _generation++;
+    for (final download in List.of(_backupDownloads)) {
+      download.cancel();
+    }
+  }
+
   void _assertCurrent(int generation) {
     if (generation != _generation) {
       throw const PgBaseError(403, 'session_changed');
@@ -715,7 +766,7 @@ final class PgBaseAdminClient {
       if (response.status == 401 && generation == _generation) {
         _csrf = '';
         _cookie = null;
-        _generation++;
+        _invalidateSession();
       }
       throw pgBaseError(response);
     }
