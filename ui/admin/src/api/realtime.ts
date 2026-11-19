@@ -1,12 +1,19 @@
 import { request } from "./http";
 import type { Int64 } from "./logs";
 
-export interface RealtimeStatus {
+export interface RealtimeQueueStatus {
   pending: Int64;
   dead: Int64;
-  delivered: Int64;
   oldestPending?: string;
   cursorFloor: Int64;
+}
+
+export interface RealtimeStatus extends RealtimeQueueStatus {
+  delivered: Int64;
+}
+
+export async function getRealtimeQueueStatus(signal?: AbortSignal): Promise<RealtimeQueueStatus> {
+  return request<RealtimeQueueStatus>("GET", "/api/admin/realtime/status", { query: { queueOnly: "true" }, signal });
 }
 
 export async function getRealtimeStatus(signal?: AbortSignal): Promise<RealtimeStatus> {

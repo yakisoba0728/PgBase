@@ -10,6 +10,7 @@ import (
 
 type realtimeOperations interface {
 	Status(context.Context) (realtime.Status, error)
+	QueueStatus(context.Context) (realtime.QueueStatus, error)
 	Retry(context.Context, uuid.UUID) error
 	DeadEvents(context.Context, string, int) (realtime.DeadPage, error)
 }
@@ -21,6 +22,15 @@ func realtimeOperationRoutes(dependencies Dependencies) []route {
 	}
 	return []route{
 		{method: "GET", pattern: "/api/admin/realtime/status", access: accessAdminSameOriginRead, response: atomicJSON(maximumAdminResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("queueOnly") == "true" {
+				status, err := operations.QueueStatus(r.Context())
+				if err != nil {
+					writeRealtimeError(w, r, err)
+					return
+				}
+				writeJSON(w, http.StatusOK, status)
+				return
+			}
 			status, err := operations.Status(r.Context())
 			if err != nil {
 				writeRealtimeError(w, r, err)

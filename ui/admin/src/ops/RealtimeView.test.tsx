@@ -12,6 +12,7 @@ const event = (id: string) => ({ eventId: id, collectionName: "posts", recordId:
 
 beforeEach(() => {
   setLanguage("en");
+  vi.spyOn(realtime, "getRealtimeQueueStatus").mockResolvedValue({ pending: 0, dead: 3, cursorFloor: 0 } as realtime.RealtimeQueueStatus);
   vi.spyOn(realtime, "getRealtimeStatus").mockResolvedValue({ pending: 0, dead: 3, delivered: 0, cursorFloor: 0 } as realtime.RealtimeStatus);
   vi.spyOn(realtime, "listDeadRealtimeEvents").mockResolvedValue({ items: [event("e1"), event("e2"), event("e3")] });
 });

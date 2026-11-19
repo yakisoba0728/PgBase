@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -133,5 +134,21 @@ func TestDeliveryFailureBackoffDeadLetterAndOperatorRetry(t *testing.T) {
 	status, err = s.Status(ctx)
 	if err != nil || status.Dead != 0 || status.Pending != 0 || status.Delivered != 1 {
 		t.Fatalf("recovered status=%+v err=%v", status, err)
+	}
+}
+
+func TestQueueStatusUsesOriginalEnqueueTime(t *testing.T) {
+	s, user, collection := realtimeFixture(t)
+	ctx := t.Context()
+	id := seedEvent(t, s, user, collection)
+	if _, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.record_outbox SET created_at=clock_timestamp()-interval '4 hours' WHERE event_id=$1`, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.outbox_delivery SET available_at=clock_timestamp()+interval '4 minutes' WHERE event_id=$1`, id); err != nil {
+		t.Fatal(err)
+	}
+	status, err := s.QueueStatus(ctx)
+	if err != nil || status.Pending != 1 || status.OldestPending == nil || time.Since(*status.OldestPending) < 3*time.Hour {
+		t.Fatalf("backoff changed the reported queue age: %+v, %v", status, err)
 	}
 }

@@ -9,22 +9,38 @@ import (
 	"github.com/google/uuid"
 )
 
-type Status struct {
+type QueueStatus struct {
 	Pending       int64      `json:"pending"`
 	Dead          int64      `json:"dead"`
-	Delivered     int64      `json:"delivered"`
 	OldestPending *time.Time `json:"oldestPending,omitempty"`
 	CursorFloor   int64      `json:"cursorFloor"`
 }
 
+type Status struct {
+	QueueStatus
+	Delivered int64 `json:"delivered"`
+}
+
 func (s *Service) Status(ctx context.Context) (Status, error) {
+	return s.status(ctx, true)
+}
+
+func (s *Service) QueueStatus(ctx context.Context) (QueueStatus, error) {
+	status, err := s.status(ctx, false)
+	return status.QueueStatus, err
+}
+
+func (s *Service) status(ctx context.Context, includeDelivered bool) (Status, error) {
 	var status Status
-	err := s.pool.QueryRow(ctx, `SELECT
- count(*) FILTER(WHERE delivered_at IS NULL AND dead_at IS NULL),
- count(*) FILTER(WHERE dead_at IS NOT NULL),count(*) FILTER(WHERE delivered_at IS NOT NULL),
- min(available_at) FILTER(WHERE delivered_at IS NULL AND dead_at IS NULL),
- (SELECT floor_sequence FROM pgbase_meta.realtime_retention WHERE singleton)
- FROM pgbase_meta.outbox_delivery`).Scan(&status.Pending, &status.Dead, &status.Delivered, &status.OldestPending, &status.CursorFloor)
+	err := s.pool.QueryRow(ctx, `SELECT pending.count, pending.oldest,
+	 (SELECT count(*) FROM pgbase_meta.outbox_delivery WHERE dead_at IS NOT NULL AND delivered_at IS NULL),
+	 (SELECT floor_sequence FROM pgbase_meta.realtime_retention WHERE singleton),
+	 CASE WHEN $1 THEN (SELECT count(*) FROM pgbase_meta.outbox_delivery WHERE delivered_at IS NOT NULL) ELSE 0 END
+	 FROM (
+	  SELECT count(*) AS count, min(o.created_at) AS oldest
+	  FROM pgbase_meta.outbox_delivery d JOIN pgbase_meta.record_outbox o USING (event_id)
+	  WHERE d.delivered_at IS NULL AND d.dead_at IS NULL
+	 ) pending`, includeDelivered).Scan(&status.Pending, &status.OldestPending, &status.Dead, &status.CursorFloor, &status.Delivered)
 	return status, err
 }
 
