@@ -59,6 +59,8 @@ type App struct {
 	shutdownMu             sync.Mutex
 	shutdownStarted        bool
 	shutdownDone           chan struct{}
+	realtimeContext        context.Context
+	cancelRealtime         context.CancelFunc
 
 	lifecycleMu      sync.Mutex
 	lifecycleState   appLifecycleState
@@ -502,6 +504,30 @@ func (a *App) completeStartupLocked(startupDone chan struct{}) {
 	a.startupDone = nil
 }
 
+// realtimeDrainContext is captured only by realtime streams, so stopping
+// streams leaves ordinary in-flight requests eligible for graceful drain.
+func (a *App) realtimeDrainContext() context.Context {
+	a.shutdownMu.Lock()
+	defer a.shutdownMu.Unlock()
+	return a.realtimeContext
+}
+
+func (a *App) pauseRealtime() {
+	a.shutdownMu.Lock()
+	defer a.shutdownMu.Unlock()
+	if a.cancelRealtime != nil {
+		a.cancelRealtime()
+	}
+}
+
+func (a *App) resumeRealtime() {
+	a.shutdownMu.Lock()
+	defer a.shutdownMu.Unlock()
+	if !a.shutdownStarted {
+		a.realtimeContext, a.cancelRealtime = context.WithCancel(context.Background())
+	}
+}
+
 // Close stops accepting HTTP requests, drains active requests, and closes the
 // PostgreSQL pool. It is safe to call more than once.
 func (a *App) Close(ctx context.Context) error {
@@ -515,6 +541,9 @@ func (a *App) Close(ctx context.Context) error {
 	if !a.shutdownStarted {
 		a.shutdownStarted = true
 		a.shutdownDone = make(chan struct{})
+		if a.cancelRealtime != nil {
+			a.cancelRealtime()
+		}
 		startupDone := a.beginClose()
 		if a.readiness != nil {
 			a.readiness.setAccepting(context.Background(), false)

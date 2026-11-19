@@ -249,6 +249,7 @@ func newWithCatalogPreflight(
 	applicationRealtimeBroker := api.NewApplicationRealtimeBroker()
 	dependencies, extensionMailer, userService, err := withUserServices(api.Dependencies{
 		Realtime:                  realtimeService,
+		RealtimeDrainContext:      app.realtimeDrainContext,
 		ApplicationRealtimeBroker: applicationRealtimeBroker,
 		RequestLog:                requestLog,
 		RuntimeSettings:           runtimeSettings,
@@ -363,6 +364,7 @@ func newWithCatalogPreflight(
 		listen:                net.Listen,
 		lifecycleClosing:      make(chan struct{}),
 	}
+	app.resumeRealtime()
 	bindRuntimeSettingsLifecycle(app, runtimeSettings)
 	extensions.appControl = newExtensionAppControl(app, normalized.JavaScript)
 	extensions.requestLog = app.requestLog

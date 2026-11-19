@@ -723,3 +723,42 @@ func drainCursorTTL(t *testing.T, ctx context.Context, app *App) {
 		t.Fatal(err)
 	}
 }
+
+func TestAppShutdownDrainsHealthyRealtimeStream(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	app, err := New(ctx, Options{
+		DatabaseURL: testutil.NewDatabase(t), TokenSecret: make([]byte, 32),
+		AutoMigrate: true, ShutdownTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.listen = func(string, string) (net.Listener, error) { return listener, nil }
+	done := make(chan error, 1)
+	go func() { done <- app.Run(ctx) }()
+	client := &http.Client{Timeout: 5 * time.Second}
+	stream, err := client.Get("http://" + listener.Addr().String() + "/api/realtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Body.Close()
+	first := make([]byte, len("event: PB_CONNECT\n"))
+	if _, err = io.ReadFull(stream.Body, first); err != nil || string(first) != "event: PB_CONNECT\n" {
+		t.Fatalf("initial stream frame %q: %v", first, err)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("app did not shut down")
+	}
+}

@@ -176,7 +176,7 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 		writeRealtimeError(w, r, err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
+	ctx, cancel := realtimeStreamContext(r.Context(), h.dependencies.RealtimeDrainContext)
 	defer cancel()
 	r = r.WithContext(ctx)
 	address, _ := clientIP(r, h.dependencies.trustedProxies())

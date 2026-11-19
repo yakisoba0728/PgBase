@@ -111,12 +111,14 @@ func RunManaged(ctx context.Context, options Options) error {
 	err = h.wait(ctx, served)
 	shutdown, cancel := context.WithTimeout(context.Background(), normalized.ShutdownTimeout)
 	defer cancel()
-	err = errors.Join(err, manager.Shutdown(shutdown), server.Shutdown(shutdown), shutdownManagedChallenge(h.challengeServer, shutdown))
+	err = errors.Join(err, manager.Shutdown(shutdown))
 	h.mu.Lock()
 	current := h.app
+	h.shuttingDown = true
 	h.maintenance = true
 	h.mu.Unlock()
-	return errors.Join(err, current.Close(shutdown))
+	current.pauseRealtime()
+	return errors.Join(err, server.Shutdown(shutdown), shutdownManagedChallenge(h.challengeServer, shutdown), current.Close(shutdown))
 }
 
 type managedHost struct {
@@ -126,6 +128,7 @@ type managedHost struct {
 	app             *App
 	active          int
 	maintenance     bool
+	shuttingDown    bool
 	drained         chan struct{}
 	controller      *backup.StorageController
 	controllerPool  *database.Pool
@@ -298,7 +301,17 @@ func (h *managedHost) restoreBackup(ctx context.Context, directory string) (resu
 	}
 	old := h.app
 	h.mu.Unlock()
-	defer func() { h.mu.Lock(); h.maintenance = false; h.mu.Unlock() }()
+	old.pauseRealtime()
+	defer func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if !h.shuttingDown {
+			if !activated {
+				old.resumeRealtime()
+			}
+			h.maintenance = false
+		}
+	}()
 	drainCtx, cancel := context.WithTimeout(ctx, options.ShutdownTimeout)
 	defer cancel()
 	select {
