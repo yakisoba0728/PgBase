@@ -5,15 +5,16 @@ package serviceauth
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
+	"testing"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/migrate"
 	"github.com/yakisoba0728/PgBase/internal/testutil"
-	"io"
-	"log/slog"
-	"testing"
-	"time"
 )
 
 func TestServiceTokenLifecycleAndScopeLock(t *testing.T) {
@@ -56,9 +57,9 @@ func TestServiceTokenLifecycleAndScopeLock(t *testing.T) {
 	if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error { return service.Authorize(ctx, tx, principal.Subject, collection, "delete") }); err != ErrInvalidToken {
 		t.Fatalf("wrong scope=%v", err)
 	}
-	listed, err := service.List(ctx)
-	if err != nil || len(listed) != 1 || listed[0].Scopes[0].Action != "read" {
-		t.Fatalf("list=%#v %v", listed, err)
+	listed, next, err := service.List(ctx, ListOptions{})
+	if err != nil || next != uuid.Nil || len(listed) != 1 || len(listed[0].Scopes) != 1 || listed[0].Scopes[0].Action != "read" {
+		t.Fatalf("list=%#v next=%v err=%v", listed, next, err)
 	}
 	if err := service.Revoke(ctx, issued.ID); err != nil {
 		t.Fatal(err)
@@ -150,12 +151,12 @@ func TestListDoesNotTruncateScopesAtJoinedRowLimit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	listed, err := service.List(ctx)
+	listed, next, err := service.List(ctx, ListOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed) != 5 {
-		t.Fatalf("listed tokens = %d, want 5", len(listed))
+	if len(listed) != 5 || next != uuid.Nil {
+		t.Fatalf("listed tokens = %d, next=%v, want 5 and no next page", len(listed), next)
 	}
 	for _, token := range listed {
 		if len(token.Scopes) != len(scopes) {
