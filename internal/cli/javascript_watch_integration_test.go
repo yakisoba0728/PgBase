@@ -166,3 +166,55 @@ func watchUnusedAddress(t *testing.T) string {
 	}
 	return address
 }
+
+func TestJavaScriptWatchRestoresPreviousGenerationAfterServeFailure(t *testing.T) {
+	directory := t.TempDir()
+	manifest := `{"format":"pgbase.scripts/v2","routes":[{"method":"GET","pattern":"/watch","access":"public","handler":{"module":"app.js","export":"route"}}],"hooks":[{"event":"app.serve","before":{"module":"app.js","export":"configure"}}]}`
+	if err := os.WriteFile(filepath.Join(directory, "pgbase.scripts.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "app.js")
+	if err := os.WriteFile(path, []byte(`exports.route=()=>({status:200,json:{version:"one"}}); exports.configure=()=>({});`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	address := watchUnusedAddress(t)
+	options := pgbase.Options{DatabaseURL: testutil.NewDatabase(t), HTTPAddress: address, TokenSecret: []byte("javascript-watch-secret-32-bytes-minimum"),
+		AutoMigrate: true, ShutdownTimeout: 2 * time.Second, Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		JavaScript: &pgbase.JavaScriptOptions{Directory: directory}}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var stdout, stderr synchronizedBuffer
+	result := make(chan error, 1)
+	go func() {
+		result <- superviseJavaScript(ctx, options, 50*time.Millisecond, testIO(nil, &stdout, &stderr))
+	}()
+	endpoint := "http://" + address + "/watch"
+	waitWatchResponse(t, endpoint, `{"version":"one"}`)
+	if err := os.WriteFile(path, []byte(`exports.route=()=>({status:200,json:{version:"failed"}}); exports.configure=()=>{throw new Error("startup failed");};`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(4 * time.Second); !strings.Contains(stderr.String(), "previous generation restored"); time.Sleep(25 * time.Millisecond) {
+		select {
+		case err := <-result:
+			t.Fatalf("watch stopped instead of restoring: %v", err)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("watch did not restore previous generation: %s", stderr.String())
+		}
+	}
+	waitWatchResponse(t, endpoint, `{"version":"one"}`)
+	if err := os.WriteFile(path, []byte(`exports.route=()=>({status:200,json:{version:"two"}}); exports.configure=()=>({});`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	waitWatchResponse(t, endpoint, `{"version":"two"}`)
+	cancel()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("watch shutdown = %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("watch did not shut down")
+	}
+}
