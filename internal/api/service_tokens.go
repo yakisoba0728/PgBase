@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,7 +14,7 @@ import (
 type ServiceTokens interface {
 	Authenticate(context.Context, string) (serviceauth.Principal, error)
 	Issue(context.Context, string, time.Duration, []serviceauth.Scope) (serviceauth.IssuedToken, error)
-	List(context.Context) ([]serviceauth.Token, error)
+	List(context.Context, serviceauth.ListOptions) ([]serviceauth.Token, uuid.UUID, error)
 	Revoke(context.Context, uuid.UUID) error
 }
 
@@ -64,7 +65,43 @@ func (e serviceTokenEndpoints) issue(w http.ResponseWriter, r *http.Request) {
 	}{tokenResponse(v.Token), v.RawToken})
 }
 func (e serviceTokenEndpoints) list(w http.ResponseWriter, r *http.Request) {
-	values, err := e.service.List(r.Context())
+	var options serviceauth.ListOptions
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeServiceTokenError(w, r, serviceauth.ErrValidation)
+		return
+	}
+	for key, values := range query {
+		if len(values) != 1 || values[0] == "" {
+			writeServiceTokenError(w, r, serviceauth.ErrValidation)
+			return
+		}
+		var err error
+		switch key {
+		case "after":
+			options.After, err = uuid.Parse(values[0])
+			if options.After == uuid.Nil {
+				err = serviceauth.ErrValidation
+			}
+		case "id":
+			options.ID, err = uuid.Parse(values[0])
+			if options.ID == uuid.Nil {
+				err = serviceauth.ErrValidation
+			}
+		case "active":
+			options.ActiveOnly = values[0] == "true"
+			if !options.ActiveOnly {
+				err = serviceauth.ErrValidation
+			}
+		default:
+			err = serviceauth.ErrValidation
+		}
+		if err != nil {
+			writeServiceTokenError(w, r, serviceauth.ErrValidation)
+			return
+		}
+	}
+	values, next, err := e.service.List(r.Context(), options)
 	if err != nil {
 		writeServiceTokenError(w, r, err)
 		return
@@ -73,9 +110,14 @@ func (e serviceTokenEndpoints) list(w http.ResponseWriter, r *http.Request) {
 	for i := range values {
 		items[i] = tokenResponse(values[i])
 	}
+	var nextAfter string
+	if next != uuid.Nil {
+		nextAfter = next.String()
+	}
 	writeJSON(w, http.StatusOK, struct {
-		Items []serviceTokenResponse `json:"items"`
-	}{items})
+		Items     []serviceTokenResponse `json:"items"`
+		NextAfter string                 `json:"nextAfter,omitempty"`
+	}{items, nextAfter})
 }
 func (e serviceTokenEndpoints) revoke(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))

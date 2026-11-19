@@ -54,8 +54,20 @@ export const allowlistQuery = queryOptions({
   queryFn: ({ signal }) => getIpAllowlist(signal),
 });
 
-export const serviceTokensQuery = queryOptions({
-  queryKey: ["system", "service-tokens"],
-  queryFn: ({ signal }) => listServiceTokens(signal),
+export const serviceTokensKey = ["system", "service-tokens"] as const;
+
+export const serviceTokensQuery = (activeOnly: boolean) => infiniteQueryOptions({
+  queryKey: [...serviceTokensKey, "list", activeOnly],
+  queryFn: ({ pageParam, signal }) => listServiceTokens({ after: pageParam, active: activeOnly ? true : undefined }, signal),
+  ...pageWindow,
+  getNextPageParam: (page) => page.nextAfter,
+});
+
+export const serviceTokenQuery = (id: string) => queryOptions({
+  queryKey: [...serviceTokensKey, "one", id],
+  queryFn: async ({ signal }) => {
+    const page = await listServiceTokens({ id }, signal);
+    return page.items.find((item) => item.id === id) ?? null;
+  },
 });
 

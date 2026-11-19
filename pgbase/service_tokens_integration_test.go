@@ -3,9 +3,10 @@
 package pgbase
 
 import (
-	"github.com/google/uuid"
 	"net/http"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestServiceTokenHTTPScopesAndRevocation(t *testing.T) {
@@ -84,6 +85,64 @@ func TestServiceTokenHTTPScopesAndRevocation(t *testing.T) {
 	activeAfterDrop := publicUsersRequest(t, app, http.MethodGet, "/api/v1/service/collections/service_notes/records", nil, activeToken.Token, nil, nil)
 	assertPublicUsersStatus(t, activeAfterDrop, http.StatusNotFound)
 }
+func TestServiceTokenHTTPPagesAndFindsOlderActiveToken(t *testing.T) {
+	app := newPublicUsersApp(t, true)
+	cookie, csrf := setupPublicUsersAdministrator(t, app)
+	old := uuid.New()
+	if _, err := app.app.pool.Exec(t.Context(), `
+		insert into pgbase_meta.service_tokens(id,name,token_hash,active,expires_at,revoked_at,created_at)
+		select gen_random_uuid(), 'newer history', sha256(i::text::bytea), i%2=0,
+			case when i%2=0 then now()-interval '1 hour' else now()+interval '1 hour' end,
+			case when i%2=1 then now() end,
+			now()-interval '1 day'
+		from generate_series(1,66) i
+		union all select $1, 'older active', sha256('older active'::bytea), true,
+			now()+interval '1 hour', null, now()-interval '2 days'`, old); err != nil {
+		t.Fatal(err)
+	}
+	type page struct {
+		Items []struct {
+			ID string `json:"id"`
+		} `json:"items"`
+		NextAfter string `json:"nextAfter"`
+	}
+	read := func(query string) page {
+		t.Helper()
+		result := publicUsersRequest(t, app, http.MethodGet, "/api/admin/service-tokens"+query, nil, "", cookie, nil)
+		assertPublicUsersStatus(t, result, http.StatusOK)
+		var values page
+		decodePublicUsersJSON(t, result, &values)
+		return values
+	}
+	first := read("")
+	if len(first.Items) != 64 || first.NextAfter != first.Items[63].ID {
+		t.Fatalf("page length=%d cursor=%q", len(first.Items), first.NextAfter)
+	}
+	second := read("?after=" + first.NextAfter)
+	if len(second.Items) != 3 || second.NextAfter != "" || second.Items[2].ID != old.String() {
+		t.Fatalf("second page = %+v", second)
+	}
+	seen := make(map[string]bool)
+	for _, item := range append(first.Items, second.Items...) {
+		if seen[item.ID] {
+			t.Fatalf("duplicate token %s", item.ID)
+		}
+		seen[item.ID] = true
+	}
+	active := read("?active=true")
+	if len(active.Items) != 1 || active.Items[0].ID != old.String() || active.NextAfter != "" {
+		t.Fatalf("active tokens = %+v", active)
+	}
+	revoked := publicUsersRequest(t, app, http.MethodPost, "/api/admin/service-tokens/"+old.String()+"/revoke", nil, "", cookie, map[string]string{"X-PgBase-CSRF": csrf})
+	assertPublicUsersStatus(t, revoked, http.StatusNoContent)
+	if values := read("?active=true"); len(values.Items) != 0 {
+		t.Fatalf("revoked token still active: %+v", values)
+	}
+	if values := read("?id=" + old.String()); len(values.Items) != 1 || values.Items[0].ID != old.String() {
+		t.Fatalf("revoked token metadata unavailable: %+v", values)
+	}
+}
+
 func contains(value, part string) bool {
 	for i := 0; i+len(part) <= len(value); i++ {
 		if value[i:i+len(part)] == part {

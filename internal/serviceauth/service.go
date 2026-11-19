@@ -132,36 +132,72 @@ func (s *Service) Revoke(ctx context.Context, id uuid.UUID) error {
 	}
 	return nil
 }
-func (s *Service) List(ctx context.Context) ([]Token, error) {
+
+type ListOptions struct {
+	After      uuid.UUID
+	ID         uuid.UUID
+	ActiveOnly bool
+}
+
+const tokenPageSize = 64
+
+func (s *Service) List(ctx context.Context, options ListOptions) ([]Token, uuid.UUID, error) {
+	if options.ID != uuid.Nil && (options.After != uuid.Nil || options.ActiveOnly) {
+		return nil, uuid.Nil, ErrValidation
+	}
+	var conditions []string
+	var args []any
+	switch {
+	case options.After != uuid.Nil:
+		conditions = append(conditions, `(created_at,id)<(select created_at,id from pgbase_meta.service_tokens where id=$1)`)
+		args = append(args, options.After)
+	case options.ID != uuid.Nil:
+		conditions = append(conditions, `id=$1`)
+		args = append(args, options.ID)
+	}
+	if options.ActiveOnly {
+		conditions = append(conditions, `active and revoked_at is null and expires_at>statement_timestamp()`)
+	}
+	where := ""
+	if len(conditions) > 0 {
+		where = "where " + strings.Join(conditions, " and ")
+	}
 	rows, err := s.pool.Query(ctx, `with listed as (
-		select * from pgbase_meta.service_tokens order by created_at desc,id limit 64
+		select id,name,active,expires_at,revoked_at,created_at from pgbase_meta.service_tokens
+		`+where+` order by created_at desc,id desc limit 65
 	) select t.id,t.name,t.active,t.expires_at,t.revoked_at,t.created_at,s.collection_id,s.action
 	  from listed t left join pgbase_meta.service_token_scopes s on s.token_id=t.id
-	 order by t.created_at desc,t.id,s.collection_id,s.action`)
+	 order by t.created_at desc,t.id desc,s.collection_id,s.action`, args...)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 	defer rows.Close()
 	values := make([]Token, 0)
-	index := map[uuid.UUID]int{}
 	for rows.Next() {
 		var v Token
 		var collection *uuid.UUID
 		var action *string
 		if err := rows.Scan(&v.ID, &v.Name, &v.Active, &v.ExpiresAt, &v.RevokedAt, &v.CreatedAt, &collection, &action); err != nil {
-			return nil, err
+			return nil, uuid.Nil, err
 		}
-		i, ok := index[v.ID]
-		if !ok {
-			index[v.ID] = len(values)
+		if len(values) == 0 || values[len(values)-1].ID != v.ID {
+			v.Scopes = []Scope{}
 			values = append(values, v)
-			i = len(values) - 1
 		}
 		if collection != nil {
-			values[i].Scopes = append(values[i].Scopes, Scope{*collection, *action})
+			current := &values[len(values)-1]
+			current.Scopes = append(current.Scopes, Scope{*collection, *action})
 		}
 	}
-	return values, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, uuid.Nil, err
+	}
+	next := uuid.Nil
+	if len(values) > tokenPageSize {
+		values = values[:tokenPageSize]
+		next = values[tokenPageSize-1].ID
+	}
+	return values, next, nil
 }
 func (s *Service) hash(raw string) []byte {
 	m := hmac.New(sha256.New, s.secret)

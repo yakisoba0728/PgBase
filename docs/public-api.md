@@ -102,7 +102,7 @@ Administrator request-log routes read the durable `request_logs` table (newest f
 | GET `/api/admin/logs/{id}` | One entry |
 | DELETE `/api/admin/logs?to` | With `to` (RFC 3339): deletes entries older than `to` and returns `{deleted}`. Without any query parameter: deletes everything, restarts ids and returns 204. An empty or invalid `to`, `from`, or any other parameter returns 400 `invalid_request` |
 
-`clientIP` is recorded only when the `logs.includeIP` setting is on, and `authKind`/`authID` only when `logs.includeAuth` is on; the two settings are independent and both default to off. The address follows the trusted-proxy policy. Auth identity covers administrator sessions and user bearer routes; service-token, anonymous and realtime subscription requests (which authenticate inside the handler) carry none. Recording service-token identity would need a migration, because the `auth_kind` column only accepts `admin` and `user`. Filters other than the time window and the id cursor are evaluated while walking the primary key backwards, so a query that matches nothing reads the whole retained table (bounded by `Operations.RequestLogMaximumRows`, 100,000 by default).
+`clientIP` is recorded only when the `logs.includeIP` setting is on, and `authKind`/`authID` only when `logs.includeAuth` is on; the two settings are independent and both default to off. The address follows the trusted-proxy policy. Authenticated administrator, user, and service-token routes record their corresponding `admin`, `user`, or `service` identity. Anonymous and realtime subscription requests carry no identity in request logs. The `q` search uses a trigram GIN index over the combined searchable fields. Retention is bounded by `Operations.RequestLogMaximumRows` (100,000 by default).
 
 ## Records and permissions
 
@@ -140,7 +140,7 @@ JPEG thumbnails apply EXIF orientation before resizing and remain JPEG. PNG, GIF
 
 SSE subscription is GET `/api/v1/user/collections/{collection}/events`. See [realtime](realtime.md) for replay IDs, retention, failure handling and limits.
 
-Admin service-token issuance takes `{name,ttlSeconds,scopes:[{collectionId,action}]}` at POST `/api/admin/service-tokens`. Actions are `read`, `create`, `update`, `delete`; the returned secret is shown only on issuance. GET lists metadata. POST `/api/admin/service-tokens/{id}/revoke` revokes it. Store tokens only in trusted server environments.
+Admin service-token issuance takes `{name,ttlSeconds,scopes:[{collectionId,action}]}` at POST `/api/admin/service-tokens`. Actions are `read`, `create`, `update`, `delete`; the returned secret is shown only on issuance. GET `/api/admin/service-tokens` returns `{items,nextAfter?}` with up to 64 tokens, newest first. Pass `nextAfter` as the next request's `after` parameter and keep the same filter. Use `active=true` to find active, unexpired tokens, or query `id=<uuid>` alone to retrieve one token in the same envelope. POST `/api/admin/service-tokens/{id}/revoke` revokes it. Store tokens only in trusted server environments.
 
 ## Compatibility and errors
 
