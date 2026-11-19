@@ -23,6 +23,10 @@ type ObjectSource interface {
 	OpenObject(context.Context, string) (io.ReadCloser, error)
 }
 
+type backupStoragePinner interface {
+	PinBackupStorage(context.Context, *pgx.Conn) (context.Context, error)
+}
+
 // CreateOnline exports one repeatable-read snapshot to pg_dump and reads the
 // record and extension object inventory from that exact snapshot. It never
 // includes uncommitted or pending uploads. Holding the GC gate makes concurrently
@@ -48,7 +52,18 @@ func CreateOnline(ctx context.Context, destination, databaseURL string, objects 
 	// Take session locks before beginning the snapshot: a GC that was already
 	// deleting may commit while we wait. Snapshotting first could retain its rows
 	// after their objects have disappeared.
-	if _, err = conn.Exec(ctx, `SELECT pg_advisory_lock($1),pg_advisory_lock_shared($2)`, ObjectGCKey, schemaSnapshotKey); err != nil {
+	if _, err = conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, ObjectGCKey); err != nil {
+		return err
+	}
+	if pinner, ok := objects.(backupStoragePinner); ok {
+		// Match object GC's lock order. Use the exporting connection so its
+		// liveness check also proves the pinned destination stayed locked.
+		ctx, err = pinner.PinBackupStorage(ctx, conn)
+		if err != nil {
+			return err
+		}
+	}
+	if _, err = conn.Exec(ctx, `SELECT pg_advisory_lock_shared($1)`, schemaSnapshotKey); err != nil {
 		return err
 	}
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
@@ -122,12 +137,8 @@ func CreateOnline(ctx context.Context, destination, databaseURL string, objects 
 			_ = source.Close()
 			return err
 		}
-		_, copyErr := io.Copy(out, contextReader{ctx, source})
+		item, copyErr := copyChecksum(ctx, out, source, key)
 		err = errors.Join(copyErr, out.Close(), source.Close())
-		if err != nil {
-			return err
-		}
-		item, err := checksum(ctx, path, key)
 		if err != nil {
 			return err
 		}
@@ -137,10 +148,10 @@ func CreateOnline(ctx context.Context, destination, databaseURL string, objects 
 	if err != nil {
 		return err
 	}
-	if err = os.WriteFile(filepath.Join(temporary, "manifest.json"), append(encoded, '\n'), 0600); err != nil {
-		return err
+	if len(encoded)+1 > maximumManifestBytes {
+		return errors.New("backup manifest exceeds limit")
 	}
-	if _, err = VerifyContext(ctx, temporary); err != nil {
+	if err = os.WriteFile(filepath.Join(temporary, "manifest.json"), append(encoded, '\n'), 0600); err != nil {
 		return err
 	}
 	// The exported snapshot's connection must still be alive before publication.

@@ -75,6 +75,34 @@ func TestArchiveRoundTripAndTamper(t *testing.T) {
 	}
 }
 
+type archiveMutatingWriter struct {
+	io.Writer
+	mutate func() error
+}
+
+func (w *archiveMutatingWriter) Write(p []byte) (int, error) {
+	if w.mutate != nil {
+		err := w.mutate()
+		w.mutate = nil
+		if err != nil {
+			return 0, err
+		}
+	}
+	return w.Writer.Write(p)
+}
+
+func TestPackRejectsAnObjectChangedAfterInventoryValidation(t *testing.T) {
+	source := t.TempDir()
+	makeArchiveFixture(t, source)
+	destination := &archiveMutatingWriter{Writer: io.Discard, mutate: func() error {
+		// Keep the size unchanged so only hashing the archived bytes detects it.
+		return os.WriteFile(filepath.Join(source, "files", "objects", "test"), []byte("changed object"), 0600)
+	}}
+	if err := Pack(t.Context(), source, destination); err == nil || !strings.Contains(err.Error(), "backup artifact hash mismatch") {
+		t.Fatalf("archive accepted changed bytes: %v", err)
+	}
+}
+
 func TestPackRejectsManifestBeyondRestoreLimit(t *testing.T) {
 	directory := t.TempDir()
 	makeArchiveFixture(t, directory)

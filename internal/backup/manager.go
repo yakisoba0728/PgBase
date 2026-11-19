@@ -355,10 +355,6 @@ func (m *Manager) executeOperation(ctx context.Context, job Job) error {
 	return m.options.Restore(ctx, directory)
 }
 func (m *Manager) publish(ctx context.Context, directory, id string) (Entry, error) {
-	manifest, err := VerifyContext(ctx, directory)
-	if err != nil {
-		return Entry{}, err
-	}
 	file, err := os.CreateTemp(m.options.Directory, ".archive-")
 	if err != nil {
 		return Entry{}, err
@@ -366,7 +362,7 @@ func (m *Manager) publish(ctx context.Context, directory, id string) (Entry, err
 	name := file.Name()
 	defer func() { _ = os.Remove(name) }()
 	digest := sha256.New()
-	err = Pack(ctx, directory, io.MultiWriter(file, digest))
+	manifest, err := packVerifiedArchive(ctx, directory, io.MultiWriter(file, digest), maximumUnpackedBytes)
 	err = errors.Join(err, file.Sync(), file.Close())
 	if err != nil {
 		return Entry{}, err
