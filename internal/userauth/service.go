@@ -75,9 +75,6 @@ func (s *Service) RegisterInCollectionWithFields(ctx context.Context, collection
 	if err != nil {
 		return Session{}, err
 	}
-	if err := s.maybeCleanup(ctx); err != nil {
-		return Session{}, err
-	}
 	ratePolicy := s.currentRatePolicy()
 	var registrationEnabled bool
 	if err := s.pool.QueryRow(ctx, `select registration_enabled from pgbase_meta.auth_collections where id=$1`, collectionID).Scan(&registrationEnabled); errors.Is(err, pgx.ErrNoRows) {
@@ -149,9 +146,6 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	passwordErr := validatePassword(password)
 	now, err := s.databaseNow(ctx)
 	if err != nil {
-		return Session{}, err
-	}
-	if err := s.maybeCleanup(ctx); err != nil {
 		return Session{}, err
 	}
 	ratePolicy := s.currentRatePolicy()
@@ -606,74 +600,6 @@ func (s *Service) databaseNow(ctx context.Context) (time.Time, error) {
 	return now.UTC(), nil
 }
 
-// maybeCleanup bounds persistent authentication garbage without requiring a
-// background goroutine or an application lifecycle hook. Each sweep deletes
-// at most 100 rows from each table and runs once per 64 credential requests
-// (including the first request after process start).
-func (s *Service) maybeCleanup(ctx context.Context) error {
-	if (s.cleanupCounter.Add(1)-1)%64 != 0 {
-		return nil
-	}
-	if _, err := s.pool.Exec(ctx, `
-		with stale as (
-			select id from pgbase_meta.user_sessions
-			where expires_at <= CURRENT_TIMESTAMP
-			   or revoked_at <= CURRENT_TIMESTAMP - interval '15 minutes'
-			order by expires_at
-			limit 100 for update skip locked
-		)
-		delete from pgbase_meta.user_sessions as sessions
-		using stale where sessions.id = stale.id`); err != nil {
-		return fmt.Errorf("delete stale user sessions: %w", err)
-	}
-	if _, err := s.pool.Exec(ctx, `
-		with stale as (
-			select subject_hash from pgbase_meta.user_auth_rate_limits
-			where updated_at <= CURRENT_TIMESTAMP - make_interval(secs=>$1)
-			  and coalesce(blocked_until<=CURRENT_TIMESTAMP,true)
-			order by updated_at
-			limit 100 for update skip locked
-		)
-		delete from pgbase_meta.user_auth_rate_limits as limits
-		using stale where limits.subject_hash = stale.subject_hash`, int64(max(30*time.Minute, s.currentRatePolicy().Window).Seconds())); err != nil {
-		return fmt.Errorf("delete stale user rate limits: %w", err)
-	}
-	if _, err := s.pool.Exec(ctx, `
-		with stale as (
-			select id from pgbase_meta.user_email_actions
-			where expires_at <= CURRENT_TIMESTAMP
-			   or consumed_at <= CURRENT_TIMESTAMP - interval '15 minutes'
-			order by expires_at
-			limit 100 for update skip locked
-		)
-		delete from pgbase_meta.user_email_actions as actions
-		using stale where actions.id = stale.id`); err != nil {
-		return fmt.Errorf("delete stale user email actions: %w", err)
-	}
-	if _, err := s.pool.Exec(ctx, `
-		with stale as (
-			select id from pgbase_meta.user_oauth_states
-			where expires_at <= CURRENT_TIMESTAMP
-			   or consumed_at <= CURRENT_TIMESTAMP - interval '15 minutes'
-			order by expires_at limit 100 for update skip locked
-		)
-		delete from pgbase_meta.user_oauth_states as states
-		using stale where states.id = stale.id`); err != nil {
-		return fmt.Errorf("delete stale OAuth states: %w", err)
-	}
-	if _, err := s.pool.Exec(ctx, `
-		with stale as (
-			select id from pgbase_meta.user_mfa_challenges
-			where expires_at <= CURRENT_TIMESTAMP
-			   or consumed_at <= CURRENT_TIMESTAMP - interval '15 minutes'
-			order by expires_at limit 100 for update skip locked
-		)
-		delete from pgbase_meta.user_mfa_challenges as challenges
-		using stale where challenges.id = stale.id`); err != nil {
-		return fmt.Errorf("delete stale MFA challenges: %w", err)
-	}
-	return nil
-}
 func admit(ch chan struct{}) (func(), error) {
 	select {
 	case ch <- struct{}{}:

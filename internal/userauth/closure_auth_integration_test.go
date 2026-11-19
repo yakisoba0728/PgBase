@@ -427,7 +427,7 @@ func TestAuthClosureAuxiliaryRatePolicyAndCleanup(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.maybeCleanup(ctx); err != nil {
+	if err := s.CleanExpiredCredentials(ctx); err != nil {
 		t.Fatal(err)
 	}
 	for i := 1; i <= 3; i++ {

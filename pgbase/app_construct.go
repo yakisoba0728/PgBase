@@ -336,6 +336,10 @@ func newWithCatalogPreflight(
 		return nil, err
 	}
 	handler = requestHooks(normalized.Hooks, handler)
+	cleaner := adminauth.NewCleaner(pool, nil, normalized.Logger)
+	if userService != nil {
+		cleaner.SetUserCleanup(userService.CleanExpiredCredentials)
+	}
 	*app = App{
 		schemaCache:           schemaCache,
 		options:               normalized,
@@ -350,7 +354,7 @@ func newWithCatalogPreflight(
 		handler:               handler,
 		publicSite:            publicHandler,
 		readiness:             readiness,
-		cleaner:               adminauth.NewCleaner(pool, nil, normalized.Logger),
+		cleaner:               cleaner,
 		recordCleaner:         recordops.NewIdempotencyCleaner(pool, normalized.Logger),
 		realtimeWorker:        realtimeService,
 		schemaOperations:      schemaService,

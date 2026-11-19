@@ -160,7 +160,6 @@ type Service struct {
 	credentialSlots     chan struct{}
 	passwordSlots       chan struct{}
 	sessionSlots        chan struct{}
-	cleanupCounter      atomic.Uint64
 	mailer              mailer.Sender
 	decorateMailer      func(mailer.Sender) mailer.Sender
 	emailBaseURL        string
