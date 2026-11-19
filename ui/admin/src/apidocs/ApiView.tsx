@@ -14,7 +14,7 @@ import { Tabs } from "../components/Tabs";
 import { useT, type MessageKey } from "../i18n";
 import { draftFromRule } from "../rules/model";
 import { rulesQueryKey } from "../rules/useRulesEditor";
-import { buildEndpoints, type Audience, type Endpoint } from "./endpoints";
+import { buildEndpoints, requiresBearer, type Audience, type Endpoint } from "./endpoints";
 import { codeSample, languages, type Language } from "./samples";
 import "../styles/apidocs.css";
 
@@ -31,6 +31,8 @@ const filterSyntax: [string, MessageKey][] = [
   ["limit=20&cursor=…", "api.filter.cursor"],
 ];
 
+const servicePermissions = { list: "read", view: "read", create: "create", update: "update", delete: "delete" } as const;
+
 /** An endpoint's rule as shown: the expression itself (code), or a phrase for open, session-only and preset rules. */
 interface RuleText {
   text: string;
@@ -40,6 +42,9 @@ interface RuleText {
 function EndpointPane({ endpoint, collection, audience, language, rule, onLanguage, onClose }: { endpoint: Endpoint; collection: Collection; audience: Audience; language: Language; rule: RuleText; onLanguage: (language: Language) => void; onClose: () => void }) {
   const t = useT();
   const origin = window.location.origin;
+  const url = origin + endpoint.path;
+  const service = audience === "service";
+  const displayedRoute = service ? url : endpoint.path;
   const sample = codeSample(language, endpoint, collection, origin, audience);
   return (
     <>
@@ -48,12 +53,12 @@ function EndpointPane({ endpoint, collection, audience, language, rule, onLangua
         <div className="api-route">
           <span className="api-method" data-method={endpoint.method}>{endpoint.method}</span>
           {/* A long route breaks after a slash; inside a segment only as a last resort. */}
-          <code className="mono">{endpoint.path.split("/").map((segment, index) => <Fragment key={index}>{index > 0 && <>/<wbr /></>}{segment}</Fragment>)}</code>
-          <CopyButton label={t("api.copy")} value={origin + endpoint.path} />
+          <code className="mono">{displayedRoute.split("/").map((segment, index) => <Fragment key={index}>{index > 0 && <>/<wbr /></>}{segment}</Fragment>)}</code>
+          <CopyButton label={t("api.copy")} value={url} />
         </div>
         <Facts items={[
-          { label: t("api.rule"), value: rule.text, mono: rule.code },
-          { label: t("api.auth"), value: t(endpoint.userOnly || (audience === "user" && endpoint.rule) ? "api.auth.bearer" : "api.auth.none") },
+          { label: t(service ? "api.scope" : "api.rule"), value: rule.text, mono: rule.code },
+          { label: t("api.auth"), value: t(requiresBearer(endpoint, audience) ? "api.auth.bearer" : "api.auth.none") },
         ]} />
         {endpoint.query && (
           <section>
@@ -82,8 +87,17 @@ function EndpointPane({ endpoint, collection, audience, language, rule, onLangua
           )}
         </section>
         <section>
-          <Tabs label={t("api.language")} value={language} onChange={onLanguage} tabs={languages.map((value) => ({ value, label: t(`api.lang.${value}`) }))} />
-          {language !== "curl" && <p className="field-hint">{t("api.sdkHint")}</p>}
+          {service ? (
+            <>
+              <h3>{t("api.lang.curl")}</h3>
+              <p className="field-hint">{t("api.serviceTokenHint")}</p>
+            </>
+          ) : (
+            <>
+              <Tabs label={t("api.language")} value={language} onChange={onLanguage} tabs={languages.map((value) => ({ value, label: t(`api.lang.${value}`) }))} />
+              {language !== "curl" && <p className="field-hint">{t("api.sdkHint")}</p>}
+            </>
+          )}
           <CodeBlock label={t("api.sample")} text={sample} />
         </section>
       </div>
@@ -95,23 +109,26 @@ function EndpointPane({ endpoint, collection, audience, language, rule, onLangua
 export function ApiView({ collection }: { collection: Collection }) {
   const t = useT();
   const { params, update } = useSearchState();
+  const caller = params.get("as");
+  const audience: Audience = caller === "user" || caller === "service" ? caller : "guest";
+  const service = audience === "service";
   const policySource = collection.type === "view" && !collection.view?.sql ? collection.view?.source ?? collection.name : collection.name;
-  const rules = useQuery({ queryKey: rulesQueryKey(policySource), queryFn: ({ signal }) => getCollectionRules(policySource, signal) });
-  const access = useQuery({ queryKey: [...rulesQueryKey(policySource), "access"], queryFn: ({ signal }) => getCollectionUserAccess(policySource, signal) });
-  const audience: Audience = params.get("as") === "user" ? "user" : "guest";
+  const rules = useQuery({ queryKey: rulesQueryKey(policySource), queryFn: ({ signal }) => getCollectionRules(policySource, signal), enabled: !service });
+  const access = useQuery({ queryKey: [...rulesQueryKey(policySource), "access"], queryFn: ({ signal }) => getCollectionUserAccess(policySource, signal), enabled: !service });
   const language = (languages as readonly string[]).includes(params.get("lang") ?? "") ? (params.get("lang") as Language) : "curl";
-  const realms = useQuery({ ...authCollectionsQuery, enabled: collection.type === "auth" });
+  const realms = useQuery({ ...authCollectionsQuery, enabled: !service && collection.type === "auth" });
   const endpoints = buildEndpoints(collection, audience, Boolean(realms.data?.some((realm) => realm.name === collection.name)));
   // No ?endpoint= means the default: "list" beside the list on desktop, nothing over it on small screens or once closed.
   const small = useSmallScreen();
   const [closed, setClosed] = useState(false);
-  const selected = endpoints.find((endpoint) => endpoint.id === (params.get("endpoint") ?? (small || closed ? undefined : "list")));
+  const selected = endpoints.find((endpoint) => endpoint.id === params.get("endpoint")) ?? (small || closed ? undefined : endpoints[0]);
   const set = (key: string, value: string | null) => update({ [key]: value }, { replace: true });
   const close = () => { setClosed(true); set("endpoint", null); };
 
   const ruleText = (endpoint: Endpoint): RuleText => {
     const phrase = (text: string) => ({ text, code: false });
-    if (endpoint.id === "batch") return phrase(t("api.rule.perOperation"));
+    if (endpoint.id === "batch") return phrase(t(service ? "api.scope.batch" : "api.rule.perOperation"));
+    if (service && endpoint.rule) return { text: servicePermissions[endpoint.rule], code: true };
     if (!endpoint.rule) return phrase(t(endpoint.userOnly ? "api.rule.session" : "api.rule.open"));
     const rule = rules.data?.rules[endpoint.rule];
     if (!rule) return phrase(rules.isError ? "—" : "…");
@@ -124,11 +141,15 @@ export function ApiView({ collection }: { collection: Collection }) {
   const list = (
     <>
       <div className="toolbar">
-        <Tabs label={t("api.audience")} value={audience} onChange={(value) => set("as", value === "guest" ? null : value)} tabs={[{ value: "guest", label: t("api.as.guest") }, { value: "user", label: t("api.as.user") }]} />
-        {access.data && !access.data.enabled && <span className="api-gate">{t("api.gateOff")}</span>}
+        <Tabs label={t("api.audience")} value={audience} onChange={(value) => set("as", value === "guest" ? null : value)} tabs={[
+          { value: "guest", label: t("api.as.guest") },
+          { value: "user", label: t("api.as.user") },
+          { value: "service", label: t("api.as.service") },
+        ]} />
+        {!service && access.data && !access.data.enabled && <span className="api-gate">{t("api.gateOff")}</span>}
       </div>
       <div className="page-content api-content">
-        {(rules.isError || access.isError) && <ErrorState query={rules.isError ? rules : access} />}
+        {!service && (rules.isError || access.isError) && <ErrorState query={rules.isError ? rules : access} />}
         <ul className="api-list">
           {endpoints.map((endpoint) => (
             <li key={endpoint.id}>

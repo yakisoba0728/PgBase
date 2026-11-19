@@ -5,7 +5,7 @@ import type { Action } from "../rules/model";
 // A per-collection reference built only from the catalog entry: routes follow
 // docs/public-api.md, docs/realtime.md and docs/user-access.md.
 
-export type Audience = "guest" | "user";
+export type Audience = "guest" | "user" | "service";
 type Method = "GET" | "POST" | "PATCH" | "DELETE";
 
 export interface Endpoint {
@@ -27,6 +27,10 @@ const exampleId = "01890a5d-ac96-7f1d-8b3f-0d7a1c2e4b5f";
 const exampleTime = "2026-01-01T09:00:00Z";
 
 export const recordIdExample = (collection: Collection) => (collection.recordId?.kind === "text" ? "abc123def456ghi" : exampleId);
+
+export function requiresBearer(endpoint: Endpoint, audience: Audience): boolean {
+  return audience === "service" || endpoint.userOnly === true || (audience === "user" && endpoint.rule !== undefined);
+}
 
 /** A plausible value for a field, honouring choices, formats and bounds. */
 function exampleValue(field: CollectionField): unknown {
@@ -85,7 +89,7 @@ export function responseRecord(collection: Collection): Record<string, unknown> 
 /** `realm`: an auth collection of this name is registered, so its sign-in routes exist. */
 export function buildEndpoints(collection: Collection, audience: Audience, realm = false): Endpoint[] {
   const name = encodeURIComponent(collection.name);
-  const prefix = audience === "guest" ? "/api/v1/public" : "/api/v1/user";
+  const prefix = `/api/v1/${audience === "guest" ? "public" : audience}`;
   const records = `${prefix}/collections/${name}/records`;
   const one = `${records}/{id}`;
   const record = responseRecord(collection);
@@ -96,13 +100,13 @@ export function buildEndpoints(collection: Collection, audience: Audience, realm
     method: "GET",
     path: records,
     rule: "list",
-    query: { ...(firstText ? { filter: `${firstText} ~ 'example'` } : {}), sort: "-created_at", limit: "20" },
+    query: { ...(firstText && audience !== "service" ? { filter: `${firstText} ~ 'example'` } : {}), sort: "-created_at", limit: "20" },
     status: 200,
     response: { items: [record], nextCursor: "eyJ2IjoxfQ" },
   };
   const view: Endpoint = { id: "view", method: "GET", path: one, rule: "view", status: 200, response: record };
   const realtime: Endpoint = { id: "realtime", method: "GET", path: `/api/v1/user/collections/${name}/events`, rule: "list", userOnly: true, status: 200 };
-  if (collection.type === "view") return [list, view, realtime];
+  if (collection.type === "view") return audience === "service" ? [list, view] : [list, view, realtime];
 
   const endpoints: Endpoint[] = [
     list,
@@ -120,6 +124,7 @@ export function buildEndpoints(collection: Collection, audience: Audience, realm
       response: { results: [{ eventId: exampleId, record, etag: '"etag"', version: 1 }] },
     },
   ];
+  if (audience === "service") return endpoints;
   for (const field of collection.fields.filter((item) => item.type === "file")) {
     endpoints.push({
       id: `files-${field.name}`,
