@@ -173,7 +173,6 @@ jobs:
         with:
           name: pgbase-image-scan-sarif
           path: |
-            pgbase-image-scan.json
             pgbase-image.sarif
             pgbase-image-all-severities.sarif
           if-no-files-found: warn

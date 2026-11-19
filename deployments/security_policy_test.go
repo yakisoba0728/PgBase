@@ -207,7 +207,10 @@ func TestSecurityWorkflowRecordsEverySeverityBesideTheGatedScan(t *testing.T) {
 		t.Fatal("security.yml does not upload the image reports")
 	}
 	upload, _, _ = strings.Cut(upload, "\n      - name:")
-	for _, artifact := range []string{"pgbase-image-scan.json", "pgbase-image.sarif", "pgbase-image-all-severities.sarif"} {
+	if strings.Contains(upload, "pgbase-image-scan.json") {
+		t.Error("keep the raw scan on the runner, where the report converters use it")
+	}
+	for _, artifact := range []string{"pgbase-image.sarif", "pgbase-image-all-severities.sarif"} {
 		if !strings.Contains(upload, artifact) {
 			t.Errorf("the scan artifact does not carry %q", artifact)
 		}
