@@ -50,7 +50,7 @@ pgbase migration auto-status
 pgbase migration recover
 ```
 
-Recovery is idempotent. A byte-identical existing file is accepted; a different file at the reserved name is left untouched and reported as `conflict`. Pending recovery also runs in the application background while automatic recording is enabled.
+Recovery is idempotent. A byte-identical existing file is accepted; a different file at the reserved name is left untouched and reported as `conflict`. While automatic recording is enabled, startup and explicit recovery also verify previously written files. The periodic background worker retries pending files in bounded batches. Instances that materialize files continuously should share the configured directory.
 
 Do not edit a migration after applying it. Add a later migration that corrects or reverses the change. Keep `Down` as the exact inverse of `Up` and use only the provided `pgx.Tx`; opening an independent connection would escape atomic rollback.
 

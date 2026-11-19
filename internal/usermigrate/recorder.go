@@ -293,16 +293,32 @@ func (r *AutoRecorder) Status(ctx context.Context) ([]SourceStatus, error) {
 }
 
 func (r *AutoRecorder) Recover(ctx context.Context) error {
-	statuses, err := r.Status(ctx)
+	return r.recoverSources(ctx, `select operation_id from pgbase_meta.user_migration_sources
+		where status in ('pending', 'written') order by migration_id`)
+}
+
+func (r *AutoRecorder) recoverPending(ctx context.Context) error {
+	// Failed attempts advance updated_at so persistent per-file errors cannot
+	// starve later sources when the batch is full.
+	return r.recoverSources(ctx, `select operation_id from pgbase_meta.user_migration_sources
+		where status='pending' order by updated_at, operation_id limit 64`)
+}
+
+func (r *AutoRecorder) recoverSources(ctx context.Context, query string) error {
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return err
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return err
 	}
 	var failures []error
-	for _, status := range statuses {
-		if status.Status != "pending" && status.Status != "written" {
-			continue
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			return errors.Join(append(failures, ctx.Err())...)
 		}
-		if err := r.MaterializeSchemaMigration(ctx, status.OperationID); err != nil {
+		if err := r.MaterializeSchemaMigration(ctx, id); err != nil {
 			failures = append(failures, err)
 		}
 	}
@@ -310,16 +326,19 @@ func (r *AutoRecorder) Recover(ctx context.Context) error {
 }
 
 func (r *AutoRecorder) Run(ctx context.Context) error {
+	if err := r.Recover(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		r.logger.Error("recover automatic user migration sources at startup", "error", err)
+	}
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
 	for {
-		if err := r.Recover(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			r.logger.Error("recover automatic user migration sources", "error", err)
-		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			if err := r.recoverPending(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				r.logger.Error("recover pending automatic user migration sources", "error", err)
+			}
 		}
 	}
 }

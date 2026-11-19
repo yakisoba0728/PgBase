@@ -329,3 +329,49 @@ func TestRecordedMigrationReplayOrderSurvivesLegacyIDsAndClockRollback(t *testin
 		}
 	}
 }
+
+func TestPeriodicRecoveryOnlyReadsPendingSources(t *testing.T) {
+	ctx := t.Context()
+	pool := userMigrationPool(t)
+	recorder, err := NewAutoRecorder(pool, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := exportSnapshot(t, pool)
+	firstRecordedAt := time.Now().Add(-time.Minute)
+	for index, name := range []string{"written", "pending"} {
+		if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			return recorder.RecordSchemaMigration(ctx, tx, schema.MigrationRecording{
+				OperationID: uuid.New(), Name: name, Before: snapshot, After: snapshot, CommittedAt: firstRecordedAt.Add(time.Duration(index) * time.Second),
+			})
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	statuses, err := recorder.Status(ctx)
+	if err != nil || len(statuses) != 2 {
+		t.Fatalf("status = %v, err=%v", statuses, err)
+	}
+	if err := recorder.MaterializeSchemaMigration(ctx, statuses[0].OperationID); err != nil {
+		t.Fatal(err)
+	}
+	firstPath := filepath.Join(recorder.directory, statuses[0].Filename)
+	if err := os.Remove(firstPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.recoverPending(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(firstPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("periodic recovery revisited a written file, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(recorder.directory, statuses[1].Filename)); err != nil {
+		t.Fatalf("periodic recovery did not process pending file, err=%v", err)
+	}
+	if err := recorder.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(firstPath); err != nil {
+		t.Fatalf("explicit recovery did not restore written file, err=%v", err)
+	}
+}
