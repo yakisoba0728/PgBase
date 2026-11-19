@@ -114,14 +114,14 @@ func (s *Service) ScheduleInTimezone(ctx context.Context, name, schedule, timezo
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("schedule job: name is required")
 	}
-	next, err := nextScheduledAt(schedule, timezone, time.Now())
+	next, err := s.firstRunAt(ctx, schedule, timezone)
 	if err != nil {
 		return err
 	}
 	result, err := s.pool.Exec(ctx, `INSERT INTO pgbase_meta.scheduled_jobs(id,name,schedule,timezone,next_run_at)
-	 VALUES($1,$2,$3,$4,$5) ON CONFLICT (name) DO UPDATE SET
+	 VALUES($1,$2,$3,$4,COALESCE($5::timestamptz,statement_timestamp())) ON CONFLICT (name) DO UPDATE SET
 	 enabled=true,next_run_at=CASE WHEN pgbase_meta.scheduled_jobs.schedule=excluded.schedule
-	 AND pgbase_meta.scheduled_jobs.timezone=$4 THEN pgbase_meta.scheduled_jobs.next_run_at ELSE $5 END,
+	 AND pgbase_meta.scheduled_jobs.timezone=$4 THEN pgbase_meta.scheduled_jobs.next_run_at ELSE excluded.next_run_at END,
 	 attempts=CASE WHEN pgbase_meta.scheduled_jobs.schedule=excluded.schedule
 	 AND pgbase_meta.scheduled_jobs.timezone=$4 THEN pgbase_meta.scheduled_jobs.attempts ELSE 0 END,
 	 last_scheduled_at=CASE WHEN pgbase_meta.scheduled_jobs.schedule=excluded.schedule
@@ -231,15 +231,15 @@ func (s *Service) complete(ctx context.Context, claim claimedJob, runErr error) 
 	if err != nil {
 		runErr = errors.Join(runErr, err)
 	}
-	if runErr == nil {
-		var next *time.Time
-		if schedule.interval == 0 {
-			at := schedule.Next(claim.ScheduledAt)
-			if now := time.Now(); !at.After(now) {
-				at = schedule.Next(now)
-			}
-			next = &at
+	var next *time.Time
+	if runErr == nil && schedule.interval == 0 {
+		next, err = s.nextCalendarRun(ctx, schedule, claim.ScheduledAt)
+		if err != nil && !errors.Is(err, ErrInvalidSchedule) {
+			return err
 		}
+		runErr = err
+	}
+	if runErr == nil {
 		_, err = s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_token=NULL,lease_until=NULL,
 	 next_run_at=COALESCE($3::timestamptz,clock_timestamp()+make_interval(secs=>$4)),
 	 last_scheduled_at=$5,attempts=0,last_error=NULL,last_finished_at=clock_timestamp(),updated_at=clock_timestamp()
@@ -319,13 +319,26 @@ func (s locationSchedule) Next(after time.Time) time.Time {
 	return s.schedule.Next(after.In(s.location))
 }
 
-func nextScheduledAt(schedule, timezone string, now time.Time) (time.Time, error) {
-	parsed, err := ParseScheduleInLocation(schedule, timezone)
-	if err != nil {
-		return time.Time{}, err
+// A nil first run lets the write make an interval job immediately due on the database clock.
+func (s *Service) firstRunAt(ctx context.Context, value, timezone string) (*time.Time, error) {
+	schedule, err := ParseScheduleInLocation(value, timezone)
+	if err != nil || schedule.interval > 0 {
+		return nil, err
 	}
-	if parsed.interval == 0 {
-		return parsed.Next(now), nil
+	return s.nextCalendarRun(ctx, schedule, time.Time{})
+}
+
+func (s *Service) nextCalendarRun(ctx context.Context, schedule Schedule, lastOccurrence time.Time) (*time.Time, error) {
+	var now time.Time
+	if err := s.pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
+		return nil, err
 	}
-	return now, nil
+	if lastOccurrence.After(now) {
+		now = lastOccurrence
+	}
+	next := schedule.Next(now)
+	if next.IsZero() {
+		return nil, fmt.Errorf("%w: cron has no next occurrence", ErrInvalidSchedule)
+	}
+	return &next, nil
 }

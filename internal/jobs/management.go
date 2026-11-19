@@ -66,7 +66,7 @@ func (s *Service) ConfigureJob(ctx context.Context, id uuid.UUID, schedule strin
 }
 
 func (s *Service) ConfigureJobInTimezone(ctx context.Context, id uuid.UUID, schedule, timezone string, enabled bool) error {
-	next, err := nextScheduledAt(schedule, timezone, time.Now())
+	next, err := s.firstRunAt(ctx, schedule, timezone)
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func (s *Service) ConfigureJobInTimezone(ctx context.Context, id uuid.UUID, sche
 	 attempts=CASE WHEN schedule<>$2 OR timezone<>$3 THEN 0 ELSE attempts END,
 	 last_scheduled_at=CASE WHEN schedule<>$2 OR timezone<>$3 THEN NULL ELSE last_scheduled_at END,
 	 last_error=CASE WHEN schedule<>$2 OR timezone<>$3 THEN NULL ELSE last_error END,
-	 next_run_at=CASE WHEN schedule<>$2 OR timezone<>$3 THEN $5 ELSE next_run_at END,updated_at=clock_timestamp()
+	 next_run_at=CASE WHEN schedule<>$2 OR timezone<>$3 THEN COALESCE($5::timestamptz,statement_timestamp()) ELSE next_run_at END,updated_at=clock_timestamp()
 	 WHERE id=$1 AND name=ANY($6::text[]) AND (lease_until IS NULL OR lease_until<clock_timestamp())`, id, schedule, timezone, enabled, next, s.registry.names())
 	if err != nil {
 		return err
@@ -121,11 +121,11 @@ func (s *Service) Unregister(ctx context.Context, name string) error {
 }
 
 func (s *Service) ensureScheduledInTimezone(ctx context.Context, name, schedule, timezone string, enabled bool) error {
-	next, err := nextScheduledAt(schedule, timezone, time.Now())
+	next, err := s.firstRunAt(ctx, schedule, timezone)
 	if err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO pgbase_meta.scheduled_jobs(id,name,schedule,timezone,next_run_at,enabled) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (name) DO NOTHING`, uuid.New(), name, schedule, timezone, next, enabled)
+	_, err = s.pool.Exec(ctx, `INSERT INTO pgbase_meta.scheduled_jobs(id,name,schedule,timezone,next_run_at,enabled) VALUES($1,$2,$3,$4,COALESCE($5::timestamptz,statement_timestamp()),$6) ON CONFLICT (name) DO NOTHING`, uuid.New(), name, schedule, timezone, next, enabled)
 	return err
 }
 
