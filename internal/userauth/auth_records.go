@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -70,63 +70,99 @@ func (s *Service) ListAuthorizedAuthRecords(ctx context.Context, collectionID, p
 	if collectionID == uuid.Nil || limit < 1 || limit > 100 {
 		return nil, ErrValidation
 	}
-	fields, rules, err := s.authRecordRules(ctx, collectionID)
+	var page []AuthRecord
+	err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		var err error
+		page, err = s.listAuthorizedAuthRecordPage(ctx, tx, collectionID, principal, limit)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return page, nil
+}
+
+func (s *Service) listAuthorizedAuthRecordPage(ctx context.Context, db database.DBTX, collectionID, principal uuid.UUID, limit int) ([]AuthRecord, error) {
+	fields, rules, err := authRecordRulesDB(ctx, db, collectionID)
 	if err != nil {
 		return nil, err
 	}
 	if rules.IsNull("list") {
 		return []AuthRecord{}, nil
 	}
-	values := []AuthRecord{}
-	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		predicate, args, err := compileAuthRecordRuleInTx(ctx, tx, collectionID, rules.List, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}}, 1)
-		if err != nil {
-			return err
-		}
-		queryArgs := append([]any{collectionID}, args...)
-		limitParameter := "$" + strconv.Itoa(len(queryArgs)+1)
-		queryArgs = append(queryArgs, limit)
-		rows, err := tx.Query(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and (`+predicate+`) order by u.id limit `+limitParameter, queryArgs...)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
-			var value AuthRecord
-			var raw []byte
-			if err := rows.Scan(&value.ID, &value.AuthCollectionID, &value.Email, &value.EmailVisibility, &value.Verified, &value.Active, &raw, &value.CreatedAt, &value.UpdatedAt); err != nil {
-				rows.Close()
-				return err
-			}
-			if decodeAuthProfile(raw, &value.Fields) != nil {
-				rows.Close()
-				return errors.New("invalid stored auth profile")
-			}
-			value.Fields = publicAuthFields(value.Fields, fields)
-			values = append(values, value)
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return err
-		}
-		rows.Close()
-		for i := range values {
-			if err := s.projectAuthRelationIdentities(ctx, tx, values[i].Fields, fields); err != nil {
-				return err
-			}
-			if err := s.projectAuthRecord(ctx, tx, &values[i]); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	ruleContext := AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}}
+	list, listArgs, err := compileAuthRecordRuleInTx(ctx, db, collectionID, rules.List, ruleContext, 3)
 	if err != nil {
 		return nil, err
 	}
-	for i := range values {
-		values[i] = s.visibleAuthRecordForPrincipal(ctx, values[i], fields, principal, rules)
+	args := append([]any{collectionID, principal, limit}, listArgs...)
+	manage := "false"
+	if principal != uuid.Nil && !rules.IsNull("manage") && strings.TrimSpace(rules.Manage) != "" {
+		predicate, manageArgs, err := compileAuthRecordRuleInTx(ctx, db, collectionID, rules.Manage, ruleContext, len(args))
+		switch {
+		case err == nil:
+			manage = predicate
+			args = append(args, manageArgs...)
+		case !errors.Is(err, ErrValidation):
+			return nil, err
+		}
 	}
-	return values, nil
+	// A non-null, true manage predicate exposes only the matched record's
+	// email. Public visibility and ownership also work without manage.
+	email := `case when u.email_visibility or u.id=$2 or (` + manage + `) then u.email else '' end`
+	page, err := readAuthRecordPage(ctx, db, email, `where u.auth_collection_id=$1 and (`+list+`) order by u.id limit $3`, args...)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.projectAuthRecordPage(ctx, db, collectionID, page, fields); err != nil {
+		return nil, err
+	}
+	for i := range page {
+		page[i] = visibleAuthRecord(page[i], fields)
+	}
+	return page, nil
 }
+
+func readAuthRecordPage(ctx context.Context, db database.DBTX, email, suffix string, args ...any) ([]AuthRecord, error) {
+	rows, err := db.Query(ctx, `select u.id,u.auth_collection_id,`+email+`,u.email_visibility,u.verified,u.active,
+		coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u
+		left join pgbase_meta.user_auth_profiles p on p.user_id=u.id `+suffix, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	page := []AuthRecord{}
+	for rows.Next() {
+		var record AuthRecord
+		var raw []byte
+		if err := rows.Scan(&record.ID, &record.AuthCollectionID, &record.Email, &record.EmailVisibility, &record.Verified, &record.Active, &raw, &record.CreatedAt, &record.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if decodeAuthProfile(raw, &record.Fields) != nil {
+			return nil, errors.New("invalid stored auth profile")
+		}
+		page = append(page, record)
+	}
+	return page, rows.Err()
+}
+
+func (s *Service) projectAuthRecordPage(ctx context.Context, db database.DBTX, collectionID uuid.UUID, page []AuthRecord, fields []schema.FieldInput) error {
+	documents := make([]map[string]any, len(page))
+	ids := make(map[uuid.UUID]string, len(page))
+	for i := range page {
+		page[i].Fields = publicAuthFields(page[i].Fields, fields)
+		documents[i] = page[i].Fields
+		ids[page[i].ID] = ""
+	}
+	if err := recordidentity.LoadPublicIDs(ctx, db, "auth", collectionID, ids); err != nil {
+		return err
+	}
+	for i := range page {
+		page[i].PublicID = ids[page[i].ID]
+	}
+	return s.projectAuthRelationDocuments(ctx, db, documents, fields)
+}
+
 func (s *Service) GetAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID) (AuthRecord, error) {
 	fields, rules, err := s.authRecordRules(ctx, collectionID)
 	if err != nil {
@@ -271,42 +307,24 @@ func (s *Service) ListAuthRecords(ctx context.Context, collectionID, after uuid.
 	if collectionID == uuid.Nil || limit < 1 || limit > 100 {
 		return nil, uuid.Nil, ErrValidation
 	}
-	fields, err := s.authRecordContract(ctx, collectionID)
-	if err != nil {
-		return nil, uuid.Nil, err
-	}
-	rows, err := s.pool.Query(ctx, `select u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.active,coalesce(p.attributes,'{}'),u.created_at,u.updated_at from pgbase_meta.users u left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.auth_collection_id=$1 and u.id>$2 order by u.id limit $3`, collectionID, after, limit+1)
-	if err != nil {
-		return nil, uuid.Nil, err
-	}
-	defer rows.Close()
-	result := []AuthRecord{}
-	for rows.Next() {
-		var v AuthRecord
-		var raw []byte
-		if err := rows.Scan(&v.ID, &v.AuthCollectionID, &v.Email, &v.EmailVisibility, &v.Verified, &v.Active, &raw, &v.CreatedAt, &v.UpdatedAt); err != nil {
-			return nil, uuid.Nil, err
-		}
-		if decodeAuthProfile(raw, &v.Fields) != nil {
-			return nil, uuid.Nil, errors.New("invalid stored auth profile")
-		}
-		result = append(result, v)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, uuid.Nil, err
-	}
+	var result []AuthRecord
 	next := uuid.Nil
-	if len(result) > limit {
-		result = result[:limit]
-		next = result[limit-1].ID
-	}
-	for i := range result {
-		result[i].Fields = publicAuthFields(result[i].Fields, fields)
-		if err := s.projectAuthRelationIdentities(ctx, s.pool, result[i].Fields, fields); err != nil {
-			return nil, uuid.Nil, err
+	err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		fields, err := authRecordContractDB(ctx, tx, collectionID)
+		if err != nil {
+			return err
 		}
-	}
-	if err := s.projectAuthRecords(ctx, result); err != nil {
+		result, err = readAuthRecordPage(ctx, tx, "u.email", `where u.auth_collection_id=$1 and u.id>$2 order by u.id limit $3`, collectionID, after, limit+1)
+		if err != nil {
+			return err
+		}
+		if len(result) > limit {
+			result = result[:limit]
+			next = result[limit-1].ID
+		}
+		return s.projectAuthRecordPage(ctx, tx, collectionID, result, fields)
+	})
+	if err != nil {
 		return nil, uuid.Nil, err
 	}
 	return result, next, nil
@@ -612,8 +630,12 @@ func (s *Service) deleteAuthRecord(ctx context.Context, collectionID, id uuid.UU
 }
 
 func (s *Service) authRecordContract(ctx context.Context, id uuid.UUID) ([]schema.FieldInput, error) {
+	return authRecordContractDB(ctx, s.pool, id)
+}
+
+func authRecordContractDB(ctx context.Context, db database.DBTX, id uuid.UUID) ([]schema.FieldInput, error) {
 	var raw []byte
-	err := s.pool.QueryRow(ctx, `select fields_json from pgbase_meta.auth_collections where id=$1`, id).Scan(&raw)
+	err := db.QueryRow(ctx, `select fields_json from pgbase_meta.auth_collections where id=$1`, id).Scan(&raw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

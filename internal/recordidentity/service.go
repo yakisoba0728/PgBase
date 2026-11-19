@@ -184,6 +184,40 @@ func (s *Service) Public(ctx context.Context, db DB, collection schema.Collectio
 	return external, err
 }
 
+// LoadPublicIDs resolves the distinct internal IDs in a mapped collection.
+func LoadPublicIDs(ctx context.Context, db DB, kind string, collectionID uuid.UUID, ids map[uuid.UUID]string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	internalIDs := make([]uuid.UUID, 0, len(ids))
+	for id := range ids {
+		internalIDs = append(internalIDs, id)
+	}
+	rows, err := db.Query(ctx, `select internal_id,external_id from pgbase_meta.record_identities
+		where collection_kind=$1 and collection_id=$2 and internal_id=any($3::uuid[])`, kind, collectionID, internalIDs)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var id uuid.UUID
+		var external string
+		if err := rows.Scan(&id, &external); err != nil {
+			return err
+		}
+		ids[id] = external
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if count != len(internalIDs) {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *Service) Forget(ctx context.Context, db DB, collection schema.Collection, internal uuid.UUID) error {
 	if collection.RecordID.Kind != schema.RecordIDText {
 		return nil
