@@ -86,7 +86,7 @@ func TestLoginAndRegistrationConflict(t *testing.T) {
 	}
 }
 
-func TestCredentialRequestCleansBoundedStaleAuthenticationRows(t *testing.T) {
+func TestPeriodicCleanerRemovesStaleAuthenticationRowsOffRequestPath(t *testing.T) {
 	pool := newUserAuthPool(t)
 	ctx := context.Background()
 	if _, err := pool.Exec(ctx, `
@@ -98,11 +98,20 @@ func TestCredentialRequestCleansBoundedStaleAuthenticationRows(t *testing.T) {
 	if _, err := service.Register(ctx, "cleanup@example.com", "correct horse battery staple", "192.0.2.9"); err != nil {
 		t.Fatal(err)
 	}
-	var stale int
-	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.user_auth_rate_limits where subject_hash=decode(repeat('ab',32),'hex')`).Scan(&stale); err != nil {
+	countStale := func() int {
+		var stale int
+		if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.user_auth_rate_limits where subject_hash=decode(repeat('ab',32),'hex')`).Scan(&stale); err != nil {
+			t.Fatal(err)
+		}
+		return stale
+	}
+	if stale := countStale(); stale != 1 {
+		t.Fatalf("stale rate-limit rows after registration = %d, want 1", stale)
+	}
+	if err := service.CleanExpiredCredentials(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if stale != 0 {
+	if stale := countStale(); stale != 0 {
 		t.Fatalf("stale rate-limit rows = %d, want 0", stale)
 	}
 }
