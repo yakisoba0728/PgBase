@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/mail"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -98,8 +99,8 @@ func (s *Service) RegisterInCollectionWithFields(ctx context.Context, collection
 	if err != nil {
 		return Session{}, err
 	}
-	defer releaseHash()
 	passwordHash, err := s.passwords.Hash(password)
+	releaseHash()
 	if err != nil {
 		return Session{}, err
 	}
@@ -134,10 +135,13 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	}
 	defer release()
 	identity := strings.TrimSpace(email)
-	normalized, emailErr := normalizeEmail(identity)
+	normalizedEmail, emailErr := normalizeEmail(identity)
+	accountIdentity := identity
+	if emailErr == nil && slices.Contains(policy.IdentityFields, "email") {
+		accountIdentity = normalizedEmail
+	}
 	if len(policy.IdentityFields) != 1 || policy.IdentityFields[0] != "email" {
 		emailErr = nil
-		normalized = identity
 	}
 	if err := validateClientAddress(clientAddress); err != nil {
 		return Session{}, err
@@ -151,7 +155,7 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 		return Session{}, err
 	}
 	ratePolicy := s.currentRatePolicy()
-	accountSubject := collectionID.String() + "\x00" + normalized
+	accountSubject := collectionID.String() + "\x00" + accountIdentity
 	if emailErr != nil {
 		// All malformed emails share one fixed-size bucket. Valid unknown emails
 		// use their normalized form exactly like existing accounts, so account
@@ -168,8 +172,8 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 	var user User
 	var hash string
 	lookupErr := error(ErrInvalidCredentials)
-	if emailErr == nil && passwordErr == nil && normalized != "" {
-		user, hash, lookupErr = userByIdentityDB(ctx, s.pool, collectionID, policy.IdentityFields, normalized)
+	if emailErr == nil && passwordErr == nil && identity != "" {
+		user, hash, lookupErr = userByIdentityDB(ctx, s.pool, collectionID, policy.IdentityFields, identity, normalizedEmail)
 		if lookupErr != nil && !errors.Is(lookupErr, ErrInvalidCredentials) {
 			return Session{}, lookupErr
 		}
@@ -209,10 +213,13 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 // userByIdentityDB permits email plus declared text profile fields.  Field names
 // are read from validated policy rather than interpolated into SQL, keeping the
 // JSON lookup parameterized and preventing profile-field SQL injection.
-func userByIdentityDB(ctx context.Context, db database.DBTX, collectionID uuid.UUID, fields []string, identity string) (User, string, error) {
+func userByIdentityDB(ctx context.Context, db database.DBTX, collectionID uuid.UUID, fields []string, identity, normalizedEmail string) (User, string, error) {
 	for _, field := range fields {
 		if field == "email" {
-			u, hash, err := userByEmailDB(ctx, db, collectionID, identity, false)
+			if normalizedEmail == "" {
+				continue
+			}
+			u, hash, err := userByEmailDB(ctx, db, collectionID, normalizedEmail, false)
 			if err == nil {
 				return u, hash, nil
 			}
@@ -425,6 +432,12 @@ func (s *Service) insertSession(ctx context.Context, db database.DBTX, user User
 		return Session{}, err
 	}
 	return Session{User: user, RawToken: token, ExpiresAt: expires}, nil
+}
+
+const sessionUserColumns = "u.id,u.auth_collection_id,u.email,u.email_visibility,u.verified,u.created_at"
+
+func scanSessionUser(row pgx.Row, user *User, trailing ...any) error {
+	return row.Scan(append([]any{&user.ID, &user.AuthCollectionID, &user.Email, &user.EmailVisibility, &user.Verified, &user.CreatedAt}, trailing...)...)
 }
 
 func userByEmailDB(ctx context.Context, db database.DBTX, collectionID uuid.UUID, email string, lock bool) (User, string, error) {

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func TestEmailOTPIsHashedResentAttemptBoundAndSingleUse(t *testing.T) {
@@ -277,3 +279,38 @@ func decodeTOTPSecret(t *testing.T, value string) []byte {
 }
 
 var base32NoPadding = base32.StdEncoding.WithPadding(base32.NoPadding)
+
+func TestEmailOTPUsesSharedPolicyLockAndReturnsVisibility(t *testing.T) {
+	service, sender := newEmailActionService(t)
+	ctx := t.Context()
+	user, err := service.Register(ctx, "visible-otp@example.test", "correct horse battery staple", "signup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible := true
+	if _, err := service.UpdateAuthRecord(ctx, DefaultCollectionID, user.User.ID, UpdateAuthRecordInput{EmailVisibility: &visible}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.pool.Exec(ctx, `update pgbase_meta.auth_collection_policies set otp_enabled=true where auth_collection_id=$1`, DefaultCollectionID); err != nil {
+		t.Fatal(err)
+	}
+	err = service.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `select 1 from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, DefaultCollectionID); err != nil {
+			return err
+		}
+		requestCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		otp, err := service.RequestEmailOTP(requestCtx, user.User.Email, "otp")
+		if err != nil {
+			return err
+		}
+		loggedIn, err := service.CompleteEmailOTP(requestCtx, otp.OTPID, otpFromMessage(t, sender))
+		if err == nil && !loggedIn.User.EmailVisibility {
+			return errors.New("OTP login returned false email visibility")
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

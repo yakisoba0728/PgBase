@@ -103,3 +103,22 @@ func TestCleanerDeletesOnlyStaleExpiredAndRevokedSessions(t *testing.T) {
 		t.Fatalf("fresh session was removed: %v", err)
 	}
 }
+
+func TestCleanerPreservesUnexpiredRateLimitBlock(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	ctx := t.Context()
+	_, err := pool.Exec(ctx, `insert into pgbase_meta.admin_rate_limits
+		(subject_hash,window_started_at,failures,blocked_until,updated_at)
+		values (decode(repeat('11',32),'hex'),now()-interval '30 hours',3,now()+interval '2 days',now()-interval '30 hours'),
+		       (decode(repeat('22',32),'hex'),now()-interval '30 hours',3,now()-interval '1 hour',now()-interval '30 hours')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := NewCleaner(pool, nil).cleanDatabase(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var active, expired int
+	if err := pool.QueryRow(ctx, `select count(*) filter (where blocked_until > now()), count(*) filter (where blocked_until <= now()) from pgbase_meta.admin_rate_limits`).Scan(&active, &expired); err != nil || active != 1 || expired != 0 {
+		t.Fatalf("active=%d expired=%d err=%v", active, expired, err)
+	}
+}

@@ -97,7 +97,7 @@ func TestAuthPolicyEnforcesMaximumPatternAndDeclaredProfileIdentity(t *testing.T
 }
 
 func TestUnlinkOAuthIdentityPreservesLastSignInMethod(t *testing.T) {
-	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	service, _ := newEmailActionService(t)
 	ctx := context.Background()
 	session, err := service.Register(ctx, "unlink@example.test", "Correct horse battery", "unlink-register")
 	if err != nil {
@@ -118,6 +118,21 @@ func TestUnlinkOAuthIdentityPreservesLastSignInMethod(t *testing.T) {
 	}
 	if err := service.UnlinkOAuthIdentity(ctx, session.User.ID, "google"); !errors.Is(err, ErrValidation) {
 		t.Fatalf("last identity unlink=%v", err)
+	}
+	if _, err := service.pool.Exec(ctx, `update pgbase_meta.auth_collection_policies set otp_enabled=true where auth_collection_id=$1`, DefaultCollectionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.pool.Exec(ctx, `update pgbase_meta.users set email='' where id=$1`, session.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UnlinkOAuthIdentity(ctx, session.User.ID, "google"); !errors.Is(err, ErrValidation) {
+		t.Fatalf("last identity unlink without a delivery address=%v", err)
+	}
+	if _, err := service.pool.Exec(ctx, `update pgbase_meta.users set email=$2 where id=$1`, session.User.ID, session.User.Email); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UnlinkOAuthIdentity(ctx, session.User.ID, "google"); err != nil {
+		t.Fatalf("last identity unlink with usable OTP=%v", err)
 	}
 }
 

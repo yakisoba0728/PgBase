@@ -37,7 +37,7 @@ func (s *Service) IssueAuthResponseSession(ctx context.Context, collectionID, us
 	var authErr error
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var user User
-		err := tx.QueryRow(ctx, `select id,auth_collection_id,email,verified,created_at from pgbase_meta.users where id=$1 and auth_collection_id=$2 and active for update`, userID, collectionID).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt)
+		err := scanSessionUser(tx.QueryRow(ctx, `select `+sessionUserColumns+` from pgbase_meta.users u where id=$1 and auth_collection_id=$2 and active for update`, userID, collectionID), &user)
 		if errors.Is(err, pgx.ErrNoRows) {
 			authErr = ErrInvalidCredentials
 			return nil

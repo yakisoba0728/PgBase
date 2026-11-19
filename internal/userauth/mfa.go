@@ -268,7 +268,7 @@ func (s *Service) CompleteMFA(ctx context.Context, challengeToken, code string) 
 			return err
 		}
 		var user User
-		if err := tx.QueryRow(ctx, `select id,auth_collection_id,email,verified,created_at from pgbase_meta.users where id=$1 and active for update`, userID).Scan(&user.ID, &user.AuthCollectionID, &user.Email, &user.Verified, &user.CreatedAt); errors.Is(err, pgx.ErrNoRows) {
+		if err := scanSessionUser(tx.QueryRow(ctx, `select `+sessionUserColumns+` from pgbase_meta.users u where id=$1 and active for update`, userID), &user); errors.Is(err, pgx.ErrNoRows) {
 			invalid = true
 			return nil
 		} else if err != nil {

@@ -106,6 +106,7 @@ func (c *Cleaner) deleteRateLimits(ctx context.Context, cutoff time.Time) error 
 					select ctid
 					from pgbase_meta.admin_rate_limits
 					where updated_at < $1
+					  and (blocked_until is null or blocked_until <= statement_timestamp())
 					order by updated_at, ctid
 					limit 1000
 					for update skip locked

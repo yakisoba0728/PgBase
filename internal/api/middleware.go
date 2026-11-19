@@ -22,7 +22,7 @@ import (
 
 func apiRateLimitMiddleware(limiter *apiratelimit.Service, trusted func() []netip.Prefix, pattern string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		address, ok := clientAddress(r, currentTrustedProxies(trusted))
+		address, ok := clientIP(r, currentTrustedProxies(trusted))
 		if !ok {
 			address = "unknown"
 		}
