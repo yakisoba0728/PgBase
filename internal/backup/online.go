@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -171,7 +172,7 @@ func snapshotObjectKeys(ctx context.Context, tx pgx.Tx) ([]string, error) {
 	rows, err := tx.Query(ctx, `SELECT object_key FROM pgbase_meta.record_files WHERE status = 'ready'
  UNION SELECT thumbnail_object_key FROM pgbase_meta.record_files WHERE status = 'ready' AND thumbnail_object_key IS NOT NULL
  UNION SELECT v.object_key FROM pgbase_meta.record_file_variants v JOIN pgbase_meta.record_files f ON f.id=v.file_id WHERE f.status = 'ready'
- UNION SELECT object_key FROM pgbase_meta.extension_objects ORDER BY 1`)
+ UNION SELECT object_key FROM pgbase_meta.extension_objects`)
 	if err != nil {
 		return nil, err
 	}
@@ -184,5 +185,7 @@ func snapshotObjectKeys(ctx context.Context, tx pgx.Tx) ([]string, error) {
 		}
 		keys = append(keys, key)
 	}
+	// Archive inventories use bytewise path order, independent of DB collation.
+	slices.Sort(keys)
 	return keys, rows.Err()
 }
