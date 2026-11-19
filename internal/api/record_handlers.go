@@ -263,7 +263,14 @@ func (e recordEndpoints) get(w http.ResponseWriter, r *http.Request) {
 // Check the final public form after identity projection, compatibility aliases,
 // and enrichment, with the same framing as the router's atomic buffer.
 func writeRecordReadJSON(w http.ResponseWriter, r *http.Request, record any, etag string) {
+	writeRecordReadJSONWithFallback(w, r, record, etag, nil)
+}
+
+func writeRecordReadJSONWithFallback(w http.ResponseWriter, r *http.Request, record any, etag string, fallback any) {
 	body, err := json.Marshal(record)
+	if err == nil && len(body)+1 > maximumRecordPageResponseBytes && fallback != nil {
+		body, err = json.Marshal(fallback)
+	}
 	if err != nil {
 		writeRecordError(w, r, err)
 		return

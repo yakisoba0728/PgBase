@@ -20,3 +20,14 @@ func TestRecordReadRejectsOversizedPublicResponseBeforeSettingETag(t *testing.T)
 		t.Fatalf("oversized public response: status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
 	}
 }
+
+func TestRecordReadFallsBackIfOptionalDataExceedsWireBudget(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	response := httptest.NewRecorder()
+	writeRecordReadJSONWithFallback(response, request, map[string]any{
+		"fileMetadata": strings.Repeat("<", maximumRecordPageResponseBytes/6),
+	}, "", map[string]any{"items": []string{"record"}})
+	if response.Code != http.StatusOK || response.Body.String() != "{\"items\":[\"record\"]}\n" {
+		t.Fatalf("fallback response: status=%d body=%s", response.Code, response.Body.String())
+	}
+}

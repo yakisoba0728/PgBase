@@ -22,7 +22,7 @@ type recordFileMetadataFields interface {
 
 func (e recordEndpoints) writeRecordPage(w http.ResponseWriter, r *http.Request, principal identity.Subject, page recordops.RecordPage) {
 	if r.URL.Query().Get("files") != "true" {
-		writeJSON(w, http.StatusOK, page)
+		writeRecordReadJSON(w, r, page, "")
 		return
 	}
 	if principal.Kind != identity.Administrator {
@@ -31,7 +31,7 @@ func (e recordEndpoints) writeRecordPage(w http.ResponseWriter, r *http.Request,
 	}
 	service, ok := e.files.(recordFileMetadata)
 	if !ok {
-		writeJSON(w, http.StatusOK, page)
+		writeRecordReadJSON(w, r, page, "")
 		return
 	}
 	id, err := e.files.CollectionID(r.Context(), r.PathValue("collection"))
@@ -52,7 +52,7 @@ func (e recordEndpoints) writeRecordPage(w http.ResponseWriter, r *http.Request,
 		metadata, err = service.ListRecordMetadata(r.Context(), principal, id, ids)
 	}
 	if errors.Is(err, filestore.ErrRecordMetadataLimit) {
-		writeJSON(w, http.StatusOK, page)
+		writeRecordReadJSON(w, r, page, "")
 		return
 	}
 	if err != nil {
@@ -70,8 +70,8 @@ func (e recordEndpoints) writeRecordPage(w http.ResponseWriter, r *http.Request,
 			files[id][field] = values
 		}
 	}
-	writeJSON(w, http.StatusOK, struct {
+	writeRecordReadJSONWithFallback(w, r, struct {
 		recordops.RecordPage
 		FileMetadata map[string]map[string][]fileResponse `json:"fileMetadata"`
-	}{page, files})
+	}{page, files}, "", page)
 }
