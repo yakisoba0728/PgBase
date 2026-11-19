@@ -57,7 +57,7 @@ func TestRealtimeRelationFilterFailurePreservesCheckpoint(t *testing.T) {
 			if *client.subscriptions[0].cursor != 0 || strings.Contains(failed.Body.String(), "id:") {
 				t.Fatalf("failed lookup acknowledged event: body=%q cursor=%d", failed.Body.String(), *client.subscriptions[0].cursor)
 			}
-			if !strings.Contains(failed.Body.String(), `"code":"subscription_failed"`) || strings.Contains(failed.Body.String(), failure.err.Error()) {
+			if !strings.Contains(failed.Body.String(), `"code":"subscription_failed","retryable":true`) || strings.Contains(failed.Body.String(), failure.err.Error()) {
 				t.Fatalf("failed lookup did not emit a sanitized stream error: %q", failed.Body.String())
 			}
 			records.listErr = nil

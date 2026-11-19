@@ -81,7 +81,7 @@ func realtimeHandler(dependencies Dependencies) http.Handler {
 		}
 		mu.Unlock()
 		if !admitted {
-			connectErr = errors.New("realtime admission limit reached")
+			connectErr = errRealtimeConnectionLimit
 			writeAPIError(w, r, APIError{Status: 429, Code: "realtime_limit", Message: "Too many realtime connections"})
 			return
 		}

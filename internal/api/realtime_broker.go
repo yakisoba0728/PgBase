@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -87,7 +88,12 @@ func (b *ApplicationRealtimeBroker) Publish(ctx context.Context, topic string, d
 	// HTTP counterpart only calls it from an extension granted app-control.
 	// Keep this lower-level boundary bounded too because Go extensions can call
 	// it directly.
-	if !validBrokerTopic(topic) || len(data) == 0 || len(data) > maximumApplicationRealtimePayload || !json.Valid(data) {
+	if !validBrokerTopic(topic) || len(data) == 0 || len(data) > maximumApplicationRealtimePayload {
+		return 0
+	}
+	// SSE writes a single data line. Compact once for all authorized recipients.
+	var frame bytes.Buffer
+	if err := json.Compact(&frame, data); err != nil {
 		return 0
 	}
 	b.mu.RLock()
@@ -100,7 +106,7 @@ func (b *ApplicationRealtimeBroker) Publish(ctx context.Context, topic string, d
 	}
 	b.mu.RUnlock()
 	delivered := 0
-	message := ApplicationRealtimeMessage{Topic: topic, Data: append(json.RawMessage(nil), data...)}
+	message := ApplicationRealtimeMessage{Topic: topic, Data: frame.Bytes()}
 	for id, client := range targets {
 		if authorize == nil || !authorize(ctx, id, message) {
 			continue

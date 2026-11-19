@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/realtime"
@@ -252,17 +254,24 @@ func (h *realtimeHub) realtimeMessageRecord(r *http.Request, principal identity.
 }
 
 func writeRealtimeStreamError(w http.ResponseWriter, control *http.ResponseController, err error) {
-	code := "subscription_failed"
-	if errors.Is(err, realtime.ErrCursorExpired) {
-		code = "cursor_expired"
-	}
-	if errors.Is(err, realtime.ErrCursorInvalid) {
-		code = "invalid_cursor"
+	payload := struct {
+		Code      string `json:"code"`
+		Retryable bool   `json:"retryable,omitempty"`
+	}{Code: "subscription_failed"}
+	switch {
+	case errors.Is(err, realtime.ErrCursorExpired):
+		payload.Code = "cursor_expired"
+	case errors.Is(err, realtime.ErrCursorInvalid):
+		payload.Code = "invalid_cursor"
+	default:
+		var recordError *recordops.Error
+		payload.Retryable = errors.Is(err, context.DeadlineExceeded) || database.Classify(err) == database.KindUnavailable ||
+			errors.As(err, &recordError) && recordError.Code == recordops.CodeUnavailable
 	}
 	if control.SetWriteDeadline(time.Now().Add(10*time.Second)) != nil {
 		return
 	}
-	payload, _ := json.Marshal(map[string]string{"code": code})
-	_, _ = fmt.Fprintf(w, "event: PB_ERROR\ndata: %s\n\n", payload)
+	raw, _ := json.Marshal(payload)
+	_, _ = fmt.Fprintf(w, "event: PB_ERROR\ndata: %s\n\n", raw)
 	_ = control.Flush()
 }

@@ -97,11 +97,19 @@ func TestRealtimeApplicationTopicDeliversOverHTTPExactly(t *testing.T) {
 	if subscribed.StatusCode != http.StatusNoContent {
 		t.Fatalf("subscribe status=%d", subscribed.StatusCode)
 	}
+	other := newRealtimeHub(Dependencies{Realtime: stream})
+	wrongBackend := httptest.NewRequest(http.MethodPost, "/api/realtime", strings.NewReader(`{"clientId":"`+connected.ClientID+`","subscriptions":["@app/notice"]}`))
+	wrongBackend.Header.Set("Content-Type", "application/json")
+	notFound := httptest.NewRecorder()
+	other.serve(notFound, wrongBackend)
+	if notFound.Code != http.StatusNotFound || !strings.Contains(notFound.Body.String(), "realtime_client_not_found") {
+		t.Fatalf("subscription routed to another backend: status=%d body=%q", notFound.Code, notFound.Body.String())
+	}
 	if calls := stream.readCount(); calls != 0 {
 		t.Fatalf("custom subscription queried collection reader %d times", calls)
 	}
 
-	if delivered := broker.Publish(t.Context(), "@app/notice", json.RawMessage(`{"value":[1,true]}`)); delivered != 1 {
+	if delivered := broker.Publish(t.Context(), "@app/notice", json.RawMessage("{\n  \"value\": [1, true]\n}")); delivered != 1 {
 		t.Fatalf("delivered=%d", delivered)
 	}
 	message := readRealtimeSSEFrame(t, reader)
@@ -246,5 +254,29 @@ func TestRealtimeReplaceWaitsForDeliveryAndPreservesUnchangedCursor(t *testing.T
 	}
 	if got := *client.subscriptions[1].cursor; got != stream.head {
 		t.Fatalf("new subscription cursor = %d, want current head %d", got, stream.head)
+	}
+}
+
+func TestRealtimeLifecycleReportsAdmissionAndSubscriptionFailures(t *testing.T) {
+	hooks := &realtimeLifecycleStub{}
+	hub := newRealtimeHub(Dependencies{Realtime: &applicationTopicRealtimeStub{err: realtime.ErrCursorExpired}, RealtimeLifecycle: hooks})
+	for range 128 {
+		hub.clients[uuid.NewString()] = &realtimeClient{}
+	}
+	response := httptest.NewRecorder()
+	hub.connect(response, httptest.NewRequest(http.MethodGet, "/api/realtime", nil))
+	if response.Code != http.StatusTooManyRequests || strings.Join(hooks.calls, " ") != "connect.before connect.after.error" {
+		t.Fatalf("connection limit status=%d hooks=%v", response.Code, hooks.calls)
+	}
+
+	hooks.calls = nil
+	hub.clients["client"] = &realtimeClient{id: "client", address: "192.0.2.1", principal: identity.Subject{Kind: identity.Anonymous}}
+	request := httptest.NewRequest(http.MethodPost, "/api/realtime", strings.NewReader(`{"clientId":"client","subscriptions":["notes"]}`))
+	request.RemoteAddr = "192.0.2.1:9999"
+	request.Header.Set("Content-Type", "application/json")
+	response = httptest.NewRecorder()
+	hub.replace(response, request)
+	if response.Code != http.StatusGone || strings.Join(hooks.calls, " ") != "subscribe.before subscribe.after.error" {
+		t.Fatalf("expired cursor status=%d hooks=%v", response.Code, hooks.calls)
 	}
 }

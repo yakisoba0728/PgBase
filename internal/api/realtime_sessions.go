@@ -18,6 +18,8 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/recordops"
 )
 
+var errRealtimeConnectionLimit = errors.New("realtime admission limit reached")
+
 type realtimeV2 interface {
 	ReadFor(context.Context, realtime.ReadRequest) ([]realtime.Event, int64, error)
 }
@@ -192,6 +194,7 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 	userAtLimit := client.principal.Kind == identity.User && h.userClients[client.principal.ID] >= 4
 	if len(h.clients) >= 128 || userAtLimit {
 		h.mu.Unlock()
+		connectionErr = errRealtimeConnectionLimit
 		writeAPIError(w, r, APIError{Status: 429, Code: "realtime_limit", Message: "Too many realtime connections"})
 		return
 	}
@@ -307,9 +310,11 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 		writeRealtimeError(w, r, hookErr)
 		return
 	}
-	defer func() { finish(nil) }()
+	var subscriptionErr error
+	defer func() { finish(subscriptionErr) }()
 	reader, ok := h.dependencies.Realtime.(realtimeV2)
 	if !ok {
+		subscriptionErr = errors.New("realtime reader unavailable")
 		writeAPIError(w, r, APIError{Status: 503, Code: "realtime_unavailable", Message: "Realtime is unavailable"})
 		return
 	}
@@ -342,12 +347,14 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 			_, head, err = reader.ReadFor(r.Context(), readRequest)
 		}
 		if err != nil {
+			subscriptionErr = err
 			writeRealtimeError(w, r, err)
 			return
 		}
 		if subscriptions[index].expand != "" && h.dependencies.Records != nil {
 			_, err = h.dependencies.Records.List(r.Context(), recordops.ListRequest{Principal: principal, RequestID: requestID(r.Context()), Collection: subscriptions[index].collection, Limit: 1, Filter: subscriptions[index].filter, Expand: subscriptions[index].expand, Fields: subscriptions[index].fields, RuleContext: ruleRequestContext(r)})
 			if err != nil {
+				subscriptionErr = err
 				writeRealtimeError(w, r, err)
 				return
 			}
@@ -367,6 +374,7 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 		}
 		h.mu.Unlock()
 		if atLimit {
+			subscriptionErr = errRealtimeConnectionLimit
 			writeAPIError(w, r, APIError{Status: 429, Code: "realtime_limit", Message: "Too many realtime connections"})
 			return
 		}
