@@ -427,8 +427,24 @@ func TestAuthClosureAuxiliaryRatePolicyAndCleanup(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	session, err := s.Register(ctx, "otp-cleanup@example.test", "correct horse battery staple", "otp-cleanup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.user_email_otps
+		(id,auth_collection_id,user_id,code_hash,max_attempts,expires_at,consumed_at)
+		values (gen_random_uuid(),$1,$2,sha256('expired code'::bytea),5,now()-interval '1 hour',now()),
+		       (gen_random_uuid(),$1,$2,sha256('fresh code'::bytea),5,now()+interval '1 hour',null)`,
+		DefaultCollectionID, session.User.ID); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.CleanExpiredCredentials(ctx); err != nil {
 		t.Fatal(err)
+	}
+	var expired, fresh int
+	if err := pool.QueryRow(ctx, `select count(*) filter (where expires_at <= now()), count(*) filter (where expires_at > now())
+		from pgbase_meta.user_email_otps where user_id=$1`, session.User.ID).Scan(&expired, &fresh); err != nil || expired != 0 || fresh != 1 {
+		t.Fatalf("OTP sweep expired=%d fresh=%d err=%v", expired, fresh, err)
 	}
 	for i := 1; i <= 3; i++ {
 		var count int

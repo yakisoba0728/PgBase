@@ -122,3 +122,39 @@ func TestCleanerPreservesUnexpiredRateLimitBlock(t *testing.T) {
 		t.Fatalf("active=%d expired=%d err=%v", active, expired, err)
 	}
 }
+
+func TestCleanerSweepsAdministratorOTPsAndPasswordResets(t *testing.T) {
+	pool := newAdminAuthPool(t)
+	ctx := t.Context()
+	now := time.Now()
+	admin := Administrator{ID: uuid.New(), Email: "credentials@example.test", Active: true, CreatedAt: now, UpdatedAt: now}
+	if _, err := NewStore(pool).CreateAdministrator(ctx, admin, "hash"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.admin_email_otps (id,admin_id,code_hash,expires_at,consumed_at)
+		values (gen_random_uuid(),$1,sha256('old'::bytea),now()-interval '1 hour',now()),
+		       (gen_random_uuid(),$1,sha256('fresh'::bytea),now()+interval '1 hour',null)`, admin.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.admin_password_resets (token_hash,admin_id,expires_at,consumed_at)
+		values (sha256('old'::bytea),$1,now()-interval '1 hour',now()),
+		       (sha256('fresh'::bytea),$1,now()+interval '1 hour',null)`, admin.ID); err != nil {
+		t.Fatal(err)
+	}
+	cleaner := NewCleaner(pool, nil)
+	called := false
+	cleaner.SetUserCleanup(func(context.Context) error { called = true; return nil })
+	if err := cleaner.cleanDatabase(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("scheduled cleaner did not invoke the user sweep")
+	}
+	for _, table := range []string{"admin_email_otps", "admin_password_resets"} {
+		var expired, fresh int
+		query := `select count(*) filter (where expires_at <= now()), count(*) filter (where expires_at > now()) from pgbase_meta.` + table
+		if err := pool.QueryRow(ctx, query).Scan(&expired, &fresh); err != nil || expired != 0 || fresh != 1 {
+			t.Fatalf("%s expired=%d fresh=%d err=%v", table, expired, fresh, err)
+		}
+	}
+}

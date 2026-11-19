@@ -4,11 +4,13 @@ package userauth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
@@ -376,4 +378,53 @@ func validationField(err error) string {
 		return ""
 	}
 	return invalid.Details[0].Field
+}
+
+func TestAuthCollectionRegistrationToggleDoesNotLockProfiles(t *testing.T) {
+	ctx := t.Context()
+	pool := newUserAuthPool(t)
+	service := NewService(pool, stubPasswords{}, []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	realm := uuid.New()
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: realm, Name: "registration_toggle", RegistrationEnabled: true, Fields: []schema.FieldInput{{Name: "name", Type: schema.TypeText}}}); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.RegisterInCollectionWithFields(ctx, realm, "locked-profile@example.test", "correct horse battery staple", "profile-toggle", map[string]json.RawMessage{"name": json.RawMessage(`"Profile"`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var locked uuid.UUID
+		if err := tx.QueryRow(ctx, `select user_id from pgbase_meta.user_auth_profiles where user_id=$1 for update`, session.User.ID).Scan(&locked); err != nil {
+			return err
+		}
+		updateCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		updated, err := service.UpdateAuthCollection(updateCtx, realm, UpdateAuthCollectionInput{RegistrationEnabled: false})
+		if err == nil && (updated.RegistrationEnabled || len(updated.Fields) != 1) {
+			t.Fatalf("registration toggle = %+v", updated)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestKeyedSessionLookupPreservesDatabaseError(t *testing.T) {
+	ctx := t.Context()
+	pool := newUserAuthPool(t)
+	service := NewService(pool, stubPasswords{}, []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	if _, err := service.PutTokenPolicy(ctx, DefaultCollectionID, TokenPolicy{Purpose: "session", TTLSeconds: 120}); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.Register(ctx, "key-query@example.test", "correct horse battery staple", "keyed-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Authenticate(ctx, session.RawToken); err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
+	if _, err := service.Authenticate(ctx, session.RawToken); err == nil || errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("closed pool returned %v, want operational error", err)
+	}
 }
