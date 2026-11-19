@@ -137,7 +137,7 @@ func TestBackendWorkflowKeepsLeanAndReleasePostgresMatrices(t *testing.T) {
 		"scripts/test-go-integration.sh \"${test_arguments[@]}\"",
 		"github.event_name != 'pull_request' || inputs.candidate_image != ''",
 		"PGBASE_INTEGRATION_PACKAGES",
-		"./internal/migrate ./internal/sqlconsole ./internal/filestore ./internal/userauth ./pgbase",
+		"./internal/migrate ./internal/sqlconsole ./internal/filestore ./internal/userauth ./internal/jobs ./internal/recordops ./pgbase",
 		"'./...'",
 	} {
 		if !strings.Contains(text, marker) {
