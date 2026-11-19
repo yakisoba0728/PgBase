@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
-	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/relation"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
@@ -127,7 +126,7 @@ func discoverReverseExpand(
 	if _, err := relation.Bind(catalog, node.target); err != nil {
 		return nil, relationHydrationFailure(err)
 	}
-	if err := recordaccess.AuthorizeSubject(ctx, tx, node.target.AccessCollectionID(), principal, "view"); err != nil {
+	if err := authorizeReadSubject(ctx, tx, node.target.AccessCollectionID(), principal, "view"); err != nil {
 		return nil, err
 	}
 	statement, err := compileReverseExpandDiscovery(node, parentIDs, maximumRows+1)
@@ -135,7 +134,7 @@ func discoverReverseExpand(
 		return nil, err
 	}
 	if principal.Kind == identity.User || principal.Kind == identity.Anonymous {
-		rules, _, err := recordaccess.LoadRules(ctx, tx, node.target.AccessCollectionID())
+		rules, _, err := loadReadRules(ctx, tx, node.target.AccessCollectionID())
 		if err != nil {
 			return nil, err
 		}

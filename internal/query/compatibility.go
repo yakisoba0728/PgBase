@@ -7,6 +7,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/responseprojection"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 	"strings"
+	"sync"
 )
 
 // PocketBasePage is the exact list envelope exposed by the explicit
@@ -86,7 +87,7 @@ func (s *Service) listPocketBase(ctx context.Context, request PocketBaseListRequ
 				s.countPageHook()
 			}
 			var countErr error
-			total, countErr = s.countListInTx(ctx, tx, catalog, collection, request.ListRequest, filterNode, 0)
+			total, countErr = countPageMatches(ctx, tx, collection, result, 0)
 			if countErr != nil {
 				return countErr
 			}
@@ -115,12 +116,15 @@ func normalizePocketBaseExpand(catalog schema.Catalog, root schema.Collection, t
 		return "", validation("expand", "expand_budget_exceeded")
 	}
 	valid := make([]string, 0)
+	reverse := sync.OnceValues(func() (reverseExpandIndex, error) {
+		return cachedReverseExpandIndex(catalog)
+	})
 	for _, raw := range strings.Split(text, ",") {
 		path := strings.TrimSpace(raw)
 		if path == "" {
 			continue
 		}
-		plan, err := compileExpandPlan(catalog, root, path, limits)
+		plan, err := compileExpandPlanWithIndex(catalog, root, path, limits, reverse)
 		if err == nil && len(plan.nodes) != 0 {
 			valid = append(valid, path)
 			continue
@@ -159,6 +163,7 @@ func (s *Service) planRead(ctx context.Context, tx pgx.Tx, catalog schema.Catalo
 }
 
 func (s *Service) readListInTx(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, request ListRequest, filter filterNode, sort []SortKey) (listResult, bool, error) {
+	ctx = withReadPolicies(ctx, request.Principal)
 	if !request.PocketBaseCompatibility {
 		return s.readNativeListInTx(ctx, tx, catalog, collection, request, filter, sort)
 	}
@@ -200,6 +205,7 @@ func (s *Service) readListInTx(ctx context.Context, tx pgx.Tx, catalog schema.Ca
 }
 
 func (s *Service) readGetInTx(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, request GetRequest, result *getResult) error {
+	ctx = withReadPolicies(ctx, request.Principal)
 	if !request.PocketBaseCompatibility {
 		return s.readNativeGetInTx(ctx, tx, catalog, collection, request, result)
 	}

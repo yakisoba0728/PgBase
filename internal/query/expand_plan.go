@@ -32,6 +32,12 @@ type expandNode struct {
 type reverseExpandIndex map[uuid.UUID]map[string][]expandNode
 
 func compileExpandPlan(catalog schema.Catalog, root schema.Collection, text string, limits expandLimits) (expandPlan, error) {
+	return compileExpandPlanWithIndex(catalog, root, text, limits, func() (reverseExpandIndex, error) {
+		return cachedReverseExpandIndex(catalog)
+	})
+}
+
+func compileExpandPlanWithIndex(catalog schema.Catalog, root schema.Collection, text string, limits expandLimits, reverse func() (reverseExpandIndex, error)) (expandPlan, error) {
 	if text == "" {
 		return expandPlan{}, nil
 	}
@@ -44,7 +50,7 @@ func compileExpandPlan(catalog schema.Catalog, root schema.Collection, text stri
 	if limits.maxDepth <= 0 || limits.maxNodes <= 0 {
 		return expandPlan{}, validation("expand", "expand_budget_exceeded")
 	}
-	reverseIndex, err := buildReverseExpandIndex(catalog)
+	reverseIndex, err := reverse()
 	if err != nil {
 		return expandPlan{}, err
 	}
@@ -144,6 +150,16 @@ func resolveExpandNode(
 		return nil, validation("expand", "expand_invalid_path")
 	}
 	return &candidates[0], nil
+}
+
+func cachedReverseExpandIndex(catalog schema.Catalog) (reverseExpandIndex, error) {
+	value, err := catalog.ReverseExpand(func(catalog schema.Catalog) (any, error) {
+		return buildReverseExpandIndex(catalog)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return value.(reverseExpandIndex), nil
 }
 
 func buildReverseExpandIndex(catalog schema.Catalog) (reverseExpandIndex, error) {

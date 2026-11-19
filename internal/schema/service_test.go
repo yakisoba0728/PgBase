@@ -183,7 +183,7 @@ func TestSameCatalogContentComparesValuesNotOwnedRepresentations(t *testing.T) {
 	collection.Fields = []Field{}
 	right.Collections["posts"] = collection
 	right.wire = []byte("cached representation")
-	right.deleteGraph = &catalogDeleteGraph{}
+	right.deleteGraph = &catalogComputation{}
 	if !sameCatalogContent(left, right) {
 		t.Fatal("equivalent catalog values were treated as different")
 	}

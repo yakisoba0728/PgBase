@@ -26,9 +26,11 @@ type projectionChange struct {
 }
 
 type identityProjection struct {
-	collections map[uuid.UUID]schema.Collection
-	identities  map[identityKey]string
-	changes     []projectionChange
+	collections    map[uuid.UUID]schema.Collection
+	reverseExpands map[uuid.UUID]map[string]schema.Collection
+	expandTargets  map[uuid.UUID]map[string]schema.Collection
+	identities     map[identityKey]string
+	changes        []projectionChange
 }
 
 // Project resolves the IDs of hydrated records before changing any response.
@@ -103,22 +105,14 @@ func (p *identityProjection) collectRecord(collection schema.Collection, record 
 			}
 		}
 	}
-	if expands, ok := record["expand"].(map[string]any); ok {
-		targets := map[string]schema.Collection{}
-		for _, field := range collection.Fields {
-			if field.Relation != nil {
-				targets[field.Name] = p.collections[field.Relation.TargetCollectionID]
+	if expands, ok := record["expand"].(map[string]any); ok && len(expands) != 0 {
+		targets := p.targets(collection)
+		for name, expanded := range expands {
+			target, ok := targets[name]
+			if !ok {
+				continue
 			}
-		}
-		for _, source := range p.collections {
-			for _, field := range source.Fields {
-				if field.Relation != nil && field.Relation.TargetCollectionID == collection.ID {
-					targets[source.Name+"_via_"+field.Name] = source
-				}
-			}
-		}
-		for name, target := range targets {
-			switch expanded := expands[name].(type) {
+			switch expanded := expanded.(type) {
 			case map[string]any:
 				if err := p.collectRecord(target, expanded); err != nil {
 					return err
@@ -141,6 +135,40 @@ func (p *identityProjection) collectRecord(collection schema.Collection, record 
 		}
 	}
 	return nil
+}
+
+func (p *identityProjection) targets(collection schema.Collection) map[string]schema.Collection {
+	if p.reverseExpands == nil {
+		p.reverseExpands = make(map[uuid.UUID]map[string]schema.Collection)
+		p.expandTargets = make(map[uuid.UUID]map[string]schema.Collection)
+		for _, source := range p.collections {
+			for _, field := range source.Fields {
+				if field.Relation == nil {
+					continue
+				}
+				targetID := field.Relation.TargetCollectionID
+				if p.reverseExpands[targetID] == nil {
+					p.reverseExpands[targetID] = make(map[string]schema.Collection)
+				}
+				p.reverseExpands[targetID][source.Name+"_via_"+field.Name] = source
+			}
+		}
+	}
+	if targets, ok := p.expandTargets[collection.ID]; ok {
+		return targets
+	}
+	reverse := p.reverseExpands[collection.ID]
+	targets := make(map[string]schema.Collection, len(reverse))
+	for _, field := range collection.Fields {
+		if field.Relation != nil {
+			targets[field.Name] = p.collections[field.Relation.TargetCollectionID]
+		}
+	}
+	for name, source := range reverse {
+		targets[name] = source
+	}
+	p.expandTargets[collection.ID] = targets
+	return targets
 }
 
 func (p *identityProjection) collectRelation(target schema.Collection, record map[string]any, field string, value any) error {

@@ -90,6 +90,7 @@ func (s *Service) Count(ctx context.Context, request ListRequest) (total int64, 
 		return 0, err
 	}
 	err = s.inTxCatalog(ctx, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		ctx := withReadPolicies(ctx, request.Principal)
 		plan, err := s.planRead(ctx, tx, catalog, collection, request, filterNode, sortKeys)
 		if err != nil {
 			return err
