@@ -43,3 +43,30 @@ it("reports clipboard unavailability asynchronously", async () => {
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
   await act(async () => { await expect(copyText("private")).resolves.toBe(false); });
 });
+
+it("covers the mobile header and wraps tab navigation inside the pane", () => {
+  vi.stubGlobal("innerWidth", 390);
+  vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue({ length: 1 } as DOMRectList);
+  const content = (open: boolean) => <>
+    <header><button>New record</button></header>
+    <main>
+      <SplitView list={<button>Open row</button>} pane={open ? <><button>Close details</button><button>Save record</button></> : null} paneLabel="Details" onClose={() => {}} />
+    </main>
+  </>;
+  const { rerender } = render(content(false));
+  const heading = screen.getByRole("button", { name: "New record" });
+  heading.focus();
+  rerender(content(true));
+  expect(heading.closest("header")).toHaveAttribute("inert");
+  const dialog = screen.getByRole("dialog", { name: "Details" });
+  expect(dialog).toHaveAttribute("aria-modal", "true");
+  const first = screen.getByRole("button", { name: "Close details" });
+  const last = screen.getByRole("button", { name: "Save record" });
+  fireEvent.keyDown(first, { key: "Tab", shiftKey: true });
+  expect(last).toHaveFocus();
+  fireEvent.keyDown(last, { key: "Tab" });
+  expect(first).toHaveFocus();
+  rerender(content(false));
+  expect(heading.closest("header")).not.toHaveAttribute("inert");
+  expect(heading).toHaveFocus();
+});
