@@ -7,6 +7,9 @@ import { fieldKind, type Draft } from "./fields";
 
 const memory = new Map<string, StoredDraft>();
 export function keepDraft(scope: DraftScope, fields: Record<string, Draft>) { memory.set(key(scope), { fields, savedAt: Date.now() }); }
+export function forgetKeptDraft(scope: DraftScope, draft: StoredDraft | null | undefined = memory.get(key(scope))) {
+  if (draft !== null && memory.get(key(scope)) === draft) memory.delete(key(scope));
+}
 
 const prefix = "pgbase.records.draft:";
 const maxAge = 7 * 24 * 3600 * 1000;
@@ -50,7 +53,7 @@ export function changedFields(fields: CollectionField[], drafts: Record<string, 
 
 export function readDraft(scope: DraftScope, fields: CollectionField[], now = Date.now()): StoredDraft | null {
   const keptInMemory = memory.get(key(scope));
-  if (keptInMemory) { memory.delete(key(scope)); return keptInMemory; }
+  if (keptInMemory) return keptInMemory;
   try {
     const value = JSON.parse(localStorage.getItem(key(scope)) ?? "null") as StoredDraft | null;
     if (!value || typeof value.savedAt !== "number" || typeof value.fields !== "object") return null;

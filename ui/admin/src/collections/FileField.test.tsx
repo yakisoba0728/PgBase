@@ -33,7 +33,10 @@ it("keeps other edits and saves with the new ETag after replacing a single file"
   setLanguage("en");
   const file = { id: "f", filename: "old.txt", size: 3, contentType: "text/plain" } as api.StoredFile;
   vi.spyOn(api, "listRecordFiles").mockResolvedValue([file]);
-  vi.spyOn(api, "getRecord").mockResolvedValueOnce({ record: { id: "r", title: "a" }, etag: '"v1"' }).mockResolvedValueOnce({ record: { id: "r", title: "a" }, etag: '"v1"' }).mockResolvedValue({ record: { id: "r", title: "a" }, etag: '"v2"' });
+  let finishReload!: (record: api.RecordWithETag) => void;
+  const first = { record: { id: "r", title: "a" }, etag: '"v1"' };
+  vi.spyOn(api, "getRecord").mockResolvedValueOnce(first).mockResolvedValueOnce(first)
+    .mockReturnValueOnce(new Promise((resolve) => { finishReload = resolve; }));
   vi.spyOn(api, "replaceRecordFiles").mockResolvedValue({ record: { id: "r", title: "a" }, etag: '"v2"' });
   const update = vi.spyOn(api, "updateRecord").mockResolvedValue({ record: { id: "r", title: "b" }, etag: '"v3"' });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -47,6 +50,10 @@ it("keeps other edits and saves with the new ETag after replacing a single file"
   render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
   fireEvent.change(await screen.findByLabelText(/^title/), { target: { value: "b" } });
   fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(["new"], "new.txt", { type: "text/plain" })] } });
+  await waitFor(() => expect(screen.getByLabelText(/^title/).closest("form")).toHaveAttribute("inert"));
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText(/^title/), { target: { value: "late" } });
+  finishReload({ record: { id: "r", title: "a" }, etag: '"v2"' });
   await waitFor(() => expect(client.getQueryData<api.RecordWithETag>(recordQuery("notes", "r").queryKey)?.etag).toBe('"v2"'));
   await waitFor(() => expect(screen.getByLabelText(/^title/)).toHaveValue("b"));
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
