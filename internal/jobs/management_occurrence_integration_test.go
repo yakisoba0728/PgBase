@@ -11,6 +11,89 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestImmediateJobUsesPostgresStatementTime(t *testing.T) {
+	ctx := t.Context()
+	pool := jobsTestPool(t)
+	// Compare inside the write statement, independent of app/DB clock skew.
+	if _, err := pool.Exec(ctx, `CREATE FUNCTION pgbase_meta.check_job_due_time() RETURNS trigger LANGUAGE plpgsql AS $$
+	BEGIN
+		IF NEW.next_run_at IS DISTINCT FROM statement_timestamp() THEN
+			RAISE EXCEPTION 'immediate occurrence % did not use its database statement time', NEW.name;
+		END IF;
+		RETURN NEW;
+	END
+	$$;
+	CREATE TRIGGER check_job_due_time BEFORE INSERT OR UPDATE OF schedule ON pgbase_meta.scheduled_jobs
+	FOR EACH ROW EXECUTE FUNCTION pgbase_meta.check_job_due_time()`); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(pool, NewRegistry(), nil)
+	if err := service.Register(ctx, "registered", "@every 1h", "UTC", true, func(context.Context, Job) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Schedule(ctx, "scheduled", "@every 1h"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Schedule(ctx, "scheduled", "@every 2h"); err != nil {
+		t.Fatal(err)
+	}
+	var id uuid.UUID
+	if err := pool.QueryRow(ctx, `SELECT id FROM pgbase_meta.scheduled_jobs WHERE name='registered'`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ConfigureJob(ctx, id, "@every 2h", true); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCalendarJobSkipsMissedOccurrences(t *testing.T) {
+	ctx := t.Context()
+	pool := jobsTestPool(t)
+	const expression, zone = "15 4 * * *", "Asia/Seoul"
+	schedule, err := ParseScheduleInLocation(expression, zone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	databaseTime := func() time.Time {
+		t.Helper()
+		var now time.Time
+		if err := pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
+			t.Fatal(err)
+		}
+		return now
+	}
+	checkNextRun := func(before time.Time) {
+		t.Helper()
+		var next time.Time
+		if err := pool.QueryRow(ctx, `SELECT next_run_at FROM pgbase_meta.scheduled_jobs WHERE name='calendar'`).Scan(&next); err != nil {
+			t.Fatal(err)
+		}
+		earliest, latest := schedule.Next(before), schedule.Next(databaseTime())
+		if next.Before(earliest) || next.After(latest) {
+			t.Fatalf("next run %s outside expected calendar window [%s, %s]", next, earliest, latest)
+		}
+	}
+	service := NewService(pool, NewRegistry(), nil)
+	calls := 0
+	before := databaseTime()
+	if err := service.Register(ctx, "calendar", expression, zone, true, func(context.Context, Job) error {
+		calls++
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	checkNextRun(before)
+
+	if _, err := pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET next_run_at=clock_timestamp()-interval '3 days' WHERE name='calendar'`); err != nil {
+		t.Fatal(err)
+	}
+	before = databaseTime()
+	if err := service.RunOnce(ctx); err != nil || calls != 1 {
+		t.Fatalf("calendar run: calls=%d err=%v", calls, err)
+	}
+	checkNextRun(before)
+}
+
 // A changed schedule replaces the pending occurrence. Reusing its old identity
 // would make an idempotent handler discard the first run of the new schedule.
 func TestJobRescheduleStartsNewOccurrenceAfterFailureOrExpiry(t *testing.T) {
