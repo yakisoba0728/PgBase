@@ -16,8 +16,12 @@ export type RecordModifiers = { [key: `${string}+`]: unknown; [key: `+${string}`
 /** An explicit ID is accepted when the collection uses text record identities. */
 export type RecordMutation<T extends RecordData> = Omit<T, "id"> & { id?: string } & RecordModifiers;
 export type RecordResult<T extends RecordData> = { record: T; etag?: string };
-/** The complete record JSON response, left unparsed to preserve exact numbers. */
-export type RecordJSONResult = { recordJSON: string; etag?: string };
+/** A committed write can return only its ID when response enrichment fails. */
+export type RecordMutationResult<T extends RecordData> =
+  | (RecordResult<T> & { enrichmentFailed?: never })
+  | (RecordResult<{ id: string }> & { enrichmentFailed: true });
+/** The record response body, left unparsed to preserve exact numbers. */
+export type RecordJSONResult = { recordJSON: string; etag?: string; enrichmentFailed?: true };
 export type Query = {
   filter?: string;
   sort?: string;

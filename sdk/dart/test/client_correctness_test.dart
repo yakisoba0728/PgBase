@@ -7,6 +7,45 @@ import 'package:pgbase/pgbase.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('committed mutations expose ID-only response metadata', () async {
+    final calls = <String>[];
+    final client = PgBaseClient(
+      Uri.parse('http://pgbase.test'),
+      httpClient: MockClient((request) async {
+        final method = request.method;
+        calls.add(method);
+        return http.Response(
+          method == 'GET'
+              ? '{"id":"committed","title":"saved"}'
+              : '{"id":"committed"}',
+          method == 'POST' ? 201 : 200,
+          headers: {
+            'ETag': '"pgb1.committed"',
+            if (method != 'GET') 'PgBase-Enrichment': 'failed',
+          },
+        );
+      }),
+    );
+    addTearDown(client.close);
+    final records = client.records('notes');
+    final input = JsonObject({'title': const JsonString('saved')});
+    final created = await records.createWithEtag(input, 'create-partial-01');
+    final updated = await records.updateWithEtag(
+      'committed',
+      input,
+      created.etag!,
+    );
+    for (final result in [created, updated]) {
+      expect(result.enrichmentFailed, isTrue);
+      expect(result.etag, '"pgb1.committed"');
+      expect((result.record['id'] as JsonString).value, 'committed');
+      expect(result.record['title'], isNull);
+    }
+    expect((await records.getWithEtag('committed')).enrichmentFailed, isFalse);
+    expect((await records.create(input, 'create-partial-02'))['title'], isNull);
+    expect(calls, ['POST', 'PATCH', 'GET', 'POST']);
+  });
+
   test('malformed JSON strings and UTF-8 use the stable protocol error', () {
     for (final bytes in [
       utf8.encode(r'{"value":"\q"}'),

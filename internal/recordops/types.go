@@ -105,6 +105,7 @@ type DeleteRequest struct {
 	ID          uuid.UUID
 	PublicID    string
 	IfMatch     EntityTagSet
+	MatchFilter string // Optional native list filter for administrator bulk actions.
 	RuleContext *accessrule.RequestContext
 }
 

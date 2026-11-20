@@ -46,6 +46,39 @@ func TestImmediateJobUsesPostgresStatementTime(t *testing.T) {
 	}
 }
 
+func TestNewJobScheduleRequiresExplicitTimezoneButLoadsLegacyDefaults(t *testing.T) {
+	ctx := t.Context()
+	pool := jobsTestPool(t)
+	service := NewService(pool, NewRegistry(), nil)
+	noop := func(context.Context, Job) error { return nil }
+	const expression = "15 4 * * *"
+	const prefixed = "CRON_TZ=America/New_York " + expression
+	if err := service.Register(ctx, "ambiguous", expression, "Local", true, noop); !errors.Is(err, ErrInvalidSchedule) {
+		t.Fatalf("register new Local schedule: %v", err)
+	}
+	if err := service.ScheduleInTimezone(ctx, "ambiguous", prefixed, "UTC"); !errors.Is(err, ErrInvalidSchedule) {
+		t.Fatalf("write inline timezone: %v", err)
+	}
+	var id uuid.UUID
+	if err := pool.QueryRow(ctx, `INSERT INTO pgbase_meta.scheduled_jobs(id,name,schedule,timezone,next_run_at)
+		VALUES($1,'legacy',$2,'Local',clock_timestamp() + interval '1 hour') RETURNING id`, uuid.New(), expression).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Register(ctx, "legacy", expression, "Local", true, noop); err != nil {
+		t.Fatalf("register existing legacy job: %v", err)
+	}
+	if err := service.ConfigureJobInTimezone(ctx, id, prefixed, "UTC", true); !errors.Is(err, ErrInvalidSchedule) {
+		t.Fatalf("configure inline timezone: %v", err)
+	}
+	items, err := service.ListJobs(ctx)
+	if err != nil || len(items) != 1 || items[0].Timezone != "Local" || !items[0].Registered {
+		t.Fatalf("jobs=%+v, err=%v", items, err)
+	}
+	if err := service.ConfigureJobInTimezone(ctx, id, expression, "America/New_York", true); err != nil {
+		t.Fatalf("repair legacy job: %v", err)
+	}
+}
+
 func TestCalendarJobSkipsMissedOccurrences(t *testing.T) {
 	ctx := t.Context()
 	pool := jobsTestPool(t)

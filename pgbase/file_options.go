@@ -20,6 +20,10 @@ type FileOptions struct {
 	ThumbnailDimension      int
 	DownloadTokenTTL        time.Duration
 	AllowedTypes            []string
+
+	// MigrationScratchDirectory defaults to the system temporary directory.
+	// It can be set before enabling a file driver.
+	MigrationScratchDirectory string
 }
 
 func (o FileOptions) normalized() (FileOptions, error) {

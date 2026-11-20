@@ -199,3 +199,23 @@ func TestDokployComposeKeepsMigrationAndStoragePrivate(t *testing.T) {
 		}
 	}
 }
+
+func TestComposeInitializesDiskBackedFileMigrationScratch(t *testing.T) {
+	for _, name := range []string{"docker-compose.yml", "dokploy/compose.yml"} {
+		t.Run(name, func(t *testing.T) {
+			compose := readFile(t, name)
+			for _, contract := range []string{
+				"PGBASE_FILES_MIGRATION_SCRATCH_DIRECTORY: /migration-scratch",
+				"chown 65532:65532 /migration-scratch && chmod 700 /migration-scratch",
+				"\n  migration-scratch:",
+			} {
+				if !strings.Contains(compose, contract) {
+					t.Errorf("missing %q", contract)
+				}
+			}
+			if strings.Count(compose, "- migration-scratch:/migration-scratch") != 2 {
+				t.Fatal("scratch volume must be mounted by the app and its initializer")
+			}
+		})
+	}
+}

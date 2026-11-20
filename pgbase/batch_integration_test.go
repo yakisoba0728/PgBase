@@ -59,6 +59,34 @@ func TestMultipartBatchAtomicallyCreatesRecordAndFile(t *testing.T) {
 	if len(files.Items) != 1 || files.Items[0]["filename"] != "attachment_0.txt" {
 		t.Fatalf("files=%#v", files.Items)
 	}
+	recordPath := "/api/v1/collections/batch_documents/records/" + id
+	filesPath := "/api/admin/collections/batch_documents/records/" + id + "/files/attachment"
+	csrfHeader := map[string]string{"X-PgBase-CSRF": csrf}
+	shownID := files.Items[0]["id"].(string)
+	standalone := multipartFileRequest(t, app, filesPath, "", cookie, "standalone.txt", "text/plain", []byte("concurrent upload"), csrfHeader)
+	assertPublicUsersStatus(t, standalone, http.StatusCreated)
+	var uploadedFile struct {
+		ID string `json:"id"`
+	}
+	decodePublicUsersJSON(t, standalone, &uploadedFile)
+	current := publicUsersRequest(t, app, http.MethodGet, recordPath, nil, "", cookie, nil)
+	assertPublicUsersStatus(t, current, http.StatusOK)
+	conditional := map[string]any{"requests": []map[string]any{{
+		"method": "PATCH", "url": recordPath, "headers": map[string]string{"If-Match": current.Header().Get("ETag")},
+		"body": map[string]any{"attachment": map[string]any{"$file": "conditional", "$replaces": shownID}},
+	}}}
+	fileParts := map[string][]byte{"conditional": []byte("conditional replacement")}
+	stale := multipartBatchRequest(t, app, cookie, csrf, conditional, fileParts)
+	assertPublicUsersStatus(t, stale, http.StatusPreconditionFailed)
+	listed = publicUsersRequest(t, app, http.MethodGet, filesPath, nil, "", cookie, nil)
+	assertPublicUsersStatus(t, listed, http.StatusOK)
+	decodePublicUsersJSON(t, listed, &files)
+	if len(files.Items) != 2 || files.Items[0]["id"] != shownID || files.Items[1]["id"] != uploadedFile.ID {
+		t.Fatalf("failed replacement changed attachments: %#v", files.Items)
+	}
+	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodDelete, "/api/admin/files/"+uploadedFile.ID, nil, "", cookie, csrfHeader), http.StatusNoContent)
+	assertPublicUsersStatus(t, multipartBatchRequest(t, app, cookie, csrf, conditional, fileParts), http.StatusOK)
+
 	replacements := map[string]any{"requests": []map[string]any{
 		{"method": "PUT", "url": "/api/v1/collections/batch_documents/records/" + id, "body": map[string]any{"title": "first replacement", "attachment": map[string]any{"$file": "replacement_a"}}},
 		{"method": "PATCH", "url": "/api/v1/collections/batch_documents/records/" + id, "body": map[string]any{"attachment": map[string]any{"$file": "replacement_b"}}},

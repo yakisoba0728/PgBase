@@ -22,8 +22,11 @@ import (
 
 var ErrStorageConflict = errors.New("backup storage settings conflict")
 var ErrInvalidStorage = errors.New("invalid backup storage settings")
+var errBackupOperationActive = errors.New("backup publication is active")
+var errRetentionChanged = errors.New("backup retention settings changed")
 
 const backupStorageLock int64 = 0x7067626173650037
+const backupPruneLock int64 = 0x7067626173650072
 
 type StorageConfig struct {
 	Driver, Bucket, Prefix, Region, Endpoint, AccessKey, SecretKey string
@@ -55,7 +58,6 @@ type StorageController struct {
 	mu         sync.RWMutex
 	revision   int64
 	repository Repository
-	retention  int
 	sessions   chan struct{}
 }
 
@@ -68,91 +70,106 @@ func NewStorageController(ctx context.Context, pool *database.Pool, tokenSecret 
 	if err := c.seed(ctx, startup); err != nil {
 		return nil, err
 	}
-	if _, err := c.current(ctx); err != nil {
+	repository, err := c.current(ctx)
+	if err != nil {
 		return nil, err
 	}
-	if err := c.recoverPending(ctx); err != nil {
-		return nil, err
+	// Remote object storage must not gate application startup. Its pending
+	// publications are reconciled by the application's recovery worker.
+	if _, remote := repository.(*S3Repository); !remote {
+		if err := c.recoverPending(ctx, false); err != nil {
+			return nil, err
+		}
 	}
 	return c, nil
 }
 
-func (c *StorageController) recoverPending(ctx context.Context) error {
-	rows, err := c.pool.Query(ctx, `select backup_id::text,settings_revision from pgbase_meta.backup_storage_operations where status='pending' order by backup_id`)
+// RecoverPending retries interrupted publications without waiting for healthy
+// publishers that still hold their operation lease.
+func (c *StorageController) RecoverPending(ctx context.Context) error {
+	return c.recoverPending(ctx, true)
+}
+
+func (c *StorageController) recoverPending(ctx context.Context, try bool) error {
+	c.mu.RLock()
+	pool := c.pool
+	c.mu.RUnlock()
+	rows, err := pool.Query(ctx, `select backup_id::text from pgbase_meta.backup_storage_operations where status='pending' order by backup_id`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	type pending struct {
-		id       string
-		revision int64
-	}
-	items := []pending{}
+	var ids []string
 	for rows.Next() {
-		var item pending
-		if err := rows.Scan(&item.id, &item.revision); err != nil {
+		var id string
+		if err := rows.Scan(&id); err != nil {
 			return err
 		}
-		items = append(items, item)
+		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 	rows.Close()
-	for _, item := range items {
-		leaseCtx, repository, conn, release, err := c.lease(ctx, item.id)
-		if err != nil {
-			return err
-		}
-		var revision int64
-		var status string
-		err = conn.QueryRow(leaseCtx, `select settings_revision,status from pgbase_meta.backup_storage_operations where backup_id=$1`, item.id).Scan(&revision, &status)
-		if errors.Is(err, pgx.ErrNoRows) {
-			release()
-			continue
-		}
-		if err != nil {
-			release()
-			return err
-		}
-		if status != "pending" {
-			release()
-			continue
-		}
-		settings, _, err := c.loadFrom(leaseCtx, conn)
-		if err != nil {
-			release()
-			return err
-		}
-		if revision != item.revision || revision != settings.Revision {
-			release()
-			return ErrStorageConflict
-		}
-		_, getErr := repository.Get(leaseCtx, item.id)
-		if getErr == nil {
-			reader, openErr := repository.Open(leaseCtx, item.id)
-			if openErr == nil {
-				openErr = reader.Close()
-			}
-			getErr = openErr
-		}
-		if getErr == nil {
-			if _, err := conn.Exec(leaseCtx, `update pgbase_meta.backup_storage_operations set status='committed',updated_at=now() where backup_id=$1 and settings_revision=$2 and status='pending'`, item.id, revision); err != nil {
-				release()
+	var firstErr error
+	for _, id := range ids {
+		if err := c.recoverPublication(ctx, pool, id, try); err != nil {
+			if !try {
 				return err
 			}
-			release()
-			continue
-		} else if !errors.Is(getErr, ErrNotFound) {
-			release()
-			return getErr
+			if firstErr == nil {
+				firstErr = fmt.Errorf("reconcile backup publication %s: %w", id, err)
+			}
+			if ctx.Err() != nil {
+				break
+			}
 		}
-		// Absence is not proof that a publisher whose database session was lost
-		// has stopped writing to the immutable archive keys. Preserve the durable
-		// fence until an administrator explicitly deletes this backup ID.
-		release()
 	}
-	return nil
+	return firstErr
+}
+
+func (c *StorageController) recoverPublication(ctx context.Context, pool *database.Pool, id string, try bool) error {
+	ctx, repository, conn, release, err := c.leaseFrom(ctx, pool, try, id)
+	if errors.Is(err, errBackupOperationActive) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer release()
+	var revision int64
+	err = conn.QueryRow(ctx, `select settings_revision from pgbase_meta.backup_storage_operations where backup_id=$1 and status='pending'`, id).Scan(&revision)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	settings, _, err := c.loadFrom(ctx, conn)
+	if err != nil {
+		return err
+	}
+	if revision != settings.Revision {
+		return ErrStorageConflict
+	}
+	_, err = repository.Get(ctx, id)
+	if err == nil {
+		var reader io.ReadCloser
+		reader, err = repository.Open(ctx, id)
+		if err == nil {
+			err = reader.Close()
+		}
+	}
+	// Absence is not proof that a publisher whose database session was lost
+	// has stopped writing to the immutable archive keys. Preserve its fence.
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = conn.Exec(ctx, `update pgbase_meta.backup_storage_operations set status='committed',updated_at=now() where backup_id=$1 and settings_revision=$2 and status='pending'`, id, revision)
+	return err
 }
 func (c *StorageController) seed(ctx context.Context, in StorageConfig) error {
 	driver := in.Driver
@@ -191,15 +208,15 @@ func (c *StorageController) current(ctx context.Context) (Repository, error) {
 	c.mu.RLock()
 	pool := c.pool
 	c.mu.RUnlock()
-	return c.currentFrom(ctx, pool)
+	return c.currentFrom(ctx, pool, pool)
 }
-func (c *StorageController) currentFrom(ctx context.Context, db database.DBTX) (Repository, error) {
+func (c *StorageController) currentFrom(ctx context.Context, pool *database.Pool, db database.DBTX) (Repository, error) {
 	s, encrypted, err := c.loadFrom(ctx, db)
 	if err != nil {
 		return nil, err
 	}
 	c.mu.RLock()
-	if c.repository != nil && c.revision == s.Revision {
+	if c.pool == pool && c.repository != nil && c.revision == s.Revision {
 		r := c.repository
 		c.mu.RUnlock()
 		return r, nil
@@ -210,9 +227,10 @@ func (c *StorageController) currentFrom(ctx context.Context, db database.DBTX) (
 		return nil, err
 	}
 	c.mu.Lock()
-	c.repository = r
-	c.revision = s.Revision
-	c.retention = s.Retention
+	if c.pool == pool {
+		c.repository = r
+		c.revision = s.Revision
+	}
 	c.mu.Unlock()
 	return r, nil
 }
@@ -233,6 +251,10 @@ func (c *StorageController) lease(ctx context.Context, id ...string) (context.Co
 	c.mu.RLock()
 	pool := c.pool
 	c.mu.RUnlock()
+	return c.leaseFrom(ctx, pool, false, id...)
+}
+
+func (c *StorageController) leaseFrom(ctx context.Context, pool *database.Pool, try bool, id ...string) (context.Context, Repository, *pgx.Conn, func(), error) {
 	select {
 	case c.sessions <- struct{}{}:
 	case <-ctx.Done():
@@ -243,35 +265,36 @@ func (c *StorageController) lease(ctx context.Context, id ...string) (context.Co
 		<-c.sessions
 		return ctx, nil, nil, nil, err
 	}
-	if _, err = conn.Exec(ctx, `select pg_advisory_lock_shared($1)`, backupStorageLock); err != nil {
+	release := func() {
 		_ = conn.Close(context.Background())
 		<-c.sessions
+	}
+	if _, err = conn.Exec(ctx, `select pg_advisory_lock_shared($1)`, backupStorageLock); err != nil {
+		release()
 		return ctx, nil, nil, nil, err
 	}
-	var idKey int64
 	if len(id) > 0 {
 		value := sha256.Sum256([]byte(id[0]))
-		idKey = int64(uint64(value[0])<<56 | uint64(value[1])<<48 | uint64(value[2])<<40 | uint64(value[3])<<32 | uint64(value[4])<<24 | uint64(value[5])<<16 | uint64(value[6])<<8 | uint64(value[7]))
-		if _, err = conn.Exec(ctx, `select pg_advisory_lock($1)`, idKey); err != nil {
-			_ = conn.Close(context.Background())
-			<-c.sessions
+		idKey := int64(uint64(value[0])<<56 | uint64(value[1])<<48 | uint64(value[2])<<40 | uint64(value[3])<<32 | uint64(value[4])<<24 | uint64(value[5])<<16 | uint64(value[6])<<8 | uint64(value[7]))
+		if try {
+			var active bool
+			if err = conn.QueryRow(ctx, `select not pg_try_advisory_lock($1)`, idKey).Scan(&active); err == nil && active {
+				err = errBackupOperationActive
+			}
+		} else {
+			_, err = conn.Exec(ctx, `select pg_advisory_lock($1)`, idKey)
+		}
+		if err != nil {
+			release()
 			return ctx, nil, nil, nil, err
 		}
 	}
-	r, err := c.currentFrom(ctx, conn)
+	r, err := c.currentFrom(ctx, pool, conn)
 	if err != nil {
-		_ = conn.Close(context.Background())
-		<-c.sessions
+		release()
 		return ctx, nil, nil, nil, err
 	}
-	var once sync.Once
-	release := func() {
-		once.Do(func() {
-			_ = conn.Close(context.Background())
-			<-c.sessions
-		})
-	}
-	return ctx, r, conn, release, nil
+	return ctx, r, conn, sync.OnceFunc(release), nil
 }
 func (c *StorageController) Publish(ctx context.Context, e Entry, b io.Reader) error {
 	ctx, r, conn, release, err := c.lease(ctx, e.ID)
@@ -338,6 +361,61 @@ func (c *StorageController) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	defer release()
+	return deleteBackup(ctx, r, conn, id)
+}
+
+func (c *StorageController) tryBeginPrune(ctx context.Context) (func(), error) {
+	c.mu.RLock()
+	pool := c.pool
+	c.mu.RUnlock()
+	conn, err := pool.OpenCoordinationSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	release := func() {
+		cleanup, cancel := database.BoundedCleanupContext(ctx)
+		defer cancel()
+		_ = conn.Close(cleanup)
+	}
+	var admitted bool
+	if err := conn.QueryRow(ctx, `select pg_try_advisory_lock($1)`, backupPruneLock).Scan(&admitted); err != nil || !admitted {
+		release()
+		return nil, err
+	}
+	return release, nil
+}
+
+func (c *StorageController) deleteForRetention(ctx context.Context, id string, storageRevision int64, pinRuntimeSettings func(context.Context, pgx.Tx) (bool, error)) error {
+	ctx, r, conn, release, err := c.lease(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer release()
+	// The storage lease blocks settings writes. Hold the runtime settings row
+	// too, so neither policy can change between admission and object removal.
+	settings, _, err := c.loadFrom(ctx, conn)
+	if err != nil {
+		return err
+	}
+	if settings.Revision != storageRevision {
+		return errRetentionChanged
+	}
+	if pinRuntimeSettings == nil {
+		return deleteBackup(ctx, r, conn, id)
+	}
+	return pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
+		current, err := pinRuntimeSettings(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if !current {
+			return errRetentionChanged
+		}
+		return deleteBackup(ctx, r, tx, id)
+	})
+}
+
+func deleteBackup(ctx context.Context, r Repository, conn database.DBTX, id string) error {
 	var pending bool
 	if err := conn.QueryRow(ctx, `select exists(select 1 from pgbase_meta.backup_storage_operations where backup_id=$1 and status='pending')`, id).Scan(&pending); err != nil {
 		return err
@@ -356,13 +434,8 @@ func (c *StorageController) Delete(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	_, err = conn.Exec(ctx, `delete from pgbase_meta.backup_storage_operations where backup_id=$1`, id)
+	_, err := conn.Exec(ctx, `delete from pgbase_meta.backup_storage_operations where backup_id=$1`, id)
 	return err
-}
-func (c *StorageController) Retention() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.retention
 }
 
 func (c *StorageController) ValidatePool(ctx context.Context, pool *database.Pool) error {
@@ -396,11 +469,14 @@ func (c *StorageController) Update(ctx context.Context, in StorageUpdate) (Stora
 		if old.Revision != in.Revision {
 			return ErrStorageConflict
 		}
-		var pending int
-		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.backup_storage_operations where status='pending'`).Scan(&pending); err != nil {
+		var pending, revisionMismatch bool
+		if err := tx.QueryRow(ctx, `select
+			exists(select 1 from pgbase_meta.backup_storage_operations where status='pending'),
+			exists(select 1 from pgbase_meta.backup_storage_operations where status='pending' and settings_revision<>$1)`,
+			old.Revision).Scan(&pending, &revisionMismatch); err != nil {
 			return err
 		}
-		if pending != 0 {
+		if revisionMismatch {
 			return ErrStorageConflict
 		}
 		oldEncrypted := append([]byte(nil), encrypted...)
@@ -426,6 +502,9 @@ func (c *StorageController) Update(ctx context.Context, in StorageUpdate) (Stora
 			return ErrInvalidStorage
 		}
 		if locationChanged(old, candidate) {
+			if pending {
+				return ErrStorageConflict
+			}
 			oldRepository, buildErr := c.build(ctx, old, oldEncrypted)
 			if buildErr != nil {
 				return buildErr
@@ -444,8 +523,17 @@ func (c *StorageController) Update(ctx context.Context, in StorageUpdate) (Stora
 			}
 		}
 		_, err = tx.Exec(ctx, `update pgbase_meta.backup_storage_settings set driver=$1,s3_bucket=$2,s3_prefix=$3,s3_region=$4,s3_endpoint=$5,s3_access_key=$6,s3_secret_ciphertext=$7,s3_use_path_style=$8,retention=$9,revision=revision+1,updated_at=now() where singleton`, candidate.Driver, candidate.Bucket, candidate.Prefix, candidate.Region, candidate.Endpoint, candidate.AccessKey, encrypted, candidate.UsePathStyle, candidate.Retention)
+		if err != nil {
+			return err
+		}
+		if pending {
+			// A credential repair keeps the existing namespace and its fences.
+			if _, err = tx.Exec(ctx, `update pgbase_meta.backup_storage_operations set settings_revision=$1 where status='pending' and settings_revision=$2`, candidate.Revision, old.Revision); err != nil {
+				return err
+			}
+		}
 		result = candidate
-		return err
+		return nil
 	})
 	if err != nil {
 		return StorageSettings{}, err
@@ -490,7 +578,11 @@ func (c *StorageController) Test(ctx context.Context) error {
 		return err
 	}
 	defer release()
-	return probeRepository(ctx, r)
+	if err := probeRepository(ctx, r); err != nil {
+		return err
+	}
+	release()
+	return c.RecoverPending(ctx)
 }
 func probeRepository(ctx context.Context, r Repository) (resultErr error) {
 	id := uuid.NewString()

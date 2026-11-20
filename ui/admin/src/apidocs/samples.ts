@@ -16,6 +16,7 @@ export function shellQuote(text: string): string {
 }
 
 function curl(endpoint: Endpoint, collection: Collection, origin: string, audience: Audience): string {
+  const upload = endpoint.id.startsWith("files-");
   const path = endpoint.path.replace("{id}", recordIdExample(collection));
   const lines = [`curl${endpoint.id === "realtime" ? " -N" : ""}${endpoint.query ? " --get" : ""}${endpoint.method === "GET" || (endpoint.method === "POST" && endpoint.body) ? "" : ` -X ${endpoint.method}`} ${shellQuote(origin + path)}`];
   for (const [key, value] of Object.entries(endpoint.query ?? {})) lines.push(`--data-urlencode ${shellQuote(`${key}=${value}`)}`);
@@ -23,8 +24,22 @@ function curl(endpoint: Endpoint, collection: Collection, origin: string, audien
     const token = audience === "service" ? "$PGBASE_SERVICE_TOKEN" : "$PGBASE_TOKEN";
     lines.push(`-H "Authorization: Bearer ${token}"`);
   }
+  if (upload) {
+    lines.push(
+      '-H "X-PgBase-File-Size: $((size))"',
+      '-H "X-PgBase-File-SHA256: ${sha256%% *}"',
+      '--form "file=@\\\"${escaped_file%.}\\\""',
+    );
+    return [
+      "file='./photo.jpg'",
+      'size=$(wc -c < "$file") &&',
+      'sha256=$(openssl dgst -sha256 -r < "$file") &&',
+      // Quote curl grammar separately and keep a suffix to preserve trailing newlines in filenames.
+      String.raw`escaped_file=$(printf '%s.' "$file" | sed 's/[\\"]/\\&/g') &&`,
+      lines.join(" \\\n  "),
+    ].join("\n");
+  }
   for (const [key, value] of Object.entries(endpoint.headers ?? {})) lines.push(`-H ${shellQuote(`${key}: ${value}`)}`);
-  if (endpoint.id.startsWith("files-")) lines.push(`-F 'file=@photo.jpg'`);
   if (endpoint.body) lines.push(`-H 'Content-Type: application/json'`, `--data ${shellQuote(stringifyJson(endpoint.body))}`);
   return lines.join(" \\\n  ");
 }
@@ -33,13 +48,24 @@ const json = stringifyJson;
 
 const exactNumberIn = (value: unknown): boolean => isLosslessNumber(value) || (value !== null && typeof value === "object" && Object.values(value).some(exactNumberIn));
 
-function typescript(endpoint: Endpoint, collection: Collection, origin: string): string {
+function typescript(endpoint: Endpoint, collection: Collection, origin: string, audience: Audience): string {
   const name = JSON.stringify(collection.name);
   const id = JSON.stringify(recordIdExample(collection));
   const body = json(requestBody(collection));
-  const head = `import { PgBaseClient } from "@pgbase/sdk";\n\nconst client = new PgBaseClient(${JSON.stringify(origin)});\n`;
+  const auth = requiresBearer(endpoint, audience) ? 'client.auth.save("<token>");\n' : "";
+  const head = `import { PgBaseClient } from "@pgbase/sdk";\n\nconst client = new PgBaseClient(${JSON.stringify(origin)});\n${auth}`;
   const records = `const records = client.records(${name});\n`;
   const realm = `const realm = client.realm(${name});\n`;
+  if (endpoint.path.startsWith("/api/v1/public/")) {
+    const url = new URL(endpoint.path.replace("{id}", recordIdExample(collection)), origin);
+    url.search = new URLSearchParams(endpoint.query).toString();
+    const init = {
+      method: endpoint.method,
+      headers: endpoint.headers,
+      body: endpoint.body && stringifyJson(endpoint.body),
+    };
+    return `${head}\nconst result = await client.send(${json(url.pathname + url.search)}, ${json(init, 2)});`;
+  }
   if (endpoint.body && exactNumberIn(endpoint.body)) {
     const url = JSON.stringify(origin + endpoint.path.replace("{id}", recordIdExample(collection)));
     const headers = { "Content-Type": "application/json", ...endpoint.headers, ...(endpoint.userOnly || endpoint.path.startsWith("/api/v1/user/") ? { Authorization: "Bearer <token>" } : {}) };
@@ -52,7 +78,7 @@ function typescript(endpoint: Endpoint, collection: Collection, origin: string):
     update: `${records}const { etag } = await records.getWithETag(${id});\nconst record = await records.update(${id}, ${body}, etag!);`,
     delete: `${records}const { etag } = await records.getWithETag(${id});\nawait records.remove(${id}, etag!);`,
     batch: `const { results } = await client.batch([\n  { operation: "create", collection: ${name}, input: ${body}, idempotencyKey: "batch-create-000001" },\n]);`,
-    realtime: `const unsubscribe = await client.realtime.subscribe(${JSON.stringify(`${collection.name}/*`)}, (event) => {\n  console.log(event);\n});`,
+    realtime: `${records}for await (const event of records.events()) {\n  console.log(event);\n}`,
     authMethods: `${realm}const methods = await realm.methods();`,
     authRegister: `${realm}const session = await realm.register("person@example.com", "a-long-passphrase", { profile: ${json(endpoint.body?.fields ?? {})} });`,
     authLogin: `${realm}const session = await realm.login("person@example.com", "a-long-passphrase");`,
@@ -79,13 +105,24 @@ export function dartValue(value: unknown): string {
 
 const dartString = (text: string) => `'${text.replace(/[\\'$]/g, (char) => `\\${char}`).replaceAll('\n', '\\n').replaceAll('\r', '\\r')}'`;
 
-function dart(endpoint: Endpoint, collection: Collection, origin: string): string {
+const dartStringMap = (value: Record<string, string>) =>
+  `{${Object.entries(value).map(([key, item]) => `${dartString(key)}: ${dartString(item)}`).join(", ")}}`;
+
+function dart(endpoint: Endpoint, collection: Collection, origin: string, audience: Audience): string {
   const name = dartString(collection.name);
   const id = dartString(recordIdExample(collection));
   const body = dartValue(requestBody(collection));
-  const head = `import 'package:pgbase/pgbase.dart';\n\nfinal client = PgBaseClient(Uri.parse(${dartString(origin)}));\n`;
+  const auth = requiresBearer(endpoint, audience) ? "await client.auth.save('<token>');\n" : "";
+  const head = `import 'package:pgbase/pgbase.dart';\n\nfinal client = PgBaseClient(Uri.parse(${dartString(origin)}));\n${auth}`;
   const records = `final records = client.records(${name});\n`;
   const realm = `final realm = client.realm(${name});\n`;
+  if (endpoint.path.startsWith("/api/v1/public/")) {
+    const args = [dartString(endpoint.method), dartString(endpoint.path.replace("{id}", recordIdExample(collection)))];
+    if (endpoint.query) args.push(`query: ${dartStringMap(endpoint.query)}`);
+    if (endpoint.headers) args.push(`headers: ${dartStringMap(endpoint.headers)}`);
+    if (endpoint.body) args.push(`body: ${dartValue(endpoint.body)}`);
+    return `${head}\nfinal result = await client.request(\n  ${args.join(",\n  ")},\n);`;
+  }
   const query = Object.entries(endpoint.query ?? {}).map(([key, value]) => (key === "limit" ? `limit: ${value}` : `${key}: ${dartString(value)}`));
   const code: Record<string, string> = {
     list: `${records}final page = await records.list(Query(${query.join(", ")}));\n// page.items, page.nextCursor`,
@@ -94,7 +131,7 @@ function dart(endpoint: Endpoint, collection: Collection, origin: string): strin
     update: `${records}final current = await records.getWithEtag(${id});\nfinal record = await records.update(${id}, ${body}, current.etag!);`,
     delete: `${records}final current = await records.getWithEtag(${id});\nawait records.remove(${id}, current.etag!);`,
     batch: `final result = await client.batch([\n  BatchOperation.create(collection: ${name}, input: ${body}, idempotencyKey: 'batch-create-000001'),\n]);`,
-    realtime: `final unsubscribe = await client.realtime.subscribe(${dartString(`${collection.name}/*`)}, (RealtimeEvent event) {\n  print(event.record);\n});`,
+    realtime: `${records}await for (final event in records.events()) {\n  print(event);\n}`,
     authMethods: `${realm}final methods = await realm.methods();`,
     authRegister: `${realm}final session = await realm.register('person@example.com', 'a-long-passphrase', profile: ${dartValue(endpoint.body?.fields ?? {})});`,
     authLogin: `${realm}final session = await realm.login('person@example.com', 'a-long-passphrase');`,
@@ -111,5 +148,5 @@ function dart(endpoint: Endpoint, collection: Collection, origin: string): strin
 
 export function codeSample(language: Language, endpoint: Endpoint, collection: Collection, origin: string, audience: Audience): string {
   if (language === "curl" || audience === "service") return curl(endpoint, collection, origin, audience);
-  return language === "ts" ? typescript(endpoint, collection, origin) : dart(endpoint, collection, origin);
+  return language === "ts" ? typescript(endpoint, collection, origin, audience) : dart(endpoint, collection, origin, audience);
 }

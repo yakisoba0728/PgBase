@@ -3,6 +3,7 @@ package filestore
 import (
 	"context"
 	"errors"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -74,7 +75,7 @@ func (s *Service) ListRecordMetadataFields(ctx context.Context, principal identi
 			fields = append(fields, field)
 		}
 		for _, id := range ids {
-			if len(id) == 0 || len(id) > 255 {
+			if id == "" || !utf8.ValidString(id) || utf8.RuneCountInString(id) > 255 {
 				return ErrInvalid
 			}
 			value := make(map[string][]File, len(fields))

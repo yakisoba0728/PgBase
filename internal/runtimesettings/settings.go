@@ -221,6 +221,24 @@ func (c *Controller) LogRetention() (time.Duration, int64) {
 	return time.Duration(c.value.Logs.RetentionDays) * 24 * time.Hour, c.value.Revision
 }
 
+// PinRevision checks that the transaction is using this controller's database
+// and pins the settings row until the caller's transaction ends.
+func (c *Controller) PinRevision(ctx context.Context, tx pgx.Tx, revision int64) (bool, error) {
+	_, _, err := c.pool.BorrowedTransaction(database.WithTransaction(ctx, tx))
+	if errors.Is(err, database.ErrTransactionDatabaseMismatch) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var pinned int64
+	err = tx.QueryRow(ctx, `select revision from pgbase_meta.runtime_settings where singleton and revision=$1 for share`, revision).Scan(&pinned)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // Refresh publishes settings committed by another instance.
 func (c *Controller) Refresh(ctx context.Context) error {
 	return c.reload(ctx, true)
@@ -309,6 +327,11 @@ func (c *Controller) Update(ctx context.Context, candidate Settings) (Settings, 
 	}
 	if err := validate(candidate); err != nil {
 		return Settings{}, err
+	}
+	if candidate.Backups.Schedule != current.Backups.Schedule || candidate.Backups.Timezone != current.Backups.Timezone {
+		if err := jobs.ValidateExplicitScheduleLocation(candidate.Backups.Schedule, candidate.Backups.Timezone); err != nil {
+			return Settings{}, invalidSetting("backups")
+		}
 	}
 	candidate.Revision = 0
 	raw, err := json.Marshal(candidate)

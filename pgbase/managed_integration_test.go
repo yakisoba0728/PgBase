@@ -21,6 +21,47 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
+func TestManagedBackupHTTPRejectsRestoreActivationWithAnotherApp(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	databaseURL, directory := testutil.NewDatabase(t), t.TempDir()
+	address := unusedAddress(t)
+	origin := "http://" + address
+	options := Options{DatabaseURL: databaseURL, HTTPAddress: address, PublicURL: mustManagedURL(t, origin), SetupToken: strings.Repeat("s", 32), TokenSecret: []byte("managed-backup-test-token-secret-32"), AutoMigrate: true, AllowInsecureDatabase: true, Backups: BackupOptions{Directory: directory}}
+	done := make(chan error, 1)
+	go func() { done <- RunManaged(ctx, options) }()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Error("managed host did not stop")
+		}
+	}()
+	waitManagedLive(t, origin+"/health/live", done)
+	cookie, csrf := setupManagedAdmin(t, origin, options.SetupToken)
+	options.Backups = BackupOptions{}
+	peer, err := New(ctx, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peer.Close(context.Background())
+	if err = peer.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	created := managedJSON[backup.Job](t, http.MethodPost, origin+"/api/admin/backups", nil, cookie, csrf, http.StatusAccepted)
+	created = waitManagedJob(t, origin, created.ID, cookie)
+	if created.Status != "completed" {
+		t.Fatalf("create job status = %s", created.Status)
+	}
+	restored := managedJSON[backup.Job](t, http.MethodPost, origin+"/api/admin/backups/"+created.BackupID+"/restore", nil, cookie, csrf, http.StatusAccepted)
+	if restored = waitManagedJob(t, origin, restored.ID, cookie); restored.Status != "failed" {
+		t.Fatalf("restore job status = %s", restored.Status)
+	}
+	if _, err := os.Stat(filepath.Join(directory, "active-target.json")); !os.IsNotExist(err) {
+		t.Fatalf("restore wrote an activation receipt while another app was running: %v", err)
+	}
+}
+
 func TestManagedBackupHTTPRestoresAndActivatesFreshTarget(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

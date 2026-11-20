@@ -365,19 +365,24 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 			subscriptions[index].cursor = &head
 		}
 	}
-	if principal.Kind == identity.User {
-		h.mu.Lock()
-		atLimit := client.admittedUser == uuid.Nil && h.userClients[principal.ID] >= 4
-		if client.admittedUser == uuid.Nil && !atLimit {
-			h.userClients[principal.ID]++
-			client.admittedUser = principal.ID
-		}
+	// The stream can disconnect while the replacement is validating its topics.
+	// Update admission under the same lock used to remove disconnected clients.
+	h.mu.Lock()
+	if h.clients[client.id] != client {
 		h.mu.Unlock()
-		if atLimit {
+		subscriptionErr = errors.New("realtime client disconnected")
+		writeAPIError(w, r, APIError{Status: 404, Code: "realtime_client_not_found", Message: "Missing or invalid client id"})
+		return
+	}
+	if principal.Kind == identity.User && client.admittedUser == uuid.Nil {
+		if h.userClients[principal.ID] >= 4 {
+			h.mu.Unlock()
 			subscriptionErr = errRealtimeConnectionLimit
 			writeAPIError(w, r, APIError{Status: 429, Code: "realtime_limit", Message: "Too many realtime connections"})
 			return
 		}
+		h.userClients[principal.ID]++
+		client.admittedUser = principal.ID
 	}
 	client.mu.Lock()
 	client.principal = principal
@@ -385,6 +390,7 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 	client.subscriptions = subscriptions
 	client.resume = nil
 	client.mu.Unlock()
+	h.mu.Unlock()
 	if h.dependencies.ApplicationRealtimeBroker != nil {
 		h.dependencies.ApplicationRealtimeBroker.subscribe(client.id, form.Subscriptions)
 	}

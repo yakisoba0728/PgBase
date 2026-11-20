@@ -90,11 +90,11 @@ func RunManaged(ctx context.Context, options Options) error {
 	if err != nil {
 		return err
 	}
+	h.app = app
 	if err = app.Start(context.WithoutCancel(ctx)); err != nil {
 		_ = app.Close(context.Background())
 		return err
 	}
-	h.app = app
 	listener, err := net.Listen("tcp", managedListenAddress(normalized))
 	if err != nil {
 		_ = app.Close(context.Background())
@@ -332,6 +332,16 @@ func (h *managedHost) restoreBackup(ctx context.Context, directory string) (resu
 		nextControllerPool.Close()
 		return err
 	}
+	if err = old.backupGate.BeginRestoreActivation(ctx); err != nil {
+		return fmt.Errorf("managed restore requires exclusive application access to the source database: %w", err)
+	}
+	defer func() {
+		if !activated {
+			cleanup, cancel := context.WithTimeout(context.Background(), options.ShutdownTimeout)
+			defer cancel()
+			resultErr = errors.Join(resultErr, old.backupGate.CancelRestoreActivation(cleanup))
+		}
+	}()
 	if err = h.persistTarget(target); err != nil {
 		nextControllerPool.Close()
 		return err

@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -28,7 +29,7 @@ func TestObjectMigrationCancellationWaitsForOwnedCopy(t *testing.T) {
 		t.Run(phase, func(t *testing.T) {
 			ctx, pool, controller, migrationID, key, source, destination := newLocalMigrationFixture(t, nil)
 			blocking := &migrationBlockingStore{migrationMemoryStore: destination, phase: phase, reached: make(chan struct{}), release: make(chan struct{})}
-			service := NewObjectMigrationService(controller)
+			service := NewObjectMigrationService(controller, "")
 			service.buildStore = migrationStoreFactory(source, blocking)
 			copied := make(chan error, 1)
 			go func() {
@@ -78,7 +79,7 @@ func TestObjectMigrationCancellationWaitsForOwnedCopy(t *testing.T) {
 
 func TestObjectMigrationLedgerFailureRetainsOwnedCleanupIntent(t *testing.T) {
 	ctx, pool, controller, migrationID, key, source, destination := newLocalMigrationFixture(t, nil)
-	service := NewObjectMigrationService(controller)
+	service := NewObjectMigrationService(controller, "")
 	service.buildStore = migrationStoreFactory(source, destination)
 	if _, err := pool.Exec(ctx, `create function pgbase_meta.test_fail_migration_verified() returns trigger language plpgsql as $$ begin if new.status='verified' then raise exception 'injected verified ledger failure'; end if; return new; end $$; create trigger test_fail_migration_verified before update on pgbase_meta.file_storage_migration_objects for each row execute function pgbase_meta.test_fail_migration_verified()`); err != nil {
 		t.Fatal(err)
@@ -114,7 +115,7 @@ func TestObjectMigrationLedgerFailureRetainsOwnedCleanupIntent(t *testing.T) {
 
 func TestObjectMigrationCancellationPreservesPreexistingIdenticalDestination(t *testing.T) {
 	ctx, pool, controller, migrationID, key, source, destination := newLocalMigrationFixture(t, []byte("migration bytes"))
-	service := NewObjectMigrationService(controller)
+	service := NewObjectMigrationService(controller, "")
 	service.buildStore = migrationStoreFactory(source, destination)
 	if copied, err := service.copyOne(ctx, migrationID); err != nil || !copied {
 		t.Fatalf("copy=%t err=%v", copied, err)
@@ -152,7 +153,12 @@ func newLocalMigrationFixture(t *testing.T, destinationBytes []byte) (context.Co
 	if err := migrate.New(pool, slog.New(slog.NewTextHandler(io.Discard, nil))).Up(ctx); err != nil {
 		t.Fatal(err)
 	}
-	controller, err := NewStorageController(ctx, pool, bytes.Repeat([]byte{8}, 32), StorageConfig{Driver: "local", LocalDirectory: t.TempDir()})
+	sourceRoot := filepath.Join(t.TempDir(), "source")
+	destinationRoot := filepath.Join(t.TempDir(), "destination")
+	if err := os.Mkdir(destinationRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	controller, err := NewStorageController(ctx, pool, bytes.Repeat([]byte{8}, 32), StorageConfig{Driver: "local", LocalDirectory: sourceRoot})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,8 +181,8 @@ func newLocalMigrationFixture(t *testing.T, destinationBytes []byte) (context.Co
 		return blob
 	}
 	migrationID := uuid.New()
-	sourceBlob := encode(storageSnapshot{Driver: "local", LocalDirectory: "source"})
-	destinationBlob := encode(storageSnapshot{Driver: "local", LocalDirectory: "destination"})
+	sourceBlob := encode(storageSnapshot{Driver: "local", LocalDirectory: sourceRoot})
+	destinationBlob := encode(storageSnapshot{Driver: "local", LocalDirectory: destinationRoot})
 	if _, err := pool.Exec(ctx, `insert into pgbase_meta.extension_objects(namespace_hash,key_hash,object_key,size_bytes) values($1,$2,$3,$4)`, namespace, object, key, len("migration bytes")); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +197,7 @@ func newLocalMigrationFixture(t *testing.T, destinationBytes []byte) (context.Co
 
 func migrationStoreFactory(source ObjectStore, destination ObjectStore) func(context.Context, storageSnapshot) (ObjectStore, error) {
 	return func(_ context.Context, snapshot storageSnapshot) (ObjectStore, error) {
-		if snapshot.LocalDirectory == "source" {
+		if filepath.Base(snapshot.LocalDirectory) == "source" {
 			return source, nil
 		}
 		return destination, nil
@@ -228,7 +234,7 @@ func TestObjectMigrationCleanupAllowsActiveFilePublicationWhileTransitionWaits(t
 	ctx, pool, controller, migrationID, _, source, destination := newLocalMigrationFixture(t, nil)
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	service := NewObjectMigrationService(controller)
+	service := NewObjectMigrationService(controller, "")
 	service.buildStore = migrationStoreFactory(source, destination)
 	if copied, err := service.copyOne(ctx, migrationID); err != nil || !copied {
 		t.Fatalf("copy=%t err=%v", copied, err)
@@ -300,7 +306,7 @@ func TestObjectMigrationCleanupAllowsActiveFilePublicationWhileTransitionWaits(t
 
 func TestObjectMigrationCleanupPersistsFailureBackoff(t *testing.T) {
 	ctx, pool, controller, migrationID, key, source, destination := newLocalMigrationFixture(t, nil)
-	service := NewObjectMigrationService(controller)
+	service := NewObjectMigrationService(controller, "")
 	service.buildStore = migrationStoreFactory(source, destination)
 	if copied, err := service.copyOne(ctx, migrationID); err != nil || !copied {
 		t.Fatalf("copy=%t err=%v", copied, err)
@@ -333,7 +339,8 @@ func TestObjectMigrationCleanupPersistsFailureBackoff(t *testing.T) {
 
 func TestObjectMigrationCleanupPreservesActiveLocalNamespace(t *testing.T) {
 	ctx, pool, controller, migrationID, key, source, _ := newLocalMigrationFixture(t, nil)
-	raw, err := json.Marshal(storageSnapshot{Driver: "local", LocalDirectory: controller.localDirectory, Bucket: "old-unused-bucket", Region: "old-unused-region", UsePathStyle: true})
+	legacyRoot := controller.localDirectory + string(filepath.Separator) + "."
+	raw, err := json.Marshal(storageSnapshot{Driver: "local", LocalDirectory: legacyRoot, Bucket: "old-unused-bucket", Region: "old-unused-region", UsePathStyle: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +355,7 @@ func TestObjectMigrationCleanupPreservesActiveLocalNamespace(t *testing.T) {
 		t.Fatal(err)
 	}
 	failing := &migrationDeleteFailureStore{ObjectStore: source, err: errors.New("active object deleted")}
-	service := NewObjectMigrationService(controller)
+	service := NewObjectMigrationService(controller, "")
 	service.buildStore = migrationStoreFactory(failing, failing)
 	if worked, err := service.CleanupOne(ctx); worked || err != nil || failing.calls != 0 {
 		t.Fatalf("active namespace cleanup: worked=%t err=%v deletes=%d", worked, err, failing.calls)
@@ -397,7 +404,7 @@ func TestObjectMigrationCleanupDefersUncertainS3Namespaces(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			service := NewObjectMigrationService(controller)
+			service := NewObjectMigrationService(controller, "")
 			service.buildStore = func(context.Context, storageSnapshot) (ObjectStore, error) {
 				return nil, errors.New("unexpected cleanup store construction")
 			}
@@ -471,18 +478,19 @@ func TestObjectMigrationLocalToMinIOCutoverAndDelayedCleanup(t *testing.T) {
 	}
 	key := "objects/11111111-1111-4111-8111-111111111111"
 	removedKey := "objects/22222222-2222-4222-8222-222222222222"
-	if err = controller.Put(ctx, key, bytes.NewBufferString("durable migration")); err != nil {
+	payload := bytes.Repeat([]byte("a"), 17<<20)
+	if err = controller.Put(ctx, key, bytes.NewReader(payload)); err != nil {
 		t.Fatal(err)
 	}
 	if err = controller.Put(ctx, removedKey, bytes.NewBufferString("removed during migration")); err != nil {
 		t.Fatal(err)
 	}
-	digest := sha256.Sum256([]byte("durable migration"))
+	digest := sha256.Sum256(payload)
 	err = pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `set local session_replication_role=replica`); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `insert into pgbase_meta.record_files(id,collection_id,record_id,field_name,filename,content_type,size_bytes,sha256,object_key,status,created_at,ready_at) values(gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'attachment','migration.txt','text/plain',17,$2,$1,'ready',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, key, digest[:])
+		_, err := tx.Exec(ctx, `insert into pgbase_meta.record_files(id,collection_id,record_id,field_name,filename,content_type,size_bytes,sha256,object_key,status,created_at,ready_at) values(gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'attachment','migration.txt','text/plain',$3,$2,$1,'ready',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, key, digest[:], len(payload))
 		if err != nil {
 			return err
 		}
@@ -493,7 +501,7 @@ func TestObjectMigrationLocalToMinIOCutoverAndDelayedCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := NewObjectMigrationService(controller)
+	service := NewObjectMigrationService(controller, t.TempDir())
 	operationID := uuid.New()
 	input := StorageUpdate{Driver: "s3", Bucket: "pgbase-test", Region: "us-east-1", Endpoint: endpoint, AccessKey: "pgbase-test-access", SecretKey: "pgbase-test-secret-0123456789", UsePathStyle: true}
 	started, err := service.Start(ctx, operationID, input)
@@ -530,10 +538,11 @@ func TestObjectMigrationLocalToMinIOCutoverAndDelayedCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, _ := io.ReadAll(reader)
-	_ = reader.Close()
-	if string(got) != "durable migration" {
-		t.Fatalf("object=%q", got)
+	hash := sha256.New()
+	size, readErr := io.Copy(hash, reader)
+	closeErr := reader.Close()
+	if readErr != nil || closeErr != nil || size != int64(len(payload)) || !bytes.Equal(hash.Sum(nil), digest[:]) {
+		t.Fatalf("object size=%d digest=%x read=%v close=%v", size, hash.Sum(nil), readErr, closeErr)
 	}
 	local, _ := NewLocalStore(localDirectory)
 	if old, openErr := local.Open(ctx, key); openErr != nil {
@@ -598,7 +607,7 @@ func TestObjectMigrationCancelKeepsCurrentDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := NewObjectMigrationService(controller)
+	service := NewObjectMigrationService(controller, "")
 	started, err := service.Start(ctx, uuid.New(), StorageUpdate{Driver: "s3", Bucket: "pgbase-test", Region: "us-east-1", Endpoint: endpoint, AccessKey: "pgbase-test-access", SecretKey: "pgbase-test-secret-0123456789", UsePathStyle: true})
 	if err != nil {
 		t.Fatal(err)

@@ -87,7 +87,7 @@ func TestUploadPublishAuthorizationDeleteAndCleanup(t *testing.T) {
 		defer release()
 		cleanupContext, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
 		defer cancel()
-		worked, err := NewObjectMigrationService(controller).CleanupOne(cleanupContext)
+		worked, err := NewObjectMigrationService(controller, "").CleanupOne(cleanupContext)
 		if err != nil || worked {
 			t.Fatalf("idle CleanupOne while a reader is active = %t, %v", worked, err)
 		}

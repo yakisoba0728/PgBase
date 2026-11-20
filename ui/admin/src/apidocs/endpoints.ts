@@ -132,7 +132,7 @@ export function buildEndpoints(collection: Collection, audience: Audience, realm
       path: `/api/v1/user/collections/${name}/records/{id}/files/${encodeURIComponent(field.name)}`,
       rule: "update",
       userOnly: true,
-      headers: { "X-PgBase-File-Size": "1024", "X-PgBase-File-SHA256": "<sha256 hex>" },
+      headers: { "X-PgBase-File-Size": "<file size in bytes>", "X-PgBase-File-SHA256": "<sha256 hex>" },
       status: 201,
     });
   }

@@ -36,17 +36,23 @@ type identityProjection struct {
 // Project resolves the IDs of hydrated records before changing any response.
 // Captured assignments also allow the same expanded map to appear more than once.
 func (s *Service) Project(ctx context.Context, db DB, catalog schema.Catalog, collection schema.Collection, records ...map[string]any) error {
+	_, err := s.ProjectWire(ctx, db, catalog, collection, records...)
+	return err
+}
+
+// ProjectWire reports whether public text identities could affect the JSON size.
+func (s *Service) ProjectWire(ctx context.Context, db DB, catalog schema.Catalog, collection schema.Collection, records ...map[string]any) (bool, error) {
 	plan := identityProjection{collections: make(map[uuid.UUID]schema.Collection, len(catalog.Collections)), identities: make(map[identityKey]string)}
 	for _, target := range catalog.Collections {
 		plan.collections[target.ID] = target
 	}
 	for _, record := range records {
 		if err := plan.collectRecord(collection, record); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if err := plan.resolve(ctx, db); err != nil {
-		return err
+		return false, err
 	}
 	value := func(id projectionIdentity) string {
 		if id.text {
@@ -72,7 +78,7 @@ func (s *Service) Project(ctx context.Context, db DB, catalog schema.Catalog, co
 			change.record[change.field] = values
 		}
 	}
-	return nil
+	return len(plan.identities) != 0, nil
 }
 
 func (p *identityProjection) identity(collection schema.Collection, id uuid.UUID) projectionIdentity {

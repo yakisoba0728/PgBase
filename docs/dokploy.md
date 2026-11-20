@@ -74,7 +74,7 @@ Dokploy가 routing label을 주입한다. `postgres`, `migrate`, `files-init`에
 시작 순서는 다음과 같다.
 
 1. PostgreSQL 준비 상태를 확인한다.
-2. `files-init`가 파일 volume의 소유자를 앱의 nonroot uid `65532`로 설정한다.
+2. `files-init`가 파일 volume과 스토리지 이전 임시 작업 volume의 소유자를 앱의 nonroot uid `65532`로 설정한다.
 3. `migrate`가 `pgbase migrate up`을 실행하고 성공 종료한다.
 4. `pgbase`가 `PGBASE_AUTO_MIGRATE=false`로 시작한다.
 

@@ -56,7 +56,12 @@ func TestCalendarScheduleNextIsDeterministicAcrossDST(t *testing.T) {
 }
 
 func TestCalendarScheduleRejectsTimezoneAndExtendedCron(t *testing.T) {
-	for _, test := range []struct{ expression, timezone string }{{"0 0 * * *", "Mars/Base"}, {"0 0 0 * * *", "UTC"}} {
+	for _, test := range []struct{ expression, timezone string }{
+		{"0 0 * * *", "Mars/Base"},
+		{"0 0 0 * * *", "UTC"},
+		{"CRON_TZ=UTC", "UTC"},
+		{"TZ=UTC", "UTC"},
+	} {
 		if _, err := ParseScheduleInLocation(test.expression, test.timezone); !errors.Is(err, ErrInvalidSchedule) {
 			t.Fatalf("%q %q: %v", test.expression, test.timezone, err)
 		}

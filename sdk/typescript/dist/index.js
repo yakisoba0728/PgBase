@@ -280,7 +280,10 @@ export class PgBaseClient {
             assertAuthGeneration(this.auth, generation);
             const body = await read(response);
             assertAuthGeneration(this.auth, generation);
-            return { body, etag: response.headers.get("ETag") ?? undefined };
+            const result = { body, etag: response.headers.get("ETag") ?? undefined };
+            if (response.headers.get("PgBase-Enrichment") === "failed")
+                result.enrichmentFailed = true;
+            return result;
         }
         catch (error) {
             assertAuthGeneration(this.auth, generation);
@@ -606,12 +609,13 @@ export class Records {
         const [options, requestSignal] = recordGetArguments(optionsOrSignal, signal);
         return this.recordJSONResponse(this.path(id, options), {}, requestSignal, options?.requestKey);
     }
+    /** Returns the response body. Use createWithETag to detect an ID-only committed write. */
     create(data, idempotencyKey, options, signal) {
         return inAuthScope(this.client.auth, async () => (await this.createWithETag(data, idempotencyKey, options, signal)).record);
     }
     createWithETag(data, idempotencyKey, options, signal) {
         const [query, requestSignal] = recordGetArguments(options, signal);
-        return this.recordResponse(this.path(undefined, query), {
+        return this.mutationResponse(this.path(undefined, query), {
             method: "POST",
             headers: { "Idempotency-Key": idempotencyKey },
             body: JSON.stringify(data),
@@ -626,12 +630,13 @@ export class Records {
             body: recordJSON,
         }, requestSignal, query?.requestKey);
     }
+    /** Returns the response body. Use updateWithETag to detect an ID-only committed write. */
     update(id, data, etag, options, signal) {
         return inAuthScope(this.client.auth, async () => (await this.updateWithETag(id, data, etag, options, signal)).record);
     }
     updateWithETag(id, data, etag, options, signal) {
         const [query, requestSignal] = recordGetArguments(options, signal);
-        return this.recordResponse(this.path(id, query), {
+        return this.mutationResponse(this.path(id, query), {
             method: "PATCH",
             headers: { "If-Match": etag },
             body: JSON.stringify(data),
@@ -761,10 +766,21 @@ export class Records {
             return { record: response.body, etag: response.etag };
         });
     }
+    mutationResponse(path, init, signal, requestKey) {
+        return inAuthScope(this.client.auth, async () => {
+            const { body, etag, enrichmentFailed } = await this.client._response(path, init, signal, requestKey);
+            return enrichmentFailed
+                ? { record: body, etag, enrichmentFailed }
+                : { record: body, etag };
+        });
+    }
     recordJSONResponse(path, init, signal, requestKey) {
         return inAuthScope(this.client.auth, async () => {
             const response = await this.client._responseText(path, init, signal, requestKey);
-            return { recordJSON: response.body, etag: response.etag };
+            const result = { recordJSON: response.body, etag: response.etag };
+            if (response.enrichmentFailed)
+                result.enrichmentFailed = true;
+            return result;
         });
     }
 }

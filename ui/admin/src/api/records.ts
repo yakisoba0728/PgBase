@@ -116,14 +116,21 @@ export function updateRecord(
   );
 }
 
-export async function deleteRecord(collection: string, id: string, options: { ifMatch?: string } = {}): Promise<void> {
+export async function deleteRecord(collection: string, id: string, options: { ifMatch?: string; matchFilter?: string } = {}): Promise<void> {
   await request("DELETE", `${recordsPath(collection)}/${seg(id)}`, {
     headers: options.ifMatch ? { "If-Match": options.ifMatch } : undefined,
+    ...(options.matchFilter ? { query: { matchFilter: options.matchFilter } } : {}),
   });
 }
 
 /** Deletes `ids` in one atomic batch request (all or none). */
-export async function deleteRecordsBatch(collection: string, ids: string[]): Promise<void> {
+export async function deleteRecordsBatch(collection: string, ids: string[], matchFilter?: string): Promise<void> {
+  if (matchFilter) {
+    await request("POST", "/api/v1/collections/batch", {
+      body: { operations: ids.map((id) => ({ operation: "delete", collection, id, matchFilter })) },
+    });
+    return;
+  }
   await request("POST", "/api/v1/collections/batch", { body: { requests: ids.map((id) => ({ method: "DELETE", url: `${recordsPath(collection)}/${seg(id)}` })) } });
 }
 
@@ -185,7 +192,7 @@ async function writeRecordWithFiles(
   collection: string,
   input: Record<string, unknown>,
   files: Record<string, File[]>,
-  options: { idempotencyKey?: string; onProgress?: (fraction: number) => void; update?: { id: string; etag: string } } = {},
+  options: { idempotencyKey?: string; onProgress?: (fraction: number) => void; update?: { id: string; etag: string; replaces: string } } = {},
 ): Promise<RecordWithETag> {
   const form = new FormData();
   const body: Record<string, unknown> = { ...input };
@@ -197,7 +204,7 @@ async function writeRecordWithFiles(
       parts.push([name, file]);
       return { $file: name };
     });
-    body[field] = refs.length === 1 ? refs[0] : refs;
+    body[field] = options.update ? { ...refs[0], $replaces: options.update.replaces } : refs.length === 1 ? refs[0] : refs;
   }
   const headers = options.update ? { "If-Match": options.update.etag } : options.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined;
   form.append("requests", stringifyJson({ requests: [{ method: options.update ? "PATCH" : "POST", url: recordsPath(collection) + (options.update ? `/${seg(options.update.id)}` : ""), body, headers }] }));
@@ -209,8 +216,8 @@ async function writeRecordWithFiles(
 export const createRecordWithFiles = (collection: string, input: Record<string, unknown>, files: Record<string, File[]>, options: { idempotencyKey?: string; onProgress?: (fraction: number) => void } = {}) => writeRecordWithFiles(collection, input, files, options);
 
 /** Atomic replacement keeps required/maxSelect constraints valid throughout the mutation. */
-export const replaceRecordFiles = (collection: string, id: string, etag: string, field: string, files: File[]) =>
-  writeRecordWithFiles(collection, {}, { [field]: files }, { update: { id, etag } });
+export const replaceRecordFiles = (collection: string, id: string, etag: string, field: string, file: File, replaces: string) =>
+  writeRecordWithFiles(collection, {}, { [field]: [file] }, { update: { id, etag, replaces } });
 
 /** Short-lived token required by downloadFile, bound to one variant. */
 export async function mintFileToken(fileId: string, variant: FileVariant = "original"): Promise<string> {

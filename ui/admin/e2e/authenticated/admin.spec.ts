@@ -23,7 +23,11 @@ const test = base.extend<{ cleanConsole: void }, { authenticatedStorageState: st
     const { email, password } = credentials();
     const statePath = path.join(workerInfo.project.outputDir, ".auth", `worker-${workerInfo.workerIndex}.json`);
     await mkdir(path.dirname(statePath), { recursive: true });
-    const page = await browser.newPage({ baseURL: workerInfo.project.use.baseURL, storageState: { cookies: [], origins: [] } });
+    const page = await browser.newPage({
+      baseURL: workerInfo.project.use.baseURL,
+      locale: workerInfo.project.use.locale,
+      storageState: { cookies: [], origins: [] },
+    });
     try {
       await signIn(page, email, password);
       await expect(page.getByRole("button", { name: "Account" })).toContainText(email);

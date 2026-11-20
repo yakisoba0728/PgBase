@@ -31,3 +31,23 @@ func TestRecordReadFallsBackIfOptionalDataExceedsWireBudget(t *testing.T) {
 		t.Fatalf("fallback response: status=%d body=%s", response.Code, response.Body.String())
 	}
 }
+
+func TestCommittedRecordFallsBackWhenResponseCannotBeSent(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value any
+	}{
+		{name: "invalid JSON", value: make(chan struct{})},
+		{name: "over budget after escaping", value: strings.Repeat("<", maximumRecordPageResponseBytes/6)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			response.Header().Set("ETag", `"committed"`)
+			writeCommittedRecordJSON(response, http.StatusCreated, "record", map[string]any{"field": test.value})
+			if response.Code != http.StatusCreated || response.Body.String() != "{\"id\":\"record\"}\n" ||
+				response.Header().Get("ETag") != `"committed"` || response.Header().Get(recordEnrichmentHeader) != "failed" {
+				t.Fatalf("committed mutation: status=%d headers=%v body length=%d", response.Code, response.Header(), response.Body.Len())
+			}
+		})
+	}
+}

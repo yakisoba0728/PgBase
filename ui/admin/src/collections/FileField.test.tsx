@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
 import type { CollectionField } from "../api/collections";
 import * as api from "../api/records";
-import { advanceSession } from "../api/http";
+import { advanceSession, ApiError } from "../api/http";
 import { FileField } from "./FileField";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import type { Collection } from "../api/collections";
@@ -25,7 +25,26 @@ it("offers atomic replacement for a full required single attachment and lets the
   expect(screen.getByText("Replace file")).toBeInTheDocument();
   const picked = new File(["new"], "new.txt", { type: "" });
   fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [picked] } });
-  await waitFor(() => expect(replace).toHaveBeenCalledWith("notes", "r", '"latest"', "cover", [picked]));
+  await waitFor(() => expect(replace).toHaveBeenCalledWith("notes", "r", '"latest"', "cover", picked, file.id));
+  cleanup(); client.clear();
+});
+
+it("refreshes after the server detects a concurrent attachment replacement", async () => {
+  setLanguage("en");
+  const file = { id: "f", filename: "old.txt", size: 3, contentType: "text/plain" } as api.StoredFile;
+  const newer = { ...file, id: "newer", filename: "newer.txt" };
+  vi.spyOn(api, "listRecordFiles").mockResolvedValue([newer]);
+  vi.spyOn(api, "getRecord").mockResolvedValue({ record: { id: "r" }, etag: '"newer"' });
+  const replace = vi.spyOn(api, "replaceRecordFiles").mockRejectedValue(new ApiError(412, "precondition_failed", "Record has changed"));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnMount: false } } });
+  client.setQueryData(recordFilesQuery("notes", "r", "cover").queryKey, [file]);
+  const field = { id: "cover", name: "cover", type: "file", options: { maxSelect: 1 } } as CollectionField;
+  render(<QueryClientProvider client={client}><FileField collection="notes" recordId="r" field={field} readOnly={false} staged={[]} onStage={vi.fn()} /></QueryClientProvider>);
+  expect(screen.getByRole("button", { name: "Preview old.txt" })).toBeInTheDocument();
+  const picked = new File(["new"], "new.txt");
+  fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [picked] } });
+  await screen.findByRole("button", { name: "Preview newer.txt" });
+  expect(replace).toHaveBeenCalledWith("notes", "r", '"newer"', "cover", picked, file.id);
   cleanup(); client.clear();
 });
 

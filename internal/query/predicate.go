@@ -1,11 +1,40 @@
 package query
 
 import (
+	"context"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
+
+// MatchesRecordFilter evaluates the native list filter against one locked root record.
+func MatchesRecordFilter(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, id uuid.UUID, filter string) (bool, error) {
+	node, err := parseFilterRequest(filter)
+	if err != nil {
+		return false, err
+	}
+	plan, err := compileRelationListPlan(catalog, collection, node, nil)
+	if err != nil {
+		return false, err
+	}
+	builder := &statementBuilder{}
+	idParam := builder.placeholder(id)
+	renderer := &relationSQLRenderer{builder: builder, root: collection, catalog: catalog}
+	predicate, err := compilePlannedRelationFilter(plan.filter, renderer, relationRootAlias)
+	if err != nil {
+		return false, err
+	}
+	statement := "SELECT EXISTS (SELECT 1 FROM " + quotedTable(collection) + " AS " + quoted(relationRootAlias) +
+		" WHERE " + qualified(relationRootAlias, systemFieldID) + " = " + idParam
+	if predicate != "" {
+		statement += " AND (" + predicate + ")"
+	}
+	var matches bool
+	err = tx.QueryRow(ctx, statement+")", builder.args...).Scan(&matches)
+	return matches, err
+}
 
 // CompileRecordPredicate compiles a bounded scalar filter against a supplied
 // row alias. The returned arguments begin after argOffset.

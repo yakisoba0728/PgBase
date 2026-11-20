@@ -45,9 +45,10 @@ services:
     user: "0:0"
     entrypoint: ["/bin/sh", "-ec"]
     # Docker creates named-volume roots as root; the app runs as uid 65532.
-    command: ["chown 65532:65532 /files && chmod 700 /files"]
+    command: ["chown 65532:65532 /files && chmod 700 /files && chown 65532:65532 /migration-scratch && chmod 700 /migration-scratch"]
     volumes:
       - files:/files
+      - migration-scratch:/migration-scratch
     network_mode: none
     restart: "no"
 
@@ -72,10 +73,12 @@ services:
       PGBASE_USER_REGISTRATION: "false"
       PGBASE_FILES_DRIVER: local
       PGBASE_FILES_LOCAL_DIRECTORY: /files
+      PGBASE_FILES_MIGRATION_SCRATCH_DIRECTORY: /migration-scratch
       PGBASE_SHUTDOWN_TIMEOUT: 15s
       PGBASE_STOP_GRACE_PERIOD: 20s
     volumes:
       - files:/files
+      - migration-scratch:/migration-scratch
     networks:
       - database
       - dokploy-network
@@ -100,6 +103,7 @@ services:
 volumes:
   database:
   files:
+  migration-scratch:
 
 networks:
   database:

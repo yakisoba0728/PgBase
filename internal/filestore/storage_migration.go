@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -35,12 +36,13 @@ type storageSnapshot struct {
 // atomic storage-generation cutover. Its state is safe to resume after a
 // process exit; only one runner per migration claims ledger rows at a time.
 type ObjectMigrationService struct {
-	controller *StorageController
-	buildStore func(context.Context, storageSnapshot) (ObjectStore, error)
+	controller       *StorageController
+	buildStore       func(context.Context, storageSnapshot) (ObjectStore, error)
+	scratchDirectory string
 }
 
-func NewObjectMigrationService(controller *StorageController) *ObjectMigrationService {
-	return &ObjectMigrationService{controller: controller, buildStore: buildSnapshot}
+func NewObjectMigrationService(controller *StorageController, scratchDirectory string) *ObjectMigrationService {
+	return &ObjectMigrationService{controller: controller, buildStore: buildSnapshot, scratchDirectory: scratchDirectory}
 }
 
 func (s *ObjectMigrationService) Preview(ctx context.Context, destination StorageUpdate) (StorageMigrationStatus, error) {
@@ -445,7 +447,7 @@ func (s *ObjectMigrationService) copyOne(ctx context.Context, id uuid.UUID) (boo
 		}
 		return nil
 	}
-	size, digest, created, err := copyVerifiedWithIntent(ctx, source, destination, key, createdIntent)
+	size, digest, created, err := copyVerifiedWithIntent(ctx, source, destination, key, s.scratchDirectory, createdIntent)
 	if err != nil {
 		_, _ = s.controller.pool.Exec(ctx, `update pgbase_meta.file_storage_migration_objects set status='failed',failure='copy or verification failed',claim_token=null,claim_expires_at=null,updated_at=CURRENT_TIMESTAMP where migration_id=$1 and object_key=$2 and claim_token=$3`, id, key, claim)
 		return false, err
@@ -485,23 +487,23 @@ func (s *ObjectMigrationService) copyOne(ctx context.Context, id uuid.UUID) (boo
 	return true, nil
 }
 
-func copyVerifiedWithIntent(ctx context.Context, source, destination ObjectStore, key string, beforeCreate func() error) (int64, []byte, bool, error) {
+func copyVerifiedWithIntent(ctx context.Context, source, destination ObjectStore, key, scratchDirectory string, beforeCreate func() error) (int64, []byte, bool, error) {
 	in, err := source.Open(ctx, key)
 	if err != nil {
 		return 0, nil, false, err
 	}
 	defer func() { _ = in.Close() }()
-	tmp, err := os.CreateTemp("", "pgbase-storage-migration-*")
+	tmp, err := os.CreateTemp(scratchDirectory, "pgbase-storage-migration-*")
 	if err != nil {
-		return 0, nil, false, err
+		return 0, nil, false, fmt.Errorf("create storage migration scratch file: %w", err)
 	}
-	name := tmp.Name()
-	defer func() { _ = os.Remove(name) }()
+	// Unlink on filesystems that allow it so an interrupted worker leaves nothing behind.
+	if name := tmp.Name(); os.Remove(name) != nil {
+		defer func() { _ = os.Remove(name) }()
+	}
+	defer func() { _ = tmp.Close() }()
 	hash := sha256.New()
 	size, err := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(&contextReader{ctx: ctx, reader: in}, maximumMigrationObjectBytes+1))
-	if closeErr := tmp.Close(); err == nil {
-		err = closeErr
-	}
 	if err != nil {
 		return 0, nil, false, err
 	}
@@ -533,12 +535,10 @@ func copyVerifiedWithIntent(ctx context.Context, source, destination ObjectStore
 			return 0, nil, false, err
 		}
 	}
-	tmp, err = os.Open(name)
-	if err != nil {
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return 0, nil, false, err
 	}
 	err = destination.Put(ctx, key, tmp)
-	_ = tmp.Close()
 	if err != nil {
 		return 0, nil, false, err
 	}
@@ -757,6 +757,9 @@ func snapshotLocation(s storageSnapshot) string {
 }
 
 func storageNamespacesMayOverlap(source, other storageSnapshot) bool {
+	if source.Driver == "local" && other.Driver == "local" {
+		return localStorageRootsMayOverlap(source.LocalDirectory, other.LocalDirectory)
+	}
 	if source.Driver == "s3" && other.Driver == "s3" {
 		// Different S3 endpoints can route to the same backing store. Only
 		// separate literal buckets within one endpoint establish a cleanup boundary.
@@ -765,6 +768,18 @@ func storageNamespacesMayOverlap(source, other storageSnapshot) bool {
 			s3BucketMayBeAlias(source.Bucket) || s3BucketMayBeAlias(other.Bucket)
 	}
 	return snapshotLocation(source) == snapshotLocation(other)
+}
+
+func localStorageRootsMayOverlap(source, other string) bool {
+	sourceRoot, sourceErr := filepath.Abs(source)
+	otherRoot, otherErr := filepath.Abs(other)
+	if source == "" || other == "" || sourceErr != nil || otherErr != nil || sourceRoot == otherRoot {
+		return true
+	}
+	// Match the roots opened by LocalStore, including symlinks and mount aliases.
+	sourceInfo, sourceErr := os.Stat(sourceRoot)
+	otherInfo, otherErr := os.Stat(otherRoot)
+	return sourceErr != nil || otherErr != nil || !sourceInfo.IsDir() || !otherInfo.IsDir() || os.SameFile(sourceInfo, otherInfo)
 }
 
 func s3BucketMayBeAlias(bucket string) bool {

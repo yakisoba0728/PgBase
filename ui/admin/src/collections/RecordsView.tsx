@@ -80,6 +80,7 @@ interface BulkTask {
   error?: string;
   /** Delete: the ids that failed, for "Retry failed". */
   failed?: string[];
+  matchFilter?: string;
   /** Export: bytes already written before it stopped. */
   file?: RecordExport;
   exportSelection?: ExportSelection;
@@ -166,7 +167,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
   };
 
   /** Deletes the given ids, or every record matching `filter` (ids collected first: cursors expire, and deleting while paging would skip rows). */
-  const runDelete = async (source: string[] | { filter: string }) => {
+  const runDelete = async (source: string[] | { filter: string }, matchFilter = Array.isArray(source) ? undefined : source.filter) => {
     const scope = captureSessionScope();
     const abort = start("delete", t("records.deleteStarting"));
     const progress = (patch: Partial<BulkTask>) => setTask((current) => (current?.abort === abort ? { ...current, ...patch } : current));
@@ -192,8 +193,8 @@ export function RecordsView({ collection }: { collection: Collection }) {
     progress({ detail: t("records.deleteProgress", { done: 0, total }), done: 0, total });
     const outcome = await deleteAll(ids, {
       batchSize,
-      batch: (chunk) => scope.run(() => deleteRecordsBatch(collection.name, chunk)),
-      one: (id) => scope.run(() => deleteRecord(collection.name, id)),
+      batch: (chunk) => scope.run(() => deleteRecordsBatch(collection.name, chunk, matchFilter)),
+      one: (id) => scope.run(() => matchFilter ? deleteRecord(collection.name, id, { matchFilter }) : deleteRecord(collection.name, id)),
       signal: abort.signal,
       onProgress: (done, failed) => progress({ done, detail: failed ? t("records.deleteProgressFailed", { done, total, failed }) : t("records.deleteProgress", { done, total }) }),
     });
@@ -202,9 +203,11 @@ export function RecordsView({ collection }: { collection: Collection }) {
     // One list update for the whole run.
     if (Array.isArray(source)) removeFromLists(queryClient, collection.name, outcome.deleted);
     else void queryClient.resetQueries({ queryKey: listKey(collection.name) });
-    // Failures stay selected so they can be retried or inspected; a selection made during the run is kept.
+    // Filtered failures live in the guarded retry action, outside the ordinary selection.
     setSelected((previous) => {
-      const next = new Set([...previous, ...outcome.failed]);
+      const next = new Set(previous);
+      if (matchFilter) ids.forEach((id) => next.delete(id));
+      else outcome.failed.forEach((id) => next.add(id));
       outcome.deleted.forEach((id) => next.delete(id));
       return next;
     });
@@ -225,7 +228,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
     ].filter(Boolean).join(" ");
     // Left the screen mid-run: the progress panel is gone, so the outcome must not read as a clean finish.
     if (left.current) toast(detail, "danger");
-    setTask({ kind: "delete", state: failed.length ? "failed" : "attention", detail, done: outcome.deleted.length, total, error: failed.length ? errorText(t, outcome.reason) : undefined, failed, abort });
+    setTask({ kind: "delete", state: failed.length ? "failed" : "attention", detail, done: outcome.deleted.length, total, error: failed.length ? errorText(t, outcome.reason) : undefined, failed, matchFilter, abort });
   };
 
   const onFilter = (event: FormEvent<HTMLFormElement>) => {
@@ -266,10 +269,11 @@ export function RecordsView({ collection }: { collection: Collection }) {
         // the exact IDs selected, in groups small enough for the filter and response limits.
         complete = true;
         for (let at = 0; at < selection.ids.length; at += 4) {
-          abort.signal.throwIfAborted();
           const ids = selection.ids.slice(at, at + 4);
-          const page = await scope.run(() => listRecords(collection.name, { filter: idsFilter(ids), limit: ids.length, signal: abort.signal }));
-          const byID = new Map(page.items.map((item) => [item.id, item]));
+          const filter = idsFilter(ids);
+          const found = await collectAll((cursor) => scope.run(() => listRecords(collection.name, { filter, cursor, limit: ids.length, signal: abort.signal })), ids.length, { signal: abort.signal });
+          const byID = new Map(found.items.map((item) => [item.id, item]));
+          if (!found.complete || ids.some((id) => !byID.has(id))) complete = false;
           if (!append(ids.flatMap((id) => byID.get(id) ?? []), selection.ids.length)) {
             complete = false;
             break;
@@ -331,7 +335,7 @@ export function RecordsView({ collection }: { collection: Collection }) {
             }}>{t("records.stop")}</Button>
           ) : (
             <>
-              {task.failed && task.failed.length > 0 && <Button size="sm" variant="secondary" onClick={() => void runDelete(task.failed!)}>{t("records.retryFailed", { count: task.failed.length })}</Button>}
+              {task.failed && task.failed.length > 0 && <Button size="sm" variant="secondary" onClick={() => void runDelete(task.failed!, task.matchFilter)}>{t("records.retryFailed", { count: task.failed.length })}</Button>}
               {task.kind === "export" && task.state === "failed" && <Button size="sm" variant="secondary" onClick={() => void runExport(task.exportSelection)}>{t("common.retry")}</Button>}
               {task.file && task.file.count > 0 && <Button size="sm" variant="transparent" onClick={() => downloadBlob(`${collection.name}-partial.json`, task.file!.blob())}>{t("records.savePartial", { count: task.file.count })}</Button>}
               <IconButton label={t("common.dismiss")} icon={RiCloseLine} onClick={() => setTask(null)} />

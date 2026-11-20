@@ -84,6 +84,29 @@ test("an uncertain raw create is not retried automatically and an explicit retry
   assert.equal(calls[0].headers.get("Idempotency-Key"), calls[1].headers.get("Idempotency-Key"));
 });
 
+test("committed mutations expose ID-only response metadata without replaying the write", async () => {
+  const calls = [];
+  const record = { id: "committed" };
+  const etag = '"pgb1.committed"';
+  const client = new PgBaseClient("http://localhost", { fetch: async (_url, init) => {
+    calls.push(init.method ?? "GET");
+    if (init.method === undefined) return Response.json({ ...record, title: "saved" }, { headers: { ETag: etag } });
+    return Response.json(record, {
+      status: init.method === "POST" ? 201 : 200,
+      headers: { "PgBase-Enrichment": "failed", ETag: etag },
+    });
+  } });
+  const records = client.records("notes");
+  assert.deepEqual(await records.createWithETag({ title: "saved" }, "create-partial-01"), { record, etag, enrichmentFailed: true });
+  assert.deepEqual(await records.updateWithETag(record.id, { title: "saved" }, etag), { record, etag, enrichmentFailed: true });
+  assert.deepEqual(await records.createJSON('{"title":"saved"}', "create-partial-02"), { recordJSON: JSON.stringify(record), etag, enrichmentFailed: true });
+  assert.deepEqual(await records.updateJSON(record.id, '{"title":"saved"}', etag), { recordJSON: JSON.stringify(record), etag, enrichmentFailed: true });
+  assert.deepEqual(await records.create({ title: "saved" }, "create-partial-03"), record);
+  assert.deepEqual(await records.update(record.id, { title: "saved" }, etag), record);
+  assert.deepEqual(await records.getWithETag(record.id), { record: { ...record, title: "saved" }, etag });
+  assert.deepEqual(calls, ["POST", "PATCH", "POST", "PATCH", "POST", "PATCH", "GET"]);
+});
+
 test("raw methods keep structured server errors and the current ETag", async () => {
   let requests = 0;
   const client = new PgBaseClient("http://localhost", { fetch: async () => {

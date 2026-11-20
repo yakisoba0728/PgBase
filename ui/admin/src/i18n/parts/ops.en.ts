@@ -65,6 +65,8 @@ export const opsEn = {
   "ops.jobs.detail": "Job",
   "ops.jobs.noWorker": "This process runs no job worker, so jobs cannot be changed or run here.",
   "ops.jobs.unregisteredNote": "No handler is registered for this job in this process.",
+  "ops.jobs.settingsManaged": "Edit this schedule under Settings → Scheduled backups. Open Backups to create a backup now or check its outcome.",
+  "ops.jobs.seeBackups": "See Backups",
   "ops.jobs.run": "Run now",
   "ops.jobs.runRequested": "Run of {name} requested.",
   "ops.jobs.saved": "Job saved.",

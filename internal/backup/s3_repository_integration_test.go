@@ -16,6 +16,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
+	"github.com/yakisoba0728/PgBase/internal/database"
+	"github.com/yakisoba0728/PgBase/internal/testutil"
+	"github.com/yakisoba0728/PgBase/migrations/system"
 )
 
 func TestS3RepositoryPublishListStreamAndDelete(t *testing.T) {
@@ -131,6 +134,75 @@ func TestManagerCreatesAndRestoresThroughS3(t *testing.T) {
 	}
 	if err := manager.Delete(context.Background(), entries[0].ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestScheduledBackupRecoversInterruptedMinIOPublication(t *testing.T) {
+	endpoint := os.Getenv("PGBASE_TEST_S3_ENDPOINT")
+	if endpoint == "" {
+		t.Skip("PGBASE_TEST_S3_ENDPOINT is not set")
+	}
+	ctx := t.Context()
+	url := testutil.NewDatabase(t)
+	testutil.ApplySystemMigrationPrefix(t, url, system.Migrations())
+	pool, err := database.Open(ctx, url, 5*time.Second, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	controller, err := NewStorageController(ctx, pool, bytes.Repeat([]byte("k"), 32), NewLocalRepository(t.TempDir()), StorageConfig{
+		Driver: "s3", Bucket: "pgbase-test", Prefix: "scheduled-backup/" + uuid.NewString(), Region: "us-east-1", Endpoint: endpoint,
+		AccessKey: "pgbase-test-access", SecretKey: "pgbase-test-secret-0123456789", UsePathStyle: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured, err := controller.current(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := configured.(*S3Repository)
+	id := uuid.NewString()
+	source := t.TempDir()
+	makeArchiveFixture(t, source)
+	var packed bytes.Buffer
+	if err := Pack(ctx, source, &packed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.backup_storage_operations(backup_id,settings_revision,status)
+ values($1,1,'pending')`, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.putArchive(ctx, id, bytes.NewReader(packed.Bytes())); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = repository.Discard(context.Background(), id) })
+	manager, err := NewManager(ManagerOptions{Directory: t.TempDir(), Repository: controller,
+		Create: func(context.Context, string) error {
+			return errors.New("retry created a new backup")
+		},
+		Restore: func(context.Context, string) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+	for range 2 {
+		if err := manager.RunScheduled(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `select status from pgbase_meta.backup_storage_operations where backup_id=$1`, id).Scan(&status); err != nil || status != "committed" {
+		t.Fatalf("archive publication = %q, err=%v", status, err)
+	}
+	archive, err := manager.Open(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, readErr := io.ReadAll(archive)
+	if err := errors.Join(readErr, archive.Close()); err != nil || !bytes.Equal(raw, packed.Bytes()) {
+		t.Fatalf("published backup changed: %v", err)
 	}
 }
 

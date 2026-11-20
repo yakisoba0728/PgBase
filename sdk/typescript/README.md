@@ -96,6 +96,8 @@ await members.oauthComplete("github", state, code, {
 
 ## Exact JSON record I/O
 
+Use `createWithETag` or `updateWithETag` when you need to distinguish a full response from an ID-only success. If `enrichmentFailed` is true, the write committed and `record` contains only `id`. Save the returned ETag and refetch that ID to recover the fields. The same flag is available on `createJSON` and `updateJSON`. The body-only `create` and `update` methods continue to return the response body directly, including an ID-only body when enrichment fails.
+
 Ordinary `list`, `get`, `create` and `update` methods use JavaScript objects and native JSON parsing/serialization. JSONB values outside JavaScript's number precision can therefore be rounded, including large integers and long decimals. For exact values, use the opt-in JSON text methods:
 
 ```ts
@@ -111,7 +113,7 @@ if (created.etag) {
 }
 ```
 
-`list({ total: true })` adds `totalItems` (counted up to 10,000; `totalCapped` reports more) to the first page; `iterate` never asks for it. `listJSON` returns the complete page JSON envelope, including `items` and optional `nextCursor`. `getJSON`, `createJSON` and `updateJSON` return `{ recordJSON, etag }`: `recordJSON` is the complete record response body, with no additional envelope. Numbers remain exactly as received in the server's JSON text. Mutations send the supplied JSON object text verbatim; the server validates it. The server may normalize JSONB formatting, so equivalent JSON need not round-trip with identical whitespace or number spelling. Parsing these strings with native `JSON.parse`, or constructing them from already rounded JavaScript numbers, loses the precision benefit. Use a lossless parser to inspect page items while preserving exact values.
+`list({ total: true })` adds `totalItems` (counted up to 10,000; `totalCapped` reports more) to the first page; `iterate` never asks for it. `listJSON` returns the complete page JSON envelope, including `items` and optional `nextCursor`. `getJSON`, `createJSON` and `updateJSON` return the response body as `recordJSON` and the response ETag as `etag`. Numbers remain exactly as received in the server's JSON text. Mutations send the supplied JSON object text verbatim for server validation. The server may normalize JSONB formatting, so equivalent JSON can round-trip with different whitespace or number spelling. Parsing these strings with native `JSON.parse`, or constructing them from already rounded JavaScript numbers, loses the precision benefit. Use a lossless parser to inspect page items while preserving exact values.
 
 The JSON methods accept the same query/projection options and `AbortSignal` argument forms as their parsed counterparts. They use the same bearer authentication and `PgBaseError` status/details/ETag handling. A failed or interrupted response body rejects instead of returning partial JSON. Requests are not automatically retried. After an uncertain create response, explicitly retry the **same JSON body and idempotency key**. Updates use `If-Match`; after an uncertain update response, read the record again and reconcile its current ETag before retrying. Cancellation does not prove a mutation was rolled back. Batch, auth profile, and realtime methods retain their existing native JSON behavior.
 

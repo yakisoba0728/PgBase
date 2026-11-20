@@ -45,8 +45,8 @@
 | 소유자 결정 | 대량 텍스트 검색 | 컬렉션 텍스트 필드 trigram index가 없어 50만 행 검색 1.3초. migration·쓰기 비용·disk 증가가 따른다 |
 | 남음 | UI 개편 사후 확인 | 운영 로그인 후 화면 확인, 서버 `doctor`·binary 일치 job, 초기 setup·login OTP·다크/좁은 폭 화면의 browser 확인. 배포 전 서버 dump는 뜨지 않았다(UI만 변경) |
 | 완료 | 릴리스 [v0.4.0](https://github.com/yakisoba0728/PgBase/releases/tag/v0.4.0) | main `57507741`, schema 69. 릴리스 gate 통과, 이미지 `v0.4.0`·`latest` 승격, GitHub 릴리스와 첨부 8개 게시 |
-| 남음 | `internal/cli` watch test flake | `TestJavaScriptWatchKeepsValidGenerationAndDoesNotRunMigrations`가 main push CI에서 한 번 실패, 재실행 통과. 응답 확인 직후 stdout을 세는 timing 문제 |
-| 남음 | 관리자 UI 추가 항목 | 작업 실행 이력은 서버 endpoint가 없어 미구현. browser suite는 Chromium 전용이고 CI의 E2E workflow는 수동 실행만 가능 |
+| 남음 | 관리자 UI 작업 실행 이력 | 개별 작업의 전체 실행 이력은 서버 endpoint가 없어 미구현 |
+| 구성 완료 | 브라우저 E2E | [기본 E2E](../.github/workflows/e2e.yml)는 Chromium을 실행한다. [전체 검사](../.github/workflows/full-qualification.yml)와 [기능 검사](../.github/workflows/nonperformance-qualification.yml)는 Firefox·WebKit도 점검한다. [릴리스 검사](../.github/workflows/release-gate.yml)도 E2E를 호출한다. |
 | 다음 유지보수 | 선택적 의존성 갱신 | #126–#132는 보류 사유와 함께 닫음. 이번 릴리스의 필수 보안 패치는 포함. 새 버전은 다음 주기에 재검증 |
 | 별도 소유자 결정 | npm/pub.dev 공개 패키지 | 이름·scope·공개 여부·token 미정. SDK source/conformance는 검증했으며 registry 배포는 하지 않음 |
 

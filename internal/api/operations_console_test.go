@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +20,12 @@ import (
 type consoleJobs struct{ calls int }
 
 type consoleBackups struct{ calls []string }
+
+type failingBackupDownload struct{ consoleBackups }
+
+func (*failingBackupDownload) Open(context.Context, string) (io.ReadCloser, error) {
+	return io.NopCloser(io.MultiReader(strings.NewReader(strings.Repeat("x", 64<<10)), iotest.ErrReader(errors.New("backup integrity error")))), nil
+}
 
 func (b *consoleBackups) List(context.Context) ([]backup.Entry, error) {
 	b.calls = append(b.calls, "list")
@@ -113,6 +121,28 @@ func TestBackupRoutesAdmissionStreamingAndReceipts(t *testing.T) {
 	}
 }
 
+func TestBackupDownloadStreamErrorReachesClient(t *testing.T) {
+	auth := &fakeAdminAuth{authenticateAdmin: validSession().Administrator, authenticateExpiry: time.Now().Add(time.Hour)}
+	stored := &observability.RequestLog{}
+	server := httptest.NewServer(mustRouter(t, Dependencies{AdminAuth: auth, PublicURL: mustURL("https://admin.example.com"), Backups: &failingBackupDownload{}, RequestLog: stored}))
+	defer server.Close()
+	request := authenticatedRecordRequest(http.MethodGet, server.URL+"/api/admin/backups/id", "", false)
+	request.RequestURI = ""
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(response.Body)
+	if response.StatusCode != http.StatusOK || len(body) == 0 || !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("download = %d, %d bytes, error %v", response.StatusCode, len(body), err)
+	}
+	if items := stored.Page(0, 0).Items; len(items) != 1 || items[0].Route != "/api/admin/backups/{id}" || items[0].Status != http.StatusInternalServerError {
+		t.Fatalf("failed download log = %#v", items)
+	}
+}
+
 func TestBackupStreamingRoutesDeclareTransferDeadline(t *testing.T) {
 	routes := backupRoutes(&consoleBackups{})
 	for _, route := range routes {
@@ -131,7 +161,7 @@ func TestContextBackupReaderStopsAfterCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	buffer := make([]byte, 1)
-	if _, err := (contextBackupReader{ctx: ctx, reader: strings.NewReader("archive")}).Read(buffer); !errors.Is(err, context.Canceled) {
+	if _, err := (contextBackupReader{ctx: ctx, ReadCloser: io.NopCloser(strings.NewReader("archive"))}).Read(buffer); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Read error = %v", err)
 	}
 }

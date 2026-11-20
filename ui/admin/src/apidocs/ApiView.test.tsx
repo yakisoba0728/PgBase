@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createBrowserRouter, createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
+import * as authApi from "../api/authCollections";
 import * as api from "../api/collections";
 import { ApiView } from "./ApiView";
 import { setLanguage } from "../i18n";
@@ -21,12 +22,13 @@ it("offers a retry when the collection's rules fail to load", async () => {
   cleanup(); client.clear();
 });
 
-function renderApi(accessEnabled = true, initialEntry = "/") {
+const posts: api.Collection = { id: "posts", name: "posts", type: "base", tableName: "posts", createdAt: "", fields: [] };
+
+function renderApi(accessEnabled = true, initialEntry = "/", collection = posts) {
   setLanguage("en");
   vi.spyOn(api, "getCollectionRules").mockResolvedValue({ collection: "posts", revision: 1, rules: {} as api.CollectionRules });
   vi.spyOn(api, "getCollectionUserAccess").mockResolvedValue({ collection: "posts", enabled: accessEnabled });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const collection = { name: "posts", type: "base", fields: [] } as unknown as api.Collection;
   window.history.replaceState(null, "", initialEntry);
   const router = createBrowserRouter([{ path: "*", element: <ApiView collection={collection} /> }]);
   render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
@@ -47,6 +49,23 @@ it("selects nothing by default on small screens", () => {
   const { router, client } = renderApi();
   expect(screen.queryByRole("region", { name: "Endpoint" })).toBeNull();
   vi.unstubAllGlobals();
+  cleanup(); router.dispose(); client.clear();
+});
+
+it("shows the exact bigint as a JSON number in the registration body", async () => {
+  vi.spyOn(authApi, "listAuthCollections").mockResolvedValue([{
+    id: "posts", name: "posts", type: "auth", registrationEnabled: true, profileSchema: null, fields: [],
+    rules: { list: null, view: null, create: null, update: null, delete: null, auth: null, manage: null },
+  }]);
+  const { router, client } = renderApi(true, "/?endpoint=authRegister", {
+    ...posts, type: "auth", fields: [{
+      id: "serial", name: "serial", columnName: "serial", type: "bigint", options: { min: "9007199254740993" },
+      required: true, unique: false, indexed: false, ordinal: 0, hidden: false, presentable: false,
+    }],
+  });
+
+  const body = await screen.findByRole("region", { name: "Request body" });
+  expect(body.textContent).toContain('"serial": 9007199254740993');
   cleanup(); router.dispose(); client.clear();
 });
 

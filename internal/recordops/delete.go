@@ -80,6 +80,9 @@ func (s *Service) deleteGraphInTransaction(
 	compatibility Compatibility,
 	writeFence membership.WriteFence,
 ) (MutationResult, error) {
+	if request.MatchFilter != "" && request.Principal.Kind != PrincipalAdministrator {
+		return MutationResult{}, &Error{Code: CodeInvalidPrecondition}
+	}
 	graph, err := relation.BindDeleteGraph(catalog)
 	if err != nil {
 		return MutationResult{}, normalizeRelationError(err)
@@ -91,6 +94,15 @@ func (s *Service) deleteGraphInTransaction(
 	}
 	if err := validateEntityTagSet(request.IfMatch); err != nil {
 		return MutationResult{}, err
+	}
+	if request.MatchFilter != "" {
+		matches, err := query.MatchesRecordFilter(ctx, tx, catalog, rootCollection, request.ID, request.MatchFilter)
+		if err != nil {
+			return MutationResult{}, err
+		}
+		if !matches {
+			return MutationResult{}, &Error{Code: CodePreconditionFailed}
+		}
 	}
 
 	deletes := plan.Deletes()

@@ -9,11 +9,11 @@ afterEach(() => {
 it("replaces a required attachment with one conditional atomic multipart PATCH", async () => {
   const upload = vi.spyOn(http, "upload").mockResolvedValue({ results: [{ body: { id: "CaseSensitive" }, etag: '"next"' }] });
   const file = new File(["new"], "new.txt");
-  await replaceRecordFiles("notes", "CaseSensitive", '"before"', "cover", [file]);
+  await replaceRecordFiles("notes", "CaseSensitive", '"before"', "cover", file, "shown-file-id");
   const [path, body] = upload.mock.calls[0];
   const form = body as FormData;
   expect(path).toBe("/api/v1/collections/batch");
-  expect(JSON.parse(String(form.get("requests")))).toEqual({ requests: [{ method: "PATCH", url: "/api/v1/collections/notes/records/CaseSensitive", headers: { "If-Match": '"before"' }, body: { cover: { $file: "file_0" } } }] });
+  expect(JSON.parse(String(form.get("requests")))).toEqual({ requests: [{ method: "PATCH", url: "/api/v1/collections/notes/records/CaseSensitive", headers: { "If-Match": '"before"' }, body: { cover: { $file: "file_0", $replaces: "shown-file-id" } } }] });
   expect(form.get("file_0")).toBeInstanceOf(File);
 });
 

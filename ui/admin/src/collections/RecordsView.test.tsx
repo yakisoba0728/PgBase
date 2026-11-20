@@ -86,6 +86,31 @@ it("selects every record matching the filter and deletes them all, not only the 
   expect(list).toHaveBeenCalledWith("posts", expect.objectContaining({ fields: "id" }));
 });
 
+it("keeps the original filter on batch deletes, fallbacks and retries", async () => {
+  const filter = "id != 'unknown'";
+  const rows = [{ id: "r1" }, { id: "r2" }];
+  vi.spyOn(records, "listRecords").mockImplementation(async (_collection, options = {}) =>
+    options.fields === "id" ? { items: rows } : { items: rows.slice(0, 1), nextCursor: "next", totalItems: 2 },
+  );
+  vi.mocked(system.getSettings).mockResolvedValue({ batch: { enabled: true, maxRequests: 50 } } as system.RuntimeSettings);
+  const changed = new ApiError(412, "precondition_failed", "Selection changed");
+  const request = vi.spyOn(http, "request").mockRejectedValue(changed);
+  const remove = vi.spyOn(records, "deleteRecord").mockImplementation(async (_collection, id) => { if (id === "r2") throw changed; });
+  show(`/?filter=${encodeURIComponent(filter)}`);
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Select all loaded records" }));
+  fireEvent.click(screen.getByRole("button", { name: "Select all 2 matching" }));
+  await confirmDelete();
+  const task = await screen.findByRole("region", { name: "Deleting records" });
+  const retry = await within(task).findByRole("button", { name: "Retry 1 failed" });
+  expect(request).toHaveBeenCalledWith("POST", "/api/v1/collections/batch", {
+    body: { operations: rows.map(({ id }) => ({ operation: "delete", collection: "posts", id, matchFilter: filter })) },
+  });
+  expect(remove).toHaveBeenCalledWith("posts", "r2", { matchFilter: filter });
+  fireEvent.click(retry);
+  await waitFor(() => expect(remove).toHaveBeenCalledTimes(3));
+  expect(remove).toHaveBeenLastCalledWith("posts", "r2", { matchFilter: filter });
+});
+
 it("drops back to the loaded rows when one is unchecked", async () => {
   vi.spyOn(records, "listRecords").mockResolvedValue({ items: [{ id: "r1" }, { id: "r2" }], nextCursor: "next" } as records.RecordPage);
   show();
@@ -94,6 +119,33 @@ it("drops back to the loaded rows when one is unchecked", async () => {
   expect(screen.getByText("All matching records selected")).toBeTruthy();
   fireEvent.click(screen.getByRole("checkbox", { name: "Select r2" }));
   expect(screen.getByText("1 selected")).toBeTruthy();
+});
+
+it.each([true, false])("follows selected export cursors and labels missing rows as partial (all present: %s)", async (allPresent) => {
+  const save = vi.spyOn(download, "downloadBlob").mockImplementation(() => {});
+  Object.assign(HTMLElement.prototype, { showPopover() {}, hidePopover() {} });
+  const list = vi.spyOn(records, "listRecords").mockImplementation(async (_collection, options = {}) => {
+    if (!options.filter) return { items: [{ id: "r1" }, { id: "r2" }] };
+    if (!options.cursor) return { items: [{ id: "r1" }], nextCursor: "more" };
+    return { items: allPresent ? [{ id: "r2" }] : [] };
+  });
+  const preference = "pgbase.records.columns:paged-export";
+  localStorage.setItem(preference, JSON.stringify({ hidden: ["body"] }));
+  try {
+    show("/", { id: "paged-export", name: "posts", type: "base", fields: [
+      { id: "title", name: "title", type: "text" }, { id: "body", name: "body", type: "text" },
+    ] } as unknown as Collection);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Select all loaded records" }));
+    fireEvent.click(screen.getByRole("button", { name: /Export/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Selected (2)", hidden: true }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(
+      allPresent ? "posts-selected.json" : "posts-selected-partial.json",
+      expect.objectContaining({ size: allPresent ? 28 : 15 }),
+    ));
+    expect(list).toHaveBeenCalledWith("posts", expect.objectContaining({ cursor: "more" }));
+  } finally {
+    localStorage.removeItem(preference);
+  }
 });
 
 it("shows export progress, and on a failure midway offers the rows fetched so far", async () => {

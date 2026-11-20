@@ -61,6 +61,18 @@ void records.create({ id: 123, title: "created" }, "create-invalid-note-0001");
 const textIDBatch: BatchOperation<Note> = { operation: "create", collection: "notes", input: { id: "CaseSensitive01", title: "created" } };
 void textIDBatch;
 void records.update("note-1", { title: "updated" }, '"pgb1.current"', writeOptions);
+const bodyOnlyCreate: Promise<Note> = records.create({ title: "created" }, "create-note-0001");
+const bodyOnlyUpdate: Promise<Note> = records.update("note-1", { title: "updated" }, '"pgb1.current"');
+void [bodyOnlyCreate, bodyOnlyUpdate];
+void records.createWithETag({ title: "created" }, "create-note-0001").then((result) => {
+  if (result.enrichmentFailed) {
+    const id: string = result.record.id;
+    // @ts-expect-error Only the ID is present on a failed enrichment.
+    void result.record.title;
+    return id;
+  }
+  return result.record.title;
+});
 
 const rawPage: Promise<string> = records.listJSON(query);
 const rawGet: Promise<RecordJSONResult> = records.getJSON("CaseSensitive01", { fields: "id,title" });

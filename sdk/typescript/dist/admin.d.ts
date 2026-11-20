@@ -264,6 +264,7 @@ export type ScheduledJob = {
     schedule: string;
     enabled: boolean;
     registered: boolean;
+    settingsManaged?: boolean;
     running: boolean;
     nextRunAt: string;
     lastStartedAt?: string;

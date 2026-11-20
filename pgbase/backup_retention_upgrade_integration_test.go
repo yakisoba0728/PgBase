@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -100,37 +101,14 @@ func (i retentionInstallation) install(t *testing.T) func(context.Context) {
 func (i retentionInstallation) backupAndCount(t *testing.T) int {
 	t.Helper()
 	ctx := context.Background()
-	job, err := i.manager.CreateManaged(ctx)
-	if err != nil {
+	if err := i.manager.RunScheduled(ctx, uuid.NewString()); err != nil {
 		t.Fatal(err)
 	}
-	waitBackupJob(t, i.manager, job.ID)
 	entries, err := i.storage.List(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return len(entries)
-}
-
-func waitBackupJob(t *testing.T, manager *backup.Manager, id string) {
-	t.Helper()
-	deadline := time.Now().Add(60 * time.Second)
-	for {
-		job, err := manager.Job(context.Background(), id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if job.Status != "running" {
-			if job.Status != "completed" {
-				t.Fatalf("backup job = %#v", job)
-			}
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("backup job never finished")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
 }
 
 func (i retentionInstallation) jobEnabled(t *testing.T) bool {
@@ -140,6 +118,34 @@ func (i retentionInstallation) jobEnabled(t *testing.T) bool {
 		t.Fatal(err)
 	}
 	return enabled
+}
+
+func TestManagedBackupScheduleOnlyFollowsRuntimeSettings(t *testing.T) {
+	ctx := t.Context()
+	installation := newRetentionInstallation(t, 4, -1, runtimesettings.Backups{}, false)
+	installation.install(t)
+	items, err := installation.worker.ListJobs(ctx)
+	if err != nil || len(items) != 1 || !items[0].SettingsManaged || items[0].Enabled {
+		t.Fatalf("initial managed jobs = %#v, %v", items, err)
+	}
+	id := items[0].ID
+	if err = installation.worker.ConfigureJobInTimezone(ctx, id, "@every 1h", "UTC", true); !errors.Is(err, jobs.ErrNotManageable) {
+		t.Fatalf("generic configuration returned %v", err)
+	}
+	if installation.jobEnabled(t) {
+		t.Fatal("generic configuration enabled scheduled backups")
+	}
+	settings := installation.settings.Get()
+	settings.Backups.Enabled = true
+	if _, err = installation.settings.Update(ctx, settings); err != nil {
+		t.Fatal(err)
+	}
+	if !installation.jobEnabled(t) {
+		t.Fatal("runtime settings did not enable scheduled backups")
+	}
+	if err = installation.worker.RequestRun(ctx, id); !errors.Is(err, jobs.ErrNotManageable) {
+		t.Fatalf("generic run returned %v", err)
+	}
 }
 
 // Four archives exist before the upgrade; the next backup makes five. The
@@ -212,13 +218,59 @@ func TestManagedBackupScheduledRunUsesTheLatestKeep(t *testing.T) {
 		t.Fatal(err)
 	}
 	running, err := installation.manager.RunningJobs(ctx)
-	if err != nil || len(running) != 1 {
+	if err != nil || len(running) != 0 {
 		t.Fatalf("running = %#v %v", running, err)
 	}
-	waitBackupJob(t, installation.manager, running[0].ID)
 	entries, err := installation.storage.List(ctx)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("kept %d archives, want 1 (%v)", len(entries), err)
+	}
+}
+
+func TestManagedBackupRetryReusesPublishedOccurrenceOnAnotherWorker(t *testing.T) {
+	ctx := t.Context()
+	installation := newRetentionInstallation(t, 0, -1, runtimesettings.Backups{Enabled: true}, true)
+	installation.install(t)
+	if err := installation.worker.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	before, err := installation.storage.List(ctx)
+	if err != nil || len(before) != 5 {
+		t.Fatalf("first worker archives = %#v, %v", before, err)
+	}
+	// Simulate an expired claim whose worker published the archive before it
+	// could record success. The scheduler's prior occurrence stays the same.
+	if _, err := installation.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs
+ SET attempts=1,next_run_at=clock_timestamp() WHERE name=$1`, managedBackupJobName); err != nil {
+		t.Fatal(err)
+	}
+	replica, err := backup.NewManager(backup.ManagerOptions{
+		Directory: t.TempDir(), Repository: installation.storage,
+		Create:  func(context.Context, string) error { return errors.New("retry created a duplicate snapshot") },
+		Restore: func(context.Context, string) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = replica.Shutdown(context.Background()) })
+	settings, err := runtimesettings.New(ctx, installation.pool, retentionTestKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := jobs.NewService(installation.pool, jobs.NewRegistry(), nil)
+	if _, err := installManagedBackupSchedule(ctx, worker, replica, settings, slog.Default()); err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	items, err := worker.ListJobs(ctx)
+	if err != nil || len(items) != 1 || items[0].Attempts != 0 || items[0].Failed {
+		t.Fatalf("replica did not successfully acknowledge the existing backup: %#v, %v", items, err)
+	}
+	after, err := installation.storage.List(ctx)
+	if err != nil || len(after) != len(before) || after[0].ID != before[0].ID {
+		t.Fatalf("replica changed the published archive: before=%#v after=%#v error=%v", before, after, err)
 	}
 }
 

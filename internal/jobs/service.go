@@ -23,9 +23,11 @@ var ErrDuplicateHandler = errors.New("duplicate job handler")
 const (
 	// A pass runs handlers sequentially. Claiming one at a time preserves the
 	// 30-second execution deadline below the one-minute lease.
-	claimBatch    = 1
-	leaseDuration = time.Minute
-	jobTimeout    = 30 * time.Second
+	claimBatch           = 1
+	leaseDuration        = time.Minute
+	jobTimeout           = 30 * time.Second
+	backupTimeout        = 30 * time.Minute
+	backupLeaseHeartbeat = 15 * time.Second
 )
 
 type Handler func(context.Context, Job) error
@@ -86,10 +88,11 @@ func (r *Registry) names() []string {
 }
 
 type Service struct {
-	pool     *database.Pool
-	registry *Registry
-	logger   *slog.Logger
-	timeout  time.Duration
+	pool            *database.Pool
+	registry        *Registry
+	logger          *slog.Logger
+	timeout         time.Duration
+	backupHeartbeat time.Duration
 }
 
 func NewService(pool *database.Pool, registry *Registry, logger *slog.Logger) *Service {
@@ -99,7 +102,7 @@ func NewService(pool *database.Pool, registry *Registry, logger *slog.Logger) *S
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{pool: pool, registry: registry, logger: logger, timeout: jobTimeout}
+	return &Service{pool: pool, registry: registry, logger: logger, timeout: jobTimeout, backupHeartbeat: backupLeaseHeartbeat}
 }
 
 // Schedule creates or enables a named durable job. Changing its schedule makes
@@ -111,8 +114,14 @@ func (s *Service) Schedule(ctx context.Context, name, schedule string) error {
 }
 
 func (s *Service) ScheduleInTimezone(ctx context.Context, name, schedule, timezone string) error {
+	if name == ManagedBackupName {
+		return ErrNotManageable
+	}
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("schedule job: name is required")
+	}
+	if err := ValidateExplicitScheduleLocation(schedule, timezone); err != nil {
+		return err
 	}
 	next, err := s.firstRunAt(ctx, schedule, timezone)
 	if err != nil {
@@ -147,10 +156,22 @@ func (s *Service) ScheduleInTimezone(ctx context.Context, name, schedule, timezo
 // metadata updates; handlers with external side effects must be idempotent or
 // apply their own generation fence.
 func (s *Service) Run(ctx context.Context) error {
+	if _, ok := s.registry.handler(ManagedBackupName); ok {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_ = s.run(ctx, func() []string { return []string{ManagedBackupName} })
+		}()
+		defer func() { <-done }()
+	}
+	return s.run(ctx, s.operatorJobNames)
+}
+
+func (s *Service) run(ctx context.Context, names func() []string) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		if err := s.RunOnce(ctx); err != nil && ctx.Err() == nil {
+		if err := s.runOnce(ctx, names()); err != nil && ctx.Err() == nil {
 			s.logger.WarnContext(ctx, "scheduled job pass deferred")
 		}
 		select {
@@ -162,7 +183,11 @@ func (s *Service) Run(ctx context.Context) error {
 }
 
 func (s *Service) RunOnce(ctx context.Context) error {
-	claims, err := s.claim(ctx)
+	return s.runOnce(ctx, s.registry.names())
+}
+
+func (s *Service) runOnce(ctx context.Context, names []string) error {
+	claims, err := s.claimNamed(ctx, names)
 	if err != nil {
 		return err
 	}
@@ -171,6 +196,17 @@ func (s *Service) RunOnce(ctx context.Context) error {
 		if !ok {
 			if err := s.complete(ctx, claim, fmt.Errorf("no handler registered for %q", claim.Name)); err != nil {
 				return err
+			}
+			continue
+		}
+		if claim.Name == ManagedBackupName {
+			runErr := s.runManagedBackup(ctx, claim, handler)
+			// A graceful stop can release the claim for retry before the lease expires.
+			completeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			completeErr := s.complete(completeCtx, claim, runErr)
+			cancel()
+			if completeErr != nil {
+				return completeErr
 			}
 			continue
 		}
@@ -184,15 +220,61 @@ func (s *Service) RunOnce(ctx context.Context) error {
 	return nil
 }
 
+func (s *Service) runManagedBackup(ctx context.Context, claim claimedJob, handler Handler) error {
+	runCtx, cancel := context.WithTimeout(ctx, backupTimeout)
+	defer cancel()
+	runCtx, loseClaim := context.WithCancelCause(runCtx)
+	defer loseClaim(nil)
+	heartbeatCtx, stopHeartbeat := context.WithCancel(runCtx)
+	defer stopHeartbeat()
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		ticker := time.NewTicker(s.backupHeartbeat)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				return
+			case <-ticker.C:
+			}
+			renewCtx, cancel := context.WithTimeout(heartbeatCtx, 5*time.Second)
+			err := s.renewBackupLease(renewCtx, claim)
+			cancel()
+			if err != nil {
+				if heartbeatCtx.Err() == nil {
+					loseClaim(err)
+				}
+				return
+			}
+		}
+	}()
+	err := invoke(runCtx, handler, claim.Job)
+	stopHeartbeat()
+	<-stopped
+	return errors.Join(err, context.Cause(runCtx))
+}
+
+func (s *Service) renewBackupLease(ctx context.Context, claim claimedJob) error {
+	result, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_until=clock_timestamp()+make_interval(secs=>$4)
+ WHERE id=$1 AND lease_token=$2 AND fence_generation=$3 AND lease_until>clock_timestamp()`, claim.ID, claim.token, claim.FenceGeneration, leaseDuration.Seconds())
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return errors.New("managed backup lost its scheduler lease")
+	}
+	return nil
+}
+
 type claimedJob struct {
 	Job
 	token    uuid.UUID
 	timezone string
 }
 
-func (s *Service) claim(ctx context.Context) ([]claimedJob, error) {
+func (s *Service) claimNamed(ctx context.Context, names []string) ([]claimedJob, error) {
 	claims := make([]claimedJob, 0, claimBatch)
-	names := s.registry.names()
 	if len(names) == 0 {
 		return claims, nil
 	}
@@ -284,6 +366,22 @@ type Schedule struct {
 	calendar cron.Schedule
 }
 
+// ValidateExplicitScheduleLocation rejects ambiguous locations on new writes.
+// ParseScheduleInLocation still reads locations accepted by older versions.
+func ValidateExplicitScheduleLocation(value, timezone string) error {
+	if strings.TrimSpace(timezone) == "Local" {
+		return fmt.Errorf("%w: choose an explicit IANA timezone", ErrInvalidSchedule)
+	}
+	if hasCronTimezone(strings.TrimSpace(value)) {
+		return fmt.Errorf("%w: set the timezone in its own field", ErrInvalidSchedule)
+	}
+	return nil
+}
+
+func hasCronTimezone(value string) bool {
+	return strings.HasPrefix(value, "TZ=") || strings.HasPrefix(value, "CRON_TZ=")
+}
+
 func ParseScheduleInLocation(value, timezone string) (Schedule, error) {
 	location, err := time.LoadLocation(strings.TrimSpace(timezone))
 	if err != nil || strings.TrimSpace(timezone) == "" {
@@ -292,8 +390,12 @@ func ParseScheduleInLocation(value, timezone string) (Schedule, error) {
 	if interval, err := ParseSchedule(value); err == nil {
 		return Schedule{interval: interval}, nil
 	}
+	value = strings.TrimSpace(value)
+	if hasCronTimezone(value) && !strings.ContainsRune(value, ' ') {
+		return Schedule{}, fmt.Errorf("%w: a cron timezone prefix must be followed by a schedule", ErrInvalidSchedule)
+	}
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	calendar, err := parser.Parse(strings.TrimSpace(value))
+	calendar, err := parser.Parse(value)
 	if err != nil {
 		return Schedule{}, fmt.Errorf("%w: expected @every <duration> or five-field cron", ErrInvalidSchedule)
 	}

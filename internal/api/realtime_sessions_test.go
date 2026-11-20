@@ -208,6 +208,43 @@ func (s *sessionRealtimeStub) ReadFor(context.Context, realtime.ReadRequest) ([]
 	return nil, s.head, nil
 }
 
+type disconnectingRealtimeStub struct {
+	sessionRealtimeStub
+	disconnect func()
+}
+
+func (s *disconnectingRealtimeStub) ReadFor(ctx context.Context, request realtime.ReadRequest) ([]realtime.Event, int64, error) {
+	s.disconnect()
+	return s.sessionRealtimeStub.ReadFor(ctx, request)
+}
+
+func TestRealtimeReplaceAfterDisconnectDoesNotReserveUserSlot(t *testing.T) {
+	stream := &disconnectingRealtimeStub{}
+	hub := newRealtimeHub(Dependencies{Realtime: stream})
+	client := &realtimeClient{id: "client", address: "192.0.2.1", principal: identity.Subject{Kind: identity.Anonymous}}
+	hub.clients[client.id] = client
+	stream.disconnect = func() {
+		hub.mu.Lock()
+		delete(hub.clients, client.id)
+		hub.mu.Unlock()
+	}
+
+	user := userauth.User{ID: uuid.New()}
+	request := httptest.NewRequest(http.MethodPost, "/api/realtime", strings.NewReader(`{"clientId":"client","subscriptions":["notes"]}`))
+	request.RemoteAddr = "192.0.2.1:9999"
+	request.Header.Set("Content-Type", "application/json")
+	request = request.WithContext(context.WithValue(request.Context(), userPrincipalKey{}, authenticatedUser{principal: userauth.Principal{User: user}, token: "test"}))
+	response := httptest.NewRecorder()
+	hub.replace(response, request)
+
+	if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), "realtime_client_not_found") {
+		t.Fatalf("replace status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if len(hub.userClients) != 0 || client.admittedUser != uuid.Nil {
+		t.Fatalf("disconnected client consumed admission: %v", hub.userClients)
+	}
+}
+
 func TestRealtimeReplaceWaitsForDeliveryAndPreservesUnchangedCursor(t *testing.T) {
 	stream := &sessionRealtimeStub{head: 91}
 	hub := newRealtimeHub(Dependencies{Realtime: stream})

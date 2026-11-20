@@ -35,7 +35,8 @@ func ListPocketBase(ctx context.Context, s *Service, request PocketBaseListReque
 }
 
 // ListPocketBasePinned uses a catalog already pinned on the caller's transaction.
-func (s *Service) ListPocketBasePinned(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, request PocketBaseListRequest) (PocketBasePage, error) {
+func (s *Service) ListPocketBasePinned(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, request PocketBaseListRequest, projectWire func([]map[string]any) (bool, error)) (PocketBasePage, error) {
+	request.projectWire = projectWire
 	return s.listPocketBase(ctx, request, pinnedCatalogReader(tx, catalog))
 }
 
@@ -71,6 +72,9 @@ func (s *Service) listPocketBase(ctx context.Context, request PocketBaseListRequ
 		result, _, readErr := s.readListInTx(ctx, tx, catalog, collection, request.ListRequest, filterNode, sortKeys)
 		if readErr != nil {
 			return readErr
+		}
+		if err := result.finalizeWire(request.projectWire); err != nil {
+			return err
 		}
 		if result.byteLimited {
 			// The next offset is based on PerPage. A byte-shortened

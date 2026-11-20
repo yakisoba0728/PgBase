@@ -54,10 +54,19 @@ export type RecordResult<T extends RecordData> = {
     record: T;
     etag?: string;
 };
-/** The complete record JSON response, left unparsed to preserve exact numbers. */
+/** A committed write can return only its ID when response enrichment fails. */
+export type RecordMutationResult<T extends RecordData> = (RecordResult<T> & {
+    enrichmentFailed?: never;
+}) | (RecordResult<{
+    id: string;
+}> & {
+    enrichmentFailed: true;
+});
+/** The record response body, left unparsed to preserve exact numbers. */
 export type RecordJSONResult = {
     recordJSON: string;
     etag?: string;
+    enrichmentFailed?: true;
 };
 export type Query = {
     filter?: string;

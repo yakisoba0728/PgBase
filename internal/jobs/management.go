@@ -3,12 +3,15 @@ package jobs
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 var ErrNotManageable = errors.New("job is missing, unregistered, or currently running")
+
+const ManagedBackupName = "pgbase.managed-backup"
 
 type Status struct {
 	ID             uuid.UUID  `json:"id"`
@@ -23,6 +26,8 @@ type Status struct {
 	LastFinishedAt *time.Time `json:"lastFinishedAt,omitempty"`
 	Attempts       int        `json:"attempts"`
 	Failed         bool       `json:"failed"`
+
+	SettingsManaged bool `json:"settingsManaged,omitempty"`
 }
 
 // EnsureScheduled supplies deployment defaults once. Administrator edits must
@@ -32,6 +37,9 @@ func (s *Service) EnsureScheduled(ctx context.Context, name, schedule string) er
 }
 
 func (s *Service) EnsureScheduledInTimezone(ctx context.Context, name, schedule, timezone string) error {
+	if name == ManagedBackupName {
+		return ErrNotManageable
+	}
 	if _, ok := s.registry.handler(name); !ok {
 		return ErrNotManageable
 	}
@@ -53,6 +61,7 @@ func (s *Service) ListJobs(ctx context.Context) ([]Status, error) {
 			return nil, err
 		}
 		_, item.Registered = s.registry.handler(item.Name)
+		item.SettingsManaged = item.Name == ManagedBackupName
 		items = append(items, item)
 	}
 	if len(items) > 500 {
@@ -66,6 +75,21 @@ func (s *Service) ConfigureJob(ctx context.Context, id uuid.UUID, schedule strin
 }
 
 func (s *Service) ConfigureJobInTimezone(ctx context.Context, id uuid.UUID, schedule, timezone string, enabled bool) error {
+	if err := ValidateExplicitScheduleLocation(schedule, timezone); err != nil {
+		return err
+	}
+	return s.configureJob(ctx, &id, schedule, timezone, enabled, s.operatorJobNames())
+}
+
+// ConfigureManagedBackup applies the schedule controlled by the runtime settings.
+func (s *Service) ConfigureManagedBackup(ctx context.Context, schedule, timezone string, enabled bool) error {
+	if _, ok := s.registry.handler(ManagedBackupName); !ok {
+		return ErrNotManageable
+	}
+	return s.configureJob(ctx, nil, schedule, timezone, enabled, []string{ManagedBackupName})
+}
+
+func (s *Service) configureJob(ctx context.Context, id *uuid.UUID, schedule, timezone string, enabled bool, names []string) error {
 	next, err := s.firstRunAt(ctx, schedule, timezone)
 	if err != nil {
 		return err
@@ -80,7 +104,7 @@ func (s *Service) ConfigureJobInTimezone(ctx context.Context, id uuid.UUID, sche
 	 last_scheduled_at=CASE WHEN schedule<>$2 OR timezone<>$3 THEN NULL ELSE last_scheduled_at END,
 	 last_error=CASE WHEN schedule<>$2 OR timezone<>$3 THEN NULL ELSE last_error END,
 	 next_run_at=CASE WHEN schedule<>$2 OR timezone<>$3 THEN COALESCE($5::timestamptz,statement_timestamp()) ELSE next_run_at END,updated_at=clock_timestamp()
-	 WHERE id=$1 AND name=ANY($6::text[]) AND (lease_until IS NULL OR lease_until<clock_timestamp())`, id, schedule, timezone, enabled, next, s.registry.names())
+	 WHERE ($1::uuid IS NULL OR id=$1) AND name=ANY($6::text[]) AND (lease_until IS NULL OR lease_until<clock_timestamp())`, id, schedule, timezone, enabled, next, names)
 	if err != nil {
 		return err
 	}
@@ -107,6 +131,9 @@ func (s *Service) Register(ctx context.Context, name, schedule, timezone string,
 }
 
 func (s *Service) Unregister(ctx context.Context, name string) error {
+	if name == ManagedBackupName {
+		return ErrNotManageable
+	}
 	result, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET enabled=false,
  lease_token=NULL,lease_until=NULL,fence_generation=fence_generation+1,updated_at=clock_timestamp()
  WHERE name=$1 AND (lease_until IS NULL OR lease_until<clock_timestamp())`, name)
@@ -121,6 +148,18 @@ func (s *Service) Unregister(ctx context.Context, name string) error {
 }
 
 func (s *Service) ensureScheduledInTimezone(ctx context.Context, name, schedule, timezone string, enabled bool) error {
+	if locationErr := ValidateExplicitScheduleLocation(schedule, timezone); locationErr != nil {
+		// Upgraded embedders may still supply a legacy default. The durable
+		// definition wins when it already exists, just as it does on conflict.
+		var exists bool
+		if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pgbase_meta.scheduled_jobs WHERE name=$1)`, name).Scan(&exists); err != nil {
+			return err
+		}
+		if exists {
+			return nil
+		}
+		return locationErr
+	}
 	next, err := s.firstRunAt(ctx, schedule, timezone)
 	if err != nil {
 		return err
@@ -134,7 +173,7 @@ func (s *Service) ensureScheduledInTimezone(ctx context.Context, name, schedule,
 func (s *Service) RequestRun(ctx context.Context, id uuid.UUID) error {
 	result, err := s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET next_run_at=clock_timestamp(),
  lease_token=NULL,lease_until=NULL,fence_generation=fence_generation+1,updated_at=clock_timestamp()
- WHERE id=$1 AND enabled AND name=ANY($2::text[]) AND (lease_until IS NULL OR lease_until<clock_timestamp())`, id, s.registry.names())
+ WHERE id=$1 AND enabled AND name=ANY($2::text[]) AND (lease_until IS NULL OR lease_until<clock_timestamp())`, id, s.operatorJobNames())
 	if err != nil {
 		return err
 	}
@@ -142,4 +181,8 @@ func (s *Service) RequestRun(ctx context.Context, id uuid.UUID) error {
 		return ErrNotManageable
 	}
 	return nil
+}
+
+func (s *Service) operatorJobNames() []string {
+	return slices.DeleteFunc(s.registry.names(), func(name string) bool { return name == ManagedBackupName })
 }

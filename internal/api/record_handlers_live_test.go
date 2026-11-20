@@ -224,6 +224,26 @@ func TestRecordRoutesPersistNullableValuesThroughLiveService(t *testing.T) {
 	if replayCount != 1 {
 		t.Fatalf("idempotent create persisted %d replay records, want 1", replayCount)
 	}
+
+	path := "/api/v1/collections/nullable_api_records/records/" + id
+	filter := "title = 'published'"
+	batch := `{"operations":[{"operation":"delete","collection":"nullable_api_records","id":"` + id + `","matchFilter":"` + filter + `"}]}`
+	for _, request := range []*http.Request{
+		authenticatedRecordRequest(http.MethodDelete, path+"?matchFilter="+url.QueryEscape(filter), "", true),
+		authenticatedRecordRequest(http.MethodPost, "/api/v1/collections/batch", batch, true),
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusPreconditionFailed {
+			t.Fatalf("filtered delete %s = %d: %s", request.Method, response.Code, response.Body.String())
+		}
+		assertErrorCode(t, response.Body.Bytes(), "precondition_failed")
+	}
+	deletedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(deletedResponse, authenticatedRecordRequest(http.MethodDelete, path+"?matchFilter="+url.QueryEscape("title = 'kept'"), "", true))
+	if deletedResponse.Code != http.StatusNoContent {
+		t.Fatalf("matching delete = %d: %s", deletedResponse.Code, deletedResponse.Body.String())
+	}
 }
 
 func TestRecordRoutesForwardExpandIsFlatOrderedAndRootValidated(t *testing.T) {

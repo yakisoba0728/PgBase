@@ -4,15 +4,18 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/backup"
 	"github.com/yakisoba0728/PgBase/internal/jobs"
 	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 )
 
-const managedBackupJobName = "pgbase.managed-backup"
+const managedBackupJobName = jobs.ManagedBackupName
 
 // installManagedBackupSchedule gives the built-in backup lifecycle its own
 // durable worker identity. It is registered once per process and configuration
@@ -33,7 +36,7 @@ func installManagedBackupSchedule(ctx context.Context, worker *jobs.Service, man
 	} else if err != nil {
 		return nil, err
 	}
-	if err := worker.Register(ctx, managedBackupJobName, "@every 24h", "UTC", false, func(ctx context.Context, _ jobs.Job) error {
+	if err := worker.Register(ctx, managedBackupJobName, "@every 24h", "UTC", false, func(ctx context.Context, run jobs.Job) error {
 		// Another instance may have changed keep since this process loaded it.
 		if err := settings.Refresh(ctx); err != nil {
 			return err
@@ -41,8 +44,8 @@ func installManagedBackupSchedule(ctx context.Context, worker *jobs.Service, man
 		if !settings.Get().Backups.Enabled {
 			return nil
 		}
-		_, err := manager.CreateManaged(ctx)
-		return err
+		id := uuid.NewSHA1(run.ID, strconv.AppendInt(nil, run.ScheduledAt.UnixMicro(), 10))
+		return manager.RunScheduled(ctx, id.String())
 	}); err != nil {
 		return nil, err
 	}
@@ -51,12 +54,16 @@ func installManagedBackupSchedule(ctx context.Context, worker *jobs.Service, man
 	reconcile := func(ctx context.Context) {
 		mu.Lock()
 		defer mu.Unlock()
-		desired := settings.Get().Backups
-		manager.SetRetention(desired.Keep)
+		snapshot := settings.Get()
+		desired := snapshot.Backups
+		revision := snapshot.Revision
+		manager.SetRetention(desired.Keep, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+			return settings.PinRevision(ctx, tx, revision)
+		})
 		if applied != nil && *applied == desired {
 			return
 		}
-		if err := configureManagedBackupSchedule(ctx, worker, desired); err != nil {
+		if err := worker.ConfigureManagedBackup(ctx, desired.Schedule, desired.Timezone, desired.Enabled); err != nil {
 			if !errors.Is(err, jobs.ErrNotManageable) && ctx.Err() == nil {
 				logger.ErrorContext(ctx, "reconfigure managed backup schedule", "error", err)
 			}
@@ -105,17 +112,4 @@ func adoptInertBackupSettings(ctx context.Context, worker *jobs.Service, setting
 		}
 	}
 	return runtimesettings.ErrConflict
-}
-
-func configureManagedBackupSchedule(ctx context.Context, worker *jobs.Service, value runtimesettings.Backups) error {
-	items, err := worker.ListJobs(ctx)
-	if err != nil {
-		return err
-	}
-	for _, item := range items {
-		if item.Name == managedBackupJobName {
-			return worker.ConfigureJobInTimezone(ctx, item.ID, value.Schedule, value.Timezone, value.Enabled)
-		}
-	}
-	return jobs.ErrNotManageable
 }

@@ -5,6 +5,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -208,6 +210,55 @@ func TestJavaScriptWatchRestoresPreviousGenerationAfterServeFailure(t *testing.T
 		t.Fatal(err)
 	}
 	waitWatchResponse(t, endpoint, `{"version":"two"}`)
+	cancel()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("watch shutdown = %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("watch did not shut down")
+	}
+}
+
+func TestJavaScriptWatchRetriesUnchangedCandidateAfterStartupFailure(t *testing.T) {
+	directory := t.TempDir()
+	manifest := `{"format":"pgbase.scripts/v2","routes":[{"method":"GET","pattern":"/watch","access":"public","handler":{"module":"app.js","export":"route"}}]}`
+	if err := os.WriteFile(filepath.Join(directory, "pgbase.scripts.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeWatchSource(t, directory, "one")
+	var starts atomic.Int32
+	hooks := &pgbase.HookRegistry{}
+	_, err := hooks.On(pgbase.HookAppServe, pgbase.Hook{Before: func(context.Context, *pgbase.HookEvent) error {
+		if starts.Add(1) == 2 {
+			return errors.New("temporary startup failure")
+		}
+		return nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := watchUnusedAddress(t)
+	options := pgbase.Options{
+		DatabaseURL: testutil.NewDatabase(t), HTTPAddress: address, Hooks: hooks, AutoMigrate: true,
+		TokenSecret: []byte("javascript-watch-secret-32-bytes-minimum"), ShutdownTimeout: 2 * time.Second,
+		Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), JavaScript: &pgbase.JavaScriptOptions{Directory: directory},
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var stderr synchronizedBuffer
+	result := make(chan error, 1)
+	go func() {
+		result <- superviseJavaScript(ctx, options, 50*time.Millisecond, testIO(nil, io.Discard, &stderr))
+	}()
+	endpoint := "http://" + address + "/watch"
+	waitWatchResponse(t, endpoint, `{"version":"one"}`)
+	writeWatchSource(t, directory, "two")
+	waitWatchResponse(t, endpoint, `{"version":"two"}`)
+	if starts.Load() != 4 || !strings.Contains(stderr.String(), "previous generation restored") {
+		t.Fatalf("expected candidate failure, previous generation restore, and retry: starts=%d stderr=%q", starts.Load(), stderr.String())
+	}
 	cancel()
 	select {
 	case err := <-result:

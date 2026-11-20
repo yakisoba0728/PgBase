@@ -178,6 +178,11 @@ func TestConcurrentControllerRecoveryWaitsForHealthyPublisher(t *testing.T) {
 	published := make(chan error, 1)
 	go func() { published <- controller.Publish(ctx, Entry{ID: id}, bytes.NewReader(nil)) }()
 	<-repository.entered
+	recoveryCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	if err := controller.RecoverPending(recoveryCtx); err != nil {
+		t.Fatalf("background recovery should skip an active publisher: %v", err)
+	}
 	recovered := make(chan error, 1)
 	go func() {
 		_, recoveryErr := NewStorageController(ctx, pool, bytes.Repeat([]byte("k"), 32), repository, StorageConfig{Driver: "local"})
