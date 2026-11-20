@@ -4,7 +4,7 @@ FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c
 COPY deployments/build-postgres-client-libraries.sh /build-postgres-client-libraries.sh
 RUN sh /build-postgres-client-libraries.sh
 
-FROM postgres:16.16-bookworm@sha256:a49f7438ba03589f9b1ca062f2da82e899b48ea1dc50d2449fa09a70be83ebca AS postgres16
+FROM postgres:18.6-bookworm@sha256:f1ea2a1a4fb7b68d4836be1fdcb8a6466a89b072158bf9d97663600538c294c5 AS postgres16
 COPY --from=postgres-libraries /patched/lib/ /opt/pgbase/postgresql/lib/
 COPY --from=postgres-libraries /patched/usr/ /runtime/usr/
 COPY --from=postgres-libraries /patched/var/ /runtime/var/
@@ -12,7 +12,7 @@ ENV LD_LIBRARY_PATH="/opt/pgbase/postgresql/lib"
 COPY deployments/postgres-client-runtime.sh /postgres-client-runtime.sh
 RUN sh /postgres-client-runtime.sh 16
 
-FROM postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536 AS postgres17
+FROM postgres:18.6-bookworm@sha256:f1ea2a1a4fb7b68d4836be1fdcb8a6466a89b072158bf9d97663600538c294c5 AS postgres17
 COPY --from=postgres-libraries /patched/lib/ /opt/pgbase/postgresql/lib/
 COPY --from=postgres-libraries /patched/usr/ /runtime/usr/
 COPY --from=postgres-libraries /patched/var/ /runtime/var/
