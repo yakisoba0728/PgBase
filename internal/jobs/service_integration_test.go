@@ -15,6 +15,10 @@ import (
 	"github.com/yakisoba0728/PgBase/migrations/system"
 )
 
+func (s *Service) claim(ctx context.Context) ([]claimedJob, error) {
+	return s.claimNamed(ctx, s.registry.names())
+}
+
 func TestRunnerClaimsOnceFencesStaleWorkersAndRecoversFailures(t *testing.T) {
 	ctx := context.Background()
 	pool := jobsTestPool(t)

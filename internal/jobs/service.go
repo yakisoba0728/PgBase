@@ -273,10 +273,6 @@ type claimedJob struct {
 	timezone string
 }
 
-func (s *Service) claim(ctx context.Context) ([]claimedJob, error) {
-	return s.claimNamed(ctx, s.registry.names())
-}
-
 func (s *Service) claimNamed(ctx context.Context, names []string) ([]claimedJob, error) {
 	claims := make([]claimedJob, 0, claimBatch)
 	if len(names) == 0 {
