@@ -46,11 +46,22 @@ func (r *LocalRepository) Publish(ctx context.Context, entry Entry, source io.Re
 	if err = os.Link(name, r.archive(entry.ID)); err != nil {
 		return err
 	}
-	if err = writeAtomic(r.metadata(entry.ID), entry); err != nil {
-		_ = os.Remove(r.archive(entry.ID))
+	// A failed receipt write can leave a durable receipt already visible.
+	// Retain the immutable archive so a scheduled retry can reconcile it.
+	return r.publishArchiveEntry(ctx, entry)
+}
+
+func (r *LocalRepository) openUnpublishedArchive(ctx context.Context, id string) (io.ReadCloser, error) {
+	return r.Open(ctx, id)
+}
+
+func (r *LocalRepository) publishArchiveEntry(_ context.Context, entry Entry) error {
+	if _, err := os.Lstat(r.metadata(entry.ID)); err == nil {
+		return os.ErrExist
+	} else if !os.IsNotExist(err) {
 		return err
 	}
-	return nil
+	return writeAtomic(r.metadata(entry.ID), entry)
 }
 func (r *LocalRepository) Open(ctx context.Context, id string) (io.ReadCloser, error) {
 	if !validID(id) {

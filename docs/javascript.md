@@ -162,7 +162,7 @@ CPU loops are interruptible. Heap exhaustion can still terminate the process bec
 
 ## Development reload
 
-`pgbase js serve --watch [--dir DIR] [--poll DURATION]` is a development supervisor. It snapshots and validates the complete candidate bundle before replacing the running application. Invalid syntax or configuration leaves the current generation running. A valid change drains the old application and starts the new snapshot; if startup fails, the last validated generation is restored. Only one listener and job generation runs at a time.
+`pgbase js serve --watch [--dir DIR] [--poll DURATION]` is a development supervisor. It snapshots and validates the complete candidate bundle before replacing the running application. Invalid syntax or configuration leaves the current generation running. A valid change drains the old application and starts the new snapshot. If startup fails and the previous generation restarts, watch retries the same candidate with an increasing delay capped at 30 seconds. An edited candidate can start on the next poll. Only one listener and job generation runs at a time.
 
 The supervisor performs sequential application replacement in one process and can have a short listener interruption. It does not provide production hot reload, managed-backup mode, migration execution, or a per-generation OS memory boundary. Production deployments should validate with `js check`, run migrations explicitly, and restart through the normal service manager.
 

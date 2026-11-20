@@ -76,7 +76,9 @@ func superviseJavaScript(ctx context.Context, sourceOptions pgbase.Options, poll
 		runErr := <-result
 		return errors.Join(fmt.Errorf("write JavaScript generation status: %w", err), closeErr, runErr)
 	}
-	var rejectedDigest string
+	var rejectedDigest, lastRejection, retryDigest string
+	var retryAt time.Time
+	var retryDelay time.Duration
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 	for {
@@ -92,21 +94,32 @@ func superviseJavaScript(ctx context.Context, sourceOptions pgbase.Options, poll
 		case <-ticker.C:
 			candidateOptions := *sourceOptions.JavaScript
 			candidateOptions.Directory = sourceDirectory
-			candidate, candidateErr := createJavaScriptSnapshot(ctx, &candidateOptions, snapshot.digest, rejectedDigest)
+			var waitingDigest string
+			if time.Now().Before(retryAt) {
+				waitingDigest = retryDigest
+			}
+			candidate, candidateErr := createJavaScriptSnapshot(ctx, &candidateOptions, snapshot.digest, rejectedDigest, waitingDigest)
 			if candidateErr != nil {
-				if candidate.digest != rejectedDigest {
-					rejectedDigest = ""
+				if candidate.digest != "" {
+					rejectedDigest = candidate.digest
 				}
-				_, _ = fmt.Fprintf(streams.stderr(), "pgbase: JavaScript reload rejected: %v\n", candidateErr)
+				if candidate.digest != "" || candidateErr.Error() != lastRejection {
+					_, _ = fmt.Fprintf(streams.stderr(), "pgbase: JavaScript reload rejected: %v\n", candidateErr)
+				}
+				lastRejection = candidateErr.Error()
 				continue
 			}
+			lastRejection = ""
 			if candidate.directory == "" {
 				if candidate.digest == snapshot.digest {
-					rejectedDigest = ""
+					rejectedDigest, retryDigest, retryDelay = "", "", 0
 				}
 				continue
 			}
 			rejectedDigest = ""
+			if candidate.digest != retryDigest {
+				retryDigest, retryDelay = candidate.digest, 0
+			}
 			candidateRunOptions := sourceOptions
 			candidateOptions.Directory = candidate.directory
 			candidateRunOptions.JavaScript = &candidateOptions
@@ -124,13 +137,14 @@ func superviseJavaScript(ctx context.Context, sourceOptions pgbase.Options, poll
 				if ctx.Err() != nil {
 					return startErr
 				}
-				rejectedDigest = candidate.digest
 				restoredApp, restoredResult, restoreErr := startWatchedApplication(ctx, currentOptions)
 				if restoreErr != nil {
 					return errors.Join(fmt.Errorf("start JavaScript generation: %w", startErr), fmt.Errorf("restore previous generation: %w", restoreErr))
 				}
 				app, result = restoredApp, restoredResult
-				_, _ = fmt.Fprintf(streams.stderr(), "pgbase: JavaScript restart failed; previous generation restored: %v\n", startErr)
+				retryDelay = min(max(retryDelay*2, max(poll, time.Second)), 30*time.Second)
+				retryAt = time.Now().Add(retryDelay)
+				_, _ = fmt.Fprintf(streams.stderr(), "pgbase: JavaScript restart failed; previous generation restored: %v (retry in %s)\n", startErr, retryDelay)
 				continue
 			}
 			_ = os.RemoveAll(snapshot.directory)

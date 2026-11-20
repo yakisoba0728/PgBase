@@ -92,6 +92,26 @@ func TestRelationReadOperationIsInsideTheClosedWhitelist(t *testing.T) {
 	)
 }
 
+func TestWrapHTTPCountsAnAbortedStreamAsFailure(t *testing.T) {
+	metrics := NewMetrics(nil)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /download", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		panic(http.ErrAbortHandler)
+	})
+	func() {
+		defer func() {
+			if recovered := recover(); recovered != http.ErrAbortHandler {
+				t.Fatalf("stream abort = %v", recovered)
+			}
+		}()
+		metrics.WrapHTTP(mux, mux).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/download", nil))
+	}()
+	assertContains(t, scrape(t, metrics, "scrape-secret"),
+		`pgbase_http_requests_total{method="GET",route="/download",status="5xx"} 1`,
+	)
+}
+
 func TestWrapHTTPUsesMuxRouteTemplatesWithoutRequestData(t *testing.T) {
 	metrics := NewMetrics(nil)
 	mux := http.NewServeMux()

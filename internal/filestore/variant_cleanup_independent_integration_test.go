@@ -137,7 +137,7 @@ func TestVariantUncertainIntentProtectsLegacyWorkerAndMigrationSource(t *testing
 	if err := pool.QueryRow(ctx, `select exists(select 1 from pgbase_meta.file_object_deletions where object_key=$1 and retain_on_success)`, key).Scan(&exists); err != nil || !exists {
 		t.Fatalf("legacy worker discarded uncertainty: exists=%v err=%v", exists, err)
 	}
-	migration := NewObjectMigrationService(controller)
+	migration := NewObjectMigrationService(controller, "")
 	if activated, err := migration.activate(ctx, migrationID); !errors.Is(err, ErrStorageConflict) || activated {
 		t.Fatalf("uncertain source migrated: activated=%v err=%v", activated, err)
 	}

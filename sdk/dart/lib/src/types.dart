@@ -42,10 +42,17 @@ final class RecordPage<T> {
 }
 
 final class RecordResult<T> {
-  const RecordResult({required this.record, this.etag});
+  const RecordResult({
+    required this.record,
+    this.etag,
+    this.enrichmentFailed = false,
+  });
 
   final T record;
   final String? etag;
+
+  /// The write committed, but its response contains only the record ID.
+  final bool enrichmentFailed;
 }
 
 final class User {

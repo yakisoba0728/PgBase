@@ -25,6 +25,47 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/testutil"
 )
 
+func TestFilteredDeleteRechecksSelectionAndRollsBackBatch(t *testing.T) {
+	_, _, records, principal := newRecordOperationsTest(t)
+	ctx := t.Context()
+	create := func(key string, title json.RawMessage) string {
+		t.Helper()
+		result, err := records.Create(ctx, CreateRequest{Principal: principal, RequestID: testRequestID, Collection: "records",
+			Input: map[string]json.RawMessage{"title": title}, IdempotencyKey: key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.Record.Data["id"].(string)
+	}
+	matching := create("filtered-delete-first-key", json.RawMessage(`"draft-one"`))
+	changed := create("filtered-delete-changed-key", json.RawMessage(`"draft-two"`))
+	const filter = "title ~ 'draft'"
+	page, err := records.List(ctx, ListRequest{Principal: principal, RequestID: testRequestID, Collection: "records", Filter: filter})
+	if err != nil || len(page.Items) != 2 {
+		t.Fatalf("initial selection: %#v %v", page.Items, err)
+	}
+	_, err = records.Update(ctx, UpdateRequest{Principal: principal, RequestID: testRequestID, Collection: "records", PublicID: changed,
+		Input: map[string]json.RawMessage{"title": json.RawMessage(`"published"`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection := DeleteRequest{Principal: principal, RequestID: testRequestID, Collection: "records", PublicID: changed, MatchFilter: filter}
+	if _, err = records.Delete(ctx, selection); !IsCode(err, CodePreconditionFailed) {
+		t.Fatalf("filtered single delete after update: %v", err)
+	}
+	_, err = records.Batch(ctx, BatchRequest{Principal: principal, RequestID: testRequestID, Operations: []BatchOperation{
+		{Delete: &DeleteRequest{Collection: "records", PublicID: matching, MatchFilter: filter}}, {Delete: &selection},
+	}})
+	if !IsCode(err, CodePreconditionFailed) {
+		t.Fatalf("filtered batch delete after update: %v", err)
+	}
+	for _, id := range []string{matching, changed} {
+		if _, err = records.Get(ctx, GetRequest{Principal: principal, RequestID: testRequestID, Collection: "records", PublicID: id}); err != nil {
+			t.Fatalf("record %s disappeared: %v", id, err)
+		}
+	}
+}
+
 func TestRecordOperationsLegacyPromotionPreconditionsAndAtomicArtifacts(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
 	ctx := context.Background()

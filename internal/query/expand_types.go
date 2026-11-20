@@ -37,6 +37,7 @@ type ListRequest struct {
 	Offset      int
 	offsetPage  bool
 	projectRoot func(map[string]any) map[string]any
+	projectWire func([]map[string]any) (bool, error)
 	// Total adds a bounded count of all matching records to the page.
 	Total bool
 }

@@ -101,3 +101,15 @@ it("says so when the linked job does not exist", async () => {
   renderJobs(new QueryClient({ defaultOptions: { queries: { retry: false } } }));
   expect(await screen.findByText("Not found.")).toBeInTheDocument();
 });
+
+it("shows the Settings-managed backup schedule without allowing generic job actions", async () => {
+  vi.spyOn(api, "listJobs").mockResolvedValue({ items: [{ ...job, settingsManaged: true, lastFinishedAt: job.nextRunAt }], workerEnabled: true });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  renderJobs(client);
+  expect(await screen.findByText(/Edit this schedule under Settings/)).toBeInTheDocument();
+  expect(screen.getByText("See Backups")).toBeInTheDocument();
+  expect(screen.getByDisplayValue("@every 1h")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Run now" })).toBeDisabled();
+  cleanup(); client.clear();
+});

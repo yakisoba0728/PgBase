@@ -4,10 +4,15 @@ export { RealtimeService } from "./realtime.js";
 import { AuthStore } from "./auth-store.js";
 import { RealtimeService } from "./realtime.js";
 import type { AuthCreationOptions } from "./types.js";
-import type { UserSession, RecordData, FilterParams, RecordPage, PocketBaseListOptions, PocketBasePage, RecordModifiers, RecordMutation, RecordResult, RecordJSONResult, Query, RecordGetOptions, RecordWriteOptions, BatchOptions, RecordEvent, EventOptions, RequestOptions, OAuthLaunchOptions, OAuthBrowserAdapter, BatchOperation, BatchResult, BatchHTTPRequest, BatchHTTPResult, BatchFilePart, FileInfo, AuthMethods, OAuthStart } from "./types.js";
+import type { UserSession, RecordData, FilterParams, RecordPage, PocketBaseListOptions, PocketBasePage, RecordModifiers, RecordMutation, RecordResult, RecordMutationResult, RecordJSONResult, Query, RecordGetOptions, RecordWriteOptions, BatchOptions, RecordEvent, EventOptions, RequestOptions, OAuthLaunchOptions, OAuthBrowserAdapter, BatchOperation, BatchResult, BatchHTTPRequest, BatchHTTPResult, BatchFilePart, FileInfo, AuthMethods, OAuthStart } from "./types.js";
 export * from "./admin.js";
 export { browserAuthStorage } from "./state-storage.js";
 export type { AuthState, AuthStateStorage } from "./state-storage.js";
+type ResponseWithMetadata<T> = {
+    body: T;
+    etag?: string;
+    enrichmentFailed?: true;
+};
 export declare class PgBaseClient {
     readonly baseURL: string;
     readonly auth: AuthStore;
@@ -83,14 +88,8 @@ export declare class PgBaseClient {
     cancelAllRequests(): void;
     /** Low-level request; null disables cancellation and a string supplies an explicit key. */
     send<T>(path: string, init?: RequestInit, options?: RequestOptions): Promise<T>;
-    _response<T>(path: string, init?: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<{
-        body: T;
-        etag?: string;
-    }>;
-    _responseText(path: string, init?: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<{
-        body: string;
-        etag?: string;
-    }>;
+    _response<T>(path: string, init?: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<ResponseWithMetadata<T>>;
+    _responseText(path: string, init?: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<ResponseWithMetadata<string>>;
     private readResponse;
     _eventStream(path: string, lastEventId: string | undefined, signal?: AbortSignal): Promise<Response>;
     private authenticate;
@@ -154,12 +153,14 @@ export declare class Records<T extends RecordData> {
     /** Returns the complete record JSON and ETag without parsing numbers. */
     getJSON(id: string, signal?: AbortSignal): Promise<RecordJSONResult>;
     getJSON(id: string, options?: RecordGetOptions, signal?: AbortSignal): Promise<RecordJSONResult>;
+    /** Returns the response body. Use createWithETag to detect an ID-only committed write. */
     create(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
-    createWithETag(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>>;
+    createWithETag(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordMutationResult<T>>;
     /** Sends a JSON object verbatim; retry an uncertain create with the same body and key. */
     createJSON(recordJSON: string, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordJSONResult>;
+    /** Returns the response body. Use updateWithETag to detect an ID-only committed write. */
     update(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
-    updateWithETag(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>>;
+    updateWithETag(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordMutationResult<T>>;
     /** Sends a record update JSON object verbatim with the current record ETag. */
     updateJSON(id: string, recordJSON: string, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordJSONResult>;
     remove(id: string, etag: string, signal?: AbortSignal): Promise<void>;
@@ -168,6 +169,7 @@ export declare class Records<T extends RecordData> {
     private path;
     private eventsPath;
     private recordResponse;
+    private mutationResponse;
     private recordJSONResponse;
 }
 export declare class Files {

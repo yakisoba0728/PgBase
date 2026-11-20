@@ -200,6 +200,7 @@ type listResult struct {
 	byteLimited bool
 	plan        rootPlan
 	traversal   membership.Traversal
+	wirePage    *wirePage
 	// ordered is false for a random sort, whose page never carries a cursor.
 	ordered bool
 }
@@ -239,8 +240,11 @@ func (s *Service) readList(ctx context.Context, request ListRequest, readCatalog
 		var readErr error
 		result, operation, readErr = s.readListInTx(ctx, tx, catalog, collection, request, filterNode, requestedSort)
 		relationOperation = relationOperation || operation
-		if readErr != nil || !request.Total {
+		if readErr != nil {
 			return readErr
+		}
+		if err := result.finalizeWire(request.projectWire); err != nil || !request.Total {
+			return err
 		}
 		total, exact := result.exactTotal(request)
 		var countErr error
@@ -301,10 +305,16 @@ func (s *Service) readNativeListInTx(
 		project: request.projectRoot,
 	}
 	if usage == nil {
-		if multipleRelationFieldCount(collection) != 0 || request.projectRoot != nil && collectionHasRelation(collection) {
+		if rootRequest.project == nil && !projection.Empty() {
+			rootRequest.project = func(item map[string]any) map[string]any {
+				hideRecordFields(collection, request.Principal, item)
+				return projection.apply(item)
+			}
+		}
+		if multipleRelationFieldCount(collection) != 0 || rootRequest.project != nil && collectionHasRelation(collection) {
 			rootRequest.hydrator = newRootHydrator(tx, catalog, collection, request.Principal)
 			rootRequest.hydrator.ruleContext = request.RuleContext
-			rootRequest.hydrator.project = request.projectRoot
+			rootRequest.hydrator.project = rootRequest.project
 		} else if collectionHasRelation(collection) {
 			rootRequest.hydrate = func(items []map[string]any) error {
 				return filterRelationValues(ctx, tx, catalog, collection, items, request.Principal, request.RuleContext)
@@ -327,13 +337,22 @@ func (s *Service) readNativeListInTx(
 		return listResult{}, relationOperation, err
 	}
 	if usage == nil {
-		for _, item := range root.page.Items {
-			hideRecordFields(collection, request.Principal, item)
+		if rootRequest.project == nil {
+			for _, item := range root.page.Items {
+				hideRecordFields(collection, request.Principal, item)
+			}
 		}
-		return listResult{
-			page: projection.applyPage(root.page), byteLimited: root.byteLimited, ordered: !rootPlan.order().random(),
+		result := listResult{
+			page: root.page, byteLimited: root.byteLimited, ordered: !rootPlan.order().random(),
 			plan: rootPlan, traversal: traversal,
-		}, relationOperation, nil
+		}
+		if request.projectWire != nil {
+			result.wirePage = &wirePage{anchors: root.candidates, assembler: pageAssembler{
+				cursors: s.cursors, order: root.order, expiresAt: root.expiresAt, maximumBytes: maximumRecordPageBytes,
+				cursorV5: root.cursorV5,
+			}}
+		}
+		return result, relationOperation, nil
 	}
 
 	expanded, err := s.executeMaterializedExpandPlan(ctx, tx, catalog, collection, root.page.Items, expansion, request.Principal, request.RuleContext, usage)
@@ -362,11 +381,15 @@ func (s *Service) readNativeListInTx(
 			return listResult{}, relationOperation, err
 		}
 	}
-	return listResult{
+	result := listResult{
 		page:     projection.applyPage(RecordPage{Items: items, NextCursor: cursor}),
 		expanded: expanded[:keep], querySteps: usage.querySteps, byteLimited: root.byteLimited || keep < len(expanded),
 		ordered: !rootPlan.order().random(), plan: rootPlan, traversal: traversal,
-	}, relationOperation, nil
+	}
+	if request.projectWire != nil {
+		result.wirePage = &wirePage{anchors: candidates[:keep], assembler: assembler}
+	}
+	return result, relationOperation, nil
 }
 
 func (s *Service) planNativeRead(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, request ListRequest, filterNode filterNode, requestedSort []SortKey) (rootPlan, error) {

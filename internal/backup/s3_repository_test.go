@@ -98,7 +98,7 @@ func (c *failingS3Client) ListObjectsV2(context.Context, *s3.ListObjectsV2Input,
 	return nil, errors.New("unused")
 }
 
-func TestS3PublishWritesMetadataLastAndCleansFailure(t *testing.T) {
+func TestS3PublishWritesMetadataLastAndRetainsArchiveOnFailure(t *testing.T) {
 	client := &failingS3Client{failMetadata: true}
 	repository := &S3Repository{bucket: "bucket", prefix: "backups", client: client}
 	entry := Entry{ID: "019551d0-e9c0-7000-8000-000000000001"}
@@ -108,7 +108,7 @@ func TestS3PublishWritesMetadataLastAndCleansFailure(t *testing.T) {
 	if len(client.puts) != 2 || client.puts[0] != "backups/"+entry.ID+".tar.gz" || client.puts[1] != "backups/"+entry.ID+".json" {
 		t.Fatalf("put order=%v", client.puts)
 	}
-	if len(client.deletes) != 1 || !strings.HasSuffix(client.deletes[0], ".tar.gz") {
+	if len(client.deletes) != 0 {
 		t.Fatalf("cleanup deletes=%v", client.deletes)
 	}
 }

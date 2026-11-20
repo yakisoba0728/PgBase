@@ -172,6 +172,7 @@ func TestLoadEnvParsesConfiguredValues(t *testing.T) {
 		"PGBASE_SCHEMA_APPLY_TIMEOUT":           "12m",
 		"PGBASE_STOP_GRACE_PERIOD":              "25s",
 	}
+	env["PGBASE_FILES_MIGRATION_SCRATCH_DIRECTORY"] = "/migration-scratch"
 
 	opts, err := LoadEnv(func(key string) (string, bool) {
 		value, ok := env[key]
@@ -185,6 +186,9 @@ func TestLoadEnvParsesConfiguredValues(t *testing.T) {
 	}
 	if opts.UserMigrationAutoRecordDirectory != "/tmp/pgbase-user-migrations" {
 		t.Fatalf("UserMigrationAutoRecordDirectory = %q", opts.UserMigrationAutoRecordDirectory)
+	}
+	if opts.Files.MigrationScratchDirectory != "/migration-scratch" {
+		t.Fatalf("Files.MigrationScratchDirectory = %q", opts.Files.MigrationScratchDirectory)
 	}
 	if got := opts.PublicURL.String(); got != "https://pgbase.example" {
 		t.Fatalf("PublicURL = %q", got)

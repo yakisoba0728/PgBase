@@ -67,6 +67,8 @@ export const opsKo: Record<keyof typeof opsEn, string> = {
   "ops.jobs.detail": "작업",
   "ops.jobs.noWorker": "이 프로세스에는 작업 워커가 없어 여기서 변경하거나 실행할 수 없습니다.",
   "ops.jobs.unregisteredNote": "이 프로세스에 이 작업의 핸들러가 등록되어 있지 않습니다.",
+  "ops.jobs.settingsManaged": "설정 → 예약 백업에서 일정을 변경합니다. 즉시 백업하거나 결과를 확인하려면 백업 화면을 여세요.",
+  "ops.jobs.seeBackups": "백업 화면 확인",
   "ops.jobs.run": "지금 실행",
   "ops.jobs.runRequested": "{name} 실행을 요청했습니다.",
   "ops.jobs.saved": "작업을 저장했습니다.",

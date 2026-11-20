@@ -66,7 +66,8 @@ func (s *Service) List(ctx context.Context, request ListRequest) (RecordPage, er
 }
 
 // ListPinned uses a catalog which the caller already pinned on this transaction.
-func (s *Service) ListPinned(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, request ListRequest) (RecordPage, error) {
+func (s *Service) ListPinned(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, request ListRequest, projectWire func([]map[string]any) (bool, error)) (RecordPage, error) {
+	request.projectWire = projectWire
 	result, err := s.readList(ctx, request, pinnedCatalogReader(tx, catalog))
 	return result.page, err
 }

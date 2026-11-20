@@ -121,14 +121,13 @@ func (e fileEndpoints) publicDownload(w http.ResponseWriter, r *http.Request) {
 		writeFileError(w, r, err)
 		return
 	}
-	defer func() { _ = reader.Close() }()
 	if _, ok := e.service.(rangedPublicFileService); ok && supportsFileRanges(e.service) {
 		w.Header().Set("Accept-Ranges", "bytes")
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	reader = setDownloadContentType(w, reader, file, variant)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.Filename}))
-	_, _ = io.Copy(w, reader)
+	writeDownload(w, reader)
 }
 
 func downloadContentType(file filestore.File, variant filestore.Variant) string {
@@ -268,14 +267,13 @@ func (e fileEndpoints) download(w http.ResponseWriter, r *http.Request) {
 		writeFileError(w, r, err)
 		return
 	}
-	defer func() { _ = reader.Close() }()
 	if _, ok := e.service.(rangedFileService); ok && supportsFileRanges(e.service) {
 		w.Header().Set("Accept-Ranges", "bytes")
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
 	reader = setDownloadContentType(w, reader, file, variant)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.Filename}))
-	_, _ = io.Copy(w, reader)
+	writeDownload(w, reader)
 }
 
 func parseSingleByteRange(raw string) (filestore.ByteRange, error) {
@@ -334,7 +332,6 @@ func serveFileRange(w http.ResponseWriter, r *http.Request, file filestore.File,
 		writeFileError(w, r, err)
 		return
 	}
-	defer func() { _ = result.Body.Close() }()
 	contentType := downloadContentType(file, variant)
 	if variant != filestore.Original && len(result.Prefix) > 0 {
 		contentType = http.DetectContentType(result.Prefix)
@@ -344,7 +341,19 @@ func serveFileRange(w http.ResponseWriter, r *http.Request, file filestore.File,
 	w.Header().Set("Content-Range", "bytes "+strconv.FormatInt(result.Start, 10)+"-"+strconv.FormatInt(result.End, 10)+"/"+strconv.FormatInt(result.Size, 10))
 	w.Header().Set("Content-Length", strconv.FormatInt(result.End-result.Start+1, 10))
 	w.WriteHeader(http.StatusPartialContent)
-	_, _ = io.Copy(w, result.Body)
+	writeDownload(w, result.Body)
+}
+
+func writeDownload(w http.ResponseWriter, reader io.ReadCloser) {
+	defer func() {
+		if err := reader.Close(); err != nil {
+			panic(http.ErrAbortHandler)
+		}
+	}()
+	if _, err := io.Copy(w, reader); err != nil {
+		// The status or body may be on the wire. Let net/http abort the stream.
+		panic(http.ErrAbortHandler)
+	}
 }
 
 func setDownloadContentType(w http.ResponseWriter, reader io.ReadCloser, file filestore.File, variant filestore.Variant) io.ReadCloser {
@@ -353,7 +362,11 @@ func setDownloadContentType(w http.ResponseWriter, reader io.ReadCloser, file fi
 		return reader
 	}
 	buffered := bufio.NewReader(reader)
-	prefix, _ := buffered.Peek(512)
+	prefix, err := buffered.Peek(512)
+	if err != nil && !errors.Is(err, io.EOF) {
+		_ = reader.Close()
+		panic(http.ErrAbortHandler)
+	}
 	w.Header().Set("Content-Type", http.DetectContentType(prefix))
 	return struct {
 		io.Reader

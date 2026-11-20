@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestManagedCreateFailureNotifiesOnlyManagedJobs(t *testing.T) {
@@ -34,11 +36,9 @@ func TestManagedCreateFailureNotifiesOnlyManagedJobs(t *testing.T) {
 	if got := notifications.Load(); got != 0 {
 		t.Fatalf("manual failure notifications=%d", got)
 	}
-	managed, err := manager.CreateManaged(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	if err := manager.RunScheduled(context.Background(), uuid.NewString()); err == nil {
+		t.Fatal("scheduled backup reported success after failure")
 	}
-	waitFinalJob(t, manager, managed.ID)
 	if got := notifications.Load(); got != 1 {
 		t.Fatalf("managed failure notifications=%d", got)
 	}

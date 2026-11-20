@@ -75,13 +75,13 @@ function EndpointPane({ endpoint, collection, audience, language, rule, onLangua
         {endpoint.body && (
           <section>
             <h3>{t("api.request")}</h3>
-            <CodeBlock label={t("api.request")} text={JSON.stringify(endpoint.body, null, 2)} />
+            <CodeBlock label={t("api.request")} text={stringifyJson(endpoint.body, 2)} />
           </section>
         )}
         <section>
           <h3>{t("api.response", { status: endpoint.status })}</h3>
           {endpoint.response !== undefined ? (
-            <CodeBlock label={t("api.response", { status: endpoint.status })} text={JSON.stringify(endpoint.response, null, 2)} />
+            <CodeBlock label={t("api.response", { status: endpoint.status })} text={stringifyJson(endpoint.response, 2)} />
           ) : (
             <p className="field-hint">{t(endpoint.id === "realtime" ? "api.realtimeHint" : "api.noBody")}</p>
           )}
@@ -95,7 +95,7 @@ function EndpointPane({ endpoint, collection, audience, language, rule, onLangua
           ) : (
             <>
               <Tabs label={t("api.language")} value={language} onChange={onLanguage} tabs={languages.map((value) => ({ value, label: t(`api.lang.${value}`) }))} />
-              {language !== "curl" && <p className="field-hint">{t("api.sdkHint")}</p>}
+              {language !== "curl" && requiresBearer(endpoint, audience) && <p className="field-hint">{t("api.sdkHint")}</p>}
             </>
           )}
           <CodeBlock label={t("api.sample")} text={sample} />

@@ -11,7 +11,6 @@ import (
 	"io"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsv4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -104,23 +103,31 @@ func (r *S3Repository) Publish(ctx context.Context, entry Entry, archive io.Read
 	if err := r.putArchive(ctx, entry.ID, archive); err != nil {
 		return fmt.Errorf("upload backup archive: %w", err)
 	}
-	metadata, err := json.Marshal(entry)
-	if err == nil {
-		err = r.put(ctx, r.key(entry.ID, ".json"), bytes.NewReader(metadata), true)
-	}
-	if err != nil {
-		r.cleanupArchive(ctx, entry.ID)
+	// The remote receipt can exist after an unsuccessful response. Leave the
+	// immutable archive intact for either type of interrupted publication.
+	if err := r.publishArchiveEntry(ctx, entry); err != nil {
 		return fmt.Errorf("publish backup metadata: %w", err)
 	}
 	return nil
 }
 
-func (r *S3Repository) cleanupArchive(parent context.Context, id string) {
-	cleanup, cancel := context.WithTimeout(context.WithoutCancel(parent), 10*time.Second)
-	defer cancel()
-	_ = r.remove(cleanup, r.key(id, ".tar.gz"))
+func (r *S3Repository) publishArchiveEntry(ctx context.Context, entry Entry) error {
+	metadata, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	return r.put(ctx, r.key(entry.ID, ".json"), bytes.NewReader(metadata), true)
 }
+
 func (r *S3Repository) Open(ctx context.Context, id string) (io.ReadCloser, error) {
+	return r.openArchive(ctx, id, false)
+}
+
+func (r *S3Repository) openUnpublishedArchive(ctx context.Context, id string) (io.ReadCloser, error) {
+	return r.openArchive(ctx, id, true)
+}
+
+func (r *S3Repository) openArchive(ctx context.Context, id string, requireOwnership bool) (io.ReadCloser, error) {
 	if !validID(id) {
 		return nil, ErrNotFound
 	}
@@ -130,6 +137,9 @@ func (r *S3Repository) Open(ctx context.Context, id string) (io.ReadCloser, erro
 	}
 	if err != nil {
 		return nil, err
+	}
+	if requireOwnership && (out.Metadata["pgbase-format"] != s3StorageFormat || out.Metadata["pgbase-id"] != id) {
+		return nil, errors.Join(ErrStorageConflict, out.Body.Close())
 	}
 	return out.Body, nil
 }

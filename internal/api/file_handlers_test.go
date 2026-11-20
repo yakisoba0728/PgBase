@@ -28,6 +28,35 @@ type legacyPublicDownloadFiles struct {
 	body string
 }
 
+type interruptedVariantFiles struct{ FileService }
+
+func (interruptedVariantFiles) OpenPublic(context.Context, uuid.UUID, filestore.Variant) (filestore.File, io.ReadCloser, error) {
+	return filestore.File{Filename: "variant.png"}, io.NopCloser(&interruptedVariantReader{Reader: strings.NewReader("image")}), nil
+}
+
+type interruptedVariantReader struct {
+	io.Reader
+	interrupted bool
+}
+
+func (r *interruptedVariantReader) Read(buffer []byte) (int, error) {
+	if !r.interrupted {
+		r.interrupted = true
+		return 0, io.ErrUnexpectedEOF
+	}
+	return r.Reader.Read(buffer)
+}
+
+func TestDownloadDoesNotSwallowVariantPrefixReadError(t *testing.T) {
+	server := httptest.NewServer(mustRouter(t, Dependencies{Files: interruptedVariantFiles{}, MaximumFileUploadBytes: 1024}))
+	t.Cleanup(server.Close)
+	response, err := server.Client().Get(server.URL + "/api/files/" + uuid.NewString() + "?variant=thumbnail")
+	if err == nil {
+		defer response.Body.Close()
+		t.Fatalf("download returned %d despite its read error", response.StatusCode)
+	}
+}
+
 func (files *legacyPublicDownloadFiles) OpenPublic(context.Context, uuid.UUID, filestore.Variant) (filestore.File, io.ReadCloser, error) {
 	return files.file, io.NopCloser(strings.NewReader(files.body)), nil
 }

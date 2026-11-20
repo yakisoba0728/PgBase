@@ -98,7 +98,7 @@ func withFileServices(ctx context.Context, dependencies api.Dependencies, pool *
 	if options.Hooks != nil {
 		dependencies.StorageAdministration = hookedStorageAdministration{service: objects, registry: options.Hooks}
 	}
-	dependencies.StorageMigrations = filestore.NewObjectMigrationService(objects)
+	dependencies.StorageMigrations = filestore.NewObjectMigrationService(objects, options.Files.MigrationScratchDirectory)
 	authorize := func(ctx context.Context, tx pgx.Tx, principal identity.Subject, collectionID, recordID uuid.UUID, field string, operation filestore.Operation) error {
 		catalog, err := schemas.EnsureCurrent(ctx, tx)
 		if err != nil {

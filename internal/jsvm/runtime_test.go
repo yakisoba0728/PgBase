@@ -266,6 +266,57 @@ func TestRuntimeBoundsQueueAndCloseCancelsActiveAndWaitingCalls(t *testing.T) {
 	}
 }
 
+type blockingCloseHost struct {
+	closingHost
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (h *blockingCloseHost) Close() error {
+	close(h.entered)
+	<-h.release
+	return h.closingHost.Close()
+}
+
+func TestRuntimeCloseWaitsForInvocationHostCleanup(t *testing.T) {
+	directory := t.TempDir()
+	writeFile(t, directory, "pgbase.scripts.json", `{"format":"pgbase.scripts/v1","routes":[{"method":"GET","pattern":"/test","access":"public","handler":{"module":"route.js","export":"run"}}]}`)
+	writeFile(t, directory, "route.js", `exports.run=()=>({ok:true});`)
+	bundle, err := jsvm.LoadBundle(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := jsvm.NewRuntime(bundle, jsvm.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := &blockingCloseHost{entered: make(chan struct{}), release: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(host.release) })
+	defer release()
+	invoked := make(chan error, 1)
+	go func() {
+		_, err := runtime.Invoke(t.Context(), jsvm.Invocation{Handler: bundle.Manifest().Routes[0].Handler, Host: host})
+		invoked <- err
+	}()
+	select {
+	case <-host.entered:
+	case <-time.After(time.Second):
+		t.Fatal("invocation did not begin cleanup")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	if err := runtime.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("runtime closed before host cleanup finished: %v", err)
+	}
+	release()
+	if err := <-invoked; err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type preparedInputHost struct {
 	recordingHost
 	input json.RawMessage

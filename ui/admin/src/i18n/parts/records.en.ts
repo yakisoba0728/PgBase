@@ -88,7 +88,7 @@ export const recordsEn = {
   "records.exportLoaded": "Loaded rows ({count})",
   "records.exportAll": "All matching records",
   "records.exported": "{count} {count|record|records} exported.",
-  "records.exportedPartial": "Exported the first {count} records only. Narrow the filter to export the rest.",
+  "records.exportedPartial": "Exported {count} records. Some requested records were not included.",
   "records.filterHelp": "Filter syntax",
   "records.filterHelpText": "Plain words search the text fields. An expression filters exactly. Examples:",
   "records.filterOps": "Operators: = != > >= < <= ~ (contains) !~, joined by && and ||. Modifier :lower. Cmd/Ctrl+Enter applies.",

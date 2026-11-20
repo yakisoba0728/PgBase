@@ -64,6 +64,7 @@ type batchOperationInput struct {
 	Input              map[string]json.RawMessage `json:"input"`
 	IdempotencyKey     string                     `json:"idempotencyKey"`
 	IfMatch            string                     `json:"ifMatch"`
+	MatchFilter        string                     `json:"matchFilter"`
 	IdempotencyContext []byte                     `json:"-"`
 	SidecarFields      []string                   `json:"-"`
 }
@@ -307,6 +308,7 @@ type batchAttachmentBinding struct {
 	idempotencyKey     string
 	idempotencyContext []byte
 	ifMatch            recordops.EntityTagSet
+	matchFilter        string
 	sidecarFields      []string
 }
 
@@ -329,7 +331,7 @@ func batchAttachmentBindingFor(operation recordops.BatchOperation) batchAttachme
 		return batchAttachmentBinding{kind: "upsert", collection: operation.Upsert.Collection, id: operation.Upsert.ID, publicID: operation.Upsert.PublicID, idempotencyContext: append([]byte(nil), operation.Upsert.SidecarContext...), ifMatch: operation.Upsert.IfMatch, sidecarFields: append([]string(nil), operation.Upsert.SidecarFields...)}
 	}
 	if operation.Delete != nil {
-		return batchAttachmentBinding{kind: "delete", collection: operation.Delete.Collection, id: operation.Delete.ID, publicID: operation.Delete.PublicID, ifMatch: operation.Delete.IfMatch}
+		return batchAttachmentBinding{kind: "delete", collection: operation.Delete.Collection, id: operation.Delete.ID, publicID: operation.Delete.PublicID, ifMatch: operation.Delete.IfMatch, matchFilter: operation.Delete.MatchFilter}
 	}
 	return batchAttachmentBinding{}
 }
@@ -348,7 +350,7 @@ func (bindings batchAttachmentBindings) compatible(operations []recordops.BatchO
 }
 
 func sameBatchOperationBinding(left, right batchAttachmentBinding) bool {
-	return left.kind == right.kind && left.collection == right.collection && left.id == right.id && left.publicID == right.publicID && sameEntityTagSet(left.ifMatch, right.ifMatch) && sameStrings(left.sidecarFields, right.sidecarFields)
+	return left.kind == right.kind && left.collection == right.collection && left.id == right.id && left.publicID == right.publicID && left.matchFilter == right.matchFilter && sameEntityTagSet(left.ifMatch, right.ifMatch) && sameStrings(left.sidecarFields, right.sidecarFields)
 }
 
 func sameEntityTagSet(left, right recordops.EntityTagSet) bool {
@@ -547,6 +549,9 @@ func batchHeader(headers map[string]string, name string) string {
 }
 
 func batchOperation(input batchOperationInput) (recordops.BatchOperation, bool) {
+	if input.MatchFilter != "" && input.Operation != "delete" {
+		return recordops.BatchOperation{}, false
+	}
 	switch input.Operation {
 	case "create":
 		if input.ID != "" || input.IfMatch != "" {
@@ -569,7 +574,7 @@ func batchOperation(input batchOperationInput) (recordops.BatchOperation, bool) 
 			if input.Input != nil || input.IdempotencyKey != "" {
 				return recordops.BatchOperation{}, false
 			}
-			return recordops.BatchOperation{Delete: &recordops.DeleteRequest{Collection: input.Collection, PublicID: input.ID, IfMatch: ifMatch}}, true
+			return recordops.BatchOperation{Delete: &recordops.DeleteRequest{Collection: input.Collection, PublicID: input.ID, IfMatch: ifMatch, MatchFilter: input.MatchFilter}}, true
 		}
 		if input.IdempotencyKey != "" {
 			return recordops.BatchOperation{}, false

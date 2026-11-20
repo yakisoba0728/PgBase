@@ -633,7 +633,11 @@ final class PgBaseClient {
       final decoded = decodeExactJson(response.bytes);
       if (decoded is! JsonObject)
         throw const PgBaseProtocolError('invalid_record_response');
-      return RecordResult(record: decoded, etag: response.etag);
+      return RecordResult(
+        record: decoded,
+        etag: response.etag,
+        enrichmentFailed: response.headers['pgbase-enrichment'] == 'failed',
+      );
     } finally {
       effective.dispose();
     }

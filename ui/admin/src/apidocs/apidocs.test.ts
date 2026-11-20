@@ -47,6 +47,30 @@ describe("api reference", () => {
     );
   });
 
+  it("uses the public SDK route for guests and configures bearer authentication for users", () => {
+    const [guestList, , guestCreate] = buildEndpoints(notes, "guest");
+    const [userList] = buildEndpoints(notes, "user");
+    const origin = "https://example.test";
+    expect(codeSample("ts", guestList, notes, origin, "guest")).toContain('client.send("/api/v1/public/collections/notes/records?filter=');
+    expect(codeSample("dart", guestList, notes, origin, "guest")).toContain("'/api/v1/public/collections/notes/records'");
+    expect(codeSample("ts", guestCreate, notes, origin, "guest")).toContain('"Idempotency-Key": "create-0000000001"');
+    expect(codeSample("dart", guestCreate, notes, origin, "guest")).toContain("body: JsonObject(");
+    expect(codeSample("ts", userList, notes, origin, "user")).toContain('client.auth.save("<token>")');
+    expect(codeSample("dart", userList, notes, origin, "user")).toContain("await client.auth.save('<token>')");
+  });
+
+  it("computes upload headers and quotes the local file in the curl form", () => {
+    const upload = buildEndpoints(notes, "user").find((endpoint) => endpoint.id === "files-photo")!;
+    const sample = codeSample("curl", upload, notes, "https://example.test", "user");
+    expect(sample).toContain('size=$(wc -c < "$file") &&');
+    expect(sample).toContain('sha256=$(openssl dgst -sha256 -r < "$file") &&');
+    expect(sample).toContain('-H "X-PgBase-File-Size: $((size))"');
+    expect(sample).toContain('-H "X-PgBase-File-SHA256: ${sha256%% *}"');
+    expect(sample).toContain('--form "file=@\\\"${escaped_file%.}\\\""');
+    expect(sample).toContain('Authorization: Bearer $PGBASE_TOKEN');
+    expect(sample).not.toContain('<sha256 hex>');
+  });
+
   it("documents CRUD and batch for service tokens, and only reads for views", () => {
     const endpoints = buildEndpoints({ ...notes, type: "auth" }, "service", true);
     expect(endpoints.map((endpoint) => endpoint.id)).toEqual(["list", "view", "create", "update", "delete", "batch"]);

@@ -6,6 +6,10 @@
         "name": "__Host-pgbase_admin",
         "type": "apiKey"
       },
+      "metricsBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      },
       "serviceBearer": {
         "scheme": "bearer",
         "type": "http"
@@ -4134,7 +4138,11 @@
             "description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."
           }
         },
-        "security": []
+        "security": [
+          {
+            "metricsBearer": []
+          }
+        ]
       }
     }
   }

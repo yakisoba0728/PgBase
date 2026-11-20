@@ -20,6 +20,12 @@ await client.records('notes').updateWithEtag(
 );
 ```
 
+Use `createWithEtag` and `updateWithEtag` to check `enrichmentFailed`. If it is
+true, the write committed and `record` contains only `id`. Save the returned
+ETag and refetch that ID to recover the fields. The body-only `create` and
+`update` methods return the response body directly, including an ID-only body
+when enrichment fails.
+
 The default `AuthStore` is memory only. Supply an application-owned
 `AuthStorage` only when its implementation is appropriate for that platform
 (for example, a secure mobile key store). Login, MFA and OTP completion use an

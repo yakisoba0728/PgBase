@@ -7,6 +7,7 @@ export interface ManagedJob {
   timezone: string;
   enabled: boolean;
   registered: boolean;
+  settingsManaged?: boolean;
   running: boolean;
   nextRunAt: string;
   lastStartedAt?: string;

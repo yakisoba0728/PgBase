@@ -69,6 +69,7 @@ type requestLogContext struct {
 	clientIP, authKind, authID string
 	includeAuth                bool
 	skipSuccessActivityLog     bool
+	responseAborted            bool
 }
 
 // SkipSuccessActivityLog records a request-local opt-out that the access log
@@ -127,8 +128,15 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 func recoveryMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
-			if recover() == nil {
+			recovered := recover()
+			if recovered == nil {
 				return
+			}
+			if recovered == http.ErrAbortHandler {
+				if metadata, ok := r.Context().Value(requestLogContextKey{}).(*requestLogContext); ok {
+					metadata.responseAborted = true
+				}
+				panic(recovered)
 			}
 			id := w.Header().Get("X-Request-ID")
 			if id == "" {
@@ -282,40 +290,47 @@ func accessLogMiddleware(logger *slog.Logger, settings *runtimesettings.Controll
 		r = r.WithContext(context.WithValue(r.Context(), requestLogContextKey{}, metadata))
 		started := time.Now()
 		response := &statusWriter{ResponseWriter: w}
-		next.ServeHTTP(response, r)
-		status := response.status
-		if status == 0 {
-			status = http.StatusOK
-		}
-		succeeded := status >= http.StatusOK && status < http.StatusBadRequest
-		if metadata.skipSuccessActivityLog && succeeded {
-			return
-		}
-		for _, log := range logs {
-			// The process log still carries these; only the stored request
-			// log an operator browses leaves them out.
-			if succeeded && routineRequest(r.Method, requestRoute(r)) {
-				break
+		defer func() {
+			status := response.status
+			if metadata.responseAborted {
+				status = http.StatusInternalServerError
+			} else if status == 0 {
+				status = http.StatusOK
 			}
-			log.RecordContext(r.Method, requestRoute(r), status, time.Since(started), metadata.clientIP, metadata.authKind, metadata.authID)
-		}
-		attrs := []any{"request_id", requestID(r.Context()), "method", r.Method, "route", requestRoute(r), "status", status, "duration_ms", time.Since(started).Milliseconds()}
-		if metadata.clientIP != "" {
-			attrs = append(attrs, "client_ip", metadata.clientIP)
-		}
-		if metadata.authID != "" {
-			attrs = append(attrs, "auth_kind", metadata.authKind, "auth_id", metadata.authID)
-		}
-		switch configured.Level {
-		case "debug":
-			logger.Debug("http request", attrs...)
-		case "warn":
-			logger.Warn("http request", attrs...)
-		case "error":
-			logger.Error("http request", attrs...)
-		default:
-			logger.Info("http request", attrs...)
-		}
+			succeeded := status >= http.StatusOK && status < http.StatusBadRequest
+			if metadata.skipSuccessActivityLog && succeeded {
+				return
+			}
+			for _, log := range logs {
+				// The process log still carries these; only the stored request
+				// log an operator browses leaves them out.
+				if succeeded && routineRequest(r.Method, requestRoute(r)) {
+					break
+				}
+				log.RecordContext(r.Method, requestRoute(r), status, time.Since(started), metadata.clientIP, metadata.authKind, metadata.authID)
+			}
+			attrs := []any{"request_id", requestID(r.Context()), "method", r.Method, "route", requestRoute(r), "status", status, "duration_ms", time.Since(started).Milliseconds()}
+			if metadata.clientIP != "" {
+				attrs = append(attrs, "client_ip", metadata.clientIP)
+			}
+			if metadata.authID != "" {
+				attrs = append(attrs, "auth_kind", metadata.authKind, "auth_id", metadata.authID)
+			}
+			if metadata.responseAborted {
+				attrs = append(attrs, "response_aborted", true)
+			}
+			switch configured.Level {
+			case "debug":
+				logger.Debug("http request", attrs...)
+			case "warn":
+				logger.Warn("http request", attrs...)
+			case "error":
+				logger.Error("http request", attrs...)
+			default:
+				logger.Info("http request", attrs...)
+			}
+		}()
+		next.ServeHTTP(response, r)
 	})
 }
 

@@ -391,10 +391,18 @@ func (m *Metrics) WrapHTTP(mux *http.ServeMux, next http.Handler) http.Handler {
 		m.httpInFlight.WithLabelValues(method, route).Inc()
 		captured := &statusResponseWriter{ResponseWriter: response}
 		defer func() {
+			recovered := recover()
 			m.httpInFlight.WithLabelValues(method, route).Dec()
-			status := boundedHTTPStatus(captured.statusCode())
+			code := captured.statusCode()
+			if recovered != nil {
+				code = http.StatusInternalServerError
+			}
+			status := boundedHTTPStatus(code)
 			m.httpRequests.WithLabelValues(method, route, status).Inc()
 			m.httpDuration.WithLabelValues(method, route, status).Observe(time.Since(started).Seconds())
+			if recovered != nil {
+				panic(recovered)
+			}
 		}()
 		next.ServeHTTP(captured, request)
 	})

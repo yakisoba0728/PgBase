@@ -5,13 +5,16 @@ import { AuthStore } from "./auth-store.js";
 import { RealtimeService } from "./realtime.js";
 import { PgBaseError, MFAChallengeError } from "./types.js";
 import type { AuthCreationOptions } from "./types.js";
-import type { User, UserSession, GeoPoint, RecordData, FilterParams, RecordPage, PocketBaseListOptions, PocketBasePage, RecordModifiers, RecordMutation, RecordResult, RecordJSONResult, Query, RecordGetOptions, RecordWriteOptions, BatchOptions, RecordEvent, EventOptions, RealtimeSubscriptionOptions, RealtimeEvent, RealtimeCustomEvent, RealtimeSubscriptionEvent, RequestOptions, OAuthLaunchOptions, OAuthBrowserAdapter, BatchOperation, BatchUpsertOperation, BatchResult, BatchHTTPRequest, BatchHTTPResult, BatchFilePart, FileInfo, MFAChallenge, AuthMethods, OAuthStart } from "./types.js";
+import type { User, UserSession, GeoPoint, RecordData, FilterParams, RecordPage, PocketBaseListOptions, PocketBasePage, RecordModifiers, RecordMutation, RecordResult, RecordMutationResult, RecordJSONResult, Query, RecordGetOptions, RecordWriteOptions, BatchOptions, RecordEvent, EventOptions, RealtimeSubscriptionOptions, RealtimeEvent, RealtimeCustomEvent, RealtimeSubscriptionEvent, RequestOptions, OAuthLaunchOptions, OAuthBrowserAdapter, BatchOperation, BatchUpsertOperation, BatchResult, BatchHTTPRequest, BatchHTTPResult, BatchFilePart, FileInfo, MFAChallenge, AuthMethods, OAuthStart } from "./types.js";
 import { parseEventStream, canonicalDeliveryCursor, deliveryCursor, recordEvent, waitForReconnect } from "./sse.js";
 
 export * from "./admin.js";
 import { responseJSON } from "./response.js";
 export { browserAuthStorage } from "./state-storage.js";
 export type { AuthState, AuthStateStorage } from "./state-storage.js";
+
+type ResponseWithMetadata<T> = { body: T; etag?: string; enrichmentFailed?: true };
+
 export class PgBaseClient {
   readonly auth: AuthStore;
   readonly realtime: RealtimeService;
@@ -277,16 +280,16 @@ export class PgBaseClient {
       (response) => responseJSON(response, () => { throw new PgBaseError(response.status, "invalid_response_body"); }))).body as T);
   }
 
-  async _response<T>(path: string, init: RequestInit = {}, signal?: AbortSignal, requestKey?: string | null): Promise<{ body: T; etag?: string }> {
+  async _response<T>(path: string, init: RequestInit = {}, signal?: AbortSignal, requestKey?: string | null): Promise<ResponseWithMetadata<T>> {
     return this.readResponse(path, init, signal, requestKey,
       async (response) => await responseJSON(response, () => { throw new PgBaseError(response.status, "invalid_response_body"); }) as T);
   }
 
-  async _responseText(path: string, init: RequestInit = {}, signal?: AbortSignal, requestKey?: string | null): Promise<{ body: string; etag?: string }> {
+  async _responseText(path: string, init: RequestInit = {}, signal?: AbortSignal, requestKey?: string | null): Promise<ResponseWithMetadata<string>> {
     return this.readResponse(path, init, signal, requestKey, (response) => response.text());
   }
 
-  private async readResponse<T>(path: string, init: RequestInit, signal: AbortSignal | undefined, requestKey: string | null | undefined, read: (response: Response) => Promise<T>): Promise<{ body: T; etag?: string }> {
+  private async readResponse<T>(path: string, init: RequestInit, signal: AbortSignal | undefined, requestKey: string | null | undefined, read: (response: Response) => Promise<T>): Promise<ResponseWithMetadata<T>> {
     const generation = this.auth.generation;
     const method = (init.method ?? "GET").toUpperCase();
     const key = requestKey === undefined && (method === "GET" || method === "HEAD") ? `${method} ${path}` : requestKey;
@@ -299,7 +302,9 @@ export class PgBaseClient {
       assertAuthGeneration(this.auth, generation);
       const body = await read(response);
       assertAuthGeneration(this.auth, generation);
-      return { body, etag: response.headers.get("ETag") ?? undefined };
+      const result: ResponseWithMetadata<T> = { body, etag: response.headers.get("ETag") ?? undefined };
+      if (response.headers.get("PgBase-Enrichment") === "failed") result.enrichmentFailed = true;
+      return result;
     } catch (error) {
       assertAuthGeneration(this.auth, generation);
       throw error;
@@ -587,13 +592,14 @@ export class Records<T extends RecordData> {
     return this.recordJSONResponse(this.path(id, options), {}, requestSignal, options?.requestKey);
   }
 
+  /** Returns the response body. Use createWithETag to detect an ID-only committed write. */
   create(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
-    return inAuthScope(this.client.auth, async () => (await this.createWithETag(data, idempotencyKey, options, signal)).record);
+    return inAuthScope(this.client.auth, async () => (await this.createWithETag(data, idempotencyKey, options, signal)).record as T);
   }
 
-  createWithETag(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>> {
+  createWithETag(data: RecordMutation<T>, idempotencyKey: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordMutationResult<T>> {
     const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
-    return this.recordResponse(this.path(undefined, query), {
+    return this.mutationResponse(this.path(undefined, query), {
       method: "POST",
       headers: { "Idempotency-Key": idempotencyKey },
       body: JSON.stringify(data),
@@ -610,13 +616,14 @@ export class Records<T extends RecordData> {
     }, requestSignal, query?.requestKey);
   }
 
+  /** Returns the response body. Use updateWithETag to detect an ID-only committed write. */
   update(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T> {
-    return inAuthScope(this.client.auth, async () => (await this.updateWithETag(id, data, etag, options, signal)).record);
+    return inAuthScope(this.client.auth, async () => (await this.updateWithETag(id, data, etag, options, signal)).record as T);
   }
 
-  updateWithETag(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordResult<T>> {
+  updateWithETag(id: string, data: Partial<T> & RecordModifiers, etag: string, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<RecordMutationResult<T>> {
     const [query, requestSignal] = recordGetArguments(options as RecordGetOptions | AbortSignal | undefined, signal);
-    return this.recordResponse(this.path(id, query), {
+    return this.mutationResponse(this.path(id, query), {
       method: "PATCH",
       headers: { "If-Match": etag },
       body: JSON.stringify(data),
@@ -744,10 +751,21 @@ export class Records<T extends RecordData> {
     });
   }
 
+  private mutationResponse(path: string, init: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<RecordMutationResult<T>> {
+    return inAuthScope(this.client.auth, async () => {
+      const { body, etag, enrichmentFailed } = await this.client._response<T | { id: string }>(path, init, signal, requestKey);
+      return enrichmentFailed
+        ? { record: body as { id: string }, etag, enrichmentFailed }
+        : { record: body as T, etag };
+    });
+  }
+
   private recordJSONResponse(path: string, init: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<RecordJSONResult> {
     return inAuthScope(this.client.auth, async () => {
       const response = await this.client._responseText(path, init, signal, requestKey);
-      return { recordJSON: response.body, etag: response.etag };
+      const result: RecordJSONResult = { recordJSON: response.body, etag: response.etag };
+      if (response.enrichmentFailed) result.enrichmentFailed = true;
+      return result;
     });
   }
 }

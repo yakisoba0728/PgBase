@@ -13,6 +13,7 @@ func loadFiles(lookup func(string) (string, bool), options *pgbase.Options) erro
 	driver, _ := value(lookup, "PGBASE_FILES_DRIVER")
 	files := pgbase.FileOptions{Driver: driver}
 	files.LocalDirectory, _ = value(lookup, "PGBASE_FILES_LOCAL_DIRECTORY")
+	files.MigrationScratchDirectory, _ = value(lookup, "PGBASE_FILES_MIGRATION_SCRATCH_DIRECTORY")
 	files.S3Bucket, _ = value(lookup, "PGBASE_FILES_S3_BUCKET")
 	files.S3Region, _ = value(lookup, "PGBASE_FILES_S3_REGION")
 	files.S3Endpoint, _ = value(lookup, "PGBASE_FILES_S3_ENDPOINT")

@@ -36,6 +36,52 @@ func TestBackupGateExcludesWritersAndOtherBackupOperations(t *testing.T) {
 	}
 }
 
+func TestManagedRestoreActivationExcludesExistingAndStartingApplications(t *testing.T) {
+	ctx := t.Context()
+	databaseURL := testutil.NewDatabase(t)
+	openGate := func() *BackupGate {
+		t.Helper()
+		gate, err := TryBackupGate(ctx, databaseURL, false, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = gate.Close(context.Background()) })
+		return gate
+	}
+	app, peer := openGate(), openGate()
+	if err := app.AdmitApplication(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := peer.AdmitApplication(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.BeginRestoreActivation(ctx); !errors.Is(err, ErrBackupGateBusy) {
+		t.Fatalf("activation with peer = %v", err)
+	}
+	if err := peer.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(25 * time.Millisecond) {
+		err := app.BeginRestoreActivation(ctx)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, ErrBackupGateBusy) || time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+	}
+	newApp := openGate()
+	if err := newApp.AdmitApplication(ctx); !errors.Is(err, ErrBackupGateBusy) {
+		t.Fatalf("startup during activation = %v", err)
+	}
+	if err := app.CancelRestoreActivation(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := newApp.AdmitApplication(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDatabasePoolConnectionsParticipateInBackupGate(t *testing.T) {
 	ctx := context.Background()
 	databaseURL := testutil.NewDatabase(t)

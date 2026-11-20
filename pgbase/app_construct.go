@@ -84,6 +84,9 @@ func newWithCatalogPreflight(
 		return nil, fmt.Errorf("acquire PostgreSQL writer gate: %w", err)
 	}
 	app.backupGate = gate
+	if err := gate.AdmitApplication(ctx); err != nil {
+		return nil, fmt.Errorf("acquire PostgreSQL application admission: %w", err)
+	}
 	pool, err := database.Open(ctx, normalized.DatabaseURL, normalized.StatementTimeout, normalized.AllowInsecureDatabase)
 	if err != nil {
 		return nil, fmt.Errorf("open PostgreSQL pool: %w", err)

@@ -355,7 +355,7 @@ func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {
 		writeCommittedRecordFallback(w, http.StatusCreated, createdID)
 		return
 	}
-	writeJSON(w, http.StatusCreated, projection.Apply(result.Record.Data))
+	writeCommittedRecordJSON(w, http.StatusCreated, createdID, projection.Apply(result.Record.Data))
 }
 
 func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
@@ -417,7 +417,18 @@ func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
 		writeCommittedRecordFallback(w, http.StatusOK, id)
 		return
 	}
-	writeJSON(w, http.StatusOK, projection.Apply(result.Record.Data))
+	writeCommittedRecordJSON(w, http.StatusOK, id, projection.Apply(result.Record.Data))
+}
+
+func writeCommittedRecordJSON(w http.ResponseWriter, status int, id string, projected any) {
+	body, err := json.Marshal(projected)
+	if err != nil || len(body)+1 > maximumRecordPageResponseBytes {
+		writeCommittedRecordFallback(w, status, id)
+		return
+	}
+	writeJSONHeader(w, status)
+	_, _ = w.Write(body)
+	_, _ = w.Write([]byte{'\n'})
 }
 
 func writeCommittedRecordFallback(w http.ResponseWriter, status int, id string) {
@@ -455,6 +466,11 @@ func compileMutationProjection(w http.ResponseWriter, r *http.Request) (query.Pr
 }
 
 func (e recordEndpoints) delete(w http.ResponseWriter, r *http.Request) {
+	values, err := neturl.ParseQuery(r.URL.RawQuery)
+	if err != nil || duplicateSingleton(values, "matchFilter") {
+		writeInvalidRecordRequest(w, r)
+		return
+	}
 	id, ok := recordID(w, r)
 	if !ok {
 		return
@@ -484,7 +500,8 @@ func (e recordEndpoints) delete(w http.ResponseWriter, r *http.Request) {
 	var result recordops.MutationResult
 	err = finishLifecycle(finish, func() error {
 		result, err = e.service.Delete(r.Context(), recordops.DeleteRequest{
-			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), PublicID: id, IfMatch: ifMatch, RuleContext: ruleRequestContext(r),
+			Principal: principal, RequestID: requestID(r.Context()), Collection: r.PathValue("collection"), PublicID: id, IfMatch: ifMatch,
+			MatchFilter: values.Get("matchFilter"), RuleContext: ruleRequestContext(r),
 		})
 		event.Result = cloneMutationResult(result)
 		return err

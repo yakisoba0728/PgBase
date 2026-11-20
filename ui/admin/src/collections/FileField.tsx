@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RiCloseLine, RiDeleteBinLine, RiUploadLine } from "@remixicon/react";
 import type { CollectionField } from "../api/collections";
 import { deleteFile, getRecord, replaceRecordFiles, uploadRecordFile, type StoredFile } from "../api/records";
-import { captureSessionScope } from "../api/http";
+import { ApiError, captureSessionScope } from "../api/http";
 import { errorText } from "../app/queries";
 import { FileButton, IconButton } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
@@ -52,11 +52,12 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
   const [removing, setRemoving] = useState<StoredFile | null>(null);
   const [previewing, setPreviewing] = useState<StoredFile | null>(null);
   const [uploads, setUploads] = useState<{ name: string; progress: number }[]>([]);
+  const picker = useRef<{ replaceId?: string } | null>(null);
   const files = useQuery({ ...recordFilesQuery(collection, recordId ?? "", field.name), enabled: recordId !== null });
   const preview = useQuery({ ...fileUrlQuery(previewing ?? ({} as StoredFile), "original"), enabled: previewing !== null });
   const max = field.options?.maxSelect ?? 1;
   const current = recordId === null ? staged.length : (files.data?.length ?? 0);
-  const replacing = recordId !== null && max === 1 && current === 1;
+  const replacement = recordId !== null && max === 1 && current === 1 ? files.data?.[0] : undefined;
   const refresh = () => {
     // File writes can change the record's ETag; the form reloads it (keeping edits) so its next save is not refused with 412.
     onRecordChanged?.();
@@ -64,10 +65,13 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
   };
 
   const upload = useMutation({
-    mutationFn: async ({ list, scope }: { list: File[]; scope: ReturnType<typeof captureSessionScope> }) => {
-      if (replacing) {
+    mutationFn: async ({ list, scope, replaceId }: { list: File[]; scope: ReturnType<typeof captureSessionScope>; replaceId?: string }) => {
+      if (replaceId) {
         const latest = await scope.run(() => getRecord(collection, recordId!));
-        await scope.run(() => replaceRecordFiles(collection, recordId!, latest.etag, field.name, list));
+        if (!latest.etag) {
+          throw new ApiError(412, "precondition_failed", "The record has no revision to match");
+        }
+        await scope.run(() => replaceRecordFiles(collection, recordId!, latest.etag, field.name, list[0], replaceId));
         return;
       }
       setUploads(list.map((file) => ({ name: file.name, progress: 0 })));
@@ -98,11 +102,13 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
   });
 
   const onPick = (picked: File[]) => {
-    const { ok, problem } = checkPicked(t, field, picked, replacing ? 1 : max - current);
+    const replaceId = picker.current ? picker.current.replaceId : replacement?.id;
+    picker.current = null;
+    const { ok, problem } = checkPicked(t, field, picked, replaceId ? 1 : max - current);
     if (problem) toast(problem, "danger");
     if (!ok.length) return;
     if (recordId === null) onStage([...staged, ...ok]);
-    else upload.mutate({ list: ok, scope: captureSessionScope() });
+    else upload.mutate({ list: ok, scope: captureSessionScope(), replaceId });
   };
   // The server keeps a required field from losing its last file.
   const lastRequired = field.required && current <= 1;
@@ -147,10 +153,11 @@ export function FileField({ collection, recordId, field, readOnly, staged, onSta
           ))}
           {recordId !== null && files.data?.length === 0 && !uploads.length && <li className="txt-hint">{t("records.noFiles")}</li>}
           {files.isError && <li className="txt-danger">{errorText(t, files.error)}</li>}
-          {!readOnly && (current < max || replacing) && !upload.isPending && (
+          {!readOnly && (current < max || replacement) && !upload.isPending && (
             <li>
-              <FileButton look="link" icon={RiUploadLine} multiple={max - current > 1} accept={field.options?.mimeTypes?.join(",")} onFiles={onPick}>
-                {replacing ? t("file.replace") : recordId === null ? t("file.choose") : t("records.upload")}
+              <FileButton look="link" icon={RiUploadLine} multiple={max - current > 1} accept={field.options?.mimeTypes?.join(",")}
+                onClick={() => { picker.current = { replaceId: replacement?.id }; }} onFiles={onPick}>
+                {replacement ? t("file.replace") : recordId === null ? t("file.choose") : t("records.upload")}
               </FileButton>
               {field.options?.maxFileSize ? <span className="txt-hint">{t("file.maxSize", { max: formatBytes(field.options.maxFileSize) })}</span> : null}
             </li>

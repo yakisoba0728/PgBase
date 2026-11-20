@@ -226,13 +226,19 @@ func (r *Runtime) Invoke(ctx context.Context, invocation Invocation) (output jso
 	if r == nil {
 		return nil, &Error{Code: CodeRuntimeClosed}
 	}
-	if closer, ok := invocation.Host.(interface{ Close() error }); ok {
-		defer func() {
+	admitted := false
+	defer func() {
+		// The runtime must stay active until the host releases its resources.
+		if admitted {
+			defer r.active.Done()
+			<-r.slots
+		}
+		if closer, ok := invocation.Host.(interface{ Close() error }); ok {
 			if closeErr := closer.Close(); closeErr != nil {
 				err = errors.Join(err, closeErr)
 			}
-		}()
-	}
+		}
+	}()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -244,11 +250,10 @@ func (r *Runtime) Invoke(ctx context.Context, invocation Invocation) (output jso
 		chain = &executionChain{runtime: r, depth: chain.depth + 1, hostCalls: chain.hostCalls}
 		ctx = context.WithValue(ctx, executionChainKey{}, chain)
 	} else {
-		release, err := r.acquire(ctx)
-		if err != nil {
+		if err := r.acquire(ctx); err != nil {
 			return nil, err
 		}
-		defer release()
+		admitted = true
 		chain = &executionChain{runtime: r, hostCalls: &atomic.Int64{}}
 		ctx = context.WithValue(ctx, executionChainKey{}, chain)
 	}
@@ -301,22 +306,22 @@ func (r *Runtime) Close(ctx context.Context) error {
 	}
 }
 
-func (r *Runtime) acquire(ctx context.Context) (func(), error) {
+func (r *Runtime) acquire(ctx context.Context) error {
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
-		return nil, &Error{Code: CodeRuntimeClosed}
+		return &Error{Code: CodeRuntimeClosed}
 	}
 	select {
 	case r.slots <- struct{}{}:
 		r.active.Add(1)
 		r.mu.Unlock()
-		return r.release, nil
+		return nil
 	default:
 	}
 	if r.waiting >= r.limits.Queue {
 		r.mu.Unlock()
-		return nil, &Error{Code: CodeBusy}
+		return &Error{Code: CodeBusy}
 	}
 	r.waiting++
 	r.mu.Unlock()
@@ -342,15 +347,7 @@ func (r *Runtime) acquire(ctx context.Context) (func(), error) {
 		r.active.Add(1)
 	}
 	r.mu.Unlock()
-	if acquireErr != nil {
-		return nil, acquireErr
-	}
-	return r.release, nil
-}
-
-func (r *Runtime) release() {
-	<-r.slots
-	r.active.Done()
+	return acquireErr
 }
 
 // newVM applies the same bindings and limits during validation, bootstrap and execution.

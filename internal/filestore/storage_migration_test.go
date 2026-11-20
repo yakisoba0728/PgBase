@@ -3,7 +3,10 @@ package filestore
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 )
@@ -44,7 +47,7 @@ func (s *migrationMemoryStore) Delete(_ context.Context, key string) error {
 func TestCopyVerifiedPreservesConflictingDestinationObject(t *testing.T) {
 	source := &migrationMemoryStore{values: map[string][]byte{"objects/key": []byte("source")}}
 	destination := &migrationMemoryStore{values: map[string][]byte{"objects/key": []byte("destination")}}
-	if _, _, _, err := copyVerifiedWithIntent(context.Background(), source, destination, "objects/key", nil); err != ErrStorageConflict {
+	if _, _, _, err := copyVerifiedWithIntent(context.Background(), source, destination, "objects/key", "", nil); err != ErrStorageConflict {
 		t.Fatalf("copy error=%v", err)
 	}
 	reader, err := destination.Open(context.Background(), "objects/key")
@@ -61,9 +64,31 @@ func TestCopyVerifiedPreservesConflictingDestinationObject(t *testing.T) {
 func TestCopyVerifiedReusesIdenticalDestinationObject(t *testing.T) {
 	source := &migrationMemoryStore{values: map[string][]byte{"objects/key": []byte("same")}}
 	destination := &migrationMemoryStore{values: map[string][]byte{"objects/key": []byte("same")}}
-	size, _, _, err := copyVerifiedWithIntent(context.Background(), source, destination, "objects/key", nil)
+	size, _, _, err := copyVerifiedWithIntent(context.Background(), source, destination, "objects/key", "", nil)
 	if err != nil || size != 4 {
 		t.Fatalf("size=%d err=%v", size, err)
+	}
+}
+
+func TestCopyVerifiedUsesConfiguredScratchForLargeObject(t *testing.T) {
+	scratch := t.TempDir()
+	missing := filepath.Join(scratch, "unavailable-system-temp")
+	t.Setenv("TMPDIR", missing)
+	t.Setenv("TMP", missing)
+	t.Setenv("TEMP", missing)
+
+	const key = "objects/key"
+	payload := bytes.Repeat([]byte("a"), 17<<20)
+	source := &migrationMemoryStore{values: map[string][]byte{key: payload}}
+	destination := &migrationMemoryStore{values: make(map[string][]byte)}
+	size, digest, created, err := copyVerifiedWithIntent(t.Context(), source, destination, key, scratch, nil)
+	want := sha256.Sum256(payload)
+	if err != nil || size != int64(len(payload)) || !bytes.Equal(digest, want[:]) || !created {
+		t.Fatalf("size=%d digest=%x created=%v err=%v", size, digest, created, err)
+	}
+	files, err := os.ReadDir(scratch)
+	if err != nil || len(files) != 0 {
+		t.Fatalf("scratch files=%v err=%v", files, err)
 	}
 }
 
@@ -105,6 +130,27 @@ func TestStorageNamespacesMayOverlap(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := storageNamespacesMayOverlap(source, test.peer); got != test.want {
+				t.Fatalf("storageNamespacesMayOverlap = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestLocalStorageNamespacesMayOverlap(t *testing.T) {
+	root := t.TempDir()
+	source := storageSnapshot{Driver: "local", LocalDirectory: root}
+	for _, test := range []struct {
+		name string
+		path string
+		want bool
+	}{
+		{"legacy path alias", root + string(filepath.Separator) + ".", true},
+		{"distinct directory", t.TempDir(), false},
+		{"unknown directory identity", filepath.Join(root, "not-mounted"), true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			peer := storageSnapshot{Driver: "local", LocalDirectory: test.path}
+			if got := storageNamespacesMayOverlap(source, peer); got != test.want {
 				t.Fatalf("storageNamespacesMayOverlap = %v, want %v", got, test.want)
 			}
 		})

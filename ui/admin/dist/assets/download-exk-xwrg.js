@@ -1,0 +1,1 @@
+import{ar as e}from"./Feedback-DslDUGZB.js";function t(t,r){n(t,new Blob([e(r,null,2)??`null`],{type:`application/json`}))}function n(e,t){let n=URL.createObjectURL(t),r=document.createElement(`a`);r.href=n,r.download=e,r.click(),setTimeout(()=>URL.revokeObjectURL(n),3e4)}export{t as n,n as t};

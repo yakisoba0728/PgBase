@@ -247,10 +247,7 @@ func backupRoutes(manager ManagedBackups) []route {
 		}
 		w.Header().Set("Content-Type", "application/gzip")
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="pgbase-%s.tar.gz"`, id))
-		_, copyErr := io.Copy(w, contextBackupReader{ctx: r.Context(), reader: file})
-		if errors.Join(copyErr, file.Close()) != nil {
-			return
-		}
+		writeDownload(w, contextBackupReader{ctx: r.Context(), ReadCloser: file})
 	})
 	remove := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := manager.Delete(r.Context(), r.PathValue("id")); err != nil {
@@ -298,15 +295,15 @@ func backupRoutes(manager ManagedBackups) []route {
 }
 
 type contextBackupReader struct {
-	ctx    context.Context
-	reader io.Reader
+	ctx context.Context
+	io.ReadCloser
 }
 
 func (r contextBackupReader) Read(buffer []byte) (int, error) {
 	if err := r.ctx.Err(); err != nil {
 		return 0, err
 	}
-	return r.reader.Read(buffer)
+	return r.ReadCloser.Read(buffer)
 }
 
 func writeBackupError(w http.ResponseWriter, r *http.Request, err error) {

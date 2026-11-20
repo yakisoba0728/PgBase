@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 var ErrBusy = errors.New("another backup operation is running")
@@ -67,16 +68,20 @@ type Lifecycle interface {
 // a time. Job receipts survive database restore and process restart. Callbacks
 // receive verified directories, never user-selected paths or database URLs.
 type Manager struct {
-	options             ManagerOptions
-	mu                  sync.Mutex
-	busy                bool
-	drained             chan struct{}
-	closed              bool
-	jobs                map[string]Job
-	cancel              context.CancelFunc
-	ctx                 context.Context
-	retentionOverride   atomic.Int64
-	retentionConfigured atomic.Bool
+	options   ManagerOptions
+	mu        sync.Mutex
+	busy      bool
+	drained   chan struct{}
+	closed    bool
+	jobs      map[string]Job
+	cancel    context.CancelFunc
+	ctx       context.Context
+	retention atomic.Pointer[backupRetention]
+}
+
+type backupRetention struct {
+	keep int
+	pin  func(context.Context, pgx.Tx) (bool, error)
 }
 
 func NewManager(options ManagerOptions) (*Manager, error) {
@@ -125,7 +130,10 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 		if job.Status == "running" {
 			job.Status = "failed"
 			job.Phase = "interrupted"
-			job.Error = "The process stopped before completion. Inspect the active target before retrying restore."
+			job.Error = "The process stopped before completion."
+			if job.Operation == "restore" {
+				job.Error += " Inspect the active target before retrying restore."
+			}
 			job.UpdatedAt = time.Now().UTC()
 			if err = m.persistJob(job); err != nil {
 				cancel()
@@ -216,15 +224,26 @@ func (m *Manager) release() {
 	m.mu.Unlock()
 }
 func (m *Manager) Create(ctx context.Context) (Job, error) {
-	return m.start(ctx, "create", uuid.NewString(), false)
+	return m.startGuarded(ctx, "create", uuid.NewString(), nil)
 }
 
-// CreateManaged starts the built-in scheduler's backup operation. The marker
-// lets operators alert on failed scheduled protection without alerting for a
-// manually requested backup.
-func (m *Manager) CreateManaged(ctx context.Context) (Job, error) {
-	return m.start(ctx, "create", uuid.NewString(), true)
+// RunScheduled waits for the archive's publication so the durable scheduler
+// can retry an interrupted run. Every attempt shares the same archive ID.
+func (m *Manager) RunScheduled(ctx context.Context, id string) error {
+	if !validID(id) {
+		return ErrNotFound
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(m.ctx, cancel)
+	defer stop()
+	job, event, finish, err := m.begin(ctx, "create", id, true)
+	if err != nil {
+		return err
+	}
+	return m.execute(ctx, job, event, finish)
 }
+
 func (m *Manager) Restore(ctx context.Context, id string) (Job, error) {
 	return m.restore(ctx, id, nil)
 }
@@ -243,14 +262,25 @@ func (m *Manager) restore(ctx context.Context, id string, release func()) (Job, 
 	if _, err := m.options.Repository.Get(ctx, id); err != nil {
 		return Job{}, ErrNotFound
 	}
-	return m.startGuarded(ctx, "restore", id, release, false)
+	return m.startGuarded(ctx, "restore", id, release)
 }
-func (m *Manager) start(ctx context.Context, operation, id string, managed bool) (Job, error) {
-	return m.startGuarded(ctx, operation, id, nil, managed)
-}
-func (m *Manager) startGuarded(ctx context.Context, operation, id string, release func(), managed bool) (Job, error) {
-	if err := ctx.Err(); err != nil {
+func (m *Manager) startGuarded(ctx context.Context, operation, id string, release func()) (Job, error) {
+	job, event, finish, err := m.begin(ctx, operation, id, false)
+	if err != nil {
 		return Job{}, err
+	}
+	go func() {
+		if release != nil {
+			defer release()
+		}
+		_ = m.execute(m.ctx, job, event, finish)
+	}()
+	return job, nil
+}
+
+func (m *Manager) begin(ctx context.Context, operation, id string, managed bool) (Job, *LifecycleEvent, func(error), error) {
+	if err := ctx.Err(); err != nil {
+		return Job{}, nil, nil, err
 	}
 	event := &LifecycleEvent{Operation: operation, BackupID: id}
 	finish := func(error) {}
@@ -259,34 +289,28 @@ func (m *Manager) startGuarded(ctx context.Context, operation, id string, releas
 		finish, err = m.options.Lifecycle.BeginBackupOperation(ctx, event)
 		if err != nil {
 			finish(err)
-			return Job{}, err
+			return Job{}, nil, nil, err
 		}
 	}
 	if err := m.reserve(); err != nil {
 		finish(err)
-		return Job{}, err
+		return Job{}, nil, nil, err
 	}
 	now := time.Now().UTC()
 	job := Job{ID: uuid.NewString(), Operation: operation, BackupID: id, Status: "running", Phase: operation, CreatedAt: now, UpdatedAt: now, Managed: managed}
 	if err := m.persistJob(job); err != nil {
 		m.release()
 		finish(err)
-		return Job{}, err
+		return Job{}, nil, nil, err
 	}
 	m.mu.Lock()
 	m.jobs[job.ID] = job
 	m.mu.Unlock()
-	go func() {
-		if release != nil {
-			defer release()
-		}
-		m.execute(job, event, finish)
-	}()
-	return job, nil
+	return job, event, finish, nil
 }
-func (m *Manager) execute(job Job, event *LifecycleEvent, finish func(error)) {
+func (m *Manager) execute(parent context.Context, job Job, event *LifecycleEvent, finish func(error)) error {
 	defer m.release()
-	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, 30*time.Minute)
 	defer cancel()
 	ctx = m.progressContext(ctx, job.ID)
 	err := m.executeOperation(ctx, job)
@@ -312,9 +336,12 @@ func (m *Manager) execute(job Job, event *LifecycleEvent, finish func(error)) {
 	}
 	event.Job = job
 	if job.Managed && job.Status == "failed" && m.options.OnFailure != nil {
-		m.options.OnFailure(context.WithoutCancel(ctx), job)
+		notifyCtx, stopNotification := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		m.options.OnFailure(notifyCtx, job)
+		stopNotification()
 	}
 	finish(err)
+	return err
 }
 func (m *Manager) executeOperation(ctx context.Context, job Job) error {
 	temp, err := os.MkdirTemp(m.options.Directory, ".job-")
@@ -324,6 +351,15 @@ func (m *Manager) executeOperation(ctx context.Context, job Job) error {
 	defer func() { _ = os.RemoveAll(temp) }()
 	directory := filepath.Join(temp, "backup")
 	if job.Operation == "create" {
+		if job.Managed {
+			published, err := m.resumeScheduledPublication(ctx, job.BackupID, directory)
+			if err != nil {
+				return err
+			}
+			if published {
+				return m.prune(ctx, job.BackupID)
+			}
+		}
 		if err = m.options.Create(ctx, directory); err != nil {
 			return err
 		}
@@ -391,19 +427,41 @@ func (m *Manager) publish(ctx context.Context, directory, id string) (Entry, err
 }
 
 func (m *Manager) prune(ctx context.Context, currentID string) error {
+	repository := m.options.Repository
 	retention := m.options.Retention
-	if m.retentionConfigured.Load() {
-		retention = int(m.retentionOverride.Load())
+	storage, _ := repository.(*StorageController)
+	var storageRevision int64
+	if storage != nil {
+		settings, err := storage.Settings(ctx)
+		if err != nil {
+			return err
+		}
+		retention = settings.Retention
+		storageRevision = settings.Revision
 	}
-	if provider, ok := m.options.Repository.(interface{ Retention() int }); ok {
-		if !m.retentionConfigured.Load() {
-			retention = provider.Retention()
+	var pinRuntimeSettings func(context.Context, pgx.Tx) (bool, error)
+	if override := m.retention.Load(); override != nil {
+		pinRuntimeSettings = override.pin
+		if override.keep > 0 {
+			retention = override.keep
 		}
 	}
 	if retention <= 0 {
 		return nil
 	}
-	entries, err := m.options.Repository.List(ctx)
+	removeEntry := repository.Delete
+	if storage != nil {
+		// Overlapping passes could delete each other's protected archive.
+		release, err := storage.tryBeginPrune(ctx)
+		if err != nil || release == nil {
+			return err
+		}
+		defer release()
+		removeEntry = func(ctx context.Context, id string) error {
+			return storage.deleteForRetention(ctx, id, storageRevision, pinRuntimeSettings)
+		}
+	}
+	entries, err := repository.List(ctx)
 	if err != nil {
 		return err
 	}
@@ -416,23 +474,23 @@ func (m *Manager) prune(ctx context.Context, currentID string) error {
 		if entry.ID == currentID {
 			continue
 		}
-		if err := m.options.Repository.Delete(ctx, entry.ID); err != nil {
-			return err
+		if err := removeEntry(ctx, entry.ID); err != nil {
+			if errors.Is(err, errRetentionChanged) {
+				return nil
+			}
+			if !errors.Is(err, ErrNotFound) {
+				return err
+			}
 		}
 		remove--
 	}
 	return nil
 }
 
-// SetRetention changes the pruning window used by future backups. A positive
-// value prunes after each successful publish; zero means "not set here" and
-// falls back to the repository retention (the Backup storage page).
-func (m *Manager) SetRetention(value int) {
-	if value < 0 {
-		return
-	}
-	m.retentionOverride.Store(int64(value))
-	m.retentionConfigured.Store(value > 0)
+// SetRetention supplies the runtime backup retention and a guard that pins its
+// durable snapshot through each deletion. Zero falls back to Backup storage.
+func (m *Manager) SetRetention(value int, pin func(context.Context, pgx.Tx) (bool, error)) {
+	m.retention.Store(&backupRetention{keep: value, pin: pin})
 }
 func (m *Manager) Upload(ctx context.Context, source io.Reader) (Entry, error) {
 	if err := m.reserve(); err != nil {

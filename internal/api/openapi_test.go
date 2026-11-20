@@ -63,6 +63,8 @@ func TestOpenAPIRouteContract(t *testing.T) {
 			security = append(security, map[string][]string{"userBearer": {}})
 		case accessServiceSession:
 			security = append(security, map[string][]string{"serviceBearer": {}})
+		case accessMetricsToken:
+			security = append(security, map[string][]string{"metricsBearer": {}})
 		}
 		operation := map[string]any{"responses": map[string]any{"default": map[string]any{"description": "Operation response; JSON errors contain an error code. See feature documentation and typed SDK for payload contracts."}}, "security": security}
 		if route.maximumRequestBytes > 0 {
@@ -80,7 +82,13 @@ func TestOpenAPIRouteContract(t *testing.T) {
 		}
 		path[strings.ToLower(route.method)] = operation
 	}
-	document := map[string]any{"openapi": "3.1.0", "info": map[string]any{"title": "PgBase route contract", "version": "0.2.0-dev", "description": "All optional modules enabled. Routes are only mounted when their module is configured. Dynamic record schemas and full request/response DTOs are documented separately."}, "paths": paths, "components": map[string]any{"securitySchemes": map[string]any{"adminCookie": map[string]any{"type": "apiKey", "in": "cookie", "name": adminCookieName}, "userBearer": map[string]any{"type": "http", "scheme": "bearer"}, "serviceBearer": map[string]any{"type": "http", "scheme": "bearer"}}}}
+	securitySchemes := map[string]any{
+		"adminCookie":   map[string]any{"type": "apiKey", "in": "cookie", "name": adminCookieName},
+		"metricsBearer": map[string]any{"type": "http", "scheme": "bearer"},
+		"serviceBearer": map[string]any{"type": "http", "scheme": "bearer"},
+		"userBearer":    map[string]any{"type": "http", "scheme": "bearer"},
+	}
+	document := map[string]any{"openapi": "3.1.0", "info": map[string]any{"title": "PgBase route contract", "version": "0.2.0-dev", "description": "All optional modules enabled. Routes are only mounted when their module is configured. Dynamic record schemas and full request/response DTOs are documented separately."}, "paths": paths, "components": map[string]any{"securitySchemes": securitySchemes}}
 	encoded, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
 		t.Fatal(err)

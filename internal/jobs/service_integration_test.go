@@ -66,6 +66,9 @@ func TestRunnerClaimsOnceFencesStaleWorkersAndRecoversFailures(t *testing.T) {
 	if stale[0].ScheduledAt.IsZero() || !fresh[0].ScheduledAt.Equal(stale[0].ScheduledAt) {
 		t.Fatalf("retry scheduledAt changed: first=%s retry=%s", stale[0].ScheduledAt, fresh[0].ScheduledAt)
 	}
+	if err := first.renewBackupLease(ctx, stale[0]); err == nil {
+		t.Fatal("expired owner renewed its lease")
+	}
 	if err := first.complete(ctx, stale[0], errors.New("stale failure")); err != nil {
 		t.Fatal(err)
 	}
@@ -92,6 +95,88 @@ func TestRunnerClaimsOnceFencesStaleWorkersAndRecoversFailures(t *testing.T) {
 	}
 	if attempts != 1 || failure == "" {
 		t.Fatalf("panic retry state attempts=%d failure=%q", attempts, failure)
+	}
+}
+
+func TestManagedBackupRenewsLeaseAndRetriesAfterShutdown(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	pool := jobsTestPool(t)
+	insertJob(t, pool, ManagedBackupName, "@every 1h")
+	registry := NewRegistry()
+	started := make(chan Job, 1)
+	if err := registry.Register(ManagedBackupName, func(ctx context.Context, job Job) error {
+		started <- job
+		<-ctx.Done()
+		return ctx.Err()
+	}); err != nil {
+		t.Fatal(err)
+	}
+	regular := make(chan struct{}, 1)
+	if err := registry.Register("regular", func(context.Context, Job) error {
+		regular <- struct{}{}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first := NewService(pool, registry, nil)
+	first.backupHeartbeat = 20 * time.Millisecond
+	stopping, stop := context.WithCancel(ctx)
+	defer stop()
+	done := make(chan error, 1)
+	go func() { done <- first.Run(stopping) }()
+	var initial Job
+	select {
+	case initial = <-started:
+	case <-ctx.Done():
+		t.Fatal("managed backup did not start")
+	}
+	leaseUntil := func() time.Time {
+		var value time.Time
+		if err := pool.QueryRow(ctx, `SELECT lease_until FROM pgbase_meta.scheduled_jobs WHERE id=$1`, initial.ID).Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	firstLease := leaseUntil()
+	insertJob(t, pool, "regular", "@every 1h")
+	select {
+	case <-regular:
+	case <-ctx.Done():
+		t.Fatal("backup held up the ordinary scheduler")
+	}
+	if renewed := leaseUntil(); !renewed.After(firstLease) {
+		t.Fatalf("backup lease not refreshed: first=%s current=%s", firstLease, renewed)
+	}
+	stop()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("scheduler shutdown = %v", err)
+	}
+	var attempts int
+	var failed, released bool
+	if err := pool.QueryRow(ctx, `SELECT attempts,last_error IS NOT NULL,lease_token IS NULL
+ FROM pgbase_meta.scheduled_jobs WHERE id=$1`, initial.ID).Scan(&attempts, &failed, &released); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 1 || !failed || !released {
+		t.Fatalf("interrupted occurrence attempts=%d failed=%t released=%t", attempts, failed, released)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET next_run_at=clock_timestamp() WHERE id=$1`, initial.ID); err != nil {
+		t.Fatal(err)
+	}
+	second := NewService(pool, NewRegistry(), nil)
+	var retried Job
+	if err := second.registry.Register(ManagedBackupName, func(_ context.Context, job Job) error {
+		retried = job
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if retried.ID != initial.ID || !retried.ScheduledAt.Equal(initial.ScheduledAt) || retried.FenceGeneration <= initial.FenceGeneration {
+		t.Fatalf("retry replaced its occurrence: failed=%+v retried=%+v", initial, retried)
 	}
 }
 

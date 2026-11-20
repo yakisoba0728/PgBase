@@ -4,8 +4,27 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
+	"time"
+
+	"github.com/yakisoba0728/PgBase/internal/backup"
 )
+
+type backupStorageRecovery struct {
+	controller *backup.StorageController
+	logger     *slog.Logger
+}
+
+func (r backupStorageRecovery) Run(ctx context.Context) error {
+	return sampleLoop(ctx, 30*time.Second, func(ctx context.Context) {
+		pass, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if err := r.controller.RecoverPending(pass); err != nil && ctx.Err() == nil {
+			r.logger.WarnContext(ctx, "backup publication recovery deferred", "error", err)
+		}
+	})
+}
 
 func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 	runCtx, cancel := context.WithCancel(ctx)
@@ -21,6 +40,9 @@ func (a *App) startBackground(ctx context.Context) <-chan struct{} {
 		}
 		if a.runtimeSettings != nil {
 			runners = append(runners, namedBackgroundRunner{"runtime settings refresh", runtimeSettingsRefresher{a.runtimeSettings, a.options.Logger, a.backupSchedule}})
+		}
+		if a.options.Backups.controller != nil {
+			runners = append(runners, namedBackgroundRunner{"backup publication recovery", backupStorageRecovery{a.options.Backups.controller, a.options.Logger}})
 		}
 		for _, candidate := range []namedBackgroundRunner{
 			{"administrator authentication cleaner", a.cleaner},

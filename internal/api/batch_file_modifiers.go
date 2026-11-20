@@ -25,6 +25,7 @@ type batchAttachment struct {
 	file         filestore.StagedFile
 	modifier     fileModifier
 	remove       []string
+	replaces     uuid.UUID
 }
 
 type fileModifier uint8
@@ -98,6 +99,11 @@ func (p *fileBatchParticipant) CommitBatch(ctx context.Context, tx pgx.Tx, resul
 		existingIDs := make([]uuid.UUID, len(states))
 		for index := range states {
 			existingIDs[index] = states[index].id
+		}
+		for _, item := range items {
+			if item.replaces != uuid.Nil && (len(existingIDs) != 1 || existingIDs[0] != item.replaces) {
+				return &recordops.Error{Code: recordops.CodePreconditionFailed}
+			}
 		}
 		for _, item := range items {
 			addition := state{name: item.file.Filename(), file: &item.file}
@@ -198,22 +204,32 @@ func extractBatchAttachments(ctx context.Context, service FileService, items []b
 				continue
 			}
 			var one struct {
-				File string `json:"$file"`
+				File     string  `json:"$file"`
+				Replaces *string `json:"$replaces"`
 			}
 			if json.Unmarshal(raw, &one) == nil && one.File != "" {
 				file, ok := staged[one.File]
 				if !ok || used[one.File] {
 					return nil, errors.New("invalid file reference")
 				}
+				var replaces uuid.UUID
+				if one.Replaces != nil {
+					var err error
+					replaces, err = uuid.Parse(*one.Replaces)
+					if err != nil || replaces == uuid.Nil || modifier != fileReplace || items[index].Operation != "update" {
+						return nil, errors.New("invalid file replacement precondition")
+					}
+				}
 				used[one.File] = true
 				appendFileFingerprint(&fingerprint, field, file)
-				attachments = append(attachments, batchAttachment{operation: index, collectionID: collectionID, field: base, file: file, modifier: modifier})
+				attachments = append(attachments, batchAttachment{operation: index, collectionID: collectionID, field: base, file: file, modifier: modifier, replaces: replaces})
 				items[index].SidecarFields = append(items[index].SidecarFields, base)
 				delete(items[index].Input, field)
 				continue
 			}
 			var many []struct {
-				File string `json:"$file"`
+				File     string  `json:"$file"`
+				Replaces *string `json:"$replaces"`
 			}
 			if json.Unmarshal(raw, &many) == nil && len(many) > 0 {
 				if modifier == filePrepend {
@@ -221,7 +237,7 @@ func extractBatchAttachments(ctx context.Context, service FileService, items []b
 				}
 				for fileIndex, ref := range many {
 					file, ok := staged[ref.File]
-					if ref.File == "" || !ok || used[ref.File] {
+					if ref.File == "" || !ok || used[ref.File] || ref.Replaces != nil {
 						return nil, errors.New("invalid file reference")
 					}
 					used[ref.File] = true

@@ -52,6 +52,12 @@ function stateOf(t: Translate, job: ManagedJob): { label: string; tone?: string 
   return { label: t(`ops.jobs.${key}`), tone: tones[key] };
 }
 
+function jobResult(t: Translate, job: ManagedJob): string | null {
+  if (job.failed) return t("ops.jobs.failed", { count: job.attempts });
+  if (!job.lastFinishedAt) return null;
+  return t(job.settingsManaged ? "ops.jobs.seeBackups" : "ops.jobs.ok");
+}
+
 export function JobsActions() {
   return <RefreshButton queryKey={jobsQuery.queryKey} />;
 }
@@ -112,7 +118,7 @@ export function JobsView() {
                             <>
                               <span className="mono">{time(job.lastStartedAt)}</span>
                               <span className="ops-aside" data-tone={job.failed ? "danger" : undefined}>
-                                {job.failed ? t("ops.jobs.failed", { count: job.attempts }) : job.lastFinishedAt ? t("ops.jobs.ok") : ""}
+                                {jobResult(t, job)}
                               </span>
                             </>
                           ) : (
@@ -173,13 +179,13 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
     save.mutate(captureSessionScope());
   };
   const summary = describeSchedule(schedule);
-  const locked = !workerEnabled || !job.registered;
+  const locked = !workerEnabled || !job.registered || job.settingsManaged === true;
 
   return (
     <form className="pane-form" onSubmit={onSubmit}>
       <PaneHeader title={job.name} mono onClose={onClose} />
       <div className="pane-body">
-        {locked && <Notice role="note">{workerEnabled ? t("ops.jobs.unregisteredNote") : t("ops.jobs.noWorker")}</Notice>}
+        {locked && <Notice role="note">{t(job.settingsManaged ? "ops.jobs.settingsManaged" : workerEnabled ? "ops.jobs.unregisteredNote" : "ops.jobs.noWorker")}</Notice>}
         {save.isError && save.variables?.isCurrent() && (
           <Notice tone="danger">{save.error instanceof ApiError && save.error.code === "invalid_request" ? t("ops.jobs.invalid") : errorText(t, save.error)}</Notice>
         )}
@@ -199,7 +205,7 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
           { label: t("ops.jobs.nextRun"), value: job.enabled ? time(job.nextRunAt, true) : null },
           { label: t("ops.jobs.lastStarted"), value: job.lastStartedAt ? time(job.lastStartedAt, true) : null },
           { label: t("ops.jobs.lastFinished"), value: job.lastFinishedAt ? time(job.lastFinishedAt, true) : null },
-          { label: t("ops.jobs.result"), value: job.failed ? t("ops.jobs.failed", { count: job.attempts }) : job.lastFinishedAt ? t("ops.jobs.ok") : null, tone: job.failed ? "danger" : undefined },
+          { label: t("ops.jobs.result"), value: jobResult(t, job), tone: job.failed ? "danger" : undefined },
           { label: t("ops.jobs.id"), value: job.id, mono: true, copy: true },
         ]} />
       </div>

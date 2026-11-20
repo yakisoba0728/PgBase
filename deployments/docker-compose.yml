@@ -2,7 +2,7 @@ name: pgbase
 
 services:
   postgres:
-    image: postgres:16.16-bookworm@sha256:a49f7438ba03589f9b1ca062f2da82e899b48ea1dc50d2449fa09a70be83ebca
+    image: &postgres-image postgres:16.16-bookworm@sha256:a49f7438ba03589f9b1ca062f2da82e899b48ea1dc50d2449fa09a70be83ebca
     environment:
       POSTGRES_DB: pgbase
       POSTGRES_USER: pgbase
@@ -22,6 +22,16 @@ services:
     pids_limit: ${PGBASE_POSTGRES_PIDS_LIMIT:-256}
     restart: unless-stopped
 
+  migration-scratch-init:
+    image: *postgres-image
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["chown 65532:65532 /migration-scratch && chmod 700 /migration-scratch"]
+    volumes:
+      - migration-scratch:/migration-scratch
+    network_mode: none
+    restart: "no"
+
   pgbase:
     image: ${PGBASE_IMAGE:-pgbase:dev}
     build:
@@ -40,6 +50,7 @@ services:
       PGBASE_METRICS_TOKEN: ${PGBASE_METRICS_TOKEN:-}
       PGBASE_AUTO_MIGRATE: "true"
       PGBASE_USER_REGISTRATION: ${PGBASE_USER_REGISTRATION:-false}
+      PGBASE_FILES_MIGRATION_SCRATCH_DIRECTORY: /migration-scratch
       PGBASE_STATEMENT_TIMEOUT: ${PGBASE_STATEMENT_TIMEOUT:-5s}
       PGBASE_SCHEMA_APPLY_TIMEOUT: ${PGBASE_SCHEMA_APPLY_TIMEOUT:-10m}
       PGBASE_SHUTDOWN_TIMEOUT: ${PGBASE_SHUTDOWN_TIMEOUT:-15s}
@@ -47,8 +58,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migration-scratch-init:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:${PGBASE_HTTP_PORT:-8090}:8090"
+    volumes:
+      - migration-scratch:/migration-scratch
     stop_grace_period: ${PGBASE_STOP_GRACE_PERIOD:-20s}
     healthcheck:
       test: ["CMD", "/pgbase", "healthcheck", "--url", "http://127.0.0.1:8090/health/ready"]
@@ -70,3 +85,4 @@ services:
 
 volumes:
   pgbase-postgres:
+  migration-scratch:

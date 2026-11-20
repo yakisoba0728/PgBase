@@ -30,11 +30,10 @@ func (s *Service) List(ctx context.Context, request ListRequest) (page RecordPag
 			Limit: request.Limit, Filter: request.Filter, Sort: request.Sort, Expand: request.Expand, Fields: request.Fields,
 			PocketBaseCompatibility: request.PocketBaseCompatibility,
 			RuleContext:             request.RuleContext, Total: request.Total,
+		}, func(items []map[string]any) (bool, error) {
+			return s.identities.ProjectWire(ctx, tx, catalog, collection, items...)
 		})
-		if err != nil {
-			return err
-		}
-		return s.identities.Project(ctx, tx, catalog, collection, page.Items...)
+		return err
 	})
 	if errors.Is(err, membership.ErrUnavailable) {
 		return RecordPage{}, unavailableMembership(err)
@@ -55,11 +54,10 @@ func (s *Service) ListPocketBase(ctx context.Context, request PocketBaseListRequ
 			Principal: request.Principal, Collection: request.Collection, Cursor: request.Cursor,
 			Limit: request.Limit, Filter: request.Filter, Sort: request.Sort, Expand: request.Expand, Fields: request.Fields,
 			PocketBaseCompatibility: true, RuleContext: request.RuleContext,
-		}, Page: request.Page, PerPage: request.PerPage, SkipTotal: request.SkipTotal})
-		if err != nil {
-			return err
-		}
-		return s.identities.Project(ctx, tx, catalog, collection, page.Items...)
+		}, Page: request.Page, PerPage: request.PerPage, SkipTotal: request.SkipTotal}, func(items []map[string]any) (bool, error) {
+			return s.identities.ProjectWire(ctx, tx, catalog, collection, items...)
+		})
+		return err
 	})
 	if errors.Is(err, membership.ErrUnavailable) {
 		return PocketBasePage{}, unavailableMembership(err)

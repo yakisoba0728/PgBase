@@ -29,6 +29,44 @@ type pageAssembler struct {
 	cursorV5     *cursor.V5Descriptor
 }
 
+type wirePage struct {
+	anchors   []pageCandidate
+	assembler pageAssembler
+}
+
+// The read kernel bounds materialization using internal IDs. Recheck the
+// projected response before issuing a cursor so any dropped suffix can be read
+// from the last record actually sent to the client.
+func (r *listResult) finalizeWire(project func([]map[string]any) (bool, error)) error {
+	if project == nil {
+		return nil
+	}
+	wire := r.wirePage
+	r.wirePage = nil
+	changed, err := project(r.page.Items)
+	if err != nil || !changed {
+		return err
+	}
+	for i, item := range r.page.Items {
+		wire.anchors[i].wire = item
+		wire.anchors[i].wireMeasured = false
+	}
+	keep, cursor, err := wire.assembler.finish(wire.anchors, r.page.NextCursor != "")
+	if err != nil {
+		return err
+	}
+	if keep < len(r.page.Items) {
+		r.byteLimited = true
+		clear(r.page.Items[keep:])
+		r.page.Items = r.page.Items[:keep:keep]
+		if len(r.expanded) > keep {
+			r.expanded = r.expanded[:keep:keep]
+		}
+	}
+	r.page.NextCursor = cursor
+	return nil
+}
+
 func (a pageAssembler) finish(candidates []pageCandidate, hasMore bool) (int, string, error) {
 	keep := len(candidates)
 	for index := range candidates {
