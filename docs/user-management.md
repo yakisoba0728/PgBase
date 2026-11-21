@@ -44,8 +44,22 @@ Content-Type: application/json
 
 The new password follows the existing 12–1024-byte password limits. On success the server returns **204** and atomically revokes **all sessions, including the token used for this request**. Discard stored tokens and log in again with the new password. No replacement token is returned.
 
-A wrong current password returns 401 and leaves the stored password and sessions intact. Password-change failures have a shared account limit: the fifth failure returns 429 and blocks further attempts for 15 minutes, including requests with correct credentials. Invalid input returns 400; internal failures return a redacted 503. This is a password-change flow requiring an authenticated session and the current password. Email-based password recovery is still pending.
+A wrong current password returns 401 and leaves the stored password and sessions intact. Password-change failures have a shared account limit: the fifth failure returns 429 and blocks further attempts for 15 minutes, including requests with correct credentials. Invalid input returns 400; internal failures return a redacted 503. This is a password-change flow requiring an authenticated session and the current password.
 
 Credential verification and hashing run before taking the user-row lock. The transaction then rechecks active state and the exact password hash before changing credentials and revoking sessions. A concurrent password change cannot overwrite credentials checked before the other change. Login and administrator lifecycle operations use the same user-row lock boundary: sessions committed before revocation are invalidated; a fresh login serialized afterward may issue a new session for an active account. Already-running record requests may finish before deactivation obtains its lock; subsequent requests are denied.
 
-The [TODO](../TODO.md) separately tracks email verification/recovery, Auth collections, OAuth/MFA, general access rules and subsequent releases.
+## Email verification, address changes, and recovery
+
+When email actions are configured, authenticated users can request verification at `POST /api/v1/auth/request-verification` and an address change at `POST /api/v1/auth/request-email-change`. An address change also requires the current password. The following delivery limits apply independently of optional HTTP rate limits and are shared by all server instances using the database:
+
+| Limit | Scope |
+| --- | --- |
+| 5 accepted delivery requests per 15-minute window | Each user, combining verification and address-change requests even when the destination changes |
+| 5 accepted delivery requests per 15-minute window | Each destination address, combining requests from all users and auth collections |
+| 60-second resend cooldown | Each user and purpose, and each destination address and purpose |
+
+Exceeding a delivery limit returns **429** without creating a token or attempting mail delivery. A new accepted verification or address-change request replaces the previous pending action for that user and purpose; use the newest link. Delivery failures do not restore the reserved capacity because the mail server may already have accepted the message. Wait for the cooldown before requesting another link. Explicit administrator-initiated mail remains a trusted operator action and does not use these public-user delivery quotas.
+
+Password-reset requests retain their separate account and network request limits and their nondisclosing response when the address is unknown or delivery fails. Reset confirmation checks token eligibility before password hashing, then rechecks and consumes the token atomically with the password change and session revocation. Administrator recovery uses the same preflight and final-consumption ordering. Password work does not hold account or token row locks.
+
+The [TODO](../TODO.md) tracks remaining auth compatibility work and subsequent releases.

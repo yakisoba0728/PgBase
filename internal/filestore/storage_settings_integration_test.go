@@ -178,6 +178,71 @@ func TestStorageLeaseDoesNotExhaustRequestPoolAndLostLeaseCannotPublish(t *testi
 	}
 }
 
+func TestStorageCancellationRetainsAdmissionUntilOperationFinishes(t *testing.T) {
+	ctx := t.Context()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	controller, err := NewStorageController(ctx, pool, bytes.Repeat([]byte{9}, 32), StorageConfig{Driver: "local", LocalDirectory: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller.operations = make(chan struct{}, 1)
+	operationCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	leased, release, err := controller.BeginStorageOperation(operationCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	lease := leased.Value(storageLeaseContextKey{}).(storageLease)
+	cancel()
+
+	// The database lease should stop blocking a transition even if CPU work
+	// has not reached its deferred release yet.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var locked bool
+		if err := pool.QueryRow(ctx, `select exists(select 1 from pg_locks where locktype='advisory' and pid=$1 and granted)`, int32(lease.backend)).Scan(&locked); err != nil {
+			t.Fatal(err)
+		}
+		if !locked {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("canceled operation retained its database lease")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if active := len(controller.operations); active != 1 {
+		t.Fatalf("unfinished operation holds %d admission slots, want 1", active)
+	}
+	waitCtx, stop := context.WithTimeout(ctx, 50*time.Millisecond)
+	_, extraRelease, err := controller.BeginStorageOperation(waitCtx)
+	stop()
+	if extraRelease != nil {
+		extraRelease()
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("admission before operation finished = %v", err)
+	}
+	release()
+	release() // The owner's cleanup remains idempotent after cancellation.
+	_, nextRelease, err := controller.BeginStorageOperation(ctx)
+	if err != nil {
+		t.Fatalf("admission after operation finished: %v", err)
+	}
+	nextRelease()
+	if active := len(controller.operations); active != 0 {
+		t.Fatalf("finished operations retained %d admission slots", active)
+	}
+}
+
 func TestStorageLocationChangeRejectsExtensionOnlyInventory(t *testing.T) {
 	ctx := context.Background()
 	pool, err := database.Open(ctx, testutil.NewDatabase(t), 5*time.Second)

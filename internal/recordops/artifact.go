@@ -13,6 +13,7 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/query"
 	"github.com/yakisoba0728/PgBase/internal/recordaccess"
+	"github.com/yakisoba0728/PgBase/internal/recordartifact"
 	"github.com/yakisoba0728/PgBase/internal/recordidentity"
 	"github.com/yakisoba0728/PgBase/internal/relation"
 	"github.com/yakisoba0728/PgBase/internal/schema"
@@ -260,7 +261,12 @@ func writeOutboxBatch(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, ba
 		return err
 	}
 	for index, row := range batch.rows {
+		relations, err := outboxRelationSnapshot(batch.collection, row.changes)
+		if err != nil {
+			return err
+		}
 		envelope, err := json.Marshal(outboxEnvelope{
+			Relations:    relations,
 			PublicRecord: publicOutboxRecord(batch.collection, publicRecords[index]),
 			Version:      outboxEnvelopeVersion, EventID: row.eventID, CollectionID: batch.collection.ID,
 			CollectionName: batch.collection.Name, RecordID: row.recordID, Operation: batch.operation,
@@ -462,4 +468,45 @@ func publicOutboxRecord(collection schema.Collection, data map[string]any) map[s
 		}
 	}
 	return record
+}
+
+func outboxRelationSnapshot(collection schema.Collection, data map[string]any) (map[uuid.UUID]recordartifact.RelationSnapshot, error) {
+	result := make(map[uuid.UUID]recordartifact.RelationSnapshot)
+	for _, field := range collection.Fields {
+		if field.Type != schema.TypeRelation || field.Relation == nil {
+			continue
+		}
+		value, present := data[field.Name]
+		if !present {
+			continue
+		}
+		var values []string
+		switch typed := value.(type) {
+		case nil:
+		case string:
+			values = []string{typed}
+		case []string:
+			values = typed
+		case []any:
+			for _, item := range typed {
+				text, ok := item.(string)
+				if !ok {
+					return nil, errors.New("invalid outbox relation identity")
+				}
+				values = append(values, text)
+			}
+		default:
+			return nil, errors.New("invalid outbox relation identity")
+		}
+		ids := make([]uuid.UUID, len(values))
+		for index, value := range values {
+			id, err := uuid.Parse(value)
+			if err != nil || id == uuid.Nil || id.String() != value {
+				return nil, errors.New("invalid outbox relation identity")
+			}
+			ids[index] = id
+		}
+		result[field.ID] = recordartifact.RelationSnapshot{Cardinality: field.Relation.Cardinality, TargetCollectionID: field.Relation.TargetCollectionID, IDs: ids}
+	}
+	return result, nil
 }

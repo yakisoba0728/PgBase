@@ -35,10 +35,10 @@ func TestTOTPValidationAndCIDRNormalization(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Unix(1_700_000_000, 0)
-	if !validTOTP(secret, testTOTP(secret, now), now) {
+	if _, valid := matchTOTP(secret, testTOTP(secret, now), now, -1); !valid {
 		t.Fatal("current OTP rejected")
 	}
-	if validTOTP(secret, "000000", now) {
+	if _, valid := matchTOTP(secret, "000000", now, -1); valid {
 		t.Fatal("incorrect OTP accepted")
 	}
 	if _, err := decodeTOTPSecret("%%%not-base32%%%"); err == nil {
@@ -59,13 +59,42 @@ func TestTOTPRequiresExactlySixASCIIDigits(t *testing.T) {
 	}
 	now := time.Unix(1_700_000_270, 0)
 	code := testTOTP(secret, now)
-	if code != "070624" || !validTOTP(secret, code, now) {
+	if _, valid := matchTOTP(secret, code, now, -1); code != "070624" || !valid {
 		t.Fatalf("leading-zero fixture is not valid: %q", code)
 	}
 	for _, invalid := range []string{"+70624", "-70624", "70624", "0070624", " 70624", "０70624", "07\x00624", "4295037920", "999999999999999999999"} {
-		if validTOTP(secret, invalid, now) {
+		if _, valid := matchTOTP(secret, invalid, now, -1); valid {
 			t.Errorf("noncanonical OTP %q accepted", invalid)
 		}
+	}
+}
+
+func TestTOTPMatchesOnlyUnusedCountersInTheAcceptedWindow(t *testing.T) {
+	secret, err := decodeTOTPSecret("JBSWY3DPEHPK3PXP")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_270, 0)
+	for _, offset := range []int64{-1, 0, 1} {
+		step := now.Add(time.Duration(offset) * 30 * time.Second)
+		code := testTOTP(secret, step)
+		counter, valid := matchTOTP(secret, code, now, -1)
+		if !valid || counter != step.Unix()/30 {
+			t.Fatalf("offset=%d counter=%d valid=%t", offset, counter, valid)
+		}
+		if _, valid := matchTOTP(secret, code, now, counter); valid {
+			t.Fatalf("consumed counter accepted at offset %d", offset)
+		}
+	}
+	for _, offset := range []int64{-2, 2} {
+		code := testTOTP(secret, now.Add(time.Duration(offset)*30*time.Second))
+		if _, valid := matchTOTP(secret, code, now, -1); valid {
+			t.Fatalf("code outside accepted window matched at offset %d", offset)
+		}
+	}
+	// Accepting the future clock-skew step also consumes older steps.
+	if _, valid := matchTOTP(secret, testTOTP(secret, now), now, now.Unix()/30+1); valid {
+		t.Fatal("current step accepted after a later counter was consumed")
 	}
 }
 
