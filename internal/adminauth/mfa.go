@@ -110,7 +110,19 @@ func (s *Service) EnableTOTP(ctx context.Context, email, secret string) error {
 		if locked.ID != id {
 			return ErrInvalidCredentials
 		}
-		if err := store.SetTOTP(ctx, id, encrypted, s.clock.Now().UTC()); err != nil {
+		// Re-enrolling the same secret must not reopen codes it already
+		// accepted, so keep its replay counter. A new secret starts fresh.
+		current, _, enabled, err := store.TOTPForUpdate(ctx, id)
+		if err != nil {
+			return err
+		}
+		sameSecret := false
+		if enabled {
+			if plain, decryptErr := s.decryptTOTP(current); decryptErr == nil {
+				sameSecret = subtle.ConstantTimeCompare(plain, raw) == 1
+			}
+		}
+		if err := store.SetTOTP(ctx, id, encrypted, s.clock.Now().UTC(), sameSecret); err != nil {
 			return err
 		}
 		return store.DeleteAdministratorSessions(ctx, id)

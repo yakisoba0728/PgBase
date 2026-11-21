@@ -107,9 +107,12 @@ func (s *Store) AdministratorID(ctx context.Context, email string) (uuid.UUID, e
 	return id, nil
 }
 
-func (s *Store) SetTOTP(ctx context.Context, administratorID uuid.UUID, ciphertext []byte, now time.Time) error {
+// SetTOTP stores a factor. keepCounter must be true only when the stored factor
+// has the same secret, so codes it already accepted stay consumed.
+func (s *Store) SetTOTP(ctx context.Context, administratorID uuid.UUID, ciphertext []byte, now time.Time, keepCounter bool) error {
 	_, err := s.db.Exec(ctx, `insert into pgbase_meta.admin_totp(administrator_id,secret_ciphertext,enabled_at)
-		values ($1,$2,$3) on conflict(administrator_id) do update set secret_ciphertext=excluded.secret_ciphertext,enabled_at=excluded.enabled_at,last_counter=null`, administratorID, ciphertext, now)
+		values ($1,$2,$3) on conflict(administrator_id) do update set secret_ciphertext=excluded.secret_ciphertext,enabled_at=excluded.enabled_at,
+			last_counter=case when $4::boolean then admin_totp.last_counter end`, administratorID, ciphertext, now, keepCounter)
 	if err != nil {
 		return fmt.Errorf("set administrator OTP: %w", err)
 	}

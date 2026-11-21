@@ -158,6 +158,28 @@ func TestAdministratorTOTPConcurrentLoginsConsumeOneCounter(t *testing.T) {
 	}
 }
 
+func TestAdministratorTOTPReenrollingTheSameSecretKeepsConsumedCodes(t *testing.T) {
+	fixture := newAccountManagementFixture(t)
+	secret := enableAccountTOTP(t, fixture)
+	s, ctx := fixture.service, t.Context()
+	code := testTOTP(secret, fixture.clock.Now())
+	if _, err := s.LoginWithOTP(ctx, fixture.first.Email, accountTestPassword, "192.0.2.1", code); err != nil {
+		t.Fatal(err)
+	}
+	counter := fixture.clock.Now().Unix() / 30
+	if err := s.EnableTOTP(ctx, fixture.first.Email, accountTestTOTPSecret); err != nil {
+		t.Fatal(err)
+	}
+	assertAdministratorTOTPCounter(t, fixture, &counter)
+	if _, err := s.LoginWithOTP(ctx, fixture.first.Email, accountTestPassword, "192.0.2.1", code); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("consumed code accepted after same-secret re-enrollment: %v", err)
+	}
+	fixture.clock.Add(30 * time.Second)
+	if _, err := s.LoginWithOTP(ctx, fixture.first.Email, accountTestPassword, "192.0.2.1", testTOTP(secret, fixture.clock.Now())); err != nil {
+		t.Fatalf("next unused step rejected: %v", err)
+	}
+}
+
 func TestAdministratorTOTPReplacementStartsANewCounterSequence(t *testing.T) {
 	fixture := newAccountManagementFixture(t)
 	secret := enableAccountTOTP(t, fixture)
