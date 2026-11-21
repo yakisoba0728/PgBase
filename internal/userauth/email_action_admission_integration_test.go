@@ -23,7 +23,11 @@ func newBudgetEmailService(t *testing.T) (*Service, *capturedSender) {
 
 func expireEmailActionCooldown(t *testing.T, s *Service, userID uuid.UUID, purpose, recipient string) {
 	t.Helper()
-	for _, bucket := range s.emailActionDeliveryBuckets(userID, purpose, recipient) {
+	var collectionID uuid.UUID
+	if err := s.pool.QueryRow(t.Context(), `select auth_collection_id from pgbase_meta.users where id=$1`, userID).Scan(&collectionID); err != nil {
+		t.Fatal(err)
+	}
+	for _, bucket := range s.emailActionDeliveryBuckets(userID, collectionID, purpose, recipient) {
 		if bucket.window != emailActionResendCooldown {
 			continue
 		}
@@ -122,6 +126,100 @@ func TestEmailChangeDeliveryBudgetCountsChangingRecipientsAndBoundsPendingAction
 	}
 	if len(sender.messages) != emailActionDeliveryLimit || total != emailActionDeliveryLimit || pending != 1 {
 		t.Fatalf("messages=%d, total=%d, pending=%d", len(sender.messages), total, pending)
+	}
+}
+
+func TestEmailChangeRecipientBudgetDoesNotBlockVerificationOfAddressOwner(t *testing.T) {
+	s, sender := newBudgetEmailService(t)
+	ctx := t.Context()
+	attacker, err := s.Register(ctx, "change-attacker@example.test", "correct horse battery staple", "change-attacker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const target = "change-target@example.test"
+	for i := range emailActionDeliveryLimit {
+		if i > 0 {
+			expireEmailActionCooldown(t, s, attacker.User.ID, "email_change", target)
+		}
+		if err := s.RequestEmailChange(ctx, attacker.User.ID, "correct horse battery staple", target); err != nil {
+			t.Fatalf("email change %d = %v", i, err)
+		}
+	}
+	owner, err := s.Register(ctx, target, "correct horse battery staple", "change-target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RequestVerification(ctx, owner.User.ID); err != nil {
+		t.Fatalf("owner verification after exhausted email_change budget = %v", err)
+	}
+	if len(sender.messages) != emailActionDeliveryLimit+1 {
+		t.Fatalf("mailer calls=%d, want %d", len(sender.messages), emailActionDeliveryLimit+1)
+	}
+}
+
+func TestVerificationRecipientBudgetIsScopedToAuthCollection(t *testing.T) {
+	s, sender := newBudgetEmailService(t)
+	ctx := t.Context()
+	otherCollection := uuid.New()
+	if _, err := s.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: otherCollection, Name: "realm_" + otherCollection.String()[:8], RegistrationEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	const target = "realm-target@example.test"
+	foreign, err := s.RegisterInCollection(ctx, otherCollection, target, "correct horse battery staple", "realm-foreign")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range emailActionDeliveryLimit {
+		if i > 0 {
+			expireEmailActionCooldown(t, s, foreign.User.ID, "verify", target)
+		}
+		if err := s.RequestVerification(ctx, foreign.User.ID); err != nil {
+			t.Fatalf("foreign verification %d = %v", i, err)
+		}
+	}
+	expireEmailActionCooldown(t, s, foreign.User.ID, "verify", target)
+	if err := s.RequestVerification(ctx, foreign.User.ID); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("foreign verification after exhausted budget = %v", err)
+	}
+	owner, err := s.Register(ctx, target, "correct horse battery staple", "realm-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RequestVerification(ctx, owner.User.ID); err != nil {
+		t.Fatalf("owner verification after another collection exhausted the address = %v", err)
+	}
+	if len(sender.messages) != emailActionDeliveryLimit+1 {
+		t.Fatalf("mailer calls=%d, want %d", len(sender.messages), emailActionDeliveryLimit+1)
+	}
+}
+
+func TestEmailChangeRecipientBudgetIsSharedAcrossActorsInCollection(t *testing.T) {
+	s, sender := newBudgetEmailService(t)
+	ctx := t.Context()
+	const target = "shared-change-target@example.test"
+	var previous uuid.UUID
+	for i := range emailActionDeliveryLimit + 1 {
+		actor, err := s.Register(ctx, fmt.Sprintf("shared-change-actor-%d@example.test", i), "correct horse battery staple", fmt.Sprintf("shared-change-actor-%d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i > 0 {
+			expireEmailActionCooldown(t, s, previous, "email_change", target)
+		}
+		previous = actor.User.ID
+		err = s.RequestEmailChange(ctx, actor.User.ID, "correct horse battery staple", target)
+		if i < emailActionDeliveryLimit {
+			if err != nil {
+				t.Fatalf("actor %d email change = %v", i, err)
+			}
+			continue
+		}
+		if !errors.Is(err, ErrRateLimited) {
+			t.Fatalf("recipient budget across actors = %v", err)
+		}
+	}
+	if len(sender.messages) != emailActionDeliveryLimit {
+		t.Fatalf("mailer calls=%d, want %d", len(sender.messages), emailActionDeliveryLimit)
 	}
 }
 

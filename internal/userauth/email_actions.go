@@ -337,7 +337,16 @@ func (s *Service) createEmailAction(ctx context.Context, userID uuid.UUID, purpo
 			if payload != nil {
 				to = *payload
 			}
-			if err := s.reserveEmailActionDelivery(ctx, tx, userID, purpose, to); err != nil {
+			// Recipient budgets are scoped per auth collection; read it in this
+			// transaction so the reservation and the issued action agree.
+			var collectionID uuid.UUID
+			if err := tx.QueryRow(ctx, `select auth_collection_id from pgbase_meta.users where id=$1`, userID).Scan(&collectionID); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return ErrInvalidCredentials
+				}
+				return err
+			}
+			if err := s.reserveEmailActionDelivery(ctx, tx, userID, collectionID, purpose, to); err != nil {
 				return err
 			}
 		}

@@ -55,8 +55,10 @@ When email actions are configured, authenticated users can request verification 
 | Limit | Scope |
 | --- | --- |
 | 5 accepted delivery requests per 15-minute window | Each user, combining verification and address-change requests even when the destination changes |
-| 5 accepted delivery requests per 15-minute window | Each destination address, combining requests from all users and auth collections |
-| 60-second resend cooldown | Each user and purpose, and each destination address and purpose |
+| 5 accepted delivery requests per 15-minute window | Each destination address, purpose, and auth collection, combining requests from all users in that collection |
+| 60-second resend cooldown | Each user and purpose, and each destination address, purpose, and auth collection |
+
+Because destination limits are separate per purpose and auth collection, address-change requests and accounts in other auth collections do not consume the verification capacity of the address owner. One address can therefore receive up to 5 messages per 15-minute window for each purpose and auth collection. Accounts in the same auth collection can still fill the address-change capacity of an address by requesting changes to it; that limit protects the mailbox owner from repeated mail.
 
 Exceeding a delivery limit returns **429** without creating a token or attempting mail delivery. A new accepted verification or address-change request replaces the previous pending action for that user and purpose; use the newest link. Delivery failures do not restore the reserved capacity because the mail server may already have accepted the message. Wait for the cooldown before requesting another link. Explicit administrator-initiated mail remains a trusted operator action and does not use these public-user delivery quotas.
 

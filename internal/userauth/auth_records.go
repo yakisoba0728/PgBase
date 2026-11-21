@@ -71,11 +71,15 @@ func (s *Service) ListAuthorizedAuthRecords(ctx context.Context, collectionID, p
 		return nil, ErrValidation
 	}
 	var page []AuthRecord
-	err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
-		var err error
-		page, err = s.listAuthorizedAuthRecordPage(ctx, tx, collectionID, principal, limit)
-		return err
-	})
+	// Relation visibility takes FOR SHARE locks inside this snapshot, so a
+	// concurrent committed update can raise a serialization failure.
+	err := database.Retry(ctx, func() error {
+		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+			var err error
+			page, err = s.listAuthorizedAuthRecordPage(ctx, tx, collectionID, principal, limit)
+			return err
+		})
+	}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -176,58 +180,61 @@ func (s *Service) authRecordResponseForPrincipal(ctx context.Context, collection
 		return AuthRecord{}, ErrValidation
 	}
 	var result AuthRecord
-	err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
-		fields, rules, err := authRecordRulesDB(ctx, tx, collectionID)
-		if err != nil {
-			return err
-		}
-		page, err := readAuthRecordPage(ctx, tx, "u.email", `where u.auth_collection_id=$1 and u.id=$2`, collectionID, target)
-		if err != nil {
-			return err
-		}
-		if len(page) != 1 {
-			return ErrNotFound
-		}
-		value := page[0]
-		if requireView {
-			if rules.IsNull("view") {
-				return ErrInvalidCredentials
-			}
-			allowed, err := EvaluateAuthRecordRuleInTx(ctx, tx, collectionID, rules.View, AuthRuleContext{Principal: principal, Current: value})
+	// Retry serialization failures from FOR SHARE locks taken in this snapshot.
+	err := database.Retry(ctx, func() error {
+		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+			fields, rules, err := authRecordRulesDB(ctx, tx, collectionID)
 			if err != nil {
 				return err
 			}
-			if !allowed {
-				return ErrInvalidCredentials
+			page, err := readAuthRecordPage(ctx, tx, "u.email", `where u.auth_collection_id=$1 and u.id=$2`, collectionID, target)
+			if err != nil {
+				return err
 			}
-		}
-		if !value.EmailVisibility && principal.ID != value.ID {
-			managed := false
-			if !rules.IsNull("manage") {
-				managed, err = s.authorizeManagedAuthRecordTx(ctx, tx, collectionID, principal.ID, value, fields, rules.Manage, nil)
-				switch {
-				case errors.Is(err, ErrValidation):
-					// A missing optional actor field can make a manage rule
-					// inapplicable. As in list projection, withhold the email
-					// without rejecting the already-authorized record read.
-					managed = false
-				case err != nil:
+			if len(page) != 1 {
+				return ErrNotFound
+			}
+			value := page[0]
+			if requireView {
+				if rules.IsNull("view") {
+					return ErrInvalidCredentials
+				}
+				allowed, err := EvaluateAuthRecordRuleInTx(ctx, tx, collectionID, rules.View, AuthRuleContext{Principal: principal, Current: value})
+				if err != nil {
 					return err
 				}
+				if !allowed {
+					return ErrInvalidCredentials
+				}
 			}
-			if !managed {
-				value.Email = ""
+			if !value.EmailVisibility && principal.ID != value.ID {
+				managed := false
+				if !rules.IsNull("manage") {
+					managed, err = s.authorizeManagedAuthRecordTx(ctx, tx, collectionID, principal.ID, value, fields, rules.Manage, nil)
+					switch {
+					case errors.Is(err, ErrValidation):
+						// A missing optional actor field can make a manage rule
+						// inapplicable. As in list projection, withhold the email
+						// without rejecting the already-authorized record read.
+						managed = false
+					case err != nil:
+						return err
+					}
+				}
+				if !managed {
+					value.Email = ""
+				}
 			}
-		}
-		// Root view/manage rules use internal values. Response redaction is the
-		// last step and cannot alter the data against which those rules run.
-		page[0] = visibleAuthRecord(value, fields)
-		if err := s.projectAuthRecordPage(ctx, tx, collectionID, page, fields, &principal); err != nil {
-			return err
-		}
-		result = page[0]
-		return nil
-	})
+			// Root view/manage rules use internal values. Response redaction is the
+			// last step and cannot alter the data against which those rules run.
+			page[0] = visibleAuthRecord(value, fields)
+			if err := s.projectAuthRecordPage(ctx, tx, collectionID, page, fields, &principal); err != nil {
+				return err
+			}
+			result = page[0]
+			return nil
+		})
+	}, nil)
 	return result, err
 }
 

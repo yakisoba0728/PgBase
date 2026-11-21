@@ -535,21 +535,26 @@ func (s *Service) GetProfile(ctx context.Context, userID uuid.UUID) (map[string]
 		return nil, ErrValidation
 	}
 	var value map[string]any
-	err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
-		var raw, fieldsRaw []byte
-		err := tx.QueryRow(ctx, `select coalesce(p.attributes,'{}'),c.fields_json from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.id=$1`, userID).Scan(&raw, &fieldsRaw)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
-		}
-		if err != nil {
-			return err
-		}
-		var fields []schema.FieldInput
-		if decodeAuthProfile(raw, &value) != nil || json.Unmarshal(fieldsRaw, &fields) != nil {
-			return errors.New("invalid stored auth profile")
-		}
-		value = visibleAuthRecord(AuthRecord{Fields: publicAuthFields(value, fields)}, fields).Fields
-		return s.projectAuthorizedAuthRelationDocuments(ctx, tx, []map[string]any{value}, fields, authRecordPrincipal(userID))
-	})
+	// Retry serialization failures from FOR SHARE locks taken in this snapshot.
+	// Reset value each attempt because decoding merges into an existing map.
+	err := database.Retry(ctx, func() error {
+		value = nil
+		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+			var raw, fieldsRaw []byte
+			err := tx.QueryRow(ctx, `select coalesce(p.attributes,'{}'),c.fields_json from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.id=$1`, userID).Scan(&raw, &fieldsRaw)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			if err != nil {
+				return err
+			}
+			var fields []schema.FieldInput
+			if decodeAuthProfile(raw, &value) != nil || json.Unmarshal(fieldsRaw, &fields) != nil {
+				return errors.New("invalid stored auth profile")
+			}
+			value = visibleAuthRecord(AuthRecord{Fields: publicAuthFields(value, fields)}, fields).Fields
+			return s.projectAuthorizedAuthRelationDocuments(ctx, tx, []map[string]any{value}, fields, authRecordPrincipal(userID))
+		})
+	}, nil)
 	return value, err
 }

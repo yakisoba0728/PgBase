@@ -20,23 +20,30 @@ const (
 )
 
 // emailActionDeliveryBuckets applies an aggregate actor budget even when the
-// recipient or purpose changes. Recipient budgets are shared across users and
-// realms, and each purpose also has a resend cooldown. These reservations are
-// separate from password-failure history and optional HTTP rate limits.
-func (s *Service) emailActionDeliveryBuckets(userID uuid.UUID, purpose, recipient string) []rateLimitBucket {
+// recipient or purpose changes. Recipient budgets and cooldowns are shared
+// across users but scoped to (purpose, auth collection, recipient), so an
+// email_change request or an account in another auth collection cannot spend
+// the verification capacity of the address owner. Accounts in the same
+// collection can still fill an address's email_change capacity by requesting
+// changes to it; that bound exists to protect the mailbox owner. One address
+// can therefore receive up to emailActionDeliveryLimit messages per window for
+// each purpose and collection. These reservations are separate from
+// password-failure history and optional HTTP rate limits.
+func (s *Service) emailActionDeliveryBuckets(userID, collectionID uuid.UUID, purpose, recipient string) []rateLimitBucket {
+	recipientKey := purpose + "\x00" + collectionID.String() + "\x00" + recipient
 	return []rateLimitBucket{
 		{hash: s.subjectHash("email-action-delivery", "actor", userID.String()), limit: emailActionDeliveryLimit, window: emailActionDeliveryWindow},
-		{hash: s.subjectHash("email-action-delivery", "recipient", recipient), limit: emailActionDeliveryLimit, window: emailActionDeliveryWindow},
+		{hash: s.subjectHash("email-action-delivery", "recipient", recipientKey), limit: emailActionDeliveryLimit, window: emailActionDeliveryWindow},
 		{hash: s.subjectHash("email-action-cooldown", "actor", purpose+"\x00"+userID.String()), limit: 1, window: emailActionResendCooldown},
-		{hash: s.subjectHash("email-action-cooldown", "recipient", purpose+"\x00"+recipient), limit: 1, window: emailActionResendCooldown},
+		{hash: s.subjectHash("email-action-cooldown", "recipient", recipientKey), limit: 1, window: emailActionResendCooldown},
 	}
 }
 
 // reserveEmailActionDelivery runs in the same transaction as action creation.
 // Failure rolls back every reservation; after commit, SMTP errors do not refund
 // a reservation because delivery may have succeeded before the transport failed.
-func (s *Service) reserveEmailActionDelivery(ctx context.Context, tx pgx.Tx, userID uuid.UUID, purpose, recipient string) error {
-	buckets := s.emailActionDeliveryBuckets(userID, purpose, recipient)
+func (s *Service) reserveEmailActionDelivery(ctx context.Context, tx pgx.Tx, userID, collectionID uuid.UUID, purpose, recipient string) error {
+	buckets := s.emailActionDeliveryBuckets(userID, collectionID, purpose, recipient)
 	sort.Slice(buckets, func(i, j int) bool { return advisoryKey(buckets[i].hash) < advisoryKey(buckets[j].hash) })
 	for _, bucket := range buckets {
 		var acquired bool
