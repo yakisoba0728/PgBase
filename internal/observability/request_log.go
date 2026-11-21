@@ -498,6 +498,21 @@ func (l *RequestLog) writeLoop() {
 // cleanup still rechecks the settings revision after waiting.
 var requestLogWriteOptions = pgx.TxOptions{BeginQuery: "begin; set local synchronous_commit = off"}
 
+// requestLogPruneBudget leaves half of the remaining batch deadline for the
+// rollback to the savepoint and the commit. Without a deadline nothing can
+// close the connection underneath the batch, so the cleanup gets a fixed bound.
+func requestLogPruneBudget(ctx context.Context) time.Duration {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return 5 * time.Second
+	}
+	budget := time.Until(deadline) / 2
+	if budget < time.Millisecond {
+		return 0
+	}
+	return budget
+}
+
 type requestLogExecutor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
@@ -512,8 +527,19 @@ func (l *RequestLog) writeBatch(ctx context.Context, entries []RequestEntry) err
 		if err := insertEntries(ctx, tx, entries); err != nil {
 			return err
 		}
-		// A cleanup failure must not roll back the stored entries.
+		// A cleanup failure must not roll back the stored entries. A cleanup
+		// that outlives ctx would make pgx close the connection and lose the
+		// batch with it, so the server ends a slow cleanup first: a statement
+		// timeout aborts only the savepoint and leaves the batch to commit.
+		budget := requestLogPruneBudget(ctx)
+		if budget <= 0 {
+			pruneErr = context.DeadlineExceeded
+			return nil
+		}
 		pruneErr = database.InSavepoint(ctx, tx, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, fmt.Sprintf("set local statement_timeout = %d", budget.Milliseconds())); err != nil {
+				return err
+			}
 			return l.prune(ctx, tx, l.options.MaximumRows)
 		})
 		return nil
