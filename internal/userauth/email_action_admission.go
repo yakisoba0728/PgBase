@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -72,10 +73,25 @@ func (s *Service) reserveEmailActionDelivery(ctx context.Context, tx pgx.Tx, use
 			return err
 		}
 		if tag.RowsAffected() != 1 {
-			return ErrRateLimited
+			return exhaustedEmailActionBucket(ctx, tx, bucket)
 		}
 	}
 	return nil
+}
+
+// exhaustedEmailActionBucket reports when a full bucket's window resets. The
+// advisory lock taken above keeps the row stable for this read; if the read
+// fails the caller still gets a plain ErrRateLimited.
+func exhaustedEmailActionBucket(ctx context.Context, tx pgx.Tx, bucket rateLimitBucket) error {
+	var remaining float64
+	err := tx.QueryRow(ctx, `
+		select extract(epoch from window_started_at + make_interval(secs=>$2) - CURRENT_TIMESTAMP)::float8
+		from pgbase_meta.user_auth_rate_limits where subject_hash=$1`, bucket.hash, int64(bucket.window.Seconds())).Scan(&remaining)
+	if err != nil || remaining <= 0 {
+		return ErrRateLimited
+	}
+	retryAfter := time.Duration(math.Ceil(remaining)) * time.Second
+	return &RateLimitedError{RetryAfter: retryAfter}
 }
 
 func (s *Service) preflightPasswordReset(ctx context.Context, rawToken, password string) error {

@@ -164,14 +164,16 @@ func TestAuthSessionProjectionSelectsNestedUserAndTokenBeforeMutation(t *testing
 
 func TestUserAuthFailuresAreRedactedAndClassified(t *testing.T) {
 	for _, tc := range []struct {
-		err    error
-		status int
-		code   string
+		err        error
+		status     int
+		code       string
+		retryAfter string
 	}{
-		{userauth.ErrInvalidCredentials, 401, "invalid_credentials"},
-		{userauth.ErrRateLimited, 429, "rate_limited"},
-		{fmt.Errorf("create user email action: %w", userauth.ErrRateLimited), 429, "rate_limited"},
-		{errors.New("database failed with secret-sentinel"), 503, "authentication_unavailable"},
+		{userauth.ErrInvalidCredentials, 401, "invalid_credentials", ""},
+		{userauth.ErrRateLimited, 429, "rate_limited", "60"},
+		{fmt.Errorf("create user email action: %w", userauth.ErrRateLimited), 429, "rate_limited", "60"},
+		{fmt.Errorf("create user email action: %w", &userauth.RateLimitedError{RetryAfter: 812*time.Second + 300*time.Millisecond}), 429, "rate_limited", "813"},
+		{errors.New("database failed with secret-sentinel"), 503, "authentication_unavailable", ""},
 	} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("GET", "/api/v1/auth/session", nil)
@@ -180,7 +182,7 @@ func TestUserAuthFailuresAreRedactedAndClassified(t *testing.T) {
 			t.Fatalf("status=%d want=%d", w.Code, tc.status)
 		}
 		assertErrorCode(t, w.Body.Bytes(), tc.code)
-		if tc.status == http.StatusTooManyRequests && w.Header().Get("Retry-After") != "60" {
+		if w.Header().Get("Retry-After") != tc.retryAfter {
 			t.Fatalf("rate-limit retry header=%q", w.Header().Get("Retry-After"))
 		}
 		if strings.Contains(w.Body.String(), "secret-sentinel") {

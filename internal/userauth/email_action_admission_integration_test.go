@@ -83,8 +83,10 @@ func TestAdministratorVerificationPreservesPublicDeliveryBudget(t *testing.T) {
 	if err := s.RequestVerification(ctx, user.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RequestVerification(ctx, user.User.ID); !errors.Is(err, ErrRateLimited) {
-		t.Fatalf("public resend during cooldown = %v", err)
+	err = s.RequestVerification(ctx, user.User.ID)
+	var cooldown *RateLimitedError
+	if !errors.Is(err, ErrRateLimited) || !errors.As(err, &cooldown) || cooldown.RetryAfter <= 0 || cooldown.RetryAfter > emailActionResendCooldown {
+		t.Fatalf("public resend during cooldown = %v, want retry within the cooldown", err)
 	}
 	for range 2 {
 		if err := s.AdminRequestVerification(ctx, user.User.ID); err != nil {
@@ -117,8 +119,10 @@ func TestEmailChangeDeliveryBudgetCountsChangingRecipientsAndBoundsPendingAction
 		}
 	}
 	expireEmailActionCooldown(t, s, user.User.ID, "email_change", previous)
-	if err := s.RequestEmailChange(ctx, user.User.ID, "correct horse battery staple", "different@example.test"); !errors.Is(err, ErrRateLimited) {
-		t.Fatalf("exhausted actor budget = %v", err)
+	err = s.RequestEmailChange(ctx, user.User.ID, "correct horse battery staple", "different@example.test")
+	var exhausted *RateLimitedError
+	if !errors.Is(err, ErrRateLimited) || !errors.As(err, &exhausted) || exhausted.RetryAfter <= emailActionResendCooldown || exhausted.RetryAfter > emailActionDeliveryWindow {
+		t.Fatalf("exhausted actor budget = %v, want retry after the delivery window resets", err)
 	}
 	var total, pending int
 	if err := s.pool.QueryRow(ctx, `select count(*),count(*) filter (where consumed_at is null) from pgbase_meta.user_email_actions where user_id=$1 and purpose='email_change'`, user.User.ID).Scan(&total, &pending); err != nil {
