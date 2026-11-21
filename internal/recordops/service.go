@@ -123,6 +123,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 	if err != nil {
 		return MutationResult{}, unavailableMembership(err)
 	}
+	_, borrowedCreate, _ := s.pool.BorrowedTransaction(ctx)
 	var idempotencyLock *int64
 	if len(keyHash) > 0 {
 		lock := advisoryLockKey(request.Principal, []byte(request.Collection), keyHash)
@@ -242,6 +243,13 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := authorizeUserRecordOperationWithRequest(ctx, tx, catalog, collection, request.Principal, recordID, "create", &requestContext); err != nil {
 			return err
 		}
+		// commitMutation would evaluate this same create rule again for the same
+		// row and request. An owned attempt without an idempotency key runs in
+		// Repeatable Read, so concurrent commits stay invisible, and on a
+		// collection without relation fields the only writes in between are the
+		// membership sidecars, which no rule can reference. The second
+		// evaluation could not differ, so it is skipped.
+		createRuleStable := !borrowedCreate && len(keyHash) == 0 && !hasRelationFields(collection)
 		if err := createFence.RecordCreated(ctx, recordID); err != nil {
 			return transactionalMembership(err)
 		}
@@ -268,6 +276,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 				idempotencyKeyHash: keyHash, compatibility: compatibility, validator: validator,
 				requestContext: &requestContext,
 			}},
+			ruleChecked: createRuleStable,
 		}); err != nil {
 			return err
 		}

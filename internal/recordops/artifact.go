@@ -54,6 +54,9 @@ type artifactBatch struct {
 	schemaVersion int64
 	schemaDigest  [32]byte
 	rows          []artifactRow
+	// ruleChecked marks a create batch whose create rule the caller already
+	// evaluated on an unchanged view of the same rows; see Service.Create.
+	ruleChecked bool
 }
 
 // commitMutation writes the revision, audit and outbox artifacts of one
@@ -74,7 +77,7 @@ func commitMutation(
 		if len(batch.rows) == 0 {
 			continue
 		}
-		if (principal.Kind == PrincipalUser || principal.Kind == identity.Anonymous) && batch.operation != "delete" {
+		if (principal.Kind == PrincipalUser || principal.Kind == identity.Anonymous) && batch.operation != "delete" && !batch.ruleChecked {
 			if batch.rows[0].requestContext != nil {
 				ids := make([]uuid.UUID, len(batch.rows))
 				for i, row := range batch.rows {

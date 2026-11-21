@@ -98,6 +98,15 @@ func loadWriteRules(ctx context.Context, tx pgx.Tx, collectionID uuid.UUID, prin
 	return rules, nil
 }
 
+func hasRelationFields(collection schema.Collection) bool {
+	for _, field := range collection.Fields {
+		if field.Type == schema.TypeRelation || field.Relation != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func allowsWriteRecord(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, principal Principal, action string, id uuid.UUID, prospectiveOwner bool, request *accessrule.RequestContext) (bool, error) {
 	rules, err := loadWriteRules(ctx, tx, collection.ID, principal)
 	if err != nil {
