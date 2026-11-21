@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"image"
 	"io"
 	"regexp"
 	"strconv"
@@ -197,29 +196,8 @@ func (s *Service) renderThumbnailData(data []byte, contentType, variant string) 
 			outW = max(1, sw*h/sh)
 		}
 	}
-	out := image.NewNRGBA(image.Rect(0, 0, outW, outH))
-	for y := 0; y < outH; y++ {
-		for x := 0; x < outW; x++ {
-			sx, sy := x*sw/outW, y*sh/outH
-			if mode != "f" && sw*outH != sh*outW {
-				if sw*outH > sh*outW {
-					cropW := sh * outW / outH
-					offset := (sw - cropW) / 2
-					sx = offset + x*cropW/outW
-				} else {
-					cropH := sw * outH / outW
-					offset := (sh - cropH) / 2
-					if mode == "t" {
-						offset = 0
-					} else if mode == "b" {
-						offset = sh - cropH
-					}
-					sy = offset + y*cropH/outH
-				}
-			}
-			out.Set(x, y, source.At(source.Bounds().Min.X+sx, source.Bounds().Min.Y+sy))
-		}
-	}
+	xs, ys := variantSampleGrid(sw, sh, outW, outH, mode)
+	out := sampleNearest(source, xs, ys)
 	var buffer bytes.Buffer
 	err = encodeThumbnail(&buffer, out, strings.ToLower(format))
 	if err != nil || int64(buffer.Len()) > s.options.MaximumBytes {

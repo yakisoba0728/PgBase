@@ -43,12 +43,8 @@ func (s *Service) buildThumbnail(ctx context.Context, file File) ([]byte, error)
 	if height > width {
 		newWidth, newHeight = max(1, width*maximum/height), maximum
 	}
-	thumbnail := image.NewNRGBA(image.Rect(0, 0, newWidth, newHeight))
-	for y := range newHeight {
-		for x := range newWidth {
-			thumbnail.Set(x, y, source.At(source.Bounds().Min.X+x*width/newWidth, source.Bounds().Min.Y+y*height/newHeight))
-		}
-	}
+	xs, ys := thumbnailSampleGrid(width, height, newWidth, newHeight)
+	thumbnail := sampleNearest(source, xs, ys)
 	var output bytes.Buffer
 	err = encodeThumbnail(&output, thumbnail, format)
 	if err != nil || int64(output.Len()) > s.options.MaximumBytes {
