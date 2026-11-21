@@ -36,6 +36,10 @@ type writeGrant struct {
 // Entries are bound to the exact pgx.Tx that took the locks. A nested
 // savepoint is a different value, so locks it might release on rollback are
 // never remembered.
+//
+// Reuse relies on one invariant: within one write attempt the kernel never
+// writes pgbase_meta.users, collection_access or collection_rules. Code that
+// adds such a write in the same transaction must invalidate this memo.
 type writePolicies struct {
 	tx     pgx.Tx
 	grants map[writeGrant]struct{}
