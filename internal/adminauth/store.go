@@ -488,41 +488,11 @@ func (s *Store) CreateSession(ctx context.Context, id, administratorID uuid.UUID
 }
 
 // AuthenticateSession resolves an active, unexpired, unrevoked session and updates last-seen time.
+// The statement lives in AuthenticateSessionWithIPPrefixes so the session
+// rules have one definition; this form ignores the allowlist it also reads.
 func (s *Store) AuthenticateSession(ctx context.Context, tokenHash []byte, now time.Time) (Administrator, time.Time, error) {
-	var administrator Administrator
-	var expiresAt time.Time
-	err := s.db.QueryRow(ctx, `
-		with refreshed as (
-			update pgbase_meta.admin_sessions as sessions
-			set last_seen_at = $2
-			from pgbase_meta.admins as admins
-			where sessions.token_hash = $1
-			  and sessions.admin_id = admins.id
-			  and sessions.revoked_at is null
-			  and sessions.expires_at > $2
-			  and admins.active
-			  and sessions.last_seen_at <= $2 - interval '5 minutes'
-			returning admins.id, admins.email, admins.active, admins.created_at, admins.updated_at, sessions.expires_at
-		)
-		select id, email, active, created_at, updated_at, expires_at from refreshed
-		union all
-		select admins.id, admins.email, admins.active, admins.created_at, admins.updated_at, sessions.expires_at
-		from pgbase_meta.admin_sessions as sessions
-		join pgbase_meta.admins as admins on admins.id = sessions.admin_id
-		where sessions.token_hash = $1
-		  and sessions.revoked_at is null
-		  and sessions.expires_at > $2
-		  and admins.active
-		  and not exists (select 1 from refreshed)`, tokenHash, now).Scan(
-		&administrator.ID, &administrator.Email, &administrator.Active,
-		&administrator.CreatedAt, &administrator.UpdatedAt, &expiresAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Administrator{}, time.Time{}, ErrInvalidCredentials
-	}
-	if err != nil {
-		return Administrator{}, time.Time{}, fmt.Errorf("authenticate administrator session: %w", err)
-	}
-	return administratorUTC(administrator), expiresAt.UTC(), nil
+	administrator, expiresAt, _, err := s.AuthenticateSessionWithIPPrefixes(ctx, tokenHash, now)
+	return administrator, expiresAt, err
 }
 
 // RevokeSession revokes a session if it exists; repeated logout is harmless.

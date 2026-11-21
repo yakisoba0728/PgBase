@@ -78,6 +78,35 @@ func compileSelectByIDWithMembership(collection schema.Collection, id uuid.UUID,
 	return statement
 }
 
+// compileSelectByIDWithRevision is CompileSelectByID plus the record's
+// revision columns, read by primary-key scalar subqueries in the same
+// statement (and so the same snapshot) as the row. The subqueries keep the
+// root FROM clause unchanged, so collection fields named like revision
+// columns cannot become ambiguous. The two trailing columns are NULL when no
+// revision row exists; scan them with revisionTrailingScanner.
+func compileSelectByIDWithRevision(collection schema.Collection, id uuid.UUID) Statement {
+	const revision = " FROM pgbase_meta.record_revisions pgbase_revision WHERE pgbase_revision.collection_id = $2 AND pgbase_revision.record_id = $1)"
+	return Statement{
+		SQL: "SELECT " + selectedColumns(collection) +
+			", (SELECT pgbase_revision.version" + revision +
+			", (SELECT pgbase_revision.validator" + revision +
+			" FROM " + quotedTable(collection) + " WHERE " + quoted("id") + " = $1",
+		Args: []any{id, collection.ID},
+	}
+}
+
+// revisionTrailingScanner appends the revision destinations after the record
+// destinations chosen by EncodeRecord.
+type revisionTrailingScanner struct {
+	row       RowScanner
+	version   *int64
+	validator []byte
+}
+
+func (r *revisionTrailingScanner) Scan(destinations ...any) error {
+	return r.row.Scan(append(destinations, &r.version, &r.validator)...)
+}
+
 func CompileUpdate(collection schema.Collection, id uuid.UUID, input map[string]json.RawMessage) (Statement, error) {
 	return compileUpdate(collection, id, input, false)
 }
