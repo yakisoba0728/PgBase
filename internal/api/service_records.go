@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/yakisoba0728/PgBase/internal/identity"
+	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/serviceauth"
 )
 
@@ -55,6 +56,52 @@ func anonymousSessionMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
+
+// anonymousWriteAdmission is a body-free preflight of the anonymous admission
+// gate. Public write routes accept large bodies (and multipart batches stage
+// files), but anonymous admission is a per-collection opt-in that recordops
+// only checks after the body has been read. Checking the opt-in first keeps an
+// unauthenticated caller from making the server buffer or stage a body for a
+// collection it can never write. It returns nil for every other principal, so
+// authenticated paths are untouched, and recordops keeps the authoritative
+// check under its transaction locks. A missing collection fails exactly as the
+// record service reports it (404 not_found), and a collection without the
+// opt-in as recordaccess.ErrDenied (403 access_denied).
+func (e recordEndpoints) anonymousWriteAdmission(r *http.Request, collections ...string) error {
+	if e.access == nil {
+		return nil
+	}
+	principal, ok := r.Context().Value(publicRecordPrincipalKey{}).(identity.Subject)
+	if !ok || principal.Kind != identity.Anonymous {
+		return nil
+	}
+	checked := make(map[string]bool, len(collections))
+	for _, name := range collections {
+		if name == "" || checked[name] {
+			continue
+		}
+		checked[name] = true
+		policy, err := e.access.Get(r.Context(), name)
+		if err != nil {
+			return err
+		}
+		if !policy.Enabled {
+			return recordaccess.ErrDenied
+		}
+	}
+	return nil
+}
+
+// admitAnonymousWrite writes the preflight failure and reports whether the
+// handler may go on to read the request body.
+func (e recordEndpoints) admitAnonymousWrite(w http.ResponseWriter, r *http.Request) bool {
+	if err := e.anonymousWriteAdmission(r, r.PathValue("collection")); err != nil {
+		writeRecordError(w, r, err)
+		return false
+	}
+	return true
+}
+
 func writeServiceCredentialError(w http.ResponseWriter, r *http.Request) {
 	writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "invalid_service_token", Message: "Invalid service token"})
 }
@@ -63,7 +110,7 @@ func serviceRecordRoutes(dependencies Dependencies) []route {
 	if dependencies.ServiceTokens == nil || dependencies.Records == nil {
 		return nil
 	}
-	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files, hooks: dependencies.LifecycleHooks}
+	records := recordEndpoints{service: dependencies.Records, files: dependencies.Files, hooks: dependencies.LifecycleHooks, access: dependencies.RecordAccess}
 	if dependencies.RuntimeSettings != nil {
 		records.settings = dependencies.RuntimeSettings
 	}

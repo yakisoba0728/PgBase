@@ -59,6 +59,9 @@ type recordEndpoints struct {
 	files    FileService
 	hooks    *lifecycle.Registry
 	settings batchSettings
+	// access, when set, preflights anonymous write admission before a body
+	// is read. Only the public routes configure it.
+	access RecordAccess
 }
 
 func (e recordEndpoints) enrich(ctx context.Context, collection string, record map[string]any) error {
@@ -297,6 +300,9 @@ func (e recordEndpoints) create(w http.ResponseWriter, r *http.Request) {
 		writeRecordOperationError(w, r, &recordops.Error{Code: recordops.CodeInvalidIdempotencyKey})
 		return
 	}
+	if !e.admitAnonymousWrite(w, r) {
+		return
+	}
 	input, ok := recordInput(w, r)
 	if !ok {
 		return
@@ -365,6 +371,9 @@ func (e recordEndpoints) update(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := recordID(w, r)
 	if !ok {
+		return
+	}
+	if !e.admitAnonymousWrite(w, r) {
 		return
 	}
 	input, ok := recordInput(w, r)
