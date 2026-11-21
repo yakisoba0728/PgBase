@@ -288,7 +288,12 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 				if fieldType != schema.TypeUUID {
 					return "", ErrInvalid
 				}
-				rhs = c.parameter(c.principal.ID)
+				// Unauthenticated callers bind NULL, never the nil UUID.
+				var id any
+				if authenticatedSubject(c.principal) {
+					id = c.principal.ID
+				}
+				rhs = c.parameter(id) + "::uuid"
 			case "verified":
 				if fieldType != schema.TypeBoolean {
 					return "", ErrInvalid

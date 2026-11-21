@@ -141,6 +141,9 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 	if !ok || rule.Field == "" {
 		return "", ErrInvalid
 	}
+	if rule.Function == nil && c.absentRequestAuth(rule.Field) {
+		return absentAuthComparison(rule, base)
+	}
 	var left Operand
 	var err error
 	if rule.Function != nil {
@@ -170,9 +173,15 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 		var value any
 		var ok bool
 		if rule.Auth == "id" {
-			value, ok = c.context.Principal.ID, true
+			// An unauthenticated caller has no id: bind NULL rather than the
+			// nil UUID so a row holding the nil UUID cannot match it.
+			ok = true
+			if authenticatedSubject(c.context.Principal) {
+				value = c.context.Principal.ID
+			}
 		} else if c.context.Request != nil {
-			value, ok = c.context.Request.Auth[rule.Auth]
+			// An absent key binds as NULL, so the comparison is false.
+			value, ok = c.context.Request.Auth[rule.Auth], true
 		}
 		if !ok && !c.context.validationOnly {
 			return "", ErrInvalid
@@ -260,6 +269,51 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 		return "EXISTS (SELECT 1 FROM " + left.Multi.From + " WHERE " + where + match + ")", nil
 	}
 	return "NOT EXISTS (SELECT 1 FROM " + left.Multi.From + " WHERE " + where + "NOT (" + match + "))", nil
+}
+
+// absentRequestAuth reports a @request.auth key the executing caller lacks.
+// Anonymous callers lack every key; authenticated callers lack fields their
+// record does not carry.
+func (c *expressionCompiler) absentRequestAuth(path string) bool {
+	if c.context.validationOnly || c.context.Request == nil {
+		return false
+	}
+	key, ok := strings.CutPrefix(path, "__pgbase_request_auth_")
+	if !ok || key == "" {
+		return false
+	}
+	_, present := c.context.Request.Auth[key]
+	return !present
+}
+
+// absentAuthComparison compiles a comparison whose left side is an absent
+// @request.auth value. The value is NULL, whose type is unknown, so instead of
+// binding it the result is folded: every comparison is false (fail closed)
+// except an explicit null check, as COALESCE(NULL op x, false) would give.
+func absentAuthComparison(rule Rule, base string) (string, error) {
+	if rule.OtherField != "" || rule.Auth != "" {
+		return "FALSE", nil
+	}
+	if rule.Macro != "" {
+		if _, _, ok := pbMacroSQL(rule.Macro); !ok {
+			return "", ErrInvalid
+		}
+		return "FALSE", nil
+	}
+	value, err := pbTypedValue(0, rule.Value)
+	if err != nil {
+		return "", err
+	}
+	if value == nil {
+		switch base {
+		case "eq":
+			return "TRUE", nil
+		case "ne":
+			return "FALSE", nil
+		}
+		return "", ErrInvalid
+	}
+	return "FALSE", nil
 }
 
 func (c *expressionCompiler) projectionAlias(alias string) string {
@@ -471,8 +525,10 @@ func (c *expressionCompiler) resolveRequest(path string) (Operand, error) {
 	}
 	if strings.HasPrefix(path, "__pgbase_request_auth_") {
 		key := strings.TrimPrefix(path, "__pgbase_request_auth_")
-		value, ok := r.Auth[key]
-		if key == "" || !ok && !c.context.validationOnly {
+		// A key the caller lacks (always the case for anonymous requests)
+		// binds as SQL NULL, matching PocketBase's absent @request.auth values.
+		value := r.Auth[key]
+		if key == "" {
 			return Operand{}, ErrInvalid
 		}
 		kind := OperandText

@@ -14,6 +14,14 @@ validated operation input, and reloads an active user actor from the applicable
 auth collection in PostgreSQL before evaluating `@request.auth`. Request headers
 or a stale caller snapshot cannot make an unverified stored user verified.
 
+An `@request.auth.<key>` the actor does not have (a profile field the actor's
+record lacks, or for an anonymous caller any key other than `id` and `email`,
+which auth rules always supply) evaluates as NULL rather
+than failing the request. `= null` is then true, `!= null` false, and every
+other comparison false, so a bare `@request.auth.<key> = null` also matches
+anonymous callers; guard it with `@request.auth.id != ''` when it should apply
+only to signed-in actors.
+
 An embedded/background call without request metadata cannot satisfy a rule
 that depends on HTTP metadata. In particular, a missing method/header/query
 must not make a negative comparison such as `@request.method != 'GET'` grant
