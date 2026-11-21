@@ -212,9 +212,24 @@ func TestEstimateImageMemoryFormatLayouts(t *testing.T) {
 	if got, want := estimateImageMemory([]byte("GIF89a"), "gif", config, output), base+2*pixels; got != want {
 		t.Errorf("gif: got %d, want %d", got, want)
 	}
-	// An unparsable header falls back to the colour model with headroom.
-	if got, want := estimateImageMemory(nil, "png", image.Config{Width: width, Height: height, ColorModel: color.NRGBA64Model}, output), base+8*3*pixels; got != want {
-		t.Errorf("fallback: got %d, want %d", got, want)
+	// A header the parser cannot follow is charged the format's worst case.
+	if got, want := estimateImageMemory(nil, "png", image.Config{Width: width, Height: height, ColorModel: color.GrayModel}, output), base+16*pixels+2*(2+8*width); got != want {
+		t.Errorf("png fallback: got %d, want %d", got, want)
+	}
+	if got, want := estimateImageMemory([]byte{0xff, 0xd8}, "jpeg", config, output), base+20*(width+31)*(height+31)+4*pixels+4*pixels; got != want {
+		t.Errorf("jpeg fallback: got %d, want %d", got, want)
+	}
+	// The worst case covers every layout the parser does understand.
+	for _, data := range [][]byte{
+		sof(0xc2, true, [3]byte{1, 0x44, 0}, [3]byte{2, 0x44, 1}, [3]byte{3, 0x44, 1}, [3]byte{4, 0x44, 1}),
+		sof(0xc2, true, [3]byte{1, 0x33, 0}, [3]byte{2, 0x11, 1}, [3]byte{3, 0x13, 1}, [3]byte{4, 0x31, 1}),
+		appendJPEGEXIFOrientation(sof(0xc2, false, [3]byte{'R', 0x11, 0}, [3]byte{'G', 0x11, 1}, [3]byte{'B', 0x11, 1}), 6),
+	} {
+		for _, size := range []image.Config{config, {Width: 25, Height: 25}, {Width: 4001, Height: 3}} {
+			if parsed, worst := estimateImageMemory(data, "jpeg", size, output), estimateImageMemory(nil, "jpeg", size, output); parsed > worst {
+				t.Errorf("jpeg %dx%d layout estimate %d exceeds the worst case %d", size.Width, size.Height, parsed, worst)
+			}
+		}
 	}
 	if got := estimateImageMemory(nil, "png", image.Config{Width: 1 << 30, Height: 1 << 30}, 1<<40); got <= 0 {
 		t.Errorf("estimate overflowed to %d", got)
@@ -702,4 +717,104 @@ func (b *imageMemoryBudget) snapshot() (held, peak int64, waiting int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.held, b.peak, b.waiters.Len()
+}
+
+// progressiveJPEG encodes a width x height (multiples of 8) mid-grey 4:4:4
+// progressive JPEG: one interleaved DC scan and one AC scan per component,
+// with single-code Huffman tables so every block costs one zero bit. junk
+// inserts extraneous non-marker bytes before the SOF segment, which
+// image/jpeg skips.
+func progressiveJPEG(width, height int, junk bool) []byte {
+	segment := func(marker byte, body ...byte) []byte {
+		return append([]byte{0xff, marker, byte((len(body) + 2) >> 8), byte(len(body) + 2)}, body...)
+	}
+	blocks := (width / 8) * (height / 8)
+	entropy := func(bits int) []byte {
+		data := make([]byte, (bits+7)/8)
+		if bits%8 != 0 {
+			data[len(data)-1] = 0xff >> (bits % 8)
+		}
+		return data
+	}
+	data := []byte{0xff, 0xd8}
+	data = append(data, segment(0xdb, append([]byte{0}, bytes.Repeat([]byte{1}, 64)...)...)...)
+	if junk {
+		data = append(data, 0x00, 0x12, 0x34)
+	}
+	data = append(data, segment(0xc2, 8, byte(height>>8), byte(height), byte(width>>8), byte(width), 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0)...)
+	table := append(append([]byte{1}, make([]byte, 15)...), 0)
+	data = append(data, segment(0xc4, append(append([]byte{0x00}, table...), append([]byte{0x10}, table...)...)...)...)
+	data = append(data, segment(0xda, 3, 1, 0x00, 2, 0x00, 3, 0x00, 0, 0, 0)...)
+	data = append(data, entropy(3*blocks)...)
+	for id := byte(1); id <= 3; id++ {
+		data = append(data, segment(0xda, 1, id, 0x00, 1, 63, 0)...)
+		data = append(data, entropy(blocks)...)
+	}
+	return append(data, 0xff, 0xd9)
+}
+
+// TestJPEGEstimateIgnoresExtraneousBytes checks that bytes image/jpeg skips
+// cannot lower the reservation, and that the reservation still covers what
+// decoding such a progressive image allocates.
+func TestJPEGEstimateIgnoresExtraneousBytes(t *testing.T) {
+	const width, height = 1600, 1200
+	clean, junk := progressiveJPEG(width, height, false), progressiveJPEG(width, height, true)
+	for _, data := range [][]byte{clean, junk} {
+		if _, err := jpeg.Decode(bytes.NewReader(data)); err != nil {
+			t.Fatalf("fixture does not decode: %v", err)
+		}
+	}
+	config, format, err := decodeImageConfig(bytes.NewReader(junk), "image/jpeg")
+	if err != nil || format != "jpeg" || config.Width != width || config.Height != height {
+		t.Fatalf("config=%+v format=%q err=%v", config, format, err)
+	}
+	output := int64(320 * 240)
+	if got, want := estimateImageMemory(junk, format, config, output), estimateImageMemory(clean, format, config, output); got != want {
+		t.Fatalf("extraneous bytes changed the estimate from %d to %d", want, got)
+	}
+	// Progressive 4:4:4: three planes plus 4 bytes of coefficients per sample.
+	if got, want := estimateImageMemory(junk, format, config, output), imageDecodeSlackBytes+15*width*height+output*imageOutputBytesPerPixel; got != want {
+		t.Fatalf("estimate %d, want the progressive 4:4:4 layout %d", got, want)
+	}
+	service := &Service{options: Options{MaximumBytes: 64 << 20, MaximumImagePixels: 40_000_000, ThumbnailDimension: 320}, imageBudget: newImageMemoryBudget(1 << 40)}
+	runtime.GC()
+	var before, decoded runtime.MemStats
+	runtime.ReadMemStats(&before)
+	if _, err := service.renderDecodedImage(context.Background(), junk, "image/jpeg", fixedOutput(output), false, func(source image.Image, format string) ([]byte, error) {
+		runtime.ReadMemStats(&decoded)
+		return []byte{1}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, peak, _ := service.imageBudget.snapshot()
+	if allocated := int64(decoded.TotalAlloc - before.TotalAlloc); allocated > peak {
+		t.Fatalf("decoding allocated %d bytes, estimate reserved only %d", allocated, peak)
+	}
+}
+
+// TestWebPEstimateWithTrailingBytesIsTheWorstCase covers a WebP that
+// x/image/webp decodes although the chunk walk refuses it: bytes after the
+// RIFF chunk. It is charged at least as much as any parsed layout.
+func TestWebPEstimateWithTrailingBytesIsTheWorstCase(t *testing.T) {
+	config := image.Config{Width: 1000, Height: 600, ColorModel: color.NYCbCrAModel}
+	pixels := int64(config.Width * config.Height)
+	riff := func(chunks ...string) []byte {
+		body := []byte("WEBP")
+		for _, chunk := range chunks {
+			body = append(body, chunk[:4]...)
+			body = binary.LittleEndian.AppendUint32(body, 2)
+			body = append(body, 0, 0)
+		}
+		return append(binary.LittleEndian.AppendUint32([]byte("RIFF"), uint32(len(body))), body...)
+	}
+	for _, layout := range [][]byte{riff("VP8X", "ALPH", "VP8 "), riff("VP8L"), riff("VP8X", "ANIM", "ANMF")} {
+		parsed := estimateImageMemory(layout, "webp", config, 1)
+		if _, ok := webpDecodeMemory(layout, config, pixels); !ok {
+			t.Fatalf("layout %q did not parse", layout[12:16])
+		}
+		trailing := append(append([]byte(nil), layout...), make([]byte, 64)...)
+		if got := estimateImageMemory(trailing, "webp", config, 1); got < parsed {
+			t.Errorf("layout %q with trailing bytes: estimate %d, below the parsed layout's %d", layout[12:16], got, parsed)
+		}
+	}
 }

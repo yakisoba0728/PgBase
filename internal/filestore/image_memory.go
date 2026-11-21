@@ -21,7 +21,7 @@ const (
 	imageOutputBytesPerPixel int64 = 12
 	// orientImage materializes a full-size NRGBA copy.
 	imageOrientationBytesPerPixel int64 = 4
-	// Used when a format header cannot be parsed further than DecodeConfig.
+	// Used for a format without its own parser.
 	imageUnknownDecoderFactor int64 = 3
 )
 
@@ -63,25 +63,62 @@ func estimateImageMemory(data []byte, format string, config image.Config, output
 	return saturatingAdd(total, saturatingMul(max(outputPixels, 1), imageOutputBytesPerPixel))
 }
 
+// decodeMemory estimates the decoder's own allocations. A header the format
+// parser cannot follow is charged the format's worst case, never something
+// smaller: the decoders accept streams a strict parser would refuse, and a
+// lower fallback would let crafted bytes shrink the reservation.
 func decodeMemory(data []byte, format string, config image.Config, pixels int64) int64 {
-	var estimate int64
-	ok := false
 	switch format {
 	case "png":
-		estimate, ok = pngDecodeMemory(data, pixels)
+		if estimate, ok := pngDecodeMemory(data, pixels); ok {
+			return estimate
+		}
+		return pngWorstDecodeMemory(config, pixels)
 	case "jpeg":
-		estimate, ok = jpegDecodeMemory(data, config)
+		if estimate, ok := jpegDecodeMemory(data, config); ok {
+			return estimate
+		}
+		return jpegWorstDecodeMemory(config, pixels)
 	case "gif":
 		// image/gif keeps only the first frame, a Paletted no larger than the
 		// logical screen, and de-interlacing copies its Pix once.
-		estimate, ok = saturatingMul(pixels, 2), true
+		return saturatingMul(pixels, 2)
 	case "webp":
-		estimate, ok = webpDecodeMemory(data, config, pixels)
+		if estimate, ok := webpDecodeMemory(data, config, pixels); ok {
+			return estimate
+		}
+		return webpWorstDecodeMemory(data, config, pixels)
+	default:
+		return saturatingMul(pixels, saturatingMul(colorModelBytesPerPixel(config.ColorModel), imageUnknownDecoderFactor))
 	}
-	if !ok {
-		estimate = saturatingMul(pixels, saturatingMul(colorModelBytesPerPixel(config.ColorModel), imageUnknownDecoderFactor))
-	}
-	return estimate
+}
+
+// pngWorstDecodeMemory is pngDecodeMemory's largest result for the image
+// size: interlaced 16-bit RGBA.
+func pngWorstDecodeMemory(config image.Config, pixels int64) int64 {
+	row := saturatingAdd(2, saturatingMul(8, int64(config.Width)))
+	return saturatingAdd(saturatingMul(pixels, 16), saturatingMul(row, 2))
+}
+
+// jpegWorstDecodeMemory bounds jpegDecodeMemory for every layout image/jpeg
+// accepts at this size: four progressive components at full resolution,
+// padded by up to one 32-pixel MCU per axis (luma, flex-mode chroma, the
+// black plane and 4 bytes of coefficients per sample of each), the CMYK or
+// RGB result, and an EXIF-orientation copy whether or not one is found.
+func jpegWorstDecodeMemory(config image.Config, pixels int64) int64 {
+	padded := saturatingMul(int64(config.Width)+31, int64(config.Height)+31)
+	planes := saturatingMul(padded, 1+2+1+4*4)
+	return saturatingAdd(planes, saturatingMul(pixels, 4), saturatingMul(pixels, imageOrientationBytesPerPixel))
+}
+
+// webpWorstDecodeMemory is webpDecodeMemory's largest branch, an animation,
+// charged when the chunk walk fails: x/image/webp ignores bytes after the
+// RIFF chunk that parseWebPChunks refuses, so an unparsed file may still
+// decode.
+func webpWorstDecodeMemory(data []byte, config image.Config, pixels int64) int64 {
+	macroblocks := saturatingMul((int64(config.Width)+15)/16, (int64(config.Height)+15)/16)
+	lossy := saturatingMul(macroblocks, 16*16+2*8*8+16)
+	return saturatingAdd(saturatingMul(int64(len(data)), 3), lossy, saturatingMul(pixels, 12), saturatingMul(pixels, 4))
 }
 
 // pngDecodeMemory follows image/png: one image of the IHDR colour type and
@@ -199,22 +236,30 @@ func parseJPEGFrame(data []byte) (jpegFrame, bool) {
 		return frame, false
 	}
 	found := false
-	for offset := 2; offset+1 < len(data); {
-		if data[offset] != 0xff {
-			return frame, false
-		}
-		for offset < len(data) && data[offset] == 0xff {
+	for offset := 2; ; {
+		// image/jpeg silently skips extraneous bytes up to the next 0xff, treats
+		// "\xff\x00" as extraneous too, and skips 0xff fill bytes before a
+		// marker. Refusing the stream here instead would trade the real layout
+		// for a guess the decoder never makes.
+		for offset < len(data) && data[offset] != 0xff {
 			offset++
 		}
-		if offset >= len(data) {
+		if offset+1 >= len(data) {
 			break
 		}
-		marker := data[offset]
-		offset++
-		if marker == 0xd9 {
+		marker := data[offset+1]
+		offset += 2
+		if marker == 0 {
+			continue
+		}
+		for marker == 0xff && offset < len(data) {
+			marker = data[offset]
+			offset++
+		}
+		if marker == 0xff || marker == 0xd9 {
 			break
 		}
-		if marker == 0x01 || marker >= 0xd0 && marker <= 0xd7 {
+		if marker >= 0xd0 && marker <= 0xd7 {
 			continue
 		}
 		if offset+2 > len(data) {
