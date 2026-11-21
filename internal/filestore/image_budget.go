@@ -48,15 +48,12 @@ func newImageMemoryBudget(capacity int64) *imageMemoryBudget {
 }
 
 // acquire reserves weight bytes, waiting in FIFO order until ctx is done. A
-// weight above the whole capacity can never be satisfied and is rejected as
-// ErrInvalid at once, the same error an image over the pixel limit gets.
+// weight above the whole capacity reserves the whole capacity instead: that
+// image runs alone, so no estimate is ever added to another holder's, and the
+// pixel limit still bounds its own memory. Refusing it would turn ordinary
+// large photos into permanent upload failures.
 func (b *imageMemoryBudget) acquire(ctx context.Context, weight int64) (func(), error) {
-	if weight < 1 {
-		weight = 1
-	}
-	if weight > b.capacity {
-		return nil, ErrInvalid
-	}
+	weight = min(max(weight, 1), b.capacity)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

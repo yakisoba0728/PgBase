@@ -30,16 +30,14 @@ func (s *Service) buildThumbnail(ctx context.Context, file File) ([]byte, error)
 	}
 	// The upload holds a storage slot but no transaction or row lock here, so
 	// it may queue for decode memory until its own context ends.
-	dimension := int64(s.options.ThumbnailDimension)
-	return s.renderDecodedImage(ctx, data, file.ContentType, saturatingMul(dimension, dimension), false, func(source image.Image, format string) ([]byte, error) {
-		width, height, maximum := source.Bounds().Dx(), source.Bounds().Dy(), s.options.ThumbnailDimension
-		if width <= maximum && height <= maximum {
-			maximum = max(width, height)
-		}
-		newWidth, newHeight := maximum, max(1, height*maximum/width)
-		if height > width {
-			newWidth, newHeight = max(1, width*maximum/height), maximum
-		}
+	dimension := s.options.ThumbnailDimension
+	outputPixels := func(width, height int) int64 {
+		newWidth, newHeight := thumbnailOutputSize(width, height, dimension)
+		return int64(newWidth) * int64(newHeight)
+	}
+	return s.renderDecodedImage(ctx, data, file.ContentType, outputPixels, false, func(source image.Image, format string) ([]byte, error) {
+		width, height := source.Bounds().Dx(), source.Bounds().Dy()
+		newWidth, newHeight := thumbnailOutputSize(width, height, dimension)
 		xs, ys := thumbnailSampleGrid(width, height, newWidth, newHeight)
 		thumbnail := sampleNearest(source, xs, ys)
 		var output bytes.Buffer
@@ -51,20 +49,40 @@ func (s *Service) buildThumbnail(ctx context.Context, file File) ([]byte, error)
 	})
 }
 
+// thumbnailOutputSize is the upload thumbnail size for a width x height
+// source: the longer side scaled to maximum, never enlarged.
+func thumbnailOutputSize(width, height, maximum int) (int, int) {
+	if width <= maximum && height <= maximum {
+		maximum = max(width, height)
+	}
+	if height > width {
+		return max(1, width*maximum/height), maximum
+	}
+	return maximum, max(1, height*maximum/width)
+}
+
 // renderDecodedImage is the only path that decodes stored image bytes. It
 // reserves the estimated decode memory (see estimateImageMemory) before
 // decoding and holds it until render has returned its encoded bytes, after
 // which no reference to the decoded, oriented or resampled pixels remains.
-// outputPixels bounds what render will allocate for its result. An image whose
-// estimate exceeds the whole budget fails with ErrInvalid, like one over the
-// pixel limit. bounded callers may hold database locks and wait at most
+// outputPixels returns, for the source size render will see (after EXIF
+// orientation), how many pixels render allocates for its result. An image
+// whose estimate exceeds the whole budget is not refused: it reserves the
+// whole budget and renders alone (the pixel limit still bounds its memory).
+// bounded callers may hold database locks and wait at most
 // lockedImageBudgetWait.
-func (s *Service) renderDecodedImage(ctx context.Context, data []byte, contentType string, outputPixels int64, bounded bool, render func(source image.Image, format string) ([]byte, error)) ([]byte, error) {
+func (s *Service) renderDecodedImage(ctx context.Context, data []byte, contentType string, outputPixels func(width, height int) int64, bounded bool, render func(source image.Image, format string) ([]byte, error)) ([]byte, error) {
 	config, format, err := decodeImageConfig(bytes.NewReader(data), contentType)
 	if err != nil || config.Width < 1 || config.Height < 1 || int64(config.Width) > s.options.MaximumImagePixels/int64(config.Height) || !matchesImageFormat(contentType, format) {
 		return nil, ErrInvalid
 	}
-	release, err := s.acquireImageMemory(ctx, estimateImageMemory(data, format, config, outputPixels), bounded)
+	width, height := config.Width, config.Height
+	if format == "jpeg" {
+		if orientation := jpegEXIFOrientation(data); orientation >= 5 && orientation <= 8 {
+			width, height = height, width
+		}
+	}
+	release, err := s.acquireImageMemory(ctx, estimateImageMemory(data, format, config, outputPixels(width, height)), bounded)
 	if err != nil {
 		return nil, err
 	}

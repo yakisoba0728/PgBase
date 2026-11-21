@@ -2,7 +2,6 @@ package filestore
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"errors"
 	"image"
@@ -175,31 +174,22 @@ func (s *Service) renderThumbnailData(ctx context.Context, data []byte, contentT
 	requestedW, _ := strconv.Atoi(m[1])
 	requestedH, _ := strconv.Atoi(m[2])
 	mode := m[3]
-	// A zero dimension is derived from the source below and must not exceed
-	// 4096, so 4096 bounds the output either way.
-	outputPixels := int64(cmp.Or(requestedW, 4096)) * int64(cmp.Or(requestedH, 4096))
+	// The reservation covers the output this spec yields for the source size,
+	// not the largest output any spec could request.
+	var estimated int64
+	outputPixels := func(sw, sh int) int64 {
+		outW, outH, ok := s.variantOutputSize(sw, sh, requestedW, requestedH, mode)
+		if ok {
+			estimated = int64(outW) * int64(outH)
+		}
+		return estimated
+	}
 	return s.renderDecodedImage(ctx, data, contentType, outputPixels, true, func(source image.Image, format string) ([]byte, error) {
-		w, h := requestedW, requestedH
 		sw, sh := source.Bounds().Dx(), source.Bounds().Dy()
-		if sw < 1 || sh < 1 || int64(sw) > s.options.MaximumImagePixels/int64(sh) {
+		outW, outH, ok := s.variantOutputSize(sw, sh, requestedW, requestedH, mode)
+		// A decoded size that would render more than was reserved is refused.
+		if !ok || int64(outW)*int64(outH) > estimated {
 			return nil, ErrInvalid
-		}
-		if w == 0 {
-			w = max(1, sw*h/sh)
-		}
-		if h == 0 {
-			h = max(1, sh*w/sw)
-		}
-		if w < 1 || h < 1 || w > 4096 || h > 4096 || int64(w) > s.options.MaximumImagePixels/int64(h) {
-			return nil, ErrInvalid
-		}
-		outW, outH := w, h
-		if mode == "f" {
-			if sw*h > sh*w {
-				outH = max(1, sh*w/sw)
-			} else {
-				outW = max(1, sw*h/sh)
-			}
 		}
 		xs, ys := variantSampleGrid(sw, sh, outW, outH, mode)
 		out := sampleNearest(source, xs, ys)
@@ -210,6 +200,35 @@ func (s *Service) renderThumbnailData(ctx context.Context, data []byte, contentT
 		}
 		return buffer.Bytes(), nil
 	})
+}
+
+// variantOutputSize is the size a requested variant renders for an sw x sh
+// source. A zero requested dimension follows the source aspect ratio; mode
+// "f" fits inside the requested box. ok is false when the source or the
+// derived box is outside the variant and pixel limits.
+func (s *Service) variantOutputSize(sw, sh, requestedW, requestedH int, mode string) (outW, outH int, ok bool) {
+	if sw < 1 || sh < 1 || int64(sw) > s.options.MaximumImagePixels/int64(sh) {
+		return 0, 0, false
+	}
+	w, h := requestedW, requestedH
+	if w == 0 {
+		w = max(1, sw*h/sh)
+	}
+	if h == 0 {
+		h = max(1, sh*w/sw)
+	}
+	if w < 1 || h < 1 || w > 4096 || h > 4096 || int64(w) > s.options.MaximumImagePixels/int64(h) {
+		return 0, 0, false
+	}
+	outW, outH = w, h
+	if mode == "f" {
+		if sw*h > sh*w {
+			outH = max(1, sh*w/sw)
+		} else {
+			outW = max(1, sw*h/sh)
+		}
+	}
+	return outW, outH, true
 }
 
 // RenderThumbnail applies the bounded variant pipeline to an object without

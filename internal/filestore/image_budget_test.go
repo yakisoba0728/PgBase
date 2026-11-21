@@ -108,7 +108,7 @@ func TestEstimateImageMemoryCoversDecoderAllocations(t *testing.T) {
 			runtime.GC()
 			var before, decoded, rendered runtime.MemStats
 			runtime.ReadMemStats(&before)
-			_, err := service.renderDecodedImage(context.Background(), tc.data, tc.contentType, int64(outW*outH), false, func(source image.Image, format string) ([]byte, error) {
+			_, err := service.renderDecodedImage(context.Background(), tc.data, tc.contentType, fixedOutput(int64(outW*outH)), false, func(source image.Image, format string) ([]byte, error) {
 				runtime.ReadMemStats(&decoded)
 				xs, ys := variantSampleGrid(source.Bounds().Dx(), source.Bounds().Dy(), outW, outH, "")
 				out := sampleNearest(source, xs, ys)
@@ -299,11 +299,12 @@ func concurrentThumbnails(service *Service, file File, n int) []error {
 	return errs
 }
 
-// TestSixteenBitPNGBombIsRejectedBeforeDecode reproduces the audited shape at
-// full size: 6000x6666 16-bit RGBA (about 320 MB decoded) compresses far below
-// the 10 MiB field limit. Under the default budget eight concurrent uploads
-// reserve nothing and fail with the pixel-limit error before any decode.
-func TestSixteenBitPNGBombIsRejectedBeforeDecode(t *testing.T) {
+// TestSixteenBitPNGOverBudgetDecodesOneAtATime uses the audited shape at full
+// size: 6000x6666 16-bit RGBA (about 320 MB decoded) compresses far below the
+// 10 MiB field limit, and its estimate exceeds the default budget. Eight
+// concurrent uploads all succeed, but each reserves the whole budget, so only
+// one decodes at a time and the reservation never exceeds the budget.
+func TestSixteenBitPNGOverBudgetDecodesOneAtATime(t *testing.T) {
 	data := uniformPNG16(t, 6000, 6666)
 	if len(data) > 10<<20 {
 		t.Fatalf("encoded size %d exceeds the default field limit", len(data))
@@ -317,21 +318,18 @@ func TestSixteenBitPNGBombIsRejectedBeforeDecode(t *testing.T) {
 		t.Fatalf("estimate %d does not cover the decoded image", estimate)
 	}
 	service, file := uploadThumbnailService(t, DefaultImageDecodeMemoryBytes, data)
-	var before, after runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&before)
 	for i, err := range concurrentThumbnails(service, file, 8) {
-		if !errors.Is(err, ErrInvalid) {
-			t.Fatalf("upload %d: err=%v, want ErrInvalid", i, err)
+		if err != nil {
+			t.Fatalf("upload %d: %v", i, err)
 		}
 	}
-	runtime.ReadMemStats(&after)
 	held, peak, waiting := service.imageBudget.snapshot()
-	if held != 0 || peak != 0 || waiting != 0 {
-		t.Fatalf("held=%d peak=%d waiting=%d, want nothing reserved", held, peak, waiting)
+	if held != 0 || waiting != 0 {
+		t.Fatalf("held=%d waiting=%d after all uploads", held, waiting)
 	}
-	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 8*(uint64(len(data))+64<<10)+16<<20 {
-		t.Fatalf("rejected uploads allocated %d bytes; the image was decoded", allocated)
+	// Every holder reserved the whole budget, so two never overlapped.
+	if peak != DefaultImageDecodeMemoryBytes {
+		t.Fatalf("peak=%d, want exactly the budget %d", peak, DefaultImageDecodeMemoryBytes)
 	}
 }
 
@@ -355,7 +353,8 @@ func TestSixteenBitPNGConcurrentUploadsStayWithinBudget(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			estimate := estimateImageMemory(data, format, config, 320*320)
+			outW, outH := thumbnailOutputSize(config.Width, config.Height, 320)
+			estimate := estimateImageMemory(data, format, config, int64(outW*outH))
 			capacity := tc.admitted*estimate + estimate/2
 			service, file := uploadThumbnailService(t, capacity, data)
 			for i, err := range concurrentThumbnails(service, file, 8) {
@@ -401,7 +400,7 @@ func TestImageBudgetSerializesConcurrentRenders(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := service.renderDecodedImage(context.Background(), data, "image/png", 16*16, false, func(image.Image, string) ([]byte, error) {
+			_, err := service.renderDecodedImage(context.Background(), data, "image/png", fixedOutput(16*16), false, func(image.Image, string) ([]byte, error) {
 				now := active.Add(1)
 				for {
 					seen := maximum.Load()
@@ -431,35 +430,113 @@ func TestImageBudgetSerializesConcurrentRenders(t *testing.T) {
 	}
 }
 
-func TestImageBudgetRejectsOversizedImageWithoutWaiting(t *testing.T) {
+// TestImageBudgetRunsOversizedImageAlone checks that an image whose estimate
+// exceeds the whole budget is rendered rather than refused, and that it runs
+// alone: it waits for every other holder, and while it holds the budget
+// nothing else is admitted, so the reserved estimates never sum past it.
+func TestImageBudgetRunsOversizedImageAlone(t *testing.T) {
 	data := smallPNG(t)
 	service := budgetTestService(64 << 10)
-	// Fill the budget: an oversized image must fail without queueing behind it.
-	hold, err := service.imageBudget.acquire(context.Background(), 64<<10)
+	config, format, err := decodeImageConfig(bytes.NewReader(data), "image/png")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer hold()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	if estimate := estimateImageMemory(data, format, config, 32*32); estimate <= service.imageBudget.capacity {
+		t.Fatalf("estimate %d fits the %d budget; the test needs an oversized image", estimate, service.imageBudget.capacity)
+	}
+	waitQueued := func(n int) {
+		for {
+			if _, _, waiting := service.imageBudget.snapshot(); waiting == n {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	// Another holder keeps the oversized image waiting until it releases.
+	hold, err := service.imageBudget.acquire(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := service.buildThumbnailData(context.Background(), data); done <- err }()
+	waitQueued(1)
+	select {
+	case err := <-done:
+		t.Fatalf("oversized image ran beside another holder: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	hold()
+	if err := <-done; err != nil {
+		t.Fatalf("oversized image: %v", err)
+	}
+
+	// While it holds the budget, a request of any size waits behind it.
+	entered, leave := make(chan struct{}), make(chan struct{})
+	rendered := make(chan error, 1)
+	go func() {
+		_, err := service.renderDecodedImage(context.Background(), data, "image/png", fixedOutput(32*32), false, func(image.Image, string) ([]byte, error) {
+			close(entered)
+			<-leave
+			return []byte{1}, nil
+		})
+		rendered <- err
+	}()
+	<-entered
+	if held, _, _ := service.imageBudget.snapshot(); held != service.imageBudget.capacity {
+		t.Fatalf("oversized image holds %d, want the whole budget %d", held, service.imageBudget.capacity)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
-	started := time.Now()
-	if _, err := service.renderThumbnailData(ctx, data, "image/png", "16x16"); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("err=%v, want ErrInvalid", err)
+	if _, err := service.imageBudget.acquire(ctx, 1); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("acquire beside an oversized holder: err=%v, want it to wait", err)
 	}
-	if _, err := service.buildThumbnailData(ctx, data); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("thumbnail err=%v, want ErrInvalid", err)
+	close(leave)
+	if err := <-rendered; err != nil {
+		t.Fatal(err)
 	}
-	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
-		t.Fatalf("rejection waited %v", elapsed)
+	// The lock-holding variant path renders oversized images too.
+	if _, err := service.renderThumbnailData(context.Background(), data, "image/png", "16x16"); err != nil {
+		t.Fatalf("variant: %v", err)
 	}
-	if _, _, waiting := service.imageBudget.snapshot(); waiting != 0 {
-		t.Fatalf("%d waiters queued", waiting)
+	held, peak, waiting := service.imageBudget.snapshot()
+	if held != 0 || waiting != 0 || peak != service.imageBudget.capacity {
+		t.Fatalf("held=%d peak=%d waiting=%d, want peak at the budget %d", held, peak, waiting, service.imageBudget.capacity)
+	}
+}
+
+// TestVariantReservationFollowsTheRenderedSize checks that a variant reserves
+// memory for the output its spec yields for the source size, not for the
+// largest output any spec could request.
+func TestVariantReservationFollowsTheRenderedSize(t *testing.T) {
+	data := smallPNG(t) // 64x48
+	config, format, err := decodeImageConfig(bytes.NewReader(data), "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		variant      string
+		outputPixels int64
+	}{
+		{"16x16", 16 * 16},
+		{"0x24", 32 * 24},
+		{"40x0", 40 * 30},
+		{"40x40f", 40 * 30},
+		{"1000x1000", 1000 * 1000},
+	} {
+		service := budgetTestService(1 << 40)
+		if _, err := service.renderThumbnailData(context.Background(), data, "image/png", tc.variant); err != nil {
+			t.Fatalf("%s: %v", tc.variant, err)
+		}
+		if _, peak, _ := service.imageBudget.snapshot(); peak != estimateImageMemory(data, format, config, tc.outputPixels) {
+			t.Errorf("%s: reserved %d, want the estimate for %d output pixels (%d)", tc.variant, peak, tc.outputPixels, estimateImageMemory(data, format, config, tc.outputPixels))
+		}
 	}
 }
 
 // buildThumbnailData runs the upload thumbnail pipeline on bytes for tests.
 func (s *Service) buildThumbnailData(ctx context.Context, data []byte) ([]byte, error) {
-	return s.renderDecodedImage(ctx, data, "image/png", int64(s.options.ThumbnailDimension)*int64(s.options.ThumbnailDimension), false, func(source image.Image, format string) ([]byte, error) {
+	return s.renderDecodedImage(ctx, data, "image/png", fixedOutput(int64(s.options.ThumbnailDimension)*int64(s.options.ThumbnailDimension)), false, func(source image.Image, format string) ([]byte, error) {
 		return []byte{1}, nil
 	})
 }
@@ -546,11 +623,11 @@ func TestImageBudgetReleasedOnPanicAndErrors(t *testing.T) {
 				t.Fatal("render did not panic")
 			}
 		}()
-		_, _ = service.renderDecodedImage(context.Background(), data, "image/png", 1, false, func(image.Image, string) ([]byte, error) {
+		_, _ = service.renderDecodedImage(context.Background(), data, "image/png", fixedOutput(1), false, func(image.Image, string) ([]byte, error) {
 			panic("encoder failure")
 		})
 	}()
-	if _, err := service.renderDecodedImage(context.Background(), data, "image/png", 1, false, func(image.Image, string) ([]byte, error) {
+	if _, err := service.renderDecodedImage(context.Background(), data, "image/png", fixedOutput(1), false, func(image.Image, string) ([]byte, error) {
 		return nil, ErrInvalid
 	}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("err=%v", err)
@@ -614,6 +691,11 @@ func TestImageBudgetIsFIFO(t *testing.T) {
 	if held, peak, _ := budget.snapshot(); held != 0 || peak > 100 {
 		t.Fatalf("held=%d peak=%d", held, peak)
 	}
+}
+
+// fixedOutput reports the same output size whatever the source size.
+func fixedOutput(pixels int64) func(int, int) int64 {
+	return func(int, int) int64 { return pixels }
 }
 
 func (b *imageMemoryBudget) snapshot() (held, peak int64, waiting int) {
