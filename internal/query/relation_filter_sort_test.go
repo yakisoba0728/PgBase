@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yakisoba0728/PgBase/internal/cursor"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -366,6 +367,93 @@ func TestBareRelationSortOrdersOnTheRootForeignKeyWithoutJoiningTheTarget(t *tes
 	}
 	_, err = compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(multi))
 	assertValidationDetail(t, err, "sort", "relation_sort_unsupported")
+}
+
+// A bare relation sort value is the stored target id, which relation hydration
+// redacts from the item when the principal cannot view the target. Every
+// non-administrator cursor for such an order is therefore anchor-only, while
+// the SQL, the v5 descriptor, and the administrator's value cursor stay as is.
+func TestBareRelationSortCursorIsAnchorOnlyForNonAdministrators(t *testing.T) {
+	t.Parallel()
+
+	catalog, posts := relationFilterSortCatalog()
+	compile := func(sortText string) relationListPlan {
+		t.Helper()
+		requested, err := parseSort(sortText)
+		if err != nil {
+			t.Fatalf("parseSort(%s) error = %v", sortText, err)
+		}
+		plan, err := compileRelationListPlan(catalog, posts, nil, effectiveSortKeys(requested))
+		if err != nil {
+			t.Fatalf("compileRelationListPlan(%s) error = %v", sortText, err)
+		}
+		return plan
+	}
+	targetID := uuid.MustParse("12121212-1212-4212-8212-121212121212")
+	anchorID := uuid.MustParse("34343434-3434-4434-8434-343434343434")
+	codec := cursor.NewCodec([]byte("0123456789abcdef0123456789abcdef"))
+	expiresAt := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	encode := func(order orderSpec) []byte {
+		t.Helper()
+		v5Order, err := order.cursorV5Order()
+		if err != nil {
+			t.Fatal(err)
+		}
+		values := make([]json.RawMessage, len(order.terms))
+		for index, term := range order.terms {
+			switch term.key.Field {
+			case "owner":
+				values[index] = json.RawMessage(`"` + targetID.String() + `"`)
+			case systemFieldCreatedAt:
+				values[index] = json.RawMessage(`"2026-01-01T00:00:00Z"`)
+			default:
+				values[index] = json.RawMessage(`"` + anchorID.String() + `"`)
+			}
+		}
+		token, err := order.encodeCursor(codec, pageCandidate{id: anchorID, cursorValues: values}, expiresAt, &cursor.V5Descriptor{
+			CatalogVersion: 3, MembershipGeneration: 1, HighWater: 2, Order: v5Order,
+			QueryHash: bytes.Repeat([]byte{0x11}, sha256.Size), ScopeHash: bytes.Repeat([]byte{0x22}, sha256.Size),
+		})
+		if err != nil {
+			t.Fatalf("encodeCursor() error = %v", err)
+		}
+		raw, err := base64.RawURLEncoding.DecodeString(token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+
+	for _, sortText := range []string{"owner", "-owner", "-created_at,owner"} {
+		plan := compile(sortText)
+		for _, kind := range []identity.Kind{identity.User, identity.Anonymous, identity.Service, ""} {
+			root := plannedRootPlan(nil, plan)
+			root.principal = Principal{Kind: kind}
+			order := root.order()
+			if !order.privateCursor() || order.private() || order.relationAnchor {
+				t.Fatalf("%s/%q privateCursor/private/relationAnchor = %t/%t/%t, want true/false/false",
+					sortText, kind, order.privateCursor(), order.private(), order.relationAnchor)
+			}
+			if raw := encode(order); bytes.Contains(raw, []byte(targetID.String())) || !bytes.Contains(raw, []byte(`"anchorHash"`)) {
+				t.Fatalf("%s/%q cursor disclosed the relation target or is not anchor-only: %q", sortText, kind, raw)
+			}
+		}
+		admin := plannedRootPlan(nil, plan)
+		admin.principal = Principal{Kind: identity.Administrator, ID: uuid.New()}
+		if admin.order().privateCursor() {
+			t.Fatalf("%s administrator cursor became private", sortText)
+		}
+		if raw := encode(admin.order()); !bytes.Contains(raw, []byte(targetID.String())) || bytes.Contains(raw, []byte(`"anchorHash"`)) {
+			t.Fatalf("%s administrator cursor = %q, want the unchanged value cursor", sortText, raw)
+		}
+	}
+
+	// Scalar orders keep their value cursor for every principal.
+	scalar := plannedRootPlan(nil, compile("created_at"))
+	scalar.principal = Principal{Kind: identity.Anonymous}
+	if scalar.order().privateCursor() {
+		t.Fatal("scalar sort cursor became private")
+	}
 }
 
 func TestRelationSortCursorIsAnchorOnlyAndKeyed(t *testing.T) {
