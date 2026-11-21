@@ -72,17 +72,16 @@ func findIdempotentCreate(ctx context.Context, tx pgx.Tx, principal Principal, c
 	}, true, nil
 }
 
-func writeIdempotentCreate(ctx context.Context, tx pgx.Tx, principal Principal, collectionID uuid.UUID,
+func queueIdempotentCreate(pipeline *writePipeline, principal Principal, collectionID uuid.UUID,
 	keyHash, requestHash []byte, recordID, eventID uuid.UUID, body []byte, etag string,
-) error {
-	_, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.record_idempotency
+) {
+	pipeline.queue(`INSERT INTO pgbase_meta.record_idempotency
 		(actor_kind, actor_id, collection_id, key_hash, request_hash, record_id,
 		 event_id, response_body, etag, created_at, expires_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9,
-			transaction_timestamp(), transaction_timestamp() + $10::interval)`,
+			transaction_timestamp(), transaction_timestamp() + $10::interval)`, nil,
 		string(principal.Kind), principal.ID, collectionID, keyHash, requestHash,
 		recordID, eventID, string(body), etag, "24 hours")
-	return err
 }
 
 func advisoryLockKey(principal Principal, collectionScope, keyHash []byte) int64 {
