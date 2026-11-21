@@ -43,6 +43,42 @@ func TestMalformedGoTestJSONFailsValidation(t *testing.T) {
 	}
 }
 
+// A timed-out test binary reports no test-level failure: its panic and
+// goroutine dump belong to a test that never ends, followed only by the
+// package failure. That output must still be printed.
+func TestOutputRetainsUnfinishedTestsOfAFailedPackage(t *testing.T) {
+	stream := strings.NewReader(strings.Join([]string{
+		`{"Action":"run","Package":"example.test/hung","Test":"TestPass"}`,
+		`{"Action":"output","Package":"example.test/hung","Test":"TestPass","Output":"=== RUN   TestPass\n"}`,
+		`{"Action":"pass","Package":"example.test/hung","Test":"TestPass"}`,
+		`{"Action":"output","Package":"example.test/hung","Test":"TestStuck","Output":"=== CONT  TestStuck\n"}`,
+		`{"Action":"output","Package":"example.test/hung","Test":"TestStuck","Output":"panic: test timed out after 20m0s\n"}`,
+		`{"Action":"output","Package":"example.test/hung","Test":"TestStuck","Output":"goroutine 7 [select]:\n"}`,
+		`{"Action":"output","Package":"example.test/other","Test":"TestRunning","Output":"=== RUN   TestRunning\n"}`,
+		`{"Action":"output","Package":"example.test/hung","Output":"FAIL\texample.test/hung\t1200.0s\n"}`,
+		`{"Action":"fail","Package":"example.test/hung"}`,
+		`{"Action":"output","Package":"example.test/crashed","Test":"TestCrash","Output":"panic: boom\n"}`,
+	}, "\n"))
+	var output bytes.Buffer
+	if _, err := unexpectedSkips(stream, &output, nil); err != nil {
+		t.Fatal(err)
+	}
+	text := output.String()
+	for _, want := range []string{"panic: test timed out after 20m0s", "goroutine 7 [select]:", "panic: boom"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output %q is missing %q", text, want)
+		}
+	}
+	if strings.Contains(text, "TestPass") {
+		t.Fatalf("successful per-test chatter was printed: %q", text)
+	}
+	// The other package's running test prints only at end of stream, after
+	// the hung package's dump.
+	if strings.Index(text, "TestRunning") < strings.Index(text, "goroutine 7") {
+		t.Fatalf("unrelated package output was flushed with the failed package: %q", text)
+	}
+}
+
 func TestOutputIsConciseButRetainsFailedTestDiagnostics(t *testing.T) {
 	stream := strings.NewReader(strings.Join([]string{
 		`{"Action":"output","Package":"example.test/pkg","Test":"TestPass","Output":"=== RUN   TestPass\n"}`,

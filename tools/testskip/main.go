@@ -89,10 +89,38 @@ func unexpectedSkips(input io.Reader, output io.Writer, allowlist []allowlistedS
 	decoder := json.NewDecoder(input)
 	unexpected := make(map[string]struct{})
 	testOutput := make(map[string]*strings.Builder)
+	// pending keeps first-seen order so unfinished tests print deterministically.
+	var pending []string
+	// A test binary that panics or times out never ends its running tests:
+	// go test -json attributes the panic and goroutine dump to the last
+	// running test and then reports only the package failure. Print every
+	// unfinished test's output so that diagnosis survives.
+	flushUnfinished := func(packagePath string, all bool) error {
+		kept := pending[:0]
+		for _, key := range pending {
+			buffer := testOutput[key]
+			if buffer == nil {
+				continue
+			}
+			if !all && !strings.HasPrefix(key, packagePath+"\x00") {
+				kept = append(kept, key)
+				continue
+			}
+			if _, err := io.WriteString(output, buffer.String()); err != nil {
+				return fmt.Errorf("write go test output: %w", err)
+			}
+			delete(testOutput, key)
+		}
+		pending = kept
+		return nil
+	}
 	for {
 		var event testEvent
 		if err := decoder.Decode(&event); err != nil {
 			if errors.Is(err, io.EOF) {
+				if err := flushUnfinished("", true); err != nil {
+					return nil, err
+				}
 				break
 			}
 			return nil, fmt.Errorf("decode go test JSON: %w", err)
@@ -108,8 +136,14 @@ func unexpectedSkips(input io.Reader, output io.Writer, allowlist []allowlistedS
 				if buffer == nil {
 					buffer = &strings.Builder{}
 					testOutput[key] = buffer
+					pending = append(pending, key)
 				}
 				buffer.WriteString(event.Output)
+			}
+		}
+		if event.Test == "" && event.Action == "fail" {
+			if err := flushUnfinished(event.Package, false); err != nil {
+				return nil, err
 			}
 		}
 		if event.Test != "" && (event.Action == "fail" || event.Action == "skip") {
