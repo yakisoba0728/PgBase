@@ -82,7 +82,7 @@ func (s *Service) ListAuthorizedAuthRecords(ctx context.Context, collectionID, p
 	return page, nil
 }
 
-func (s *Service) listAuthorizedAuthRecordPage(ctx context.Context, db database.DBTX, collectionID, principal uuid.UUID, limit int) ([]AuthRecord, error) {
+func (s *Service) listAuthorizedAuthRecordPage(ctx context.Context, db pgx.Tx, collectionID, principal uuid.UUID, limit int) ([]AuthRecord, error) {
 	fields, rules, err := authRecordRulesDB(ctx, db, collectionID)
 	if err != nil {
 		return nil, err
@@ -147,7 +147,7 @@ func readAuthRecordPage(ctx context.Context, db database.DBTX, email, suffix str
 	return page, rows.Err()
 }
 
-func (s *Service) projectAuthRecordPage(ctx context.Context, db database.DBTX, collectionID uuid.UUID, page []AuthRecord, fields []schema.FieldInput, principal *identity.Subject) error {
+func (s *Service) projectAuthRecordPage(ctx context.Context, db pgx.Tx, collectionID uuid.UUID, page []AuthRecord, fields []schema.FieldInput, principal *identity.Subject) error {
 	documents := make([]map[string]any, len(page))
 	ids := make(map[uuid.UUID]string, len(page))
 	for i := range page {
@@ -162,11 +162,7 @@ func (s *Service) projectAuthRecordPage(ctx context.Context, db database.DBTX, c
 		page[i].PublicID = ids[page[i].ID]
 	}
 	if principal != nil {
-		tx, ok := db.(pgx.Tx)
-		if !ok {
-			return ErrValidation
-		}
-		return s.projectAuthorizedAuthRelationDocuments(ctx, tx, documents, fields, *principal)
+		return s.projectAuthorizedAuthRelationDocuments(ctx, db, documents, fields, *principal)
 	}
 	return s.projectAuthRelationDocuments(ctx, db, documents, fields)
 }

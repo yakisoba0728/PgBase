@@ -116,6 +116,7 @@ func TestAdministratorTOTPConcurrentLoginsConsumeOneCounter(t *testing.T) {
 	other := NewService(s.pool, NewArgon2idPasswords(), s.tokenSecret, "", time.Hour, fixture.clock)
 	code := testTOTP(secret, fixture.clock.Now())
 	results := make(chan error, 2)
+	blockedPID := 0
 	for _, call := range []struct {
 		service *Service
 		address string
@@ -124,9 +125,11 @@ func TestAdministratorTOTPConcurrentLoginsConsumeOneCounter(t *testing.T) {
 			_, err := call.service.LoginWithOTP(ctx, fixture.first.Email, accountTestPassword, call.address, code)
 			results <- err
 		}()
+		// Finish each request's fail-fast account-limiter read before launching
+		// the next. Both logins must contend at the held account row, rather
+		// than one being rejected by unrelated credential admission.
+		blockedPID = waitCredentialLock(t, ctx, s.pool, blockedPID)
 	}
-	first := waitCredentialLock(t, ctx, s.pool, 0)
-	waitCredentialLock(t, ctx, s.pool, first)
 	if err := barrier.Rollback(ctx); err != nil {
 		t.Fatal(err)
 	}

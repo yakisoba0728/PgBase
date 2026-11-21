@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/adminauth"
-	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/passwordfield"
 	"github.com/yakisoba0728/PgBase/internal/schema"
@@ -490,18 +489,18 @@ func TestCustomAuthPasswordFieldsHashRedactAndPatch(t *testing.T) {
 }
 
 type authPageQueryCounter struct {
-	database.DBTX
+	pgx.Tx
 	queries int
 }
 
 func (db *authPageQueryCounter) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	db.queries++
-	return db.DBTX.Query(ctx, sql, args...)
+	return db.Tx.Query(ctx, sql, args...)
 }
 
 func (db *authPageQueryCounter) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	db.queries++
-	return db.DBTX.QueryRow(ctx, sql, args...)
+	return db.Tx.QueryRow(ctx, sql, args...)
 }
 
 func TestAuthorizedAuthRecordPageBatchesIdentityAndManageReads(t *testing.T) {
@@ -511,7 +510,7 @@ func TestAuthorizedAuthRecordPageBatchesIdentityAndManageReads(t *testing.T) {
 	realm, targetRealm := uuid.New(), uuid.New()
 	targetName := "target_" + targetRealm.String()[:8]
 	policy := schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 36, Pattern: `^[A-Za-z0-9]+$`}
-	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: targetRealm, Name: targetName, RecordID: &policy}); err != nil {
+	if _, err := service.CreateAuthCollection(ctx, CreateAuthCollectionInput{ID: targetRealm, Name: targetName, RecordID: &policy, Rules: AuthCollectionRules{View: "true"}}); err != nil {
 		t.Fatal(err)
 	}
 	target, err := service.CreateAuthRecord(ctx, targetRealm, CreateAuthRecordInput{
@@ -545,22 +544,34 @@ func TestAuthorizedAuthRecordPageBatchesIdentityAndManageReads(t *testing.T) {
 		select id,jsonb_build_object('peer',$2::text),now() from users`, realm, target.ID.String()); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
-		counted := &authPageQueryCounter{DBTX: tx}
-		page, err := service.listAuthorizedAuthRecordPage(ctx, counted, realm, manager.ID, 100)
-		if err != nil {
-			return err
-		}
-		if len(page) != 100 || counted.queries > 9 {
-			t.Fatalf("page records=%d, query round trips=%d", len(page), counted.queries)
-		}
-		for _, record := range page {
-			if record.PublicID == "" || record.Fields["peer"] != target.PublicID || record.Email == "" {
-				t.Fatalf("projected page record=%+v", record)
+	queries := make(map[int]int)
+	for _, limit := range []int{1, 100} {
+		if err := pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+			// Retain the transaction capability needed by target policy locks.
+			counted := &authPageQueryCounter{Tx: tx}
+			page, err := service.listAuthorizedAuthRecordPage(ctx, counted, realm, manager.ID, limit)
+			if err != nil {
+				return err
 			}
+			// Four bounded reads beyond the original nine check the actor's
+			// realm, target metadata, current view rule, and visible target IDs.
+			// The comparison below also rejects work that grows with page size.
+			if len(page) != limit || counted.queries > 13 {
+				t.Fatalf("page records=%d (want %d), query round trips=%d", len(page), limit, counted.queries)
+			}
+			queries[limit] = counted.queries
+			for _, record := range page {
+				if record.PublicID == "" || record.Fields["peer"] != target.PublicID || record.Email == "" {
+					t.Fatalf("projected page record=%+v", record)
+				}
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
 		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
 	}
+	if queries[1] != queries[100] {
+		t.Fatalf("query count grew with page size: one record=%d, 100 records=%d", queries[1], queries[100])
+	}
+	t.Logf("one record and 100 records each use %d query round trips", queries[1])
 }
