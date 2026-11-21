@@ -205,7 +205,13 @@ func (s *Service) authRecordResponseForPrincipal(ctx context.Context, collection
 			managed := false
 			if !rules.IsNull("manage") {
 				managed, err = s.authorizeManagedAuthRecordTx(ctx, tx, collectionID, principal.ID, value, fields, rules.Manage, nil)
-				if err != nil {
+				switch {
+				case errors.Is(err, ErrValidation):
+					// A missing optional actor field can make a manage rule
+					// inapplicable. As in list projection, withhold the email
+					// without rejecting the already-authorized record read.
+					managed = false
+				case err != nil:
 					return err
 				}
 			}

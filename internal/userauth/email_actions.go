@@ -53,6 +53,10 @@ func (s *Service) ConfigureEmailActionBaseURL(baseURL string, ttl time.Duration)
 }
 
 func (s *Service) RequestVerification(ctx context.Context, userID uuid.UUID) error {
+	return s.requestVerification(ctx, userID, true)
+}
+
+func (s *Service) requestVerification(ctx context.Context, userID uuid.UUID, reserveDelivery bool) error {
 	if err := s.emailReady(); err != nil {
 		return err
 	}
@@ -72,7 +76,7 @@ func (s *Service) RequestVerification(ctx context.Context, userID uuid.UUID) err
 	if user.Verified {
 		return nil
 	}
-	raw, err := s.issueEmailActionWithDeliveryBudget(ctx, user.ID, "verify", nil, passwordHash, user.Email)
+	raw, err := s.createEmailAction(ctx, user.ID, "verify", nil, passwordHash, user.Email, reserveDelivery)
 	if err != nil {
 		return err
 	}

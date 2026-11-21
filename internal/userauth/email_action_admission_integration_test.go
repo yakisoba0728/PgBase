@@ -69,6 +69,32 @@ func TestVerificationDeliveryBudgetIsSharedAcrossServices(t *testing.T) {
 	}
 }
 
+func TestAdministratorVerificationPreservesPublicDeliveryBudget(t *testing.T) {
+	s, sender := newBudgetEmailService(t)
+	ctx := t.Context()
+	user, err := s.Register(ctx, "operator-mail@example.test", "correct horse battery staple", "operator-mail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RequestVerification(ctx, user.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RequestVerification(ctx, user.User.ID); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("public resend during cooldown = %v", err)
+	}
+	for range 2 {
+		if err := s.AdminRequestVerification(ctx, user.User.ID); err != nil {
+			t.Fatalf("trusted administrator resend = %v", err)
+		}
+	}
+	if err := s.RequestVerification(ctx, user.User.ID); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("administrator send reset the public cooldown: %v", err)
+	}
+	if len(sender.messages) != 3 {
+		t.Fatalf("mailer calls=%d, want one public and two administrator sends", len(sender.messages))
+	}
+}
+
 func TestEmailChangeDeliveryBudgetCountsChangingRecipientsAndBoundsPendingActions(t *testing.T) {
 	s, sender := newBudgetEmailService(t)
 	ctx := t.Context()

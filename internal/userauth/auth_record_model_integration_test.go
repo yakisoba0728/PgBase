@@ -273,6 +273,10 @@ func TestPrivateAuthEmailRequiresActiveSameRealmManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	viewer, err := service.CreateAuthRecord(ctx, collectionID, CreateAuthRecordInput{Email: "email-viewer@example.test", Password: "correct horse battery staple", Active: true})
+	if err != nil {
+		t.Fatal(err)
+	}
 	assertPrivateAuthEmail := func(actor uuid.UUID, want string) {
 		t.Helper()
 		record, err := service.GetAuthorizedAuthRecord(ctx, collectionID, actor, target.ID)
@@ -294,6 +298,9 @@ func TestPrivateAuthEmailRequiresActiveSameRealmManager(t *testing.T) {
 		t.Fatalf("actor=%s list did not include target", actor)
 	}
 	assertPrivateAuthEmail(manager.ID, target.Email)
+	// An absent optional flag grants no manager privilege, while the public
+	// list/view rules still allow the rest of the record to be returned.
+	assertPrivateAuthEmail(viewer.ID, "")
 
 	active := false
 	if _, err := service.UpdateAuthRecord(ctx, collectionID, manager.ID, UpdateAuthRecordInput{Active: &active}); err != nil {
