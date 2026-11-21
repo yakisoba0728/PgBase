@@ -139,7 +139,10 @@ func (w *compressionWriter) WriteHeader(status int) {
 	eligible := status != http.StatusNoContent && status != http.StatusNotModified && status != http.StatusPartialContent &&
 		header.Get("Content-Encoding") == "" && header.Get("Content-Disposition") == "" &&
 		compressibleType(header.Get("Content-Type"))
-	if eligible {
+	// A handler that negotiates the encoding itself (the embedded admin UI
+	// serves precompressed assets) has already declared Vary: Accept-Encoding;
+	// repeating it would only add a duplicate field line.
+	if eligible && !varyListsAcceptEncoding(header.Values("Vary")) {
 		header.Add("Vary", "Accept-Encoding")
 	}
 	if !eligible || !w.acceptsGzip {
@@ -149,6 +152,17 @@ func (w *compressionWriter) WriteHeader(status int) {
 	if length, err := strconv.Atoi(header.Get("Content-Length")); err == nil && length < minimumCompressedBytes {
 		w.plain()
 	}
+}
+
+func varyListsAcceptEncoding(values []string) bool {
+	for _, value := range values {
+		for _, member := range strings.Split(value, ",") {
+			if member = strings.TrimSpace(member); member == "*" || strings.EqualFold(member, "Accept-Encoding") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (w *compressionWriter) plain() {
