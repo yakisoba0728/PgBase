@@ -24,8 +24,7 @@ import { IconButton } from "../components/Button";
 import { Dropdown, DropdownItem } from "../components/Popover";
 import { useFlip } from "../components/useFlip";
 import { ApiError } from "../api/http";
-import { en } from "../i18n/en";
-import { useT, type MessageKey, type Translate } from "../i18n";
+import { hasMessage, useT, type Translate } from "../i18n";
 import { fieldTypes, rowState, type DraftField, type DraftIndex } from "./draft";
 import type { SchemaEditor } from "./useSchemaEditor";
 
@@ -53,7 +52,7 @@ export function describeErrors(t: Translate, entries: string[]): string {
       const split = entry.lastIndexOf(": ");
       const [prefix, code] = split < 0 ? ["", entry] : [entry.slice(0, split + 2), entry.slice(split + 2)];
       const key = `schema.error.${code}`;
-      return prefix + (key in en ? t(key as MessageKey) : code.replaceAll("_", " "));
+      return prefix + (hasMessage(key) ? t(key) : code.replaceAll("_", " "));
     })
     .join(" · ");
 }
@@ -66,7 +65,7 @@ export function viewSqlProblem(t: Translate, error: unknown): string | undefined
   const reason = first("") ?? "invalid";
   const key = `schema.viewSql.${reason}`;
   const position = first(".position");
-  return [key in en ? t(key as MessageKey) : reason.replaceAll("_", " "), first(".message"), position && t("schema.viewSql.position", { position }), first(".column") ?? first(".relation")]
+  return [hasMessage(key) ? t(key) : reason.replaceAll("_", " "), first(".message"), position && t("schema.viewSql.position", { position }), first(".column") ?? first(".relation")]
     .filter(Boolean)
     .join(" — ");
 }

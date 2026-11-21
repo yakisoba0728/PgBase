@@ -306,7 +306,7 @@ func (s *Service) upload(ctx context.Context, principal identity.Subject, input 
 			return err
 		}
 		var count int
-		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.record_files where coalesce(collection_id,auth_collection_id)=$1 and coalesce(record_id,auth_user_id)=$2 and field_name=$3 and status in ('pending','ready')`, input.CollectionID, input.RecordID, input.Field).Scan(&count); err != nil {
+		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.record_files where ((collection_id=$1 and record_id=$2) or (auth_collection_id=$1 and auth_user_id=$2)) and field_name=$3 and status in ('pending','ready')`, input.CollectionID, input.RecordID, input.Field).Scan(&count); err != nil {
 			return err
 		}
 		if count >= policy.MaximumCount {
@@ -395,28 +395,33 @@ func (s *Service) authorizeOpen(ctx context.Context, principal identity.Subject,
 		return File{}, ErrDenied
 	}
 	var file File
-	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if err := scanFile(tx.QueryRow(ctx, `SELECT id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
-			FROM pgbase_meta.record_files WHERE id=$1 AND status='ready'`, id), &file); err != nil {
-			return err
-		}
-		if err := s.authorizeField(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead); err != nil {
-			return err
-		}
-		policy, err := s.resolvedPolicy(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead)
-		if err != nil {
-			return err
-		}
-		if *policy.Protected && token == "" {
-			return ErrDenied
-		}
-		if variant != Original && variant != Thumbnail {
-			if !containsVariant(policy.Thumbs, string(variant)) {
-				return ErrNotFound
+	// The authorization reads change no data; their FOR SHARE locks must not
+	// wait for a WAL flush at commit. A snapshot conflict on a locked row is a
+	// serialization failure, retried as a whole.
+	err := database.Retry(ctx, func() error {
+		return s.pool.InTx(ctx, database.ReadSnapshotOptions(), func(tx pgx.Tx) error {
+			if err := scanFile(tx.QueryRow(ctx, `SELECT id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
+				FROM pgbase_meta.record_files WHERE id=$1 AND status='ready'`, id), &file); err != nil {
+				return err
 			}
-		}
-		return nil
-	})
+			if err := s.authorizeField(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead); err != nil {
+				return err
+			}
+			policy, err := s.resolvedPolicy(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead)
+			if err != nil {
+				return err
+			}
+			if *policy.Protected && token == "" {
+				return ErrDenied
+			}
+			if variant != Original && variant != Thumbnail {
+				if !containsVariant(policy.Thumbs, string(variant)) {
+					return ErrNotFound
+				}
+			}
+			return nil
+		})
+	}, nil)
 	if err != nil {
 		return File{}, err
 	}
@@ -544,7 +549,7 @@ func (s *Service) Delete(ctx context.Context, principal identity.Subject, id uui
 			}
 			if policy.Required {
 				var count int
-				if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.record_files where coalesce(collection_id,auth_collection_id)=$1 and coalesce(record_id,auth_user_id)=$2 and field_name=$3 and status='ready'`, file.CollectionID, file.RecordID, file.Field).Scan(&count); err != nil {
+				if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.record_files where ((collection_id=$1 and record_id=$2) or (auth_collection_id=$1 and auth_user_id=$2)) and field_name=$3 and status='ready'`, file.CollectionID, file.RecordID, file.Field).Scan(&count); err != nil {
 					return err
 				}
 				if count <= 1 {
@@ -573,7 +578,7 @@ func (s *Service) List(ctx context.Context, principal identity.Subject, collecti
 			return err
 		}
 		rows, err := tx.Query(ctx, `SELECT id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
-			FROM pgbase_meta.record_files WHERE coalesce(collection_id,auth_collection_id)=$1 AND coalesce(record_id,auth_user_id)=$2 AND field_name=$3 AND status='ready' ORDER BY created_at,id`, collectionID, recordID, field)
+			FROM pgbase_meta.record_files WHERE ((collection_id=$1 AND record_id=$2) OR (auth_collection_id=$1 AND auth_user_id=$2)) AND field_name=$3 AND status='ready' ORDER BY created_at,id`, collectionID, recordID, field)
 
 		if err != nil {
 			return err

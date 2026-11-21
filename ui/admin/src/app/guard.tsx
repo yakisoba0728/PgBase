@@ -1,10 +1,10 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { Navigate, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import type { SetupStatus } from "../api/system";
 import { ErrorState, Skeleton } from "../components/Feedback";
 import { useT } from "../i18n";
-import { isUnauthorized, sessionQuery, setupStatusQuery } from "./queries";
+import { isUnauthorized, sessionQuery, setupStatusQuery, takeBootSessionCheck } from "./queries";
 
 interface QueryState<T> {
   data?: T;
@@ -27,7 +27,8 @@ export function decideGuard(session: QueryState<unknown>, status: QueryState<Set
 export function RequireAuth({ children }: { children: ReactNode }) {
   const t = useT();
   const location = useLocation();
-  const session = useQuery(sessionQuery);
+  const [booted] = useState(takeBootSessionCheck);
+  const session = useQuery({ ...sessionQuery, retryOnMount: !booted });
   const status = useQuery({ ...setupStatusQuery, enabled: isUnauthorized(session.error) });
   const decision = decideGuard(session, status);
   switch (decision.kind) {
