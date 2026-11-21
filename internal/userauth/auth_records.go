@@ -71,18 +71,22 @@ func (s *Service) ListAuthorizedAuthRecords(ctx context.Context, collectionID, p
 		return nil, ErrValidation
 	}
 	var page []AuthRecord
-	err := s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
-		var err error
-		page, err = s.listAuthorizedAuthRecordPage(ctx, tx, collectionID, principal, limit)
-		return err
-	})
+	// Relation visibility takes FOR SHARE locks inside this snapshot, so a
+	// concurrent committed update can raise a serialization failure.
+	err := database.Retry(ctx, func() error {
+		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+			var err error
+			page, err = s.listAuthorizedAuthRecordPage(ctx, tx, collectionID, principal, limit)
+			return err
+		})
+	}, nil)
 	if err != nil {
 		return nil, err
 	}
 	return page, nil
 }
 
-func (s *Service) listAuthorizedAuthRecordPage(ctx context.Context, db database.DBTX, collectionID, principal uuid.UUID, limit int) ([]AuthRecord, error) {
+func (s *Service) listAuthorizedAuthRecordPage(ctx context.Context, db pgx.Tx, collectionID, principal uuid.UUID, limit int) ([]AuthRecord, error) {
 	fields, rules, err := authRecordRulesDB(ctx, db, collectionID)
 	if err != nil {
 		return nil, err
@@ -90,7 +94,8 @@ func (s *Service) listAuthorizedAuthRecordPage(ctx context.Context, db database.
 	if rules.IsNull("list") {
 		return []AuthRecord{}, nil
 	}
-	ruleContext := AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}}
+	subject := authRecordPrincipal(principal)
+	ruleContext := AuthRuleContext{Principal: subject}
 	list, listArgs, err := compileAuthRecordRuleInTx(ctx, db, collectionID, rules.List, ruleContext, 3)
 	if err != nil {
 		return nil, err
@@ -114,11 +119,11 @@ func (s *Service) listAuthorizedAuthRecordPage(ctx context.Context, db database.
 	if err != nil {
 		return nil, err
 	}
-	if err := s.projectAuthRecordPage(ctx, db, collectionID, page, fields); err != nil {
-		return nil, err
-	}
 	for i := range page {
 		page[i] = visibleAuthRecord(page[i], fields)
+	}
+	if err := s.projectAuthRecordPage(ctx, db, collectionID, page, fields, &subject); err != nil {
+		return nil, err
 	}
 	return page, nil
 }
@@ -146,7 +151,7 @@ func readAuthRecordPage(ctx context.Context, db database.DBTX, email, suffix str
 	return page, rows.Err()
 }
 
-func (s *Service) projectAuthRecordPage(ctx context.Context, db database.DBTX, collectionID uuid.UUID, page []AuthRecord, fields []schema.FieldInput) error {
+func (s *Service) projectAuthRecordPage(ctx context.Context, db pgx.Tx, collectionID uuid.UUID, page []AuthRecord, fields []schema.FieldInput, principal *identity.Subject) error {
 	documents := make([]map[string]any, len(page))
 	ids := make(map[uuid.UUID]string, len(page))
 	for i := range page {
@@ -160,28 +165,85 @@ func (s *Service) projectAuthRecordPage(ctx context.Context, db database.DBTX, c
 	for i := range page {
 		page[i].PublicID = ids[page[i].ID]
 	}
+	if principal != nil {
+		return s.projectAuthorizedAuthRelationDocuments(ctx, db, documents, fields, *principal)
+	}
 	return s.projectAuthRelationDocuments(ctx, db, documents, fields)
 }
 
 func (s *Service) GetAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID) (AuthRecord, error) {
-	fields, rules, err := s.authRecordRules(ctx, collectionID)
-	if err != nil {
-		return AuthRecord{}, err
-	}
-	value, err := s.GetAuthRecord(ctx, collectionID, target)
-	if err != nil {
-		return AuthRecord{}, err
-	}
-	if rules.IsNull("view") || !s.evaluateAuthRecordRuleDB(ctx, collectionID, rules.View, AuthRuleContext{Principal: identity.Subject{Kind: identity.User, ID: principal}, Current: value}) {
-		return AuthRecord{}, ErrInvalidCredentials
-	}
-	return s.visibleAuthRecordForPrincipal(ctx, value, fields, principal, rules), nil
+	return s.authRecordResponseForPrincipal(ctx, collectionID, authRecordPrincipal(principal), target, true)
 }
+
+func (s *Service) authRecordResponseForPrincipal(ctx context.Context, collectionID uuid.UUID, principal identity.Subject, target uuid.UUID, requireView bool) (AuthRecord, error) {
+	if collectionID == uuid.Nil || target == uuid.Nil || !principal.Valid() {
+		return AuthRecord{}, ErrValidation
+	}
+	var result AuthRecord
+	// Retry serialization failures from FOR SHARE locks taken in this snapshot.
+	err := database.Retry(ctx, func() error {
+		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+			fields, rules, err := authRecordRulesDB(ctx, tx, collectionID)
+			if err != nil {
+				return err
+			}
+			page, err := readAuthRecordPage(ctx, tx, "u.email", `where u.auth_collection_id=$1 and u.id=$2`, collectionID, target)
+			if err != nil {
+				return err
+			}
+			if len(page) != 1 {
+				return ErrNotFound
+			}
+			value := page[0]
+			if requireView {
+				if rules.IsNull("view") {
+					return ErrInvalidCredentials
+				}
+				allowed, err := EvaluateAuthRecordRuleInTx(ctx, tx, collectionID, rules.View, AuthRuleContext{Principal: principal, Current: value})
+				if err != nil {
+					return err
+				}
+				if !allowed {
+					return ErrInvalidCredentials
+				}
+			}
+			if !value.EmailVisibility && principal.ID != value.ID {
+				managed := false
+				if !rules.IsNull("manage") {
+					managed, err = s.authorizeManagedAuthRecordTx(ctx, tx, collectionID, principal.ID, value, fields, rules.Manage, nil)
+					switch {
+					case errors.Is(err, ErrValidation):
+						// A missing optional actor field can make a manage rule
+						// inapplicable. As in list projection, withhold the email
+						// without rejecting the already-authorized record read.
+						managed = false
+					case err != nil:
+						return err
+					}
+				}
+				if !managed {
+					value.Email = ""
+				}
+			}
+			// Root view/manage rules use internal values. Response redaction is the
+			// last step and cannot alter the data against which those rules run.
+			page[0] = visibleAuthRecord(value, fields)
+			if err := s.projectAuthRecordPage(ctx, tx, collectionID, page, fields, &principal); err != nil {
+				return err
+			}
+			result = page[0]
+			return nil
+		})
+	}, nil)
+	return result, err
+}
+
 func (s *Service) UpdateAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID, in UpdateAuthRecordInput) (AuthRecord, error) {
 	var fields []schema.FieldInput
 	var rules AuthCollectionRules
 	request := authRecordMutationValues(in)
-	updated, err := s.updateAuthRecord(ctx, collectionID, target, in, func(tx pgx.Tx, current AuthRecord) error {
+	subject := authRecordPrincipal(principal)
+	updated, err := s.updateAuthRecord(ctx, collectionID, target, in, &subject, func(tx pgx.Tx, current AuthRecord) error {
 		var err error
 		fields, rules, err = authRecordRulesDB(ctx, tx, collectionID)
 		if err != nil {
@@ -212,7 +274,7 @@ func (s *Service) UpdateAuthorizedAuthRecord(ctx context.Context, collectionID, 
 	if err != nil {
 		return AuthRecord{}, err
 	}
-	return s.visibleAuthRecordForPrincipal(ctx, updated, fields, principal, rules), nil
+	return updated, nil
 }
 
 func visibleAuthRecord(record AuthRecord, fields []schema.FieldInput) AuthRecord {
@@ -230,21 +292,6 @@ func visibleAuthRecord(record AuthRecord, fields []schema.FieldInput) AuthRecord
 	return record
 }
 
-// visibleAuthRecordForPrincipal removes an email only after the record has
-// passed its collection rule. Owners retain their own email. A principal that
-// satisfies the persisted manage rule for this target also retains it, matching
-// PocketBase's record projection after list or view authorization succeeds.
-func (s *Service) visibleAuthRecordForPrincipal(ctx context.Context, record AuthRecord, fields []schema.FieldInput, principal uuid.UUID, rules AuthCollectionRules) AuthRecord {
-	record = visibleAuthRecord(record, fields)
-	if record.EmailVisibility || principal == record.ID {
-		return record
-	}
-	managed := !rules.IsNull("manage") && s.authorizeManagedAuthRecord(ctx, record.AuthCollectionID, principal, record, fields, rules.Manage, nil)
-	if !managed {
-		record.Email = ""
-	}
-	return record
-}
 func (s *Service) DeleteAuthorizedAuthRecord(ctx context.Context, collectionID, principal, target uuid.UUID) error {
 	return s.deleteAuthRecord(ctx, collectionID, target, func(tx pgx.Tx, collectionID, target uuid.UUID) error {
 		return AuthorizeAuthRecordDeleteInTx(ctx, tx, identity.Subject{Kind: identity.User, ID: principal}, collectionID, target)
@@ -322,7 +369,7 @@ func (s *Service) ListAuthRecords(ctx context.Context, collectionID, after uuid.
 			result = result[:limit]
 			next = result[limit-1].ID
 		}
-		return s.projectAuthRecordPage(ctx, tx, collectionID, result, fields)
+		return s.projectAuthRecordPage(ctx, tx, collectionID, result, fields, nil)
 	})
 	if err != nil {
 		return nil, uuid.Nil, err
@@ -456,10 +503,10 @@ func (s *Service) CreateAuthRecord(ctx context.Context, collectionID uuid.UUID, 
 }
 
 func (s *Service) UpdateAuthRecord(ctx context.Context, collectionID, id uuid.UUID, in UpdateAuthRecordInput) (AuthRecord, error) {
-	return s.updateAuthRecord(ctx, collectionID, id, in, nil)
+	return s.updateAuthRecord(ctx, collectionID, id, in, nil, nil)
 }
 
-func (s *Service) updateAuthRecord(ctx context.Context, collectionID, id uuid.UUID, in UpdateAuthRecordInput, authorize func(pgx.Tx, AuthRecord) error) (AuthRecord, error) {
+func (s *Service) updateAuthRecord(ctx context.Context, collectionID, id uuid.UUID, in UpdateAuthRecordInput, responsePrincipal *identity.Subject, authorize func(pgx.Tx, AuthRecord) error) (AuthRecord, error) {
 	if collectionID == uuid.Nil || id == uuid.Nil {
 		return AuthRecord{}, ErrValidation
 	}
@@ -572,6 +619,9 @@ func (s *Service) updateAuthRecord(ctx context.Context, collectionID, id uuid.UU
 	}
 	if err != nil {
 		return AuthRecord{}, err
+	}
+	if responsePrincipal != nil {
+		return s.authRecordResponseForPrincipal(ctx, collectionID, *responsePrincipal, id, false)
 	}
 	return s.GetAuthRecord(ctx, collectionID, id)
 }

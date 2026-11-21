@@ -1,5 +1,7 @@
 # pgBase 구현 현황 / TODO
 
+2026-11-22 최신 결과: 2026-11-19 기록 뒤 [PR #167](https://github.com/yakisoba0728/PgBase/pull/167)(문서), [PR #169](https://github.com/yakisoba0728/PgBase/pull/169)(setup-dart 1.8.2), [PR #182](https://github.com/yakisoba0728/PgBase/pull/182)(데이터 무결성·백업 복구), [PR #183](https://github.com/yakisoba0728/PgBase/pull/183)(Go·관리자 UI 의존성 통합)을 squash 병합해 main이 `56823891`이 됐다(schema 71 그대로, 네 PR 모두 migration 없음). v0.4.0 이후 tag 없이 20 commit 앞서 있다. 운영 배포 여부는 확인하지 않음. 이 기록 시점에 보안 수정 [PR #184](https://github.com/yakisoba0728/PgBase/pull/184)는 열려 있고 병합되지 않았으며, 병합되면 system migration `000072`로 schema 72가 된다. 세부는 [현재 상태](docs/project-status.md) §19와 [다음 작업](docs/next-work.md)을 따른다.
+
 2026-11-19 최신 결과: [PR #159](https://github.com/yakisoba0728/PgBase/pull/159)–[#164](https://github.com/yakisoba0728/PgBase/pull/164)와 [PR #166](https://github.com/yakisoba0728/PgBase/pull/166)을 squash 병합해 main이 `64512f78`이 됐다. [PR #162](https://github.com/yakisoba0728/PgBase/pull/162)가 system migration `000070`·`000071`(index만 추가)을 넣어 schema 69 → 71이다. 운영 배포 여부는 저장소로 확인하지 않음. 세부는 [현재 상태](docs/project-status.md) §18과 [다음 작업](docs/next-work.md)을 따른다.
 
 2026-11-18 최신 결과: 미룬 UI 항목 4개([PR #157](https://github.com/yakisoba0728/PgBase/pull/157))와 간헐 실패 test 두 건([PR #155](https://github.com/yakisoba0728/PgBase/pull/155)·[PR #156](https://github.com/yakisoba0728/PgBase/pull/156))을 처리해 main `df18bfe3`을 운영에 배포했다(schema 69 그대로, migration 없음). 세부는 [현재 상태](docs/project-status.md) §17과 [다음 작업](docs/next-work.md)을 따른다.
@@ -9,6 +11,22 @@
 2026-11-15 최신 결과: 관리자 UI 개편을 [PR #142](https://github.com/yakisoba0728/PgBase/pull/142)로, 이어서 크기 확대·모션 강화를 [PR #144](https://github.com/yakisoba0728/PgBase/pull/144)로 병합해 main `5cb9ea0d`를 운영에 배포했다(schema 67 그대로, migration 없음). 세부·검증 범위·남은 일은 [현재 상태](docs/project-status.md) §13과 [다음 작업](docs/next-work.md)을 따른다. 아래 문단과 미완료 표시는 당시 이력이다.
 
 2026-11-13 최신 결과: PR #124·#125·#133 병합, main CI·전체 릴리스 gate 통과, v0.3.1 게시와 운영 schema 66 배포 완료. [다음 작업](docs/next-work.md), [운영 준비 보완](docs/production-readiness-2026-11-13.md), [배포 기록](docs/deployment-2026-11-13.md)을 따른다. 아래 미완료 표시는 날짜별 실행 당시의 이력이며 현재 열린 작업으로 합산하지 않는다. 운영 백업 생성/설정은 소유자 요청으로 제외했다. npm/pub.dev 공개는 별도 소유자 결정이다.
+
+## 2026-11-22 — 데이터 무결성·백업 복구와 의존성 통합(PR #167, #169, #182, #183), 보안 PR #184
+
+main `64512f78`(schema 71)에서 PR 4개를 squash 병합했다(main `56823891`, schema 71 그대로). 세부는 [현재 상태](docs/project-status.md) §19.
+
+- [x] [PR #167](https://github.com/yakisoba0728/PgBase/pull/167)(main `023278ca`, 2026-11-19): 2026-11-19 병합과 schema 71 전환을 이 세 문서에 기록(문서만).
+- [x] [PR #169](https://github.com/yakisoba0728/PgBase/pull/169)(main `7de9942e`, 2026-11-20): Backend workflow의 `dart-lang/setup-dart` 1.8.1 → 1.8.2(Dependabot, 한 줄).
+- [x] [PR #182](https://github.com/yakisoba0728/PgBase/pull/182)(main `a9a53f29`, 2026-11-20): live 복원 활성화·백업 보존 정리·파일 정리를 동시 변경에 대해 fence, S3 백업 저장소 장애 중에도 앱과 백업 저장소 설정을 사용 가능하게 하고 중단된 예약 백업을 같은 발생으로 재시도(게시된 archive 재사용), 필터 삭제와 첨부 교체를 DB transaction 안에서 검사, cursor 페이지 크기를 직렬화된 public ID로 계산, JavaScript watch 재시도·realtime 연결 admission 경합 수정. migration 없음(schema 71 그대로). 계약 추가: 관리자 레코드 DELETE·batch delete의 `matchFilter`(불일치 412), batch PATCH의 `{"$file","$replaces"}`(불일치 412), TypeScript·Dart SDK의 `enrichmentFailed`, 예약 백업·jobs 일정을 바꿀 때 별도 칸의 명시적 IANA 시간대 요구(기존 `Local`·inline 시간대 일정은 편집 전까지 그대로), OpenAPI metrics route의 bearer 표기. 번들 Compose 두 개에 파일 이전용 scratch volume(`PGBASE_FILES_MIGRATION_SCRATCH_DIRECTORY`)을 추가했다. `docs/next-work.md`의 watch flake·E2E 두 행도 이 PR이 고쳤다.
+- [x] [PR #183](https://github.com/yakisoba0728/PgBase/pull/183)(main `56823891`, 2026-11-20): Dependabot #171–#177, #180, #181을 묶음. Docker frontend 단계와 Backend·Frontend·E2E·Security workflow의 Node 24.22.3, Tiptap 3.34.0, Playwright 1.65.1, jsdom 31.0.1, `@vitejs/plugin-react` 6.3.0, `@testing-library/user-event` 14.6.12, AWS SDK 모듈 일괄(`aws-sdk-go-v2` 1.48.0·credentials 1.21.1·config 1.33.19·s3 1.114.10), Prometheus common 0.74.0, 내장 관리자 bundle 재빌드. migration 없음.
+- [x] Dependabot [#168](https://github.com/yakisoba0728/PgBase/pull/168), [#170](https://github.com/yakisoba0728/PgBase/pull/170)–[#181](https://github.com/yakisoba0728/PgBase/pull/181)은 모두 병합 없이 닫혔다. #171–#177·#180·#181과 #178·#179(AWS SDK 버전)의 변경은 #183으로 main에 들어갔다. #168(golang 1.26.11 → 1.27.4 이미지)과 #170(`deployments/Dockerfile`·`release-phase.Dockerfile`의 postgres16·postgres17 client 단계 이미지를 18.6으로)은 main에 반영되지 않았다(main은 golang 1.26.11, postgres 16.16·17.12). 닫은 사유는 PR에 적혀 있지 않다.
+- [x] CI: 네 PR의 필수 검사 5개 통과. main push CI(Backend·Frontend·Security)는 `7de9942e`·`a9a53f29`·`56823891` 모두 통과.
+- [ ] 운영 배포: 확인하지 않음(저장소에 배포 기록 없음). 운영에 올리려면 여전히 schema 69 → 71 stop–migrate–start가 필요하다(운영이 2026-11-18 기록대로 `df18bfe3`이라면). #182의 웹 복원 전에는 이전 build를 포함한 다른 instance를 멈춰야 한다(PR 본문).
+- [ ] 릴리스: v0.4.0(schema 69) 이후 20 commit이 tag 없이 main에 있다. 현재 main source는 schema 71을 요구한다.
+- [ ] [PR #184](https://github.com/yakisoba0728/PgBase/pull/184)(`fix/security-audit-20261122`): 이 기록 시점에 열려 있고 병합되지 않았다. relation 표시 권한, 비밀번호 재설정 token 검사 순서, 인증 메일 발송 admission, 관리자 TOTP counter 1회 소비, 저장소 작업 admission을 고친다. system migration `000072_admin_totp_counters`(`pgbase_meta.admin_totp.last_counter`)를 추가해 병합되면 schema 72가 되고 stop–migrate–start가 필요하다. 최신 commit `8666bbd3`에서 PR CI(Backend·Frontend·Security)는 통과했고 Full·Nonperformance source qualification은 PR에서 skipped였다. 이 문서 변경도 그 PR에 실린다.
+- [ ] 저장소 점검(2026-11-22): 열린 issue 0, 열린 Dependabot 경고 0. `main`에 classic branch protection은 없지만(API 404) repository ruleset "Reviewed main with required CI"가 active로 PR과 필수 검사 5개를 요구한다. code-scanning API는 "no analysis found"를 돌려줘 CodeQL 25건 항목은 이 방법으로 재확인하지 못했다.
+- [ ] `migrations/system` 번호 44, 46, 47, 49, 53이 비어 있다. 이유는 확인하지 않음.
 
 ## 2026-11-19 — 요청 로그·jobs·감사 지적 수정과 관리자 UI 추가(PR #159–#164, #166)
 

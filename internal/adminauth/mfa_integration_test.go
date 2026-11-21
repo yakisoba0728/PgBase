@@ -23,7 +23,8 @@ func TestN3UpsertDeleteProtectsLastAdministratorAndInvalidatesSessions(t *testin
 	if err := migrate.New(pool, nil).Up(ctx); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(pool, NewArgon2idPasswords(), []byte("01234567890123456789012345678901"), "", time.Hour, nil)
+	clock := &fakeClock{now: time.Date(2026, 9, 22, 1, 2, 3, 0, time.UTC)}
+	service := NewService(pool, NewArgon2idPasswords(), []byte("01234567890123456789012345678901"), "", time.Hour, clock)
 	first, created, err := service.UpsertAdministrator(ctx, "ADMIN@example.test", "first correct horse battery staple")
 	if err != nil || !created {
 		t.Fatalf("first=%#v created=%t err=%v", first, created, err)
@@ -52,7 +53,7 @@ func TestN3UpsertDeleteProtectsLastAdministratorAndInvalidatesSessions(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	activeSession, err := service.LoginWithOTP(ctx, first.Email, "second correct horse battery staple", "192.0.2.1", testTOTP(otpSecret, time.Now()))
+	activeSession, err := service.LoginWithOTP(ctx, first.Email, "second correct horse battery staple", "192.0.2.1", testTOTP(otpSecret, clock.Now()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,8 @@ func TestN3UpsertDeleteProtectsLastAdministratorAndInvalidatesSessions(t *testin
 	if _, err := service.Login(ctx, first.Email, "third correct horse battery staple", "192.0.2.1"); !errors.Is(err, ErrOTPRequired) {
 		t.Fatalf("reactivated OTP-free login error=%v", err)
 	}
-	if _, err := service.LoginWithOTP(ctx, first.Email, "third correct horse battery staple", "192.0.2.1", testTOTP(otpSecret, time.Now())); err != nil {
+	clock.Add(30 * time.Second)
+	if _, err := service.LoginWithOTP(ctx, first.Email, "third correct horse battery staple", "192.0.2.1", testTOTP(otpSecret, clock.Now())); err != nil {
 		t.Fatalf("reactivated OTP login: %v", err)
 	}
 	if prefixes, err := service.ListIP(ctx, first.Email); err != nil || len(prefixes) != 1 || prefixes[0] != "192.0.2.0/24" {

@@ -33,6 +33,7 @@ func TestVerificationRejectsTokenSentBeforeEmailChange(t *testing.T) {
 	if err != nil || record.Email != newEmail || record.Verified {
 		t.Fatalf("rejected verification changed replacement record: %#v %v", record, err)
 	}
+	expireEmailActionCooldown(t, service, registered.User.ID, "verify", registered.User.Email)
 	if err := service.RequestVerification(ctx, registered.User.ID); err != nil {
 		t.Fatal(err)
 	}

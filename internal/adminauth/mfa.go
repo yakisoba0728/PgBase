@@ -248,29 +248,32 @@ func totpKey(secret []byte) []byte {
 	sum := sha256.Sum256(append([]byte("pgbase administrator totp v1\x00"), secret...))
 	return sum[:]
 }
-func validTOTP(secret []byte, code string, now time.Time) bool {
+func matchTOTP(secret []byte, code string, now time.Time, minimum int64) (int64, bool) {
 	if len(code) != 6 {
-		return false
+		return 0, false
 	}
 	var want int32
 	for index := range len(code) {
 		if code[index] < '0' || code[index] > '9' {
-			return false
+			return 0, false
 		}
 		want = want*10 + int32(code[index]-'0')
 	}
-	for offset := -1; offset <= 1; offset++ {
-		counter := uint64(now.Add(time.Duration(offset)*30*time.Second).Unix() / 30)
+	for offset := int64(-1); offset <= 1; offset++ {
+		counter := now.Unix()/30 + offset
+		if counter < 0 || counter <= minimum {
+			continue
+		}
 		var data [8]byte
-		binary.BigEndian.PutUint64(data[:], counter)
+		binary.BigEndian.PutUint64(data[:], uint64(counter))
 		mac := hmac.New(sha1.New, secret)
 		mac.Write(data[:])
 		digest := mac.Sum(nil)
 		start := digest[len(digest)-1] & 15
 		value := (int(digest[start])&127)<<24 | int(digest[start+1])<<16 | int(digest[start+2])<<8 | int(digest[start+3])
 		if subtle.ConstantTimeEq(int32(value%1000000), want) == 1 {
-			return true
+			return counter, true
 		}
 	}
-	return false
+	return 0, false
 }
