@@ -108,7 +108,7 @@ func (s *Service) readNativeGetInTx(
 	if err := validateSQLViewIdentity(ctx, tx, collection); err != nil {
 		return err
 	}
-	statement := CompileSelectByID(collection, request.ID)
+	statement := compileSelectByIDWithRevision(collection, request.ID)
 	if request.Principal.Kind == identity.User || request.Principal.Kind == identity.Anonymous {
 		rules, _, err := loadReadRules(ctx, tx, collection.AccessCollectionID())
 		if err != nil {
@@ -125,7 +125,8 @@ func (s *Service) readNativeGetInTx(
 		statement.SQL += " AND (" + predicate + ")"
 		statement.Args = append(statement.Args, args...)
 	}
-	root, err := EncodeRecord(collection, tx.QueryRow(ctx, statement.SQL, statement.Args...))
+	revisionRow := &revisionTrailingScanner{row: tx.QueryRow(ctx, statement.SQL, statement.Args...)}
+	root, err := EncodeRecord(collection, revisionRow)
 	if err := recordQueryError(err); err != nil {
 		return err
 	}
@@ -177,11 +178,15 @@ func (s *Service) readNativeGetInTx(
 		}
 	}
 
-	digest, err := recordartifact.SchemaDigest(collection)
+	// collection is catalog.Collections[request.Collection], so the digest
+	// shared on this immutable catalog is the one SchemaDigest would compute.
+	digest, err := derivedCatalog(catalog).schemaDigest(collection)
 	if err != nil {
 		return err
 	}
-	version, validator, present, err := recordartifact.ReadRevision(ctx, tx, collection.ID, request.ID)
+	// The revision was read beside the record row; validating it here keeps
+	// the former ReadRevision error position.
+	version, validator, present, err := recordartifact.RevisionFromColumns(revisionRow.version, revisionRow.validator)
 	if err != nil {
 		return err
 	}

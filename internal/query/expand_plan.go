@@ -153,13 +153,11 @@ func resolveExpandNode(
 }
 
 func cachedReverseExpandIndex(catalog schema.Catalog) (reverseExpandIndex, error) {
-	value, err := catalog.ReverseExpand(func(catalog schema.Catalog) (any, error) {
-		return buildReverseExpandIndex(catalog)
-	})
+	index, err := derivedCatalog(catalog).reverseExpandIndex(catalog)
 	if err != nil {
 		return nil, err
 	}
-	return value.(reverseExpandIndex), nil
+	return index, nil
 }
 
 func buildReverseExpandIndex(catalog schema.Catalog) (reverseExpandIndex, error) {
@@ -337,16 +335,7 @@ func catalogCollectionByID(catalog schema.Catalog, id uuid.UUID) (schema.Collect
 	if id == uuid.Nil {
 		return schema.Collection{}, false
 	}
-	var found schema.Collection
-	matches := 0
-	for name, collection := range catalog.Collections {
-		if name != collection.Name || collection.ID != id {
-			continue
-		}
-		found = collection
-		matches++
-	}
-	return found, matches == 1
+	return derivedCatalog(catalog).collectionByID(catalog, id)
 }
 
 func expandBudgetError() error { return validation("expand", "expand_budget_exceeded") }

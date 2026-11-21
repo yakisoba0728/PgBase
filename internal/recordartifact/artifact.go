@@ -38,10 +38,21 @@ func ReadRevision(ctx context.Context, tx pgx.Tx, collectionID, recordID uuid.UU
 	if err != nil {
 		return 0, nil, false, err
 	}
-	if version < 1 || len(validator) != 32 {
+	return RevisionFromColumns(&version, validator)
+}
+
+// RevisionFromColumns interprets record_revisions columns that a caller read
+// in its own statement (for example a LEFT JOIN or scalar subquery beside the
+// record row). A nil version means no revision row, exactly as ReadRevision
+// reports pgx.ErrNoRows; a present row is validated identically.
+func RevisionFromColumns(version *int64, validator []byte) (int64, []byte, bool, error) {
+	if version == nil {
+		return 0, nil, false, nil
+	}
+	if *version < 1 || len(validator) != 32 {
 		return 0, nil, false, errors.New("invalid record revision state")
 	}
-	return version, validator, true, nil
+	return *version, validator, true, nil
 }
 
 func SchemaDigest(collection schema.Collection) ([32]byte, error) {
