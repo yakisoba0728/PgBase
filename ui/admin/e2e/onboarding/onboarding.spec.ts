@@ -9,7 +9,10 @@ const test = base.extend<{ cleanConsole: void }>({
     });
     // HTTP 4xx answers are part of the flows (the pre-login session probe); a 5xx never is.
     page.on("console", (message) => {
-      if (message.type() === "error" && !message.text().startsWith("Failed to load resource")) problems.push(message.text());
+      if (message.type() !== "error" || message.text().startsWith("Failed to load resource")) return;
+      // Firefox reports a font request cancelled by navigation (NS_BINDING_ABORTED) as a script error.
+      if (/downloadable font: download failed .*status=2152398850\b/.test(message.text())) return;
+      problems.push(message.text());
     });
     page.on("pageerror", (error) => problems.push(error.message));
     page.on("response", (response) => {
