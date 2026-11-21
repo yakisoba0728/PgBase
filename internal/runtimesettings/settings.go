@@ -169,7 +169,11 @@ type Controller struct {
 	mu         sync.RWMutex
 	notifyMu   sync.Mutex
 	value      Settings
-	listeners  []func(Settings)
+	// trustedProxies is value.Proxy.TrustedProxyCIDRs parsed once when value is
+	// published, so per-request address resolution neither clones the settings
+	// nor reparses CIDRs. It changes only together with value, under mu.
+	trustedProxies []netip.Prefix
+	listeners      []func(Settings)
 }
 
 const encryptionDomain = "pgbase-runtime-settings-v1"
@@ -444,6 +448,7 @@ func clone(v Settings) Settings {
 func (c *Controller) publish(v Settings) Settings {
 	c.mu.Lock()
 	c.value = clone(v)
+	c.trustedProxies = parseTrustedProxies(c.value.Proxy.TrustedProxyCIDRs)
 	listeners := append([]func(Settings){}, c.listeners...)
 	c.mu.Unlock()
 	for _, listener := range listeners {
@@ -454,8 +459,14 @@ func (c *Controller) publish(v Settings) Settings {
 
 // TrustedProxies returns the validated runtime snapshot in the representation
 // consumed by HTTP address resolution.
+// Each caller receives its own slice of the prefixes parsed at publication.
 func (c *Controller) TrustedProxies() []netip.Prefix {
-	values := c.Get().Proxy.TrustedProxyCIDRs
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return append(make([]netip.Prefix, 0, len(c.trustedProxies)), c.trustedProxies...)
+}
+
+func parseTrustedProxies(values []string) []netip.Prefix {
 	result := make([]netip.Prefix, 0, len(values))
 	for _, value := range values {
 		prefix, err := netip.ParsePrefix(value)
