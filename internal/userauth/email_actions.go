@@ -20,6 +20,7 @@ const maximumEmailActionTTL = 24 * time.Hour
 type emailAction struct {
 	id             uuid.UUID
 	userID         uuid.UUID
+	collectionID   uuid.UUID
 	purpose        string
 	payloadEmail   *string
 	credentialHash []byte
@@ -52,6 +53,10 @@ func (s *Service) ConfigureEmailActionBaseURL(baseURL string, ttl time.Duration)
 }
 
 func (s *Service) RequestVerification(ctx context.Context, userID uuid.UUID) error {
+	return s.requestVerification(ctx, userID, true)
+}
+
+func (s *Service) requestVerification(ctx context.Context, userID uuid.UUID, reserveDelivery bool) error {
 	if err := s.emailReady(); err != nil {
 		return err
 	}
@@ -71,7 +76,7 @@ func (s *Service) RequestVerification(ctx context.Context, userID uuid.UUID) err
 	if user.Verified {
 		return nil
 	}
-	raw, err := s.issueEmailAction(ctx, user.ID, "verify", nil, passwordHash, user.Email)
+	raw, err := s.createEmailAction(ctx, user.ID, "verify", nil, passwordHash, user.Email, reserveDelivery)
 	if err != nil {
 		return err
 	}
@@ -143,6 +148,11 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, newPasswor
 	if validateToken(rawToken) != nil && !policyTokenValid(rawToken) {
 		return ErrInvalidCredentials
 	}
+	// This read deliberately neither consumes the token nor locks its account.
+	// Invalid, expired, or stale credentials must not enter the shared KDF pool.
+	if err := s.preflightPasswordReset(ctx, rawToken, newPassword); err != nil {
+		return err
+	}
 	release, err := admit(s.passwordSlots)
 	if err != nil {
 		return err
@@ -153,11 +163,7 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, newPasswor
 		return err
 	}
 	return s.consumeEmailAction(ctx, "password_reset", rawToken, func(ctx context.Context, tx pgx.Tx, action emailAction) error {
-		var realm uuid.UUID
-		if err := tx.QueryRow(ctx, `select auth_collection_id from pgbase_meta.users where id=$1`, action.userID).Scan(&realm); err != nil {
-			return err
-		}
-		policy, err := authPolicyTx(ctx, tx, realm)
+		policy, err := authPolicyTx(ctx, tx, action.collectionID)
 		if err != nil || !passwordMatchesPolicy(newPassword, policy) {
 			return ErrValidation
 		}
@@ -219,7 +225,7 @@ func (s *Service) RequestEmailChange(ctx context.Context, userID uuid.UUID, curr
 	if existing {
 		return ErrConflict
 	}
-	raw, err := s.issueEmailAction(ctx, user.ID, "email_change", &normalized, hash, user.Email)
+	raw, err := s.issueEmailActionWithDeliveryBudget(ctx, user.ID, "email_change", &normalized, hash, user.Email)
 	if database.Classify(err) == database.KindConflict {
 		return ErrConflict
 	}
@@ -316,8 +322,34 @@ func (s *Service) emailReady() error {
 }
 
 func (s *Service) issueEmailAction(ctx context.Context, userID uuid.UUID, purpose string, payload *string, passwordHash, email string) (string, error) {
+	return s.createEmailAction(ctx, userID, purpose, payload, passwordHash, email, false)
+}
+
+func (s *Service) issueEmailActionWithDeliveryBudget(ctx context.Context, userID uuid.UUID, purpose string, payload *string, passwordHash, email string) (string, error) {
+	return s.createEmailAction(ctx, userID, purpose, payload, passwordHash, email, true)
+}
+
+func (s *Service) createEmailAction(ctx context.Context, userID uuid.UUID, purpose string, payload *string, passwordHash, email string, reserveDelivery bool) (string, error) {
 	var raw string
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if reserveDelivery {
+			to := email
+			if payload != nil {
+				to = *payload
+			}
+			// Recipient budgets are scoped per auth collection; read it in this
+			// transaction so the reservation and the issued action agree.
+			var collectionID uuid.UUID
+			if err := tx.QueryRow(ctx, `select auth_collection_id from pgbase_meta.users where id=$1`, userID).Scan(&collectionID); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return ErrInvalidCredentials
+				}
+				return err
+			}
+			if err := s.reserveEmailActionDelivery(ctx, tx, userID, collectionID, purpose, to); err != nil {
+				return err
+			}
+		}
 		var hash []byte
 		var ttl time.Duration
 		var err error
@@ -327,6 +359,24 @@ func (s *Service) issueEmailAction(ctx context.Context, userID uuid.UUID, purpos
 		}
 		if hash == nil {
 			hash = s.actionTokenHash(purpose, raw)
+		}
+		if reserveDelivery {
+			// Serialize replacement with confirmation and account changes. One
+			// pending action per user and purpose keeps resends bounded, while
+			// retaining consumed rows for the normal credential cleaner.
+			var currentHash, currentEmail string
+			if err := tx.QueryRow(ctx, `select password_hash,email from pgbase_meta.users where id=$1 and active for update`, userID).Scan(&currentHash, &currentEmail); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return ErrInvalidCredentials
+				}
+				return err
+			}
+			if !hmac.Equal(s.emailActionCredentialHash(purpose, passwordHash, email), s.emailActionCredentialHash(purpose, currentHash, currentEmail)) {
+				return ErrInvalidCredentials
+			}
+			if _, err := tx.Exec(ctx, `update pgbase_meta.user_email_actions set consumed_at=CURRENT_TIMESTAMP where user_id=$1 and purpose=$2 and consumed_at is null`, userID, purpose); err != nil {
+				return err
+			}
 		}
 		_, err = tx.Exec(ctx, `insert into pgbase_meta.user_email_actions(id,user_id,purpose,token_hash,payload_email,credential_hash,expires_at,created_at) values($1,$2,$3,$4,$5,$6,CURRENT_TIMESTAMP+$7::interval,CURRENT_TIMESTAMP)`, uuid.New(), userID, purpose, hash, payload, s.emailActionCredentialHash(purpose, passwordHash, email), postgresInterval(ttl))
 		return err
@@ -345,30 +395,9 @@ func (s *Service) consumeEmailAction(ctx context.Context, purpose, rawToken stri
 		return ErrInvalidCredentials
 	}
 	return s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		hash := s.actionTokenHash(purpose, rawToken)
-		if version, _, ok := splitPolicyToken(rawToken); ok {
-			var cipher []byte
-			err := tx.QueryRow(ctx, `select key_ciphertext from pgbase_meta.auth_token_policies where key_version=$1 and purpose=$2`, version, purpose).Scan(&cipher)
-			if err != nil {
-				return ErrInvalidCredentials
-			}
-			key, err := s.decrypt("auth-token-policy:"+purpose, cipher)
-			if err != nil {
-				return ErrInvalidCredentials
-			}
-			hash = keyedDigest(key, "user-email-action\x00"+purpose+"\x00", rawToken)
-		}
-		var action emailAction
-		var currentHash, currentEmail string
-		err := tx.QueryRow(ctx, `select a.id,a.user_id,a.purpose,a.payload_email,a.credential_hash,a.expires_at,u.password_hash,u.email from pgbase_meta.user_email_actions a join pgbase_meta.users u on u.id=a.user_id where a.token_hash=$1 and a.purpose=$2 and a.consumed_at is null and a.expires_at>CURRENT_TIMESTAMP and u.active for update of a,u`, hash, purpose).Scan(&action.id, &action.userID, &action.purpose, &action.payloadEmail, &action.credentialHash, &action.expiresAt, &currentHash, &currentEmail)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrInvalidCredentials
-		}
+		action, err := s.readEmailAction(ctx, tx, purpose, rawToken, true)
 		if err != nil {
-			return fmt.Errorf("read user email action: %w", err)
-		}
-		if !hmac.Equal(action.credentialHash, s.emailActionCredentialHash(purpose, currentHash, currentEmail)) {
-			return ErrInvalidCredentials
+			return err
 		}
 		if err := mutate(ctx, tx, action); err != nil {
 			return err

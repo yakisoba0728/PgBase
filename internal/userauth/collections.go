@@ -424,6 +424,12 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 	}
 	var public map[string]any
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		// Response relation policy can read base collection metadata. Acquire
+		// the schema fence before user/auth collection locks, as DDL does.
+		if _, err := schema.NewStore(tx).PinnedSchemaVersion(ctx); err != nil {
+			return err
+		}
+
 		var fieldsRaw []byte
 		var updateRule *string
 		var existingRaw []byte
@@ -499,7 +505,7 @@ func (s *Service) SetProfile(ctx context.Context, userID uuid.UUID, attributes m
 			return err
 		}
 		public = visibleAuthRecord(AuthRecord{Fields: publicAuthFields(merged, fields)}, fields).Fields
-		if err := s.projectAuthRelationIdentities(ctx, tx, public, fields); err != nil {
+		if err := s.projectAuthorizedAuthRelationDocuments(ctx, tx, []map[string]any{public}, fields, authRecordPrincipal(userID)); err != nil {
 			return err
 		}
 		return nil
@@ -528,22 +534,27 @@ func (s *Service) GetProfile(ctx context.Context, userID uuid.UUID) (map[string]
 	if userID == uuid.Nil {
 		return nil, ErrValidation
 	}
-	var raw, fieldsRaw []byte
-	err := s.pool.QueryRow(ctx, `select coalesce(p.attributes,'{}'),c.fields_json from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.id=$1`, userID).Scan(&raw, &fieldsRaw)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
 	var value map[string]any
-	var fields []schema.FieldInput
-	if decodeAuthProfile(raw, &value) != nil || json.Unmarshal(fieldsRaw, &fields) != nil {
-		return nil, errors.New("invalid stored auth profile")
-	}
-	value = visibleAuthRecord(AuthRecord{Fields: publicAuthFields(value, fields)}, fields).Fields
-	if err := s.projectAuthRelationIdentities(ctx, s.pool, value, fields); err != nil {
-		return nil, err
-	}
-	return value, nil
+	// Retry serialization failures from FOR SHARE locks taken in this snapshot.
+	// Reset value each attempt because decoding merges into an existing map.
+	err := database.Retry(ctx, func() error {
+		value = nil
+		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+			var raw, fieldsRaw []byte
+			err := tx.QueryRow(ctx, `select coalesce(p.attributes,'{}'),c.fields_json from pgbase_meta.users u join pgbase_meta.auth_collections c on c.id=u.auth_collection_id left join pgbase_meta.user_auth_profiles p on p.user_id=u.id where u.id=$1`, userID).Scan(&raw, &fieldsRaw)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			if err != nil {
+				return err
+			}
+			var fields []schema.FieldInput
+			if decodeAuthProfile(raw, &value) != nil || json.Unmarshal(fieldsRaw, &fields) != nil {
+				return errors.New("invalid stored auth profile")
+			}
+			value = visibleAuthRecord(AuthRecord{Fields: publicAuthFields(value, fields)}, fields).Fields
+			return s.projectAuthorizedAuthRelationDocuments(ctx, tx, []map[string]any{value}, fields, authRecordPrincipal(userID))
+		})
+	}, nil)
+	return value, err
 }

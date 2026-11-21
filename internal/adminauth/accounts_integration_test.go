@@ -325,6 +325,7 @@ func TestAdministratorAccountsPasswordAndDeactivationInvalidateCredentialsPreser
 			if err != nil {
 				t.Fatal(err)
 			}
+			fixture.clock.Add(30 * time.Second)
 			code := testTOTP(secret, fixture.clock.Now())
 			if err := s.AuthorizeIP(ctx, fixture.second.ID, "198.51.100.1"); !errors.Is(err, ErrIPRestricted) {
 				t.Fatalf("preserved IP policy error=%v", err)
