@@ -9,8 +9,7 @@ import { Notice } from "../components/Feedback";
 import { QueryView } from "../components/QueryView";
 import { tokenPx, useVirtualRows } from "../components/virtualRows";
 import { toast } from "../components/Toast";
-import { en } from "../i18n/en";
-import { useT, type MessageKey } from "../i18n";
+import { hasMessage, useT } from "../i18n";
 import { errorLocation, sqlActive } from "./model";
 import { refreshSqlHistory, sqlExecutionQuery, sqlHistoryKey } from "./queries";
 
@@ -125,7 +124,7 @@ function Outcome({ execution, sql, active, canceling, onCancel }: { execution: S
       </div>
       {result?.truncated && <Notice role="status" className="dt-inset">{t("devtools.sql.truncated", { rows: result.rows })}</Notice>}
       {failure && (
-        <Notice className="dt-inset" tone={execution.status === "failed" ? "danger" : undefined} title={failureKey in en ? t(failureKey as MessageKey) : failure.message}>
+        <Notice className="dt-inset" tone={execution.status === "failed" ? "danger" : undefined} title={hasMessage(failureKey) ? t(failureKey) : failure.message}>
           <p className="mono">
             {[failure.sqlState && `SQLSTATE ${failure.sqlState}`, failure.code, location && t("devtools.sql.at", { line: location.line, column: location.column })].filter(Boolean).join(" · ")}
           </p>
