@@ -267,7 +267,28 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 			return err
 		}
 		etag := recordartifact.RevisionETag(collection.ID, recordID, digest, validator)
-		if err := commitMutation(ctx, tx, catalog, request.Principal, request.RequestID, requestHash[:], artifactBatch{
+		// The record owner and idempotency receipt follow the artifacts in the
+		// same pipelined round trip; neither consumes a result of the other.
+		if err := commitMutationThen(ctx, tx, catalog, request.Principal, request.RequestID, requestHash[:], func(pipeline *writePipeline) error {
+			if request.Principal.Kind == PrincipalUser {
+				pipeline.queue(`INSERT INTO pgbase_meta.record_owners(collection_id, record_id, user_id) VALUES ($1,$2,$3)`, nil, collection.ID, recordID, request.Principal.ID)
+			}
+			if len(keyHash) > 0 {
+				publicData := cloneRecordData(data)
+				if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicData); err != nil {
+					return err
+				}
+				receiptData := cloneRecordData(data)
+				receiptData["__pgbase_public_record"] = publicData
+				body, err := json.Marshal(receiptData)
+				if err != nil {
+					return err
+				}
+				queueIdempotentCreate(pipeline, request.Principal, collection.ID, keyHash,
+					requestHash[:], recordID, eventID, body, etag)
+			}
+			return nil
+		}, artifactBatch{
 			collection: collection, operation: "create",
 			schemaVersion: catalog.Version, schemaDigest: digest,
 			rows: []artifactRow{{
@@ -279,27 +300,6 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 			ruleChecked: createRuleStable,
 		}); err != nil {
 			return err
-		}
-		if request.Principal.Kind == PrincipalUser {
-			if _, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.record_owners(collection_id, record_id, user_id) VALUES ($1,$2,$3)`, collection.ID, recordID, request.Principal.ID); err != nil {
-				return err
-			}
-		}
-		if len(keyHash) > 0 {
-			publicData := cloneRecordData(data)
-			if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicData); err != nil {
-				return err
-			}
-			receiptData := cloneRecordData(data)
-			receiptData["__pgbase_public_record"] = publicData
-			body, err := json.Marshal(receiptData)
-			if err != nil {
-				return err
-			}
-			if err := writeIdempotentCreate(ctx, tx, request.Principal, collection.ID, keyHash,
-				requestHash[:], recordID, eventID, body, etag); err != nil {
-				return err
-			}
 		}
 		result = MutationResult{
 			Record:  &Record{Data: data, ETag: etag, Version: 1},

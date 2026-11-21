@@ -43,6 +43,7 @@ type cascadeDeleteMeasurement struct {
 	statements map[string]int
 	rows       map[string]int64
 	total      int
+	roundTrips int
 	unknown    []string
 }
 
@@ -68,16 +69,44 @@ func (t *cascadeDeleteTrace) TraceQueryStart(ctx context.Context, _ *pgx.Conn, d
 	if !t.enabled {
 		return ctx
 	}
-	statement := strings.Join(strings.Fields(strings.ToLower(data.SQL)), " ")
+	t.roundTrips++
+	category := t.count(data.SQL)
+	if category == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, cascadeDeleteTraceContextKey{}, category)
+}
+
+func (t *cascadeDeleteTrace) count(sql string) string {
+	statement := strings.Join(strings.Fields(strings.ToLower(sql)), " ")
 	category := cascadeDeleteStatementCategory(statement)
 	t.total++
 	if category == "" {
 		t.unknown = append(t.unknown, statement)
-		return ctx
+		return ""
 	}
 	t.statements[category]++
-	return context.WithValue(ctx, cascadeDeleteTraceContextKey{}, category)
+	return category
 }
+
+// A pipelined batch is one round trip; each statement in it still counts.
+func (t *cascadeDeleteTrace) TraceBatchStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceBatchStartData) context.Context {
+	if t.enabled {
+		t.roundTrips++
+	}
+	return ctx
+}
+
+func (t *cascadeDeleteTrace) TraceBatchQuery(_ context.Context, _ *pgx.Conn, data pgx.TraceBatchQueryData) {
+	if !t.enabled {
+		return
+	}
+	if category := t.count(data.SQL); category != "" && data.Err == nil {
+		t.rows[category] += data.CommandTag.RowsAffected()
+	}
+}
+
+func (*cascadeDeleteTrace) TraceBatchEnd(context.Context, *pgx.Conn, pgx.TraceBatchEndData) {}
 
 func (t *cascadeDeleteTrace) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryEndData) {
 	category, _ := ctx.Value(cascadeDeleteTraceContextKey{}).(string)
@@ -176,6 +205,11 @@ func TestCascadeDeleteStatementCountIsBoundedByTheClosureShape(t *testing.T) {
 		}
 		if measured.measurement.total != wantTotal {
 			t.Errorf("%s total statements = %d, want %d", measured.name, measured.measurement.total, wantTotal)
+		}
+		// The audit insert, revision delete and outbox insert of the one
+		// closure collection share a single pipelined round trip.
+		if want := wantTotal - 2; measured.measurement.roundTrips != want {
+			t.Errorf("%s round trips = %d, want %d", measured.name, measured.measurement.roundTrips, want)
 		}
 		// The affected-row contract the per-record path published: one base
 		// row, one revision, one audit event and one outbox event per record.
