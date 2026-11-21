@@ -2,8 +2,7 @@ import { MutationCache, QueryCache, QueryClient, queryOptions } from "@tanstack/
 import { ApiError } from "../api/http";
 import { getSession, logout } from "../api/session";
 import { getSetupStatus } from "../api/system";
-import { en } from "../i18n/en";
-import type { Translate } from "../i18n";
+import { hasMessage, type Translate } from "../i18n";
 import { readStorage, removeStorage } from "./store";
 
 /** Pages a scrolled list keeps in memory (and in the DOM); further pages push the first ones out. */
@@ -48,6 +47,24 @@ export const sessionQuery = queryOptions({
   retry: false,
   staleTime: Infinity,
 });
+
+let bootSessionCheck = false;
+
+/** Starts the guard's session check before the first render, which waits for the dictionary (main.tsx). */
+export function startSessionCheck(): void {
+  bootSessionCheck = true;
+  void queryClient.prefetchQuery(sessionQuery);
+}
+
+/**
+ * True once, for the guard's first mount after startSessionCheck: a failure that check already received (a 401 that
+ * leads to /login) is used as is instead of being asked for again, which would add a round trip to the first screen.
+ */
+export function takeBootSessionCheck(): boolean {
+  const started = bootSessionCheck;
+  bootSessionCheck = false;
+  return started;
+}
 
 export const setupStatusQuery = queryOptions({
   queryKey: ["setup-status"],
@@ -98,7 +115,7 @@ export const queryClient: QueryClient = new QueryClient({
 export function errorText(t: Translate, error: unknown): string {
   const code = error instanceof ApiError ? error.code : "client_error";
   const key = `error.${code}`;
-  if (key in en) return t(key as keyof typeof en);
+  if (hasMessage(key)) return t(key);
   if (error instanceof ApiError && error.status === 401) return t("error.unauthorized");
   if (error instanceof ApiError && error.status === 403) return t("error.forbidden");
   return t("error.generic", { code });
