@@ -5,6 +5,7 @@ package observability
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -190,6 +191,47 @@ func TestRequestLogMalformedEntryDoesNotLoseItsBatch(t *testing.T) {
 	}
 	if err := log.Shutdown(ctx); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The batch and its cleanup share one transaction. A failed cleanup must still
+// keep the stored entries, and a successful one applies the current policy.
+func TestRequestLogBatchCleanupFailureKeepsEntries(t *testing.T) {
+	ctx := context.Background()
+	databaseURL := testutil.NewDatabase(t)
+	testutil.ApplySystemMigrationPrefix(t, databaseURL, system.Migrations())
+	pool, err := database.Open(ctx, databaseURL, 5*time.Second, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	var revision atomic.Int64
+	log := NewRequestLog(pool, RequestLogOptions{MaximumRows: 100, QueueCapacity: 8, BatchSize: 8, FlushInterval: time.Hour,
+		RuntimeRetention: func() (time.Duration, int64) { return 7 * 24 * time.Hour, revision.Load() }})
+	defer log.Shutdown(ctx)
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.runtime_settings (document) values ('{}');
+		insert into pgbase_meta.request_logs (occurred_at,method,route,status,duration_ms)
+		values (statement_timestamp()-interval '10 days','GET','/expired',200,0)`); err != nil {
+		t.Fatal(err)
+	}
+	log.Record("GET", "/first", 200, time.Millisecond)
+	log.Record("GET", "/second", 200, time.Millisecond)
+	if err := log.Flush(ctx); err == nil {
+		t.Fatal("invalid cleanup policy reported no error")
+	}
+	if stats, err := log.Statistics(ctx, nil, nil); err != nil || stats.Total != 3 || stats.Dropped != 0 {
+		t.Fatalf("failed cleanup lost its batch: %#v %v", stats, err)
+	}
+	revision.Store(1)
+	log.Record("GET", "/third", 200, time.Millisecond)
+	if err := log.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if expired, err := log.Search(ctx, RequestFilter{Route: "/expired"}); err != nil || len(expired.Items) != 0 {
+		t.Fatalf("batch cleanup kept an expired entry: %+v %v", expired.Items, err)
+	}
+	if stats, err := log.Statistics(ctx, nil, nil); err != nil || stats.Total != 3 || stats.Dropped != 0 {
+		t.Fatalf("statistics after cleanup = %#v %v", stats, err)
 	}
 }
 

@@ -324,30 +324,32 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 	if err := s.validateRequest(ctx, request.Principal, request.RequestID); err != nil {
 		return MutationResult{}, err
 	}
-	resolvedID, err := s.resolveRecordID(ctx, request.Collection, request.ID, request.PublicID)
-	if err != nil {
-		return MutationResult{}, err
+	// An owned transaction resolves the ID after EnsureCurrent pins the schema;
+	// a separate catalog transaction would add a commit that waits for WAL flush.
+	_, borrowed, _ := s.pool.BorrowedTransaction(ctx)
+	deferredID, requestedID := !borrowed, request.ID
+	if borrowed {
+		resolvedID, err := s.resolveRecordID(ctx, request.Collection, request.ID, request.PublicID)
+		if err != nil {
+			return MutationResult{}, err
+		}
+		request.ID = resolvedID
 	}
-	request.ID = resolvedID
 	canonicalRequest, err := canonicalInput(request.Input)
 	if err != nil {
-		return MutationResult{}, err
-	}
-	inputHash := recordartifact.Digest("pgbase-update-request-v1", []byte(request.Collection), request.ID[:], canonicalRequest)
-	if len(request.SidecarContext) != 0 {
-		inputHash = recordartifact.Digest("pgbase-update-request-v1", []byte(request.Collection), request.ID[:], canonicalRequest, request.SidecarContext)
+		return MutationResult{}, s.recordIDErrorFirst(ctx, deferredID, request.Collection, requestedID, request.PublicID, err)
 	}
 	eventID, err := uuid.NewV7()
 	if err != nil {
-		return MutationResult{}, fmt.Errorf("generate record event id: %w", err)
+		return MutationResult{}, s.recordIDErrorFirst(ctx, deferredID, request.Collection, requestedID, request.PublicID, fmt.Errorf("generate record event id: %w", err))
 	}
 	validator, err := s.newValidator()
 	if err != nil {
-		return MutationResult{}, err
+		return MutationResult{}, s.recordIDErrorFirst(ctx, deferredID, request.Collection, requestedID, request.PublicID, err)
 	}
 	membershipWriter, err := s.members.writer(ctx)
 	if err != nil {
-		return MutationResult{}, unavailableMembership(err)
+		return MutationResult{}, s.recordIDErrorFirst(ctx, deferredID, request.Collection, requestedID, request.PublicID, unavailableMembership(err))
 	}
 	compatibility := CompatibilityNone
 	if !request.IfMatch.Present {
@@ -355,6 +357,17 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 	}
 
 	err = s.updateTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		if deferredID {
+			resolvedID, err := s.resolveRecordIDInCatalog(ctx, tx, catalog, request.Collection, requestedID, request.PublicID)
+			if err != nil {
+				return err
+			}
+			request.ID = resolvedID
+		}
+		inputHash := recordartifact.Digest("pgbase-update-request-v1", []byte(request.Collection), request.ID[:], canonicalRequest)
+		if len(request.SidecarContext) != 0 {
+			inputHash = recordartifact.Digest("pgbase-update-request-v1", []byte(request.Collection), request.ID[:], canonicalRequest, request.SidecarContext)
+		}
 		if collection.IsView() {
 			return recordaccess.ErrUnsupported
 		}
@@ -534,15 +547,19 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 	if err := s.validateRequest(ctx, request.Principal, request.RequestID); err != nil {
 		return MutationResult{}, err
 	}
-	resolvedID, err := s.resolveRecordID(ctx, request.Collection, request.ID, request.PublicID)
-	if err != nil {
-		return MutationResult{}, err
+	// See Update: an owned transaction resolves the ID after EnsureCurrent.
+	_, borrowed, _ := s.pool.BorrowedTransaction(ctx)
+	deferredID, requestedID := !borrowed, request.ID
+	if borrowed {
+		resolvedID, err := s.resolveRecordID(ctx, request.Collection, request.ID, request.PublicID)
+		if err != nil {
+			return MutationResult{}, err
+		}
+		request.ID = resolvedID
 	}
-	request.ID = resolvedID
-	inputHash := recordartifact.Digest("pgbase-delete-request-v1", []byte(request.Collection), request.ID[:])
 	eventID, err := uuid.NewV7()
 	if err != nil {
-		return MutationResult{}, fmt.Errorf("generate record event id: %w", err)
+		return MutationResult{}, s.recordIDErrorFirst(ctx, deferredID, request.Collection, requestedID, request.PublicID, fmt.Errorf("generate record event id: %w", err))
 	}
 	compatibility := CompatibilityNone
 	if !request.IfMatch.Present {
@@ -551,10 +568,18 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 	identityCache := newDeleteArtifactIdentityCache(eventID)
 	membershipWriter, err := s.members.writer(ctx)
 	if err != nil {
-		return MutationResult{}, unavailableMembership(err)
+		return MutationResult{}, s.recordIDErrorFirst(ctx, deferredID, request.Collection, requestedID, request.PublicID, unavailableMembership(err))
 	}
 
 	err = s.deleteTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		if deferredID {
+			resolvedID, err := s.resolveRecordIDInCatalog(ctx, tx, catalog, request.Collection, requestedID, request.PublicID)
+			if err != nil {
+				return err
+			}
+			request.ID = resolvedID
+		}
+		inputHash := recordartifact.Digest("pgbase-delete-request-v1", []byte(request.Collection), request.ID[:])
 		if collection.IsView() {
 			return recordaccess.ErrUnsupported
 		}
