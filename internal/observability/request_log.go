@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
@@ -354,10 +355,10 @@ func (l *RequestLog) PruneExpired(ctx context.Context) error {
 	if l == nil || l.pool == nil {
 		return nil
 	}
-	return l.prune(ctx, 0)
+	return l.prune(ctx, l.pool, 0)
 }
 
-func (l *RequestLog) prune(ctx context.Context, maximumRows int) error {
+func (l *RequestLog) prune(ctx context.Context, db requestLogExecutor, maximumRows int) error {
 	retention, revision := l.options.Retention, int64(0)
 	if source := l.options.RuntimeRetention; source != nil {
 		retention, revision = source()
@@ -367,7 +368,7 @@ func (l *RequestLog) prune(ctx context.Context, maximumRows int) error {
 	}
 	// Lock the matching settings row through the delete. A concurrent settings
 	// update either follows this cleanup or makes its age policy stale.
-	_, err := l.pool.Exec(ctx, `WITH current_policy AS MATERIALIZED (
+	_, err := db.Exec(ctx, `WITH current_policy AS MATERIALIZED (
 		SELECT revision FROM pgbase_meta.runtime_settings WHERE singleton AND revision=$3 FOR SHARE
 	)
 	DELETE FROM pgbase_meta.request_logs
@@ -491,30 +492,51 @@ func (l *RequestLog) writeLoop() {
 	}
 }
 
+// requestLogWriteOptions commits a batch and its cleanup without waiting for
+// a WAL flush. A database crash can lose only the last best-effort diagnostic
+// batches, like a full queue would. The isolation stays read committed so the
+// cleanup still rechecks the settings revision after waiting.
+var requestLogWriteOptions = pgx.TxOptions{BeginQuery: "begin; set local synchronous_commit = off"}
+
+type requestLogExecutor interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
 // writeBatch counts every entry it could not store as dropped.
 func (l *RequestLog) writeBatch(ctx context.Context, entries []RequestEntry) error {
 	if len(entries) == 0 {
 		return nil
 	}
-	failed := l.insertEntries(ctx, entries)
-	if failed != nil {
-		if len(entries) == 1 || ctx.Err() != nil {
-			l.dropped.Add(uint64(len(entries)))
-			return failed
+	var pruneErr error
+	failed := l.pool.InTx(ctx, requestLogWriteOptions, func(tx pgx.Tx) error {
+		if err := insertEntries(ctx, tx, entries); err != nil {
+			return err
 		}
-		// Retry row by row so one malformed entry cannot lose the rest of the batch.
-		failed = nil
-		for index := range entries {
-			if err := l.insertEntries(ctx, entries[index:index+1]); err != nil {
-				l.dropped.Add(1)
-				failed = err
-			}
+		// A cleanup failure must not roll back the stored entries.
+		pruneErr = database.InSavepoint(ctx, tx, func(tx pgx.Tx) error {
+			return l.prune(ctx, tx, l.options.MaximumRows)
+		})
+		return nil
+	})
+	if failed == nil {
+		return pruneErr
+	}
+	if len(entries) == 1 || ctx.Err() != nil {
+		l.dropped.Add(uint64(len(entries)))
+		return failed
+	}
+	// Retry row by row so one malformed entry cannot lose the rest of the batch.
+	failed = nil
+	for index := range entries {
+		if err := insertEntries(ctx, l.pool, entries[index:index+1]); err != nil {
+			l.dropped.Add(1)
+			failed = err
 		}
 	}
-	return errors.Join(failed, l.prune(ctx, l.options.MaximumRows))
+	return errors.Join(failed, l.prune(ctx, l.pool, l.options.MaximumRows))
 }
 
-func (l *RequestLog) insertEntries(ctx context.Context, entries []RequestEntry) error {
+func insertEntries(ctx context.Context, db requestLogExecutor, entries []RequestEntry) error {
 	values := make([]any, 0, len(entries)*8)
 	var q strings.Builder
 	q.WriteString(`INSERT INTO pgbase_meta.request_logs(occurred_at,method,route,status,duration_ms,client_ip,auth_kind,auth_id) VALUES `)
@@ -526,7 +548,7 @@ func (l *RequestLog) insertEntries(ctx context.Context, entries []RequestEntry) 
 		fmt.Fprintf(&q, "($%d,$%d,$%d,$%d,$%d,nullif($%d,'')::inet,nullif($%d,''),nullif($%d,'')::uuid)", b+1, b+2, b+3, b+4, b+5, b+6, b+7, b+8)
 		values = append(values, e.At, e.Method, e.Route, e.Status, e.DurationMS, e.ClientIP, e.AuthKind, e.AuthID)
 	}
-	_, err := l.pool.Exec(ctx, q.String(), values...)
+	_, err := db.Exec(ctx, q.String(), values...)
 	return err
 }
 

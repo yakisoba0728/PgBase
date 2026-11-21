@@ -71,7 +71,7 @@ func (s *Service) ResolveAuth(ctx context.Context, db DB, collectionID uuid.UUID
 		}
 	}
 	var internal uuid.UUID
-	err := db.QueryRow(ctx, `select internal_id from pgbase_meta.record_identities where collection_kind='auth' and collection_id=$1 and external_id=$2`, collectionID, public).Scan(&internal)
+	err := db.QueryRow(ctx, `select internal_id from pgbase_meta.record_identities where collection_kind='auth' and collection_id=$1 and scope_id='00000000-0000-0000-0000-000000000000' and external_id=$2`, collectionID, public).Scan(&internal)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, ErrNotFound
 	}

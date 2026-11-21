@@ -28,6 +28,12 @@ func (s *Service) resolveRecordID(ctx context.Context, collectionName string, in
 	if err != nil {
 		return uuid.Nil, err
 	}
+	return s.resolveRecordIDInCatalog(ctx, db, catalog, collectionName, internal, public)
+}
+
+// resolveRecordIDInCatalog resolves against a catalog the caller already pinned
+// in db's transaction, so an owned update or delete needs no catalog transaction.
+func (s *Service) resolveRecordIDInCatalog(ctx context.Context, db recordidentity.DB, catalog schema.Catalog, collectionName string, internal uuid.UUID, public string) (uuid.UUID, error) {
 	collection, ok := catalog.Collections[collectionName]
 	if !ok {
 		return uuid.Nil, query.ErrCollectionNotFound
@@ -40,6 +46,18 @@ func (s *Service) resolveRecordID(ctx context.Context, collectionName string, in
 		return uuid.Nil, &Error{Code: CodeInvalidRecordID}
 	}
 	return internal, nil
+}
+
+// recordIDErrorFirst preserves the pre-transaction error order of an owned
+// update or delete whose ID resolution moved into the main transaction: a
+// record ID error still outranks a later preparation failure.
+func (s *Service) recordIDErrorFirst(ctx context.Context, deferred bool, collectionName string, internal uuid.UUID, public string, err error) error {
+	if deferred {
+		if _, resolveErr := s.resolveRecordID(ctx, collectionName, internal, public); resolveErr != nil {
+			return resolveErr
+		}
+	}
+	return err
 }
 
 func recordIdentityInput(collection schema.Collection, input map[string]json.RawMessage, preset uuid.UUID) (map[string]json.RawMessage, uuid.UUID, *string, error) {
