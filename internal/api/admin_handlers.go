@@ -171,6 +171,8 @@ func (e adminEndpoints) login(w http.ResponseWriter, r *http.Request) {
 		writeAdminAuthError(w, r, errors.New("administrator authentication is unavailable"))
 		return
 	}
+	// The exact address is required for the IP allowlist; adminauth
+	// aggregates IPv6 to its /64 for every network rate-limit bucket.
 	subject, ok := clientIP(r, currentTrustedProxies(e.trustedProxies))
 	if !ok {
 		outcome = observability.OutcomeValidation
