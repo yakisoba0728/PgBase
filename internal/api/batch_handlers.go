@@ -150,7 +150,7 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	if len(input.Requests) > 0 {
 		items = make([]batchOperationInput, 0, len(input.Requests))
 		for _, request := range input.Requests {
-			item, _, valid := batchHTTPRequestOperation(request)
+			item, valid := batchHTTPRequestOperation(request)
 			if !valid {
 				e.cleanupStaged(r, staged)
 				writeInvalidRecordRequest(w, r)
@@ -569,7 +569,7 @@ func (e recordEndpoints) anonymousBatchAdmission(r *http.Request, input batchInp
 		collections = append(collections, operation.Collection)
 	}
 	for _, request := range input.Requests {
-		item, _, valid := batchHTTPRequestOperation(request)
+		item, valid := batchHTTPRequestOperation(request)
 		if !valid {
 			return &batchAdmissionError{err: errors.New("invalid batch request"), malformed: true}
 		}
@@ -619,25 +619,25 @@ func (u pendingBatchUpload) discard() {
 	_ = os.Remove(u.temporary.Name())
 }
 
-func batchHTTPRequestOperation(request batchHTTPRequest) (batchOperationInput, int, bool) {
+func batchHTTPRequestOperation(request batchHTTPRequest) (batchOperationInput, bool) {
 	if len(request.Headers) > 4 {
-		return batchOperationInput{}, 0, false
+		return batchOperationInput{}, false
 	}
 	for key := range request.Headers {
 		if strings.EqualFold(key, "authorization") || strings.EqualFold(key, "cookie") {
-			return batchOperationInput{}, 0, false
+			return batchOperationInput{}, false
 		}
 	}
 	m := batchRecordURL.FindStringSubmatch(request.URL)
 	if m == nil {
-		return batchOperationInput{}, 0, false
+		return batchOperationInput{}, false
 	}
 	collection, id := m[2], m[3]
 	if id != "" {
 		var err error
 		id, err = url.PathUnescape(id)
 		if err != nil || id == "" || len(id) > 1024 {
-			return batchOperationInput{}, 0, false
+			return batchOperationInput{}, false
 		}
 	}
 	method := strings.ToUpper(request.Method)
@@ -645,17 +645,17 @@ func batchHTTPRequestOperation(request batchHTTPRequest) (batchOperationInput, i
 	switch method {
 	case "POST":
 		if id != "" {
-			return batchOperationInput{}, 0, false
+			return batchOperationInput{}, false
 		}
-		return batchOperationInput{Operation: "create", Collection: collection, Input: request.Body, IdempotencyKey: batchHeader(request.Headers, "Idempotency-Key")}, 201, true
+		return batchOperationInput{Operation: "create", Collection: collection, Input: request.Body, IdempotencyKey: batchHeader(request.Headers, "Idempotency-Key")}, true
 	case "PATCH":
-		return batchOperationInput{Operation: "update", Collection: collection, ID: id, Input: request.Body, IfMatch: ifMatch}, 200, id != ""
+		return batchOperationInput{Operation: "update", Collection: collection, ID: id, Input: request.Body, IfMatch: ifMatch}, id != ""
 	case "PUT":
-		return batchOperationInput{Operation: "upsert", Collection: collection, ID: id, Input: request.Body, IfMatch: ifMatch}, 200, id != ""
+		return batchOperationInput{Operation: "upsert", Collection: collection, ID: id, Input: request.Body, IfMatch: ifMatch}, id != ""
 	case "DELETE":
-		return batchOperationInput{Operation: "delete", Collection: collection, ID: id, IfMatch: ifMatch}, 204, id != "" && request.Body == nil
+		return batchOperationInput{Operation: "delete", Collection: collection, ID: id, IfMatch: ifMatch}, id != "" && request.Body == nil
 	default:
-		return batchOperationInput{}, 0, false
+		return batchOperationInput{}, false
 	}
 }
 

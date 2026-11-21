@@ -615,3 +615,9 @@ func TestImageBudgetIsFIFO(t *testing.T) {
 		t.Fatalf("held=%d peak=%d", held, peak)
 	}
 }
+
+func (b *imageMemoryBudget) snapshot() (held, peak int64, waiting int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.held, b.peak, b.waiters.Len()
+}

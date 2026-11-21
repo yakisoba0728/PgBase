@@ -130,12 +130,6 @@ func (b *imageMemoryBudget) grantWaiters() {
 	}
 }
 
-func (b *imageMemoryBudget) snapshot() (held, peak int64, waiting int) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.held, b.peak, b.waiters.Len()
-}
-
 func (s *Service) imageMemoryBudget() *imageMemoryBudget {
 	if s.imageBudget != nil {
 		return s.imageBudget
