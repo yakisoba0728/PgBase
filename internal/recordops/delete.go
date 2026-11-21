@@ -14,7 +14,6 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/membership"
 	"github.com/yakisoba0728/PgBase/internal/query"
-	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"github.com/yakisoba0728/PgBase/internal/recordartifact"
 	"github.com/yakisoba0728/PgBase/internal/relation"
 	"github.com/yakisoba0728/PgBase/internal/schema"
@@ -229,13 +228,13 @@ func authorizeDeleteClosure(ctx context.Context, tx pgx.Tx, catalog schema.Catal
 			if len(check.ids) == 0 {
 				continue
 			}
-			if err := recordaccess.AuthorizeSubject(ctx, tx, group.collection.AccessCollectionID(), principal, check.action); err != nil {
+			if err := authorizeWriteSubject(ctx, tx, group.collection.AccessCollectionID(), principal, check.action); err != nil {
 				return err
 			}
 			if principal.Kind == identity.Service {
 				continue
 			}
-			allowed, err := recordaccess.AllowsRecordsInCatalogWithRequest(ctx, tx, catalog, policyCollection(group.collection), principal, check.action, check.ids, false, request)
+			allowed, err := allowsWriteRecords(ctx, tx, catalog, policyCollection(group.collection), principal, check.action, check.ids, false, request)
 			if err != nil {
 				return err
 			}

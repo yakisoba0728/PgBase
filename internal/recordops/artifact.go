@@ -80,7 +80,7 @@ func commitMutation(
 				for i, row := range batch.rows {
 					ids[i] = row.recordID
 				}
-				allowed, err := recordaccess.AllowsRecordsInCatalogWithRequest(ctx, tx, catalog, policyCollection(batch.collection), principal, batch.operation, ids, batch.operation == "create", batch.rows[0].requestContext)
+				allowed, err := allowsWriteRecords(ctx, tx, catalog, policyCollection(batch.collection), principal, batch.operation, ids, batch.operation == "create", batch.rows[0].requestContext)
 				if err != nil {
 					return err
 				}
@@ -92,7 +92,7 @@ func commitMutation(
 				for index, row := range batch.rows {
 					ids[index] = row.recordID
 				}
-				allowed, err := recordaccess.AllowsRecordsInCatalog(ctx, tx, catalog, policyCollection(batch.collection), principal, batch.operation, ids, batch.operation == "create")
+				allowed, err := allowsWriteRecords(ctx, tx, catalog, policyCollection(batch.collection), principal, batch.operation, ids, batch.operation == "create", nil)
 				if err != nil {
 					return err
 				}

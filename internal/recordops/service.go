@@ -129,6 +129,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		idempotencyLock = &lock
 	}
 	err = s.createTx(ctx, request.Collection, idempotencyLock, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		ctx := withWritePolicies(ctx, tx, request.Principal)
 		if collection.IsView() {
 			return recordaccess.ErrUnsupported
 		}
@@ -357,6 +358,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 	}
 
 	err = s.updateTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		ctx := withWritePolicies(ctx, tx, request.Principal)
 		if deferredID {
 			resolvedID, err := s.resolveRecordIDInCatalog(ctx, tx, catalog, request.Collection, requestedID, request.PublicID)
 			if err != nil {
@@ -385,11 +387,11 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 				if _, present := request.Input[field.Name]; !present {
 					continue
 				}
-				if err := recordaccess.AuthorizeSubject(ctx, tx, collection.AccessCollectionID(), request.Principal, "update"); err != nil {
+				if err := authorizeWriteSubject(ctx, tx, collection.AccessCollectionID(), request.Principal, "update"); err != nil {
 					return err
 				}
 				if request.Principal.Kind != identity.Service {
-					rules, _, err := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
+					rules, err := loadWriteRules(ctx, tx, collection.AccessCollectionID(), request.Principal)
 					if err != nil {
 						return err
 					}
@@ -572,6 +574,7 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 	}
 
 	err = s.deleteTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		ctx := withWritePolicies(ctx, tx, request.Principal)
 		if deferredID {
 			resolvedID, err := s.resolveRecordIDInCatalog(ctx, tx, catalog, request.Collection, requestedID, request.PublicID)
 			if err != nil {
