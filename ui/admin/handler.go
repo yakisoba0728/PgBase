@@ -55,6 +55,11 @@ func Handler(configured ...[]UIExtension) (http.Handler, error) {
 	if len(names) > 0 {
 		index = appendExtensionLoader(index)
 	}
+	indexAsset := newStaticAsset(nil, "index.html", index, "text/html; charset=utf-8", "no-cache")
+	assets, err := embeddedAssets(dist)
+	if err != nil {
+		return nil, err
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		setSecurityHeaders(w.Header())
 		if r.URL.Path == "/admin" {
@@ -76,7 +81,7 @@ func Handler(configured ...[]UIExtension) (http.Handler, error) {
 
 		name := strings.TrimPrefix(r.URL.Path, "/admin/")
 		if name == "" {
-			serveIndex(w, r, index)
+			indexAsset.serve(w, r)
 			return
 		}
 		if name == "extensions.js" {
@@ -87,36 +92,18 @@ func Handler(configured ...[]UIExtension) (http.Handler, error) {
 			serveExtensionAsset(w, r, extension, asset)
 			return
 		}
-		info, statErr := fs.Stat(dist, name)
-		if statErr == nil && !info.IsDir() {
-			contents, readErr := fs.ReadFile(dist, name)
-			if readErr != nil {
-				http.Error(w, "Static asset unavailable", http.StatusInternalServerError)
-				return
-			}
-			if contentType := mime.TypeByExtension(path.Ext(name)); contentType != "" {
-				w.Header().Set("Content-Type", contentType)
-			}
-			if strings.HasPrefix(name, "assets/") && hashedAsset.MatchString(path.Base(name)) {
-				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-			} else {
-				w.Header().Set("Cache-Control", "no-cache")
-			}
-			http.ServeContent(w, r, name, info.ModTime(), bytes.NewReader(contents))
-			return
-		}
-		// A sub-filesystem rejects names that io/fs.ValidPath refuses (trailing
-		// slash, invalid UTF-8) with fs.ErrInvalid, not fs.ErrNotExist; both mean
-		// the request names no embedded asset.
-		if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) && !errors.Is(statErr, fs.ErrInvalid) {
-			http.Error(w, "Static asset unavailable", http.StatusInternalServerError)
+		// The index holds exactly the embedded regular files, keyed by their
+		// io/fs.ValidPath names, so a directory, a trailing slash or invalid
+		// UTF-8 is simply absent and falls through like a missing file.
+		if asset, ok := assets[name]; ok {
+			asset.serve(w, r)
 			return
 		}
 		if strings.HasPrefix(name, "assets/") || path.Ext(name) != "" {
 			http.NotFound(w, r)
 			return
 		}
-		serveIndex(w, r, index)
+		indexAsset.serve(w, r)
 	}), nil
 }
 
@@ -202,12 +189,6 @@ func setSecurityHeaders(header http.Header) {
 	header.Set("Content-Security-Policy", contentSecurityPolicy)
 	header.Set("X-Content-Type-Options", "nosniff")
 	header.Set("Referrer-Policy", "no-referrer")
-}
-
-func serveIndex(w http.ResponseWriter, r *http.Request, index []byte) {
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	http.ServeContent(w, r, "index.html", time.Time{}, strings.NewReader(string(index)))
 }
 
 func unsafePath(decoded, raw string) bool {
