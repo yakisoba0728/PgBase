@@ -97,7 +97,7 @@ func (s *Service) ListRecordMetadataFields(ctx context.Context, principal identi
 			}
 		}
 		if !builtIn || recordIDKind == schema.RecordIDText {
-			rows, err := tx.Query(ctx, `select internal_id,external_id from pgbase_meta.record_identities where collection_kind='base' and collection_id=$1 and external_id=any($2::text[])`, collectionID, ids)
+			rows, err := tx.Query(ctx, `select internal_id,external_id from pgbase_meta.record_identities where collection_kind='base' and collection_id=$1 and scope_id=$1 and external_id=any($2::text[])`, collectionID, ids)
 			if err != nil {
 				return err
 			}

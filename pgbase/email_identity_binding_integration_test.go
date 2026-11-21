@@ -30,6 +30,22 @@ func TestVerificationHTTPRejectsTokenAfterAdministratorEmailChange(t *testing.T)
 		t.Fatalf("old-address token changed account: %#v", record)
 	}
 	session = userManagementLogin(t, app, record.Email, publicUserOnePass)
+	// Changing the account's address does not reset its resend cooldown.
+	limited := publicUsersRequest(t, app, http.MethodPost, "/api/v1/auth/request-verification", map[string]any{}, session.Token, nil, nil)
+	assertPublicUsersStatus(t, limited, http.StatusTooManyRequests)
+	if limited.Header().Get("Retry-After") != "60" {
+		t.Fatalf("resend retry header=%q", limited.Header().Get("Retry-After"))
+	}
+	select {
+	case <-messages:
+		t.Fatal("rate-limited resend delivered another message")
+	default:
+	}
+	// Advance the isolated fixture's windows past the one-minute cooldown.
+	// Keep all counters intact and the fifteen-minute aggregate budget live.
+	if _, err := app.app.pool.Exec(t.Context(), `update pgbase_meta.user_auth_rate_limits set window_started_at=window_started_at-interval '61 seconds'`); err != nil {
+		t.Fatal(err)
+	}
 	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodPost, "/api/v1/auth/request-verification", map[string]any{}, session.Token, nil, nil), http.StatusNoContent)
 	freshToken := mailActionToken(t, messages, "verify")
 	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodPost, "/api/v1/auth/confirm-verification", map[string]any{"token": freshToken}, "", nil, nil), http.StatusNoContent)

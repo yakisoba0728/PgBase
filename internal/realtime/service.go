@@ -166,22 +166,24 @@ func (s *Service) readWithSnapshot(ctx context.Context, tx pgx.Tx, catalog schem
 		event        Event
 		snapshot     []byte
 		publicRecord []byte
+		relations    []byte
 	}
 	pending := make([]pendingEvent, 0, batchSize)
 	for rows.Next() {
 		var event Event
-		var snapshot, publicRecord []byte
-		if err := rows.Scan(&event.Sequence, &event.EventID, &event.Collection, &event.RecordID, &event.Operation, &event.Version, &snapshot, &publicRecord); err != nil {
+		var snapshot, publicRecord, relations []byte
+		if err := rows.Scan(&event.Sequence, &event.EventID, &event.Collection, &event.RecordID, &event.Operation, &event.Version, &snapshot, &publicRecord, &relations); err != nil {
 			rows.Close()
 			return nil, 0, err
 		}
-		pending = append(pending, pendingEvent{event: event, snapshot: snapshot, publicRecord: publicRecord})
+		pending = append(pending, pendingEvent{event: event, snapshot: snapshot, publicRecord: publicRecord, relations: relations})
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
 		return nil, 0, err
 	}
 	rows.Close()
+	relationSnapshots := make([][]byte, 0, len(pending))
 	for _, item := range pending {
 		event, snapshot := item.event, item.snapshot
 		event.Action = event.Operation
@@ -206,7 +208,11 @@ func (s *Service) readWithSnapshot(ctx context.Context, tx pgx.Tx, catalog schem
 			return nil, 0, err
 		}
 		events = append(events, event)
+		relationSnapshots = append(relationSnapshots, item.relations)
 		cursor = event.Sequence
+	}
+	if err := filterEventRelations(ctx, tx, catalog, collection, request, events, relationSnapshots); err != nil {
+		return nil, 0, err
 	}
 	if len(events) < batchSize {
 		cursor = head
@@ -297,7 +303,7 @@ func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest
 		args = append(args, filterArgs...)
 	}
 	table := pgx.Identifier{"app", collection.TableName}.Sanitize()
-	statement := `SELECT event.sequence,event.event_id,event.collection_name,event.record_id,event.operation,event.record_version,outbox.record_snapshot,outbox.envelope->'publicRecord'
+	statement := `SELECT event.sequence,event.event_id,event.collection_name,event.record_id,event.operation,event.record_version,outbox.record_snapshot,outbox.envelope->'publicRecord',outbox.envelope->'relations'
  FROM pgbase_meta.realtime_events event JOIN pgbase_meta.record_outbox outbox ON outbox.event_id=event.event_id
  CROSS JOIN LATERAL jsonb_populate_record(NULL::` + table + `,COALESCE((SELECT to_jsonb(current_record) FROM ` + table + ` current_record WHERE current_record.id=event.record_id),outbox.record_snapshot)) acl_record
  WHERE event.collection_id=$1 AND event.sequence>$2`

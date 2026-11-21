@@ -101,15 +101,24 @@ func (c *StorageController) BeginStorageOperation(ctx context.Context) (context.
 		<-c.operations
 		return ctx, nil, err
 	}
-	var once sync.Once
-	release := func() {
-		once.Do(func() {
+	// Cancellation invalidates the destination lease promptly, but bounded CPU
+	// work (for example an image decoder) may still be finishing. Keep its
+	// admission slot until the operation's owner actually returns or closes the
+	// reader, otherwise canceled work can escape the concurrency bound.
+	var closeOnce, releaseOnce sync.Once
+	closeLease := func() {
+		closeOnce.Do(func() {
 			_ = database.CloseCoordinationSession(context.Background(), conn)
-			<-c.operations
 		})
 	}
-	stop := context.AfterFunc(ctx, release)
-	return leased, func() { stop(); release() }, nil
+	stop := context.AfterFunc(ctx, closeLease)
+	return leased, func() {
+		releaseOnce.Do(func() {
+			stop()
+			closeLease()
+			<-c.operations
+		})
+	}, nil
 }
 
 // The caller owns conn and releases the session lock by closing it.

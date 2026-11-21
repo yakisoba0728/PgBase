@@ -161,6 +161,16 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, password s
 	if decodeErr != nil || len(decoded) != tokenBytes || password == "" {
 		return ErrInvalidCredentials
 	}
+	if err := validatePassword(password); err != nil {
+		return err
+	}
+	tokenHash := hashPasswordResetToken(s.tokenSecret, rawToken)
+	// Reject unavailable credentials before admitting expensive password work.
+	// This is only a non-consuming preflight; the transaction below rechecks
+	// after hashing and serializes redemption with account lifecycle changes.
+	if _, err := NewStore(s.pool).PasswordResetAdministratorID(ctx, tokenHash, s.clock.Now().UTC()); err != nil {
+		return err
+	}
 	release, err := acquireAdmission(s.passwordSlots)
 	if err != nil {
 		return err
@@ -178,7 +188,7 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, password s
 			return err
 		}
 		store := NewStore(tx)
-		administratorID, err := store.ConsumePasswordReset(ctx, hashPasswordResetToken(s.tokenSecret, rawToken), now)
+		administratorID, err := store.ConsumePasswordReset(ctx, tokenHash, now)
 		if err != nil {
 			return err
 		}

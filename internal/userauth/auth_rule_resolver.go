@@ -37,6 +37,12 @@ func EvaluateAuthRecordRuleInTx(ctx context.Context, tx database.DBTX, collectio
 }
 
 func compileAuthRecordRuleInTx(ctx context.Context, tx database.DBTX, collectionID uuid.UUID, rule string, ruleContext AuthRuleContext, argOffset int) (string, []any, error) {
+	return compileAuthRecordRuleForActorInTx(ctx, tx, collectionID, collectionID, rule, ruleContext, argOffset)
+}
+
+// Relation target policy uses the requesting actor's own realm. Ordinary root
+// operations retain their collection-scoped actor admission.
+func compileAuthRecordRuleForActorInTx(ctx context.Context, tx database.DBTX, collectionID, actorCollectionID uuid.UUID, rule string, ruleContext AuthRuleContext, argOffset int) (string, []any, error) {
 	trimmed := strings.TrimSpace(rule)
 	if trimmed == "" || trimmed == "true" {
 		return "true", nil, nil
@@ -62,7 +68,7 @@ func compileAuthRecordRuleInTx(ctx context.Context, tx database.DBTX, collection
 	if metadata != nil {
 		request.Method, request.Query, request.Headers, request.Context = metadata.Method, metadata.Query, metadata.Headers, metadata.Context
 	}
-	if err := loadAuthRuleActor(ctx, tx, collectionID, ruleContext.Principal, &request); err != nil {
+	if err := loadAuthRuleActor(ctx, tx, actorCollectionID, ruleContext.Principal, &request); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "false", nil, nil
 		}
@@ -126,22 +132,6 @@ func loadAuthRuleActor(ctx context.Context, db database.DBTX, collectionID uuid.
 	request.Auth["active"] = active
 
 	return nil
-}
-
-func (s *Service) evaluateAuthRecordRuleDB(ctx context.Context, collectionID uuid.UUID, rule string, ruleContext AuthRuleContext) bool {
-	allowed := false
-	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if ruleContext.Current.ID != uuid.Nil {
-			var present bool
-			if err := tx.QueryRow(ctx, `select true from pgbase_meta.users where auth_collection_id=$1 and id=$2 for share`, collectionID, ruleContext.Current.ID).Scan(&present); err != nil {
-				return err
-			}
-		}
-		var err error
-		allowed, err = EvaluateAuthRecordRuleInTx(ctx, tx, collectionID, rule, ruleContext)
-		return err
-	})
-	return err == nil && allowed
 }
 
 func loadAuthRuleResolver(ctx context.Context, tx database.DBTX, rootID uuid.UUID) (authRuleResolver, error) {

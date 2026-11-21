@@ -32,6 +32,45 @@ pgBase is an early v0.x project. v0.x binaries, HTTP contracts, environment vari
 9. Through the administrator-authenticated HTTP record API, perform representative scalar and relation operations: create/read an ordered multiple relation, read an expanded single relation, and execute the configured `restrict`, `cascade`, or `set_null` path applicable to the project. Use `Idempotency-Key` and `If-Match`; do not validate the upgrade by writing pgBase-owned tables directly.
 10. Resume schema changes only after the rollout is accepted.
 
+## Administrator TOTP counters (system migration 72)
+
+The current source requires schema 72. This additive migration records the last
+accepted administrator TOTP counter. Existing encrypted factors and their
+enablement times are preserved; their counter starts unset because previous
+versions did not retain consumption history. The first successful login with the
+new binary records the counter in the same transaction as its session. Later
+logins require an unused counter, retaining the existing 30-second steps and
+tolerance for one adjacent step in either direction.
+An administrator who has just logged in may need to wait for the next unused
+authenticator code before starting another session.
+
+Use a stop–migrate–start maintenance window. Drain all old instances and their
+in-flight logins, run `pgbase migrate up` with the new binary, require
+`current=latest=72`, `dirty=false`, and `compatible=true`, then start only updated
+instances and check readiness. Do not run old and new login handlers together:
+old binaries do not check or update the counter, so a mixed fleet cannot provide
+the single-use guarantee. A binary rollback after migration requires an artifact
+explicitly compatible with schema 72; do not remove the column or history row to
+make an old binary start.
+
+## Relation visibility in responses and replay
+
+Authorized auth record and profile responses now remove relation IDs whose
+targets the requesting user cannot view. Clients must accept `null` for a
+single relation and an empty or shortened array for a multiple relation.
+Administrator record APIs retain their existing full relation projection.
+
+New realtime events preserve each relation's immutable internal target identity
+and check its current view policy during delivery. Events written before this
+change lack that identity metadata, so replay to non-administrator subscribers
+redacts their relation IDs: single relations become `null`, and multiple
+relations become empty arrays. Other historical event values remain unchanged.
+Clients resuming an older cursor can refresh the affected record through the
+ordinary record API to obtain its currently visible relations. New events use
+their original target identities even if a deleted target's public ID is reused.
+Deploy the updated binary to all writers and realtime servers together; an old
+writer continues producing envelopes whose relations must be redacted.
+
 ## Recovering an interrupted binary update
 
 Run `pgbase update status --json` to inspect the update state. Keep the running service stopped during recovery. Rerun `pgbase update apply` with the original signed inputs to recover the interrupted update, or use `pgbase update rollback` to recover an interrupted rollback.

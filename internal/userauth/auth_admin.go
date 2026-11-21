@@ -555,7 +555,7 @@ func (s *Service) SetUserVerified(ctx context.Context, id uuid.UUID, verified bo
 	return u, err
 }
 func (s *Service) AdminRequestVerification(ctx context.Context, id uuid.UUID) error {
-	return s.RequestVerification(ctx, id)
+	return s.requestVerification(ctx, id, false)
 }
 func (s *Service) AdminRequestPasswordReset(ctx context.Context, id uuid.UUID) error {
 	u, _, err := userPasswordByIDDB(ctx, s.pool, id, false)

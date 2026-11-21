@@ -1,5 +1,7 @@
 # 다음 작업과 완료 기준
 
+2026-11-22 기준: main은 `56823891`(schema 71)이고 v0.4.0 이후 tag 없이 20 commit 앞서 있다. 2026-11-19 기록 뒤 문서 기록([PR #167](https://github.com/yakisoba0728/PgBase/pull/167)), setup-dart 1.8.2([PR #169](https://github.com/yakisoba0728/PgBase/pull/169)), 데이터 무결성·백업 복구([PR #182](https://github.com/yakisoba0728/PgBase/pull/182)), Go·관리자 UI 의존성 통합([PR #183](https://github.com/yakisoba0728/PgBase/pull/183))을 병합했다. 네 PR 모두 migration이 없다. 운영 배포 여부는 확인하지 않음. 이 기록 시점에 보안 수정 [PR #184](https://github.com/yakisoba0728/PgBase/pull/184)(migration `000072`, schema 72)는 열려 있고 병합되지 않았다. 범위와 검증은 [현재 상태](project-status.md) §19를 따른다.
+
 2026-11-19 기준: main은 `64512f78`(schema 71)이다. 요청 로그 정리([PR #159](https://github.com/yakisoba0728/PgBase/pull/159)), jobs 예약 시각([PR #160](https://github.com/yakisoba0728/PgBase/pull/160)), batch·복원·로그 보호([PR #161](https://github.com/yakisoba0728/PgBase/pull/161)), 감사 지적 일괄 수정과 migration `000070`·`000071`([PR #162](https://github.com/yakisoba0728/PgBase/pull/162)), 그 후속 test 수정([PR #163](https://github.com/yakisoba0728/PgBase/pull/163)), 브랜드 마크([PR #164](https://github.com/yakisoba0728/PgBase/pull/164)), 컬렉션 API 탭 서비스 토큰 예시([PR #166](https://github.com/yakisoba0728/PgBase/pull/166))를 병합했다. 운영 배포 여부는 확인하지 않음. 범위와 검증은 [현재 상태](project-status.md) §18을 따른다.
 
 2026-11-18 기준: main과 운영의 runtime은 `df18bfe3`(schema 69)이다. 미룬 UI 항목 4개([PR #157](https://github.com/yakisoba0728/PgBase/pull/157))와 간헐 실패 test 두 건([PR #155](https://github.com/yakisoba0728/PgBase/pull/155)·[PR #156](https://github.com/yakisoba0728/PgBase/pull/156))을 처리해 배포했다. 운영에는 첫 관리자가 만들어져 있다. 범위와 검증은 [현재 상태](project-status.md) §17을 따른다.
@@ -31,16 +33,21 @@
 | 완료 | 감사 지적 일괄 수정([PR #162](https://github.com/yakisoba0728/PgBase/pull/162)) | migration `000070`·`000071`(index만), schema 69 → 71. 서비스 토큰 목록 `{items,nextAfter?}`·규칙 PUT `revision`(오래되면 412)·offset 응답 budget 초과 시 검증 오류·realtime `retryable` 표시 등 계약 변경. 다중 instance realtime은 load-balancer affinity 필요 |
 | 완료 | #162 후속 test 수정([PR #163](https://github.com/yakisoba0728/PgBase/pull/163)) | #162 병합 뒤 main push Backend의 integration vet 실패를 해소. test만 변경 |
 | 완료 | 브랜드 마크([PR #164](https://github.com/yakisoba0728/PgBase/pull/164))·서비스 토큰 API 예시([PR #166](https://github.com/yakisoba0728/PgBase/pull/166)) | favicon·워드마크 아이콘·README 로고, 컬렉션 API 탭의 서비스 토큰 호출자 모드. UI unit 473(#164)·475(#166) 통과(PR 본문) |
-| 남음 | 운영 배포(schema 71) | 확인하지 않음. 69 → 71은 stop–migrate–start 절차. S3 정리 worker와 로그 정리 replica를 모두 새 build로 올린 뒤에 #161 보호를 전제로 한다 |
+| 완료 | 데이터 무결성·백업 복구([PR #182](https://github.com/yakisoba0728/PgBase/pull/182)) | migration 없음(schema 71). live 복원 활성화·백업 보존 정리·파일 정리 fence, S3 저장소 장애 중 가용성과 중단된 예약 백업의 같은 발생 재시도, transaction 안의 필터 삭제·첨부 교체 검사. 계약 추가: 관리자 `matchFilter` 삭제·batch `$replaces`(불일치 412), SDK `enrichmentFailed`, 일정 편집 시 명시적 IANA 시간대. 번들 Compose에 파일 이전 scratch volume. 통합 PostgreSQL 18.6+MinIO 51 package·UI 483·Chromium 26·Firefox/WebKit 12·SDK test 통과(PR 본문) |
+| 완료 | 의존성 통합([PR #183](https://github.com/yakisoba0728/PgBase/pull/183))·setup-dart 1.8.2([PR #169](https://github.com/yakisoba0728/PgBase/pull/169)) | Dependabot #171–#177·#180·#181을 묶어 Node 24.22.3·Tiptap 3.34.0·Playwright 1.65.1·jsdom 31.0.1·`@vitejs/plugin-react` 6.3.0·user-event 14.6.12·AWS SDK·Prometheus common 0.74.0, 관리자 bundle 재빌드. 원래 PR #168·#170–#181은 병합 없이 닫힘 |
+| 열린 PR(이 기록 시점) | 보안 수정([PR #184](https://github.com/yakisoba0728/PgBase/pull/184)) | relation 표시 권한·재설정 token 검사 순서·인증 메일 admission·관리자 TOTP counter 1회 소비·저장소 작업 admission. migration `000072`(`admin_totp.last_counter`)로 schema 72, 병합 후 배포에는 stop–migrate–start와 로그인 처리 instance 전체 교체가 필요. 최신 commit `8666bbd3`의 PR CI(Backend·Frontend·Security) 통과, Full·Nonperformance source qualification은 PR에서 skipped. 병합 여부는 이 문서 밖에서 확인한다 |
+| 남음 | 운영 배포(schema 71) | 2026-11-22에도 확인하지 않음. 69 → 71은 stop–migrate–start 절차. S3 정리 worker와 로그 정리 replica를 모두 새 build로 올린 뒤에 #161 보호를 전제로 한다. #182 웹 복원 전에는 이전 build를 포함한 다른 instance를 멈춘다 |
+| 다음 유지보수 | 반영하지 않은 이미지 갱신 | Dependabot #168(golang 1.27.4)과 #170(postgres16·17 client 단계를 18.6으로)은 병합 없이 닫혔고 main은 golang 1.26.11, postgres 16.16·17.12 그대로다. 닫은 사유는 PR에 없다 |
 | 남음 | #162 통합 검증 결과 | PR 본문 작성 시점에 통합 Go·PostgreSQL+MinIO·Chromium 실행이 진행 중이었다. 필수 검사 5개 통과는 확인했고 그 밖의 결과는 확인하지 않음 |
 | 남음 | CI PostgreSQL 재초기화 | PR #157 통합 검사에서 backend가 `exit code 2`로 끝나 서버가 재초기화됐다(재실행 통과). 원인 test 미확인 |
 | 남음 | UI 한계 | 날짜·시간 입력 표기(자체 위젯 필요), 휴대폰 logs 요청 칸, pane을 닫은 jobs 목록의 긴 결과 문구. Safari·Firefox·setup 화면·모바일 overlay 미확인 |
-| 소유자 결정 | v0.4.0 이후 릴리스 | v0.4.0(schema 69) 이후 #151, #153, #157(main과 운영)과 #159–#164, #166(main, 운영 확인하지 않음)이 tag 없이 있다. #162로 source가 schema 71을 요구하므로 schema 69 그대로인 패치 릴리스가 아니다 |
+| 소유자 결정 | v0.4.0 이후 릴리스 | v0.4.0(schema 69) 이후 #151, #153, #157(main과 운영)과 #159–#164, #166, #167, #169, #182, #183(main, 운영 확인하지 않음)이 tag 없이 있다(2026-11-22 main `56823891`, 20 commit). #162로 source가 schema 71을 요구하므로 schema 69 그대로인 패치 릴리스가 아니다. #184가 병합되면 schema 72가 된다 |
 | 소유자 작업 | 운영 설정 | 첫 관리자는 만들어졌다. SMTP 등 운영 설정을 다시 넣는다 |
 | 소유자 작업 | Dokploy API key 교체 | 작업 세션 기록에 key가 노출됐다 |
 | 남음 | 운영 사후 확인 | 로그인 후 화면·CRUD·realtime·jobs·파일 동작은 운영에서 확인하지 않았다. 운영 백업은 없다 |
 | 소유자 결정 | 쓰기 경로 WAL flush | 쓰기 요청당 약 2.5회. outbox 전달 commit을 완화하면 줄지만 전달·내구성 계약이 바뀐다 |
-| 남음 | 보안 검토 대기 | CodeQL 25건의 조치 불필요 분류 재확인, 이미지 의존성 30건 검토 |
+| 남음 | 보안 검토 대기 | CodeQL 25건의 조치 불필요 분류 재확인, 이미지 의존성 30건 검토. 2026-11-22 code-scanning API는 "no analysis found"를 돌려줘 25건을 이 방법으로 재확인하지 못했다. 같은 날 열린 Dependabot 경고 0, 열린 issue 0 |
+| 확인 | `main` 보호(2026-11-22) | classic branch protection은 없다(API 404). repository ruleset "Reviewed main with required CI"가 active로 PR, 필수 검사 5개(Go unit·Observability artifacts·PostgreSQL integration / 17.9·test·audit), 삭제·non-fast-forward 금지를 요구한다 |
 | 소유자 결정 | 운영 요청 지연 | 한국 접속이 Cloudflare LAX로 가서 요청당 약 0.5초. proxy 해제(DNS only)·유료 plan·서버 이전 중 선택. 코드로는 줄일 수 없다 |
 | 소유자 결정 | 대량 텍스트 검색 | 컬렉션 텍스트 필드 trigram index가 없어 50만 행 검색 1.3초. migration·쓰기 비용·disk 증가가 따른다 |
 | 남음 | UI 개편 사후 확인 | 운영 로그인 후 화면 확인, 서버 `doctor`·binary 일치 job, 초기 setup·login OTP·다크/좁은 폭 화면의 browser 확인. 배포 전 서버 dump는 뜨지 않았다(UI만 변경) |

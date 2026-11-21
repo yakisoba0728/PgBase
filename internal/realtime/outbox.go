@@ -105,9 +105,15 @@ func (s *Service) Deliver(ctx context.Context) error {
 	return result
 }
 
+// claimTxOptions skips the WAL flush for a lease. Nothing leaves the database
+// between claim and publication, and the publication's synchronous commit
+// flushes the earlier claim record too. A crash can lose only an unpublished
+// lease and its attempt count, which makes the event claimable again.
+var claimTxOptions = pgx.TxOptions{BeginQuery: "begin; set local synchronous_commit = off"}
+
 func (s *Service) claim(ctx context.Context) ([]claim, error) {
 	result := make([]claim, 0, batchSize)
-	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.pool.InTx(ctx, claimTxOptions, func(tx pgx.Tx) error {
 		token := uuid.New()
 		rows, err := tx.Query(ctx, claimPendingQuery, token)
 		if err != nil {
