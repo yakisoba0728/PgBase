@@ -46,12 +46,33 @@ authenticator code before starting another session.
 
 Use a stop–migrate–start maintenance window. Drain all old instances and their
 in-flight logins, run `pgbase migrate up` with the new binary, require
-`current=latest=72`, `dirty=false`, and `compatible=true`, then start only updated
-instances and check readiness. Do not run old and new login handlers together:
+`pgbase migrate status` to print `current=72 latest=72 dirty=false` and
+`pgbase doctor --json` to report `"ok":true` with no findings, then start only
+updated instances and check readiness. Do not run old and new login handlers together:
 old binaries do not check or update the counter, so a mixed fleet cannot provide
 the single-use guarantee. A binary rollback after migration requires an artifact
 explicitly compatible with schema 72; do not remove the column or history row to
 make an old binary start.
+
+Coming from schema 69, the same `pgbase migrate up` first applies migrations 70
+and 71, which only add indexes. Migration 70 builds an expression index on
+`pgbase_meta.record_outbox` without `CONCURRENTLY`, and 71 indexes the
+authentication tables the same way. Both hold their table for the duration of
+the build, so size the maintenance window for the outbox history you retain. On
+a database with a few hundred records the three migrations finish in
+milliseconds.
+
+## Image decoding memory
+
+Decoding an uploaded image for its thumbnail, and rendering a variant, now
+reserves an estimate of the decoded size from a 256 MiB budget shared by the
+process. The pixel limit is unchanged. Images whose estimates fit are decoded
+concurrently; an image whose estimate exceeds the whole budget is still
+accepted and is decoded alone. An upload waits for the budget until its request
+ends. A variant request that waits more than five seconds returns **503**
+`file_busy` with `Retry-After: 5` and can be retried. Budget the process for
+the 256 MiB of live image data plus garbage-collector headroom; set
+`GOMEMLIMIT` when the container has a hard memory limit.
 
 ## Relation visibility in responses and replay
 
