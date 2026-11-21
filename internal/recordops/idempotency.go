@@ -13,16 +13,17 @@ import (
 )
 
 type outboxEnvelope struct {
-	PublicRecord   map[string]any `json:"publicRecord,omitempty"`
-	Version        int            `json:"version"`
-	EventID        uuid.UUID      `json:"eventId"`
-	CollectionID   uuid.UUID      `json:"collectionId"`
-	CollectionName string         `json:"collectionName"`
-	RecordID       uuid.UUID      `json:"recordId"`
-	Operation      string         `json:"operation"`
-	RecordVersion  int64          `json:"recordVersion"`
-	Changes        map[string]any `json:"changes,omitempty"`
-	Tombstone      bool           `json:"tombstone,omitempty"`
+	Relations      map[uuid.UUID]recordartifact.RelationSnapshot `json:"relations,omitempty"`
+	PublicRecord   map[string]any                                `json:"publicRecord,omitempty"`
+	Version        int                                           `json:"version"`
+	EventID        uuid.UUID                                     `json:"eventId"`
+	CollectionID   uuid.UUID                                     `json:"collectionId"`
+	CollectionName string                                        `json:"collectionName"`
+	RecordID       uuid.UUID                                     `json:"recordId"`
+	Operation      string                                        `json:"operation"`
+	RecordVersion  int64                                         `json:"recordVersion"`
+	Changes        map[string]any                                `json:"changes,omitempty"`
+	Tombstone      bool                                          `json:"tombstone,omitempty"`
 }
 
 func findIdempotentCreate(ctx context.Context, tx pgx.Tx, principal Principal, collectionID uuid.UUID,

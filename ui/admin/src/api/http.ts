@@ -112,8 +112,63 @@ async function withCsrfRecovery<T>(attempt: () => Promise<T>): Promise<T> {
 
 // Only numbers that round-trip exactly become JS numbers; all others retain
 // the server's exact decimal text through parsing and serialization.
+const parseNumber = (value: string) => (isSafeNumber(value) ? Number(value) : new LosslessNumber(value));
+export const parseJsonLossless = (text: string): unknown => parse(text, null, parseNumber);
+
+// Every JSON number starts the text or follows `:`, `,` or `[` (plus whitespace), so this sees all of them, and
+// sometimes digits inside a string as well, which only costs the fast path.
+const numberToken = /(?:^|[:,[])\s*-?(\d+)(?:\.(\d+))?([eE]?)/g;
+
+/**
+ * False only when every number in the text is plain decimal with at most 15 digits: those convert to a double and
+ * back to the same digits (DBL_DIG), so lossless-json would turn each into the same Number that JSON.parse gives.
+ * An exponent, or more digits, may not round-trip and goes to the lossless parser.
+ */
+export function mayHoldUnsafeNumber(text: string): boolean {
+  numberToken.lastIndex = 0;
+  for (let match = numberToken.exec(text); match; match = numberToken.exec(text)) {
+    if (match[3] || match[1].length + (match[2]?.length ?? 0) > 15) return true;
+  }
+  return false;
+}
+
+function countKeys(value: unknown): number {
+  if (typeof value !== "object" || value === null) return 0;
+  let count = 0;
+  if (Array.isArray(value)) {
+    for (const item of value) count += countKeys(item);
+    return count;
+  }
+  for (const key in value) count += 1 + countKeys((value as Record<string, unknown>)[key]);
+  return count;
+}
+
+const keyEnd = /"\s*:/g;
+function countKeyEnds(text: string): number {
+  keyEnd.lastIndex = 0;
+  let count = 0;
+  while (keyEnd.test(text)) count++;
+  return count;
+}
+
+/**
+ * JSON.parse when that gives exactly what the lossless parser would, which is much faster on list-sized bodies.
+ * Besides numbers, the parsers differ on repeated keys (lossless-json rejects differing values, JSON.parse keeps the
+ * last): every key ends in `"` and `:`, so as many key ends in the text as keys parsed means none repeated; strings
+ * holding `":` only send more bodies to the lossless parser. Any text JSON.parse rejects is left to the lossless
+ * parser too, so errors stay its own.
+ */
 export function parseJson(text: string): unknown {
-  return parse(text, null, (value) => (isSafeNumber(value) ? Number(value) : new LosslessNumber(value)));
+  if (!mayHoldUnsafeNumber(text)) {
+    let value: unknown;
+    try {
+      value = JSON.parse(text);
+    } catch {
+      return parseJsonLossless(text);
+    }
+    if (countKeys(value) === countKeyEnds(text)) return value;
+  }
+  return parseJsonLossless(text);
 }
 export function stringifyJson(value: unknown, space?: number): string {
   const text = stringify(value, null, space);

@@ -101,7 +101,7 @@ func (s *Service) Resolve(ctx context.Context, db DB, collection schema.Collecti
 		return uuid.Nil, ErrInvalid
 	}
 	var id uuid.UUID
-	err := db.QueryRow(ctx, `select internal_id from pgbase_meta.record_identities where collection_kind='base' and collection_id=$1 and external_id=$2`, identityCollectionID(collection), public).Scan(&id)
+	err := db.QueryRow(ctx, `select internal_id from pgbase_meta.record_identities where collection_kind='base' and collection_id=$1 and scope_id=$1 and external_id=$2`, identityCollectionID(collection), public).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, ErrNotFound
 	}
@@ -146,7 +146,7 @@ func (s *Service) LookupMany(ctx context.Context, db DB, collection schema.Colle
 	rows, err := db.Query(ctx, `select identity.internal_id
 		from unnest($2::text[]) with ordinality as input(external_id,ordinality)
 		left join pgbase_meta.record_identities identity
-		  on identity.collection_kind='base' and identity.collection_id=$1 and identity.external_id=input.external_id
+		  on identity.collection_kind='base' and identity.collection_id=$1 and identity.scope_id=$1 and identity.external_id=input.external_id
 		order by input.ordinality`, identityCollectionID(collection), public)
 	if err != nil {
 		return nil, err

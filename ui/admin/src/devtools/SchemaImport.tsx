@@ -14,10 +14,9 @@ import { ConfirmDialog } from "../components/Dialog";
 import { EmptyState, Skeleton, Notice } from "../components/Feedback";
 import { Checkbox } from "../components/Field";
 import { toast } from "../components/Toast";
-import { useT, type MessageKey, type Translate } from "../i18n";
+import { hasMessage, useT, type Translate } from "../i18n";
 import { newIdentity, Undecided } from "../schema/apply";
 import { dangerousStatement } from "../schema/draft";
-import { en } from "../i18n/en";
 import { importSections, mayHaveRun, problemList, readPending, writePending, type PendingImport } from "./model";
 import { runImport } from "./queries";
 import { PaneHeader } from "../components/SplitView";
@@ -28,7 +27,10 @@ class InvalidJson extends Error {}
 // A refused resend does not settle the original import.
 const uncertainImport = (error: unknown) => mayHaveRun(error) || (error instanceof ApiError && (error.status === 429 || error.code === "idempotency_in_progress"));
 
-const codeText = (t: Translate, code: string) => (`schema.error.${code}` in en ? t(`schema.error.${code}` as MessageKey) : code);
+const codeText = (t: Translate, code: string) => {
+  const key = `schema.error.${code}`;
+  return hasMessage(key) ? t(key) : code;
+};
 
 /** Paste or load a document, preview the server's plan, then apply exactly that preview. */
 export function SchemaImport() {

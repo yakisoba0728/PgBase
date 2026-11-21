@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -169,6 +170,7 @@ func TestUserAuthFailuresAreRedactedAndClassified(t *testing.T) {
 	}{
 		{userauth.ErrInvalidCredentials, 401, "invalid_credentials"},
 		{userauth.ErrRateLimited, 429, "rate_limited"},
+		{fmt.Errorf("create user email action: %w", userauth.ErrRateLimited), 429, "rate_limited"},
 		{errors.New("database failed with secret-sentinel"), 503, "authentication_unavailable"},
 	} {
 		w := httptest.NewRecorder()
@@ -178,6 +180,9 @@ func TestUserAuthFailuresAreRedactedAndClassified(t *testing.T) {
 			t.Fatalf("status=%d want=%d", w.Code, tc.status)
 		}
 		assertErrorCode(t, w.Body.Bytes(), tc.code)
+		if tc.status == http.StatusTooManyRequests && w.Header().Get("Retry-After") != "60" {
+			t.Fatalf("rate-limit retry header=%q", w.Header().Get("Retry-After"))
+		}
 		if strings.Contains(w.Body.String(), "secret-sentinel") {
 			t.Fatal("internal error leaked")
 		}

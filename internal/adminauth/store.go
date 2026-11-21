@@ -109,7 +109,7 @@ func (s *Store) AdministratorID(ctx context.Context, email string) (uuid.UUID, e
 
 func (s *Store) SetTOTP(ctx context.Context, administratorID uuid.UUID, ciphertext []byte, now time.Time) error {
 	_, err := s.db.Exec(ctx, `insert into pgbase_meta.admin_totp(administrator_id,secret_ciphertext,enabled_at)
-		values ($1,$2,$3) on conflict(administrator_id) do update set secret_ciphertext=excluded.secret_ciphertext,enabled_at=excluded.enabled_at`, administratorID, ciphertext, now)
+		values ($1,$2,$3) on conflict(administrator_id) do update set secret_ciphertext=excluded.secret_ciphertext,enabled_at=excluded.enabled_at,last_counter=null`, administratorID, ciphertext, now)
 	if err != nil {
 		return fmt.Errorf("set administrator OTP: %w", err)
 	}
@@ -126,6 +126,34 @@ func (s *Store) TOTP(ctx context.Context, administratorID uuid.UUID) ([]byte, bo
 		return nil, false, fmt.Errorf("read administrator OTP: %w", err)
 	}
 	return secret, true, nil
+}
+
+// TOTPForUpdate serializes factor validation with its consumption. Callers also
+// hold the administrator lock to serialize factor changes with session issuance.
+func (s *Store) TOTPForUpdate(ctx context.Context, administratorID uuid.UUID) ([]byte, *int64, bool, error) {
+	var secret []byte
+	var lastCounter *int64
+	err := s.db.QueryRow(ctx, `select secret_ciphertext,last_counter from pgbase_meta.admin_totp where administrator_id=$1 for update`, administratorID).Scan(&secret, &lastCounter)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, false, nil
+	}
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("read administrator OTP for login: %w", err)
+	}
+	return secret, lastCounter, true, nil
+}
+
+// ConsumeTOTP must run in the transaction that creates the authenticated session.
+func (s *Store) ConsumeTOTP(ctx context.Context, administratorID uuid.UUID, counter int64) error {
+	result, err := s.db.Exec(ctx, `update pgbase_meta.admin_totp set last_counter=$2
+		where administrator_id=$1 and (last_counter is null or last_counter<$2)`, administratorID, counter)
+	if err != nil {
+		return fmt.Errorf("consume administrator OTP: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return ErrInvalidCredentials
+	}
+	return nil
 }
 
 func (s *Store) DeleteTOTP(ctx context.Context, administratorID uuid.UUID) error {

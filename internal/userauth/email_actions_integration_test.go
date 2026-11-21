@@ -194,6 +194,7 @@ func TestConfiguredVerificationKeyRotationExpiryAndSingleUse(t *testing.T) {
 	if err = service.ConfirmVerification(ctx, rotated); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("rotated verification=%v", err)
 	}
+	expireEmailActionCooldown(t, service, registered.User.ID, "verify", registered.User.Email)
 	if err = service.RequestVerification(ctx, registered.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -204,6 +205,7 @@ func TestConfiguredVerificationKeyRotationExpiryAndSingleUse(t *testing.T) {
 	if err = service.ConfirmVerification(ctx, expired); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("expired verification=%v", err)
 	}
+	expireEmailActionCooldown(t, service, registered.User.ID, "verify", registered.User.Email)
 	if err = service.RequestVerification(ctx, registered.User.ID); err != nil {
 		t.Fatal(err)
 	}

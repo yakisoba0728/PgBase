@@ -6,8 +6,7 @@ import { ApiError } from "../api/http";
 import { createRecord, createRecordWithFiles, deleteRecord, updateRecord, type RecordData, type RecordWithETag } from "../api/records";
 import { errorText, sessionQuery } from "../app/queries";
 import { toast } from "../components/Toast";
-import { en } from "../i18n/en";
-import { useT, type Translate } from "../i18n";
+import { hasMessage, useT, type Translate } from "../i18n";
 import { buildInput, initialDrafts, isDirty, type Draft } from "./fields";
 import { addToLists, recordQuery, removeFromLists, replaceInLists } from "./queries";
 import { forgetKeptDraft, changedFields, keepDraft, clearDraft, readDraft, writeDraft, type DraftScope } from "./recordDraft";
@@ -24,7 +23,7 @@ export function leavesRecord(current: Pick<Location, "pathname" | "search">, nex
 
 function validationText(t: Translate, code: string): string {
   const key = `validation.${code}`;
-  return key in en ? t(key as keyof typeof en) : code.replaceAll("_", " ");
+  return hasMessage(key) ? t(key) : code.replaceAll("_", " ");
 }
 
 // getRandomValues also works on plain-HTTP hosts, where crypto.randomUUID is absent.

@@ -308,17 +308,24 @@ func (s *Service) login(ctx context.Context, email, password, subject, otpCode s
 			operationErr = ErrInvalidCredentials
 			return nil
 		}
-		ciphertext, otpEnabled, otpErr := store.TOTP(ctx, administrator.ID)
+		ciphertext, lastCounter, otpEnabled, otpErr := store.TOTPForUpdate(ctx, administrator.ID)
 		if otpErr != nil {
 			return otpErr
 		}
+		var otpCounter int64
 		if otpEnabled {
 			if otpCode == "" {
 				operationErr = ErrOTPRequired
 				return nil
 			}
 			secret, decryptErr := s.decryptTOTP(ciphertext)
-			if decryptErr != nil || !validTOTP(secret, otpCode, now) {
+			minimum := int64(-1)
+			if lastCounter != nil {
+				minimum = *lastCounter
+			}
+			var valid bool
+			otpCounter, valid = matchTOTP(secret, otpCode, s.clock.Now(), minimum)
+			if decryptErr != nil || !valid {
 				operationErr = ErrInvalidCredentials
 				return nil
 			}
@@ -329,6 +336,11 @@ func (s *Service) login(ctx context.Context, email, password, subject, otpCode s
 				return nil
 			}
 			return ipErr
+		}
+		if otpEnabled {
+			if err := store.ConsumeTOTP(ctx, administrator.ID, otpCounter); err != nil {
+				return err
+			}
 		}
 		rawToken, err := GenerateToken()
 		if err != nil {

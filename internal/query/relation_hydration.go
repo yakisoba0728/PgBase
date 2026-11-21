@@ -101,47 +101,25 @@ func filterRelationValues(ctx context.Context, tx pgx.Tx, catalog schema.Catalog
 		if !ok {
 			return schema.ErrConflict
 		}
-		if err := authorizeReadSubject(ctx, tx, target.AccessCollectionID(), principal, "view"); err != nil {
-			return err
-		}
-		set := map[uuid.UUID]bool{}
-		visible[targetID] = set
+		// Hydrated live relations already satisfy their storage foreign keys.
+		// Preserve the grant-only service fast path here; replay and auth
+		// response projections also need to check target existence.
 		if principal.Kind == identity.Service {
+			if err := authorizeReadSubject(ctx, tx, target.AccessCollectionID(), principal, "view"); err != nil {
+				return err
+			}
+			set := make(map[uuid.UUID]bool, len(ids))
 			for _, id := range ids {
 				set[id] = true
 			}
+			visible[targetID] = set
 			continue
 		}
-		rules, _, err := loadReadRules(ctx, tx, target.AccessCollectionID())
+		set, err := VisibleRelationIDs(ctx, tx, catalog, target, principal, ids, ruleContext)
 		if err != nil {
 			return err
 		}
-		policyTarget, err := sourcePolicyCollection(catalog, target)
-		if err != nil {
-			return err
-		}
-		predicate, args, err := compilePolicyPredicateWithRequest(rules.View, target, policyTarget, target.TableName, principal, 1, catalog, ruleContext)
-		if err != nil {
-			return err
-		}
-		args = append([]any{ids}, args...)
-		rows, err := tx.Query(ctx, "SELECT id FROM "+quotedTable(target)+" WHERE id=ANY($1::uuid[]) AND ("+predicate+")", args...)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
-			var id uuid.UUID
-			if rows.Scan(&id) != nil {
-				rows.Close()
-				return schema.ErrConflict
-			}
-			set[id] = true
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return err
-		}
-		rows.Close()
+		visible[targetID] = set
 	}
 	for _, field := range collection.Fields {
 		if field.Type != schema.TypeRelation || field.Relation == nil {
@@ -169,6 +147,50 @@ func filterRelationValues(ctx context.Context, tx pgx.Tx, catalog schema.Catalog
 		}
 	}
 	return nil
+}
+
+// VisibleRelationIDs checks a batch of stable internal target IDs under the
+// same admission and view policy used by ordinary record hydration. Callers
+// must pin the catalog and use the same transaction as their source read.
+// An admission denial is returned distinctly from storage/policy failures so
+// response-only projections can redact denied relations without hiding errors.
+func VisibleRelationIDs(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, target schema.Collection, principal Principal, ids []uuid.UUID, ruleContext *accessrule.RequestContext) (map[uuid.UUID]bool, error) {
+	visible := make(map[uuid.UUID]bool)
+	if err := authorizeReadSubject(ctx, tx, target.AccessCollectionID(), principal, "view"); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return visible, nil
+	}
+	predicate, args := "true", []any{}
+	if principal.Kind != identity.Administrator && principal.Kind != identity.Service {
+		rules, _, err := loadReadRules(ctx, tx, target.AccessCollectionID())
+		if err != nil {
+			return nil, err
+		}
+		policyTarget, err := sourcePolicyCollection(catalog, target)
+		if err != nil {
+			return nil, err
+		}
+		predicate, args, err = compilePolicyPredicateWithRequest(rules.View, target, policyTarget, target.TableName, principal, 1, catalog, ruleContext)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args = append([]any{ids}, args...)
+	rows, err := tx.Query(ctx, "SELECT id FROM "+quotedTable(target)+" WHERE id=ANY($1::uuid[]) AND ("+predicate+")", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		visible[id] = true
+	}
+	return visible, rows.Err()
 }
 
 func indexRelationRecords(records []map[string]any) ([]uuid.UUID, map[uuid.UUID]map[string]any, error) {

@@ -1,5 +1,7 @@
 # PgBase 구현 이력과 현재 상태
 
+2026-11-22 최신 기준: main은 `568238916d3854e65f44a2f2572c47eea2e97936`([PR #183](https://github.com/yakisoba0728/PgBase/pull/183))이고 schema 71이다. 최신 릴리스는 v0.4.0(schema 69)이며 그 뒤 20 commit이 tag 없이 main에 있다. 마지막 운영 배포 기록은 2026-11-18 main `df18bfe3`(schema 69, §17)이고 그 뒤 배포 여부는 확인하지 않았다. 2026-11-15 이후의 병합·배포는 §13–§19에 날짜별로 있다. 이 기록 시점에 [PR #184](https://github.com/yakisoba0728/PgBase/pull/184)(schema 72)는 열려 있고 병합되지 않았다. 세부는 §19를 따른다. 아래 문단과 §1 표의 이전 값은 당시 기록이다.
+
 2026-11-15 최신 기준: 관리자 UI 개편을 [PR #142](https://github.com/yakisoba0728/PgBase/pull/142)로 main `588e14a93e828345c2edda760cd4c90381211328`에 병합하고 운영에 배포했다. 같은 날 크기 확대·모션 강화를 [PR #144](https://github.com/yakisoba0728/PgBase/pull/144)로 main `5cb9ea0d`에 병합해 배포했다(§13의 마지막 절). `ui/admin`만 바뀌었고 서버 API와 schema 67은 그대로다. 범위·검증·남은 일은 §13을 따른다. 2026-11-14의 백엔드 재작성과 후속 수정(PR #135–#141, schema 67)은 [재작성 검증](backend-rewrite-validation.md)·[main 독립 검토](final-main-review.md)에 기록돼 있고 이 문서에는 절이 없다. 아래 문단은 그 이전 기록이다.
 
 2026-11-13 최신 기준: PR #124에 이어 [#125](https://github.com/yakisoba0728/PgBase/pull/125)·[#133](https://github.com/yakisoba0728/PgBase/pull/133)을 병합했다. 제품 source `043dc2b3`의 main CI와 전체 signed release gate가 통과했고 [v0.3.1](https://github.com/yakisoba0728/PgBase/releases/tag/v0.3.1)을 게시했다. 같은 source를 운영에 배포해 schema 66/66·health 정상·schema finding 0과 기존 레코드 표시를 확인했다. [구현·검증](production-readiness-2026-11-13.md), [배포](deployment-2026-11-13.md), [남은 결정](next-work.md)을 따른다. 아래 날짜별 문단·§11–§12는 당시 상태의 이력이며 현재 열린 작업 목록이 아니다. 운영 백업은 소유자 요청으로 생성·설정하지 않았다.
@@ -39,15 +41,15 @@ This document has a current status section and historical sections. Baseline SHA
 | 항목 | 확인된 상태 |
 | --- | --- |
 | 현재 저장소 | [yakisoba0728/PgBase](https://github.com/yakisoba0728/PgBase) |
-| 최신 main 병합 기준 | 2026-11-12 [PR #107](https://github.com/yakisoba0728/PgBase/pull/107), `7fbf1db39fdee02d9f52c1a928591ea8797870f6`, schema 65. 이전 기록: 2026-10-22 [PR #92](https://github.com/yakisoba0728/PgBase/pull/92), `5c495e10d900a7acc08b2b757d6348bda666c248`, schema 65. 2026-10-01 기록은 [PR #66](https://github.com/yakisoba0728/PgBase/pull/66), `31a9694aff133eda7404c304d4a970acdb324fe6`. main schema 65(`000065_optional_auth_email_uniqueness.sql`). 2026-09-11 기록의 최신 제품 병합은 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) `2939f1543e4889c0ffa967eae398c91d0ecbb6ce` |
+| 최신 main 병합 기준 | 2026-11-22 확인: 2026-11-20 [PR #183](https://github.com/yakisoba0728/PgBase/pull/183), `568238916d3854e65f44a2f2572c47eea2e97936`, schema 71(`000071_auth_cleanup_and_token_listing.sql`). `migrations/system`에는 44, 46, 47, 49, 53번이 없다(이유 확인하지 않음). 그 사이 기록은 §13–§19. 이전 기록: 2026-11-12 [PR #107](https://github.com/yakisoba0728/PgBase/pull/107), `7fbf1db39fdee02d9f52c1a928591ea8797870f6`, schema 65. 이전 기록: 2026-10-22 [PR #92](https://github.com/yakisoba0728/PgBase/pull/92), `5c495e10d900a7acc08b2b757d6348bda666c248`, schema 65. 2026-10-01 기록은 [PR #66](https://github.com/yakisoba0728/PgBase/pull/66), `31a9694aff133eda7404c304d4a970acdb324fe6`. main schema 65(`000065_optional_auth_email_uniqueness.sql`). 2026-09-11 기록의 최신 제품 병합은 [PR #34](https://github.com/yakisoba0728/PgBase/pull/34) `2939f1543e4889c0ffa967eae398c91d0ecbb6ce` |
 | N1–N5 개발 기준 | 구현·독립 검토·전체 로컬 인수 및 필수 원격 CI5/5·정상 병합 완료. [기존 설치·인수](workstreams/n1-n5/release-install.md) 완료 |
 | N6–N9 소스 기준 | **구현·독립 검토·G5 로컬 인수 및 원격 병합 완료**. 최종 제품/UI `b7674f704e14b07104ebf6f1c9ee5e53092f367e`, 후속 수정은 [PR #35](https://github.com/yakisoba0728/PgBase/pull/35)로 main `53a474143e117251d9b322441508ac85d776ef2a`에 병합. [인수 증거](workstreams/n6-n9/acceptance.md) |
 | PocketBase Round 3 검증 소스 | `codex/round3-integration`의 `bd76b1d1aaf28839072fa71e6b05cf39219053e9`. 고정 232행은 구현 232·부분 0·미구현 0. [21행 완료 ledger](pocketbase-unimplemented-completion-round3-2026-09-11.md). 이후 [PR #36](https://github.com/yakisoba0728/PgBase/pull/36)으로 main `5cb721f`에 병합(2026-09-11) |
 | 설치 제품 커밋 | 2026-10-22 binary 교체: `ad7783c7296f69253c1dd7583492153daf83268b`([PR #88](https://github.com/yakisoba0728/PgBase/pull/88), Go 1.26.10, `vcs.modified=false`). 이후 PR #89는 test만 바꿨다. 2026-10-01 fresh install: `85684581177d3a7b56b015a01be6163d4a94a1dd`([PR #65](https://github.com/yakisoba0728/PgBase/pull/65)). 이후 PR #66은 test·CI fixture만 바꿔 설치 binary와 동작이 같다. 이전 기록의 설치 제품은 `2939f1543e4889c0ffa967eae398c91d0ecbb6ce` |
 | 실제 로컬 설치 | 2026-10-22: 같은 Mac의 설치를 `.local/backups/pre-upgrade-8568458-20261022-173026`에 백업(DB dump·binary·environment·files·SHA256SUMS)한 뒤 binary 교체. schema 65→65, doctor 0 finding, `/health/live`·`/health/ready`·`/admin/` 200, 알 수 없는 경로 404. 관리자는 소유자가 직접 생성할 몫으로 남김. 2026-10-01 문서 작성 Mac에 fresh install. PostgreSQL 17.9, schema 65, `http://127.0.0.1:8090/admin`. 이전 기록의 N1–N5/schema40 설치는 이 Mac에 없었다. doctor 0 finding·readiness·관리자 UI·알 수 없는 경로 404 확인. 관리자 미생성 |
 | P8 개발 DB | migration 33–38, 임시 PostgreSQL 18/MinIO 및 populated 복사본 인수 완료 |
-| 공개 릴리스 | 2026-10-22 [v0.2.3](https://github.com/yakisoba0728/PgBase/releases/tag/v0.2.3), source `5c495e10d900a7acc08b2b757d6348bda666c248`, image `ghcr.io/yakisoba0728/pgbase@sha256:a56d96d4ad748276a963318fcf538eda77a5f635e9fb2459f15273574bb94ccb`(`v0.2.3`·`latest`). 릴리스 run 39768062106 전체 gate 통과(13m14s). `v0.2.0`·`v0.2.1`·`v0.2.2` tag는 gate 실패로 promotion되지 않았다(§9). 이전 릴리스는 v0.1.0 |
-| 서버 배포 | 2026-11-12 `https://pgbase.yaki.kr`(Dokploy Compose), source `c1e6ef3bfd341f935fcb236d9559b91535769a8f`. 자동 배포는 꺼져 있고 첫 관리자 setup 대기. 릴리스 이미지가 아닌 source build. [배포 기록](deployment-2026-11-12.md), §10 |
+| 공개 릴리스 | 최신은 2026-11-17 [v0.4.0](https://github.com/yakisoba0728/PgBase/releases/tag/v0.4.0)(main `57507741`, schema 69, §15). 2026-11-22 기준 그 뒤 20 commit이 tag 없이 main에 있다. 이전 기록: 2026-10-22 [v0.2.3](https://github.com/yakisoba0728/PgBase/releases/tag/v0.2.3), source `5c495e10d900a7acc08b2b757d6348bda666c248`, image `ghcr.io/yakisoba0728/pgbase@sha256:a56d96d4ad748276a963318fcf538eda77a5f635e9fb2459f15273574bb94ccb`(`v0.2.3`·`latest`). 릴리스 run 39768062106 전체 gate 통과(13m14s). `v0.2.0`·`v0.2.1`·`v0.2.2` tag는 gate 실패로 promotion되지 않았다(§9). 이전 릴리스는 v0.1.0 |
+| 서버 배포 | 마지막 배포 기록: 2026-11-18 main `df18bfe3`(schema 69, §17). 그 뒤(schema 71 main 포함) 배포 여부는 2026-11-22에도 확인하지 않음. 이전 기록: 2026-11-12 `https://pgbase.yaki.kr`(Dokploy Compose), source `c1e6ef3bfd341f935fcb236d9559b91535769a8f`. 자동 배포는 꺼져 있고 첫 관리자 setup 대기. 릴리스 이미지가 아닌 source build. [배포 기록](deployment-2026-11-12.md), §10 |
 | 비교 대상 | 로컬 PocketBase v0.40.3, `5684ee24f1e88f71a2ede73d20cf547fbd509e16` |
 | 승인된 범위 | 로컬에서 구현·검증 가능한 제품 기능. 외부 서버·도메인·실제 provider 계정·공개 패키지 배포는 대기 |
 
@@ -547,3 +549,35 @@ UI를 다시 만들며 서버 응답과 코드에서 관찰한 사항이다. `fr
 - 운영 배포 여부는 확인하지 않음. 저장소에 2026-11-19 배포 기록이 없다. 운영에 올리려면 schema 69 → 71 migration이 필요하다.
 - #162의 통합 Go·PostgreSQL+MinIO·Chromium 실행 결과는 PR 본문 이후 기록이 없어 확인하지 않음.
 - v0.4.0(schema 69) 이후 #151, #153, #157, #159–#164, #166이 tag 없이 main에 있다. 현재 source는 schema 71을 요구하므로 v0.4.0과 같은 schema의 패치가 아니다.
+
+## 19. 2026-11-22 데이터 무결성·백업 복구와 의존성 통합(PR #167, #169, #182, #183), 보안 PR #184
+
+기록일: 2026-11-22 KST. main `64512f78`(schema 71) 위에 PR 4개가 squash 병합돼 main이 `56823891`이 됐다. 네 PR 모두 migration을 추가하지 않아 schema 71 그대로다. `git describe` 기준 v0.4.0 이후 20 commit이다. 아래 내용은 각 PR 본문, commit diff, GitHub check 결과에서 확인한 것이다.
+
+- **문서 기록**([PR #167](https://github.com/yakisoba0728/PgBase/pull/167), main `023278ca`, 2026-11-19): `TODO.md`·`docs/next-work.md`·이 문서에 §18을 기록했다. 문서만 바뀌었다.
+- **setup-dart**([PR #169](https://github.com/yakisoba0728/PgBase/pull/169), main `7de9942e`, 2026-11-20): `.github/workflows/backend.yml`의 `dart-lang/setup-dart`를 1.8.1 → 1.8.2로 올린 Dependabot PR. 한 줄 변경.
+- **데이터 무결성·백업 복구**([PR #182](https://github.com/yakisoba0728/PgBase/pull/182), main `a9a53f29`, 2026-11-20): 165파일 변경, migration 없음.
+  - 백업·복원: live 복원 활성화, 백업 보존 정리, 파일 정리를 동시 변경에 대해 fence한다. 보존 정리는 archive를 지울 때마다 저장소·runtime settings revision을 PostgreSQL lock 아래에서 확인하고, 설정이 바뀌면 그 회차를 멈춘다. S3 저장소가 장애여도 앱과 백업 저장소 설정 화면은 계속 쓸 수 있고 지연된 복구를 background에서 재시도한다. 같은 destination의 자격 증명은 고칠 수 있다. 중단된 예약 백업은 원래 발생으로 재시도하고 이미 게시된 archive를 재사용한다. managed backup job은 30분 deadline에 1분 lease를 15초마다 갱신한다.
+  - 레코드·파일: 필터 조건 삭제와 첨부 교체를 DB transaction 안에서 검사한다. cursor 페이지 크기를 직렬화된 public ID 기준으로 계산한다.
+  - 그 밖: JavaScript watch는 실패한 후보를 최대 30초까지 늘어나는 간격으로 재시도한다. realtime 연결 admission 경합, 관리자 API 예시를 고쳤다. 내장 관리자 UI와 TypeScript dist를 다시 빌드했다.
+  - 계약 추가(`docs/public-api.md`·`docs/local-jobs.md`·`docs/dart-sdk.md` 기준): 관리자 레코드 DELETE `?matchFilter=`와 관리자 batch delete의 `matchFilter`(잠근 행이 더 이상 맞지 않으면 412 `precondition_failed`, batch 전체 rollback). batch PATCH의 `{"$file":"…","$replaces":"<현재 file UUID>"}`(불일치 412). TypeScript·Dart SDK의 ETag 반환 mutation과 TypeScript `createJSON`·`updateJSON`이 `enrichmentFailed`를 노출한다. 예약 백업과 jobs 일정은 cron식과 분리된 명시적 IANA 시간대를 쓰고, 기존 `Local`·inline 시간대 일정은 편집 전까지 이전 해석을 유지한다. `docs/openapi.routes.json`의 metrics route에 `metricsBearer` 보안 표기가 붙었다.
+  - 배포 구성: `deployments/docker-compose.yml`과 `deployments/dokploy/compose.yml`이 파일 이전용 scratch volume을 만들고 `PGBASE_FILES_MIGRATION_SCRATCH_DIRECTORY`로 넘긴다. 직접 만든 container는 이 변수를 쓰기 가능한 mount로 지정할 수 있다. 웹 복원 전에는 이전 build를 포함한 다른 instance를 멈추고, 재시작 전에 활성화된 대상을 가리키게 해야 한다(PR 본문).
+  - `docs/next-work.md`의 `internal/cli` watch flake 행과 관리자 UI 추가 항목 행을 이 PR이 작업 실행 이력·브라우저 E2E 두 행으로 바꿨다.
+  - 검증(PR 본문): Go unit, integration tag vet, PostgreSQL 18.6+MinIO 통합 전체(51 package 통과, skip 0). 보존·백업 복구·managed restore·저장소 이전 race test, 17 MiB 객체를 MinIO로 옮겼다 되돌림. 관리자 UI 483, Chromium E2E 26, Firefox·WebKit smoke 12, TypeScript SDK 126·Dart SDK 146과 live HTTP conformance. PR 필수 검사 5개 통과.
+- **의존성 통합**([PR #183](https://github.com/yakisoba0728/PgBase/pull/183), main `56823891`, 2026-11-20): Dependabot #171–#177, #180, #181을 묶었다. Node 24.22.3(Docker frontend 단계, Backend·Frontend·E2E·Security workflow), Tiptap 3.34.0, Playwright 1.65.1, jsdom 31.0.1, `@vitejs/plugin-react` 6.3.0, `@testing-library/user-event` 14.6.12, AWS SDK 모듈 일괄(`aws-sdk-go-v2` 1.48.0, credentials 1.21.1, config 1.33.19, s3 1.114.10), Prometheus common 0.74.0, 내장 관리자 bundle 재빌드. migration 없음. 검증(PR 본문): Node 24.22.3에서 깨끗한 npm install·관리자 UI 483·내장 bundle byte 단위 일치, Chromium E2E 26, Go module verify와 백업·저장소·metrics test, PostgreSQL 18.6+MinIO 통합. PR 필수 검사 5개 통과.
+- **닫힌 Dependabot PR**: #168, #170–#181은 모두 병합 없이 닫혔다(2026-11-20). #171–#177·#180·#181은 #183 병합 직후 닫혔고, #178(credentials 1.21.1)·#179(`aws-sdk-go-v2` 1.48.0)은 그보다 먼저 닫혔지만 같은 버전이 #183으로 main `go.mod`에 들어갔다. #168(`deployments/Dockerfile`·`release-phase.Dockerfile`의 golang 1.26.11 → 1.27.4)과 #170(같은 두 파일의 postgres16·postgres17 client 단계 이미지를 postgres 18.6으로)은 main에 반영되지 않았다. 현재 main은 golang 1.26.11, postgres 16.16·17.12·18.7 단계 그대로다. 닫은 사유는 PR에 적혀 있지 않다.
+- **CI**: main push CI(Backend·Frontend·Security)는 `7de9942e`·`a9a53f29`·`56823891` 모두 통과했다.
+- **열린 보안 PR**([PR #184](https://github.com/yakisoba0728/PgBase/pull/184), 브랜치 `fix/security-audit-20261122`): 이 기록 시점에 열려 있고 병합되지 않았다. 이 문서 변경도 그 PR에 함께 실린다. 병합 여부와 병합 commit은 이 기록에 없다.
+  - 내용(PR 본문): realtime relation 필드와 인증·공개 auth 레코드 응답에 대상 view 권한을 적용하고 realtime envelope에 불변 대상 identity를 남긴다. 사용자·관리자 비밀번호 재설정 token 자격을 hashing 전에 검사하고 자격 증명 변경과 함께 원자적으로 소비한다. 인증 확인·email 변경 메일 발송 용량을 PostgreSQL에서 예약한다(actor·수신자마다 15분에 5회, 목적별 60초 cooldown). 관리자 TOTP counter를 저장하고 session transaction 안에서 소비한다. 저장소 작업 admission을 소유자가 끝날 때까지 유지한다.
+  - 업그레이드: system migration `000072_admin_totp_counters`가 `pgbase_meta.admin_totp.last_counter`(bigint, 0 이상)를 추가한다. 병합되면 source는 schema 72를 요구하고, 문서화된 stop–migrate–start 절차가 필요하다. 1회 사용 보장을 위해 로그인을 처리하는 모든 instance가 새 binary여야 한다(`docs/upgrades.md`).
+  - 검증: 최신 commit `8666bbd3`에서 PR CI Backend·Frontend·Security와 필수 검사 5개가 통과했다. Full source qualification과 Nonperformance source qualification은 PR에서 skipped였다. 로컬 검증은 PR 본문에 Go 1.26.11·PostgreSQL 17.9로 적혀 있다.
+- **저장소 점검**(2026-11-22): 열린 issue 0, 열린 Dependabot 경고 0. `main`에는 classic branch protection이 없지만(protection API 404), repository ruleset "Reviewed main with required CI"가 active로 PR, 필수 검사 5개(Go unit·Observability artifacts·PostgreSQL integration / 17.9·test·audit, strict), 삭제·non-fast-forward 금지를 요구한다. code-scanning alerts API는 "no analysis found"를 돌려줬다.
+
+하지 않은 것과 한계:
+
+- 운영 배포 여부는 확인하지 않음. 저장소의 마지막 배포 기록은 2026-11-18 `df18bfe3`(schema 69)이다. 운영에 올리려면 schema 69 → 71(#184 병합 후라면 72) migration이 필요하다.
+- §15 이후 남아 있는 CodeQL 25건 분류는 code-scanning API가 분석을 돌려주지 않아 이 방법으로 재확인하지 못했다. 이미지 의존성 30건도 다시 보지 않았다.
+- #168·#170의 이미지 갱신을 따로 검토하거나 적용하지 않았다.
+- #182·#183의 PR 본문 검증 중 필수 검사 밖의 항목(통합 전체, 브라우저, SDK)은 GitHub check로 다시 확인하지 않았다.
+- `migrations/system`의 빈 번호 44, 46, 47, 49, 53은 이유를 확인하지 않았다.
+- v0.4.0(schema 69) 이후 20 commit이 tag 없이 main에 있다.
