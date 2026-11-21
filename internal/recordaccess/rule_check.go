@@ -25,6 +25,13 @@ func AllowsRecordInCatalog(ctx context.Context, tx pgx.Tx, catalog schema.Catalo
 	if err != nil {
 		return false, err
 	}
+	return AllowsRecordInCatalogWithRules(ctx, tx, catalog, collection, rules, principal, action, id, prospectiveOwner, request)
+}
+
+// AllowsRecordInCatalogWithRules evaluates rules the caller already loaded
+// with LoadRules in this transaction. The caller owns the claim that the
+// loaded rules are still the ones LoadRules would return now.
+func AllowsRecordInCatalogWithRules(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, rules accessrule.Rules, principal identity.Subject, action string, id uuid.UUID, prospectiveOwner bool, request *accessrule.RequestContext) (bool, error) {
 	rule, err := rules.Action(action)
 	if err != nil {
 		return false, err
@@ -57,6 +64,15 @@ func AllowsRecordsInCatalogWithRequest(ctx context.Context, tx pgx.Tx, catalog s
 	rules, _, err := LoadRules(ctx, tx, collection.ID)
 	if err != nil {
 		return false, err
+	}
+	return AllowsRecordsInCatalogWithRules(ctx, tx, catalog, collection, rules, principal, action, ids, prospectiveOwner, request)
+}
+
+// AllowsRecordsInCatalogWithRules is the set-based form of
+// AllowsRecordInCatalogWithRules.
+func AllowsRecordsInCatalogWithRules(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, collection schema.Collection, rules accessrule.Rules, principal identity.Subject, action string, ids []uuid.UUID, prospectiveOwner bool, request *accessrule.RequestContext) (bool, error) {
+	if len(ids) == 0 {
+		return true, nil
 	}
 	rule, err := rules.Action(action)
 	if err != nil {

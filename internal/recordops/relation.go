@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
 	"github.com/yakisoba0728/PgBase/internal/identity"
-	"github.com/yakisoba0728/PgBase/internal/recordaccess"
 	"slices"
 
 	"github.com/yakisoba0728/PgBase/internal/query"
@@ -74,13 +73,13 @@ func authorizeRelationTargets(ctx context.Context, tx pgx.Tx, catalog schema.Cat
 			}
 		}
 		ids = unique
-		if err := recordaccess.AuthorizeSubject(ctx, tx, target.AccessCollectionID(), principal, "view"); err != nil {
+		if err := authorizeWriteSubject(ctx, tx, target.AccessCollectionID(), principal, "view"); err != nil {
 			return err
 		}
 		if principal.Kind == identity.Service {
 			continue
 		}
-		allowed, err := recordaccess.AllowsRecordsInCatalogWithRequest(ctx, tx, catalog, policyCollection(target), principal, "view", ids, false, request)
+		allowed, err := allowsWriteRecords(ctx, tx, catalog, policyCollection(target), principal, "view", ids, false, request)
 		if err != nil {
 			return err
 		}

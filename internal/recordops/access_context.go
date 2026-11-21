@@ -28,13 +28,13 @@ func authorizeUserRecordOperationWithRequest(ctx context.Context, tx pgx.Tx, cat
 	if principal.Kind == PrincipalAdministrator {
 		return nil
 	}
-	if err := recordaccess.AuthorizeSubject(ctx, tx, collection.AccessCollectionID(), principal, action); err != nil {
+	if err := authorizeWriteSubject(ctx, tx, collection.AccessCollectionID(), principal, action); err != nil {
 		return err
 	}
 	if recordID == uuid.Nil || principal.Kind == identity.Service {
 		return nil
 	}
-	allowed, err := recordaccess.AllowsRecordInCatalog(ctx, tx, catalog, policyCollection(collection), principal, action, recordID, action == "create", request)
+	allowed, err := allowsWriteRecord(ctx, tx, catalog, policyCollection(collection), principal, action, recordID, action == "create", request)
 	if err != nil {
 		return err
 	}

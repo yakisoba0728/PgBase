@@ -123,12 +123,14 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 	if err != nil {
 		return MutationResult{}, unavailableMembership(err)
 	}
+	_, borrowedCreate, _ := s.pool.BorrowedTransaction(ctx)
 	var idempotencyLock *int64
 	if len(keyHash) > 0 {
 		lock := advisoryLockKey(request.Principal, []byte(request.Collection), keyHash)
 		idempotencyLock = &lock
 	}
 	err = s.createTx(ctx, request.Collection, idempotencyLock, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		ctx := withWritePolicies(ctx, tx, request.Principal)
 		if collection.IsView() {
 			return recordaccess.ErrUnsupported
 		}
@@ -241,6 +243,13 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 		if err := authorizeUserRecordOperationWithRequest(ctx, tx, catalog, collection, request.Principal, recordID, "create", &requestContext); err != nil {
 			return err
 		}
+		// commitMutation would evaluate this same create rule again for the same
+		// row and request. An owned attempt without an idempotency key runs in
+		// Repeatable Read, so concurrent commits stay invisible, and on a
+		// collection without relation fields the only writes in between are the
+		// membership sidecars, which no rule can reference. The second
+		// evaluation could not differ, so it is skipped.
+		createRuleStable := !borrowedCreate && len(keyHash) == 0 && !hasRelationFields(collection)
 		if err := createFence.RecordCreated(ctx, recordID); err != nil {
 			return transactionalMembership(err)
 		}
@@ -258,7 +267,28 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 			return err
 		}
 		etag := recordartifact.RevisionETag(collection.ID, recordID, digest, validator)
-		if err := commitMutation(ctx, tx, catalog, request.Principal, request.RequestID, requestHash[:], artifactBatch{
+		// The record owner and idempotency receipt follow the artifacts in the
+		// same pipelined round trip; neither consumes a result of the other.
+		if err := commitMutationThen(ctx, tx, catalog, request.Principal, request.RequestID, requestHash[:], func(pipeline *writePipeline) error {
+			if request.Principal.Kind == PrincipalUser {
+				pipeline.queue(`INSERT INTO pgbase_meta.record_owners(collection_id, record_id, user_id) VALUES ($1,$2,$3)`, nil, collection.ID, recordID, request.Principal.ID)
+			}
+			if len(keyHash) > 0 {
+				publicData := cloneRecordData(data)
+				if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicData); err != nil {
+					return err
+				}
+				receiptData := cloneRecordData(data)
+				receiptData["__pgbase_public_record"] = publicData
+				body, err := json.Marshal(receiptData)
+				if err != nil {
+					return err
+				}
+				queueIdempotentCreate(pipeline, request.Principal, collection.ID, keyHash,
+					requestHash[:], recordID, eventID, body, etag)
+			}
+			return nil
+		}, artifactBatch{
 			collection: collection, operation: "create",
 			schemaVersion: catalog.Version, schemaDigest: digest,
 			rows: []artifactRow{{
@@ -267,29 +297,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (result Mut
 				idempotencyKeyHash: keyHash, compatibility: compatibility, validator: validator,
 				requestContext: &requestContext,
 			}},
+			ruleChecked: createRuleStable,
 		}); err != nil {
 			return err
-		}
-		if request.Principal.Kind == PrincipalUser {
-			if _, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.record_owners(collection_id, record_id, user_id) VALUES ($1,$2,$3)`, collection.ID, recordID, request.Principal.ID); err != nil {
-				return err
-			}
-		}
-		if len(keyHash) > 0 {
-			publicData := cloneRecordData(data)
-			if err := s.projectRecordIdentity(ctx, tx, catalog, collection, publicData); err != nil {
-				return err
-			}
-			receiptData := cloneRecordData(data)
-			receiptData["__pgbase_public_record"] = publicData
-			body, err := json.Marshal(receiptData)
-			if err != nil {
-				return err
-			}
-			if err := writeIdempotentCreate(ctx, tx, request.Principal, collection.ID, keyHash,
-				requestHash[:], recordID, eventID, body, etag); err != nil {
-				return err
-			}
 		}
 		result = MutationResult{
 			Record:  &Record{Data: data, ETag: etag, Version: 1},
@@ -357,6 +367,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 	}
 
 	err = s.updateTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		ctx := withWritePolicies(ctx, tx, request.Principal)
 		if deferredID {
 			resolvedID, err := s.resolveRecordIDInCatalog(ctx, tx, catalog, request.Collection, requestedID, request.PublicID)
 			if err != nil {
@@ -385,11 +396,11 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (result Mut
 				if _, present := request.Input[field.Name]; !present {
 					continue
 				}
-				if err := recordaccess.AuthorizeSubject(ctx, tx, collection.AccessCollectionID(), request.Principal, "update"); err != nil {
+				if err := authorizeWriteSubject(ctx, tx, collection.AccessCollectionID(), request.Principal, "update"); err != nil {
 					return err
 				}
 				if request.Principal.Kind != identity.Service {
-					rules, _, err := recordaccess.LoadRules(ctx, tx, collection.AccessCollectionID())
+					rules, err := loadWriteRules(ctx, tx, collection.AccessCollectionID(), request.Principal)
 					if err != nil {
 						return err
 					}
@@ -572,6 +583,7 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (result Mut
 	}
 
 	err = s.deleteTx(ctx, request.Collection, func(tx pgx.Tx, catalog schema.Catalog, collection schema.Collection) error {
+		ctx := withWritePolicies(ctx, tx, request.Principal)
 		if deferredID {
 			resolvedID, err := s.resolveRecordIDInCatalog(ctx, tx, catalog, request.Collection, requestedID, request.PublicID)
 			if err != nil {

@@ -54,6 +54,9 @@ type artifactBatch struct {
 	schemaVersion int64
 	schemaDigest  [32]byte
 	rows          []artifactRow
+	// ruleChecked marks a create batch whose create rule the caller already
+	// evaluated on an unchanged view of the same rows; see Service.Create.
+	ruleChecked bool
 }
 
 // commitMutation writes the revision, audit and outbox artifacts of one
@@ -70,17 +73,39 @@ func commitMutation(
 	inputHash []byte,
 	batches ...artifactBatch,
 ) error {
+	return commitMutationThen(ctx, tx, catalog, principal, requestID, inputHash, nil, batches...)
+}
+
+// commitMutationThen is commitMutation followed by the caller's own trailing
+// writes. Each batch's audit, revision and outbox inserts, and after the last
+// batch the trailing writes, travel as one pipelined round trip. A batch's
+// writes land before the next batch's rule check and owner capture read, since
+// a revision delete cascades to the ownership rows that capture reads.
+func commitMutationThen(
+	ctx context.Context,
+	tx pgx.Tx,
+	catalog schema.Catalog,
+	principal Principal,
+	requestID string,
+	inputHash []byte,
+	then func(*writePipeline) error,
+	batches ...artifactBatch,
+) error {
+	var pipeline writePipeline
 	for _, batch := range batches {
 		if len(batch.rows) == 0 {
 			continue
 		}
-		if (principal.Kind == PrincipalUser || principal.Kind == identity.Anonymous) && batch.operation != "delete" {
+		if err := pipeline.flush(ctx, tx); err != nil {
+			return err
+		}
+		if (principal.Kind == PrincipalUser || principal.Kind == identity.Anonymous) && batch.operation != "delete" && !batch.ruleChecked {
 			if batch.rows[0].requestContext != nil {
 				ids := make([]uuid.UUID, len(batch.rows))
 				for i, row := range batch.rows {
 					ids[i] = row.recordID
 				}
-				allowed, err := recordaccess.AllowsRecordsInCatalogWithRequest(ctx, tx, catalog, policyCollection(batch.collection), principal, batch.operation, ids, batch.operation == "create", batch.rows[0].requestContext)
+				allowed, err := allowsWriteRecords(ctx, tx, catalog, policyCollection(batch.collection), principal, batch.operation, ids, batch.operation == "create", batch.rows[0].requestContext)
 				if err != nil {
 					return err
 				}
@@ -92,7 +117,7 @@ func commitMutation(
 				for index, row := range batch.rows {
 					ids[index] = row.recordID
 				}
-				allowed, err := recordaccess.AllowsRecordsInCatalog(ctx, tx, catalog, policyCollection(batch.collection), principal, batch.operation, ids, batch.operation == "create")
+				allowed, err := allowsWriteRecords(ctx, tx, catalog, policyCollection(batch.collection), principal, batch.operation, ids, batch.operation == "create", nil)
 				if err != nil {
 					return err
 				}
@@ -107,22 +132,26 @@ func commitMutation(
 		if err := captureOutboxOwners(ctx, tx, principal, batch); err != nil {
 			return err
 		}
-		if err := writeAuditBatch(ctx, tx, principal, requestID, inputHash, batch); err != nil {
-			return err
+		if err := writeAuditBatch(&pipeline, principal, requestID, inputHash, batch); err != nil {
+			return pipeline.flushBefore(ctx, tx, err)
 		}
-		if err := writeRevisionBatch(ctx, tx, batch); err != nil {
-			return err
+		if err := writeRevisionBatch(&pipeline, batch); err != nil {
+			return pipeline.flushBefore(ctx, tx, err)
 		}
-		if err := writeOutboxBatch(ctx, tx, catalog, batch); err != nil {
-			return err
+		if err := writeOutboxBatch(ctx, tx, catalog, batch, &pipeline); err != nil {
+			return pipeline.flushBefore(ctx, tx, err)
 		}
 	}
-	return nil
+	if then != nil {
+		if err := then(&pipeline); err != nil {
+			return pipeline.flushBefore(ctx, tx, err)
+		}
+	}
+	return pipeline.flush(ctx, tx)
 }
 
 func writeAuditBatch(
-	ctx context.Context,
-	tx pgx.Tx,
+	pipeline *writePipeline,
 	principal Principal,
 	requestID string,
 	inputHash []byte,
@@ -156,7 +185,7 @@ func writeAuditBatch(
 			compatibilities[index] = string(row.compatibility)
 		}
 	}
-	tag, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.record_audit_events
+	pipeline.queue(`INSERT INTO pgbase_meta.record_audit_events
 		(event_id, actor_kind, actor_id, request_id, collection_id, collection_name,
 		 record_id, operation, schema_version, schema_digest, previous_version,
 		 new_version, previous_etag, new_etag, changed_fields, input_hash,
@@ -169,14 +198,12 @@ func writeAuditBatch(
 			$15::text[], $16::text[], $17::bytea[], $18::text[])
 			AS rows(event_id, record_id, previous_version, new_version, previous_etag,
 				new_etag, changed_fields, idempotency_key_hash, compatibility)`,
+		expectAffected(count, errArtifactCountMismatch),
 		string(principal.Kind), principal.ID, requestID, batch.collection.ID, batch.collection.Name,
 		batch.operation, batch.schemaVersion, batch.schemaDigest[:], inputHash,
 		eventIDs, recordIDs, previousVersions, newVersions, previousETags,
 		newETags, changedFields, idempotencyHashes, compatibilities)
-	if err != nil {
-		return err
-	}
-	return expectRows(tag, count, errArtifactCountMismatch)
+	return nil
 }
 
 // writeRevisionBatch keeps the per-record optimistic guard of the single-row
@@ -184,9 +211,10 @@ func writeAuditBatch(
 // version the upsert requires is EXCLUDED.version - 1. A row whose revision
 // changed outside this transaction is simply not written and the affected-row
 // count reports it.
-func writeRevisionBatch(ctx context.Context, tx pgx.Tx, batch artifactBatch) error {
+func writeRevisionBatch(pipeline *writePipeline, batch artifactBatch) error {
 	if batch.operation == "delete" {
-		return deleteRevisionBatch(ctx, tx, batch)
+		deleteRevisionBatch(pipeline, batch)
+		return nil
 	}
 	count := len(batch.rows)
 	recordIDs := make([]uuid.UUID, count)
@@ -202,7 +230,7 @@ func writeRevisionBatch(ctx context.Context, tx pgx.Tx, batch artifactBatch) err
 		validators[index] = row.validator
 		eventIDs[index] = row.eventID
 	}
-	tag, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.record_revisions
+	pipeline.queue(`INSERT INTO pgbase_meta.record_revisions
 		(collection_id, record_id, version, validator, last_event_id, updated_at)
 		SELECT $1, record_id, version, validator, last_event_id, transaction_timestamp()
 		FROM unnest($2::uuid[], $3::bigint[], $4::bytea[], $5::uuid[])
@@ -213,14 +241,12 @@ func writeRevisionBatch(ctx context.Context, tx pgx.Tx, batch artifactBatch) err
 			last_event_id = EXCLUDED.last_event_id,
 			updated_at = EXCLUDED.updated_at
 		WHERE pgbase_meta.record_revisions.version = EXCLUDED.version - 1`,
+		expectAffected(count, errRevisionChanged),
 		batch.collection.ID, recordIDs, newVersions, validators, eventIDs)
-	if err != nil {
-		return err
-	}
-	return expectRows(tag, count, errRevisionChanged)
+	return nil
 }
 
-func deleteRevisionBatch(ctx context.Context, tx pgx.Tx, batch artifactBatch) error {
+func deleteRevisionBatch(pipeline *writePipeline, batch artifactBatch) {
 	recordIDs := make([]uuid.UUID, 0, len(batch.rows))
 	versions := make([]int64, 0, len(batch.rows))
 	for _, row := range batch.rows {
@@ -231,21 +257,20 @@ func deleteRevisionBatch(ctx context.Context, tx pgx.Tx, batch artifactBatch) er
 		versions = append(versions, *row.previousVersion)
 	}
 	if len(recordIDs) == 0 {
-		return nil
+		return
 	}
-	tag, err := tx.Exec(ctx, `DELETE FROM pgbase_meta.record_revisions
+	pipeline.queue(`DELETE FROM pgbase_meta.record_revisions
 		USING unnest($2::uuid[], $3::bigint[]) AS rows(record_id, version)
 		WHERE pgbase_meta.record_revisions.collection_id = $1
 			AND pgbase_meta.record_revisions.record_id = rows.record_id
 			AND pgbase_meta.record_revisions.version = rows.version`,
+		expectAffected(len(recordIDs), errRevisionChanged),
 		batch.collection.ID, recordIDs, versions)
-	if err != nil {
-		return err
-	}
-	return expectRows(tag, len(recordIDs), errRevisionChanged)
 }
 
-func writeOutboxBatch(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, batch artifactBatch) error {
+// writeOutboxBatch's identity projection reads record_identities, which the
+// queued audit and revision writes and their triggers never touch.
+func writeOutboxBatch(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, batch artifactBatch, pipeline *writePipeline) error {
 	count := len(batch.rows)
 	eventIDs := make([]uuid.UUID, count)
 	recordIDs := make([]uuid.UUID, count)
@@ -287,19 +312,17 @@ func writeOutboxBatch(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, ba
 		}
 		snapshots[index] = string(snapshot)
 	}
-	tag, err := tx.Exec(ctx, `INSERT INTO pgbase_meta.record_outbox
+	pipeline.queue(`INSERT INTO pgbase_meta.record_outbox
 		(event_id, topic, collection_id, collection_name, record_id, operation,
 		 record_version, envelope, created_at, owner_user_id, record_snapshot)
 		SELECT event_id, 'record.mutation.v1', $1, $2, record_id, $3, record_version,
 			envelope::jsonb, transaction_timestamp(), owner_user_id, record_snapshot::jsonb
 		FROM unnest($4::uuid[], $5::uuid[], $6::bigint[], $7::text[], $8::uuid[], $9::text[])
 			AS rows(event_id, record_id, record_version, envelope, owner_user_id, record_snapshot)`,
+		expectAffected(count, errArtifactCountMismatch),
 		batch.collection.ID, batch.collection.Name, batch.operation,
 		eventIDs, recordIDs, versions, envelopes, owners, snapshots)
-	if err != nil {
-		return err
-	}
-	return expectRows(tag, count, errArtifactCountMismatch)
+	return nil
 }
 
 // readRevisionBatch reads one collection's stored revisions in a single query.
