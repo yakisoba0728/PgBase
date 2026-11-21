@@ -245,7 +245,7 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "response_too_large", Message: "Batch response exceeds the limit"})
 			return
 		}
-		writeRecordError(w, r, err)
+		writeBatchError(w, r, err)
 		return
 	}
 	if len(staged) > 0 {
@@ -254,6 +254,22 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSONHeader(w, http.StatusOK)
 	_, _ = w.Write(response)
+}
+
+// writeBatchError answers a failed batch transaction. The file participant
+// attaches staged files inside that transaction, so its file-service
+// refusals (an anonymous caller may not attach files, a field limit, a
+// missing record) reach here as filestore sentinels; they get the status and
+// code the file endpoints use instead of an internal error. Everything else
+// is a record error.
+func writeBatchError(w http.ResponseWriter, r *http.Request, err error) {
+	for _, sentinel := range []error{filestore.ErrInvalid, filestore.ErrTooLarge, filestore.ErrTooMany, filestore.ErrRequired, filestore.ErrDenied, filestore.ErrNotFound, filestore.ErrImageBusy} {
+		if errors.Is(err, sentinel) {
+			writeFileError(w, r, err)
+			return
+		}
+	}
+	writeRecordError(w, r, err)
 }
 
 func encodeBatchResponse(results []recordops.MutationResult, statuses []int, projection responseprojection.Projection, maximumBytes int) ([]byte, error) {

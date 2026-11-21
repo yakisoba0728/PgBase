@@ -6,9 +6,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"path/filepath"
 	"testing"
 )
 
@@ -18,8 +20,9 @@ import (
 // the body first; these expectations were recorded from the handlers with the
 // preflight disabled.
 func TestAnonymousWriteAdmissionPreflightKeepsRecordServiceResponses(t *testing.T) {
+	storage := t.TempDir()
 	app := newPublicUsersAppOptions(t, true, func(options *Options) {
-		options.Files = FileOptions{Driver: "local", LocalDirectory: t.TempDir(), MaximumBytes: 1 << 20, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, AllowedTypes: []string{"text/plain"}}
+		options.Files = FileOptions{Driver: "local", LocalDirectory: storage, MaximumBytes: 1 << 20, MaximumImagePixels: 1_000_000, ThumbnailDimension: 64, AllowedTypes: []string{"text/plain"}}
 	})
 	admin, csrf := setupPublicUsersAdministrator(t, app)
 	for _, name := range []string{"anon_open", "anon_closed"} {
@@ -129,18 +132,58 @@ func TestAnonymousWriteAdmissionPreflightKeepsRecordServiceResponses(t *testing.
 		}
 	}
 
-	// The opt-in collection with permissive rules keeps working. Its multipart
-	// batch passes the preflight and reaches the record and file services; what
-	// they answer for an anonymous attachment is outside this preflight, so the
-	// test only requires that it is not one of the preflight refusals.
+	// The opt-in collection with permissive rules keeps working.
 	allow := map[string]any{"op": "allow"}
 	rules := map[string]any{"rules": map[string]any{"list": allow, "view": allow, "create": allow, "update": allow, "delete": allow}}
 	assertPublicUsersStatus(t, publicUsersRequest(t, app, http.MethodPut, "/api/admin/collections/anon_open/rules", rules, "", admin, map[string]string{"X-PgBase-CSRF": csrf}), http.StatusOK)
 	if open := send(http.MethodPost, "/api/v1/public/collections/anon_open/records", "application/json", jsonBody(map[string]any{"title": "x"})); open.status != http.StatusCreated {
 		t.Fatalf("opt-in anonymous create = %+v, want 201", open)
 	}
+	// It passes the preflight and the record service, but anonymous callers
+	// may not attach files: the file service refuses inside the transaction,
+	// which is answered as the file endpoints answer it, not as a 500, and
+	// rolls back the records and the staged bytes.
+	countRecords := func() int {
+		t.Helper()
+		listed := publicUsersRequest(t, app, http.MethodGet, "/api/v1/collections/anon_open/records", nil, "", admin, nil)
+		assertPublicUsersStatus(t, listed, http.StatusOK)
+		var page struct {
+			Items []map[string]any `json:"items"`
+		}
+		decodePublicUsersJSON(t, listed, &page)
+		return len(page.Items)
+	}
+	countStoredFiles := func() int {
+		t.Helper()
+		count := 0
+		if err := filepath.WalkDir(storage, func(_ string, entry fs.DirEntry, err error) error {
+			if err == nil && !entry.IsDir() {
+				count++
+			}
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	countFileRows := func() (attached, queued int) {
+		t.Helper()
+		if err := app.app.pool.QueryRow(t.Context(), `select (select count(*) from pgbase_meta.record_files), (select count(*) from pgbase_meta.file_object_deletions)`).Scan(&attached, &queued); err != nil {
+			t.Fatal(err)
+		}
+		return attached, queued
+	}
+	recordsBefore, filesBefore := countRecords(), countStoredFiles()
+	attachedBefore, queuedBefore := countFileRows()
 	body, contentType := multipartBatch("anon_open")
-	if batch := send(http.MethodPost, "/api/v1/public/collections/batch", contentType, body); batch.code == "access_denied" || batch.code == "not_found" || batch.code == "invalid_request" {
-		t.Fatalf("opt-in anonymous multipart batch = %+v, want it past the admission preflight", batch)
+	if batch := send(http.MethodPost, "/api/v1/public/collections/batch", contentType, body); batch != (outcome{http.StatusForbidden, "file_access_denied"}) {
+		t.Fatalf("opt-in anonymous multipart batch = %+v, want 403 file_access_denied", batch)
+	}
+	// The staged bytes are not attached; every object they left is queued for
+	// deletion, as for any rolled-back batch.
+	records, files := countRecords(), countStoredFiles()
+	attached, queued := countFileRows()
+	if records != recordsBefore || attached != attachedBefore || files-filesBefore != queued-queuedBefore {
+		t.Fatalf("refused batch: records %d -> %d, attached files %d -> %d, stored objects %d -> %d with %d queued for deletion", recordsBefore, records, attachedBefore, attached, filesBefore, files, queued-queuedBefore)
 	}
 }

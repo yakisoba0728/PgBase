@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -441,5 +442,32 @@ func TestMultipartBatchKeepsOneTemporaryFileOpen(t *testing.T) {
 				t.Fatalf("temporary files: at most %d at once (want %d), %d left", probe.max, wantMax, probe.left())
 			}
 		})
+	}
+}
+
+// TestBatchFileServiceErrorsUseFileResponses checks that a file-service
+// refusal raised while a batch attaches its files is answered as the file
+// endpoints answer it, not as an internal error.
+func TestBatchFileServiceErrorsUseFileResponses(t *testing.T) {
+	for _, test := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{fmt.Errorf("commit: %w", filestore.ErrDenied), http.StatusForbidden, "file_access_denied"},
+		{filestore.ErrInvalid, http.StatusBadRequest, "invalid_file"},
+		{filestore.ErrTooLarge, http.StatusRequestEntityTooLarge, "file_too_large"},
+		{filestore.ErrTooMany, http.StatusConflict, "file_limit_reached"},
+		{filestore.ErrRequired, http.StatusConflict, "file_required"},
+		{filestore.ErrNotFound, http.StatusNotFound, "not_found"},
+		{filestore.ErrImageBusy, http.StatusServiceUnavailable, "file_busy"},
+		{recordaccess.ErrDenied, http.StatusForbidden, "access_denied"},
+		{errors.New("unexpected"), http.StatusInternalServerError, "internal_error"},
+	} {
+		response := httptest.NewRecorder()
+		writeBatchError(response, httptest.NewRequest(http.MethodPost, "/api/v1/public/collections/batch", nil), test.err)
+		if status, code := admissionError(t, response); status != test.status || code != test.code {
+			t.Errorf("%v: %d %q, want %d %q", test.err, status, code, test.status, test.code)
+		}
 	}
 }
