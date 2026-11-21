@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
 func (s *Service) CollectionID(ctx context.Context, name string) (uuid.UUID, error) {
@@ -28,13 +29,17 @@ func (s *Service) IsFileField(ctx context.Context, collectionID uuid.UUID, field
 		return false, ErrInvalid
 	}
 	found := false
-	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		_, err := s.policy(ctx, tx, collectionID, field)
-		if errors.Is(err, ErrNotFound) {
-			return nil
-		}
-		found = err == nil
-		return err
-	})
+	// Read-only: a snapshot avoids a WAL flush wait at commit.
+	err := database.Retry(ctx, func() error {
+		return s.pool.InTx(ctx, database.ReadSnapshotOptions(), func(tx pgx.Tx) error {
+			_, err := s.policy(ctx, tx, collectionID, field)
+			if errors.Is(err, ErrNotFound) {
+				found = false
+				return nil
+			}
+			found = err == nil
+			return err
+		})
+	}, nil)
 	return found, err
 }

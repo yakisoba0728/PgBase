@@ -529,12 +529,16 @@ func (s *Service) Delete(ctx context.Context, principal identity.Subject, id uui
 		return ErrInvalid
 	}
 	var preview File
-	if err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if err := scanFile(tx.QueryRow(ctx, `select id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at from pgbase_meta.record_files where id=$1 and status='ready'`, id), &preview); err != nil {
-			return err
-		}
-		return s.authorizeField(ctx, tx, principal, preview.CollectionID, preview.RecordID, preview.Field, OperationWrite)
-	}); err != nil {
+	// The preview only reads; the delete below re-reads and re-authorizes under
+	// FOR UPDATE, so a snapshot here is enough and needs no WAL flush wait.
+	if err := database.Retry(ctx, func() error {
+		return s.pool.InTx(ctx, database.ReadSnapshotOptions(), func(tx pgx.Tx) error {
+			if err := scanFile(tx.QueryRow(ctx, `select id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at from pgbase_meta.record_files where id=$1 and status='ready'`, id), &preview); err != nil {
+				return err
+			}
+			return s.authorizeField(ctx, tx, principal, preview.CollectionID, preview.RecordID, preview.Field, OperationWrite)
+		})
+	}, nil); err != nil {
 		return err
 	}
 	event := &lifecycle.Event{Kind: "file.delete", Data: &FileEvent{File: preview, Principal: principal}}
@@ -577,32 +581,37 @@ func (s *Service) List(ctx context.Context, principal identity.Subject, collecti
 	if !principal.Valid() || collectionID == uuid.Nil || recordID == uuid.Nil || !fieldPattern.MatchString(field) {
 		return nil, ErrInvalid
 	}
-	files := make([]File, 0)
-	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if err := s.authorizeField(ctx, tx, principal, collectionID, recordID, field, OperationRead); err != nil {
-			return err
-		}
-		policy, err := s.resolvedPolicy(ctx, tx, principal, collectionID, recordID, field, OperationRead)
-		if err != nil {
-			return err
-		}
-		rows, err := tx.Query(ctx, `SELECT id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
-			FROM pgbase_meta.record_files WHERE ((collection_id=$1 AND record_id=$2) OR (auth_collection_id=$1 AND auth_user_id=$2)) AND field_name=$3 AND status='ready' ORDER BY created_at,id`, collectionID, recordID, field)
-
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var file File
-			if err := scanFile(rows, &file); err != nil {
+	var files []File
+	// Read-only, like authorizeOpen: a snapshot avoids a WAL flush wait for the
+	// FOR SHARE locks. Each retried attempt starts from an empty result.
+	err := database.Retry(ctx, func() error {
+		return s.pool.InTx(ctx, database.ReadSnapshotOptions(), func(tx pgx.Tx) error {
+			files = make([]File, 0)
+			if err := s.authorizeField(ctx, tx, principal, collectionID, recordID, field, OperationRead); err != nil {
 				return err
 			}
-			file.Public = !*policy.Protected && !policy.Hidden
-			files = append(files, file)
-		}
-		return rows.Err()
-	})
+			policy, err := s.resolvedPolicy(ctx, tx, principal, collectionID, recordID, field, OperationRead)
+			if err != nil {
+				return err
+			}
+			rows, err := tx.Query(ctx, `SELECT id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
+				FROM pgbase_meta.record_files WHERE ((collection_id=$1 AND record_id=$2) OR (auth_collection_id=$1 AND auth_user_id=$2)) AND field_name=$3 AND status='ready' ORDER BY created_at,id`, collectionID, recordID, field)
+
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var file File
+				if err := scanFile(rows, &file); err != nil {
+					return err
+				}
+				file.Public = !*policy.Protected && !policy.Hidden
+				files = append(files, file)
+			}
+			return rows.Err()
+		})
+	}, nil)
 	return files, err
 }
 
@@ -611,25 +620,28 @@ func (s *Service) MintDownloadToken(ctx context.Context, principal identity.Subj
 		return "", ErrInvalid
 	}
 	var file File
-	if err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if err := scanFile(tx.QueryRow(ctx, `SELECT id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
-			FROM pgbase_meta.record_files WHERE id=$1 AND status='ready'`, id), &file); err != nil {
-			return err
-		}
-		if variant == Thumbnail && file.ThumbnailKey == "" {
-			return ErrNotFound
-		}
-		if variant != Original && variant != Thumbnail {
-			policy, err := s.resolvedPolicy(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead)
-			if err != nil {
+	// Read-only, like authorizeOpen: no WAL flush wait for the FOR SHARE locks.
+	if err := database.Retry(ctx, func() error {
+		return s.pool.InTx(ctx, database.ReadSnapshotOptions(), func(tx pgx.Tx) error {
+			if err := scanFile(tx.QueryRow(ctx, `SELECT id,coalesce(collection_id,auth_collection_id),coalesce(record_id,auth_user_id),coalesce(owner_id,'00000000-0000-0000-0000-000000000000'),field_name,filename,content_type,size_bytes,sha256,object_key,coalesce(thumbnail_object_key,''),created_at,ready_at
+				FROM pgbase_meta.record_files WHERE id=$1 AND status='ready'`, id), &file); err != nil {
 				return err
 			}
-			if !containsVariant(policy.Thumbs, string(variant)) {
+			if variant == Thumbnail && file.ThumbnailKey == "" {
 				return ErrNotFound
 			}
-		}
-		return s.authorizeField(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead)
-	}); err != nil {
+			if variant != Original && variant != Thumbnail {
+				policy, err := s.resolvedPolicy(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead)
+				if err != nil {
+					return err
+				}
+				if !containsVariant(policy.Thumbs, string(variant)) {
+					return ErrNotFound
+				}
+			}
+			return s.authorizeField(ctx, tx, principal, file.CollectionID, file.RecordID, file.Field, OperationRead)
+		})
+	}, nil); err != nil {
 		return "", err
 	}
 	var token string
