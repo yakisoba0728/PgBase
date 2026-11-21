@@ -22,6 +22,14 @@ type adminIPAuthorizer interface {
 	AuthorizeIP(context.Context, uuid.UUID, string) error
 }
 
+// adminAddressAuthenticator authenticates a session and checks its
+// administrator's IP allowlist in one call. Session errors come back first and
+// unchanged; adminauth.ErrIPRestricted means the allowlist rejected the
+// request, which the transport reports exactly like a failed AuthorizeIP.
+type adminAddressAuthenticator interface {
+	AuthenticateFromAddress(ctx context.Context, rawToken, address string, addressValid bool) (adminauth.Principal, error)
+}
+
 const adminSessionTokenBytes = 32
 
 // AdminPrincipal is the authenticated administrator and the raw session bound
@@ -102,7 +110,18 @@ func authenticateAdminMiddleware(auth AdminAuth, publicURL *url.URL, trustedProx
 			writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
 			return
 		}
-		authenticated, err := auth.Authenticate(r.Context(), cookie.Value)
+		var authenticated adminauth.Principal
+		combined, checksAddress := auth.(adminAddressAuthenticator)
+		if checksAddress {
+			address, valid := clientIP(r, currentTrustedProxies(trustedProxies))
+			authenticated, err = combined.AuthenticateFromAddress(r.Context(), cookie.Value, address, valid)
+			if errors.Is(err, adminauth.ErrIPRestricted) {
+				writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})
+				return
+			}
+		} else {
+			authenticated, err = auth.Authenticate(r.Context(), cookie.Value)
+		}
 		if err != nil {
 			if errors.Is(err, adminauth.ErrRateLimited) {
 				w.Header().Set("Retry-After", authenticationRetryAfter)
@@ -121,7 +140,7 @@ func authenticateAdminMiddleware(auth AdminAuth, publicURL *url.URL, trustedProx
 			writeAPIError(w, r, APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"})
 			return
 		}
-		if authorizer, ok := auth.(adminIPAuthorizer); ok {
+		if authorizer, ok := auth.(adminIPAuthorizer); ok && !checksAddress {
 			address, valid := clientIP(r, currentTrustedProxies(trustedProxies))
 			if !valid || authorizer.AuthorizeIP(r.Context(), authenticated.Administrator.ID, address) != nil {
 				writeAPIError(w, r, APIError{Status: http.StatusUnauthorized, Code: "authentication_required", Message: "Administrator authentication is required"})

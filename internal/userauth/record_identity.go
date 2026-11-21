@@ -65,3 +65,21 @@ func (s *Service) projectUser(ctx context.Context, db recordidentity.DB, user *U
 	user.PublicID = public
 	return nil
 }
+
+// projectUserFromJoin applies an auth identity read in the same statement as
+// the user row (LEFT JOIN on the record_identities primary key). It mirrors
+// projectUser and recordidentity.PublicAuth exactly: nil users are untouched,
+// a missing collection is invalid, and a missing mapping is not found.
+func projectUserFromJoin(user *User, external *string) error {
+	if user == nil || user.ID == uuid.Nil {
+		return nil
+	}
+	if user.AuthCollectionID == uuid.Nil {
+		return recordidentity.ErrInvalid
+	}
+	if external == nil {
+		return recordidentity.ErrNotFound
+	}
+	user.PublicID = *external
+	return nil
+}
