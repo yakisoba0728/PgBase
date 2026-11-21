@@ -9,6 +9,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -225,14 +227,19 @@ func TestAnonymousRecordWritesRejectWithoutReadingTheBody(t *testing.T) {
 
 func multipartBatchBody(t *testing.T, requests string, filesBefore, filesAfter int) (*bytes.Buffer, string) {
 	t.Helper()
+	return multipartBatchBodySized(t, requests, filesBefore, filesAfter, 256<<10)
+}
+
+func multipartBatchBodySized(t *testing.T, requests string, filesBefore, filesAfter, fileBytes int) (*bytes.Buffer, string) {
+	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	addFile := func(index int) {
-		part, err := writer.CreateFormFile("file"+string(rune('a'+index)), "upload.bin")
+		part, err := writer.CreateFormFile("file"+strconv.Itoa(index), "upload.bin")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := part.Write(bytes.Repeat([]byte{'z'}, 256<<10)); err != nil {
+		if _, err := part.Write(bytes.Repeat([]byte{'z'}, fileBytes)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -256,6 +263,67 @@ func multipartBatchBody(t *testing.T, requests string, filesBefore, filesAfter i
 	return &body, writer.FormDataContentType()
 }
 
+// tempDirProbe points the process temporary directory at an empty directory
+// and reports the largest number of entries it held whenever sample ran.
+type tempDirProbe struct {
+	t   *testing.T
+	dir string
+	max int
+}
+
+func newTempDirProbe(t *testing.T) *tempDirProbe {
+	t.Helper()
+	dir := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, dir)
+	}
+	if os.TempDir() != dir {
+		t.Fatalf("temporary directory override not honored: %s", os.TempDir())
+	}
+	return &tempDirProbe{t: t, dir: dir}
+}
+
+func (p *tempDirProbe) sample() {
+	entries, err := os.ReadDir(p.dir)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	p.max = max(p.max, len(entries))
+}
+
+func (p *tempDirProbe) left() int {
+	entries, err := os.ReadDir(p.dir)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	return len(entries)
+}
+
+// probedBody samples the temporary directory on every body read, so a file
+// held open while later parts are read is counted.
+type probedBody struct {
+	reader io.Reader
+	probe  *tempDirProbe
+}
+
+func (b *probedBody) Read(p []byte) (int, error) {
+	b.probe.sample()
+	return b.reader.Read(p)
+}
+
+func (b *probedBody) Close() error { return nil }
+
+// probedFiles samples the temporary directory while each part is staged.
+type probedFiles struct {
+	*admissionFiles
+	probe *tempDirProbe
+}
+
+func (f probedFiles) Stage(ctx context.Context, principal identity.Subject, upload filestore.Upload) (filestore.StagedFile, error) {
+	f.probe.sample()
+	return f.admissionFiles.Stage(ctx, principal, upload)
+}
+
 func TestAnonymousMultipartBatchStagesNothingBeforeAdmission(t *testing.T) {
 	anonymous := identity.Subject{Kind: identity.Anonymous}
 	mixed := `{"operations":[{"operation":"create","collection":"open","input":{"title":"a"}},{"operation":"update","collection":"%s","id":"r1","input":{"title":"b"}}]}`
@@ -274,19 +342,25 @@ func TestAnonymousMultipartBatchStagesNothingBeforeAdmission(t *testing.T) {
 				baseline := httptest.NewRecorder()
 				recordEndpoints{service: baselineRecords, files: baselineFiles}.batch(baseline, request)
 				wantStatus, wantCode := admissionError(t, baseline)
+				// A file part ahead of the requests part is refused outright.
+				if layout.before > 0 {
+					wantStatus, wantCode = http.StatusBadRequest, "invalid_request"
+				}
 
+				probe := newTempDirProbe(t)
 				access, records, files := newAdmissionFixture()
 				body, contentType = multipartBatchBody(t, requests, layout.before, layout.after)
 				request = admissionRequest(http.MethodPost, "/api/v1/public/collections/batch", "", "", anonymous, body)
 				request.Header.Set("Content-Type", contentType)
+				request.Body = &probedBody{reader: body, probe: probe}
 				response := httptest.NewRecorder()
-				recordEndpoints{service: records, files: files, access: access}.batch(response, request)
+				recordEndpoints{service: records, files: probedFiles{files, probe}, access: access}.batch(response, request)
 				status, code := admissionError(t, response)
 				if status != wantStatus || code != wantCode {
-					t.Fatalf("batch preflight = %d %q, want the record service's %d %q", status, code, wantStatus, wantCode)
+					t.Fatalf("batch preflight = %d %q, want %d %q", status, code, wantStatus, wantCode)
 				}
-				if files.stages != 0 || records.batches != 0 {
-					t.Fatalf("denied anonymous batch staged %d files and ran %d batches", files.stages, records.batches)
+				if files.stages != 0 || records.batches != 0 || probe.max != 0 || probe.left() != 0 {
+					t.Fatalf("denied anonymous batch staged %d files, ran %d batches, spooled up to %d temporary files, left %d", files.stages, records.batches, probe.max, probe.left())
 				}
 			})
 		}
@@ -295,7 +369,7 @@ func TestAnonymousMultipartBatchStagesNothingBeforeAdmission(t *testing.T) {
 	// A batch naming no admissible target cannot stage first and fail later.
 	for _, requests := range []string{`{"requests":[{"method":"GET","url":"/api/v1/collections/open/records"}]}`, `{"operations":[]}`} {
 		access, records, files := newAdmissionFixture()
-		body, contentType := multipartBatchBody(t, requests, 1, 1)
+		body, contentType := multipartBatchBody(t, requests, 0, 2)
 		request := admissionRequest(http.MethodPost, "/api/v1/public/collections/batch", "", "", anonymous, body)
 		request.Header.Set("Content-Type", contentType)
 		response := httptest.NewRecorder()
@@ -305,10 +379,10 @@ func TestAnonymousMultipartBatchStagesNothingBeforeAdmission(t *testing.T) {
 		}
 	}
 
-	// An admitted anonymous batch stages every file, whichever side of the
-	// requests part it arrived on.
+	// An admitted anonymous batch stages every file that follows the requests
+	// part, after a single preflight.
 	access, _, files := newAdmissionFixture()
-	body, contentType := multipartBatchBody(t, `{"operations":[{"operation":"create","collection":"open","input":{"title":"a"}}]}`, 2, 1)
+	body, contentType := multipartBatchBody(t, `{"operations":[{"operation":"create","collection":"open","input":{"title":"a"}}]}`, 0, 3)
 	request := admissionRequest(http.MethodPost, "/api/v1/public/collections/batch", "", "", anonymous, body)
 	request.Header.Set("Content-Type", contentType)
 	_, staged, err := recordEndpoints{files: files, access: access}.decodeBatch(request, anonymous)
@@ -316,14 +390,56 @@ func TestAnonymousMultipartBatchStagesNothingBeforeAdmission(t *testing.T) {
 		t.Fatalf("admitted anonymous batch err=%v staged=%d stages=%d lookups=%d", err, len(staged), files.stages, access.lookups)
 	}
 
-	// Other principals stage as they arrive and never consult the preflight.
-	service := identity.Subject{Kind: identity.Service, ID: uuid.New()}
-	access, _, files = newAdmissionFixture()
-	body, contentType = multipartBatchBody(t, `{"operations":[{"operation":"create","collection":"closed","input":{"title":"a"}}]}`, 1, 1)
-	request = admissionRequest(http.MethodPost, "/api/v1/service/collections/batch", "", "", service, body)
-	request.Header.Set("Content-Type", contentType)
-	_, staged, err = recordEndpoints{files: files, access: access}.decodeBatch(request, service)
-	if err != nil || len(staged) != 2 || files.stages != 2 || access.lookups != 0 {
-		t.Fatalf("service batch err=%v staged=%d stages=%d lookups=%d", err, len(staged), files.stages, access.lookups)
+	// Other principals may still send files first; they stage as they arrive
+	// and never consult the preflight.
+	for _, principal := range []identity.Subject{{Kind: identity.Service, ID: uuid.New()}, {Kind: identity.User, ID: uuid.New()}} {
+		access, _, files = newAdmissionFixture()
+		body, contentType = multipartBatchBody(t, `{"operations":[{"operation":"create","collection":"closed","input":{"title":"a"}}]}`, 2, 1)
+		request = admissionRequest(http.MethodPost, "/api/v1/user/collections/batch", "", "", principal, body)
+		request.Header.Set("Content-Type", contentType)
+		_, staged, err = recordEndpoints{files: files, access: access}.decodeBatch(request, principal)
+		if err != nil || len(staged) != 3 || files.stages != 3 || access.lookups != 0 {
+			t.Fatalf("%s batch err=%v staged=%d stages=%d lookups=%d", principal.Kind, err, len(staged), files.stages, access.lookups)
+		}
+	}
+}
+
+// TestMultipartBatchKeepsOneTemporaryFileOpen sends thousands of one-byte file
+// parts and checks that at most one spooled temporary file exists at any point
+// while the body is read or a part is staged, whoever the caller is and
+// whichever side of the requests part the files are on.
+func TestMultipartBatchKeepsOneTemporaryFileOpen(t *testing.T) {
+	const parts = 3000
+	requests := `{"operations":[{"operation":"create","collection":"open","input":{"title":"a"}}]}`
+	for _, test := range []struct {
+		name          string
+		principal     identity.Subject
+		before, after int
+		wantStages    int
+		wantErr       bool
+	}{
+		{name: "anonymous/files-first", principal: identity.Subject{Kind: identity.Anonymous}, before: parts, wantErr: true},
+		{name: "anonymous/files-last", principal: identity.Subject{Kind: identity.Anonymous}, after: parts, wantStages: parts},
+		{name: "user/files-first", principal: identity.Subject{Kind: identity.User, ID: uuid.New()}, before: parts, wantStages: parts},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			probe := newTempDirProbe(t)
+			access, _, files := newAdmissionFixture()
+			body, contentType := multipartBatchBodySized(t, requests, test.before, test.after, 1)
+			request := admissionRequest(http.MethodPost, "/api/v1/public/collections/batch", "", "", test.principal, nil)
+			request.Header.Set("Content-Type", contentType)
+			request.Body = &probedBody{reader: body, probe: probe}
+			_, staged, err := recordEndpoints{files: probedFiles{files, probe}, access: access}.decodeBatch(request, test.principal)
+			if (err != nil) != test.wantErr || len(staged) != test.wantStages || files.stages != test.wantStages {
+				t.Fatalf("err=%v staged=%d stages=%d", err, len(staged), files.stages)
+			}
+			wantMax := 1
+			if test.wantErr {
+				wantMax = 0
+			}
+			if probe.max != wantMax || probe.left() != 0 {
+				t.Fatalf("temporary files: at most %d at once (want %d), %d left", probe.max, wantMax, probe.left())
+			}
+		})
 	}
 }

@@ -445,35 +445,13 @@ func (e recordEndpoints) decodeBatch(r *http.Request, principal identity.Subject
 	var input batchInput
 	staged := namedStagedFiles{}
 	seen := map[string]bool{}
-	// An anonymous batch stages nothing until every target collection passed
-	// the admission preflight. File parts that precede the requests part wait
-	// in their temporary files; once admitted they are staged in arrival order.
+	// An anonymous batch writes nothing to disk or storage until every target
+	// collection passed the admission preflight, so its requests part must come
+	// before any file part. A file part ahead of it is refused rather than held:
+	// holding spooled parts would keep one open temporary file per part, and
+	// the part count is unbounded. Every admitted part is spooled, staged and
+	// released before the next one is read.
 	admitted := e.access == nil || principal.Kind != identity.Anonymous
-	var pending []pendingBatchUpload
-	defer func() {
-		for _, upload := range pending {
-			upload.discard()
-		}
-	}()
-	admit := func() error {
-		if admitted {
-			return nil
-		}
-		if err := e.anonymousBatchAdmission(r, input); err != nil {
-			return err
-		}
-		admitted = true
-		for len(pending) > 0 {
-			upload := pending[0]
-			pending = pending[1:]
-			file, err := upload.stage(r.Context(), e.files, principal)
-			if err != nil {
-				return err
-			}
-			staged[upload.name] = file
-		}
-		return nil
-	}
 	for {
 		part, err := reader.NextPart()
 		if errors.Is(err, io.EOF) {
@@ -493,15 +471,19 @@ func (e recordEndpoints) decodeBatch(r *http.Request, principal identity.Subject
 			if readErr != nil || closeErr != nil || len(data) > maximumBatchRequestBytes || part.FileName() != "" || decodeStrictJSONBytes(data, &input) != nil {
 				return batchInput{}, staged, errors.New("invalid requests")
 			}
-			if len(pending) > 0 {
-				if err := admit(); err != nil {
-					return batchInput{}, staged, err
-				}
-			}
 			continue
 		}
 		if part.FileName() == "" {
 			return batchInput{}, staged, errors.Join(errors.New("file name required"), part.Close())
+		}
+		if !admitted {
+			if !seen["requests"] {
+				return batchInput{}, staged, errors.Join(errors.New("anonymous batch files must follow the requests part"), part.Close())
+			}
+			if err := e.anonymousBatchAdmission(r, input); err != nil {
+				return batchInput{}, staged, errors.Join(err, part.Close())
+			}
+			admitted = true
 		}
 		contentType := strings.TrimSpace(strings.Split(part.Header.Get("Content-Type"), ";")[0])
 		temporary, tempErr := os.CreateTemp("", "pgbase-batch-upload-*")
@@ -522,16 +504,8 @@ func (e recordEndpoints) decodeBatch(r *http.Request, principal identity.Subject
 			_ = os.Remove(temporaryName)
 			return batchInput{}, staged, seekErr
 		}
-		upload := pendingBatchUpload{name: name, filename: part.FileName(), contentType: contentType, size: size, temporary: temporary}
+		upload := pendingBatchUpload{filename: part.FileName(), contentType: contentType, size: size, temporary: temporary}
 		copy(upload.digest[:], hash.Sum(nil))
-		if !admitted && !seen["requests"] {
-			pending = append(pending, upload)
-			continue
-		}
-		if err := admit(); err != nil {
-			upload.discard()
-			return batchInput{}, staged, err
-		}
 		file, stageErr := upload.stage(r.Context(), e.files, principal)
 		if stageErr != nil {
 			return batchInput{}, staged, stageErr
@@ -592,14 +566,14 @@ func (e recordEndpoints) anonymousBatchAdmission(r *http.Request, input batchInp
 // pendingBatchUpload is a multipart file part already spooled to a temporary
 // file and hashed, but not yet written to file storage.
 type pendingBatchUpload struct {
-	name, filename, contentType string
-	size                        int64
-	digest                      [32]byte
-	temporary                   *os.File
+	filename, contentType string
+	size                  int64
+	digest                [32]byte
+	temporary             *os.File
 }
 
 // stage writes the spooled file to storage and always releases the temporary
-// file, as the inline staging did.
+// file.
 func (u pendingBatchUpload) stage(ctx context.Context, files FileService, principal identity.Subject) (filestore.StagedFile, error) {
 	file, err := files.Stage(ctx, principal, filestore.Upload{Filename: u.filename, ContentType: u.contentType, Size: u.size, SHA256: u.digest, Body: u.temporary})
 	if err != nil {

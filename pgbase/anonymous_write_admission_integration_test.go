@@ -69,19 +69,30 @@ func TestAnonymousWriteAdmissionPreflightKeepsRecordServiceResponses(t *testing.
 		encoded, _ := json.Marshal(value)
 		return bytes.NewReader(encoded)
 	}
-	multipartBatch := func(collection string) (io.Reader, string) {
+	// An anonymous multipart batch must carry its requests part ahead of every
+	// file part; filesFirst builds the order that is refused.
+	multipartBatchOrdered := func(collection string, filesFirst bool) (io.Reader, string) {
 		var body bytes.Buffer
 		writer := multipart.NewWriter(&body)
-		header := textproto.MIMEHeader{}
-		header.Set("Content-Disposition", `form-data; name="upload"; filename="upload.txt"`)
-		header.Set("Content-Type", "text/plain")
-		file, _ := writer.CreatePart(header)
-		_, _ = file.Write(bytes.Repeat([]byte{'z'}, 64<<10))
+		writeFile := func() {
+			header := textproto.MIMEHeader{}
+			header.Set("Content-Disposition", `form-data; name="upload"; filename="upload.txt"`)
+			header.Set("Content-Type", "text/plain")
+			file, _ := writer.CreatePart(header)
+			_, _ = file.Write(bytes.Repeat([]byte{'z'}, 64<<10))
+		}
+		if filesFirst {
+			writeFile()
+		}
 		requests, _ := writer.CreateFormField("requests")
 		_, _ = requests.Write([]byte(`{"operations":[{"operation":"create","collection":"anon_open","input":{"title":"a"}},{"operation":"create","collection":"` + collection + `","input":{"title":"b","attachment":{"$file":"upload"}}}]}`))
+		if !filesFirst {
+			writeFile()
+		}
 		_ = writer.Close()
 		return &body, writer.FormDataContentType()
 	}
+	multipartBatch := func(collection string) (io.Reader, string) { return multipartBatchOrdered(collection, false) }
 
 	for _, test := range []struct {
 		name string
@@ -106,6 +117,10 @@ func TestAnonymousWriteAdmissionPreflightKeepsRecordServiceResponses(t *testing.
 		}, outcome{http.StatusForbidden, "access_denied"}},
 		{"multipart batch missing", func() outcome {
 			body, contentType := multipartBatch("anon_missing")
+			return send(http.MethodPost, "/api/v1/public/collections/batch", contentType, body)
+		}, outcome{http.StatusBadRequest, "invalid_request"}},
+		{"multipart batch files before requests", func() outcome {
+			body, contentType := multipartBatchOrdered("anon_open", true)
 			return send(http.MethodPost, "/api/v1/public/collections/batch", contentType, body)
 		}, outcome{http.StatusBadRequest, "invalid_request"}},
 	} {
