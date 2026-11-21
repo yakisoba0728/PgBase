@@ -448,6 +448,10 @@ func writeFileError(w http.ResponseWriter, r *http.Request, err error) {
 		response = APIError{Status: 403, Code: "file_access_denied", Message: "File access denied"}
 	case errors.Is(err, filestore.ErrNotFound):
 		response = APIError{Status: 404, Code: "not_found", Message: "File not found"}
+	case errors.Is(err, filestore.ErrImageBusy):
+		// Image decode memory stayed exhausted; the request can simply be retried.
+		w.Header().Set("Retry-After", "5")
+		response = APIError{Status: http.StatusServiceUnavailable, Code: "file_busy", Message: "Image processing is busy"}
 	}
 	writeAPIError(w, r, response)
 }
