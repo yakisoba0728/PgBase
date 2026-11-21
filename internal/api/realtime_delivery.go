@@ -68,7 +68,11 @@ func (h *realtimeHub) deliverRecordMessages(w http.ResponseWriter, r *http.Reque
 		writeRealtimeStreamError(w, control, err)
 		return err
 	}
-	if !h.revalidateRealtimeRequest(r, client) {
+	// The recheck discards a batch read under attributes that changed during
+	// the read. An idle poll has no batch: it repeats a checkpoint the client
+	// already holds and reveals nothing the read produced, so the credential
+	// check that opens the next poll is the next point that can act on it.
+	if (len(messages) > 0 || realtimeCheckpointAdvances(subscriptions, through)) && !h.revalidateRealtimeRequest(r, client) {
 		return recordaccess.ErrDenied
 	}
 	for index, message := range messages {
@@ -139,6 +143,20 @@ func (h *realtimeHub) deliverRecordMessages(w http.ResponseWriter, r *http.Reque
 		client.mu.Unlock()
 	}
 	return nil
+}
+
+// realtimeCheckpointAdvances reports whether a poll moves any record topic past
+// the checkpoint it already holds, mirroring the cursor update after a write.
+func realtimeCheckpointAdvances(subscriptions []realtimeSubscription, through *int64) bool {
+	if through == nil {
+		return false
+	}
+	for _, sub := range subscriptions {
+		if !sub.application && (sub.cursor == nil || *sub.cursor < *through) {
+			return true
+		}
+	}
+	return false
 }
 
 // Every reader returns the last sequence it completely inspected. The minimum

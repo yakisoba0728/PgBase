@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -112,21 +113,114 @@ func (s *Service) WithReplaySnapshot(ctx context.Context, visit func(ReplayLooku
 	// data, so releasing it does not need to wait for the WAL flush.
 	options := pgx.TxOptions{BeginQuery: "begin isolation level repeatable read; set local synchronous_commit = off"}
 	return s.pool.InTx(ctx, options, func(tx pgx.Tx) error {
-		catalog, err := s.schemas.EnsureCurrent(ctx, tx)
-		if err != nil {
-			return err
-		}
-		var floor, head int64
-		if err := tx.QueryRow(ctx, `SELECT floor_sequence,GREATEST(floor_sequence,COALESCE((SELECT max(sequence) FROM pgbase_meta.realtime_events),0)) FROM pgbase_meta.realtime_retention WHERE singleton`).Scan(&floor, &head); err != nil {
-			return err
-		}
-		return visit(func(request ReadRequest) ([]Event, int64, error) {
-			return s.readWithSnapshot(ctx, tx, catalog, floor, head, request)
-		})
+		return s.replayInTx(ctx, tx, visit)
 	})
 }
 
-func (s *Service) readWithSnapshot(ctx context.Context, tx pgx.Tx, catalog schema.Catalog, floor, head int64, request ReadRequest) ([]Event, int64, error) {
+func (s *Service) replayInTx(ctx context.Context, tx pgx.Tx, visit func(ReplayLookup) error) error {
+	catalog, err := s.schemas.EnsureCurrent(ctx, tx)
+	if err != nil {
+		return err
+	}
+	snapshot := &replaySnapshot{service: s, tx: tx, catalog: catalog}
+	if err := tx.QueryRow(ctx, `SELECT floor_sequence,GREATEST(floor_sequence,COALESCE((SELECT max(sequence) FROM pgbase_meta.realtime_events),0)) FROM pgbase_meta.realtime_retention WHERE singleton`).Scan(&snapshot.floor, &snapshot.head); err != nil {
+		return err
+	}
+	return visit(func(request ReadRequest) ([]Event, int64, error) {
+		return snapshot.read(ctx, request)
+	})
+}
+
+// replaySnapshot is one delivery pass's repeatable-read transaction. Topics
+// of the same collection share their admission check, rules and identity
+// resolution: the admission and rule rows are held FOR SHARE until commit and
+// every other read uses the same snapshot, so a repeated lookup in this
+// transaction can only return the result already observed. Only successful
+// lookups are reused; every pass begins with empty caches.
+type replaySnapshot struct {
+	service     *Service
+	tx          pgx.Tx
+	catalog     schema.Catalog
+	floor, head int64
+
+	admitted  map[replayAdmissionKey]bool
+	rules     map[uuid.UUID]replayRules
+	recordIDs map[replayRecordKey]uuid.UUID
+
+	// alwaysJoinRecord restores the unconditional acl_record join. Tests use it
+	// to compare the gated statement with the original one.
+	alwaysJoinRecord bool
+}
+
+type replayAdmissionKey struct {
+	collection uuid.UUID
+	principal  identity.Subject
+}
+
+type replayRecordKey struct {
+	collection uuid.UUID
+	public     string
+}
+
+type replayRules struct {
+	rules    accessrule.Rules
+	revision int64
+}
+
+func (r *replaySnapshot) authorize(ctx context.Context, collection uuid.UUID, principal identity.Subject) error {
+	key := replayAdmissionKey{collection: collection, principal: principal}
+	if r.admitted[key] {
+		return nil
+	}
+	if err := recordaccess.AuthorizeSubject(ctx, r.tx, collection, principal, "list"); err != nil {
+		return err
+	}
+	if r.admitted == nil {
+		r.admitted = make(map[replayAdmissionKey]bool)
+	}
+	r.admitted[key] = true
+	return nil
+}
+
+func (r *replaySnapshot) loadRules(ctx context.Context, collection uuid.UUID) (accessrule.Rules, int64, error) {
+	if loaded, ok := r.rules[collection]; ok {
+		return loaded.rules, loaded.revision, nil
+	}
+	rules, revision, err := recordaccess.LoadRules(ctx, r.tx, collection)
+	if err != nil {
+		return accessrule.Rules{}, 0, err
+	}
+	if r.rules == nil {
+		r.rules = make(map[uuid.UUID]replayRules)
+	}
+	r.rules[collection] = replayRules{rules: rules, revision: revision}
+	return rules, revision, nil
+}
+
+func (r *replaySnapshot) resolve(ctx context.Context, collection schema.Collection, public string) (uuid.UUID, error) {
+	key := replayRecordKey{collection: collection.ID, public: public}
+	if id, ok := r.recordIDs[key]; ok {
+		return id, nil
+	}
+	id, err := r.service.ids.Resolve(ctx, r.tx, collection, public)
+	if errors.Is(err, recordidentity.ErrNotFound) {
+		err = r.tx.QueryRow(ctx, publicIdentityLookup, collection.ID, public).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = recordidentity.ErrNotFound
+		}
+	}
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if r.recordIDs == nil {
+		r.recordIDs = make(map[replayRecordKey]uuid.UUID)
+	}
+	r.recordIDs[key] = id
+	return id, nil
+}
+
+func (r *replaySnapshot) read(ctx context.Context, request ReadRequest) ([]Event, int64, error) {
+	s, tx, catalog, floor, head := r.service, r.tx, r.catalog, r.floor, r.head
 	if !request.Principal.Valid() {
 		return nil, 0, recordaccess.ErrDenied
 	}
@@ -135,14 +229,17 @@ func (s *Service) readWithSnapshot(ctx context.Context, tx pgx.Tx, catalog schem
 	if !ok {
 		return nil, 0, recordaccess.ErrDenied
 	}
-	if err := recordaccess.AuthorizeSubject(ctx, tx, collection.ID, request.Principal, "list"); err != nil {
+	if err := r.authorize(ctx, collection.ID, request.Principal); err != nil {
 		return nil, 0, err
 	}
 	cursor := head
 	if request.After != nil {
 		cursor = *request.After
 	}
-	statement, args, err := s.eventQuery(ctx, tx, request, catalog, collection, cursor)
+	// The event query is prepared even when the cursor is already at the head:
+	// its rule load, identity resolution and option validation are how an idle
+	// subscription observes a schema or policy change on the next poll.
+	statement, args, err := r.eventQuery(ctx, request, collection, cursor)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -253,19 +350,14 @@ func applicationBroadcastRulePublic(rule accessrule.Rule) bool {
 	return rule.Op == "allow"
 }
 
-func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest, catalog schema.Catalog, collection schema.Collection, cursor int64) (string, []any, error) {
-	rules, revision, err := recordaccess.LoadRules(ctx, tx, collection.ID)
+func (r *replaySnapshot) eventQuery(ctx context.Context, request ReadRequest, collection schema.Collection, cursor int64) (string, []any, error) {
+	catalog := r.catalog
+	rules, revision, err := r.loadRules(ctx, collection.ID)
 	if err != nil {
 		return "", nil, err
 	}
 	if request.PublicID != "" {
-		request.RecordID, err = s.ids.Resolve(ctx, tx, collection, request.PublicID)
-		if errors.Is(err, recordidentity.ErrNotFound) {
-			err = tx.QueryRow(ctx, publicIdentityLookup, collection.ID, request.PublicID).Scan(&request.RecordID)
-			if errors.Is(err, pgx.ErrNoRows) {
-				err = recordidentity.ErrNotFound
-			}
-		}
+		request.RecordID, err = r.resolve(ctx, collection, request.PublicID)
 		if err != nil {
 			return "", nil, err
 		}
@@ -281,7 +373,7 @@ func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest
 	} else if revision != 0 {
 		rule := accessrule.Rule{Op: "all", Args: []accessrule.Rule{rules.List, rules.View}}
 		predicate, args, err = accessrule.CompilePolicy(rule, accessrule.PolicyContext{
-			Catalog: catalog, Collection: collection, Alias: "acl_record", Principal: request.Principal,
+			Catalog: catalog, Collection: collection, Alias: aclRecordAlias, Principal: request.Principal,
 			Request: request.RuleContext, ArgOffset: 2, EventAlias: "event",
 		})
 		if err != nil {
@@ -292,7 +384,7 @@ func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest
 		if err := query.ValidateFilterFields(catalog, collection, request.Principal, request.Filter); err != nil {
 			return "", nil, err
 		}
-		filterSQL, filterArgs, compileErr := query.CompileRecordPredicate(collection, request.Filter, "acl_record", 2+len(args))
+		filterSQL, filterArgs, compileErr := query.CompileRecordPredicate(collection, request.Filter, aclRecordAlias, 2+len(args))
 		if compileErr != nil {
 			if relationFilterUnsupported(compileErr) {
 				return "", nil, ErrRelationFilterRequiresCurrentRecord
@@ -302,10 +394,14 @@ func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest
 		predicate = "(" + predicate + ") AND (" + filterSQL + ")"
 		args = append(args, filterArgs...)
 	}
-	table := pgx.Identifier{"app", collection.TableName}.Sanitize()
 	statement := `SELECT event.sequence,event.event_id,event.collection_name,event.record_id,event.operation,event.record_version,outbox.record_snapshot,outbox.envelope->'publicRecord',outbox.envelope->'relations'
- FROM pgbase_meta.realtime_events event JOIN pgbase_meta.record_outbox outbox ON outbox.event_id=event.event_id
- CROSS JOIN LATERAL jsonb_populate_record(NULL::` + table + `,COALESCE((SELECT to_jsonb(current_record) FROM ` + table + ` current_record WHERE current_record.id=event.record_id),outbox.record_snapshot)) acl_record
+ FROM pgbase_meta.realtime_events event JOIN pgbase_meta.record_outbox outbox ON outbox.event_id=event.event_id`
+	if r.alwaysJoinRecord || referencesACLRecord(predicate) {
+		table := pgx.Identifier{"app", collection.TableName}.Sanitize()
+		statement += `
+ CROSS JOIN LATERAL jsonb_populate_record(NULL::` + table + `,COALESCE((SELECT to_jsonb(current_record) FROM ` + table + ` current_record WHERE current_record.id=event.record_id),outbox.record_snapshot)) ` + aclRecordAlias
+	}
+	statement += `
  WHERE event.collection_id=$1 AND event.sequence>$2`
 	base := []any{collection.ID, cursor}
 	if request.PublicID != "" {
@@ -318,6 +414,20 @@ func (s *Service) eventQuery(ctx context.Context, tx pgx.Tx, request ReadRequest
 	}
 	statement += ` AND (` + predicate + `) ORDER BY event.sequence LIMIT 100`
 	return statement, append(base, args...), nil
+}
+
+// aclRecordAlias names the current row, or the event snapshot after deletion,
+// as seen by compiled rules and filters.
+const aclRecordAlias = "acl_record"
+
+// referencesACLRecord reports whether compiled SQL may read the acl_record
+// row. It is deliberately a plain substring test: any occurrence, quoted,
+// qualified or not, keeps the join. Values are always bound as parameters, so
+// user input cannot add or remove an occurrence; a false positive only costs
+// the join that every event query used to perform. Without a reference the
+// one-row-per-event join cannot change which events match or their order.
+func referencesACLRecord(sql string) bool {
+	return strings.Contains(sql, aclRecordAlias)
 }
 
 func validateEventFields(collection schema.Collection, principal identity.Subject, requested string) error {
