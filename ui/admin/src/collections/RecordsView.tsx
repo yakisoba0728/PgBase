@@ -26,8 +26,7 @@ import { Popover } from "../components/Popover";
 import { SplitView } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { ValuePeek, type Peek } from "../components/ValuePeek";
-import { en } from "../i18n/en";
-import { useT, type Translate } from "../i18n";
+import { hasMessage, useT, type Translate } from "../i18n";
 import { settingsQuery } from "../system/queries";
 import { collectAll, deleteAll, RecordExport } from "./bulk";
 import { downloadBlob } from "../app/download";
@@ -65,7 +64,7 @@ function queryProblem(t: Translate, error: unknown): string | null {
   if (!part) return null;
   const code = details[part]![0];
   const key = `query.${code}`;
-  return `${t(part === "filter" ? "query.filterRejected" : "query.sortRejected")} ${key in en ? t(key as keyof typeof en) : code}`;
+  return `${t(part === "filter" ? "query.filterRejected" : "query.sortRejected")} ${hasMessage(key) ? t(key) : code}`;
 }
 
 type ExportSelection = { ids: string[]; kind: "selected" | "loaded" };
