@@ -586,13 +586,15 @@ func (s *Service) catalogInTx(ctx context.Context, tx database.DBTX) (*compiledC
 }
 
 // Catalog owns its read transaction and publishes only its committed snapshot.
+// The transaction writes no data; only the schema_state FOR SHARE pin emits
+// WAL, so its commit need not wait for a flush.
 func (s *Service) Catalog(ctx context.Context) (Catalog, error) {
 	if err := s.ready(); err != nil {
 		return Catalog{}, err
 	}
 	var compiled *compiledCatalog
 	err := database.Retry(ctx, func() error {
-		return s.pool.InTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(tx pgx.Tx) error {
+		return s.pool.InTx(ctx, database.ReadSnapshotOptions(), func(tx pgx.Tx) error {
 			var err error
 			compiled, err = s.catalogInTx(ctx, tx)
 			return err
