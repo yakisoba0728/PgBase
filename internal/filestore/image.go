@@ -28,29 +28,55 @@ func (s *Service) buildThumbnail(ctx context.Context, file File) ([]byte, error)
 	if err != nil || int64(len(data)) > s.options.MaximumBytes {
 		return nil, ErrInvalid
 	}
-	source, format, err := decodeImage(data, file.ContentType, s.options.MaximumImagePixels)
+	// The upload holds a storage slot but no transaction or row lock here, so
+	// it may queue for decode memory until its own context ends.
+	dimension := int64(s.options.ThumbnailDimension)
+	return s.renderDecodedImage(ctx, data, file.ContentType, saturatingMul(dimension, dimension), false, func(source image.Image, format string) ([]byte, error) {
+		width, height, maximum := source.Bounds().Dx(), source.Bounds().Dy(), s.options.ThumbnailDimension
+		if width <= maximum && height <= maximum {
+			maximum = max(width, height)
+		}
+		newWidth, newHeight := maximum, max(1, height*maximum/width)
+		if height > width {
+			newWidth, newHeight = max(1, width*maximum/height), maximum
+		}
+		xs, ys := thumbnailSampleGrid(width, height, newWidth, newHeight)
+		thumbnail := sampleNearest(source, xs, ys)
+		var output bytes.Buffer
+		err := encodeThumbnail(&output, thumbnail, format)
+		if err != nil || int64(output.Len()) > s.options.MaximumBytes {
+			return nil, ErrInvalid
+		}
+		return output.Bytes(), nil
+	})
+}
+
+// renderDecodedImage is the only path that decodes stored image bytes. It
+// reserves the estimated decode memory (see estimateImageMemory) before
+// decoding and holds it until render has returned its encoded bytes, after
+// which no reference to the decoded, oriented or resampled pixels remains.
+// outputPixels bounds what render will allocate for its result. An image whose
+// estimate exceeds the whole budget fails with ErrInvalid, like one over the
+// pixel limit. bounded callers may hold database locks and wait at most
+// lockedImageBudgetWait.
+func (s *Service) renderDecodedImage(ctx context.Context, data []byte, contentType string, outputPixels int64, bounded bool, render func(source image.Image, format string) ([]byte, error)) ([]byte, error) {
+	config, format, err := decodeImageConfig(bytes.NewReader(data), contentType)
+	if err != nil || config.Width < 1 || config.Height < 1 || int64(config.Width) > s.options.MaximumImagePixels/int64(config.Height) || !matchesImageFormat(contentType, format) {
+		return nil, ErrInvalid
+	}
+	release, err := s.acquireImageMemory(ctx, estimateImageMemory(data, format, config, outputPixels), bounded)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	source, format, err := decodeImage(data, contentType, s.options.MaximumImagePixels)
 	if err != nil {
 		return nil, ErrInvalid
 	}
 	if format == "jpeg" {
 		source = orientImage(source, jpegEXIFOrientation(data))
 	}
-	width, height, maximum := source.Bounds().Dx(), source.Bounds().Dy(), s.options.ThumbnailDimension
-	if width <= maximum && height <= maximum {
-		maximum = max(width, height)
-	}
-	newWidth, newHeight := maximum, max(1, height*maximum/width)
-	if height > width {
-		newWidth, newHeight = max(1, width*maximum/height), maximum
-	}
-	xs, ys := thumbnailSampleGrid(width, height, newWidth, newHeight)
-	thumbnail := sampleNearest(source, xs, ys)
-	var output bytes.Buffer
-	err = encodeThumbnail(&output, thumbnail, format)
-	if err != nil || int64(output.Len()) > s.options.MaximumBytes {
-		return nil, ErrInvalid
-	}
-	return output.Bytes(), nil
+	return render(source, format)
 }
 
 func thumbnailImageType(contentType string) bool {

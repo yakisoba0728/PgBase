@@ -62,6 +62,9 @@ type Options struct {
 	Policy             PolicyFunc
 	MetadataCatalog    RecordMetadataCatalog
 	Hooks              *lifecycle.Registry
+	// ImageDecodeMemoryBytes gives this service its own decode-memory budget.
+	// Zero shares the process-wide DefaultImageDecodeMemoryBytes budget.
+	ImageDecodeMemoryBytes int64
 }
 
 type Service struct {
@@ -70,6 +73,8 @@ type Service struct {
 	authorize AuthorizeFunc
 	options   Options
 	allowed   map[string]struct{}
+	// imageBudget is nil when the process-wide budget applies.
+	imageBudget *imageMemoryBudget
 }
 
 // SupportsRanges reports whether the configured object backend can select a
@@ -230,7 +235,7 @@ func (s *Service) OpenObject(ctx context.Context, key string) (io.ReadCloser, er
 }
 
 func NewService(pool *database.Pool, objects ObjectStore, authorize AuthorizeFunc, options Options) (*Service, error) {
-	if pool == nil || objects == nil || authorize == nil || options.MaximumBytes < 1 || options.MaximumImagePixels < 1 || options.ThumbnailDimension < 1 || len(options.TokenSecret) < 32 || options.TokenTTL <= 0 || options.TokenTTL > 15*time.Minute {
+	if pool == nil || objects == nil || authorize == nil || options.MaximumBytes < 1 || options.MaximumImagePixels < 1 || options.ThumbnailDimension < 1 || len(options.TokenSecret) < 32 || options.TokenTTL <= 0 || options.TokenTTL > 15*time.Minute || options.ImageDecodeMemoryBytes < 0 {
 		return nil, ErrInvalid
 	}
 	allowed := make(map[string]struct{}, len(options.AllowedTypes))
@@ -246,7 +251,11 @@ func NewService(pool *database.Pool, objects ObjectStore, authorize AuthorizeFun
 	if options.Now == nil {
 		options.Now = time.Now
 	}
-	return &Service{pool: pool, objects: objects, authorize: authorize, options: options, allowed: allowed}, nil
+	service := &Service{pool: pool, objects: objects, authorize: authorize, options: options, allowed: allowed}
+	if options.ImageDecodeMemoryBytes > 0 {
+		service.imageBudget = newImageMemoryBudget(options.ImageDecodeMemoryBytes)
+	}
+	return service, nil
 }
 
 var fieldPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)

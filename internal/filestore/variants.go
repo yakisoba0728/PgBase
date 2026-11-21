@@ -2,8 +2,10 @@ package filestore
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
+	"image"
 	"io"
 	"regexp"
 	"strconv"
@@ -135,13 +137,15 @@ func (s *Service) renderVariant(ctx context.Context, file File, variant string) 
 	if err != nil || int64(len(data)) > s.options.MaximumBytes {
 		return nil, ErrInvalid
 	}
-	return s.renderThumbnailData(data, file.ContentType, variant)
+	return s.renderThumbnailData(ctx, data, file.ContentType, variant)
 }
 
 // RenderThumbnailData borrows caller-owned bytes read-only for the bounded
 // thumbnail pipeline. It does not copy the encoded input into another buffer.
+// Without a caller context it waits for decode memory only for the bounded
+// lock-holder interval and then reports ErrImageBusy.
 func (s *Service) RenderThumbnailData(data []byte, contentType, size string) ([]byte, error) {
-	return s.renderThumbnailData(data, contentType, size)
+	return s.renderThumbnailData(context.Background(), data, contentType, size)
 }
 
 // RenderThumbnailReader applies the bounded thumbnail pipeline to a reader
@@ -154,10 +158,13 @@ func (s *Service) RenderThumbnailReader(reader io.Reader, contentType, size stri
 	if err != nil || int64(len(data)) > s.options.MaximumBytes {
 		return nil, ErrInvalid
 	}
-	return s.renderThumbnailData(data, contentType, size)
+	return s.renderThumbnailData(context.Background(), data, contentType, size)
 }
 
-func (s *Service) renderThumbnailData(data []byte, contentType, variant string) ([]byte, error) {
+// renderThumbnailData waits for decode memory only for the bounded interval:
+// variantObject calls it under a record_files row lock, an advisory lock and
+// two pooled connections, and extension callers may run inside transactions.
+func (s *Service) renderThumbnailData(ctx context.Context, data []byte, contentType, variant string) ([]byte, error) {
 	if s == nil || int64(len(data)) > s.options.MaximumBytes || !validVariant(Variant(variant)) || !thumbnailImageType(contentType) {
 		return nil, ErrInvalid
 	}
@@ -165,45 +172,44 @@ func (s *Service) renderThumbnailData(data []byte, contentType, variant string) 
 	if m == nil {
 		return nil, ErrInvalid
 	}
-	source, format, err := decodeImage(data, contentType, s.options.MaximumImagePixels)
-	if err != nil {
-		return nil, ErrInvalid
-	}
-	if format == "jpeg" {
-		source = orientImage(source, jpegEXIFOrientation(data))
-	}
-	w, _ := strconv.Atoi(m[1])
-	h, _ := strconv.Atoi(m[2])
+	requestedW, _ := strconv.Atoi(m[1])
+	requestedH, _ := strconv.Atoi(m[2])
 	mode := m[3]
-	sw, sh := source.Bounds().Dx(), source.Bounds().Dy()
-	if sw < 1 || sh < 1 || int64(sw) > s.options.MaximumImagePixels/int64(sh) {
-		return nil, ErrInvalid
-	}
-	if w == 0 {
-		w = max(1, sw*h/sh)
-	}
-	if h == 0 {
-		h = max(1, sh*w/sw)
-	}
-	if w < 1 || h < 1 || w > 4096 || h > 4096 || int64(w) > s.options.MaximumImagePixels/int64(h) {
-		return nil, ErrInvalid
-	}
-	outW, outH := w, h
-	if mode == "f" {
-		if sw*h > sh*w {
-			outH = max(1, sh*w/sw)
-		} else {
-			outW = max(1, sw*h/sh)
+	// A zero dimension is derived from the source below and must not exceed
+	// 4096, so 4096 bounds the output either way.
+	outputPixels := int64(cmp.Or(requestedW, 4096)) * int64(cmp.Or(requestedH, 4096))
+	return s.renderDecodedImage(ctx, data, contentType, outputPixels, true, func(source image.Image, format string) ([]byte, error) {
+		w, h := requestedW, requestedH
+		sw, sh := source.Bounds().Dx(), source.Bounds().Dy()
+		if sw < 1 || sh < 1 || int64(sw) > s.options.MaximumImagePixels/int64(sh) {
+			return nil, ErrInvalid
 		}
-	}
-	xs, ys := variantSampleGrid(sw, sh, outW, outH, mode)
-	out := sampleNearest(source, xs, ys)
-	var buffer bytes.Buffer
-	err = encodeThumbnail(&buffer, out, strings.ToLower(format))
-	if err != nil || int64(buffer.Len()) > s.options.MaximumBytes {
-		return nil, ErrInvalid
-	}
-	return buffer.Bytes(), nil
+		if w == 0 {
+			w = max(1, sw*h/sh)
+		}
+		if h == 0 {
+			h = max(1, sh*w/sw)
+		}
+		if w < 1 || h < 1 || w > 4096 || h > 4096 || int64(w) > s.options.MaximumImagePixels/int64(h) {
+			return nil, ErrInvalid
+		}
+		outW, outH := w, h
+		if mode == "f" {
+			if sw*h > sh*w {
+				outH = max(1, sh*w/sw)
+			} else {
+				outW = max(1, sw*h/sh)
+			}
+		}
+		xs, ys := variantSampleGrid(sw, sh, outW, outH, mode)
+		out := sampleNearest(source, xs, ys)
+		var buffer bytes.Buffer
+		err := encodeThumbnail(&buffer, out, strings.ToLower(format))
+		if err != nil || int64(buffer.Len()) > s.options.MaximumBytes {
+			return nil, ErrInvalid
+		}
+		return buffer.Bytes(), nil
+	})
 }
 
 // RenderThumbnail applies the bounded variant pipeline to an object without
