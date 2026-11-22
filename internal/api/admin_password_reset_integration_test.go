@@ -4,7 +4,12 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base32"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -126,4 +131,58 @@ func TestAdministratorEmailOTPHTTPCompletionIntegration(t *testing.T) {
 	if reusedResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("reused status=%d", reusedResponse.Code)
 	}
+}
+
+// An administrator with TOTP enabled gets the same otp_required step as
+// password login and completes it by resending the request with otpCode.
+func TestAdministratorEmailOTPHTTPRequiresTOTPWhenEnabled(t *testing.T) {
+	pool := newSecurityDatabase(t)
+	clock := &resetAPIClock{now: time.Date(2026, 9, 10, 1, 2, 3, 0, time.UTC)}
+	auth := adminauth.NewService(pool, adminauth.NewArgon2idPasswords(), testTokenSecret, "admin-email-otp-api-setup-token-012345", time.Hour, clock)
+	if err := auth.ConfigureEmailOTP(&resetAPIMailer{}, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := auth.Setup(context.Background(), "admin-email-otp-api-setup-token-012345", "admin@example.test", "correct horse battery staple", "192.0.2.1"); err != nil {
+		t.Fatal(err)
+	}
+	const totpSecret = "JBSWY3DPEHPK3PXP"
+	if err := auth.EnableTOTP(context.Background(), "admin@example.test", totpSecret); err != nil {
+		t.Fatal(err)
+	}
+	issued, err := auth.IssueEmailOTP(context.Background(), "admin@example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := mustRouter(t, Dependencies{AdminAuth: auth, PublicURL: mustURL("http://pgbase.test")})
+	complete := func(body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/auth/otp/complete", body))
+		return response
+	}
+	required := complete(`{"otpId":"` + issued.ID + `","code":"` + issued.Code + `"}`)
+	if required.Code != http.StatusUnauthorized || !strings.Contains(required.Body.String(), `"otp_required"`) {
+		t.Fatalf("without TOTP status=%d body=%s", required.Code, required.Body.String())
+	}
+	if cookies := required.Result().Cookies(); len(cookies) != 0 {
+		t.Fatalf("otp_required issued cookies %v", cookies)
+	}
+	raw, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(totpSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := complete(`{"otpId":"` + issued.ID + `","code":"` + issued.Code + `","otpCode":"` + httpTestTOTP(raw, clock.now) + `"}`)
+	if completed.Code != http.StatusOK {
+		t.Fatalf("with TOTP status=%d body=%s", completed.Code, completed.Body.String())
+	}
+}
+
+func httpTestTOTP(secret []byte, now time.Time) string {
+	var counter [8]byte
+	binary.BigEndian.PutUint64(counter[:], uint64(now.Unix()/30))
+	mac := hmac.New(sha1.New, secret)
+	mac.Write(counter[:])
+	digest := mac.Sum(nil)
+	offset := digest[len(digest)-1] & 15
+	value := (int(digest[offset])&127)<<24 | int(digest[offset+1])<<16 | int(digest[offset+2])<<8 | int(digest[offset+3])
+	return fmt.Sprintf("%06d", value%1_000_000)
 }

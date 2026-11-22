@@ -45,8 +45,10 @@ type adminPasswordReset interface {
 	ConfirmPasswordReset(context.Context, string, string) error
 }
 
+// adminEmailOTP completes a CLI-issued administrator email code. The last
+// argument is the TOTP code an administrator with TOTP enabled must also send.
 type adminEmailOTP interface {
-	CompleteEmailOTP(context.Context, string, string, string) (adminauth.Session, error)
+	CompleteEmailOTPWithTOTP(context.Context, string, string, string, string) (adminauth.Session, error)
 }
 
 func (e adminEndpoints) status(w http.ResponseWriter, r *http.Request) {
@@ -247,6 +249,9 @@ func (e adminEndpoints) completeEmailOTP(w http.ResponseWriter, r *http.Request)
 	var input struct {
 		OTPID string `json:"otpId"`
 		Code  string `json:"code"`
+		// OTPCode is the TOTP code, named as in password login so the
+		// otp_required step is answered the same way on both paths.
+		OTPCode string `json:"otpCode"`
 	}
 	if err := decodeStrictJSON(r, &input); err != nil {
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
@@ -262,7 +267,7 @@ func (e adminEndpoints) completeEmailOTP(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
 		return
 	}
-	session, err := service.CompleteEmailOTP(r.Context(), input.OTPID, input.Code, address)
+	session, err := service.CompleteEmailOTPWithTOTP(r.Context(), input.OTPID, input.Code, address, input.OTPCode)
 	if err != nil {
 		writeAdminAuthError(w, r, err)
 		return
