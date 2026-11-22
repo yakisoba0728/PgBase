@@ -149,8 +149,13 @@ func TestManagedBackupRenewsLeaseAndRetriesAfterShutdown(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("backup held up the ordinary scheduler")
 	}
-	if renewed := leaseUntil(); !renewed.After(firstLease) {
-		t.Fatalf("backup lease not refreshed: first=%s current=%s", firstLease, renewed)
+	// The ordinary job can finish before the first 20 ms heartbeat fires; wait for a renewal.
+	for renewed := leaseUntil(); !renewed.After(firstLease); renewed = leaseUntil() {
+		select {
+		case <-time.After(10 * time.Millisecond):
+		case <-ctx.Done():
+			t.Fatalf("backup lease not refreshed: first=%s current=%s", firstLease, renewed)
+		}
 	}
 	stop()
 	if err := <-done; !errors.Is(err, context.Canceled) {
