@@ -14,13 +14,15 @@ validated operation input, and reloads an active user actor from the applicable
 auth collection in PostgreSQL before evaluating `@request.auth`. Request headers
 or a stale caller snapshot cannot make an unverified stored user verified.
 
-An `@request.auth.<key>` the actor does not have (a profile field the actor's
-record lacks, or for an anonymous caller any key other than `id` and `email`,
-which auth rules always supply) evaluates as NULL rather
-than failing the request. `= null` is then true, `!= null` false, and every
-other comparison false, so a bare `@request.auth.<key> = null` also matches
-anonymous callers; guard it with `@request.auth.id != ''` when it should apply
-only to signed-in actors.
+A missing `@request.auth.<key>` never fails the request. For an anonymous
+caller, any key other than `id` and `email` (which auth rules always supply)
+is NULL: `= null` is true, `!= null` false, and every other comparison false.
+For a signed-in actor, a key their record does not carry makes every
+comparison false, `= null` included; record rules use the same rule because
+they do not load profile fields, so a missing key there is unknown rather
+than empty. A modifier on an auth value (`@request.auth.email:lower`) is not
+supported and makes every comparison with it false, whoever the caller is. A
+bare `@request.auth.<key> = null` therefore matches anonymous callers only.
 
 When the pattern of `~` or `!~` comes from the request (`@request.query`,
 `@request.headers`, `@request.body`, `@request.auth` or `@request.context`),

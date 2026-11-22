@@ -99,6 +99,34 @@ func TestPocketBaseAbsentAuthFieldsEvaluateAsNull(t *testing.T) {
 				t.Fatalf("%q auth=%v sql=%q err=%v, want %s", test.source, request.Auth, sql, err, test.want)
 			}
 		}
+		// For a signed-in caller a missing key is unknown, not empty: every
+		// comparison, including "= null", fails closed.
+		user := identity.Subject{Kind: identity.User, ID: uuid.New()}
+		sql, _, err := accessrule.CompileExpression(rule, accessrule.ExpressionContext{Resolver: pbResolverStubForQuery{}, Principal: user, Request: &accessrule.RequestContext{Auth: map[string]any{"id": user.ID}}})
+		if err != nil || sql != "FALSE" {
+			t.Fatalf("%q signed in: sql=%q err=%v, want FALSE", test.source, sql, err)
+		}
+	}
+	// A modifier on an auth value is unsupported and fails closed even when
+	// the key is present; it must never read as an absent (NULL) value.
+	for _, source := range []string{
+		"@request.auth.email:lower = null",
+		"@request.auth.email:lower != null",
+		"@request.auth.email:lower = 'a@b.test'",
+		"@request.auth.email:lower != 'x'",
+		"@request.auth.email:length > 0",
+		"@request.auth.nickname:lower = null",
+	} {
+		rule, err := ParseAccessRule(source)
+		if err != nil {
+			t.Fatalf("%q: %v", source, err)
+		}
+		for _, principal := range []identity.Subject{{Kind: identity.Anonymous}, {Kind: identity.User, ID: uuid.New()}} {
+			sql, _, err := accessrule.CompileExpression(rule, accessrule.ExpressionContext{Resolver: pbResolverStubForQuery{}, Principal: principal, Request: &accessrule.RequestContext{Auth: map[string]any{"email": "A@B.test"}}})
+			if err != nil || sql != "FALSE" {
+				t.Fatalf("%q principal=%s sql=%q err=%v, want FALSE", source, principal.Kind, sql, err)
+			}
+		}
 	}
 	// The field-on-the-left form binds the absent value as a typed NULL.
 	rule, err := ParseAccessRule("title = @request.auth.name")

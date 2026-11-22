@@ -141,8 +141,10 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 	if !ok || rule.Field == "" {
 		return "", ErrInvalid
 	}
-	if rule.Function == nil && c.absentRequestAuth(rule.Field) {
-		return absentAuthComparison(rule, base)
+	if rule.Function == nil {
+		if fold, absent := c.unboundRequestAuth(rule.Field); fold {
+			return unboundAuthComparison(rule, base, absent)
+		}
 	}
 	var left Operand
 	var err error
@@ -180,8 +182,13 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 				value = c.context.Principal.ID
 			}
 		} else if c.context.Request != nil {
-			// An absent key binds as NULL, so the comparison is false.
-			value, ok = c.context.Request.Auth[rule.Auth], true
+			// A missing key, or one with a modifier (never a stored key),
+			// binds as NULL: every comparison with it is false, since the
+			// compare is wrapped in COALESCE(...,false) and never uses IS.
+			value, ok = nil, true
+			if !strings.Contains(rule.Auth, ":") {
+				value = c.context.Request.Auth[rule.Auth]
+			}
 		}
 		if !ok && !c.context.validationOnly {
 			return "", ErrInvalid
@@ -278,26 +285,35 @@ func containsSQL(valueSQL, op, patternSQL string, requestPattern bool) string {
 	return valueSQL + " " + op + " ('%' || " + escaped + ` || '%') ESCAPE '\'`
 }
 
-// absentRequestAuth reports a @request.auth key the executing caller lacks.
-// Anonymous callers lack every key; authenticated callers lack fields their
-// record does not carry.
-func (c *expressionCompiler) absentRequestAuth(path string) bool {
+// unboundRequestAuth reports a left-hand @request.auth operand the compiler
+// cannot bind: one with a modifier (none is supported on auth values) or a key
+// missing from the request's auth values. absent is true only when the value
+// is known to be NULL, which holds for an unauthenticated caller alone. For an
+// authenticated caller a missing key means the value is unknown (record
+// requests carry only some auth fields), not that the field is empty.
+func (c *expressionCompiler) unboundRequestAuth(path string) (fold, absent bool) {
 	if c.context.validationOnly || c.context.Request == nil {
-		return false
+		return false, false
 	}
 	key, ok := strings.CutPrefix(path, "__pgbase_request_auth_")
 	if !ok || key == "" {
-		return false
+		return false, false
 	}
-	_, present := c.context.Request.Auth[key]
-	return !present
+	if strings.Contains(key, ":") {
+		return true, false
+	}
+	if _, present := c.context.Request.Auth[key]; present {
+		return false, false
+	}
+	return true, !authenticatedSubject(c.context.Principal)
 }
 
-// absentAuthComparison compiles a comparison whose left side is an absent
-// @request.auth value. The value is NULL, whose type is unknown, so instead of
-// binding it the result is folded: every comparison is false (fail closed)
-// except an explicit null check, as COALESCE(NULL op x, false) would give.
-func absentAuthComparison(rule Rule, base string) (string, error) {
+// unboundAuthComparison folds a comparison whose left side is an unbound
+// @request.auth operand. Every comparison is FALSE (fail closed); only a value
+// known to be absent makes an explicit "= null" TRUE, as COALESCE(NULL op x,
+// false) would give. A NULL of unknown type cannot be bound against typed
+// literals, so the result is folded rather than compiled.
+func unboundAuthComparison(rule Rule, base string, absent bool) (string, error) {
 	if rule.OtherField != "" || rule.Auth != "" {
 		return "FALSE", nil
 	}
@@ -314,7 +330,10 @@ func absentAuthComparison(rule Rule, base string) (string, error) {
 	if value == nil {
 		switch base {
 		case "eq":
-			return "TRUE", nil
+			if absent {
+				return "TRUE", nil
+			}
+			return "FALSE", nil
 		case "ne":
 			return "FALSE", nil
 		}

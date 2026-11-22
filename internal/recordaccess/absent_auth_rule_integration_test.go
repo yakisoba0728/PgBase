@@ -77,8 +77,10 @@ func TestAbsentRequestAuthFieldsEvaluateAsNullAndFailClosed(t *testing.T) {
 	}
 	user := identity.Subject{Kind: identity.User, ID: userID}
 	member := func() *accessrule.RequestContext {
-		// An authenticated caller whose auth record has no "nickname" field.
-		return &accessrule.RequestContext{Method: "GET", Auth: map[string]any{"id": userID, "email": "member@example.test", "verified": true}}
+		// The auth values a record request carries (api.ruleRequestContext):
+		// id, email, verified and created only. Profile fields such as "role"
+		// are never loaded, so a missing key says nothing about the record.
+		return &accessrule.RequestContext{Method: "GET", Auth: map[string]any{"id": userID, "email": "Member@Example.test", "verified": true}}
 	}
 	for _, test := range []struct {
 		source    string
@@ -100,10 +102,27 @@ func TestAbsentRequestAuthFieldsEvaluateAsNullAndFailClosed(t *testing.T) {
 		{"@request.auth.nickname = title", anonymous, guest, ownedID, false},
 		{"title = @request.auth.nickname", anonymous, guest, ownedID, false},
 		{"title != @request.auth.nickname", anonymous, guest, ownedID, false},
-		{"@request.auth.nickname = null", user, member, ownedID, true},
-		{"@request.auth.nickname != null", user, member, ownedID, false},
-		{"@request.auth.nickname = 'bob'", user, member, ownedID, false},
+		// For a signed-in caller a key the request lacks is unknown: every
+		// comparison fails closed, including "= null" (the caller may well
+		// have a role in their auth record).
+		{"@request.auth.role = null", user, member, ownedID, false},
+		{"@request.auth.role = null || title = 'other'", user, member, ownedID, false},
+		{"@request.auth.role != null", user, member, ownedID, false},
+		{"@request.auth.role = 'admin'", user, member, ownedID, false},
+		{"@request.auth.role != 'admin'", user, member, ownedID, false},
+		{"title = @request.auth.role", user, member, ownedID, false},
+		{"title != @request.auth.role", user, member, ownedID, false},
 		{"@request.auth.verified = true", user, member, ownedID, true},
+		{"@request.auth.email = 'Member@Example.test'", user, member, ownedID, true},
+		// Modifiers on auth values are unsupported and fail closed for every
+		// comparison, even when the key is present.
+		{"@request.auth.email:lower = null", user, member, ownedID, false},
+		{"@request.auth.email:lower != null", user, member, ownedID, false},
+		{"@request.auth.email:lower = 'member@example.test'", user, member, ownedID, false},
+		{"@request.auth.email:lower != 'x'", user, member, ownedID, false},
+		{"@request.auth.nickname:lower = null", anonymous, guest, ownedID, false},
+		{"title = @request.auth.email:lower", user, member, ownedID, false},
+		{"title != @request.auth.email:lower", user, member, ownedID, false},
 		// Ownership fails closed for guests, including a row holding the nil
 		// UUID and a row with no owner.
 		{"@request.auth.id = author", anonymous, guest, ownedID, false},
@@ -118,7 +137,7 @@ func TestAbsentRequestAuthFieldsEvaluateAsNullAndFailClosed(t *testing.T) {
 		{"author != @request.auth.id", user, member, nilOwnerID, true},
 		// The authenticated guard still gates the null check.
 		{"@request.auth.id != '' && @request.auth.nickname = null", anonymous, guest, ownedID, false},
-		{"@request.auth.id != '' && @request.auth.nickname = null", user, member, ownedID, true},
+		{"@request.auth.id != '' && @request.auth.nickname = null", user, member, ownedID, false},
 		{"@request.auth.id = '' && @request.auth.nickname = null", anonymous, guest, ownedID, true},
 		// Without a guard, a null check is satisfied by every guest.
 		{"@request.auth.id != '' || @request.auth.nickname = null", anonymous, guest, ownedID, true},
