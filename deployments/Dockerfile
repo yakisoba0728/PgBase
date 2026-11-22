@@ -24,7 +24,7 @@ COPY cmd ./cmd
 COPY internal ./internal
 COPY migrations ./migrations
 COPY pgbase ./pgbase
-COPY ui/admin/embed.go ui/admin/handler.go ./ui/admin/
+COPY ui/admin/embed.go ui/admin/handler.go ui/admin/static.go ./ui/admin/
 COPY --from=admin-ui /src/ui/admin/dist ./ui/admin/dist
 RUN schema_version="$(find migrations/system -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9][0-9][0-9]_*.sql' -printf '%f\n' \
       | sed -E 's/^0*([0-9]+)_.*/\1/' | sort -n | tail -1)" \

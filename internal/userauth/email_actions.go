@@ -167,12 +167,42 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, newPasswor
 		if err != nil || !passwordMatchesPolicy(newPassword, policy) {
 			return ErrValidation
 		}
-		if _, err := tx.Exec(ctx, `update pgbase_meta.users set password_hash=$2,updated_at=CURRENT_TIMESTAMP where id=$1`, action.userID, newHash); err != nil {
+		var verified bool
+		if err := tx.QueryRow(ctx, `update pgbase_meta.users set password_hash=$2,updated_at=CURRENT_TIMESTAMP where id=$1 returning verified`, action.userID, newHash).Scan(&verified); err != nil {
 			return err
+		}
+		if !verified {
+			if err := resetUnprovenAccountFactorsInTx(ctx, tx, action.userID); err != nil {
+				return err
+			}
 		}
 		_, err = revokeSessionsInTx(ctx, tx, action.userID)
 		return err
 	})
+}
+
+// resetUnprovenAccountFactorsInTx runs when a reset is completed on an account
+// whose email ownership was never proven. Whoever registered that account was
+// not necessarily the mailbox owner, and could have linked an OAuth identity or
+// enrolled TOTP before the owner reclaimed it. The reset token reached only
+// that mailbox, so its redeemer is the owner: every factor added before this
+// point is dropped and the new password becomes the account's sign-in method.
+// Verified accounts never reach here and keep their links and MFA.
+func resetUnprovenAccountFactorsInTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error {
+	for _, statement := range []string{
+		`delete from pgbase_meta.user_oauth_identities where user_id=$1`,
+		`delete from pgbase_meta.user_oauth_states where link_user_id=$1`,
+		`delete from pgbase_meta.user_mfa_challenges where user_id=$1`,
+		`delete from pgbase_meta.user_totp_recovery_codes where user_id=$1`,
+		`delete from pgbase_meta.user_totp_factors where user_id=$1`,
+		// An OAuth-only account would otherwise be left with no sign-in method.
+		`update pgbase_meta.users set password_enabled=true where id=$1 and not password_enabled`,
+	} {
+		if _, err := tx.Exec(ctx, statement, userID); err != nil {
+			return fmt.Errorf("reset unproven account factors: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *Service) RequestEmailChange(ctx context.Context, userID uuid.UUID, currentPassword, newEmail string) error {

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -233,7 +235,12 @@ func writeUserAuthError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, userauth.ErrConflict):
 		response = APIError{Status: http.StatusConflict, Code: "user_conflict", Message: "User cannot be registered"}
 	case errors.Is(err, userauth.ErrRateLimited):
-		w.Header().Set("Retry-After", "60")
+		retryAfter := "60"
+		var limited *userauth.RateLimitedError
+		if errors.As(err, &limited) && limited.RetryAfter > 0 {
+			retryAfter = strconv.FormatInt(int64(math.Ceil(limited.RetryAfter.Seconds())), 10)
+		}
+		w.Header().Set("Retry-After", retryAfter)
 		response = APIError{Status: http.StatusTooManyRequests, Code: "rate_limited", Message: "Try again later"}
 	}
 	writeAPIError(w, r, response)

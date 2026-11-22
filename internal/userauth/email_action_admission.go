@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -54,7 +55,7 @@ func (s *Service) reserveEmailActionDelivery(ctx context.Context, tx pgx.Tx, use
 			return ErrRateLimited
 		}
 	}
-	for _, bucket := range buckets {
+	for index, bucket := range buckets {
 		tag, err := tx.Exec(ctx, `
 			insert into pgbase_meta.user_auth_rate_limits as limits
 				(subject_hash,window_started_at,failures,blocked_until,updated_at)
@@ -72,10 +73,38 @@ func (s *Service) reserveEmailActionDelivery(ctx context.Context, tx pgx.Tx, use
 			return err
 		}
 		if tag.RowsAffected() != 1 {
-			return ErrRateLimited
+			// The caller rolls back, so the buckets reserved above are undone.
+			return exhaustedEmailActionBuckets(ctx, tx, buckets[index:])
 		}
 	}
 	return nil
+}
+
+// exhaustedEmailActionBuckets reports when a request refused by the first of
+// buckets can succeed: the latest reset among those still full, since every
+// one of them must have room. Buckets before the refused one had room (this
+// transaction reserved them), so only the refused bucket and the ones not
+// yet tried are read. The advisory locks taken above keep these rows stable;
+// if a read fails the caller still gets a plain ErrRateLimited.
+func exhaustedEmailActionBuckets(ctx context.Context, tx pgx.Tx, buckets []rateLimitBucket) error {
+	var longest float64
+	for _, bucket := range buckets {
+		var remaining float64
+		err := tx.QueryRow(ctx, `
+			select extract(epoch from window_started_at + make_interval(secs=>$2) - CURRENT_TIMESTAMP)::float8
+			from pgbase_meta.user_auth_rate_limits where subject_hash=$1 and failures >= $3`, bucket.hash, int64(bucket.window.Seconds()), bucket.limit).Scan(&remaining)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return ErrRateLimited
+		}
+		longest = max(longest, remaining)
+	}
+	if longest <= 0 {
+		return ErrRateLimited
+	}
+	return &RateLimitedError{RetryAfter: time.Duration(math.Ceil(longest)) * time.Second}
 }
 
 func (s *Service) preflightPasswordReset(ctx context.Context, rawToken, password string) error {

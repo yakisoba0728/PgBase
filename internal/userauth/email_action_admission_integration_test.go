@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 func newBudgetEmailService(t *testing.T) (*Service, *capturedSender) {
@@ -83,8 +84,10 @@ func TestAdministratorVerificationPreservesPublicDeliveryBudget(t *testing.T) {
 	if err := s.RequestVerification(ctx, user.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RequestVerification(ctx, user.User.ID); !errors.Is(err, ErrRateLimited) {
-		t.Fatalf("public resend during cooldown = %v", err)
+	err = s.RequestVerification(ctx, user.User.ID)
+	var cooldown *RateLimitedError
+	if !errors.Is(err, ErrRateLimited) || !errors.As(err, &cooldown) || cooldown.RetryAfter <= 0 || cooldown.RetryAfter > emailActionResendCooldown {
+		t.Fatalf("public resend during cooldown = %v, want retry within the cooldown", err)
 	}
 	for range 2 {
 		if err := s.AdminRequestVerification(ctx, user.User.ID); err != nil {
@@ -117,8 +120,10 @@ func TestEmailChangeDeliveryBudgetCountsChangingRecipientsAndBoundsPendingAction
 		}
 	}
 	expireEmailActionCooldown(t, s, user.User.ID, "email_change", previous)
-	if err := s.RequestEmailChange(ctx, user.User.ID, "correct horse battery staple", "different@example.test"); !errors.Is(err, ErrRateLimited) {
-		t.Fatalf("exhausted actor budget = %v", err)
+	err = s.RequestEmailChange(ctx, user.User.ID, "correct horse battery staple", "different@example.test")
+	var exhausted *RateLimitedError
+	if !errors.Is(err, ErrRateLimited) || !errors.As(err, &exhausted) || exhausted.RetryAfter <= emailActionResendCooldown || exhausted.RetryAfter > emailActionDeliveryWindow {
+		t.Fatalf("exhausted actor budget = %v, want retry after the delivery window resets", err)
 	}
 	var total, pending int
 	if err := s.pool.QueryRow(ctx, `select count(*),count(*) filter (where consumed_at is null) from pgbase_meta.user_email_actions where user_id=$1 and purpose='email_change'`, user.User.ID).Scan(&total, &pending); err != nil {
@@ -250,5 +255,72 @@ func TestEmailActionRecipientCooldownAndDeliveryFailureDoNotRefundCapacity(t *te
 	var count int
 	if err := s.pool.QueryRow(ctx, `select count(*) from pgbase_meta.user_email_actions`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("actions=%d, err=%v", count, err)
+	}
+}
+
+// TestEmailActionRateLimitReportsTheLongestFullBucket fills every delivery
+// bucket at once: three reset within 30 seconds and one, in turn each of the
+// two 15-minute buckets, only after about 14 minutes. Whatever the advisory
+// key order, Retry-After must be the 14-minute wait, and the refusal must
+// leave every bucket as it was.
+func TestEmailActionRateLimitReportsTheLongestFullBucket(t *testing.T) {
+	s, _ := newBudgetEmailService(t)
+	ctx := t.Context()
+	userID, collectionID := uuid.New(), uuid.New()
+	buckets := s.emailActionDeliveryBuckets(userID, collectionID, "verification", "full@example.test")
+	for long := range buckets {
+		if buckets[long].window != emailActionDeliveryWindow {
+			continue
+		}
+		for index, bucket := range buckets {
+			// Seconds since the window started: 30 seconds left by default,
+			// about 14 minutes left for the long bucket.
+			elapsed := bucket.window.Seconds() - 30
+			if index == long {
+				elapsed = 60
+			}
+			if _, err := s.pool.Exec(ctx, `
+				insert into pgbase_meta.user_auth_rate_limits (subject_hash,window_started_at,failures,blocked_until,updated_at)
+				values ($1,CURRENT_TIMESTAMP-make_interval(secs=>$2),$3,null,CURRENT_TIMESTAMP)
+				on conflict(subject_hash) do update set window_started_at=excluded.window_started_at, failures=excluded.failures`, bucket.hash, elapsed, bucket.limit); err != nil {
+				t.Fatal(err)
+			}
+		}
+		err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			return s.reserveEmailActionDelivery(ctx, tx, userID, collectionID, "verification", "full@example.test")
+		})
+		var limited *RateLimitedError
+		if !errors.As(err, &limited) || limited.RetryAfter < emailActionDeliveryWindow-2*time.Minute || limited.RetryAfter > emailActionDeliveryWindow-time.Minute+time.Second {
+			t.Fatalf("long bucket %d: err=%v, want Retry-After of about 14 minutes", long, err)
+		}
+		for index, bucket := range buckets {
+			var failures int
+			if err := s.pool.QueryRow(ctx, `select failures from pgbase_meta.user_auth_rate_limits where subject_hash=$1`, bucket.hash).Scan(&failures); err != nil {
+				t.Fatal(err)
+			}
+			if failures != bucket.limit {
+				t.Fatalf("long bucket %d: bucket %d has %d reservations after a refusal, want %d", long, index, failures, bucket.limit)
+			}
+		}
+	}
+	// A bucket with room that is reserved before the refusal is rolled back.
+	first := buckets[0]
+	for _, bucket := range buckets[1:] {
+		if advisoryKey(bucket.hash) < advisoryKey(first.hash) {
+			first = bucket
+		}
+	}
+	if _, err := s.pool.Exec(ctx, `update pgbase_meta.user_auth_rate_limits set failures=0 where subject_hash=$1`, first.hash); err != nil {
+		t.Fatal(err)
+	}
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return s.reserveEmailActionDelivery(ctx, tx, userID, collectionID, "verification", "full@example.test")
+	})
+	var failures int
+	if scanErr := s.pool.QueryRow(ctx, `select failures from pgbase_meta.user_auth_rate_limits where subject_hash=$1`, first.hash).Scan(&failures); scanErr != nil {
+		t.Fatal(scanErr)
+	}
+	if !errors.Is(err, ErrRateLimited) || failures != 0 {
+		t.Fatalf("partial reservation: err=%v, first bucket failures=%d, want a refusal that reserved nothing", err, failures)
 	}
 }

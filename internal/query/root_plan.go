@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
+	"github.com/yakisoba0728/PgBase/internal/identity"
 	"github.com/yakisoba0728/PgBase/internal/schema"
 )
 
@@ -69,7 +70,17 @@ func plannedRootPlan(filter filterNode, relation relationListPlan) rootPlan {
 	return rootPlan{filter: filter, relation: relation}
 }
 
-func (p rootPlan) order() orderSpec { return p.relation.order }
+// order returns the plan's order with cursor privacy bound to the principal.
+// Only administrators see every relation target, so every other principal
+// receives anchor-only cursors for bare relation sorts: the stored target id
+// must not reach the client through a cursor when the item itself redacts it.
+func (p rootPlan) order() orderSpec {
+	order := p.relation.order
+	if p.principal.Kind != identity.Administrator && order.sortsRelationKey() {
+		order.relationKeyCursor = true
+	}
+	return order
+}
 
 func (p rootPlan) pageStatement(after *pageBoundary, fetchLimit int, offsets ...int) (Statement, error) {
 	if p.order().relationAnchor {

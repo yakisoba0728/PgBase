@@ -105,17 +105,21 @@ func (c *StorageController) BeginStorageOperation(ctx context.Context) (context.
 	// work (for example an image decoder) may still be finishing. Keep its
 	// admission slot until the operation's owner actually returns or closes the
 	// reader, otherwise canceled work can escape the concurrency bound.
-	var closeOnce, releaseOnce sync.Once
-	closeLease := func() {
-		closeOnce.Do(func() {
-			_ = database.CloseCoordinationSession(context.Background(), conn)
-		})
-	}
-	stop := context.AfterFunc(ctx, closeLease)
+	//
+	// The owner keeps using conn after this function returns (staged-object
+	// locks in staging.go), and *pgx.Conn is not safe for concurrent use: a
+	// Close racing an owner query panics inside pgconn on the cancellation
+	// goroutine, outside any HTTP recover. Cancellation therefore only closes
+	// the socket, which net.Conn allows from any goroutine. PostgreSQL ends the
+	// session and drops its locks on EOF, and the owner's next use of conn fails
+	// fast. Every *pgx.Conn call stays on the owner's goroutine.
+	socket := conn.PgConn().Conn()
+	stop := context.AfterFunc(ctx, func() { _ = socket.Close() })
+	var releaseOnce sync.Once
 	return leased, func() {
 		releaseOnce.Do(func() {
 			stop()
-			closeLease()
+			_ = database.CloseCoordinationSession(context.Background(), conn)
 			<-c.operations
 		})
 	}, nil

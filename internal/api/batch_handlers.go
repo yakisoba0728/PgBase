@@ -129,6 +129,16 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	input, staged, err := e.decodeBatch(r, principal)
+	var admissionErr *batchAdmissionError
+	if errors.As(err, &admissionErr) {
+		e.cleanupStaged(r, staged)
+		if admissionErr.malformed {
+			writeInvalidRecordRequest(w, r)
+		} else {
+			writeRecordError(w, r, admissionErr.err)
+		}
+		return
+	}
 	maximumRequests := settings.MaxRequests
 	if err != nil || (len(input.Operations) == 0) == (len(input.Requests) == 0) || len(input.Operations)+len(input.Requests) > maximumRequests {
 		e.cleanupStaged(r, staged)
@@ -140,7 +150,7 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	if len(input.Requests) > 0 {
 		items = make([]batchOperationInput, 0, len(input.Requests))
 		for _, request := range input.Requests {
-			item, _, valid := batchHTTPRequestOperation(request)
+			item, valid := batchHTTPRequestOperation(request)
 			if !valid {
 				e.cleanupStaged(r, staged)
 				writeInvalidRecordRequest(w, r)
@@ -235,7 +245,7 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "response_too_large", Message: "Batch response exceeds the limit"})
 			return
 		}
-		writeRecordError(w, r, err)
+		writeBatchError(w, r, err)
 		return
 	}
 	if len(staged) > 0 {
@@ -244,6 +254,22 @@ func (e recordEndpoints) batch(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSONHeader(w, http.StatusOK)
 	_, _ = w.Write(response)
+}
+
+// writeBatchError answers a failed batch transaction. The file participant
+// attaches staged files inside that transaction, so its file-service
+// refusals (an anonymous caller may not attach files, a field limit, a
+// missing record) reach here as filestore sentinels; they get the status and
+// code the file endpoints use instead of an internal error. Everything else
+// is a record error.
+func writeBatchError(w http.ResponseWriter, r *http.Request, err error) {
+	for _, sentinel := range []error{filestore.ErrInvalid, filestore.ErrTooLarge, filestore.ErrTooMany, filestore.ErrRequired, filestore.ErrDenied, filestore.ErrNotFound, filestore.ErrImageBusy} {
+		if errors.Is(err, sentinel) {
+			writeFileError(w, r, err)
+			return
+		}
+	}
+	writeRecordError(w, r, err)
 }
 
 func encodeBatchResponse(results []recordops.MutationResult, statuses []int, projection responseprojection.Projection, maximumBytes int) ([]byte, error) {
@@ -435,6 +461,13 @@ func (e recordEndpoints) decodeBatch(r *http.Request, principal identity.Subject
 	var input batchInput
 	staged := namedStagedFiles{}
 	seen := map[string]bool{}
+	// An anonymous batch writes nothing to disk or storage until every target
+	// collection passed the admission preflight, so its requests part must come
+	// before any file part. A file part ahead of it is refused rather than held:
+	// holding spooled parts would keep one open temporary file per part, and
+	// the part count is unbounded. Every admitted part is spooled, staged and
+	// released before the next one is read.
+	admitted := e.access == nil || principal.Kind != identity.Anonymous
 	for {
 		part, err := reader.NextPart()
 		if errors.Is(err, io.EOF) {
@@ -459,6 +492,15 @@ func (e recordEndpoints) decodeBatch(r *http.Request, principal identity.Subject
 		if part.FileName() == "" {
 			return batchInput{}, staged, errors.Join(errors.New("file name required"), part.Close())
 		}
+		if !admitted {
+			if !seen["requests"] {
+				return batchInput{}, staged, errors.Join(errors.New("anonymous batch files must follow the requests part"), part.Close())
+			}
+			if err := e.anonymousBatchAdmission(r, input); err != nil {
+				return batchInput{}, staged, errors.Join(err, part.Close())
+			}
+			admitted = true
+		}
 		contentType := strings.TrimSpace(strings.Split(part.Header.Get("Content-Type"), ";")[0])
 		temporary, tempErr := os.CreateTemp("", "pgbase-batch-upload-*")
 		if tempErr != nil {
@@ -478,20 +520,13 @@ func (e recordEndpoints) decodeBatch(r *http.Request, principal identity.Subject
 			_ = os.Remove(temporaryName)
 			return batchInput{}, staged, seekErr
 		}
-		var digest [32]byte
-		copy(digest[:], hash.Sum(nil))
-		file, stageErr := e.files.Stage(r.Context(), principal, filestore.Upload{Filename: part.FileName(), ContentType: contentType, Size: size, SHA256: digest, Body: temporary})
+		upload := pendingBatchUpload{filename: part.FileName(), contentType: contentType, size: size, temporary: temporary}
+		copy(upload.digest[:], hash.Sum(nil))
+		file, stageErr := upload.stage(r.Context(), e.files, principal)
 		if stageErr != nil {
-			_ = temporary.Close()
-			_ = os.Remove(temporaryName)
 			return batchInput{}, staged, stageErr
 		}
 		staged[name] = file
-		closeErr := temporary.Close()
-		removeErr := os.Remove(temporaryName)
-		if closeErr != nil || removeErr != nil {
-			return batchInput{}, staged, errors.Join(closeErr, removeErr)
-		}
 	}
 	if !seen["requests"] {
 		return batchInput{}, staged, errors.New("requests missing")
@@ -499,25 +534,100 @@ func (e recordEndpoints) decodeBatch(r *http.Request, principal identity.Subject
 	return input, staged, nil
 }
 
-func batchHTTPRequestOperation(request batchHTTPRequest) (batchOperationInput, int, bool) {
+// batchAdmissionError carries an anonymous admission preflight failure out of
+// multipart decoding. A malformed failure is answered as the invalid request
+// the handler would have reported after staging; any other failure is the
+// record service's own admission result.
+type batchAdmissionError struct {
+	err       error
+	malformed bool
+}
+
+func (e *batchAdmissionError) Error() string { return e.err.Error() }
+func (e *batchAdmissionError) Unwrap() error { return e.err }
+
+// anonymousBatchAdmission preflights every target collection of an anonymous
+// multipart batch before any file reaches storage. It mirrors the order in
+// which the handler used to fail after staging: an unparseable request or a
+// collection the file service cannot resolve was an invalid request (the
+// attachment extraction rejects it before the record service runs), and only
+// then did the record service apply admission. A batch that names no
+// resolvable target is refused here too, so it cannot stage files first.
+func (e recordEndpoints) anonymousBatchAdmission(r *http.Request, input batchInput) error {
+	collections := make([]string, 0, len(input.Operations)+len(input.Requests))
+	for _, operation := range input.Operations {
+		collections = append(collections, operation.Collection)
+	}
+	for _, request := range input.Requests {
+		item, valid := batchHTTPRequestOperation(request)
+		if !valid {
+			return &batchAdmissionError{err: errors.New("invalid batch request"), malformed: true}
+		}
+		collections = append(collections, item.Collection)
+	}
+	if len(collections) == 0 {
+		return &batchAdmissionError{err: errors.New("empty batch"), malformed: true}
+	}
+	for _, name := range collections {
+		if _, err := e.files.CollectionID(r.Context(), name); err != nil {
+			return &batchAdmissionError{err: err, malformed: true}
+		}
+	}
+	if err := e.anonymousWriteAdmission(r, collections...); err != nil {
+		return &batchAdmissionError{err: err}
+	}
+	return nil
+}
+
+// pendingBatchUpload is a multipart file part already spooled to a temporary
+// file and hashed, but not yet written to file storage.
+type pendingBatchUpload struct {
+	filename, contentType string
+	size                  int64
+	digest                [32]byte
+	temporary             *os.File
+}
+
+// stage writes the spooled file to storage and always releases the temporary
+// file.
+func (u pendingBatchUpload) stage(ctx context.Context, files FileService, principal identity.Subject) (filestore.StagedFile, error) {
+	file, err := files.Stage(ctx, principal, filestore.Upload{Filename: u.filename, ContentType: u.contentType, Size: u.size, SHA256: u.digest, Body: u.temporary})
+	if err != nil {
+		u.discard()
+		return filestore.StagedFile{}, err
+	}
+	closeErr := u.temporary.Close()
+	removeErr := os.Remove(u.temporary.Name())
+	if closeErr != nil || removeErr != nil {
+		return file, errors.Join(closeErr, removeErr)
+	}
+	return file, nil
+}
+
+func (u pendingBatchUpload) discard() {
+	_ = u.temporary.Close()
+	_ = os.Remove(u.temporary.Name())
+}
+
+func batchHTTPRequestOperation(request batchHTTPRequest) (batchOperationInput, bool) {
 	if len(request.Headers) > 4 {
-		return batchOperationInput{}, 0, false
+		return batchOperationInput{}, false
 	}
 	for key := range request.Headers {
 		if strings.EqualFold(key, "authorization") || strings.EqualFold(key, "cookie") {
-			return batchOperationInput{}, 0, false
+			return batchOperationInput{}, false
 		}
 	}
 	m := batchRecordURL.FindStringSubmatch(request.URL)
 	if m == nil {
-		return batchOperationInput{}, 0, false
+		return batchOperationInput{}, false
 	}
 	collection, id := m[2], m[3]
 	if id != "" {
 		var err error
 		id, err = url.PathUnescape(id)
 		if err != nil || id == "" || len(id) > 1024 {
-			return batchOperationInput{}, 0, false
+			return batchOperationInput{}, false
 		}
 	}
 	method := strings.ToUpper(request.Method)
@@ -525,17 +635,17 @@ func batchHTTPRequestOperation(request batchHTTPRequest) (batchOperationInput, i
 	switch method {
 	case "POST":
 		if id != "" {
-			return batchOperationInput{}, 0, false
+			return batchOperationInput{}, false
 		}
-		return batchOperationInput{Operation: "create", Collection: collection, Input: request.Body, IdempotencyKey: batchHeader(request.Headers, "Idempotency-Key")}, 201, true
+		return batchOperationInput{Operation: "create", Collection: collection, Input: request.Body, IdempotencyKey: batchHeader(request.Headers, "Idempotency-Key")}, true
 	case "PATCH":
-		return batchOperationInput{Operation: "update", Collection: collection, ID: id, Input: request.Body, IfMatch: ifMatch}, 200, id != ""
+		return batchOperationInput{Operation: "update", Collection: collection, ID: id, Input: request.Body, IfMatch: ifMatch}, id != ""
 	case "PUT":
-		return batchOperationInput{Operation: "upsert", Collection: collection, ID: id, Input: request.Body, IfMatch: ifMatch}, 200, id != ""
+		return batchOperationInput{Operation: "upsert", Collection: collection, ID: id, Input: request.Body, IfMatch: ifMatch}, id != ""
 	case "DELETE":
-		return batchOperationInput{Operation: "delete", Collection: collection, ID: id, IfMatch: ifMatch}, 204, id != "" && request.Body == nil
+		return batchOperationInput{Operation: "delete", Collection: collection, ID: id, IfMatch: ifMatch}, id != "" && request.Body == nil
 	default:
-		return batchOperationInput{}, 0, false
+		return batchOperationInput{}, false
 	}
 }
 

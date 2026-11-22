@@ -50,7 +50,11 @@ const test = base.extend<{ cleanConsole: void }, { authenticatedStorageState: st
     });
     // HTTP 4xx answers are part of the flows (a rejected sign-in, the session probe); a 5xx never is.
     page.on("console", (message) => {
-      if (message.type() === "error" && !message.text().startsWith("Failed to load resource")) problems.push(message.text());
+      if (message.type() !== "error" || message.text().startsWith("Failed to load resource")) return;
+      // Firefox reports a font request that a reload or navigation cancelled as a script
+      // error. 2152398850 is NS_BINDING_ABORTED: the browser dropped the request itself.
+      if (/downloadable font: download failed .*status=2152398850\b/.test(message.text())) return;
+      problems.push(message.text());
     });
     page.on("pageerror", (error) => problems.push(error.message));
     const failures: Promise<void>[] = [];

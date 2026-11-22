@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"net/netip"
 )
 
 const tokenBytes = 32
@@ -35,8 +36,31 @@ func DeriveCSRFToken(secret []byte, rawToken string) string {
 	return base64.RawURLEncoding.EncodeToString(tokenHMAC(secret, "csrf\x00", rawToken))
 }
 
+// rateLimitAxisNetwork is the limiter axis keyed by the caller's network.
+const rateLimitAxisNetwork = "network"
+
 func rateLimitSubjectHash(secret []byte, operation, axis, subject string) []byte {
+	if axis == rateLimitAxisNetwork {
+		subject = networkRateLimitSubject(subject)
+	}
 	return tokenHMAC(secret, "rate-limit\x00"+operation+"\x00"+axis+"\x00", subject)
+}
+
+// networkRateLimitSubject aggregates an IPv6 caller to its /64 so rotating
+// addresses inside one delegated prefix shares a single network bucket, the
+// same aggregation user authentication applies. IPv4 addresses, already
+// aggregated prefixes, and non-address subjects are returned unchanged. IP
+// allowlist decisions never use this value; they see the exact address.
+func networkRateLimitSubject(subject string) string {
+	address, err := netip.ParseAddr(subject)
+	if err != nil || address.Zone() != "" {
+		return subject
+	}
+	address = address.Unmap()
+	if address.Is6() {
+		return netip.PrefixFrom(address, 64).Masked().String()
+	}
+	return address.String()
 }
 
 func tokenHMAC(secret []byte, domain, value string) []byte {

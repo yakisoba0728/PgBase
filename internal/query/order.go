@@ -22,6 +22,10 @@ type orderSpec struct {
 	root           schema.Collection
 	terms          []orderTerm
 	relationAnchor bool
+	// relationKeyCursor makes issued cursors anchor-only because a bare
+	// relation term would otherwise carry the raw target id, which the
+	// response may redact. It changes neither the SQL nor the v5 descriptor.
+	relationKeyCursor bool
 }
 
 type orderIndexHint uint8
@@ -70,6 +74,31 @@ func (s orderSpec) private() bool {
 		}
 	}
 	return false
+}
+
+// sortsRelationKey reports whether a root-column term orders by a bare
+// relation field. Its cursor value is the stored target id, which
+// relation hydration nulls in the response when the target is not visible.
+func (s orderSpec) sortsRelationKey() bool {
+	for index := range s.terms {
+		term := s.terms[index]
+		if term.relationPath != nil || term.identityCollectionID != uuid.Nil || term.random {
+			continue
+		}
+		if field, ok := filterField(s.root, term.key.Field); ok && field.Type == schema.TypeRelation {
+			return true
+		}
+	}
+	return false
+}
+
+// privateCursor reports whether issued cursors must omit sort values and
+// carry only the keyed anchor digest. Relation-path orders always do; a bare
+// relation order does when the plan was marked for a non-administrator.
+// Decoding still accepts a signed value cursor for a bare relation order so
+// cursors issued before the anchor-only rule keep working.
+func (s orderSpec) privateCursor() bool {
+	return s.private() || s.relationKeyCursor
 }
 
 func (s orderSpec) recordValues(record map[string]any) ([]json.RawMessage, error) {

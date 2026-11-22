@@ -148,7 +148,7 @@ func (s orderSpec) encodeCursor(codec *cursor.Codec, anchor pageCandidate, expir
 	}
 	page := cursor.Page{
 		Version: cursor.Version5, CollectionID: s.root.ID, Values: cloneCursorValues(anchor.cursorValues),
-		AnchorID: anchor.id, PrivateValues: s.private(), ExpiresAt: expiresAt, V5: v5,
+		AnchorID: anchor.id, PrivateValues: s.privateCursor(), ExpiresAt: expiresAt, V5: v5,
 	}
 	token, err := codec.Encode(page)
 	if err != nil {

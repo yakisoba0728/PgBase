@@ -254,3 +254,59 @@ func TestRequestLogShutdownPersistsItsFinalWriteFailure(t *testing.T) {
 		t.Fatalf("repeat shutdown lost final failure: %v, want %v", again, first)
 	}
 }
+
+func TestRequestLogBatchSurvivesCleanupThatOutlivesItsBudget(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	databaseURL := testutil.NewDatabase(t)
+	testutil.ApplySystemMigrationPrefix(t, databaseURL, system.Migrations())
+	pool, err := database.Open(ctx, databaseURL, 5*time.Second, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	log := NewRequestLog(pool, RequestLogOptions{RuntimeRetention: func() (time.Duration, int64) {
+		return 7 * 24 * time.Hour, 1
+	}})
+	defer log.Shutdown(ctx)
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.runtime_settings (document) values ('{}');
+		insert into pgbase_meta.request_logs (occurred_at,method,route,status,duration_ms)
+		values (statement_timestamp()-interval '10 days','GET','/expired',200,0)`); err != nil {
+		t.Fatal(err)
+	}
+	// An uncommitted settings update makes the cleanup wait on the settings row
+	// for as long as the batch allows, like a slow backlog delete would.
+	connection, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Release()
+	blocker, err := connection.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Rollback(context.WithoutCancel(ctx))
+	if _, err := blocker.Exec(ctx, `update pgbase_meta.runtime_settings set revision=2 where singleton`); err != nil {
+		t.Fatal(err)
+	}
+	before := log.Dropped()
+	batchCtx, cancelBatch := context.WithTimeout(ctx, 2*time.Second)
+	defer cancelBatch()
+	cleanupErr := log.writeBatch(batchCtx, []RequestEntry{
+		{At: time.Now(), Method: "GET", Route: "/kept-one", Status: 200},
+		{At: time.Now(), Method: "GET", Route: "/kept-two", Status: 200},
+	})
+	if cleanupErr == nil {
+		t.Fatal("blocked cleanup reported success")
+	}
+	if dropped := log.Dropped() - before; dropped != 0 {
+		t.Fatalf("slow cleanup dropped %d stored entries", dropped)
+	}
+	var kept int
+	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.request_logs where route like '/kept-%'`).Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
+	if kept != 2 {
+		t.Fatalf("kept %d of 2 entries after a cleanup that outlived its budget", kept)
+	}
+}

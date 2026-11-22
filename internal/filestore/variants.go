@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"image"
 	"io"
 	"regexp"
 	"strconv"
@@ -135,13 +136,15 @@ func (s *Service) renderVariant(ctx context.Context, file File, variant string) 
 	if err != nil || int64(len(data)) > s.options.MaximumBytes {
 		return nil, ErrInvalid
 	}
-	return s.renderThumbnailData(data, file.ContentType, variant)
+	return s.renderThumbnailData(ctx, data, file.ContentType, variant)
 }
 
 // RenderThumbnailData borrows caller-owned bytes read-only for the bounded
 // thumbnail pipeline. It does not copy the encoded input into another buffer.
+// Without a caller context it waits for decode memory only for the bounded
+// lock-holder interval and then reports ErrImageBusy.
 func (s *Service) RenderThumbnailData(data []byte, contentType, size string) ([]byte, error) {
-	return s.renderThumbnailData(data, contentType, size)
+	return s.renderThumbnailData(context.Background(), data, contentType, size)
 }
 
 // RenderThumbnailReader applies the bounded thumbnail pipeline to a reader
@@ -154,10 +157,13 @@ func (s *Service) RenderThumbnailReader(reader io.Reader, contentType, size stri
 	if err != nil || int64(len(data)) > s.options.MaximumBytes {
 		return nil, ErrInvalid
 	}
-	return s.renderThumbnailData(data, contentType, size)
+	return s.renderThumbnailData(context.Background(), data, contentType, size)
 }
 
-func (s *Service) renderThumbnailData(data []byte, contentType, variant string) ([]byte, error) {
+// renderThumbnailData waits for decode memory only for the bounded interval:
+// variantObject calls it under a record_files row lock, an advisory lock and
+// two pooled connections, and extension callers may run inside transactions.
+func (s *Service) renderThumbnailData(ctx context.Context, data []byte, contentType, variant string) ([]byte, error) {
 	if s == nil || int64(len(data)) > s.options.MaximumBytes || !validVariant(Variant(variant)) || !thumbnailImageType(contentType) {
 		return nil, ErrInvalid
 	}
@@ -165,20 +171,46 @@ func (s *Service) renderThumbnailData(data []byte, contentType, variant string) 
 	if m == nil {
 		return nil, ErrInvalid
 	}
-	source, format, err := decodeImage(data, contentType, s.options.MaximumImagePixels)
-	if err != nil {
-		return nil, ErrInvalid
-	}
-	if format == "jpeg" {
-		source = orientImage(source, jpegEXIFOrientation(data))
-	}
-	w, _ := strconv.Atoi(m[1])
-	h, _ := strconv.Atoi(m[2])
+	requestedW, _ := strconv.Atoi(m[1])
+	requestedH, _ := strconv.Atoi(m[2])
 	mode := m[3]
-	sw, sh := source.Bounds().Dx(), source.Bounds().Dy()
-	if sw < 1 || sh < 1 || int64(sw) > s.options.MaximumImagePixels/int64(sh) {
-		return nil, ErrInvalid
+	// The reservation covers the output this spec yields for the source size,
+	// not the largest output any spec could request.
+	var estimated int64
+	outputPixels := func(sw, sh int) int64 {
+		outW, outH, ok := s.variantOutputSize(sw, sh, requestedW, requestedH, mode)
+		if ok {
+			estimated = int64(outW) * int64(outH)
+		}
+		return estimated
 	}
+	return s.renderDecodedImage(ctx, data, contentType, outputPixels, true, func(source image.Image, format string) ([]byte, error) {
+		sw, sh := source.Bounds().Dx(), source.Bounds().Dy()
+		outW, outH, ok := s.variantOutputSize(sw, sh, requestedW, requestedH, mode)
+		// A decoded size that would render more than was reserved is refused.
+		if !ok || int64(outW)*int64(outH) > estimated {
+			return nil, ErrInvalid
+		}
+		xs, ys := variantSampleGrid(sw, sh, outW, outH, mode)
+		out := sampleNearest(source, xs, ys)
+		var buffer bytes.Buffer
+		err := encodeThumbnail(&buffer, out, strings.ToLower(format))
+		if err != nil || int64(buffer.Len()) > s.options.MaximumBytes {
+			return nil, ErrInvalid
+		}
+		return buffer.Bytes(), nil
+	})
+}
+
+// variantOutputSize is the size a requested variant renders for an sw x sh
+// source. A zero requested dimension follows the source aspect ratio; mode
+// "f" fits inside the requested box. ok is false when the source or the
+// derived box is outside the variant and pixel limits.
+func (s *Service) variantOutputSize(sw, sh, requestedW, requestedH int, mode string) (outW, outH int, ok bool) {
+	if sw < 1 || sh < 1 || int64(sw) > s.options.MaximumImagePixels/int64(sh) {
+		return 0, 0, false
+	}
+	w, h := requestedW, requestedH
 	if w == 0 {
 		w = max(1, sw*h/sh)
 	}
@@ -186,9 +218,9 @@ func (s *Service) renderThumbnailData(data []byte, contentType, variant string) 
 		h = max(1, sh*w/sw)
 	}
 	if w < 1 || h < 1 || w > 4096 || h > 4096 || int64(w) > s.options.MaximumImagePixels/int64(h) {
-		return nil, ErrInvalid
+		return 0, 0, false
 	}
-	outW, outH := w, h
+	outW, outH = w, h
 	if mode == "f" {
 		if sw*h > sh*w {
 			outH = max(1, sh*w/sw)
@@ -196,14 +228,7 @@ func (s *Service) renderThumbnailData(data []byte, contentType, variant string) 
 			outW = max(1, sw*h/sh)
 		}
 	}
-	xs, ys := variantSampleGrid(sw, sh, outW, outH, mode)
-	out := sampleNearest(source, xs, ys)
-	var buffer bytes.Buffer
-	err = encodeThumbnail(&buffer, out, strings.ToLower(format))
-	if err != nil || int64(buffer.Len()) > s.options.MaximumBytes {
-		return nil, ErrInvalid
-	}
-	return buffer.Bytes(), nil
+	return outW, outH, true
 }
 
 // RenderThumbnail applies the bounded variant pipeline to an object without

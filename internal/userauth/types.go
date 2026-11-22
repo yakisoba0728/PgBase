@@ -81,6 +81,13 @@ func firstInvalid(checks ...any) string {
 	return ""
 }
 
+// RateLimitedError is ErrRateLimited with a known time until the exhausted
+// budget resets, so HTTP callers can send an accurate Retry-After.
+type RateLimitedError struct{ RetryAfter time.Duration }
+
+func (e *RateLimitedError) Error() string        { return ErrRateLimited.Error() }
+func (e *RateLimitedError) Is(target error) bool { return errors.Is(ErrRateLimited, target) }
+
 type MFARequiredError struct {
 	ChallengeToken string
 	ExpiresAt      time.Time

@@ -20,6 +20,18 @@ import (
 
 var errRealtimeConnectionLimit = errors.New("realtime admission limit reached")
 
+// Multiplexed realtime admission. Anonymous streams cannot fill the slots
+// reserved for authenticated principals, and one client network cannot hold
+// every anonymous slot.
+const (
+	maximumRealtimeConnections                   = 128
+	maximumRealtimeConnectionsPerUser            = 4
+	reservedAuthenticatedRealtimeConnections     = 32
+	maximumAnonymousRealtimeConnections          = maximumRealtimeConnections - reservedAuthenticatedRealtimeConnections
+	maximumAnonymousRealtimeConnectionsPerClient = 16 // per IPv4 address or IPv6 /64
+	maximumRealtimeConnectionsPerServiceToken    = 16
+)
+
 type realtimeV2 interface {
 	ReadFor(context.Context, realtime.ReadRequest) ([]realtime.Event, int64, error)
 }
@@ -35,19 +47,31 @@ type realtimeClient struct {
 	deliveryMu         sync.Mutex
 	id, address, token string
 	admittedUser       uuid.UUID // guarded by realtimeHub.mu
+	admittedService    uuid.UUID // guarded by realtimeHub.mu
+	admittedAnonymous  bool      // guarded by realtimeHub.mu
+	anonymousBucket    string    // guarded by realtimeHub.mu
 	principal          identity.Subject
 	subscriptions      []realtimeSubscription
 	resume             *int64
 }
 type realtimeHub struct {
-	mu           sync.RWMutex
-	clients      map[string]*realtimeClient
-	userClients  map[uuid.UUID]int
-	dependencies Dependencies
+	mu               sync.RWMutex
+	clients          map[string]*realtimeClient
+	userClients      map[uuid.UUID]int
+	serviceClients   map[uuid.UUID]int
+	anonymousClients int
+	addressClients   map[string]int
+	dependencies     Dependencies
 }
 
 func newRealtimeHub(dependencies Dependencies) *realtimeHub {
-	hub := &realtimeHub{clients: map[string]*realtimeClient{}, userClients: map[uuid.UUID]int{}, dependencies: dependencies}
+	hub := &realtimeHub{
+		clients:        map[string]*realtimeClient{},
+		userClients:    map[uuid.UUID]int{},
+		serviceClients: map[uuid.UUID]int{},
+		addressClients: map[string]int{},
+		dependencies:   dependencies,
+	}
 	if dependencies.ApplicationRealtimeBroker != nil {
 		dependencies.ApplicationRealtimeBroker.setAuthorizer(hub.authorizeApplicationMessage)
 	}
@@ -180,6 +204,9 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	r = r.WithContext(ctx)
 	address, _ := clientIP(r, h.dependencies.trustedProxies())
+	// An unresolvable forwarded chain yields "", which deliberately shares one
+	// anonymous bucket instead of escaping the per-network limit.
+	bucket, _ := clientAddress(r, h.dependencies.trustedProxies())
 	client := &realtimeClient{id: uuid.NewString(), address: address, principal: realtimeSubject(r), token: realtimeCredential(r), resume: cursor}
 	lifecycle := &RealtimeLifecycleEvent{UserID: client.principal.ID, Principal: client.principal, ClientID: client.id, Cursor: cursor}
 	finish, err := beginRealtime(h.dependencies.RealtimeLifecycle, ctx, "connect", lifecycle)
@@ -191,28 +218,18 @@ func (h *realtimeHub) connect(w http.ResponseWriter, r *http.Request) {
 	var connectionErr error
 	defer func() { finish(connectionErr) }()
 	h.mu.Lock()
-	userAtLimit := client.principal.Kind == identity.User && h.userClients[client.principal.ID] >= 4
-	if len(h.clients) >= 128 || userAtLimit {
+	if !h.admitLocked(client, bucket) {
 		h.mu.Unlock()
 		connectionErr = errRealtimeConnectionLimit
-		writeAPIError(w, r, APIError{Status: 429, Code: "realtime_limit", Message: "Too many realtime connections"})
+		writeRealtimeLimit(w, r)
 		return
 	}
-	h.clients[client.id] = client
-	if client.principal.Kind == identity.User {
-		h.userClients[client.principal.ID]++
-		client.admittedUser = client.principal.ID
-	}
 	h.mu.Unlock()
+	// Deferred so normal return, client disconnect, lifetime expiry, write
+	// errors and panics all release every admission counter exactly once.
 	defer func() {
 		h.mu.Lock()
-		delete(h.clients, client.id)
-		if client.admittedUser != uuid.Nil {
-			h.userClients[client.admittedUser]--
-			if h.userClients[client.admittedUser] == 0 {
-				delete(h.userClients, client.admittedUser)
-			}
-		}
+		h.releaseLocked(client)
 		h.mu.Unlock()
 	}()
 	var applicationMessages <-chan ApplicationRealtimeMessage
@@ -374,15 +391,11 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, APIError{Status: 404, Code: "realtime_client_not_found", Message: "Missing or invalid client id"})
 		return
 	}
-	if principal.Kind == identity.User && client.admittedUser == uuid.Nil {
-		if h.userClients[principal.ID] >= 4 {
-			h.mu.Unlock()
-			subscriptionErr = errRealtimeConnectionLimit
-			writeAPIError(w, r, APIError{Status: 429, Code: "realtime_limit", Message: "Too many realtime connections"})
-			return
-		}
-		h.userClients[principal.ID]++
-		client.admittedUser = principal.ID
+	if !h.upgradeLocked(client, principal) {
+		h.mu.Unlock()
+		subscriptionErr = errRealtimeConnectionLimit
+		writeRealtimeLimit(w, r)
+		return
 	}
 	client.mu.Lock()
 	client.principal = principal
@@ -395,6 +408,101 @@ func (h *realtimeHub) replace(w http.ResponseWriter, r *http.Request) {
 		h.dependencies.ApplicationRealtimeBroker.subscribe(client.id, form.Subscriptions)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeRealtimeLimit(w http.ResponseWriter, r *http.Request) {
+	writeAPIError(w, r, APIError{Status: 429, Code: "realtime_limit", Message: "Too many realtime connections"})
+}
+
+// admitLocked reserves a stream slot for client under h.mu. Authenticated
+// principals may use every process slot; anonymous streams are limited to the
+// unreserved share and to a per-network bucket.
+func (h *realtimeHub) admitLocked(client *realtimeClient, bucket string) bool {
+	if len(h.clients) >= maximumRealtimeConnections {
+		return false
+	}
+	principal := client.principal
+	switch principal.Kind {
+	case identity.Anonymous:
+		if h.anonymousClients >= maximumAnonymousRealtimeConnections || h.addressClients[bucket] >= maximumAnonymousRealtimeConnectionsPerClient {
+			return false
+		}
+		h.anonymousClients++
+		h.addressClients[bucket]++
+		client.admittedAnonymous, client.anonymousBucket = true, bucket
+	case identity.User:
+		if h.userClients[principal.ID] >= maximumRealtimeConnectionsPerUser {
+			return false
+		}
+		h.userClients[principal.ID]++
+		client.admittedUser = principal.ID
+	case identity.Service:
+		if h.serviceClients[principal.ID] >= maximumRealtimeConnectionsPerServiceToken {
+			return false
+		}
+		h.serviceClients[principal.ID]++
+		client.admittedService = principal.ID
+	}
+	h.clients[client.id] = client
+	return true
+}
+
+// upgradeLocked moves a guest stream that a subscription replacement
+// authenticated onto the new principal's quota under h.mu. The stream keeps
+// its process slot; the anonymous share is released only after the principal
+// quota is reserved, so a refused upgrade leaves the accounting unchanged.
+func (h *realtimeHub) upgradeLocked(client *realtimeClient, principal identity.Subject) bool {
+	switch {
+	case principal.Kind == identity.User && client.admittedUser == uuid.Nil:
+		if h.userClients[principal.ID] >= maximumRealtimeConnectionsPerUser {
+			return false
+		}
+		h.userClients[principal.ID]++
+		client.admittedUser = principal.ID
+	case principal.Kind == identity.Service && client.admittedService == uuid.Nil:
+		if h.serviceClients[principal.ID] >= maximumRealtimeConnectionsPerServiceToken {
+			return false
+		}
+		h.serviceClients[principal.ID]++
+		client.admittedService = principal.ID
+	}
+	if principal.Kind != identity.Anonymous {
+		h.releaseAnonymousLocked(client)
+	}
+	return true
+}
+
+// releaseLocked frees every admission counter held by client under h.mu. It
+// is idempotent.
+func (h *realtimeHub) releaseLocked(client *realtimeClient) {
+	if h.clients[client.id] == client {
+		delete(h.clients, client.id)
+	}
+	h.releaseAnonymousLocked(client)
+	if client.admittedUser != uuid.Nil {
+		decrementRealtimeCount(h.userClients, client.admittedUser)
+		client.admittedUser = uuid.Nil
+	}
+	if client.admittedService != uuid.Nil {
+		decrementRealtimeCount(h.serviceClients, client.admittedService)
+		client.admittedService = uuid.Nil
+	}
+}
+
+func (h *realtimeHub) releaseAnonymousLocked(client *realtimeClient) {
+	if !client.admittedAnonymous {
+		return
+	}
+	h.anonymousClients--
+	decrementRealtimeCount(h.addressClients, client.anonymousBucket)
+	client.admittedAnonymous, client.anonymousBucket = false, ""
+}
+
+func decrementRealtimeCount[K comparable](counts map[K]int, key K) {
+	counts[key]--
+	if counts[key] <= 0 {
+		delete(counts, key)
+	}
 }
 
 func cloneRealtimeCursor(cursor *int64) *int64 {
