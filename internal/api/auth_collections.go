@@ -163,12 +163,17 @@ func (e authCollectionEndpoints) oauthStart(w http.ResponseWriter, r *http.Reque
 	}
 	collection, err := e.resolve(r)
 	var in struct {
-		Provider    string `json:"provider"`
-		RedirectURI string `json:"redirectUri"`
+		Provider            string `json:"provider"`
+		RedirectURI         string `json:"redirectUri"`
+		RequireCodeVerifier bool   `json:"requireCodeVerifier"`
 	}
 	if err != nil || decodeStrictJSON(r, &in) != nil {
 		writeUserAuthError(w, r, userauth.ErrValidation)
 		return
+	}
+	requestContext := r.Context()
+	if in.RequireCodeVerifier {
+		requestContext = userauth.WithOAuthVerifierBinding(requestContext)
 	}
 	address, ok := clientAddress(r, e.dependencies.trustedProxies())
 	if !ok {
@@ -178,9 +183,9 @@ func (e authCollectionEndpoints) oauthStart(w http.ResponseWriter, r *http.Reque
 	var value userauth.OAuthAuthorization
 	if in.Provider == "apple" && e.dependencies.PublicURL != nil {
 		bridge := e.dependencies.PublicURL.ResolveReference(&url.URL{Path: "/api/v1/auth/oauth/apple/callback"}).String()
-		value, err = e.dependencies.AuthCollections.BeginOAuthInCollectionWithProviderRedirect(r.Context(), collection.ID, in.Provider, in.RedirectURI, bridge, address)
+		value, err = e.dependencies.AuthCollections.BeginOAuthInCollectionWithProviderRedirect(requestContext, collection.ID, in.Provider, in.RedirectURI, bridge, address)
 	} else {
-		value, err = e.dependencies.AuthCollections.BeginOAuthInCollection(r.Context(), collection.ID, in.Provider, in.RedirectURI, address)
+		value, err = e.dependencies.AuthCollections.BeginOAuthInCollection(requestContext, collection.ID, in.Provider, in.RedirectURI, address)
 	}
 	if err != nil {
 		writeUserAuthError(w, r, err)

@@ -17,6 +17,11 @@ import (
 
 func TestEmailOTPIsHashedResentAttemptBoundAndSingleUse(t *testing.T) {
 	service, sender := newEmailActionService(t)
+	// Every refused completion below also spends the address's OTP budget;
+	// leave room so this test observes the per-code limits alone.
+	if err := service.ConfigureRatePolicy(RatePolicy{AccountMaxFailures: 10, NetworkMaxFailures: 20, RegistrationNetworkMaxFailures: 5, Window: 15 * time.Minute, Block: 15 * time.Minute}); err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	registered, err := service.Register(ctx, "otp@example.test", "correct horse battery staple", "otp-register")
 	if err != nil {

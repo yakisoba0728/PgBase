@@ -119,10 +119,21 @@ func (e userEndpoints) factorAction(action string) http.Handler {
 			Email           string          `json:"email"`
 			OTPID           string          `json:"otpId"`
 			Fields          json.RawMessage `json:"fields"`
+			// CodeVerifier is the codeVerifier returned by oauth/start or
+			// oauth/link; RequireCodeVerifier at start makes completion demand it.
+			CodeVerifier        *string `json:"codeVerifier"`
+			RequireCodeVerifier bool    `json:"requireCodeVerifier"`
 		}
-		if decodeStrictJSON(r, &input) != nil || action != "oauth/complete" && input.Fields != nil {
+		if decodeStrictJSON(r, &input) != nil || action != "oauth/complete" && (input.Fields != nil || input.CodeVerifier != nil) || input.RequireCodeVerifier && action != "oauth/start" && action != "oauth/link" {
 			writeUserAuthError(w, r, userauth.ErrValidation)
 			return
+		}
+		requestContext := r.Context()
+		if input.RequireCodeVerifier {
+			requestContext = userauth.WithOAuthVerifierBinding(requestContext)
+		}
+		if input.CodeVerifier != nil {
+			requestContext = userauth.WithOAuthCodeVerifier(requestContext, *input.CodeVerifier)
 		}
 		current, _ := r.Context().Value(userPrincipalKey{}).(authenticatedUser)
 		if current.principal.Impersonated && (action == "totp/enroll" || action == "totp/confirm" || action == "totp/disable" || action == "oauth/link") {
@@ -151,7 +162,7 @@ func (e userEndpoints) factorAction(action string) http.Handler {
 		case "mfa/complete", "oauth/complete":
 			var value userauth.Session
 			address, _ := clientAddress(r, e.dependencies.trustedProxies())
-			originContext := userauth.WithAuthOrigin(r.Context(), address)
+			originContext := userauth.WithAuthOrigin(requestContext, address)
 			if action == "mfa/complete" {
 				value, err = service.CompleteMFA(originContext, input.ChallengeToken, input.Code)
 			} else {
@@ -181,16 +192,16 @@ func (e userEndpoints) factorAction(action string) http.Handler {
 				}
 				if input.Provider == "apple" && e.dependencies.PublicURL != nil {
 					bridge := e.dependencies.PublicURL.ResolveReference(&url.URL{Path: "/api/v1/auth/oauth/apple/callback"}).String()
-					value, err = service.BeginOAuthWithProviderRedirect(r.Context(), input.Provider, input.RedirectURI, bridge, address)
+					value, err = service.BeginOAuthWithProviderRedirect(requestContext, input.Provider, input.RedirectURI, bridge, address)
 				} else {
-					value, err = service.BeginOAuth(r.Context(), input.Provider, input.RedirectURI, address)
+					value, err = service.BeginOAuth(requestContext, input.Provider, input.RedirectURI, address)
 				}
 			} else {
 				if input.Provider == "apple" && e.dependencies.PublicURL != nil {
 					bridge := e.dependencies.PublicURL.ResolveReference(&url.URL{Path: "/api/v1/auth/oauth/apple/callback"}).String()
-					value, err = service.BeginOAuthLinkWithProviderRedirect(r.Context(), current.principal.User.ID, input.CurrentPassword, input.Provider, input.RedirectURI, bridge)
+					value, err = service.BeginOAuthLinkWithProviderRedirect(requestContext, current.principal.User.ID, input.CurrentPassword, input.Provider, input.RedirectURI, bridge)
 				} else {
-					value, err = service.BeginOAuthLink(r.Context(), current.principal.User.ID, input.CurrentPassword, input.Provider, input.RedirectURI)
+					value, err = service.BeginOAuthLink(requestContext, current.principal.User.ID, input.CurrentPassword, input.Provider, input.RedirectURI)
 				}
 			}
 			result = struct {

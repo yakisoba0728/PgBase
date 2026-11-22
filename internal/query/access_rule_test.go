@@ -76,6 +76,87 @@ func TestPocketBaseAuthFieldLiteralUsesRequestContext(t *testing.T) {
 	}
 }
 
+func TestPocketBaseAbsentAuthFieldsEvaluateAsNull(t *testing.T) {
+	for _, test := range []struct {
+		source string
+		want   string
+	}{
+		{"@request.auth.email = 'manager@example.test'", "FALSE"},
+		{"@request.auth.verified = true", "FALSE"},
+		{"@request.auth.score > 3", "FALSE"},
+		{"@request.auth.email != 'manager@example.test'", "FALSE"},
+		{"@request.auth.email ~ 'example'", "FALSE"},
+		{"@request.auth.email = null", "TRUE"},
+		{"@request.auth.email != null", "FALSE"},
+	} {
+		rule, err := ParseAccessRule(test.source)
+		if err != nil {
+			t.Fatalf("%q: %v", test.source, err)
+		}
+		for _, request := range []*accessrule.RequestContext{{Auth: map[string]any{}}, {Auth: map[string]any{"id": uuid.NewString()}}} {
+			sql, _, err := accessrule.CompileExpression(rule, accessrule.ExpressionContext{Resolver: pbResolverStubForQuery{}, Request: request})
+			if err != nil || sql != test.want {
+				t.Fatalf("%q auth=%v sql=%q err=%v, want %s", test.source, request.Auth, sql, err, test.want)
+			}
+		}
+		// For a signed-in caller a missing key is unknown, not empty: every
+		// comparison, including "= null", fails closed.
+		user := identity.Subject{Kind: identity.User, ID: uuid.New()}
+		sql, _, err := accessrule.CompileExpression(rule, accessrule.ExpressionContext{Resolver: pbResolverStubForQuery{}, Principal: user, Request: &accessrule.RequestContext{Auth: map[string]any{"id": user.ID}}})
+		if err != nil || sql != "FALSE" {
+			t.Fatalf("%q signed in: sql=%q err=%v, want FALSE", test.source, sql, err)
+		}
+	}
+	// A modifier on an auth value is unsupported and fails closed even when
+	// the key is present; it must never read as an absent (NULL) value.
+	for _, source := range []string{
+		"@request.auth.email:lower = null",
+		"@request.auth.email:lower != null",
+		"@request.auth.email:lower = 'a@b.test'",
+		"@request.auth.email:lower != 'x'",
+		"@request.auth.email:length > 0",
+		"@request.auth.nickname:lower = null",
+	} {
+		rule, err := ParseAccessRule(source)
+		if err != nil {
+			t.Fatalf("%q: %v", source, err)
+		}
+		for _, principal := range []identity.Subject{{Kind: identity.Anonymous}, {Kind: identity.User, ID: uuid.New()}} {
+			sql, _, err := accessrule.CompileExpression(rule, accessrule.ExpressionContext{Resolver: pbResolverStubForQuery{}, Principal: principal, Request: &accessrule.RequestContext{Auth: map[string]any{"email": "A@B.test"}}})
+			if err != nil || sql != "FALSE" {
+				t.Fatalf("%q principal=%s sql=%q err=%v, want FALSE", source, principal.Kind, sql, err)
+			}
+		}
+	}
+	// The field-on-the-left form binds the absent value as a typed NULL.
+	rule, err := ParseAccessRule("title = @request.auth.name")
+	if err != nil || rule.Auth != "name" {
+		t.Fatalf("rule=%#v err=%v", rule, err)
+	}
+	sql, args, err := accessrule.CompileExpression(rule, accessrule.ExpressionContext{Resolver: textFieldResolverForQuery{}, Request: &accessrule.RequestContext{Auth: map[string]any{}}})
+	if err != nil || len(args) != 1 || args[0] != nil || !strings.Contains(sql, "COALESCE(") {
+		t.Fatalf("sql=%s args=%v err=%v", sql, args, err)
+	}
+	// Without an execution request the rule still cannot compile.
+	rule, err = ParseAccessRule("@request.auth.email = 'manager@example.test'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := accessrule.CompileExpression(rule, accessrule.ExpressionContext{Resolver: pbResolverStubForQuery{}}); err == nil {
+		t.Fatal("auth field compiled without a request")
+	}
+}
+
+type textFieldResolverForQuery struct{}
+
+func (textFieldResolverForQuery) Resolve(path string) (accessrule.Operand, error) {
+	return accessrule.Operand{SQL: `"records"."` + path + `"`, Kind: accessrule.OperandText, Cardinality: accessrule.Scalar}, nil
+}
+
+func (textFieldResolverForQuery) ResolveCollection(string, string) (accessrule.Operand, error) {
+	return accessrule.Operand{}, accessrule.ErrInvalid
+}
+
 func TestPocketBaseAccessRulePreservesFunctions(t *testing.T) {
 	for _, source := range []string{"geoDistance(place.lon, place.lat, 127, 37) < 10", "strftime('%Y-%m', created_at, 'start of month', '+1 day') = '2026-10'"} {
 		rule, err := ParseAccessRule(source)

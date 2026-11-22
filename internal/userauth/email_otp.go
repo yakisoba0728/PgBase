@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -43,7 +44,11 @@ func (s *Service) RequestEmailOTPInCollection(ctx context.Context, collectionID 
 	if err := s.consumeRateLimit(ctx, s.subjectHash("email-otp-request", "account", collectionID.String()+"\x00"+account), s.currentRatePolicy().AccountMaxFailures, now); err != nil {
 		return EmailOTPRequest{}, err
 	}
-	result := EmailOTPRequest{OTPID: uuid.NewString()}
+	id, err := s.newEmailOTPID(collectionID, account)
+	if err != nil {
+		return EmailOTPRequest{}, err
+	}
+	result := EmailOTPRequest{OTPID: id.String()}
 	if emailErr != nil {
 		return result, nil
 	}
@@ -52,7 +57,6 @@ func (s *Service) RequestEmailOTPInCollection(ctx context.Context, collectionID 
 		return EmailOTPRequest{}, err
 	}
 	code := fmt.Sprintf("%06d", binary.BigEndian.Uint64(random[:])%1_000_000)
-	id := uuid.MustParse(result.OTPID)
 	var userID uuid.UUID
 	var otpHash []byte
 	var keyVersion string
@@ -119,8 +123,34 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 	if err != nil {
 		return Session{}, err
 	}
+	// Each code allows max_attempts guesses, but a fresh request would reset
+	// that, so failures also spend one budget per collection and requested
+	// address, shared by every code issued for it, like password login
+	// failures. The budget comes from the authenticated account tag inside the
+	// OTP id, which ids issued for unknown addresses carry too, so a missing
+	// account spends and exhausts it exactly like an existing one. An
+	// exhausted budget refuses even a correct code until the block ends.
+	tag, authentic := s.emailOTPIDTag(collectionID, id)
+	if !authentic {
+		// Only ids issued before account tags existed reach this; they are
+		// still honored until they expire.
+		var email string
+		err = s.pool.QueryRow(ctx, `select u.email from pgbase_meta.user_email_otps o join pgbase_meta.users u on u.id=o.user_id where o.id=$1 and o.auth_collection_id=$2`, id, collectionID).Scan(&email)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Session{}, ErrInvalidCredentials
+		}
+		if err != nil {
+			return Session{}, err
+		}
+		tag = s.emailOTPAccountTag(collectionID, email)
+	}
+	buckets := s.emailOTPBudget(collectionID, tag)
+	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
+		return Session{}, err
+	}
 	var issued Session
 	var operationErr error
+	var wrongCode bool
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var enabled bool
 		if err := tx.QueryRow(ctx, `select otp_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, collectionID).Scan(&enabled); err != nil || !enabled {
@@ -157,6 +187,7 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 			attempts++
 			_, err = tx.Exec(ctx, `update pgbase_meta.user_email_otps set attempts=$2,consumed_at=case when $2>=max_attempts then CURRENT_TIMESTAMP else null end where id=$1`, id, attempts)
 			operationErr = ErrInvalidCredentials
+			wrongCode = true
 			return err
 		}
 		if err := s.enforceAuthRuleForSession(ctx, tx, user.AuthCollectionID, user.ID); err != nil {
@@ -181,11 +212,60 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 	if err != nil {
 		return Session{}, err
 	}
+	// With an authentic id every refusal spends the budget, whether or not a
+	// stored code exists, is live or still has attempts: an unknown address
+	// never has one, so anything narrower would tell the two apart.
+	if wrongCode || authentic && errors.Is(operationErr, ErrInvalidCredentials) {
+		if err := s.recordFailures(ctx, buckets, now); err != nil {
+			return Session{}, err
+		}
+	}
 	if operationErr != nil {
 		return Session{}, operationErr
 	}
 	s.recordIssuedAuthOrigin(ctx, issued, now)
 	return issued, nil
+}
+
+// An OTP id stays a version 4 UUID but carries, without storage, which budget
+// its failures spend: bytes 0-5 are a keyed tag of collection and requested
+// address, bytes 6-11 are random (except the version and variant bits), and
+// bytes 12-15 authenticate the rest. Ids issued for unknown addresses are
+// built the same way, so completion treats both alike, and forged ids cannot
+// create budgets for arbitrary tags.
+const (
+	emailOTPIDTagBytes = 6
+	emailOTPIDMACBytes = 4
+)
+
+func (s *Service) emailOTPAccountTag(collectionID uuid.UUID, account string) []byte {
+	return s.digest("email-otp-account\x00"+collectionID.String()+"\x00", account)[:emailOTPIDTagBytes]
+}
+
+func (s *Service) emailOTPIDMAC(collectionID uuid.UUID, id uuid.UUID) []byte {
+	return s.digest("email-otp-id\x00"+collectionID.String()+"\x00", string(id[:len(id)-emailOTPIDMACBytes]))[:emailOTPIDMACBytes]
+}
+
+func (s *Service) newEmailOTPID(collectionID uuid.UUID, account string) (uuid.UUID, error) {
+	var id uuid.UUID
+	copy(id[:emailOTPIDTagBytes], s.emailOTPAccountTag(collectionID, account))
+	if _, err := rand.Read(id[emailOTPIDTagBytes : len(id)-emailOTPIDMACBytes]); err != nil {
+		return uuid.Nil, err
+	}
+	id[6] = id[6]&0x0f | 0x40
+	id[8] = id[8]&0x3f | 0x80
+	copy(id[len(id)-emailOTPIDMACBytes:], s.emailOTPIDMAC(collectionID, id))
+	return id, nil
+}
+
+// emailOTPIDTag returns the account tag of id and whether this service issued
+// it for this collection.
+func (s *Service) emailOTPIDTag(collectionID uuid.UUID, id uuid.UUID) ([]byte, bool) {
+	return id[:emailOTPIDTagBytes], hmac.Equal(id[len(id)-emailOTPIDMACBytes:], s.emailOTPIDMAC(collectionID, id))
+}
+
+func (s *Service) emailOTPBudget(collectionID uuid.UUID, tag []byte) []rateLimitBucket {
+	return []rateLimitBucket{{hash: s.subjectHash("email-otp-verify", "account", collectionID.String()+"\x00"+hex.EncodeToString(tag)), limit: s.currentRatePolicy().AccountMaxFailures}}
 }
 
 // Bind the code to its delivery address, including when a collection key is

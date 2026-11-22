@@ -99,13 +99,26 @@ func TestReadKernelPlainListRetainsOnlyEmittedRootsAndOneLookahead(t *testing.T)
 	} else if tag.RowsAffected() != r0HydrationRootCount {
 		t.Fatalf("root rows = %d, want %d", tag.RowsAffected(), r0HydrationRootCount)
 	}
-	if tag, err := pool.Exec(ctx, `INSERT INTO `+edgeTable+` (source_id, target_id, position)
+	// The 200,000-row fixture insert is not under test; on a loaded runner it outlives the
+	// pool's 5-second statement timeout.
+	edgeTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = edgeTx.Rollback(ctx) }()
+	if _, err := edgeTx.Exec(ctx, `SET LOCAL statement_timeout = 0`); err != nil {
+		t.Fatal(err)
+	}
+	if tag, err := edgeTx.Exec(ctx, `INSERT INTO `+edgeTable+` (source_id, target_id, position)
 		SELECT roots.id, targets.id,
 			(row_number() OVER (PARTITION BY roots.id ORDER BY targets.id) - 1)::integer
 		FROM `+rootTable+` AS roots CROSS JOIN `+targetTable+` AS targets`); err != nil {
 		t.Fatal(err)
 	} else if tag.RowsAffected() != r0HydrationEdgeCount {
 		t.Fatalf("edge fixture rows = %d, want %d", tag.RowsAffected(), r0HydrationEdgeCount)
+	}
+	if err := edgeTx.Commit(ctx); err != nil {
+		t.Fatal(err)
 	}
 	syncMembershipOrdinals(t, ctx, pool)
 	operationTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)

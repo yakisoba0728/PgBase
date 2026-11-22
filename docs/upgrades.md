@@ -54,6 +54,15 @@ the single-use guarantee. A binary rollback after migration requires an artifact
 explicitly compatible with schema 72; do not remove the column or history row to
 make an old binary start.
 
+Administrator email-OTP sign-in (`POST /api/admin/auth/otp/complete`) no longer
+bypasses TOTP. For an administrator with TOTP enabled, a correct email code alone
+now answers HTTP 401 `otp_required` without consuming the code; the client resends
+the request with `otpCode` set to a current authenticator code, which uses the
+same single-use counter as password login. Clients that redeem CLI-issued email
+codes for TOTP-protected administrators must handle that step. An administrator
+who lost the authenticator is recovered with `pgbase admin otp disable --email
+EMAIL` on the host, not with an email code.
+
 Coming from schema 69, the same `pgbase migrate up` first applies migrations 70
 and 71, which only add indexes. Migration 70 builds an expression index on
 `pgbase_meta.record_outbox` without `CONCURRENTLY`, and 71 indexes the

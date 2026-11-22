@@ -58,6 +58,7 @@ func withBackupServices(ctx context.Context, dependencies api.Dependencies, file
 		return dependencies, nil, err
 	}
 	dependencies.BackupStorageAdministration = controller
+	warnPlaintextBackupEndpoint(ctx, controller, options)
 	alerter := newBackupFailureAlerter(pool, options)
 	manager, err := backup.NewManager(backup.ManagerOptions{
 		Directory:  options.Backups.Directory,
@@ -113,4 +114,25 @@ func validateBackupOptions(options BackupOptions) error {
 		return errors.New("backup S3 bucket, region, and paired credentials are required")
 	}
 	return nil
+}
+
+// plaintextEndpointWarning is logged when the active backup target sends S3
+// credentials and archives over unencrypted HTTP to a host that is not
+// loopback or a private IP literal. Plain http stays accepted so private
+// MinIO deployments keep working; the warning makes the exposure visible.
+const plaintextEndpointWarning = "backup S3 endpoint uses plain http to a host that is not loopback or a private IP address; access keys and backup archives travel unencrypted, use https unless the network path is trusted"
+
+type backupSettingsReader interface {
+	Settings(context.Context) (backup.StorageSettings, error)
+}
+
+func warnPlaintextBackupEndpoint(ctx context.Context, controller backupSettingsReader, options Options) {
+	if options.Logger == nil {
+		return
+	}
+	settings, err := controller.Settings(ctx)
+	if err != nil || !settings.PlaintextEndpoint {
+		return
+	}
+	options.Logger.WarnContext(ctx, plaintextEndpointWarning, "endpoint", settings.Endpoint)
 }

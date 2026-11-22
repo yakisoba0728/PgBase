@@ -26,6 +26,18 @@ PGBASE_BACKUPS_RETENTION=14
 
 For an S3-compatible service, set `PGBASE_BACKUPS_S3_ENDPOINT`, `PGBASE_BACKUPS_S3_ACCESS_KEY`, `PGBASE_BACKUPS_S3_SECRET_KEY`, and optionally `PGBASE_BACKUPS_S3_PATH_STYLE=true`. These settings are independent from uploaded-file storage.
 
+### Plain-http endpoints
+
+The backup endpoint accepts `https://` and `http://`. Plain http stays supported so a private MinIO on the same host or Docker network keeps working. Over plain http, the access key ID and signed requests, every backup archive and every restore download cross the network **unencrypted**. Archives contain the whole database, including administrator password hashes and stored secrets. Anyone on the network path can read them. An active attacker can also swap an archive and its metadata, and restoring that archive runs its SQL (see [Restore trust model](backup-restore.md#restore-trust-model-and-database-role)).
+
+PgBase does not refuse such an endpoint. It warns when the endpoint is `http://` and the host is not `localhost` or a loopback, private (RFC 1918 / IPv6 ULA) or link-local IP literal:
+
+- the server logs a warning at startup;
+- the Backup storage settings response carries `"plaintextEndpoint": true`, and the administrator page shows a warning under the endpoint field;
+- `pgbase doctor` reports the `backup_endpoint_plaintext` **warning**. It reads the saved settings, or the `PGBASE_BACKUPS_S3_*` environment before any settings exist. The warning does not change `"ok"` or the exit code.
+
+Hostnames are reported even when they resolve to a private address, such as the Compose service name `minio`. A name alone does not prove where traffic goes. If the path is a private network you control, you can accept the warning. Otherwise use `https://`, or address the service by a loopback or private IP literal so the configuration states the local path explicitly.
+
 PgBase uploads an archive before publishing its metadata, so incomplete uploads are not listed or restorable. Downloads and restores verify the recorded archive size and SHA-256 digest while streaming. Managed applications persist backup settings in the project database; environment values seed new settings and do not overwrite existing saved settings. Use the Backup storage administrator page to change them. A destination change is rejected while the current repository still lists archives or has pending publications, so preserve or remove those archives and resolve interrupted work before switching. Job receipts and restore activation state continue to use the private local backup directory.
 
 An interrupted publication keeps a durable database fence and therefore blocks

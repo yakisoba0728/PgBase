@@ -141,6 +141,11 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 	if !ok || rule.Field == "" {
 		return "", ErrInvalid
 	}
+	if rule.Function == nil {
+		if fold, absent := c.unboundRequestAuth(rule.Field); fold {
+			return unboundAuthComparison(rule, base, absent)
+		}
+	}
 	var left Operand
 	var err error
 	if rule.Function != nil {
@@ -170,9 +175,20 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 		var value any
 		var ok bool
 		if rule.Auth == "id" {
-			value, ok = c.context.Principal.ID, true
+			// An unauthenticated caller has no id: bind NULL rather than the
+			// nil UUID so a row holding the nil UUID cannot match it.
+			ok = true
+			if authenticatedSubject(c.context.Principal) {
+				value = c.context.Principal.ID
+			}
 		} else if c.context.Request != nil {
-			value, ok = c.context.Request.Auth[rule.Auth]
+			// A missing key, or one with a modifier (never a stored key),
+			// binds as NULL: every comparison with it is false, since the
+			// compare is wrapped in COALESCE(...,false) and never uses IS.
+			value, ok = nil, true
+			if !strings.Contains(rule.Auth, ":") {
+				value = c.context.Request.Auth[rule.Auth]
+			}
 		}
 		if !ok && !c.context.validationOnly {
 			return "", ErrInvalid
@@ -202,23 +218,19 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 			rightSQL = c.typedParameter(left.Kind, value)
 		}
 	}
-	compare := func(valueSQL string) string {
-		rhs := rightSQL
-		if base == "contains" || base == "not_contains" {
-			rhs = "('%' || " + rightSQL + " || '%')"
+	// The pattern of ~/!~ keeps its LIKE wildcards only when the rule author
+	// wrote it. A request-supplied pattern (@request.auth/body/query/headers/
+	// context) is matched literally, so a requester cannot widen it.
+	requestPattern := rule.Auth != "" || strings.HasPrefix(rule.OtherField, "__pgbase_request_")
+	match := func(leftSQL, rightSQL string) string {
+		if base != "contains" && base != "not_contains" {
+			return "COALESCE(" + leftSQL + " " + op + " " + rightSQL + ",false)"
 		}
-		return "COALESCE(" + valueSQL + " " + op + " " + rhs + ",false)"
+		return "COALESCE(" + containsSQL(leftSQL, op, rightSQL, requestPattern) + ",false)"
 	}
 	if rightMulti != nil {
 		if rightMulti.From == "" || rightMulti.ValueSQL == "" {
 			return "", ErrInvalid
-		}
-		match := func(leftSQL, rightSQL string) string {
-			rhs := rightSQL
-			if base == "contains" || base == "not_contains" {
-				rhs = "('%' || " + rightSQL + " || '%')"
-			}
-			return "COALESCE(" + leftSQL + " " + op + " " + rhs + ",false)"
 		}
 		if left.Cardinality == Scalar {
 			if left.SQL == "" {
@@ -246,7 +258,7 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 		if left.SQL == "" {
 			return "", ErrInvalid
 		}
-		return compare(left.SQL), nil
+		return match(left.SQL, rightSQL), nil
 	}
 	if left.Multi == nil || left.Multi.From == "" || left.Multi.ValueSQL == "" {
 		return "", ErrInvalid
@@ -255,11 +267,79 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 	if where != "" {
 		where = "(" + where + ") AND "
 	}
-	match := compare(left.Multi.ValueSQL)
+	matched := match(left.Multi.ValueSQL, rightSQL)
 	if anyMatch {
-		return "EXISTS (SELECT 1 FROM " + left.Multi.From + " WHERE " + where + match + ")", nil
+		return "EXISTS (SELECT 1 FROM " + left.Multi.From + " WHERE " + where + matched + ")", nil
 	}
-	return "NOT EXISTS (SELECT 1 FROM " + left.Multi.From + " WHERE " + where + "NOT (" + match + "))", nil
+	return "NOT EXISTS (SELECT 1 FROM " + left.Multi.From + " WHERE " + where + "NOT (" + matched + "))", nil
+}
+
+// containsSQL renders "value LIKE '%' || pattern || '%'". A pattern the rule
+// author wrote keeps its wildcards; a request-supplied one has the escape
+// character, '%' and '_' escaped so it matches as a plain substring.
+func containsSQL(valueSQL, op, patternSQL string, requestPattern bool) string {
+	if !requestPattern {
+		return valueSQL + " " + op + " ('%' || " + patternSQL + " || '%')"
+	}
+	escaped := `replace(replace(replace(` + patternSQL + `,'\','\\'),'%','\%'),'_','\_')`
+	return valueSQL + " " + op + " ('%' || " + escaped + ` || '%') ESCAPE '\'`
+}
+
+// unboundRequestAuth reports a left-hand @request.auth operand the compiler
+// cannot bind: one with a modifier (none is supported on auth values) or a key
+// missing from the request's auth values. absent is true only when the value
+// is known to be NULL, which holds for an unauthenticated caller alone. For an
+// authenticated caller a missing key means the value is unknown (record
+// requests carry only some auth fields), not that the field is empty.
+func (c *expressionCompiler) unboundRequestAuth(path string) (fold, absent bool) {
+	if c.context.validationOnly || c.context.Request == nil {
+		return false, false
+	}
+	key, ok := strings.CutPrefix(path, "__pgbase_request_auth_")
+	if !ok || key == "" {
+		return false, false
+	}
+	if strings.Contains(key, ":") {
+		return true, false
+	}
+	if _, present := c.context.Request.Auth[key]; present {
+		return false, false
+	}
+	return true, !authenticatedSubject(c.context.Principal)
+}
+
+// unboundAuthComparison folds a comparison whose left side is an unbound
+// @request.auth operand. Every comparison is FALSE (fail closed); only a value
+// known to be absent makes an explicit "= null" TRUE, as COALESCE(NULL op x,
+// false) would give. A NULL of unknown type cannot be bound against typed
+// literals, so the result is folded rather than compiled.
+func unboundAuthComparison(rule Rule, base string, absent bool) (string, error) {
+	if rule.OtherField != "" || rule.Auth != "" {
+		return "FALSE", nil
+	}
+	if rule.Macro != "" {
+		if _, _, ok := pbMacroSQL(rule.Macro); !ok {
+			return "", ErrInvalid
+		}
+		return "FALSE", nil
+	}
+	value, err := pbTypedValue(0, rule.Value)
+	if err != nil {
+		return "", err
+	}
+	if value == nil {
+		switch base {
+		case "eq":
+			if absent {
+				return "TRUE", nil
+			}
+			return "FALSE", nil
+		case "ne":
+			return "FALSE", nil
+		}
+		return "", ErrInvalid
+	}
+	return "FALSE", nil
 }
 
 func (c *expressionCompiler) projectionAlias(alias string) string {
@@ -471,8 +551,10 @@ func (c *expressionCompiler) resolveRequest(path string) (Operand, error) {
 	}
 	if strings.HasPrefix(path, "__pgbase_request_auth_") {
 		key := strings.TrimPrefix(path, "__pgbase_request_auth_")
-		value, ok := r.Auth[key]
-		if key == "" || !ok && !c.context.validationOnly {
+		// A key the caller lacks (always the case for anonymous requests)
+		// binds as SQL NULL, matching PocketBase's absent @request.auth values.
+		value := r.Auth[key]
+		if key == "" {
 			return Operand{}, ErrInvalid
 		}
 		kind := OperandText

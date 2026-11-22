@@ -12,6 +12,8 @@ const test = base.extend<{ cleanConsole: void }>({
       if (message.type() !== "error" || message.text().startsWith("Failed to load resource")) return;
       // Firefox reports a font request cancelled by navigation (NS_BINDING_ABORTED) as a script error.
       if (/downloadable font: download failed .*status=2152398850\b/.test(message.text())) return;
+      // WebKit reports a fetch cancelled by navigation as an access-control failure.
+      if (/\/api\/admin\/status due to access control checks\.$/.test(message.text())) return;
       problems.push(message.text());
     });
     page.on("pageerror", (error) => problems.push(error.message));

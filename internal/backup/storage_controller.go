@@ -44,6 +44,10 @@ type StorageSettings struct {
 	Retention        int    `json:"retention"`
 	SecretConfigured bool   `json:"secretConfigured"`
 	Revision         int64  `json:"revision"`
+	// PlaintextEndpoint warns that the S3 endpoint is plain http to a host
+	// that is not loopback or a private IP literal: access keys and backup
+	// archives then cross the network unencrypted. It is advisory only.
+	PlaintextEndpoint bool `json:"plaintextEndpoint"`
 }
 type StorageUpdate struct {
 	StorageConfig
@@ -192,6 +196,7 @@ func (c *StorageController) loadFrom(ctx context.Context, db database.DBTX) (Sto
 	var encrypted []byte
 	err := db.QueryRow(ctx, `select driver,s3_bucket,s3_prefix,s3_region,s3_endpoint,s3_access_key,s3_secret_ciphertext,s3_use_path_style,retention,revision from pgbase_meta.backup_storage_settings where singleton`).Scan(&s.Driver, &s.Bucket, &s.Prefix, &s.Region, &s.Endpoint, &s.AccessKey, &encrypted, &s.UsePathStyle, &s.Retention, &s.Revision)
 	s.SecretConfigured = len(encrypted) > 0
+	s.PlaintextEndpoint = s.Driver == "s3" && PlaintextEndpoint(s.Endpoint)
 	return s, encrypted, err
 }
 func (c *StorageController) load(ctx context.Context) (StorageSettings, []byte, error) {
@@ -488,7 +493,7 @@ func (c *StorageController) Update(ctx context.Context, in StorageUpdate) (Stora
 				return err
 			}
 		}
-		candidate := StorageSettings{Driver: in.Driver, Bucket: in.Bucket, Prefix: in.Prefix, Region: in.Region, Endpoint: in.Endpoint, AccessKey: in.AccessKey, UsePathStyle: in.UsePathStyle, Retention: in.Retention, SecretConfigured: len(encrypted) > 0, Revision: old.Revision + 1}
+		candidate := StorageSettings{Driver: in.Driver, Bucket: in.Bucket, Prefix: in.Prefix, Region: in.Region, Endpoint: in.Endpoint, AccessKey: in.AccessKey, UsePathStyle: in.UsePathStyle, Retention: in.Retention, SecretConfigured: len(encrypted) > 0, Revision: old.Revision + 1, PlaintextEndpoint: in.Driver == "s3" && PlaintextEndpoint(in.Endpoint)}
 		if err := validateStorageConfig(StorageConfig{Driver: candidate.Driver, Bucket: candidate.Bucket, Prefix: candidate.Prefix, Region: candidate.Region, Endpoint: candidate.Endpoint, AccessKey: candidate.AccessKey, SecretKey: func() string {
 			if candidate.SecretConfigured {
 				return "configured"

@@ -54,6 +54,8 @@ const test = base.extend<{ cleanConsole: void }, { authenticatedStorageState: st
       // Firefox reports a font request that a reload or navigation cancelled as a script
       // error. 2152398850 is NS_BINDING_ABORTED: the browser dropped the request itself.
       if (/downloadable font: download failed .*status=2152398850\b/.test(message.text())) return;
+      // WebKit reports a fetch cancelled by navigation as an access-control failure.
+      if (/\/api\/admin\/status due to access control checks\.$/.test(message.text())) return;
       problems.push(message.text());
     });
     page.on("pageerror", (error) => problems.push(error.message));

@@ -56,6 +56,30 @@ func TestCompileWithRequestIssetAndChanged(t *testing.T) {
 	}
 }
 
+func TestScalarContainsEscapesOnlyRequestPatterns(t *testing.T) {
+	collection := schema.Collection{ID: uuid.New(), TableName: "notes", Fields: []schema.Field{{Name: "title", ColumnName: "title", Type: schema.TypeText}, {Name: "note", ColumnName: "note", Type: schema.TypeText}}}
+	principal := identity.Subject{Kind: identity.User, ID: uuid.New()}
+	request := RequestContext{Query: map[string][]string{"q": {"%"}}}
+	escaped := `replace(replace(replace(`
+	for _, test := range []struct {
+		rule    Rule
+		escaped bool
+	}{
+		{Rule{Op: "contains", Field: "title", OtherField: "__pgbase_request_query_q"}, true},
+		{Rule{Op: "not_contains", Field: "title", OtherField: "__pgbase_request_query_q"}, true},
+		{Rule{Op: "contains", Field: "title", Value: json.RawMessage(`"a%b"`)}, false},
+		{Rule{Op: "contains", Field: "title", OtherField: "note"}, false},
+	} {
+		sql, _, err := CompileWithRequest(test.rule, collection, collection.TableName, principal, 0, false, request)
+		if err != nil {
+			t.Fatalf("%+v: %v", test.rule, err)
+		}
+		if got := strings.Contains(sql, escaped) && strings.Contains(sql, `ESCAPE '\'`); got != test.escaped {
+			t.Fatalf("%+v sql=%s escaped=%t want=%t", test.rule, sql, got, test.escaped)
+		}
+	}
+}
+
 func TestRuleJSONAndOwnerCompatibility(t *testing.T) {
 	raw, _ := json.Marshal(OwnerRules())
 	parsed, err := Parse(raw)

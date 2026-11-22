@@ -86,8 +86,20 @@ func (s *Service) IssueEmailOTP(ctx context.Context, email string) (EmailOTP, er
 
 // CompleteEmailOTP proves possession of an unexpired CLI-issued code and then
 // applies the same IP admission, session creation, and successful limiter
-// cleanup as administrator password login. No password path is involved.
+// cleanup as administrator password login. No password path is involved. An
+// administrator with TOTP enabled gets ErrOTPRequired; use
+// CompleteEmailOTPWithTOTP to supply the authenticator code.
 func (s *Service) CompleteEmailOTP(ctx context.Context, otpID, code, subject string) (Session, error) {
+	return s.CompleteEmailOTPWithTOTP(ctx, otpID, code, subject, "")
+}
+
+// CompleteEmailOTPWithTOTP is CompleteEmailOTP for an administrator who has
+// TOTP enabled: the email code alone does not bypass the second factor. A
+// correct email code without a TOTP code returns ErrOTPRequired and leaves the
+// email code unconsumed, so the same request can be repeated with totpCode,
+// exactly like password login. A wrong TOTP code counts as a failed attempt for
+// the account. A TOTP counter is single-use across password and email-OTP login.
+func (s *Service) CompleteEmailOTPWithTOTP(ctx context.Context, otpID, code, subject, totpCode string) (Session, error) {
 	if err := s.emailOTPReady(); err != nil {
 		return Session{}, err
 	}
@@ -136,12 +148,41 @@ func (s *Service) CompleteEmailOTP(ctx context.Context, otpID, code, subject str
 			}
 			return nil
 		}
+		// The second factor is checked exactly as in password login: missing is
+		// a step change (no failure recorded), wrong or replayed is a failure.
+		ciphertext, lastCounter, totpEnabled, err := store.TOTPForUpdate(ctx, administrator.ID)
+		if err != nil {
+			return err
+		}
+		var totpCounter int64
+		if totpEnabled {
+			if totpCode == "" {
+				operationErr = ErrOTPRequired
+				return nil
+			}
+			secret, decryptErr := s.decryptTOTP(ciphertext)
+			minimum := int64(-1)
+			if lastCounter != nil {
+				minimum = *lastCounter
+			}
+			var valid bool
+			totpCounter, valid = matchTOTP(secret, totpCode, now, minimum)
+			if decryptErr != nil || !valid {
+				operationErr = ErrInvalidCredentials
+				return recordRateLimitAttempt(ctx, store, []rateLimitBucket{account}, now)
+			}
+		}
 		if err := authorizeIP(ctx, store, administrator.ID, subject); err != nil {
 			if errors.Is(err, ErrIPRestricted) {
 				operationErr = ErrInvalidCredentials
 				return recordRateLimitAttempt(ctx, store, []rateLimitBucket{account}, now)
 			}
 			return err
+		}
+		if totpEnabled {
+			if err := store.ConsumeTOTP(ctx, administrator.ID, totpCounter); err != nil {
+				return err
+			}
 		}
 		if err := store.MarkEmailOTPConsumed(ctx, id, now); err != nil {
 			return err

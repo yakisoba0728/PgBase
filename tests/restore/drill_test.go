@@ -407,14 +407,24 @@ func verifyRestoredDoctor(t *testing.T, ctx context.Context, drill *candidate, p
 		t.Fatalf("run doctor against the restored database: %v\n%s", err, output)
 	}
 	var report struct {
-		OK       bool              `json:"ok"`
-		Findings []json.RawMessage `json:"findings"`
+		OK       bool `json:"ok"`
+		Findings []struct {
+			Severity string `json:"severity"`
+		} `json:"findings"`
 	}
 	if err := json.Unmarshal([]byte(output), &report); err != nil {
 		t.Fatalf("decode the doctor report: %v\n%s", err, output)
 	}
-	if !report.OK || len(report.Findings) != 0 {
-		t.Fatalf("doctor reported ok=%v with %d findings\n%s", report.OK, len(report.Findings), output)
+	// Advisory warnings (for example a superuser drill role) describe the
+	// deployment, not the restored data, and never fail the report.
+	errorFindings := 0
+	for _, finding := range report.Findings {
+		if finding.Severity != "warning" {
+			errorFindings++
+		}
+	}
+	if !report.OK || errorFindings != 0 {
+		t.Fatalf("doctor reported ok=%v with %d error findings\n%s", report.OK, errorFindings, output)
 	}
 }
 

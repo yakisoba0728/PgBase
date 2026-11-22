@@ -8,6 +8,40 @@ Archives created through the administrator console are pruned by the retention d
 
 Administrator backup archive uploads and downloads are bounded to 2 GiB and a 30-minute transfer window. PgBase overrides the normal HTTP connection read and write deadlines only for those two streaming routes. Configure any reverse proxy or load balancer in front of PgBase with compatible request-body, response, and idle timeouts; an upstream timeout can still end the transfer earlier.
 
+## Restore trust model and database role
+
+A backup archive is executable input, not inert data. Restoring one runs `pg_restore` over the archive's `database.dump` with the role in `PGBASE_DATABASE_URL`, for both the administrator console and `pgbase backup restore`. Whatever SQL the dump contains runs with that role's privileges.
+
+What PgBase validates before restoring an uploaded or stored archive:
+
+- The archive is a gzip tar of regular files only: `manifest.json`, `database.dump` and `files/...`. Entry names must be clean relative paths. Compressed size, expanded size and entry count are bounded. Trailing data is rejected.
+- `manifest.json` is strict JSON with no unknown fields and a known format version. Every artifact's size and SHA-256 must match it, with no missing, extra, duplicate or unsorted files.
+- When an archive is restored from the backup repository, its stored size and SHA-256 are checked again while it streams.
+- The backup's PostgreSQL major, the `pg_restore` major and the server major must all be equal.
+- The restore target is a new database. Managed restore creates `pgbase_restore_<uuid>` from `template0`. The offline CLI target must be empty and have no other sessions. `pg_restore` runs with `--single-transaction --no-owner --no-acl --exit-on-error`.
+
+What PgBase does **not** validate: who created the archive, or what SQL the dump contains. The manifest checksums are written by whoever produced the archive. They detect corruption, not tampering. Nothing signs or authenticates an archive. `--no-owner`/`--no-acl` only skip ownership and grant statements. Function bodies, extension creation and other SQL in a crafted dump still run.
+
+So treat these as equivalent to running SQL as the PgBase database role:
+
+- **Administrators** (and, before the first administrator exists, the holder of `PGBASE_SETUP_TOKEN`) can upload and restore archives.
+- **Write access to the backup repository** (the backup directory or the S3 bucket and prefix) lets someone replace an archive together with its recorded metadata.
+
+Only restore archives that came from your own PgBase deployment, and protect the backup repository like the database credentials.
+
+### Use a non-superuser owner role
+
+If the PgBase role is a PostgreSQL superuser, a hostile or tampered archive can do anything a superuser can. That includes reading other databases, creating roles, and running programs on the database host through `COPY ... PROGRAM` or untrusted procedural languages. The bundled development Compose file creates its PostgreSQL user through the official image's `POSTGRES_USER`, which makes that user a superuser. `pgbase doctor` reports this as the `database_role_superuser` **warning**. A warning does not change `"ok"` or the exit code.
+
+For production, connect PgBase as a dedicated role that owns the project database and is not a superuser:
+
+```sql
+create role pgbase login password '...' nosuperuser createdb nocreaterole noreplication nobypassrls;
+create database pgbase owner pgbase;
+```
+
+`createdb` is needed only for the administrator backup console, because managed restore creates a new database beside the source database. Leave it off if you restore only with the offline CLI into a database you created yourself. Extensions used by your project must be trusted extensions, or must already be installed by a superuser. Otherwise a non-superuser restore of a dump that creates them fails, and the failed restore rolls back. Moving an existing deployment off a superuser role is an operator change: create the new role, then transfer ownership of the database and the `pgbase_meta`, `app` and `pgbase_relation` schemas and their objects (for example with `reassign owned`) during a maintenance window. Then point `PGBASE_DATABASE_URL` at the new role and confirm `pgbase doctor` no longer shows the warning.
+
 ## Logical backup with pg_dump
 
 Use client tools compatible with the server. Keep connection parameters in a protected libpq service file and passwords in a separate mode-`600` passfile so neither the URL nor the password appears in shell history or process arguments. Create the files outside the repository and open them with an editor:
@@ -132,7 +166,7 @@ Use the drill as the reference for what a restore must prove; the manual steps b
    pgbase doctor --json
    ```
 
-   Require the doctor JSON result to contain `"ok":true`. Relation-aware doctor checks metadata bindings and all pgBase-owned relation columns, foreign keys, edge tables, constraints, indexes, functions, and triggers; treat any missing, mismatched, or orphaned relation object as a failed restore.
+   Require the doctor JSON result to contain `"ok":true`. Findings with `"severity":"warning"` (such as `database_role_superuser` or `backup_endpoint_plaintext`) are deployment advice. They do not set `"ok":false` and do not indicate a failed restore. Relation-aware doctor checks metadata bindings and all pgBase-owned relation columns, foreign keys, edge tables, constraints, indexes, functions, and triggers; treat any missing, mismatched, or orphaned relation object as a failed restore.
 
 7. Start one pgBase instance and require `/health/ready` to return HTTP 200. Through the administrator-authenticated HTTP record API, verify representative scalar records, raw single/multiple relation UUIDs and their order, `?expand=` results, and matching ETags. Replaying an original `Idempotency-Key` with the same body must return the original record, ETag, and `Location` rather than creating a duplicate; a restore that lost the idempotency results would create one. Where the drill permits a disposable mutation, use `Idempotency-Key`/`If-Match` to exercise a relation PATCH and a configured delete action, then confirm the expected record state. Do not use direct SQL as the validation path because it bypasses the Record Operations contract being tested.
 
