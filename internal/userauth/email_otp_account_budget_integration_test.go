@@ -78,7 +78,7 @@ func TestEmailOTPFailuresShareOneAccountBudgetAcrossCodes(t *testing.T) {
 	}
 
 	// Once the block ends a correct code is accepted again.
-	if _, err := service.pool.Exec(ctx, `update pgbase_meta.user_auth_rate_limits set blocked_until=CURRENT_TIMESTAMP-interval '1 second',window_started_at=CURRENT_TIMESTAMP-interval '1 hour' where subject_hash=$1`, service.subjectHash("email-otp-verify", "account", DefaultCollectionID.String()+"\x00"+target.User.ID.String())); err != nil {
+	if _, err := service.pool.Exec(ctx, `update pgbase_meta.user_auth_rate_limits set blocked_until=CURRENT_TIMESTAMP-interval '1 second',window_started_at=CURRENT_TIMESTAMP-interval '1 hour' where subject_hash=$1`, service.emailOTPBudget(DefaultCollectionID, service.emailOTPAccountTag(DefaultCollectionID, target.User.Email))[0].hash); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.CompleteEmailOTP(ctx, fourth, fourthCode); err != nil {
