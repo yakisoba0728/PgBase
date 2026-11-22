@@ -22,6 +22,11 @@ other comparison false, so a bare `@request.auth.<key> = null` also matches
 anonymous callers; guard it with `@request.auth.id != ''` when it should apply
 only to signed-in actors.
 
+When the pattern of `~` or `!~` comes from the request (`@request.query`,
+`@request.headers`, `@request.body`, `@request.auth` or `@request.context`),
+its `%`, `_` and `\` are escaped and it matches as a literal substring; only a
+literal pattern written in the rule keeps `LIKE` wildcards.
+
 An embedded/background call without request metadata cannot satisfy a rule
 that depends on HTTP metadata. In particular, a missing method/header/query
 must not make a negative comparison such as `@request.method != 'GET'` grant

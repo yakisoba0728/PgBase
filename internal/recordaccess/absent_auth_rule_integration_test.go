@@ -4,6 +4,8 @@ package recordaccess_test
 
 import (
 	"context"
+	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
@@ -128,6 +130,67 @@ func TestAbsentRequestAuthFieldsEvaluateAsNullAndFailClosed(t *testing.T) {
 		}
 		if got != test.want {
 			t.Fatalf("%q principal=%s row=%s allowed=%t want=%t", test.source, test.principal.Kind, test.id, got, test.want)
+		}
+	}
+}
+
+func TestRequestSuppliedContainsPatternsMatchLiterally(t *testing.T) {
+	fields := []schema.Field{{ID: uuid.New(), Name: "title", ColumnName: "title", Type: schema.TypeText}}
+	ctx, probe := newRuleProbe(t, "contains_pattern_notes", fields, `create table app.contains_pattern_notes(id uuid primary key,title text,created_at timestamptz default now(),updated_at timestamptz default now())`)
+	hello, percent, underscore, backslash := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	if _, err := probe.pool.Exec(ctx, `insert into app.contains_pattern_notes(id,title) values($1,'hello world'),($2,'100% sure'),($3,'a_b'),($4,'back\slash')`, hello, percent, underscore, backslash); err != nil {
+		t.Fatal(err)
+	}
+	rows := map[string]uuid.UUID{"hello": hello, "percent": percent, "underscore": underscore, "backslash": backslash}
+	anonymous := identity.Subject{Kind: identity.Anonymous}
+	request := func(value string) *accessrule.RequestContext {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &accessrule.RequestContext{
+			Method:  "GET",
+			Query:   map[string][]string{"q": {value}},
+			Headers: map[string][]string{"x_q": {value}},
+			Body:    map[string]json.RawMessage{"title": raw},
+			Present: map[string]bool{"title": true},
+			Changed: map[string]bool{"title": true},
+			Auth:    map[string]any{"nickname": value},
+		}
+	}
+	for _, test := range []struct {
+		source  string
+		value   string
+		allowed []string
+	}{
+		// A requester-supplied '%' or '_' used to widen the match to every row.
+		{"title ~ @request.query.q", "%", []string{"percent"}},
+		{"title ~ @request.query.q", "_", []string{"underscore"}},
+		{"title ~ @request.query.q", "h%d", nil},
+		{"title ~ @request.query.q", "h_llo", nil},
+		{"title ~ @request.query.q", `\`, []string{"backslash"}},
+		{"title ~ @request.query.q", "lo w", []string{"hello"}},
+		{"title ~ @request.query.q:lower", "%", []string{"percent"}},
+		{"title ~ @request.headers.x_q", "%", []string{"percent"}},
+		{"title ~ @request.body.title", "%", []string{"percent"}},
+		{"title ~ @request.auth.nickname", "%", []string{"percent"}},
+		{"title ?~ @request.query.q:each", "%", []string{"percent"}},
+		// A negated match can no longer be emptied with a wildcard.
+		{"title !~ @request.query.q", "%", []string{"hello", "underscore", "backslash"}},
+		{"title !~ @request.query.q", "_", []string{"hello", "percent", "backslash"}},
+		// Patterns the rule author wrote keep their LIKE wildcards.
+		{"title ~ 'h%d'", "", []string{"hello"}},
+		{"title ~ 'h_llo'", "", []string{"hello"}},
+		{"title !~ 'h%d'", "", []string{"percent", "underscore", "backslash"}},
+	} {
+		for name, id := range rows {
+			got, err := probe.allows(ctx, t, test.source, anonymous, request(test.value), id)
+			if err != nil {
+				t.Fatalf("%q value=%q: %v", test.source, test.value, err)
+			}
+			if want := slices.Contains(test.allowed, name); got != want {
+				t.Fatalf("%q value=%q row=%s allowed=%t want=%t", test.source, test.value, name, got, want)
+			}
 		}
 	}
 }

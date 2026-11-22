@@ -332,7 +332,8 @@ func (c *compiler) rule(rule Rule, depth int) (string, error) {
 			if baseOp == "not_contains" {
 				op = "NOT LIKE"
 			}
-			return "COALESCE(" + column + " " + op + " ('%' || " + rhs + " || '%'),false)", nil
+			requestPattern := strings.HasPrefix(rule.OtherField, "__pgbase_request_")
+			return "COALESCE(" + containsSQL(column, op, rhs, requestPattern) + ",false)", nil
 		}
 		operator := map[string]string{"eq": "=", "ne": "<>", "lt": "<", "lte": "<=", "gt": ">", "gte": ">="}[baseOp]
 		return "COALESCE(" + column + " " + operator + " " + rhs + ",false)", nil

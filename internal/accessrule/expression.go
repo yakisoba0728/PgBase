@@ -211,23 +211,19 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 			rightSQL = c.typedParameter(left.Kind, value)
 		}
 	}
-	compare := func(valueSQL string) string {
-		rhs := rightSQL
-		if base == "contains" || base == "not_contains" {
-			rhs = "('%' || " + rightSQL + " || '%')"
+	// The pattern of ~/!~ keeps its LIKE wildcards only when the rule author
+	// wrote it. A request-supplied pattern (@request.auth/body/query/headers/
+	// context) is matched literally, so a requester cannot widen it.
+	requestPattern := rule.Auth != "" || strings.HasPrefix(rule.OtherField, "__pgbase_request_")
+	match := func(leftSQL, rightSQL string) string {
+		if base != "contains" && base != "not_contains" {
+			return "COALESCE(" + leftSQL + " " + op + " " + rightSQL + ",false)"
 		}
-		return "COALESCE(" + valueSQL + " " + op + " " + rhs + ",false)"
+		return "COALESCE(" + containsSQL(leftSQL, op, rightSQL, requestPattern) + ",false)"
 	}
 	if rightMulti != nil {
 		if rightMulti.From == "" || rightMulti.ValueSQL == "" {
 			return "", ErrInvalid
-		}
-		match := func(leftSQL, rightSQL string) string {
-			rhs := rightSQL
-			if base == "contains" || base == "not_contains" {
-				rhs = "('%' || " + rightSQL + " || '%')"
-			}
-			return "COALESCE(" + leftSQL + " " + op + " " + rhs + ",false)"
 		}
 		if left.Cardinality == Scalar {
 			if left.SQL == "" {
@@ -255,7 +251,7 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 		if left.SQL == "" {
 			return "", ErrInvalid
 		}
-		return compare(left.SQL), nil
+		return match(left.SQL, rightSQL), nil
 	}
 	if left.Multi == nil || left.Multi.From == "" || left.Multi.ValueSQL == "" {
 		return "", ErrInvalid
@@ -264,11 +260,22 @@ func (c *expressionCompiler) rule(rule Rule, depth int) (string, error) {
 	if where != "" {
 		where = "(" + where + ") AND "
 	}
-	match := compare(left.Multi.ValueSQL)
+	matched := match(left.Multi.ValueSQL, rightSQL)
 	if anyMatch {
-		return "EXISTS (SELECT 1 FROM " + left.Multi.From + " WHERE " + where + match + ")", nil
+		return "EXISTS (SELECT 1 FROM " + left.Multi.From + " WHERE " + where + matched + ")", nil
 	}
-	return "NOT EXISTS (SELECT 1 FROM " + left.Multi.From + " WHERE " + where + "NOT (" + match + "))", nil
+	return "NOT EXISTS (SELECT 1 FROM " + left.Multi.From + " WHERE " + where + "NOT (" + matched + "))", nil
+}
+
+// containsSQL renders "value LIKE '%' || pattern || '%'". A pattern the rule
+// author wrote keeps its wildcards; a request-supplied one has the escape
+// character, '%' and '_' escaped so it matches as a plain substring.
+func containsSQL(valueSQL, op, patternSQL string, requestPattern bool) string {
+	if !requestPattern {
+		return valueSQL + " " + op + " ('%' || " + patternSQL + " || '%')"
+	}
+	escaped := `replace(replace(replace(` + patternSQL + `,'\','\\'),'%','\%'),'_','\_')`
+	return valueSQL + " " + op + " ('%' || " + escaped + ` || '%') ESCAPE '\'`
 }
 
 // absentRequestAuth reports a @request.auth key the executing caller lacks.
