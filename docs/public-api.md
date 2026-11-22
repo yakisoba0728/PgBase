@@ -21,9 +21,9 @@ The source branch implements the contracts below. Use `Content-Type: application
 | POST `/api/v1/auth/totp/confirm` | `{code}` → one-time recovery codes |
 | POST `/api/v1/auth/totp/disable` | `{currentPassword,code}` |
 | POST `/api/v1/auth/mfa/complete` | `{challengeToken,code}` → user session |
-| POST `/api/v1/auth/oauth/start` | `{provider,redirectUri}` → authorization URL and expiry |
-| POST `/api/v1/auth/oauth/link` | `{currentPassword,provider,redirectUri}` with bearer |
-| POST `/api/v1/auth/oauth/complete` | `{provider,state,code,fields?}` → user session; profile input applies only to a new account |
+| POST `/api/v1/auth/oauth/start` | `{provider,redirectUri,requireCodeVerifier?}` → authorization URL, expiry, `state` and PKCE `codeVerifier`/`codeChallenge` |
+| POST `/api/v1/auth/oauth/link` | `{currentPassword,provider,redirectUri,requireCodeVerifier?}` with bearer |
+| POST `/api/v1/auth/oauth/complete` | `{provider,state,code,codeVerifier?,fields?}` → user session; profile input applies only to a new account |
 | POST `/api/v1/auth/otp/request` | `{email}` → opaque OTP id and expiry without disclosing account existence |
 | POST `/api/v1/auth/otp/complete` | `{otpId,code}` → user session or MFA challenge |
 
@@ -37,7 +37,7 @@ Apple uses the configured client secret as Apple's signed client-secret JWT. Rot
 
 The built-in profile catalog matches the 30 providers in the vendored PocketBase v0.40.3 source: Apple, Bitbucket, Box, Discord, Facebook, Gitea/Forgejo, Gitee, GitHub, GitLab, Google, Instagram, Kakao, Lark, Linear, LiveChat, Mailcow, Microsoft, monday.com, Notion, OIDC, Patreon, Planning Center, Spotify, Strava, Trakt, Twitch, X/Twitter, VK, WakaTime, and Yandex. Provider URLs stay editable for regional or self-hosted services. Apple production configuration requires a public HTTPS PgBase URL, and its Services ID redirect URI must be the HTTPS callback bridge URL shown above.
 
-A login requiring MFA returns HTTP 401 with `mfa_required` and challenge fields in `error.details`. The TypeScript SDK exposes `MFAChallengeError`. OAuth uses configured providers and allowlisted redirect URIs; callback completion consumes state, validates PKCE through the token exchange and preserves the auth collection stored at initiation. Matching email alone never links an existing account. Email action links use a URL fragment and an explicit confirmation page at `/auth/action`.
+A login requiring MFA returns HTTP 401 with `mfa_required` and challenge fields in `error.details`. The TypeScript SDK exposes `MFAChallengeError`. OAuth uses configured providers and allowlisted redirect URIs; callback completion consumes state, validates PKCE through the token exchange and preserves the auth collection stored at initiation. The server generates and keeps each flow's PKCE verifier and also returns it from start/link as `codeVerifier`. A client that sends `requireCodeVerifier: true` to `oauth/start`, `oauth/link` or `/api/v1/auth/{authCollection}/oauth/start` binds completion to itself: `oauth/complete` then fails with HTTP 401 `invalid_credentials` unless its body carries that exact `codeVerifier`, so a leaked callback URL (`state` and `code`) alone cannot finish the flow. Whenever `codeVerifier` is present it must match, in any flow; an empty or wrong value returns the same 401. These checks run before the provider code exchange and leave the state unconsumed, so the client holding the verifier can still complete. Without the opt-in, completion with `{provider,state,code}` keeps working as before; the SDK `oauthComplete`, `oauthCompleteFromURL` and `oauthWithBrowser` helpers do not opt in yet. `requireCodeVerifier` is accepted only by the start/link routes and `codeVerifier` only by `oauth/complete`; elsewhere they return 400 `invalid_request`. Matching email alone never links an existing account. Email action links use a URL fragment and an explicit confirmation page at `/auth/action`.
 
 New OAuth registrations may import a provider avatar when `avatarField` contains an image URL. Imports are optional and bounded to 2 MiB, use public HTTPS URLs (or explicitly enabled loopback fixtures), validate media type and dimensions, and never replace an existing managed avatar. An authenticated user reads their private avatar at `GET /api/v1/auth/avatar`.
 

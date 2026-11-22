@@ -257,7 +257,7 @@ func (s *Service) beginOAuth(ctx context.Context, collectionID uuid.UUID, provid
 	verifier := base64.RawURLEncoding.EncodeToString(verifierBytes)
 	digest := sha256.Sum256([]byte(verifier))
 	challenge := base64.RawURLEncoding.EncodeToString(digest[:])
-	ciphertext, err := s.encrypt("oauth-verifier", []byte(verifier))
+	ciphertext, err := s.sealOAuthVerifier(ctx, verifier)
 	if err != nil {
 		return OAuthAuthorization{}, err
 	}
@@ -301,15 +301,17 @@ func (s *Service) CompleteOAuthWithFields(ctx context.Context, provider, state, 
 	if err != nil {
 		return Session{}, err
 	}
+	// Check a client-bound flow before spending the provider code, and leave
+	// the state unconsumed so the client holding the verifier can still finish.
+	verifier, err := s.openOAuthVerifier(ctx, encrypted)
+	if err != nil {
+		return Session{}, err
+	}
 	configured, _, configErr := s.configuredOAuthProvider(ctx, collectionID, provider)
 	if configErr != nil || configured == nil {
 		return Session{}, ErrInvalidCredentials
 	}
-	verifierBytes, err := s.decrypt("oauth-verifier", encrypted)
-	if err != nil {
-		return Session{}, err
-	}
-	identity, err := configured.Exchange(ctx, code, string(verifierBytes), redirect)
+	identity, err := configured.Exchange(ctx, code, verifier, redirect)
 	if err != nil {
 		return Session{}, ErrInvalidCredentials
 	}
