@@ -119,8 +119,25 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 	if err != nil {
 		return Session{}, err
 	}
+	// Each code allows max_attempts guesses, but a fresh request would reset
+	// that, so wrong codes also spend one per-account budget across every OTP
+	// of the account, like password login failures. An exhausted budget
+	// refuses even a correct code until the block ends.
+	var accountID uuid.UUID
+	err = s.pool.QueryRow(ctx, `select user_id from pgbase_meta.user_email_otps where id=$1 and auth_collection_id=$2`, id, collectionID).Scan(&accountID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Session{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return Session{}, err
+	}
+	buckets := []rateLimitBucket{{hash: s.subjectHash("email-otp-verify", "account", collectionID.String()+"\x00"+accountID.String()), limit: s.currentRatePolicy().AccountMaxFailures}}
+	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
+		return Session{}, err
+	}
 	var issued Session
 	var operationErr error
+	var wrongCode bool
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var enabled bool
 		if err := tx.QueryRow(ctx, `select otp_enabled from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, collectionID).Scan(&enabled); err != nil || !enabled {
@@ -157,6 +174,7 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 			attempts++
 			_, err = tx.Exec(ctx, `update pgbase_meta.user_email_otps set attempts=$2,consumed_at=case when $2>=max_attempts then CURRENT_TIMESTAMP else null end where id=$1`, id, attempts)
 			operationErr = ErrInvalidCredentials
+			wrongCode = true
 			return err
 		}
 		if err := s.enforceAuthRuleForSession(ctx, tx, user.AuthCollectionID, user.ID); err != nil {
@@ -180,6 +198,11 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 	})
 	if err != nil {
 		return Session{}, err
+	}
+	if wrongCode {
+		if err := s.recordFailures(ctx, buckets, now); err != nil {
+			return Session{}, err
+		}
 	}
 	if operationErr != nil {
 		return Session{}, operationErr
