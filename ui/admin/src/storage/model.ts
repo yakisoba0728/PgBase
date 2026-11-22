@@ -52,6 +52,45 @@ export type DraftErrors = Partial<Record<keyof StorageDraft, MessageKey>>;
 
 const loopback = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
+function localIPv4(host: string): boolean {
+  const parts = host.split(".");
+  if (parts.length !== 4 || !parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return false;
+  const [a, b] = parts.map(Number);
+  return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+}
+
+function localIPv6(host: string): boolean {
+  if (host === "::1") return true;
+  // URL hostnames arrive compressed and lowercase, so a mapped IPv4 address is "::ffff:hhhh:hhhh".
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+  if (mapped) {
+    const high = parseInt(mapped[1], 16);
+    const low = parseInt(mapped[2], 16);
+    return localIPv4(`${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`);
+  }
+  const first = host.startsWith("::") ? 0 : parseInt(host.split(":")[0], 16);
+  return (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80;
+}
+
+/**
+ * Mirrors the server's plaintext-endpoint warning: plain http to anything but localhost or a
+ * loopback, private or link-local IP literal sends backup credentials and archives unencrypted.
+ * Plain http is still accepted; this only decides whether to warn.
+ */
+export function plaintextEndpoint(endpoint: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(endpoint.trim());
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "http:") return false;
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (!host || host === "localhost" || host.endsWith(".localhost")) return false;
+  if (host.startsWith("[") && host.endsWith("]")) return !localIPv6(host.slice(1, -1));
+  return !localIPv4(host);
+}
+
 /** Mirrors the server's checks so a rejected save can point at a field (its 400 carries no details). */
 export function validateDraft(draft: StorageDraft, secretConfigured: boolean, withRetention: boolean): DraftErrors {
   const errors: DraftErrors = {};

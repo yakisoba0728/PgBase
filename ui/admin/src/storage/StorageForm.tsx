@@ -11,7 +11,7 @@ import { QueryView } from "../components/QueryView";
 import { Checkbox, Field } from "../components/Field";
 import { toast } from "../components/Toast";
 import { useT } from "../i18n";
-import { backupUpdate, draftFrom, fileUpdate, isDirty, storageErrorKey, validateDraft, type DraftErrors, type StorageDraft } from "./model";
+import { backupUpdate, draftFrom, fileUpdate, isDirty, plaintextEndpoint, storageErrorKey, validateDraft, type DraftErrors, type StorageDraft } from "./model";
 import { storageSettingsQuery } from "./queries";
 import { isNotFound } from "../api/http";
 
@@ -43,6 +43,7 @@ export function StorageFields({ draft, onChange, errors, secretConfigured, backu
           </div>
           {backups && <Field label={t("storage.form.prefix")} mono spellCheck={false} autoComplete="off" value={draft.prefix} error={err("prefix")} onChange={(event) => onChange({ prefix: event.target.value })} />}
           <Field label={t("storage.form.endpoint")} mono spellCheck={false} autoComplete="off" placeholder="https://" value={draft.endpoint} error={err("endpoint")} hint={t(backups ? "storage.form.backupEndpointHint" : "storage.form.endpointHint")} onChange={(event) => onChange({ endpoint: event.target.value })} />
+          {backups && plaintextEndpoint(draft.endpoint) && <Notice role="status">{t("storage.form.backupEndpointPlaintext")}</Notice>}
           <div className="field-pair">
             <Field label={t("storage.form.accessKey")} mono spellCheck={false} autoComplete="off" value={draft.accessKey} error={err("accessKey")} onChange={(event) => onChange({ accessKey: event.target.value })} />
             <Field label={t("storage.form.secretKey")} mono type="password" autoComplete="new-password" disabled={draft.clearSecret} value={draft.secretKey} error={err("secretKey")}

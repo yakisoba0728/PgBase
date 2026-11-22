@@ -73,6 +73,8 @@ export interface BackupStorageSettings {
   retention: number;
   secretConfigured: boolean;
   revision: number;
+  /** Advisory: the saved endpoint is plain http to a host that is not loopback or a private IP literal. */
+  plaintextEndpoint?: boolean;
 }
 
 export interface BackupStorageUpdate extends StorageSecretInput {

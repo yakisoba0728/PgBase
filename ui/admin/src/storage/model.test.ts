@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../api/http";
 import type { BackupStorageSettings, FileStorageSettings } from "../api/storage";
-import { backupUpdate, describePhase, draftFrom, fileUpdate, isDirty, storageErrorKey, validateDraft } from "./model";
+import { backupUpdate, describePhase, draftFrom, fileUpdate, isDirty, plaintextEndpoint, storageErrorKey, validateDraft } from "./model";
 import { awaitingStart } from "./queries";
 
 describe("awaitingStart", () => {
@@ -70,4 +70,18 @@ it("allows the server-supported HTTP backup endpoint while keeping file storage 
   const clear = { ...draft, endpoint: "", accessKey: "", clearSecret: true };
   expect(validateDraft(clear, true, false)).toEqual({});
   expect(fileUpdate(clear, 3)).toMatchObject({ clearSecret: true, accessKey: "", secretKey: "" });
+});
+
+describe("plaintextEndpoint", () => {
+  it("warns only for plain http to hosts that are not provably local", () => {
+    for (const endpoint of ["", "not a url", "https://s3.example.com", "https://minio:9000", "http://localhost:9000", "http://minio.localhost:9000",
+      "http://127.0.0.1:9000", "http://10.1.2.3:9000", "http://172.16.0.9", "http://192.168.1.20:9000", "http://169.254.1.1",
+      "http://[::1]:9000", "http://[::ffff:127.0.0.1]:9000", "http://[fd00::1]:9000", "http://[fe80::1]:9000"]) {
+      expect(plaintextEndpoint(endpoint), endpoint).toBe(false);
+    }
+    for (const endpoint of ["http://minio:9000", "http://minio.internal:9000", "HTTP://s3.example.com", "http://203.0.113.10:9000",
+      "http://172.32.0.1", "http://[2001:db8::1]:9000", "http://[::ffff:203.0.113.10]"]) {
+      expect(plaintextEndpoint(endpoint), endpoint).toBe(true);
+    }
+  });
 });
