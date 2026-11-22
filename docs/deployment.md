@@ -33,7 +33,7 @@ For each deployment:
 
 If the release declares a single optional compatibility migration, replace step 3 with the checksum-pinned `pgbase migrate up --through TARGET_VERSION` job and retain its JSON receipt. Follow the [P0 -> M -> F procedure and rollback matrix](upgrades.md#one-migration-compatibility-rollout); the ordinary `migrate up` sequence is not a substitute for that release gate.
 
-The bundled Compose stack is for development and has `PGBASE_AUTO_MIGRATE=true`. To exercise an explicit migration with that image, start PostgreSQL first and override the setting for the one-off command:
+The bundled Compose stack is for development and has `PGBASE_AUTO_MIGRATE=true`. Its PostgreSQL user is created through the official image's `POSTGRES_USER`, which makes it a superuser, so `pgbase doctor` shows the `database_role_superuser` warning there. Production deployments should use a non-superuser owner role as described under [External PostgreSQL](#external-postgresql). If a backup S3 endpoint uses plain `http://` to anything other than a loopback or private IP literal, `pgbase doctor` and the server log also warn that credentials and archives travel unencrypted (see [S3 backups](backup-s3.md#plain-http-endpoints)). To exercise an explicit migration with that image, start PostgreSQL first and override the setting for the one-off command:
 
 ```console
 docker compose --env-file deployments/.env -f deployments/docker-compose.yml up -d postgres --wait
@@ -229,6 +229,7 @@ The bundled cookie-authenticated administrator UI must share the API origin. Adm
 ## External PostgreSQL
 
 - Use a dedicated database and role for one pgBase project.
+- Do not run pgBase as a PostgreSQL superuser in production. Backup restore executes the archive's SQL with this role, so with a superuser an administrator-uploaded or tampered archive runs arbitrary SQL as superuser. Use a `nosuperuser` role that owns the project database (add `createdb` only for the administrator backup console's restore). `pgbase doctor` warns with `database_role_superuser` while the role is a superuser. See [restore trust model](backup-restore.md#restore-trust-model-and-database-role).
 - Grant the role permission to create and modify objects in `pgbase_meta`, `app`, and `pgbase_relation`; migrations and collection/relation DDL require it.
 - Require encrypted, verified transport for non-local PostgreSQL.
 - Pooled sessions pin `search_path` to `pg_catalog`; application relations are schema-qualified so caller- or role-controlled schemas cannot capture unqualified object resolution.
