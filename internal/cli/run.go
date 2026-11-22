@@ -448,6 +448,14 @@ func runDoctor(ctx context.Context, args []string, env environment, streams IO) 
 	defer runtime.Close()
 
 	report, err := doctor.Run(ctx, runtime.pool, migrate.New(runtime.pool, runtime.logger))
+	// Deployment warnings are advisory: they never change report.OK or the
+	// exit code, and a failure to gather them is logged rather than turning a
+	// sound diagnosis into a failed one.
+	warnings, warningErr := doctor.DeploymentWarnings(ctx, runtime.pool, seedBackupEndpoint(runtime.options))
+	report.Findings = append(report.Findings, warnings...)
+	if warningErr != nil {
+		runtime.logger.WarnContext(ctx, "deployment warnings could not be completed", "error", warningErr)
+	}
 	// A run that stopped early is still printed, because the findings gathered
 	// before the failure are real. Appending the signal last marks the report as
 	// truncated without reordering those findings, so an operator never reads a
@@ -466,6 +474,16 @@ func runDoctor(ctx context.Context, args []string, env environment, streams IO) 
 		return errors.New("diagnostic findings")
 	}
 	return nil
+}
+
+// seedBackupEndpoint is the S3 endpoint the environment would seed into the
+// backup storage settings: only when managed backups are enabled with an S3
+// bucket, mirroring how serve chooses the initial backup driver.
+func seedBackupEndpoint(options pgbase.Options) string {
+	if options.Backups.Directory == "" || options.Backups.S3.Bucket == "" {
+		return ""
+	}
+	return options.Backups.S3.Endpoint
 }
 
 func emitDoctorFailure(stdout io.Writer, jsonOutput bool, code, message string, operationErr error) error {

@@ -23,10 +23,48 @@ func TestDoctorJSONReportsHealthyMigratedDatabase(t *testing.T) {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	var report struct {
-		OK bool `json:"ok"`
+		OK       bool `json:"ok"`
+		Findings []struct {
+			Severity string `json:"severity"`
+			Code     string `json:"code"`
+		} `json:"findings"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil || !report.OK {
 		t.Fatalf("report=%q err=%v", stdout.String(), err)
+	}
+	// The integration database is reached as a superuser, as in the bundled
+	// Compose deployment: doctor warns about the restore exposure but the
+	// warning neither fails the report nor changes the exit code.
+	if len(report.Findings) != 1 || report.Findings[0].Severity != "warning" || report.Findings[0].Code != "database_role_superuser" {
+		t.Fatalf("findings=%+v, want only the superuser warning", report.Findings)
+	}
+}
+
+func TestDoctorTextReportsPlaintextBackupEndpointWarningWithoutFailing(t *testing.T) {
+	databaseURL := testutil.NewDatabase(t)
+	prepareDoctorDatabase(t, databaseURL)
+	base := migrationEnv(databaseURL)
+	backups := map[string]string{
+		"PGBASE_BACKUPS_DIRECTORY":   t.TempDir(),
+		"PGBASE_BACKUPS_S3_BUCKET":   "pgbase-backups",
+		"PGBASE_BACKUPS_S3_REGION":   "us-east-1",
+		"PGBASE_BACKUPS_S3_ENDPOINT": "http://203.0.113.10:9000",
+	}
+	env := func(key string) (string, bool) {
+		if value, ok := backups[key]; ok {
+			return value, true
+		}
+		return base(key)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"doctor"}, env, testIO(nil, &stdout, &stderr))
+	if code != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"warning database_role_superuser: ", "warning backup_endpoint_plaintext: "} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout=%q, want %q", stdout.String(), want)
+		}
 	}
 }
 
@@ -70,6 +108,15 @@ func TestDoctorJSONSignalsTruncationAfterAPartialReport(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		t.Fatalf("stdout is not one JSON report: %q: %v", stdout.String(), err)
 	}
+	// Advisory warnings (the superuser role here) are not part of the
+	// truncation contract; only error findings keep their order.
+	errorFindings := report.Findings[:0]
+	for _, finding := range report.Findings {
+		if finding.Severity != "warning" {
+			errorFindings = append(errorFindings, finding)
+		}
+	}
+	report.Findings = errorFindings
 	if report.OK || len(report.Findings) != 2 {
 		t.Fatalf("report=%+v, want the history finding and a truncation signal", report)
 	}
