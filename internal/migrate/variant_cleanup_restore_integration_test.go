@@ -83,7 +83,7 @@ func TestVariantCleanupRestoresSchema68BeforeUpgrade(t *testing.T) {
 		}
 	}
 	status, err := New(restored, nil).Status(ctx)
-	if err != nil || status.Current != 73 || status.Latest != 73 || status.Dirty || !status.Compatible {
+	if err != nil || status.Current != 74 || status.Latest != 74 || status.Dirty || !status.Compatible {
 		t.Fatalf("restored migration status=%+v err=%v", status, err)
 	}
 	var driver, bucket, access string

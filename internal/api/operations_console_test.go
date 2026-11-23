@@ -17,7 +17,11 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/observability"
 )
 
-type consoleJobs struct{ calls int }
+type consoleJobs struct {
+	calls     int
+	runLimit  int
+	runCursor string
+}
 
 type consoleBackups struct{ calls []string }
 
@@ -65,6 +69,16 @@ func (j *consoleJobs) ListJobs(context.Context) ([]jobs.Status, error) { return 
 func (j *consoleJobs) ConfigureJob(context.Context, uuid.UUID, string, bool) error {
 	j.calls++
 	return nil
+}
+func (j *consoleJobs) ListRuns(_ context.Context, id uuid.UUID, limit int, cursor string) (jobs.RunPage, error) {
+	if id == uuid.MustParse("00000000-0000-4000-8000-000000000404") {
+		return jobs.RunPage{}, jobs.ErrJobNotFound
+	}
+	if cursor == "forged" {
+		return jobs.RunPage{}, jobs.ErrInvalidRunQuery
+	}
+	j.runLimit, j.runCursor = limit, cursor
+	return jobs.RunPage{Items: []jobs.Run{{ID: 7, Status: jobs.RunFailed, Attempt: 2, Error: "boom"}}, NextCursor: "next"}, nil
 }
 
 func TestBackupRoutesAdmissionStreamingAndReceipts(t *testing.T) {
@@ -267,5 +281,45 @@ func TestOperationsConsoleDurableLogAndCalendarEndpoints(t *testing.T) {
 	}
 	if worker.calls != 1 {
 		t.Fatalf("calendar configure calls = %d", worker.calls)
+	}
+}
+
+func TestOperationsConsoleJobRunHistory(t *testing.T) {
+	session := validSession()
+	auth := &fakeAdminAuth{authenticateAdmin: session.Administrator, authenticateExpiry: time.Now().Add(time.Hour)}
+	worker := &consoleJobs{}
+	router := mustRouter(t, Dependencies{AdminAuth: auth, PublicURL: mustURL("https://admin.example.com"), RequestLog: &observability.RequestLog{}, Jobs: worker})
+	const base = "/api/admin/jobs/12345678-1234-4567-8901-123456789abc/runs"
+	for _, test := range []struct {
+		path, origin string
+		want         int
+	}{
+		{base, "", 200},
+		{base + "?limit=100&cursor=abc", "", 200},
+		{base, "https://foreign.example", 403},
+		{"/api/admin/jobs/not-a-uuid/runs", "", 400},
+		{base + "?limit=0", "", 400},
+		{base + "?limit=101", "", 400},
+		{base + "?limit=x", "", 400},
+		{base + "?cursor=a&cursor=b", "", 400},
+		{base + "?before=1", "", 400},
+		{base + "?cursor=forged", "", 400},
+		{"/api/admin/jobs/00000000-0000-4000-8000-000000000404/runs", "", 404},
+	} {
+		request := authenticatedRecordRequest("GET", test.path, "", false)
+		if test.origin != "" {
+			request.Header.Set("Origin", test.origin)
+		}
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != test.want {
+			t.Fatalf("GET %s = %d %s", test.path, response.Code, response.Body.String())
+		}
+		if test.want == 200 && (!strings.Contains(response.Body.String(), `"status":"failed"`) || !strings.Contains(response.Body.String(), `"nextCursor":"next"`)) {
+			t.Fatalf("GET %s body = %s", test.path, response.Body.String())
+		}
+	}
+	if worker.runLimit != 100 || worker.runCursor != "abc" {
+		t.Fatalf("forwarded limit=%d cursor=%q", worker.runLimit, worker.runCursor)
 	}
 }
