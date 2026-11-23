@@ -455,6 +455,13 @@ func (s orderSpec) renderRelation(
 			if term.identityCollectionID != uuid.Nil {
 				term.expression = recordIdentityExpression(term.identityCollectionID, qualified(rootAlias, systemFieldID))
 			}
+			if term.visibility != nil {
+				expression, err := renderRelationKeyVisibility(term.visibility, renderer, term.expression, prefix)
+				if err != nil {
+					return orderSpec{}, nil, err
+				}
+				term.expression = expression
+			}
 			continue
 		}
 		expression, pathJoins, err := renderRelationSortJoins(term.relationPath, renderer, rootAlias, prefix, term.key.Desc)

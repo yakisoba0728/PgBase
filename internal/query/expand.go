@@ -417,6 +417,9 @@ func (s *Service) planNativeRead(ctx context.Context, tx pgx.Tx, catalog schema.
 	if err := rejectHiddenRelationPlan(request.Principal, relationPlan); err != nil {
 		return rootPlan{}, err
 	}
+	if err := bindRelationKeyVisibility(ctx, tx, &relationPlan, request.Principal); err != nil {
+		return rootPlan{}, err
+	}
 	if relationListPlanUsesRelation(relationPlan) {
 		if err := bindRelationPolicies(ctx, tx, &relationPlan, request.Principal); err != nil {
 			return rootPlan{}, err

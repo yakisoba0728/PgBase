@@ -19,8 +19,9 @@ import (
 )
 
 // A non-administrator ordering by a bare relation field must not learn the
-// redacted target ids through nextCursor, and the anchor-only cursors that
-// replace the value cursors must page through exactly the same rows.
+// redacted target ids through nextCursor or through the order itself: every
+// target here is hidden, so each key sorts as NULL and only the tie-breakers
+// order the rows, through anchor-only cursors as on a single page.
 func TestBareRelationSortCursorHidesRedactedTargetsAcrossPages(t *testing.T) {
 	pool, schemas, records := newRecordServiceTest(t)
 	ctx := context.Background()
@@ -89,10 +90,13 @@ func TestBareRelationSortCursorHidesRedactedTargetsAcrossPages(t *testing.T) {
 		}
 	}
 
-	for _, sortText := range []string{"owner", "-owner", "-created_at,owner"} {
-		all, err := records.List(ctx, ListRequest{Principal: administrator, Collection: "relkey_posts", Sort: sortText, Limit: 100})
+	for _, test := range []struct{ sort, masked string }{
+		{"owner", "id"}, {"-owner", "-id"}, {"-created_at,owner", "-created_at,id"},
+	} {
+		sortText := test.sort
+		all, err := records.List(ctx, ListRequest{Principal: administrator, Collection: "relkey_posts", Sort: test.masked, Limit: 100})
 		if err != nil || all.NextCursor != "" || len(all.Items) != len(owners) {
-			t.Fatalf("%s administrator full page = %d items cursor %q err=%v", sortText, len(all.Items), all.NextCursor, err)
+			t.Fatalf("%s administrator full page = %d items cursor %q err=%v", test.masked, len(all.Items), all.NextCursor, err)
 		}
 		want := recordIDs(all.Items)
 
@@ -133,18 +137,14 @@ func TestBareRelationSortCursorHidesRedactedTargetsAcrossPages(t *testing.T) {
 		}
 	}
 
-	// A value cursor issued to the same principal before the anchor-only rule
-	// is signed and already in the client's hands; it keeps continuing, and the
-	// cursor it yields is anchor-only.
+	// A value cursor for the same principal would carry the stored target id,
+	// which no longer matches the masked key, so it is refused and the client
+	// restarts. Cursors live 15 minutes, so none issued before the anchor-only
+	// rule survives an upgrade anyway.
 	request := ListRequest{Principal: anonymous, Collection: "relkey_posts", Sort: "owner", Limit: 2}
 	first, err := records.List(ctx, request)
 	if err != nil || first.NextCursor == "" {
 		t.Fatalf("first anonymous page err=%v", err)
-	}
-	request.Cursor = first.NextCursor
-	expected, err := records.List(ctx, request)
-	if err != nil {
-		t.Fatal(err)
 	}
 	legacy, err := records.cursors.Decode(first.NextCursor, collectionID, time.Now())
 	if err != nil {
@@ -161,12 +161,7 @@ func TestBareRelationSortCursorHidesRedactedTargetsAcrossPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	request.Cursor = legacyToken
-	continued, err := records.List(ctx, request)
-	if err != nil {
-		t.Fatalf("legacy value cursor continuation: %v", err)
+	if _, err := records.List(ctx, request); !IsInvalidCursor(err) {
+		t.Fatalf("legacy value cursor continuation err=%v, want invalid cursor", err)
 	}
-	if !reflect.DeepEqual(recordIDs(continued.Items), recordIDs(expected.Items)) {
-		t.Fatalf("legacy continuation = %v, want %v", recordIDs(continued.Items), recordIDs(expected.Items))
-	}
-	assertNoTarget("legacy continuation", continued.NextCursor)
 }

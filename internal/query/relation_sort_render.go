@@ -93,6 +93,24 @@ func renderRelationSortJoins(
 	return expression, joins, nil
 }
 
+// renderRelationKeyVisibility keeps a stored relation key only when the
+// principal can view its target, under the same view policy relation hydration
+// applies to the response. A hidden target therefore sorts, compares and
+// anchors as NULL, exactly like a missing relation.
+func renderRelationKeyVisibility(hop *plannedRelationHop, renderer *relationSQLRenderer, key, prefix string) (string, error) {
+	if hop.rule == nil || hop.field.Relation == nil {
+		return "", relationSortUnsupported()
+	}
+	targetAlias := renderer.alias(prefix + "_visible")
+	predicate, args, err := compilePolicyPredicateWithRequest(*hop.rule, hop.target, hop.policyTarget, targetAlias, hop.principal, len(renderer.builder.args), renderer.catalog, renderer.request)
+	if err != nil {
+		return "", err
+	}
+	renderer.builder.args = append(renderer.builder.args, args...)
+	return "(CASE WHEN EXISTS (SELECT 1 FROM " + quotedTable(hop.target) + " AS " + quoted(targetAlias) +
+		" WHERE " + qualified(targetAlias, systemFieldID) + " = " + key + " AND (" + predicate + ")) THEN " + key + " END)", nil
+}
+
 func selectedRelationRootColumns(collection schema.Collection, alias string) string {
 	columns := []string{
 		qualified(alias, systemFieldID),
