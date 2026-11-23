@@ -123,6 +123,7 @@ type Service struct {
 	probeSlots      chan struct{}
 	passwordSlots   chan struct{}
 	resetMailer     mailer.Sender
+	resetQueue      *mailer.Queue
 	resetBaseURL    string
 	resetTTL        time.Duration
 	emailOTPMailer  mailer.Sender
@@ -180,5 +181,13 @@ func NewService(pool *database.Pool, passwords Passwords, tokenSecret []byte, se
 		sessionSlots:    make(chan struct{}, sessionAdmissionConcurrency),
 		probeSlots:      make(chan struct{}, setupProbeAdmissionConcurrency),
 		passwordSlots:   make(chan struct{}, passwordWorkConcurrency),
+		resetQueue:      mailer.NewQueue(passwordResetMailWorkers, passwordResetMailCapacity, time.Minute),
 	}
 }
+
+// Password reset requests are public, so the account lookup and the mail run
+// in a bounded queue off the request path; see RequestPasswordReset.
+const (
+	passwordResetMailWorkers  = 2
+	passwordResetMailCapacity = 64
+)

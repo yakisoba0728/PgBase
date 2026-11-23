@@ -15,7 +15,7 @@ import (
 func newBudgetEmailService(t *testing.T) (*Service, *capturedSender) {
 	t.Helper()
 	s := NewService(newUserAuthPool(t), stubPasswords{}, []byte("0123456789abcdef0123456789abcdef"), time.Hour)
-	sender := &capturedSender{}
+	sender := &capturedSender{service: s}
 	if err := s.ConfigureEmailActions(sender, "https://accounts.example.test", time.Hour); err != nil {
 		t.Fatal(err)
 	}

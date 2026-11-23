@@ -40,6 +40,7 @@ func newResetAdmissionService(t *testing.T) (*Service, *resetCapture) {
 	if err := s.RequestPasswordReset(t.Context(), "admin@example.test", "192.0.2.2"); err != nil {
 		t.Fatal(err)
 	}
+	waitForResetMail(t, s)
 	return s, sender
 }
 

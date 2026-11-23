@@ -41,6 +41,11 @@ Before wraps the public service operation and therefore runs before normalizatio
 rate admission, durable state changes, or provider calls. Non-disclosing request
 vetoes use the same HTTP error shape for known and unknown accounts. Each After is
 emitted once when the delegated operation returns after its transaction commit.
+`auth.otp.request` and `auth.password_reset.request` return before the account
+lookup: the code or reset link is stored and its `mail.send`, `mail.otp` or
+`mail.password_reset` hooks run afterwards from the mail queue, with the
+request's context values but not its cancellation, so their After can precede
+the mail hooks.
 OAuth provider network work is included in `auth.oauth.complete`; its final error
 distinguishes failure without exposing credentials or provider response bodies.
 Session metadata is copied without bearer material.

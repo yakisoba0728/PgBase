@@ -88,6 +88,10 @@ func TestEmailOTPCompletionDoesNotRevealAccountExistence(t *testing.T) {
 		request := func() string {
 			w := call("otp/request", remote, map[string]string{"email": email})
 			out = append(out, observe(w))
+			// The code is stored and mailed after the response.
+			if err := service.WaitForQueuedMail(ctx); err != nil {
+				t.Fatal(err)
+			}
 			var issued struct {
 				OTPID string `json:"otpId"`
 			}

@@ -34,7 +34,7 @@ func TestEmailOTPIsHashedResentAttemptBoundAndSingleUse(t *testing.T) {
 	if err != nil || unknown.OTPID == "" {
 		t.Fatalf("unknown request=%#v %v", unknown, err)
 	}
-	if len(sender.messages) != 0 {
+	if sender.count(t) != 0 {
 		t.Fatal("unknown address sent email")
 	}
 	first, err := service.RequestEmailOTP(ctx, registered.User.Email, "otp-first")
@@ -263,6 +263,7 @@ var otpPattern = regexp.MustCompile(`\b[0-9]{6}\b`)
 
 func otpFromMessage(t *testing.T, s *capturedSender) string {
 	t.Helper()
+	s.wait(t)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.messages) == 0 {
