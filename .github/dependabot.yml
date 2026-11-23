@@ -17,6 +17,11 @@ updates:
   - package-ecosystem: docker
     directory: /deployments
     schedule: { interval: weekly }
+    ignore:
+      # postgres16/17/18 are per-major pg_dump/pg_restore stages; backup
+      # requires the client major to equal the server major, so only patches.
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
