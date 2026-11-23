@@ -1,11 +1,17 @@
 package observability
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestRequestLogBoundedPagesAndFilter(t *testing.T) {
@@ -161,6 +167,69 @@ func TestRequestLogRecentSearchFiltersBeforePagination(t *testing.T) {
 	future := time.Now().Add(time.Hour)
 	if stats, err := log.Statistics(context.Background(), &future, nil); err != nil || stats.Total != 0 {
 		t.Fatalf("future statistics = %#v %v", stats, err)
+	}
+}
+
+type recordedEvents struct {
+	mu     sync.Mutex
+	events []Event
+}
+
+func (r *recordedEvents) Record(_ context.Context, event Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+}
+
+func (r *recordedEvents) outcomes() []Outcome {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	outcomes := make([]Outcome, 0, len(r.events))
+	for _, event := range r.events {
+		outcomes = append(outcomes, event.Outcome())
+	}
+	return outcomes
+}
+
+// A cleanup that keeps failing lets the table grow, so it is never silent: the
+// first failure warns, repeats are rate limited, recovery is announced and
+// every attempt reaches the metric with a bounded outcome.
+func TestRequestLogCleanupFailuresWarnAndReachTheMetric(t *testing.T) {
+	var logs bytes.Buffer
+	events := &recordedEvents{}
+	log := &RequestLog{options: RequestLogOptions{Logger: slog.New(slog.NewJSONHandler(&logs, nil)), Recorder: events}.normalized()}
+	ctx := context.Background()
+	started := time.Now()
+	log.observePrune(ctx, started, 0, &pgconn.PgError{Code: "57014"})
+	log.observePrune(ctx, started, 0, context.DeadlineExceeded)
+	log.observePrune(ctx, started, 0, errors.New("broken"))
+	if got := strings.Count(logs.String(), "request log cleanup failed"); got != 1 {
+		t.Fatalf("warnings = %d, want 1 within the interval:\n%s", got, logs.String())
+	}
+	if !strings.Contains(logs.String(), `"level":"WARN"`) || !strings.Contains(logs.String(), `"outcome":"budget"`) {
+		t.Fatalf("warning = %s", logs.String())
+	}
+	log.pruneMu.Lock()
+	log.pruneWarnedAt = time.Now().Add(-requestLogPruneWarningInterval)
+	log.pruneMu.Unlock()
+	log.observePrune(ctx, started, 0, errors.New("broken"))
+	if got := strings.Count(logs.String(), "request log cleanup failed"); got != 2 || !strings.Contains(logs.String(), `"consecutive_failures":4`) {
+		t.Fatalf("repeated warning after the interval:\n%s", logs.String())
+	}
+	log.observePrune(ctx, started, 12, nil)
+	log.observePrune(ctx, started, 0, nil)
+	if got := strings.Count(logs.String(), "request log cleanup recovered"); got != 1 || !strings.Contains(logs.String(), `"failed_attempts":4`) {
+		t.Fatalf("recovery notice:\n%s", logs.String())
+	}
+	log.observePrune(ctx, started, 0, context.Canceled)
+	want := []Outcome{OutcomeBudget, OutcomeBudget, OutcomeFailure, OutcomeFailure, OutcomeSuccess, OutcomeSuccess, OutcomeCanceled}
+	if got := events.outcomes(); !slices.Equal(got, want) {
+		t.Fatalf("outcomes = %v, want %v", got, want)
+	}
+	for _, event := range events.events {
+		if event.Operation() != OperationRequestLogPrune || event.Component() != ComponentRequestLog || !validOperationEvent(event) {
+			t.Fatalf("event = %+v", event)
+		}
 	}
 }
 

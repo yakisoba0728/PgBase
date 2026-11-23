@@ -291,12 +291,9 @@ func accessLogMiddleware(logger *slog.Logger, settings *runtimesettings.Controll
 		started := time.Now()
 		response := &statusWriter{ResponseWriter: w}
 		defer func() {
-			status := response.status
-			if metadata.responseAborted {
-				status = http.StatusInternalServerError
-			} else if status == 0 {
-				status = http.StatusOK
-			}
+			// A client that disconnected is recorded as 499, not as the 500
+			// its failed handler wrote to a connection nobody reads.
+			status := observability.RecordedHTTPStatus(r.Context(), response.status, metadata.responseAborted)
 			succeeded := status >= http.StatusOK && status < http.StatusBadRequest
 			if metadata.skipSuccessActivityLog && succeeded {
 				return

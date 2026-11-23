@@ -320,6 +320,7 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 	// Outside recovery so a recovered 500 goes through the same writer; the
 	// access log records no body sizes, so its position there is immaterial.
 	handler = compressionMiddleware(handler)
+	handler = forwardingWarningMiddleware(logger, dependencies.trustedProxies, handler)
 	// Keep recovery inside request logging.  A recovered panic is a completed
 	// HTTP request with a 500 response and must be visible in the same durable
 	// diagnostic trail as every other response.

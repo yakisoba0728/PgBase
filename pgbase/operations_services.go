@@ -9,12 +9,15 @@ import (
 	"github.com/yakisoba0728/PgBase/internal/runtimesettings"
 )
 
-func newRequestLog(pool *database.Pool, options Options, settings *runtimesettings.Controller) *observability.RequestLog {
+// metrics may be nil; its Record ignores events then.
+func newRequestLog(pool *database.Pool, options Options, settings *runtimesettings.Controller, metrics *observability.Metrics) *observability.RequestLog {
 	return observability.NewRequestLog(pool, observability.RequestLogOptions{
 		Retention:        options.Operations.RequestLogRetention,
 		MaximumRows:      options.Operations.RequestLogMaximumRows,
 		QueueCapacity:    options.Operations.RequestLogQueueCapacity,
 		RuntimeRetention: settings.LogRetention,
+		Logger:           options.Logger,
+		Recorder:         metrics,
 	})
 }
 

@@ -255,6 +255,85 @@ func TestRequestLogShutdownPersistsItsFinalWriteFailure(t *testing.T) {
 	}
 }
 
+// A backlog larger than one cleanup statement shrinks with every batch, so a
+// cleanup that cannot finish in one budget still makes progress, and an
+// explicit retention pass keeps deleting until nothing expired is left.
+func TestRequestLogCleanupRemovesABacklogInBoundedSteps(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	databaseURL := testutil.NewDatabase(t)
+	testutil.ApplySystemMigrationPrefix(t, databaseURL, system.Migrations())
+	pool, err := database.Open(ctx, databaseURL, 5*time.Second, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	events := &recordedEvents{}
+	options := RequestLogOptions{MaximumRows: 1000, Retention: time.Hour, QueueCapacity: 8, BatchSize: 8, FlushInterval: time.Hour, Recorder: events}
+	options.pruneRows = 3
+	log := NewRequestLog(pool, options)
+	defer log.Shutdown(ctx)
+	count := func(route string) int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.request_logs where route=$1`, route).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.request_logs (occurred_at,method,route,status,duration_ms)
+		select statement_timestamp()-interval '2 hours'-make_interval(secs=>n),'GET','/expired',200,0 from generate_series(1,8) n`); err != nil {
+		t.Fatal(err)
+	}
+	log.Record("GET", "/fresh", 200, time.Millisecond)
+	if err := log.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := count("/expired"); got != 5 {
+		t.Fatalf("one batch left %d expired rows, want 5", got)
+	}
+	if err := log.PruneExpired(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if expired, fresh := count("/expired"), count("/fresh"); expired != 0 || fresh != 1 {
+		t.Fatalf("after the retention pass: expired=%d fresh=%d", expired, fresh)
+	}
+
+	// The row cap is enforced in the same bounded steps, oldest first.
+	capped := RequestLogOptions{MaximumRows: 2, Retention: time.Hour, QueueCapacity: 8, BatchSize: 8, FlushInterval: time.Hour}
+	capped.pruneRows = 3
+	capLog := NewRequestLog(pool, capped)
+	defer capLog.Shutdown(ctx)
+	if _, err := pool.Exec(ctx, `insert into pgbase_meta.request_logs (occurred_at,method,route,status,duration_ms)
+		select statement_timestamp(),'GET','/backlog',200,0 from generate_series(1,8)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []int{7, 5, 3, 2} {
+		capLog.Record("GET", "/capped", 200, time.Millisecond)
+		if err := capLog.Flush(ctx); err != nil {
+			t.Fatal(err)
+		}
+		var total int
+		if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.request_logs`).Scan(&total); err != nil {
+			t.Fatal(err)
+		}
+		if total != want {
+			t.Fatalf("rows after a capped batch = %d, want %d", total, want)
+		}
+	}
+	if got := count("/capped"); got != 2 {
+		t.Fatalf("the cap removed newer rows first: %d of the last 2 remain", got)
+	}
+	for _, outcome := range events.outcomes() {
+		if outcome != OutcomeSuccess {
+			t.Fatalf("cleanup outcomes = %v", events.outcomes())
+		}
+	}
+	if len(events.outcomes()) != 2 {
+		t.Fatalf("cleanup events = %v, want one per batch and one per retention pass", events.outcomes())
+	}
+}
+
 func TestRequestLogBatchSurvivesCleanupThatOutlivesItsBudget(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
@@ -265,7 +344,8 @@ func TestRequestLogBatchSurvivesCleanupThatOutlivesItsBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	log := NewRequestLog(pool, RequestLogOptions{RuntimeRetention: func() (time.Duration, int64) {
+	events := &recordedEvents{}
+	log := NewRequestLog(pool, RequestLogOptions{Recorder: events, RuntimeRetention: func() (time.Duration, int64) {
 		return 7 * 24 * time.Hour, 1
 	}})
 	defer log.Shutdown(ctx)
@@ -308,5 +388,8 @@ func TestRequestLogBatchSurvivesCleanupThatOutlivesItsBudget(t *testing.T) {
 	}
 	if kept != 2 {
 		t.Fatalf("kept %d of 2 entries after a cleanup that outlived its budget", kept)
+	}
+	if got := events.outcomes(); len(got) != 1 || got[0] != OutcomeBudget {
+		t.Fatalf("cleanup outcomes = %v, want one budget outcome", got)
 	}
 }

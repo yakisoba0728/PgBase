@@ -458,6 +458,11 @@ func runDoctor(ctx context.Context, args []string, env environment, streams IO) 
 	if warningErr != nil {
 		runtime.logger.WarnContext(ctx, "deployment warnings could not be completed", "error", warningErr)
 	}
+	requestLogWarnings, requestLogErr := doctor.RequestLogWarnings(ctx, runtime.pool, runtime.options.Operations.RequestLogMaximumRows)
+	report.Findings = append(report.Findings, requestLogWarnings...)
+	if requestLogErr != nil {
+		runtime.logger.WarnContext(ctx, "request log warnings could not be completed", "error", requestLogErr)
+	}
 	// A run that stopped early is still printed, because the findings gathered
 	// before the failure are real. Appending the signal last marks the report as
 	// truncated without reordering those findings, so an operator never reads a

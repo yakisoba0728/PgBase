@@ -39,6 +39,7 @@ const (
 	ComponentSchemaListener Component = "schema_listener"
 	ComponentAdminAuth      Component = "admin_auth"
 	ComponentRelation       Component = "relation"
+	ComponentRequestLog     Component = "request_log"
 )
 
 // Operation is a bounded application operation label.
@@ -59,6 +60,7 @@ const (
 	OperationRelationDelete  Operation = "relation_delete"
 	OperationRelationExpand  Operation = "relation_expand"
 	OperationRelationRead    Operation = "relation_read"
+	OperationRequestLogPrune Operation = "request_log_prune"
 )
 
 // Outcome is a bounded operation result label.
@@ -141,6 +143,8 @@ func componentForOperation(operation Operation) Component {
 	case OperationRelationSchema, OperationRelationWrite, OperationRelationDelete,
 		OperationRelationExpand, OperationRelationRead:
 		return ComponentRelation
+	case OperationRequestLogPrune:
+		return ComponentRequestLog
 	default:
 		return ""
 	}
@@ -393,8 +397,10 @@ func (m *Metrics) WrapHTTP(mux *http.ServeMux, next http.Handler) http.Handler {
 		defer func() {
 			recovered := recover()
 			m.httpInFlight.WithLabelValues(method, route).Dec()
-			code := captured.statusCode()
-			if recovered != nil {
+			// An abort whose client already left is a disconnect, not a 5xx.
+			// Any other panic is a server failure whatever the client did.
+			code := RecordedHTTPStatus(request.Context(), captured.status, recovered != nil)
+			if recovered != nil && recovered != http.ErrAbortHandler {
 				code = http.StatusInternalServerError
 			}
 			status := boundedHTTPStatus(code)
@@ -479,13 +485,6 @@ func (w *statusResponseWriter) Write(body []byte) (int, error) {
 // Unwrap lets http.ResponseController retain access to optional capabilities
 // such as flushing and hijacking on the original ResponseWriter.
 func (w *statusResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
-
-func (w *statusResponseWriter) statusCode() int {
-	if w.status == 0 {
-		return http.StatusOK
-	}
-	return w.status
-}
 
 // Handler serves this Metrics instance's private registry. The expected token
 // is hashed at construction so the handler neither retains nor exposes it.
