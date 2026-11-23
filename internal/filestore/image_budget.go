@@ -22,7 +22,9 @@ const DefaultImageDecodeMemoryBytes int64 = 256 << 20
 var lockedImageBudgetWait = 5 * time.Second
 
 // ErrImageBusy reports that decode memory stayed exhausted for the bounded
-// wait of a lock-holding render. Retrying later can succeed.
+// wait of a lock-holding render, or that a variant request waited too long
+// behind concurrent work on the same file or for a connection (see
+// variantBusy). Retrying later can succeed.
 var ErrImageBusy = errors.New("image processing capacity exhausted")
 
 var defaultImageMemoryBudget = newImageMemoryBudget(DefaultImageDecodeMemoryBytes)
