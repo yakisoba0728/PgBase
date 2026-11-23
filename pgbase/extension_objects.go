@@ -577,7 +577,7 @@ func (host *extensionHost) callObjects(ctx context.Context, method string, raw j
 		}
 		data, err := host.bridge.files.RenderThumbnail(ctx, physical, contentType, request.ThumbSize)
 		if err != nil {
-			return nil, extensionError("thumbnail_failed", err)
+			return nil, thumbnailError(err)
 		}
 		if err := host.bridge.objects.Write(ctx, host.namespace, request.ThumbKey, data); err != nil {
 			return nil, extensionError("thumbnail_failed", err)
