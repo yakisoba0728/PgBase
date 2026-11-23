@@ -68,6 +68,20 @@ func TestDoctorTextReportsPlaintextBackupEndpointWarningWithoutFailing(t *testin
 	}
 }
 
+func TestDoctorWarnsAboutExplicitlySmallPoolWithoutFailing(t *testing.T) {
+	databaseURL := testutil.NewDatabase(t)
+	prepareDoctorDatabase(t, databaseURL)
+	var stdout, stderr bytes.Buffer
+	// The minimum accepted pool is below every recommended size.
+	code := Execute(context.Background(), []string{"doctor"}, migrationEnv(databaseURL+"&pool_max_conns=4"), testIO(nil, &stdout, &stderr))
+	if code != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "warning database_pool_small: ") {
+		t.Fatalf("stdout=%q, want small-pool warning", stdout.String())
+	}
+}
+
 // Diagnostics can fail after findings have already been gathered, and the
 // partial report is still printed. Without a truncation signal the operator
 // cannot tell that report apart from a complete one.

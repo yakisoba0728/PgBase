@@ -81,11 +81,12 @@ func TestHistoricalMigrationChecksumsRemainImmutable(t *testing.T) {
 		70: "2cbf8827e85e6e2b17c12419f643541e75cd816e5149450ceaf3f0710b84c5a6",
 		71: "1d70f5e83ef9849f840c4b88c17086b93b406bcc054e65e02ca3068179c9d89a",
 		72: "f46d54603973c923dde6f300ed1b543ffb5abc7f70a1b3b11f613106d08a9af9",
+		73: "1b55e56ab6ae91c4bb05f22ca0d15eb6f56306b524459bba6fc92a6370d083b0",
 		55: "157df7385a28770bcf64dff7ba195b5a719100c68accc6b38a0dd0cb97884bef",
 	}
 	migrations := system.Migrations()
-	if len(migrations) != 67 || migrations[len(migrations)-1].Version != 72 ||
-		migrations[len(migrations)-1].Name != "admin_totp_counters" || migrations[7].Version != 8 ||
+	if len(migrations) != 68 || migrations[len(migrations)-1].Version != 73 ||
+		migrations[len(migrations)-1].Name != "file_upload_count_and_write_only_indexes" || migrations[7].Version != 8 ||
 		migrations[7].Name != "schema_companion_indexes" ||
 		migrations[8].Version != 9 || migrations[8].Name != "schema_compiler_generation" ||
 		migrations[9].Version != 10 || migrations[9].Name != "public_users" ||

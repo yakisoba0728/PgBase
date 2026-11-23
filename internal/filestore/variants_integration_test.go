@@ -84,6 +84,70 @@ func TestVariantRejectsMissingFileBeforeUploading(t *testing.T) {
 	}
 }
 
+// A cached variant is served from one autocommit read: no storage lease,
+// reservation intent, row lock or commit. A writer holding the file row (for
+// example a delete waiting on its own locks) must not delay it.
+func TestCachedVariantHitTakesNoLockAndWritesNothing(t *testing.T) {
+	ctx := t.Context()
+	pool, err := database.Open(ctx, testutil.NewDatabase(t), 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := migrate.New(pool, nil).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{pool: pool, objects: store, options: Options{MaximumBytes: 1 << 20, MaximumImagePixels: 1_000_000, Now: time.Now}}
+	file := File{ID: uuid.New(), ObjectKey: "objects/" + uuid.NewString(), ContentType: "image/png"}
+	cached := "thumbnails/" + uuid.NewString()
+	// Replica mode skips the record foreign key; the hit path never reads it.
+	if err := pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `set local session_replication_role = replica`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `insert into pgbase_meta.record_files(id,collection_id,record_id,field_name,filename,content_type,size_bytes,sha256,object_key,status,created_at,ready_at)
+			values($1,$2,$3,'files','f.png','image/png',1,decode(repeat('aa',32),'hex'),$4,'ready',now(),now())`, file.ID, uuid.New(), uuid.New(), file.ObjectKey); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `insert into pgbase_meta.record_file_variants(file_id,variant,object_key,created_at) values($1,'2x2',$2,now())`, file.ID, cached)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	holder, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Rollback(context.Background()) }()
+	if _, err := holder.Exec(ctx, `select 1 from pgbase_meta.record_files where id=$1 for update`, file.ID); err != nil {
+		t.Fatal(err)
+	}
+	hitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	key, err := service.variantObject(hitCtx, file, "2x2")
+	if err != nil || key != cached {
+		t.Fatalf("cached variant key=%q err=%v, want %q", key, err, cached)
+	}
+	var intents int
+	if err := pool.QueryRow(ctx, `select count(*) from pgbase_meta.file_object_deletions`).Scan(&intents); err != nil || intents != 0 {
+		t.Fatalf("cache hit left %d object intents (err=%v)", intents, err)
+	}
+	// A file that is no longer ready is not served from its stale variant row.
+	if _, err := holder.Exec(ctx, `update pgbase_meta.record_files set status='deleted',deleted_at=now() where id=$1`, file.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := holder.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if key, err := service.variantObject(ctx, file, "2x2"); !errors.Is(err, ErrNotFound) || key != "" {
+		t.Fatalf("variant of deleted file key=%q err=%v", key, err)
+	}
+}
+
 func TestVariantCleanupWaitsForPublisherCommitBeforeReferenceCheck(t *testing.T) {
 	ctx := context.Background()
 	pool, err := database.Open(ctx, testutil.NewDatabase(t), time.Second)
