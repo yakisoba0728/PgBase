@@ -77,10 +77,14 @@ type StorageController struct {
 	revision              int64
 	store                 ObjectStore
 	operations            chan struct{}
+	subjects              storageSubjectSlots
 }
 
 // BeginStorageOperation prevents a destination transition until a compound
-// operation has either attached or queued every object it created.
+// operation has either attached or queued every object it created. A request
+// first takes one of its subject's slots (see WithStorageAdmissionSubject) and
+// then one of the shared slots, so a subject over its share waits without
+// holding a shared slot.
 func (c *StorageController) BeginStorageOperation(ctx context.Context) (context.Context, func(), error) {
 	return c.beginOperation(ctx, false)
 }
@@ -93,13 +97,22 @@ func (c *StorageController) beginReadOperation(ctx context.Context) (context.Con
 	return c.beginOperation(ctx, true)
 }
 
+// beginOperation admits the caller's subject slot, then a shared slot, then a
+// coordination session. Every failure and the returned release give back the
+// shared slot and then the subject slot, whether the session is reused or
+// closed.
 func (c *StorageController) beginOperation(ctx context.Context, reusable bool) (context.Context, func(), error) {
 	if lease, ok := ctx.Value(storageLeaseContextKey{}).(storageLease); ok && lease.controller == c {
 		return ctx, func() {}, ctx.Err()
 	}
+	releaseSubject, err := c.subjects.admit(ctx)
+	if err != nil {
+		return ctx, nil, err
+	}
 	select {
 	case c.operations <- struct{}{}:
 	case <-ctx.Done():
+		releaseSubject()
 		return ctx, nil, ctx.Err()
 	}
 	var conn *pgx.Conn
@@ -108,6 +121,7 @@ func (c *StorageController) beginOperation(ctx context.Context, reusable bool) (
 		session, err := c.pool.BorrowCoordinationSession(ctx)
 		if err != nil {
 			<-c.operations
+			releaseSubject()
 			return ctx, nil, err
 		}
 		conn, finish = session.Conn(), session.Release
@@ -116,6 +130,7 @@ func (c *StorageController) beginOperation(ctx context.Context, reusable bool) (
 		conn, err = c.pool.OpenCoordinationSession(ctx)
 		if err != nil {
 			<-c.operations
+			releaseSubject()
 			return ctx, nil, err
 		}
 		finish = func(bool) { _ = database.CloseCoordinationSession(context.Background(), conn) }
@@ -124,6 +139,7 @@ func (c *StorageController) beginOperation(ctx context.Context, reusable bool) (
 	if err != nil {
 		finish(false)
 		<-c.operations
+		releaseSubject()
 		return ctx, nil, err
 	}
 	// Cancellation invalidates the destination lease promptly, but bounded CPU
@@ -147,6 +163,7 @@ func (c *StorageController) beginOperation(ctx context.Context, reusable bool) (
 			// reused; stop reports true only if that callback never started.
 			finish(stop())
 			<-c.operations
+			releaseSubject()
 		})
 	}, nil
 }
