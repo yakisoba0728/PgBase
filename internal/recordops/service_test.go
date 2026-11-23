@@ -240,13 +240,13 @@ func newRecordOperationsTest(t testing.TB) (*database.Pool, *schema.Service, *Se
 
 func newRecordOperationsTestWithURL(t testing.TB) (string, *database.Pool, *schema.Service, *Service, Principal) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	databaseURL := testutil.NewDatabase(t)
 	pool, err := database.Open(ctx, databaseURL, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(pool.Close)
+	closePoolOnCleanup(t, pool)
 	if err := migrate.New(pool, nil).Up(ctx); err != nil {
 		t.Fatal(err)
 	}

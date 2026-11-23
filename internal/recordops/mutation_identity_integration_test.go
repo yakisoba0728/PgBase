@@ -3,7 +3,6 @@
 package recordops
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -19,7 +18,7 @@ import (
 // which error a bad ID reports.
 func TestOwnedUpdateDeleteResolveRecordIDInOneTransaction(t *testing.T) {
 	_, pool, schemas, _, principal := newRecordOperationsTestWithURL(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	// An injected runtime keeps lease refreshes out of the connection count.
 	runtime, err := membership.RegisterWriter(ctx, membership.New(pool), membership.WriterC)
 	if err != nil {

@@ -23,7 +23,7 @@ import (
 
 func TestTextAutogeneratePrecedenceRetryReplayAndBatchRollback(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	createGeneratedFieldsCollection(t, ctx, schemas, principal.ID, "generated_text", []schema.FieldInput{
 		{Name: "slug", Type: schema.TypeText, Required: true, Unique: true, Options: &schema.FieldOptions{Pattern: `^[a-c]$`, AutogeneratePattern: `[a-c]`}},
 		{Name: "label", Type: schema.TypeText},
@@ -94,50 +94,97 @@ func TestTextAutogeneratePrecedenceRetryReplayAndBatchRollback(t *testing.T) {
 
 func TestConcurrentAutogenerateUniqueCandidatesSerializeAndRetry(t *testing.T) {
 	pool, schemas, firstService, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	createGeneratedFieldsCollection(t, ctx, schemas, principal.ID, "generated_concurrent", []schema.FieldInput{{Name: "slug", Type: schema.TypeText, Unique: true, Options: &schema.FieldOptions{AutogeneratePattern: `[a-c]`}}})
 	secondService := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
-	ready := &sync.WaitGroup{}
-	ready.Add(2)
-	firstService.random = &autogenerateBarrierReader{ready: ready}
-	secondService.random = &autogenerateBarrierReader{ready: ready}
+	// Register both membership writers before the barrier is armed. The first
+	// registration on a fresh database bootstraps the membership capability
+	// under schema_state FOR UPDATE. Done concurrently, a registrant that read
+	// the capability before the other's bootstrap committed can then queue
+	// behind that creator's FOR SHARE pin while the creator holds its
+	// transaction open at the barrier, so neither ever reaches the other.
+	for _, service := range []*Service{firstService, secondService} {
+		if _, err := service.members.writer(ctx); err != nil {
+			t.Fatalf("register membership writer: %v", err)
+		}
+	}
+	barrier := &autogenerateBarrier{ctx: ctx, parties: 2, released: make(chan struct{})}
+	firstService.random = &autogenerateBarrierReader{barrier: barrier}
+	secondService.random = &autogenerateBarrierReader{barrier: barrier}
 
-	results := make(chan MutationResult, 2)
-	errorsChannel := make(chan error, 2)
+	type createOutcome struct {
+		result MutationResult
+		err    error
+	}
+	outcomes := make(chan createOutcome, 2)
 	for index, service := range []*Service{firstService, secondService} {
 		go func(index int, service *Service) {
 			result, err := service.Create(ctx, CreateRequest{Principal: principal, RequestID: fmt.Sprintf("autogen-concurrent-%d", index), Collection: "generated_concurrent", Input: map[string]json.RawMessage{}})
-			results <- result
-			errorsChannel <- err
+			outcomes <- createOutcome{result: result, err: err}
 		}(index, service)
 	}
 	values := map[string]bool{}
 	for range 2 {
-		result, err := <-results, <-errorsChannel
-		if err != nil {
-			t.Fatal(err)
+		var outcome createOutcome
+		select {
+		case outcome = <-outcomes:
+		case <-ctx.Done():
+			t.Fatalf("concurrent autogenerate creates did not finish: %v", ctx.Err())
 		}
-		values[result.Record.Data["slug"].(string)] = true
+		if outcome.err != nil {
+			t.Fatal(outcome.err)
+		}
+		values[outcome.result.Record.Data["slug"].(string)] = true
 	}
 	if len(values) != 2 || !values["a"] || !values["b"] {
 		t.Fatalf("concurrent values=%v", values)
 	}
 }
 
-type autogenerateBarrierReader struct {
-	mu    sync.Mutex
-	calls int
-	ready *sync.WaitGroup
+// autogenerateBarrier holds each creator's first candidate draw until both
+// have drawn. It gives up with the test context, so a creator that never
+// arrives fails the other instead of parking it inside its transaction with a
+// pool connection checked out, which also blocks the fixture pool's Close.
+type autogenerateBarrier struct {
+	ctx      context.Context
+	mu       sync.Mutex
+	parties  int
+	released chan struct{}
 }
 
+func (b *autogenerateBarrier) arrive() error {
+	b.mu.Lock()
+	b.parties--
+	if b.parties == 0 {
+		close(b.released)
+	}
+	b.mu.Unlock()
+	select {
+	case <-b.released:
+		return nil
+	case <-b.ctx.Done():
+		return fmt.Errorf("autogenerate barrier: the other creator never drew a candidate: %w", b.ctx.Err())
+	}
+}
+
+type autogenerateBarrierReader struct {
+	mu      sync.Mutex
+	calls   int
+	barrier *autogenerateBarrier
+}
+
+// Read serves the record validator on its first call. The second call is the
+// first candidate draw: it waits at the barrier and yields zero bytes, and each
+// later call yields one more than the last.
 func (r *autogenerateBarrierReader) Read(target []byte) (int, error) {
 	r.mu.Lock()
 	r.calls++
 	call := r.calls
 	r.mu.Unlock()
 	if call == 2 {
-		r.ready.Done()
-		r.ready.Wait()
+		if err := r.barrier.arrive(); err != nil {
+			return 0, err
+		}
 	}
 	for index := range target {
 		target[index] = byte(max(call-2, 0))
@@ -149,7 +196,7 @@ var _ io.Reader = (*autogenerateBarrierReader)(nil)
 
 func TestGeneratedFieldsPersistWithoutSecretArtifacts(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	minimum := 4
 	createGeneratedFieldsCollection(t, ctx, schemas, principal.ID, "credentials", []schema.FieldInput{
 		{Name: "label", Type: schema.TypeText, Required: true},
@@ -230,7 +277,7 @@ func TestGeneratedFieldsPersistWithoutSecretArtifacts(t *testing.T) {
 
 func TestGeneratedFieldsRejectOverridesClearAndRollbackBatch(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	createGeneratedFieldsCollection(t, ctx, schemas, principal.ID, "generated_optional", []schema.FieldInput{
 		{Name: "name", Type: schema.TypeText, Required: true, Unique: true},
 		{Name: "created_stamp", Type: schema.TypeAutoDate, Options: &schema.FieldOptions{OnCreate: true}},

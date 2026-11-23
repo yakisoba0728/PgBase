@@ -130,7 +130,7 @@ const (
 // every statement; owned transactions run the same kernel.
 func TestWriteKernelRoundTripsForUserMutations(t *testing.T) {
 	databaseURL, pool, schemas, _, _ := newRecordOperationsTestWithURL(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	runtime, err := membership.RegisterWriter(ctx, membership.New(pool), membership.WriterC)
 	if err != nil {
 		t.Fatal(err)

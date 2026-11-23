@@ -3,7 +3,6 @@
 package recordops
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -19,7 +18,7 @@ import (
 
 func TestAuthRelationsUseBaseTargetViewAndAdmissionPolicy(t *testing.T) {
 	f := newUserAccessFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	f.enable(t, "records")
 	allow := accessrule.Rule{Op: "allow"}
 	view := accessrule.Rule{Op: "eq", Field: "title", Value: json.RawMessage(`"visible"`)}

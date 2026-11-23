@@ -5,13 +5,56 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/observability"
 	"github.com/yakisoba0728/PgBase/internal/query"
 )
+
+// recordOperationsTestTimeout bounds one integration test's database work.
+// The slowest test takes about 30 seconds without the race detector, so a test
+// still running at this deadline is hung on a lock, a pool connection or a
+// barrier. Failing it here leaves the rest of the package's 20-minute go test
+// budget, and the goroutine dump, to the tests that still work.
+const recordOperationsTestTimeout = 3 * time.Minute
+
+// recordOperationsPoolCloseTimeout bounds the cleanup wait for a fixture pool.
+// pgxpool.Close waits for every checked-out connection, so a goroutine a test
+// left parked while holding one would otherwise block cleanup forever.
+const recordOperationsPoolCloseTimeout = 30 * time.Second
+
+// recordOperationsTestContext is the context an integration test drives its
+// operations with. It ends at the test deadline and, through t.Context, before
+// the test's cleanups run, so a goroutine still waiting on PostgreSQL returns
+// its pool connection before the fixture pool is closed.
+func recordOperationsTestContext(t testing.TB) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), recordOperationsTestTimeout)
+	t.Cleanup(cancel)
+	return ctx
+}
+
+// closePoolOnCleanup closes a fixture pool without letting a leaked connection
+// hang the package. On timeout it reports every goroutine so the holder is
+// named, and leaves the database cleanup to terminate the session.
+func closePoolOnCleanup(t testing.TB, pool *database.Pool) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), recordOperationsPoolCloseTimeout)
+		defer cancel()
+		if err := pool.CloseContext(ctx); err != nil {
+			stacks := make([]byte, 1<<20)
+			stacks = stacks[:runtime.Stack(stacks, true)]
+			t.Errorf("close fixture pool: a connection is still checked out after %s (%v)\n%s",
+				recordOperationsPoolCloseTimeout, err, stacks)
+		}
+	})
+}
 
 // IsCode classifies a record operation failure. It lives here because no
 // runtime caller needs it: the API layer maps recordops errors by their own

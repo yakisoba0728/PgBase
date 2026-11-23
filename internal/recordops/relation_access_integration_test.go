@@ -3,7 +3,6 @@
 package recordops
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,7 +23,7 @@ import (
 // Each assertion below would observe the hidden target if that check leaked.
 func TestPublicRelationPathsNeverRevealHiddenTargets(t *testing.T) {
 	f := newUserAccessFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	apply := func(input schema.CreateCollectionInput) {
 		plan, err := f.schemas.Preview(ctx, schema.NewCreateChange(input))
 		if err != nil {

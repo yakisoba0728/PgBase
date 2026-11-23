@@ -3,7 +3,6 @@
 package recordops
 
 import (
-	"context"
 	"testing"
 
 	"github.com/yakisoba0728/PgBase/internal/testutil"
@@ -11,7 +10,7 @@ import (
 
 func TestListTotalIsOptInAuthorizedAndBounded(t *testing.T) {
 	f := newUserAccessFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	f.enable(t, "records")
 	f.create(t, f.first, "mine", "list-total-mine-0001")
 	f.create(t, f.second, "theirs", "list-total-theirs-01")
