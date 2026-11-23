@@ -142,6 +142,21 @@ their original target identities even if a deleted target's public ID is reused.
 Deploy the updated binary to all writers and realtime servers together; an old
 writer continues producing envelopes whose relations must be redacted.
 
+## Hidden relation targets in sort order
+
+Sorting a list by a relation field (`sort=author`) now gives every target a
+user or anonymous caller cannot view a NULL sort key, exactly like a missing
+relation, as a relation-path sort (`sort=author.name`) already did. Before, it
+ordered rows by the stored target id even when the response redacted it.
+Those rows sort last in either direction and are ordered among themselves by
+the remaining keys and `id`, so the order no longer reveals how hidden targets
+compare or which rows share one. Administrators and service tokens see every
+target and keep the previous order. A bare relation-field sort whose target
+view rule is not `allow` checks each row against that rule and no longer uses
+the relation column's index for user and anonymous callers. A non-administrator
+continuing such a sort with a value cursor (issued before anchor-only cursors,
+at most 15 minutes old) receives `400 invalid_cursor` and restarts.
+
 ## Recovering an interrupted binary update
 
 Run `pgbase update status --json` to inspect the update state. Keep the running service stopped during recovery. Rerun `pgbase update apply` with the original signed inputs to recover the interrupted update, or use `pgbase update rollback` to recover an interrupted rollback.

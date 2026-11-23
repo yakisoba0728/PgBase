@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -146,6 +147,57 @@ func bindRelationPolicies(ctx context.Context, tx pgx.Tx, plan *relationListPlan
 	}
 	return nil
 }
+
+// bindRelationKeyVisibility masks every bare single-relation sort key for the
+// principals whose relation values hydration filters by the target view rule.
+// Without it the stored target id would order rows even when the response
+// redacts it, disclosing which rows share a hidden target and how hidden
+// targets order relative to each other. A target collection the principal may
+// not view at all masks every key, as hydration redacts every value. A
+// public view rule on a table target needs no mask: the deferred foreign key
+// already guarantees every stored target exists, so the index order stays.
+func bindRelationKeyVisibility(ctx context.Context, tx pgx.Tx, plan *relationListPlan, principal Principal) error {
+	if principal.Kind != identity.User && principal.Kind != identity.Anonymous {
+		return nil
+	}
+	for i := range plan.order.terms {
+		term := &plan.order.terms[i]
+		if term.relationPath != nil || term.identityCollectionID != uuid.Nil || term.random {
+			continue
+		}
+		field, ok := filterField(plan.order.root, term.key.Field)
+		if !ok || field.Type != schema.TypeRelation || field.Relation == nil || field.Relation.Cardinality != schema.RelationSingle {
+			continue
+		}
+		target, ok := catalogCollectionByID(plan.catalog, field.Relation.TargetCollectionID)
+		if !ok {
+			return schema.ErrConflict
+		}
+		policyTarget, err := sourcePolicyCollection(plan.catalog, target)
+		if err != nil {
+			return err
+		}
+		hop := plannedRelationHop{field: field, target: target, policyTarget: policyTarget, principal: principal}
+		switch err := authorizeReadSubject(ctx, tx, target.AccessCollectionID(), principal, "view"); {
+		case errors.Is(err, recordaccess.ErrDenied):
+			hop.rule = &accessrule.Rule{Op: "deny"}
+		case err != nil:
+			return err
+		default:
+			rules, _, err := loadReadRules(ctx, tx, target.AccessCollectionID())
+			if err != nil {
+				return err
+			}
+			if rules.View.Op == "allow" && !target.IsView() {
+				continue
+			}
+			hop.rule = &rules.View
+		}
+		term.visibility = &hop
+	}
+	return nil
+}
+
 func relationPolicyRevisionString(plan relationListPlan) string {
 	values := map[string]int64{}
 	add := func(path *plannedRelationPath) {
