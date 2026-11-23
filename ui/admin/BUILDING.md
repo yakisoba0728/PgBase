@@ -3,6 +3,10 @@
 `dist/` is a checked-in production artifact. Its only supported source is the
 locked dependency graph and the TypeScript source in this directory; fonts
 (Pretendard) and icons come from npm packages, so the build fetches nothing else.
+The build also cuts one Pretendard face holding exactly the characters in `src/`
+(`pretendardInterfaceSubset` in `vite.config.ts`, using the `subset-font`
+devDependency on the npm Pretendard variable font), so new interface text only
+changes that face; the output is deterministic like the rest of `dist/`.
 
 Run `npm ci` followed by `npm run verify:dist` from `ui/admin`. The command
 rebuilds the bundle (Vite empties `dist/` first) and fails if that rebuild

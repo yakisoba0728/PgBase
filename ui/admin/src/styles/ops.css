@@ -160,10 +160,37 @@
   min-width: 260px;
 }
 
-/* On a phone duration and attributes wait in the entry's pane, so the request keeps its width with less to scroll. */
+/* On a phone duration and attributes wait in the entry's pane, and the table fits the screen instead of scrolling
+   sideways: time and status keep their width, and the request takes the rest, its route wrapping under the method
+   (a zero-width cell would otherwise leave only an ellipsis). */
 @media (max-width: 599px) {
+  .grid.ops-grid {
+    width: 100%;
+  }
+
+  .ops-grid td,
+  .ops-grid th {
+    padding-inline: var(--sp-8);
+  }
+
   .ops-grid td.ops-request {
-    min-width: 200px;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    padding-block: var(--sp-6);
+    line-height: var(--line-height-sm);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .ops-grid .ops-method {
+    display: block;
+    min-width: 0;
+    margin-right: 0;
+  }
+
+  .ops-grid .ops-request .mono {
+    font-size: var(--font-size-sm);
   }
 
   .ops-grid .ops-minor {
@@ -185,6 +212,21 @@
   }
 }
 
+/* The last run's result ends in an ellipsis (the full text is its tooltip and in the pane) rather than widening the
+   row; the cell itself is capped too, so the list never scrolls sideways for it. */
+.grid td.ops-jobs-last {
+  max-width: 280px;
+}
+
+.ops-jobs-result {
+  display: inline-block;
+  max-width: 16em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
 @container ops-jobs (max-width: 720px) {
   .ops-jobs-schedule,
   .ops-jobs-zone,
@@ -201,6 +243,7 @@
 
   .ops-jobs-last .ops-aside {
     display: block;
+    max-width: 100%;
     margin-left: 0;
   }
 }
