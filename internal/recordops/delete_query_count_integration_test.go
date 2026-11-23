@@ -231,7 +231,7 @@ func TestCascadeDeleteStatementCountIsBoundedByTheClosureShape(t *testing.T) {
 func measureCascadeDelete(t *testing.T, recordCount int) cascadeDeleteMeasurement {
 	t.Helper()
 	databaseURL, pool, schemas, records, principal := newRecordOperationsTestWithURL(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	collection := applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{
 		Name: "r0_cascade_scale",
 		Fields: []schema.FieldInput{
@@ -264,7 +264,7 @@ func measureCascadeDelete(t *testing.T, recordCount int) cascadeDeleteMeasuremen
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := conn.Close(ctx); err != nil {
+		if err := conn.Close(context.WithoutCancel(ctx)); err != nil {
 			t.Errorf("close traced connection: %v", err)
 		}
 	})

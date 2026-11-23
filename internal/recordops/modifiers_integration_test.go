@@ -3,7 +3,6 @@
 package recordops
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -16,7 +15,8 @@ import (
 
 func TestConcurrentNumericModifiersDoNotLoseIncrements(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	created, err := records.Create(context.Background(), CreateRequest{
+	ctx := recordOperationsTestContext(t)
+	created, err := records.Create(ctx, CreateRequest{
 		Principal: principal, RequestID: "modifier_create", Collection: "records",
 		Input: map[string]json.RawMessage{"title": json.RawMessage(`"counter"`), "count": json.RawMessage(`0`)},
 	})
@@ -34,7 +34,7 @@ func TestConcurrentNumericModifiersDoNotLoseIncrements(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			_, updateErr := records.Update(context.Background(), UpdateRequest{
+			_, updateErr := records.Update(ctx, UpdateRequest{
 				Principal: principal, RequestID: fmt.Sprintf("modifier_%02d", index), Collection: "records", ID: id,
 				Input: map[string]json.RawMessage{"count+": json.RawMessage(`1`)},
 			})
@@ -49,14 +49,14 @@ func TestConcurrentNumericModifiersDoNotLoseIncrements(t *testing.T) {
 		}
 	}
 	var count int
-	if err := pool.QueryRow(context.Background(), `select count from app.records where id=$1`, id).Scan(&count); err != nil || count != writers {
+	if err := pool.QueryRow(ctx, `select count from app.records where id=$1`, id).Scan(&count); err != nil || count != writers {
 		t.Fatalf("count=%d err=%v, want %d", count, err, writers)
 	}
 }
 
 func TestSelectRelationAndMixedDirectModifiersUseStoredPreimage(t *testing.T) {
 	_, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	applyModifierCollection := func(input schema.CreateCollectionInput) {
 		t.Helper()
 		change := schema.NewCreateChange(input)

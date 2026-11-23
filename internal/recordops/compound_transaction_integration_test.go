@@ -16,7 +16,7 @@ import (
 
 func TestBorrowedBatchAndTruncateFollowOwnerOutcome(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	if _, err := records.members.writer(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestBorrowedBatchAndTruncateFollowOwnerOutcome(t *testing.T) {
 
 func TestFailedBorrowedBatchRollsBackSavepointAndReportsFailure(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	if _, err := records.members.writer(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestFailedBorrowedBatchRollsBackSavepointAndReportsFailure(t *testing.T) {
 
 func TestBorrowedMutationRequiresHookOutcomeAndFreshDeleteSnapshot(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	if _, err := records.members.writer(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestBorrowedTransactionDoesNotRegisterLazyWriterBehindItsOwnSchemaLock(t *t
 
 func TestTruncateRootBudgetRejectsBeforeAnyMutation(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	_, err := pool.Exec(ctx, `insert into app.records(id,title,created_at,updated_at)
 		select md5(value::text)::uuid, 'truncate-budget-' || value::text, current_timestamp, current_timestamp
 		from generate_series(1,$1::integer) as input(value)`, maximumDeleteHydrationRows+1)

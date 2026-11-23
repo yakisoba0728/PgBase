@@ -17,7 +17,7 @@ import (
 
 func TestBatchConditionalUpsertDoesNotCreateAbsentRecord(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	id := uuid.MustParse("019551d0-e9c0-7000-8000-000000000501")
 	_, err := records.Batch(ctx, BatchRequest{Principal: principal, RequestID: "conditional-absent-upsert", Operations: []BatchOperation{{Upsert: &UpdateRequest{
 		Collection: "records", ID: id, Input: batchInput("must-not-exist"),
@@ -34,7 +34,7 @@ func TestBatchConditionalUpsertDoesNotCreateAbsentRecord(t *testing.T) {
 
 func TestBatchUpsertTreatsRevisionlessBaseRowAsExisting(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	id := uuid.MustParse("019551d0-e9c0-7000-8000-000000000502")
 	if _, err := pool.Exec(ctx, `insert into app.records (id,created_at,updated_at,title,count,metadata) values ($1,statement_timestamp(),statement_timestamp(),'legacy-upsert',1,'{}')`, id); err != nil {
 		t.Fatal(err)
@@ -187,7 +187,7 @@ func TestConcurrentReverseOrderBatchesRetryWithoutPartialHooks(t *testing.T) {
 
 func TestBatchMixedCreateUpdateDeleteAndHooks(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	first, err := records.Create(ctx, CreateRequest{Principal: principal, RequestID: "batch-seed-one", Collection: "records", Input: batchInput("one")})
 	if err != nil {
 		t.Fatal(err)
