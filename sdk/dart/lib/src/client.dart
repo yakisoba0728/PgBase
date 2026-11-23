@@ -409,9 +409,11 @@ final class PgBaseClient {
     cancellation: cancellation,
   );
 
+  /// [requireCodeVerifier] makes completion demand the returned `codeVerifier`.
   Future<JsonObject> oauthStart(
     String provider,
     String redirectUri, {
+    bool requireCodeVerifier = false,
     CancellationToken? cancellation,
   }) => _objectRequest(
     'POST',
@@ -419,6 +421,8 @@ final class PgBaseClient {
     JsonObject({
       'provider': JsonString(provider),
       'redirectUri': JsonString(redirectUri),
+      // Servers before the opt-in reject unknown keys, so send it only when set.
+      if (requireCodeVerifier) 'requireCodeVerifier': const JsonBool(true),
     }),
     cancellation,
   );
@@ -428,9 +432,15 @@ final class PgBaseClient {
     String provider,
     String redirectUri,
     OAuthUrlLauncher open, {
+    bool requireCodeVerifier = false,
     CancellationToken? cancellation,
   }) => _oauthStartAndOpen(
-    () => oauthStart(provider, redirectUri, cancellation: cancellation),
+    () => oauthStart(
+      provider,
+      redirectUri,
+      requireCodeVerifier: requireCodeVerifier,
+      cancellation: cancellation,
+    ),
     open,
   );
 
@@ -444,14 +454,20 @@ final class PgBaseClient {
     JsonObject? profile,
     String? fields,
   }) => _oauthWithBrowser(
-    () => oauthStart(provider, redirectUri, cancellation: cancellation),
+    () => oauthStart(
+      provider,
+      redirectUri,
+      requireCodeVerifier: true,
+      cancellation: cancellation,
+    ),
     redirectUri,
     adapter,
     cancellation,
-    (state, code) => oauthComplete(
+    (state, code, codeVerifier) => oauthComplete(
       provider,
       state,
       code,
+      codeVerifier: codeVerifier,
       cancellation: cancellation,
       profile: profile,
       fields: fields,
@@ -462,6 +478,7 @@ final class PgBaseClient {
     String currentPassword,
     String provider,
     String redirectUri, {
+    bool requireCodeVerifier = false,
     CancellationToken? cancellation,
   }) => _objectRequest(
     'POST',
@@ -470,14 +487,17 @@ final class PgBaseClient {
       'currentPassword': JsonString(currentPassword),
       'provider': JsonString(provider),
       'redirectUri': JsonString(redirectUri),
+      if (requireCodeVerifier) 'requireCodeVerifier': const JsonBool(true),
     }),
     cancellation,
   );
 
+  /// [codeVerifier] is the value returned by start/link; it must match when sent.
   Future<UserSession> oauthComplete(
     String provider,
     String state,
     String code, {
+    String? codeVerifier,
     String? fields,
     JsonObject? profile,
     CancellationToken? cancellation,
@@ -487,6 +507,7 @@ final class PgBaseClient {
       'provider': JsonString(provider),
       'state': JsonString(state),
       'code': JsonString(code),
+      if (codeVerifier != null) 'codeVerifier': JsonString(codeVerifier),
       if (profile != null) 'fields': profile,
     },
     cancellation,
@@ -497,6 +518,7 @@ final class PgBaseClient {
   Future<UserSession> oauthCompleteFromUri(
     String provider,
     Uri callback, {
+    String? codeVerifier,
     String? fields,
     JsonObject? profile,
     CancellationToken? cancellation,
@@ -520,6 +542,7 @@ final class PgBaseClient {
       provider,
       state,
       code,
+      codeVerifier: codeVerifier,
       fields: fields,
       profile: profile,
       cancellation: cancellation,

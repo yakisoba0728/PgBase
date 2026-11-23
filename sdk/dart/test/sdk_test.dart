@@ -772,8 +772,55 @@ void main() {
         Uri.parse('https://provider.test/authorize?state=expected-state'),
       );
       expect(oauth.requests, ['/api/v1/auth/members/oauth/start']);
+      expect(oauth.bodies.single, {
+        'provider': 'github',
+        'redirectUri': 'app://callback',
+      });
     },
   );
+
+  test('split OAuth steps opt in and forward the code verifier', () async {
+    final oauth = _OAuthClient();
+    final client = PgBaseClient(
+      Uri.parse('http://pgbase.test/'),
+      httpClient: oauth,
+    );
+    await client
+        .realm('members')
+        .oauthStart('github', 'app://callback', requireCodeVerifier: true);
+    await client.oauthLink(
+      'password',
+      'github',
+      'app://callback',
+      requireCodeVerifier: true,
+    );
+    await client
+        .realm('members')
+        .oauthCompleteFromUri(
+          'github',
+          Uri.parse('app://callback?state=split-state&code=split-code'),
+          codeVerifier: 'verifier',
+        );
+    expect(oauth.bodies, [
+      {
+        'provider': 'github',
+        'redirectUri': 'app://callback',
+        'requireCodeVerifier': true,
+      },
+      {
+        'currentPassword': 'password',
+        'provider': 'github',
+        'redirectUri': 'app://callback',
+        'requireCodeVerifier': true,
+      },
+      {
+        'provider': 'github',
+        'state': 'split-state',
+        'code': 'split-code',
+        'codeVerifier': 'verifier',
+      },
+    ]);
+  });
 
   test(
     'OAuth browser flow validates callback state and always closes its adapter',
@@ -801,6 +848,19 @@ void main() {
         '/api/v1/auth/members/oauth/start',
         '/api/v1/auth/oauth/complete',
       ]);
+      expect(oauth.bodies.take(2).toList(), [
+        {
+          'provider': 'github',
+          'redirectUri': 'app://callback',
+          'requireCodeVerifier': true,
+        },
+        {
+          'provider': 'github',
+          'state': 'expected-state',
+          'code': 'code',
+          'codeVerifier': 'verifier',
+        },
+      ]);
       expect(closed, 1);
       final globalSession = await client.oauthWithBrowser(
         'github',
@@ -817,6 +877,8 @@ void main() {
         '/api/v1/auth/oauth/start',
         '/api/v1/auth/oauth/complete',
       ]);
+      expect(oauth.bodies[2], containsPair('requireCodeVerifier', true));
+      expect(oauth.bodies[3], containsPair('codeVerifier', 'verifier'));
       expect(closed, 2);
       await expectLater(
         client
@@ -1523,15 +1585,19 @@ final class _NetworkClient extends http.BaseClient {
 
 final class _OAuthClient extends http.BaseClient {
   final List<String> requests = [];
+  final List<Object?> bodies = [];
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    await request.finalize().drain<void>();
+    final body = await request.finalize().bytesToString();
+    bodies.add(body.isEmpty ? null : jsonDecode(body));
     requests.add(request.url.path);
-    if (request.url.path.endsWith('/oauth/start')) {
+    if (request.url.path.endsWith('/oauth/start') ||
+        request.url.path.endsWith('/oauth/link')) {
       return _jsonResponse(200, {
         'authorizationUrl':
             'https://provider.test/authorize?state=expected-state',
         'expiresAt': '2026-01-02T00:00:00Z',
+        'codeVerifier': 'verifier',
       });
     }
     if (request.url.path.endsWith('/oauth/complete')) {

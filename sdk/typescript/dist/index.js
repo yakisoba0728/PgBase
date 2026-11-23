@@ -477,17 +477,18 @@ export class AuthRealm {
         const suffix = query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`;
         return inAuthScope(this.client.auth, async () => (await this.client._request(`${this.path("profile")}${suffix}`, { method: "PATCH", body: JSON.stringify(profile) }, requestSignal, query?.requestKey)).attributes);
     }
-    oauthStart(provider, redirectUri, signal) { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
+    oauthStart(provider, redirectUri, options, signal) { const [start, requestSignal] = oauthStartArguments(options, signal); return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri, ...start }) }, requestSignal); }
     /** Starts OAuth and delegates browser/popup/deep-link navigation to the host. */
     async oauthStartAndOpen(provider, redirectUri, options, signal) {
-        const started = await this.oauthStart(provider, redirectUri, signal);
+        const started = await this.oauthStart(provider, redirectUri, { requireCodeVerifier: options.requireCodeVerifier }, signal);
         await options.open(started.authorizationUrl);
         return started;
     }
     async oauthWithBrowser(provider, redirectUri, adapter, options, signal) {
-        const [, requestSignal] = recordGetArguments(options, signal);
+        const [query, requestSignal] = recordGetArguments(options, signal);
         try {
-            const started = await this.oauthStart(provider, redirectUri, requestSignal);
+            // The verifier never leaves this call, so a leaked callback URL cannot complete the flow.
+            const started = await this.oauthStart(provider, redirectUri, { requireCodeVerifier: true }, requestSignal);
             const expectedState = new URL(started.authorizationUrl).searchParams.get("state");
             if (!expectedState)
                 throw new OAuthCallbackError("invalid_start", "The OAuth start URL is missing state.");
@@ -504,14 +505,14 @@ export class AuthRealm {
                 throw new OAuthCallbackError("invalid_callback", "The OAuth callback is missing state or code.");
             if (state !== expectedState)
                 throw new OAuthCallbackError("invalid_state", "The OAuth callback state does not match the OAuth start state.");
-            return await this.oauthComplete(provider, state, code, options, requestSignal);
+            return await this.oauthComplete(provider, state, code, { ...query, codeVerifier: started.codeVerifier }, requestSignal);
         }
         finally {
             adapter.close?.();
         }
     }
-    oauthLink(currentPassword, provider, redirectUri, signal) { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
-    async oauthComplete(provider, state, code, options, signal) { const [query, requestSignal] = recordGetArguments(options, signal); const generation = this.client.auth.generation; const session = await this.client._request(authFieldsPath("/api/v1/auth/oauth/complete", query), { method: "POST", body: JSON.stringify({ provider, state, code, ...(query?.profile === undefined ? {} : { fields: query.profile }) }) }, requestSignal, query?.requestKey); return acceptAuthSession(this.client.auth, generation, session, !!(session.token && session.user)); }
+    oauthLink(currentPassword, provider, redirectUri, options, signal) { const [start, requestSignal] = oauthStartArguments(options, signal); return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri, ...start }) }, requestSignal); }
+    async oauthComplete(provider, state, code, options, signal) { const [query, requestSignal] = recordGetArguments(options, signal); const generation = this.client.auth.generation; const session = await this.client._request(authFieldsPath("/api/v1/auth/oauth/complete", query), { method: "POST", body: JSON.stringify({ provider, state, code, ...(query?.codeVerifier === undefined ? {} : { codeVerifier: query.codeVerifier }), ...(query?.profile === undefined ? {} : { fields: query.profile }) }) }, requestSignal, query?.requestKey); return acceptAuthSession(this.client.auth, generation, session, !!(session.token && session.user)); }
     oauthCompleteFromURL(provider, callbackURL, options, signal) {
         const url = typeof callbackURL === "string" ? new URL(callbackURL) : callbackURL;
         const providerError = url.searchParams.get("error");
@@ -788,6 +789,12 @@ function recordGetArguments(optionsOrSignal, signal) {
     if (optionsOrSignal && "aborted" in optionsOrSignal)
         return [undefined, optionsOrSignal];
     return [optionsOrSignal, signal];
+}
+function oauthStartArguments(optionsOrSignal, signal) {
+    if (optionsOrSignal && "aborted" in optionsOrSignal)
+        return [{}, optionsOrSignal];
+    // Servers before the opt-in reject unknown keys, so the key is sent only when requested.
+    return [optionsOrSignal?.requireCodeVerifier ? { requireCodeVerifier: true } : {}, signal];
 }
 function authFieldsPath(path, query) {
     return query?.fields === undefined ? path : `${path}?fields=${encodeURIComponent(query.fields)}`;

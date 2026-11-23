@@ -53,7 +53,7 @@ const server = createServer(async (request, response) => {
 	response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ attributes: request.method === "PATCH" ? JSON.parse(body) : { nickname: "realm" } })); return;
   }
   if (request.url === "/api/v1/auth/members/request-password-reset") { response.statusCode = 204; response.end(); return; }
-  if (request.url === "/api/v1/auth/members/oauth/start" || request.url === "/api/v1/auth/oauth/link") { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ authorizationUrl: "https://provider.test/authorize?state=expected-state", expiresAt: "2026-01-02T00:00:00Z" })); return; }
+  if (request.url === "/api/v1/auth/members/oauth/start" || request.url === "/api/v1/auth/oauth/link") { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ authorizationUrl: "https://provider.test/authorize?state=expected-state", expiresAt: "2026-01-02T00:00:00Z", codeVerifier: "verifier" })); return; }
   if (request.url === "/api/v1/auth/oauth/complete") { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ token: "oauth-token", user: { id: "oauth", email: "oauth@example.test", createdAt: "" }, expiresAt: "" })); return; }
   if (request.url.endsWith("/otp/request")) { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ otpId: "otp-id", expiresAt: "2026-01-02T00:00:00Z" })); return; }
   if (request.url.endsWith("/otp/complete")) { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ token: "otp-token", user: { id: "otp", email: "otp@example.test", createdAt: "" }, expiresAt: "" })); return; }
@@ -241,6 +241,8 @@ try {
   });
   assert.equal(browserSession.token, "oauth-token");
   assert.equal(closedOAuth, 1);
+  assert.deepEqual(JSON.parse(requests.at(-2).body), { provider: "github", redirectUri: "https://app.test/callback", requireCodeVerifier: true });
+  assert.deepEqual(JSON.parse(requests.at(-1).body), { provider: "github", state: "expected-state", code: "browser-code", codeVerifier: "verifier" });
   await assert.rejects(() => realm.oauthWithBrowser("github", "https://app.test/callback", {
     open: () => {}, waitForCallback: async () => "https://app.test/callback?state=wrong&code=browser-code", close: () => { closedOAuth += 1; },
   }), (error) => error.code === "invalid_state");
@@ -253,9 +255,18 @@ try {
   await assert.rejects(pendingOAuth, { name: "AbortError" });
   assert.equal(closedOAuth, 3);
   assert.equal(requests.at(-1).path, "/api/v1/auth/members/oauth/start");
+  assert.deepEqual(JSON.parse(requests.at(-1).body), { provider: "github", redirectUri: "https://app.test/callback", requireCodeVerifier: true });
+  await realm.oauthStart("github", "https://app.test/callback", new AbortController().signal);
   assert.deepEqual(JSON.parse(requests.at(-1).body), { provider: "github", redirectUri: "https://app.test/callback" });
+  await realm.oauthStart("github", "https://app.test/callback", { requireCodeVerifier: true });
+  assert.deepEqual(JSON.parse(requests.at(-1).body), { provider: "github", redirectUri: "https://app.test/callback", requireCodeVerifier: true });
   await realm.oauthLink("password", "github", "https://app.test/callback");
   assert.equal(requests.at(-1).headers.authorization, "Bearer oauth-token");
+  assert.deepEqual(JSON.parse(requests.at(-1).body), { currentPassword: "password", provider: "github", redirectUri: "https://app.test/callback" });
+  await realm.oauthLink("password", "github", "https://app.test/callback", { requireCodeVerifier: true });
+  assert.equal(JSON.parse(requests.at(-1).body).requireCodeVerifier, true);
+  await realm.oauthCompleteFromURL("github", "https://app.test/callback?code=split-code&state=split-state", { codeVerifier: "verifier" });
+  assert.deepEqual(JSON.parse(requests.at(-1).body), { provider: "github", state: "split-state", code: "split-code", codeVerifier: "verifier" });
   await realm.oauthComplete("github", "state", "code");
   assert.equal(client.auth.token, "oauth-token");
   await realm.oauthCompleteFromURL("github", "https://app.test/callback?code=browser-code&state=browser-state");
