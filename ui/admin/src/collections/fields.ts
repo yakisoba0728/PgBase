@@ -152,7 +152,7 @@ function toDraft(field: CollectionField, value: unknown): Draft {
       return [point.lon === undefined ? "" : String(point.lon), point.lat === undefined ? "" : String(point.lat)];
     }
     case "date": {
-      // datetime-local has no zone; the form edits the UTC wall time and shows "UTC".
+      // The date box has no zone; the form edits the UTC wall time and shows "UTC".
       const match = typeof value === "string" ? datePattern.exec(value) : null;
       return match ? match[1] + (match[2] ?? "") : "";
     }

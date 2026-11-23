@@ -37,7 +37,7 @@ export function describeSchedule(schedule: string): { key: MessageKey; vars?: Re
   return null;
 }
 
-/** A `datetime-local` value (local wall time) as RFC 3339, or undefined when empty/invalid. */
+/** A date box value ("YYYY-MM-DDTHH:mm:ss", local wall time) as RFC 3339, or undefined when empty/invalid. */
 export function localToRfc3339(value: string): string | undefined {
   if (!value) return undefined;
   const date = new Date(value);

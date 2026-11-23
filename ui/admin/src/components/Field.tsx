@@ -1,6 +1,7 @@
 import { useId, useState, type ComponentProps, type InputHTMLAttributes, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { RiEyeLine, RiEyeOffLine, RiSearchLine, type RemixiconComponentType } from "@remixicon/react";
 import { useT } from "../i18n";
+import { DateTimeInput, type DateTimeInputProps } from "./DateTimeInput";
 
 /**
  * The look every bordered control shares. Two heights only: `md` (--control, forms) and `sm` (--control-sm, toolbars
@@ -52,9 +53,11 @@ interface FieldBase {
 type InputField = FieldBase & { kind?: "input" } & Omit<InputProps, "className" | "size" | "mono" | "invalid">;
 type TextareaField = FieldBase & { kind: "textarea" } & Omit<TextareaProps, "className" | "size" | "mono" | "invalid">;
 type SelectField = FieldBase & { kind: "select"; options: { value: string; label: string }[] } & Omit<SelectProps, "className" | "size" | "mono" | "invalid">;
+/** A date or date-time value in the one typed form, with a calendar (DateTimeInput). */
+type DateField = Omit<FieldBase, "mono"> & { kind: "date" } & Omit<DateTimeInputProps, "className" | "size" | "invalid" | "aria-describedby">;
 
 /** A label row above one of the bare controls above, with an optional hint or error below. */
-export function Field(props: InputField | TextareaField | SelectField) {
+export function Field(props: InputField | TextareaField | SelectField | DateField) {
   const { label, icon: Icon, hint, error, required, aside, mono, kind, id: ownId, ...control } = props as FieldBase & { kind?: string; id?: string; options?: SelectField["options"] };
   const autoId = useId();
   const id = ownId ?? autoId;
@@ -72,6 +75,8 @@ export function Field(props: InputField | TextareaField | SelectField) {
         ))}
       </Select>
     );
+  } else if (kind === "date") {
+    input = <DateTimeInput {...(control as DateTimeInputProps)} id={id} required={required} invalid={Boolean(error)} aria-describedby={shared["aria-describedby"]} />;
   } else if ((control as InputProps).type === "password") {
     return <PasswordField {...(props as InputField)} id={id} />;
   } else {
