@@ -105,7 +105,7 @@ export function FieldInput({ field, value, onChange, error, readOnly, expand, on
       );
     }
     case "date":
-      return <Field {...shared} aside={`${field.type} · UTC`} type="datetime-local" step={1} value={text} onChange={onText} />;
+      return <Field {...shared} kind="date" aside={`${field.type} · UTC`} utc value={text} onChange={onChange} />;
     case "relation":
     case "relations": {
       const related = expand?.[field.name];
