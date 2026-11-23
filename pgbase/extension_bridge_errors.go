@@ -60,7 +60,20 @@ func mapExtensionError(err error) error {
 		return extensionError("file_too_large", err)
 	case errors.Is(err, filestore.ErrInvalid):
 		return extensionError("invalid_file_request", err)
+	case errors.Is(err, filestore.ErrImageBusy):
+		return extensionError("file_busy", err)
 	default:
 		return extensionError("operation_failed", fmt.Errorf("extension operation: %w", err))
 	}
+}
+
+// thumbnailError reports a failed thumbnail render. Image processing that
+// stayed busy for its bounded wait keeps the code the HTTP file endpoints
+// answer with (503 file_busy), so a script can retry instead of treating the
+// image as unusable.
+func thumbnailError(err error) error {
+	if errors.Is(err, filestore.ErrImageBusy) {
+		return extensionError("file_busy", err)
+	}
+	return extensionError("thumbnail_failed", err)
 }
