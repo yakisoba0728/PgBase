@@ -2,7 +2,7 @@ module github.com/yakisoba0728/PgBase
 
 go 1.26.0
 
-toolchain go1.26.11
+toolchain go1.27.4
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.48.0

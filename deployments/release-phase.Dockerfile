@@ -1,10 +1,10 @@
-FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS certificates
+FROM golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea AS certificates
 
-FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS postgres-libraries
+FROM golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea AS postgres-libraries
 COPY deployments/build-postgres-client-libraries.sh /build-postgres-client-libraries.sh
 RUN sh /build-postgres-client-libraries.sh
 
-FROM postgres:16.16-bookworm@sha256:a49f7438ba03589f9b1ca062f2da82e899b48ea1dc50d2449fa09a70be83ebca AS postgres16
+FROM postgres:16.16-bookworm@sha256:ce3efec6bc404f6b15ebf5d9bed6b45a9d4655aea238d7dacc3467ccb05a1175 AS postgres16
 COPY --from=postgres-libraries /patched/lib/ /opt/pgbase/postgresql/lib/
 COPY --from=postgres-libraries /patched/usr/ /runtime/usr/
 COPY --from=postgres-libraries /patched/var/ /runtime/var/
@@ -12,7 +12,7 @@ ENV LD_LIBRARY_PATH="/opt/pgbase/postgresql/lib"
 COPY deployments/postgres-client-runtime.sh /postgres-client-runtime.sh
 RUN sh /postgres-client-runtime.sh 16
 
-FROM postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536 AS postgres17
+FROM postgres:17.12-bookworm@sha256:837bed18782820fe967067cb5328b02b0d9992c1be9a37ee0c9c492cfc03af3b AS postgres17
 COPY --from=postgres-libraries /patched/lib/ /opt/pgbase/postgresql/lib/
 COPY --from=postgres-libraries /patched/usr/ /runtime/usr/
 COPY --from=postgres-libraries /patched/var/ /runtime/var/
@@ -20,7 +20,7 @@ ENV LD_LIBRARY_PATH="/opt/pgbase/postgresql/lib"
 COPY deployments/postgres-client-runtime.sh /postgres-client-runtime.sh
 RUN sh /postgres-client-runtime.sh 17
 
-FROM postgres:18.7-bookworm@sha256:ece55f7868da684e400f82f1030a050718adbdd65c23aa500c486f6e2950dc0f AS postgres18
+FROM postgres:18.7-bookworm@sha256:194e55feb2597b1465dbee81cc9fd8d204566cd2eb42c8d22fd6c931a38781b1 AS postgres18
 COPY --from=postgres-libraries /patched/lib/ /opt/pgbase/postgresql/lib/
 COPY --from=postgres-libraries /patched/usr/ /runtime/usr/
 COPY --from=postgres-libraries /patched/var/ /runtime/var/
