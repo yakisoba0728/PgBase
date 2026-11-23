@@ -117,7 +117,7 @@ export function JobsView() {
                           {job.lastStartedAt ? (
                             <>
                               <span className="mono">{time(job.lastStartedAt)}</span>
-                              <span className="ops-aside" data-tone={job.failed ? "danger" : undefined}>
+                              <span className="ops-aside ops-jobs-result" data-tone={job.failed ? "danger" : undefined} title={jobResult(t, job) ?? undefined}>
                                 {jobResult(t, job)}
                               </span>
                             </>
