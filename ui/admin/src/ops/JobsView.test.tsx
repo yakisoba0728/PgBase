@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -17,7 +17,12 @@ function renderJobs(client: QueryClient) {
   render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
 }
 
-beforeEach(() => setLanguage("en"));
+const retention = { maximumRuns: 1000, maximumAgeSeconds: 30 * 86400 };
+
+beforeEach(() => {
+  setLanguage("en");
+  vi.spyOn(api, "listJobRuns").mockResolvedValue({ items: [], retention });
+});
 afterEach(() => { cleanup(); operations.forgetOperations(); vi.restoreAllMocks(); });
 
 it.each(["same", "replacement"])("publishes a delayed job failure only into the %s session", async (session) => {
@@ -111,5 +116,39 @@ it("shows the Settings-managed backup schedule without allowing generic job acti
   expect(screen.getByDisplayValue("@every 1h")).toBeDisabled();
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Run now" })).toBeDisabled();
+  cleanup(); client.clear();
+});
+
+it("lists the job's runs newest first and loads older ones on request", async () => {
+  vi.spyOn(api, "listJobs").mockResolvedValue({ items: [job], workerEnabled: true });
+  const runs = vi.spyOn(api, "listJobRuns").mockImplementation(async (_id, cursor) => cursor === undefined
+    ? { items: [{ id: 3, status: "failed", attempt: 2, scheduledAt: "2026-11-14T00:00:00Z", startedAt: "2026-11-14T00:00:01Z", finishedAt: "2026-11-14T00:00:03.5Z", durationMs: 2500, error: "upstream returned 503" }], nextCursor: "c1", retention }
+    : { items: [{ id: 1, status: "abandoned", attempt: 1, startedAt: "2026-11-13T00:00:01Z" }], retention });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  renderJobs(client);
+  const history = await screen.findByRole("region", { name: "Run history" });
+  expect(await within(history).findByText("upstream returned 503")).toBeInTheDocument();
+  expect(within(history).getByText("Failed")).toBeInTheDocument();
+  expect(within(history).getByText("2s")).toBeInTheDocument();
+  expect(within(history).getByText(/Attempt 2/)).toBeInTheDocument();
+  expect(within(history).getByText("Keeps up to 1000 runs from the last 30 days.")).toBeInTheDocument();
+  fireEvent.click(within(history).getByRole("button", { name: "Load more" }));
+  expect(await within(history).findByText("Abandoned")).toBeInTheDocument();
+  expect(runs).toHaveBeenLastCalledWith("j1", "c1", expect.anything());
+  expect(within(history).queryByRole("button", { name: "Load more" })).toBeNull();
+  cleanup(); client.clear();
+});
+
+it("refreshes the history when the polled job shows a new run", async () => {
+  vi.spyOn(api, "listJobs").mockResolvedValueOnce({ items: [job], workerEnabled: true }).mockResolvedValue({ items: [{ ...job, running: true, lastStartedAt: "2026-11-14T00:00:01Z" }], workerEnabled: true });
+  const runs = vi.spyOn(api, "listJobRuns");
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  renderJobs(client);
+  expect(await screen.findByText("No runs recorded yet.")).toBeInTheDocument();
+  const before = runs.mock.calls.length;
+  runs.mockResolvedValue({ items: [{ id: 4, status: "running", attempt: 1, startedAt: "2026-11-14T00:00:01Z" }], retention });
+  await act(() => client.refetchQueries({ queryKey: jobsQuery.queryKey, exact: true }));
+  expect(await screen.findByText("Attempt 1")).toBeInTheDocument();
+  expect(runs.mock.calls.length).toBeGreaterThan(before);
   cleanup(); client.clear();
 });
