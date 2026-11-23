@@ -37,4 +37,19 @@ export const shellKo: Record<keyof typeof shellEn, string> = {
 
   "field.reveal": "표시",
   "field.capsLock": "Caps Lock이 켜져 있습니다.",
+
+  "date.choose": "날짜 선택",
+  "date.chooseTime": "날짜와 시간 선택",
+  "date.previousMonth": "이전 달",
+  "date.nextMonth": "다음 달",
+  "date.time": "시간",
+  "date.hour": "시",
+  "date.minute": "분",
+  "date.second": "초",
+  "date.now": "지금",
+  "date.today": "오늘",
+  "date.clear": "지우기",
+  "date.done": "완료",
+  "date.invalid": "날짜를 YYYY-MM-DD 형식으로 입력하세요.",
+  "date.invalidTime": "날짜와 시간을 YYYY-MM-DD HH:mm:ss 형식으로 입력하세요.",
 };
