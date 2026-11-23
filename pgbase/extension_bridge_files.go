@@ -54,7 +54,7 @@ func (host *extensionHost) callLocalCreateThumb(_ context.Context, raw json.RawM
 	contentType := strings.TrimSpace(strings.Split(http.DetectContentType(probe[:n]), ";")[0])
 	data, err := host.bridge.files.RenderThumbnailReader(input, contentType, request.ThumbSize)
 	if err != nil {
-		return nil, extensionError("thumbnail_failed", err)
+		return nil, thumbnailError(err)
 	}
 	temporary, err := os.CreateTemp(filepath.Dir(destination), ".pgbase-thumb-*")
 	if err != nil {

@@ -144,6 +144,10 @@ Managed file GET/HEAD downloads accept one RFC 9110 `bytes` range (`start-end`, 
 
 JPEG thumbnails apply EXIF orientation before resizing and remain JPEG. PNG, GIF, and WebP thumbnail outputs use PNG to preserve transparency; animated sources produce a still thumbnail. Existing cached variants can retain their previous JPEG format, and response MIME detection follows the stored bytes.
 
+A generated variant is rendered once and then served from storage. Requests for variants of one file wait for a render of that file already in progress. A variant request that waits more than five seconds, whether for image-decoding memory, behind another render of the same file, or for a database connection, answers `503 file_busy` with `Retry-After` and can be retried; it never reports that contention as `500 file_error`.
+
+Uploads, staged batch files, downloads and variant renders share a process-wide set of storage-operation slots. One caller can have at most 16 requests holding or waiting for those slots; its further requests wait for one of its own to finish, so other callers keep the remaining slots. A caller is the authenticated user, administrator or service token; anonymous callers are grouped by client IPv4 address or IPv6 /64. Without a configured trusted proxy, every anonymous caller behind a reverse proxy has the proxy's address and shares one group.
+
 SSE subscription is GET `/api/v1/user/collections/{collection}/events`. See [realtime](realtime.md) for replay IDs, retention, failure handling and limits.
 
 Admin service-token issuance takes `{name,ttlSeconds,scopes:[{collectionId,action}]}` at POST `/api/admin/service-tokens`. Actions are `read`, `create`, `update`, `delete`; the returned secret is shown only on issuance. GET `/api/admin/service-tokens` returns `{items,nextAfter?}` with up to 64 tokens, newest first. Pass `nextAfter` as the next request's `after` parameter and keep the same filter. Use `active=true` to find active, unexpired tokens, or query `id=<uuid>` alone to retrieve one token in the same envelope. POST `/api/admin/service-tokens/{id}/revoke` revokes it. Store tokens only in trusted server environments.

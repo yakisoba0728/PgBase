@@ -214,6 +214,9 @@ var authCleanupAndTokenListingSQL string
 //go:embed 000072_admin_totp_counters.sql
 var adminTOTPCountersSQL string
 
+//go:embed 000073_file_upload_count_and_write_only_indexes.sql
+var fileUploadCountAndWriteOnlyIndexesSQL string
+
 var migrations = []Migration{
 	{
 		Version: 1,
@@ -327,6 +330,7 @@ var migrations = []Migration{
 	{Version: 70, Name: "realtime_public_identity_lookup", SQL: realtimePublicIdentityLookupSQL, SHA256: sha256.Sum256([]byte(realtimePublicIdentityLookupSQL))},
 	{Version: 71, Name: "auth_cleanup_and_token_listing", SQL: authCleanupAndTokenListingSQL, SHA256: sha256.Sum256([]byte(authCleanupAndTokenListingSQL))},
 	{Version: 72, Name: "admin_totp_counters", SQL: adminTOTPCountersSQL, SHA256: sha256.Sum256([]byte(adminTOTPCountersSQL))},
+	{Version: 73, Name: "file_upload_count_and_write_only_indexes", SQL: fileUploadCountAndWriteOnlyIndexesSQL, SHA256: sha256.Sum256([]byte(fileUploadCountAndWriteOnlyIndexesSQL))},
 }
 
 // Migrations returns the ordered system migrations. The returned slice is a

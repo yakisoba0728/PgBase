@@ -315,7 +315,7 @@ func (s *Service) upload(ctx context.Context, principal identity.Subject, input 
 			return err
 		}
 		var count int
-		if err := tx.QueryRow(ctx, `select count(*) from pgbase_meta.record_files where ((collection_id=$1 and record_id=$2) or (auth_collection_id=$1 and auth_user_id=$2)) and field_name=$3 and status in ('pending','ready')`, input.CollectionID, input.RecordID, input.Field).Scan(&count); err != nil {
+		if err := tx.QueryRow(ctx, uploadCapacityCountSQL, input.CollectionID, input.RecordID, input.Field).Scan(&count); err != nil {
 			return err
 		}
 		if count >= policy.MaximumCount {
@@ -376,6 +376,14 @@ func (s *Service) upload(ctx context.Context, principal identity.Subject, input 
 	}
 	return file, nil
 }
+
+// uploadCapacityCountSQL counts the pending and ready files of one record
+// field. Each status is counted separately because every index that covers a
+// record field is partial on one status; a single status IN (...) predicate
+// matches none of them and scans the table.
+const uploadCapacityCountSQL = `select
+	(select count(*) from pgbase_meta.record_files where ((collection_id=$1 and record_id=$2) or (auth_collection_id=$1 and auth_user_id=$2)) and field_name=$3 and status='ready')
+	+ (select count(*) from pgbase_meta.record_files where ((collection_id=$1 and record_id=$2) or (auth_collection_id=$1 and auth_user_id=$2)) and field_name=$3 and status='pending')`
 
 func mimeAllowed(value string, allowed []string) bool {
 	value = strings.ToLower(strings.TrimSpace(value))

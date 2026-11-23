@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -68,6 +69,54 @@ func TestParsePoolConfigRequiresHeadroomForBackgroundAndRequestWork(t *testing.T
 	}
 	if got := Classify(err); got != KindValidation {
 		t.Fatalf("Classify(parsePoolConfig error) = %v, want validation", got)
+	}
+}
+
+func TestParsePoolConfigDerivesDefaultSizeOnlyWhenUnspecified(t *testing.T) {
+	want := DefaultPoolConnections(runtime.GOMAXPROCS(0))
+	for _, test := range []struct {
+		url  string
+		want int32
+	}{
+		{"postgres://postgres:postgres@127.0.0.1/pgbase?sslmode=disable", want},
+		{"postgresql://postgres:postgres@127.0.0.1/pgbase", want},
+		{"host=127.0.0.1 dbname=pgbase sslmode=disable", want},
+		{"postgres://postgres:postgres@127.0.0.1/pgbase?sslmode=disable&pool_max_conns=5", 5},
+		{"postgres://postgres:postgres@127.0.0.1/pgbase?pool_max_conns=200", 200},
+		{"host=127.0.0.1 dbname=pgbase pool_max_conns = 6", 6},
+	} {
+		config, err := parsePoolConfig(test.url, false)
+		if err != nil {
+			t.Fatalf("parsePoolConfig(%q) error = %v", test.url, err)
+		}
+		if config.MaxConns != test.want {
+			t.Fatalf("parsePoolConfig(%q) MaxConns = %d, want %d", test.url, config.MaxConns, test.want)
+		}
+	}
+}
+
+func TestDefaultPoolConnectionsCoverRecommendedMinimum(t *testing.T) {
+	for _, test := range []struct {
+		gomaxprocs         int
+		defaultSize, floor int32
+	}{
+		{0, 10, 9},
+		{1, 10, 9},
+		{2, 12, 10},
+		{4, 16, 12},
+		{8, 24, 16},
+		{28, 64, 36},
+		{128, 64, 64},
+	} {
+		if got := DefaultPoolConnections(test.gomaxprocs); got != test.defaultSize {
+			t.Fatalf("DefaultPoolConnections(%d) = %d, want %d", test.gomaxprocs, got, test.defaultSize)
+		}
+		if got := RecommendedMinimumPoolConnections(test.gomaxprocs); got != test.floor {
+			t.Fatalf("RecommendedMinimumPoolConnections(%d) = %d, want %d", test.gomaxprocs, got, test.floor)
+		}
+		if DefaultPoolConnections(test.gomaxprocs) < RecommendedMinimumPoolConnections(test.gomaxprocs) {
+			t.Fatalf("default pool for GOMAXPROCS=%d is below the recommended minimum", test.gomaxprocs)
+		}
 	}
 }
 

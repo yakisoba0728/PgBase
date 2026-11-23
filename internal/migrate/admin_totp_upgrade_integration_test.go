@@ -66,7 +66,7 @@ func TestAdministratorTOTPCounterUpgradePreservesExistingFactors(t *testing.T) {
 		t.Fatalf("repeat migration reset consumption: counter=%v err=%v", lastCounter, err)
 	}
 	status, err := runner.Status(ctx)
-	if err != nil || status.Current != 72 || status.Latest != 72 || status.Dirty || !status.Compatible {
+	if err != nil || status.Current != 73 || status.Latest != 73 || status.Dirty || !status.Compatible {
 		t.Fatalf("migration status=%+v err=%v", status, err)
 	}
 }

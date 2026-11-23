@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -453,6 +454,7 @@ func runDoctor(ctx context.Context, args []string, env environment, streams IO) 
 	// sound diagnosis into a failed one.
 	warnings, warningErr := doctor.DeploymentWarnings(ctx, runtime.pool, seedBackupEndpoint(runtime.options))
 	report.Findings = append(report.Findings, warnings...)
+	report.Findings = append(report.Findings, doctor.PoolWarnings(runtime.pool.Stats().MaxConns, goruntime.GOMAXPROCS(0))...)
 	if warningErr != nil {
 		runtime.logger.WarnContext(ctx, "deployment warnings could not be completed", "error", warningErr)
 	}

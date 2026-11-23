@@ -297,6 +297,7 @@ func NewRouter(dependencies Dependencies) (http.Handler, error) {
 		if dependencies.APIRateLimits != nil {
 			handler = apiRateLimitMiddleware(dependencies.APIRateLimits, dependencies.trustedProxies, declared.pattern, handler)
 		}
+		handler = storageAdmissionMiddleware(dependencies.trustedProxies, handler)
 		handler = dependencies.admit(declared.access, handler)
 		if declared.noStore {
 			handler = noStoreCustomHandler(handler)
