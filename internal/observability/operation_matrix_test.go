@@ -27,6 +27,7 @@ var operationMatrix = []struct{ operation, component string }{
 	{operation: "relation_delete", component: "relation"},
 	{operation: "relation_expand", component: "relation"},
 	{operation: "relation_read", component: "relation"},
+	{operation: "request_log_prune", component: "request_log"},
 }
 
 var allOutcomes = []Outcome{
@@ -84,6 +85,7 @@ func TestOperationSetIsComplete(t *testing.T) {
 		OperationAdminSetup, OperationAdminLogin,
 		OperationRelationSchema, OperationRelationWrite, OperationRelationDelete,
 		OperationRelationExpand, OperationRelationRead,
+		OperationRequestLogPrune,
 	} {
 		if _, ok := covered[string(operation)]; !ok {
 			t.Fatalf("operation constant %q is not covered by the matrix", operation)

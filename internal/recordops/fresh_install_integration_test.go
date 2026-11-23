@@ -3,7 +3,6 @@
 package recordops
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 )
@@ -12,7 +11,7 @@ import (
 // the most ordinary thing an administrator does next.
 func TestFreshInstallCanListRecords(t *testing.T) {
 	_, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	if _, err := records.Create(ctx, CreateRequest{
 		Principal: principal, RequestID: "fresh-install-1", Collection: "records",
 		IdempotencyKey: "fresh-install-0001",
@@ -37,7 +36,7 @@ func TestFreshInstallCanListRecords(t *testing.T) {
 // own runtime still clears the floor its registration installed.
 func TestFreshInstallKeepsWritingAfterTheBootstrapRaisedTheWriterFloor(t *testing.T) {
 	_, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	for _, title := range []string{"first", "second", "third"} {
 		if _, err := records.Create(ctx, CreateRequest{
 			Principal: principal, RequestID: "fresh-install-" + title, Collection: "records",

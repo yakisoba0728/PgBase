@@ -35,4 +35,19 @@ export const shellEn = {
 
   "field.reveal": "Reveal",
   "field.capsLock": "Caps Lock is on.",
+
+  "date.choose": "Choose date",
+  "date.chooseTime": "Choose date and time",
+  "date.previousMonth": "Previous month",
+  "date.nextMonth": "Next month",
+  "date.time": "Time",
+  "date.hour": "Hour",
+  "date.minute": "Minute",
+  "date.second": "Second",
+  "date.now": "Now",
+  "date.today": "Today",
+  "date.clear": "Clear",
+  "date.done": "Done",
+  "date.invalid": "Enter a date as YYYY-MM-DD.",
+  "date.invalidTime": "Enter a date and time as YYYY-MM-DD HH:mm:ss.",
 };

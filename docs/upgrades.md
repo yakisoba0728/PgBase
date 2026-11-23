@@ -112,6 +112,16 @@ the build, so size the maintenance window for the outbox history you retain. On
 a database with a few hundred records the three migrations finish in
 milliseconds.
 
+## Scheduled job run history (system migration 74)
+
+Migration 74 adds `pgbase_meta.scheduled_job_runs`, an empty table with two
+indexes, so it finishes in milliseconds and does not rewrite existing tables.
+Existing jobs start with no history; runs are recorded from the first claim made
+by the new binary. History is bounded by `Operations.JobRunRetention` (30 days)
+and `Operations.JobRunMaximumRows` (1,000 per job); see
+[Local scheduled jobs](local-jobs.md#run-history). Follow the standard
+stop–migrate–start procedure above.
+
 ## Image decoding memory
 
 Decoding an uploaded image for its thumbnail, and rendering a variant, now
@@ -123,6 +133,23 @@ ends. A variant request that waits more than five seconds returns **503**
 `file_busy` with `Retry-After: 5` and can be retried. Budget the process for
 the 256 MiB of live image data plus garbage-collector headroom; set
 `GOMEMLIMIT` when the container has a hard memory limit.
+
+## Busy variants and per-caller storage slots
+
+Concurrent requests for variants of one file used to wait for the render in
+progress until `statement_timeout` and then answer **500** `file_error`. They
+now wait at most five seconds and answer **503** `file_busy` with
+`Retry-After`, like a variant that waited for image-decoding memory. Clients
+that already retry `file_busy` need no change. JavaScript `createThumb` throws
+`file_busy` instead of `thumbnail_failed` in the same condition.
+
+The 64 storage-operation slots shared by uploads, downloads and variant renders
+now admit at most 16 requests of one caller at a time. A caller is a user,
+administrator or service token, or an anonymous IPv4 address or IPv6 /64. A
+caller's further requests wait, as they did when all slots were taken, instead
+of failing. Configure trusted proxies before upgrading if anonymous clients
+reach PgBase through a reverse proxy; otherwise they share one caller's 16
+slots.
 
 ## Relation visibility in responses and replay
 
@@ -141,6 +168,21 @@ ordinary record API to obtain its currently visible relations. New events use
 their original target identities even if a deleted target's public ID is reused.
 Deploy the updated binary to all writers and realtime servers together; an old
 writer continues producing envelopes whose relations must be redacted.
+
+## Hidden relation targets in sort order
+
+Sorting a list by a relation field (`sort=author`) now gives every target a
+user or anonymous caller cannot view a NULL sort key, exactly like a missing
+relation, as a relation-path sort (`sort=author.name`) already did. Before, it
+ordered rows by the stored target id even when the response redacted it.
+Those rows sort last in either direction and are ordered among themselves by
+the remaining keys and `id`, so the order no longer reveals how hidden targets
+compare or which rows share one. Administrators and service tokens see every
+target and keep the previous order. A bare relation-field sort whose target
+view rule is not `allow` checks each row against that rule and no longer uses
+the relation column's index for user and anonymous callers. A non-administrator
+continuing such a sort with a value cursor (issued before anchor-only cursors,
+at most 15 minutes old) receives `400 invalid_cursor` and restarts.
 
 ## Recovering an interrupted binary update
 

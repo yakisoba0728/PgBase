@@ -21,7 +21,7 @@ func (f independentValidator) ValidateRecords(ctx context.Context, tx pgx.Tx, re
 
 func TestIndependentBorrowedSingleValidationAndProjection(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	definition := schema.CreateCollectionInput{Name: "borrowed_text", RecordID: &schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 64, Pattern: `^[A-Za-z0-9-]+$`}, Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText}}}
 	plan, err := schemas.Preview(ctx, schema.NewCreateChange(definition))
 	if err != nil {
@@ -111,7 +111,7 @@ func TestIndependentBorrowedSingleValidationAndProjection(t *testing.T) {
 
 func TestIndependentBatchReplayKeepsInternalIdentityUntilValidation(t *testing.T) {
 	_, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	definition := schema.CreateCollectionInput{Name: "replay_text", RecordID: &schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 64, Pattern: `^[A-Za-z0-9-]+$`}, Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText}}}
 	plan, err := schemas.Preview(ctx, schema.NewCreateChange(definition))
 	if err != nil {

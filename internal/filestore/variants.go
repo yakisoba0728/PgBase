@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"io"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
@@ -29,6 +31,11 @@ func containsVariant(values []string, value string) bool {
 	return false
 }
 
+// variantObject returns the published object of a variant, rendering it on
+// first use. On a miss, waiting behind other work (decode memory, the file row
+// lock that serializes concurrent renders of one file, connection slots)
+// reports ErrImageBusy, so callers answer a retryable 503 instead of a server
+// error.
 func (s *Service) variantObject(ctx context.Context, file File, variant string) (string, error) {
 	// A cached variant needs no lease, reservation, row lock or commit: its row
 	// is inserted in the same transaction that publishes the object, and a
@@ -46,6 +53,36 @@ func (s *Service) variantObject(ctx context.Context, file File, variant string) 
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return "", err
 	}
+	key, err := s.publishVariant(ctx, file, variant)
+	return key, variantBusy(ctx, err)
+}
+
+// variantBusy reports err as ErrImageBusy when it came from waiting behind
+// other work rather than from a fault. The caller's own cancellation and
+// deadline are returned unchanged.
+func variantBusy(ctx context.Context, err error) error {
+	if err == nil || ctx.Err() != nil || errors.Is(err, ErrImageBusy) {
+		return err
+	}
+	if errors.Is(err, database.ErrBackupGateBusy) {
+		return fmt.Errorf("%w: %w", ErrImageBusy, err)
+	}
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) {
+		switch postgresError.Code {
+		case "55P03", // lock_not_available: lock_timeout behind a concurrent render
+			"57014", // query_canceled by statement_timeout; the caller is still waiting
+			"53300": // too_many_connections when opening a coordination session
+			return fmt.Errorf("%w: %w", ErrImageBusy, err)
+		}
+	}
+	return err
+}
+
+// publishVariant renders and publishes a variant the cached read missed. It
+// checks the cache again under the file row lock, so a render that finished
+// meanwhile is reused.
+func (s *Service) publishVariant(ctx context.Context, file File, variant string) (string, error) {
 	ctx, release, err := s.beginStorageOperation(ctx)
 	if err != nil {
 		return "", err
@@ -64,6 +101,13 @@ func (s *Service) variantObject(ctx context.Context, file File, variant string) 
 	var key string
 	writeResolved := true // No Put has started yet.
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		// Concurrent requests for variants of one file queue on its row lock
+		// while a render holds it, and a render may itself wait
+		// lockedImageBudgetWait for decode memory. Bound the lock waits the
+		// same way so a waiter reports busy independently of statement_timeout.
+		if _, err := tx.Exec(ctx, `select pg_catalog.set_config('lock_timeout', $1, true)`, strconv.FormatInt(max(lockedImageBudgetWait.Milliseconds(), 1), 10)+"ms"); err != nil {
+			return err
+		}
 		var ready uuid.UUID
 		if err := tx.QueryRow(ctx, `select id from pgbase_meta.record_files where id=$1 and status='ready' for update`, file.ID).Scan(&ready); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {

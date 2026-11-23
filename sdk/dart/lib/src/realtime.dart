@@ -54,6 +54,35 @@ final class RealtimeCustomEvent {
   final JsonValue data;
 }
 
+typedef _Registration = ({
+  String topic,
+  Set<Function> listeners,
+  Function listener,
+  bool added,
+});
+
+typedef _SubscriptionOutcome = ({
+  Future<void> Function()? dispose,
+  Object? error,
+});
+
+final class _QueuedSubscription {
+  _QueuedSubscription(this.topics, this.listener, this.generation);
+  final List<String> topics;
+  final Function listener;
+  final int generation;
+  final completer = Completer<Future<void> Function()>();
+
+  void settle(_SubscriptionOutcome outcome) {
+    final dispose = outcome.dispose;
+    if (dispose != null) {
+      completer.complete(dispose);
+    } else {
+      completer.completeError(outcome.error!);
+    }
+  }
+}
+
 /// One SSE connection shared by PB-style topic subscriptions.
 final class RealtimeService {
   RealtimeService(
@@ -75,7 +104,8 @@ final class RealtimeService {
   String? _clientId;
   String? _lastEventId;
   Future<void>? _running;
-  Future<void>? _subscribing;
+  final _queued = <_QueuedSubscription>[];
+  bool _draining = false;
   Future<void> _syncing = Future<void>.value();
   Completer<void>? _ready;
   final _observers = <FutureOr<void> Function(RealtimeStatus)>{};
@@ -123,35 +153,86 @@ final class RealtimeService {
   Future<Future<void> Function()> _subscribeTopics(
     List<String> topics,
     Function listener,
-  ) async {
-    final generation = _client.auth.generation;
-    Future<Future<void> Function()> start() {
-      if (generation != _client.auth.generation)
-        throw const PgBaseCancellation();
-      return _subscribe(topics, listener, generation);
-    }
-
-    final result = _subscribing == null
-        ? start()
-        : _subscribing!.then((_) => start());
-    final tail = result.then<void>(
-      (_) {},
-      onError: (Object _, StackTrace _) {},
+  ) {
+    final request = _QueuedSubscription(
+      topics,
+      listener,
+      _client.auth.generation,
     );
-    _subscribing = tail;
-    tail.then((_) {
-      if (identical(_subscribing, tail)) _subscribing = null;
-    });
-    return result;
+    _queued.add(request);
+    if (!_draining) unawaited(_drain());
+    return request.completer.future;
   }
 
-  Future<Future<void> Function()> _subscribe(
-    List<String> topics,
-    Function listener,
-    int generation,
-  ) async {
-    if (topics.isEmpty || topics.any((topic) => !_validTopic(topic)))
-      throw const PgBaseProtocolError('invalid_realtime_topic');
+  /// Installs queued subscriptions in call order. Requests that queue behind
+  /// an in-flight one share a single replacement request. A failed shared
+  /// replacement leaves the server unchanged, so each request is then retried
+  /// alone and only the failing one completes with an error, as if they had
+  /// run serially.
+  Future<void> _drain() async {
+    _draining = true;
+    try {
+      while (_queued.isNotEmpty) {
+        // A connection handshake replaces with its own request's topics only:
+        // a denied topic there would stop the whole shared stream.
+        final count = _clientId == null ? 1 : _queued.length;
+        final taken = _queued.sublist(0, count);
+        _queued.removeRange(0, count);
+        final batch = <_QueuedSubscription>[];
+        for (final request in taken) {
+          final error = _requestError(request);
+          if (error == null) {
+            batch.add(request);
+          } else {
+            request.completer.completeError(error);
+          }
+        }
+        if (batch.length > 1) {
+          List<_SubscriptionOutcome>? outcomes;
+          try {
+            outcomes = await _subscribe(batch, stopWhenEmpty: false);
+          } catch (_) {
+            // Retried one at a time below.
+          }
+          if (outcomes != null) {
+            for (var index = 0; index < batch.length; index++) {
+              batch[index].settle(outcomes[index]);
+            }
+            continue;
+          }
+        }
+        for (final request in batch) {
+          try {
+            request.settle(
+              (await _subscribe([request], stopWhenEmpty: true)).single,
+            );
+          } catch (error, stack) {
+            request.completer.completeError(error, stack);
+          }
+        }
+      }
+    } finally {
+      _draining = false;
+    }
+  }
+
+  Object? _requestError(_QueuedSubscription request) {
+    if (request.generation != _client.auth.generation)
+      return const PgBaseCancellation();
+    if (request.topics.isEmpty ||
+        request.topics.any((topic) => !_validTopic(topic)))
+      return const PgBaseProtocolError('invalid_realtime_topic');
+    return null;
+  }
+
+  /// Registers the requests' listeners and replaces the server topic list
+  /// once. A shared failure rolls every request back; [stopWhenEmpty] is false
+  /// when the caller retries them, so the stream is not torn down in between.
+  Future<List<_SubscriptionOutcome>> _subscribe(
+    List<_QueuedSubscription> requests, {
+    required bool stopWhenEmpty,
+  }) async {
+    final generation = requests.first.generation;
     if (_stop?.isCancelled ?? false) await _running;
     // Reinstall established topics before attempting to add new ones.
     final previousStop = _stop;
@@ -163,14 +244,21 @@ final class RealtimeService {
     if (generation != _client.auth.generation ||
         (_running != null && (previousStop?.isCancelled ?? false)))
       throw const PgBaseCancellation();
-    final registrations = topics.map((topic) {
-      final listeners = _listeners[topic] ??= {};
-      return (
-        topic: topic,
-        listeners: listeners,
-        added: listeners.add(listener),
-      );
-    }).toList();
+    final registrations = [
+      for (final request in requests)
+        <_Registration>[
+          for (final topic in request.topics)
+            _register(topic, request.listener),
+        ],
+    ];
+    void rollBack(List<_Registration> items) {
+      for (final item in items) {
+        if (item.added) {
+          _removeListener(item.topic, item.listeners, item.listener);
+        }
+      }
+    }
+
     _ensureRunning();
     final stop = _stop;
     try {
@@ -180,29 +268,51 @@ final class RealtimeService {
       } else {
         await _ready!.future;
       }
-      if (generation != _client.auth.generation ||
-          (stop?.isCancelled ?? true) ||
-          registrations.any(
-            (item) =>
-                !identical(_listeners[item.topic], item.listeners) ||
-                !item.listeners.contains(listener),
-          ))
+      if (generation != _client.auth.generation || (stop?.isCancelled ?? true))
         throw const PgBaseCancellation();
     } catch (_) {
-      for (final item in registrations) {
-        if (item.added) _removeListener(item.topic, item.listeners, listener);
-      }
-      if (_listeners.isEmpty && !(_stop?.isCancelled ?? true))
+      registrations.forEach(rollBack);
+      if (stopWhenEmpty && _listeners.isEmpty && !(_stop?.isCancelled ?? true))
         await unsubscribe();
       rethrow;
     }
-    return () async {
-      if (!identical(_stop, stop)) return;
-      for (final item in registrations) {
-        _removeListener(item.topic, item.listeners, listener);
+    final outcomes = <_SubscriptionOutcome>[];
+    for (final items in registrations) {
+      if (items.any(
+        (item) =>
+            !identical(_listeners[item.topic], item.listeners) ||
+            !item.listeners.contains(item.listener),
+      )) {
+        rollBack(items);
+        outcomes.add((dispose: null, error: const PgBaseCancellation()));
+        continue;
       }
-      await _updateSubscriptions();
-    };
+      outcomes.add((
+        dispose: () async {
+          if (!identical(_stop, stop)) return;
+          for (final item in items) {
+            _removeListener(item.topic, item.listeners, item.listener);
+          }
+          await _updateSubscriptions();
+        },
+        error: null,
+      ));
+    }
+    if (outcomes.any((outcome) => outcome.error != null) &&
+        _listeners.isEmpty &&
+        !(_stop?.isCancelled ?? true))
+      await unsubscribe();
+    return outcomes;
+  }
+
+  _Registration _register(String topic, Function listener) {
+    final listeners = _listeners[topic] ??= {};
+    return (
+      topic: topic,
+      listeners: listeners,
+      listener: listener,
+      added: listeners.add(listener),
+    );
   }
 
   void _removeListener(

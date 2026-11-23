@@ -6,7 +6,7 @@ and populates a disposable database using that binary. It does not generate the
 historical fixture with the candidate under test.
 
 ```sh
-GOTOOLCHAIN=go1.26.11 \
+GOTOOLCHAIN=go1.27.4 \
 PGBASE_REDESIGN_ARTIFACTS=.local/redesign/schema66-run-1 \
 go test -tags='restore upgrade' ./tests/restore \
   -run '^TestSchema66RedesignUpgrade$' -count=1 -v

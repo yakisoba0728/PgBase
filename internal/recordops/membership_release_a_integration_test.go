@@ -137,7 +137,7 @@ func TestReleaseADirectConstructorRetriesRegistrationAfterMigrationM(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(pool.Close)
+	closePoolOnCleanup(t, pool)
 	administratorID := uuid.MustParse(testAdministratorID)
 	if _, err := pool.Exec(context.Background(), `INSERT INTO pgbase_meta.admins
 		(id, email, password_hash, active, created_at, updated_at)
@@ -205,7 +205,7 @@ func TestReleaseADirectConstructorConcurrentFirstUseFitsMinimumConnectionPool(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(limitedPool.Close)
+	closePoolOnCleanup(t, limitedPool)
 	schemas := schema.NewService(limitedPool, &schema.Cache{}, nil)
 	records := NewService(limitedPool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
 

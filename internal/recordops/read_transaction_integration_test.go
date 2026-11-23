@@ -3,7 +3,6 @@
 package recordops
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -16,7 +15,7 @@ import (
 
 func TestReadsShareTheWriteTransactionAndRespectRollback(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	definition := schema.CreateCollectionInput{
 		Name:     "transaction_text_records",
 		RecordID: &schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 32, Pattern: `^[A-Za-z0-9]+$`},

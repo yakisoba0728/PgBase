@@ -18,7 +18,7 @@ import (
 
 func TestRecordOperationsRelationCreateReplayReadAndRelationOnlyPatch(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	createRelationCollections(t, ctx, schemas, principal.ID)
 
 	firstTarget := createRelationTarget(t, ctx, records, principal, "first")
@@ -143,7 +143,7 @@ func TestRecordOperationsRelationCreateReplayReadAndRelationOnlyPatch(t *testing
 
 func TestRecordOperationsEmitBoundedRelationWriteExpandAndDeleteTelemetry(t *testing.T) {
 	_, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	createRelationCollections(t, ctx, schemas, principal.ID)
 	target := createRelationTarget(t, ctx, records, principal, "telemetry")
 	recorder := &relationTelemetryRecorder{}
@@ -191,7 +191,7 @@ func TestRecordOperationsEmitBoundedRelationWriteExpandAndDeleteTelemetry(t *tes
 
 func TestRecordOperationsRelationFilterSortUsesAuthenticatedPolicySeam(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	createRelationCollections(t, ctx, schemas, principal.ID)
 	first := createRelationTarget(t, ctx, records, principal, "Ada")
 	second := createRelationTarget(t, ctx, records, principal, "Bob")
@@ -248,7 +248,7 @@ func TestRecordOperationsRelationFilterSortUsesAuthenticatedPolicySeam(t *testin
 
 func TestRecordOperationsForwardExpandKeepsRootValidatorAndOrderedRawIDs(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	createRelationCollections(t, ctx, schemas, principal.ID)
 
 	firstTarget := createRelationTarget(t, ctx, records, principal, "expand-first")
@@ -343,7 +343,7 @@ func TestRecordOperationsForwardExpandKeepsRootValidatorAndOrderedRawIDs(t *test
 
 func TestRecordOperationsRelationValidationAndMissingTargetRollback(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	createRelationCollections(t, ctx, schemas, principal.ID)
 	target := createRelationTarget(t, ctx, records, principal, "target")
 
@@ -381,7 +381,7 @@ func TestRecordOperationsRelationValidationAndMissingTargetRollback(t *testing.T
 
 func TestRecordOperationsRelationListBoundsFinalResponseEnvelope(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	createRelationCollections(t, ctx, schemas, principal.ID)
 
 	// Individually valid request bodies fill the 48 MiB page. The tail row forces
@@ -442,7 +442,7 @@ func TestRecordOperationsRelationListBoundsFinalResponseEnvelope(t *testing.T) {
 
 func TestRecordOperationsRelationListClassifiesStoredDriftWithoutDisclosure(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	createRelationCollections(t, ctx, schemas, principal.ID)
 	target := createRelationTarget(t, ctx, records, principal, "drift")
 	created, err := records.Create(ctx, CreateRequest{

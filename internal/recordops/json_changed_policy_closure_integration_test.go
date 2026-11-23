@@ -3,7 +3,6 @@
 package recordops
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"github.com/yakisoba0728/PgBase/internal/accessrule"
@@ -14,7 +13,7 @@ import (
 
 func TestJSONChangedPolicyDistinguishesNumbersFromMarkerStrings(t *testing.T) {
 	f := newUserAccessFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	f.enable(t, "records")
 	allow := accessrule.Rule{Op: "allow"}
 	update, err := query.ParseAccessRule("@request.body.metadata:changed = false")

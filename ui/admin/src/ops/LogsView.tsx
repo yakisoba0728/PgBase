@@ -1,6 +1,7 @@
-import { useEffect, useState, type ComponentProps } from "react";
+import { useEffect, useId, useState, type ComponentProps } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Input, Searchbar, Select } from "../components/Field";
+import { DateTimeInput, parseDateTime } from "../components/DateTimeInput";
+import { Searchbar, Select } from "../components/Field";
 import { RiDeleteBinLine, RiFileList3Line, RiRouteLine, RiSearchLine } from "@remixicon/react";
 import { clearRequestLogs, deleteRequestLogsBefore } from "../api/logs";
 import { errorText, windowOpen, windowShifted } from "../app/queries";
@@ -102,14 +103,8 @@ export function LogsView() {
         <SearchParam param="q" label={t("ops.logs.search")} icon={RiSearchLine} primary maxLength={256} placeholder={t("ops.logs.searchPlaceholder")} />
         <SearchParam param="route" label={t("ops.logs.route")} icon={RiRouteLine} mono placeholder={t("ops.logs.routePlaceholder")} />
         <div className="ops-range-pair">
-        <label className="ops-range">
-          <span>{t("ops.logs.from")}</span>
-          <Input size="sm" mono className="control-fit" type="datetime-local" step={1} value={params.get("from") ?? ""} onChange={(event) => update({ from: event.target.value || null }, { replace: true })} />
-        </label>
-        <label className="ops-range">
-          <span>{t("ops.logs.to")}</span>
-          <Input size="sm" mono className="control-fit" type="datetime-local" step={1} value={params.get("to") ?? ""} onChange={(event) => update({ to: event.target.value || null }, { replace: true })} />
-        </label>
+          <RangeParam param="from" label={t("ops.logs.from")} />
+          <RangeParam param="to" label={t("ops.logs.to")} />
         </div>
         {filtered && <Button size="sm" variant="transparent" onClick={() => update(Object.fromEntries(filterKeys.map((key) => [key, null])))}>{t("ops.clearFilters")}</Button>}
         {/* Always there, so the count arriving never rewraps the toolbar. */}
@@ -143,7 +138,7 @@ export function LogsView() {
                       <Row key={id} current={entry === id} onOpen={() => update({ entry: id })}>
                         <td className="mono cell-time">{time(item.at)}</td>
                         <td><span className="chip mono" data-tone={statusTone(item.status)}>{item.status}</span></td>
-                        <td className="ops-request">
+                        <td className="ops-request" title={`${item.method} ${item.route}`}>
                           <span className="ops-method">{item.method}</span>
                           <span className="mono">{item.route}</span>
                         </td>
@@ -174,6 +169,20 @@ export function LogsView() {
       onClose={() => update({ entry: null })}
       pane={entry ? <LogDetail key={entry} id={entry} onClose={() => update({ entry: null })} onFilterRoute={(method, route) => update({ method, route })} /> : null}
     />
+  );
+}
+
+/** One end of the time range: a local wall time in the URL, applied once the typed text is a whole date (or empty). */
+function RangeParam({ param, label }: { param: "from" | "to"; label: string }) {
+  const { params, update } = useSearchState();
+  const id = useId();
+  return (
+    <div className="ops-range">
+      <label htmlFor={id}>{label}</label>
+      <DateTimeInput id={id} size="sm" className="control-fit" value={params.get(param) ?? ""} onChange={(value) => {
+        if (value === "" || parseDateTime(value)) update({ [param]: value || null }, { replace: true });
+      }} />
+    </div>
   );
 }
 

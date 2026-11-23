@@ -160,10 +160,37 @@
   min-width: 260px;
 }
 
-/* On a phone duration and attributes wait in the entry's pane, so the request keeps its width with less to scroll. */
+/* On a phone duration and attributes wait in the entry's pane, and the table fits the screen instead of scrolling
+   sideways: time and status keep their width, and the request takes the rest, its route wrapping under the method
+   (a zero-width cell would otherwise leave only an ellipsis). */
 @media (max-width: 599px) {
+  .grid.ops-grid {
+    width: 100%;
+  }
+
+  .ops-grid td,
+  .ops-grid th {
+    padding-inline: var(--sp-8);
+  }
+
   .ops-grid td.ops-request {
-    min-width: 200px;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    padding-block: var(--sp-6);
+    line-height: var(--line-height-sm);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .ops-grid .ops-method {
+    display: block;
+    min-width: 0;
+    margin-right: 0;
+  }
+
+  .ops-grid .ops-request .mono {
+    font-size: var(--font-size-sm);
   }
 
   .ops-grid .ops-minor {
@@ -185,6 +212,21 @@
   }
 }
 
+/* The last run's result ends in an ellipsis (the full text is its tooltip and in the pane) rather than widening the
+   row; the cell itself is capped too, so the list never scrolls sideways for it. */
+.grid td.ops-jobs-last {
+  max-width: 280px;
+}
+
+.ops-jobs-result {
+  display: inline-block;
+  max-width: 16em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
 @container ops-jobs (max-width: 720px) {
   .ops-jobs-schedule,
   .ops-jobs-zone,
@@ -201,6 +243,7 @@
 
   .ops-jobs-last .ops-aside {
     display: block;
+    max-width: 100%;
     margin-left: 0;
   }
 }
@@ -210,5 +253,51 @@
   .ops-jobs-last {
     display: none;
   }
+}
+
+/* A job pane's run history: one block per run, newest first, separated by hairlines. Error text wraps in place and
+   long output stays bounded by the server (1,024 characters). */
+.ops-runs-note {
+  margin: 0 0 var(--sp-8);
+}
+
+.ops-runs-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ops-runs-list > li {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-8) 0;
+  border-top: 1px solid var(--line);
+}
+
+.ops-runs-list > li:last-child {
+  border-bottom: 1px solid var(--line);
+}
+
+.ops-runs-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-4) var(--space-sm);
+}
+
+.ops-runs-duration {
+  margin-left: auto;
+}
+
+.ops-runs-meta {
+  font-size: var(--font-size-sm);
+}
+
+.ops-runs-error {
+  margin: var(--sp-4) 0 0;
+  color: var(--tone);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 

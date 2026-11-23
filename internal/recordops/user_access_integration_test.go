@@ -29,7 +29,7 @@ type userAccessFixture struct {
 func newUserAccessFixture(t *testing.T) userAccessFixture {
 	t.Helper()
 	pool, schemas, records, admin := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	users := []Principal{{Kind: PrincipalUser, ID: uuid.New()}, {Kind: PrincipalUser, ID: uuid.New()}}
 	for index, user := range users {
 		if _, err := pool.Exec(ctx, `INSERT INTO pgbase_meta.users(id,email,password_hash,active,created_at,updated_at) VALUES($1,$2,'test',true,transaction_timestamp(),transaction_timestamp())`, user.ID, "owner"+string(rune('a'+index))+"@example.test"); err != nil {
@@ -57,7 +57,7 @@ func (f userAccessFixture) create(t *testing.T, principal Principal, title, key 
 
 func TestUserAccessDefaultsLockedAndDoesNotBackfillAdminRecords(t *testing.T) {
 	f := newUserAccessFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	adminRecord := f.create(t, f.admin, "admin-only", "owner-admin-record-0001")
 	_, err := f.records.Create(ctx, CreateRequest{Principal: f.first, RequestID: "owner-locked-create", Collection: "records", Input: map[string]json.RawMessage{"title": json.RawMessage(`"locked"`)}})
 	if !errors.Is(err, recordaccess.ErrDenied) {
@@ -81,7 +81,7 @@ func TestUserAccessDefaultsLockedAndDoesNotBackfillAdminRecords(t *testing.T) {
 
 func TestMutationRulesEvaluateIssetAndChangedRequestContext(t *testing.T) {
 	f := newUserAccessFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	f.enable(t, "records")
 	owner := accessrule.Rule{Op: "owner"}
 	rules := accessrule.Rules{List: owner, View: owner, Create: accessrule.Rule{Op: "eq", Field: "title:isset", Value: json.RawMessage(`true`)}, Update: accessrule.Rule{Op: "eq", Field: "count:changed", Value: json.RawMessage(`true`)}, Delete: owner}
@@ -117,7 +117,7 @@ func TestMutationRulesEvaluateIssetAndChangedRequestContext(t *testing.T) {
 
 func TestCountForwardsRequestContextUsedByListRule(t *testing.T) {
 	f := newUserAccessFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	f.create(t, f.admin, "counted", "request-context-count-admin-01")
 	f.enable(t, "records")
 	listRule, err := query.ParseAccessRule("@request.context.channel = 'allowed'")
@@ -152,7 +152,7 @@ func TestCountForwardsRequestContextUsedByListRule(t *testing.T) {
 
 func TestIdempotentCreateReplayUsesCommittedGeneratedRuleContext(t *testing.T) {
 	f := newUserAccessFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	createGeneratedFieldsCollection(t, ctx, f.schemas, f.admin.ID, "generated_rule_replay", []schema.FieldInput{
 		{Name: "slug", Type: schema.TypeText, Required: true, Options: &schema.FieldOptions{AutogeneratePattern: `[a-z]{8}`}},
 		{Name: "title", Type: schema.TypeText, Required: true},
@@ -179,7 +179,7 @@ func TestIdempotentCreateReplayUsesCommittedGeneratedRuleContext(t *testing.T) {
 
 func TestUserCreateOwnershipReplayCursorAndRollback(t *testing.T) {
 	f := newUserAccessFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	f.enable(t, "records")
 	first := f.create(t, f.first, "one", "owner-replay-key-0001")
 	firstID := uuid.MustParse(first.Record.Data["id"].(string))
@@ -232,7 +232,7 @@ func TestUserCreateOwnershipReplayCursorAndRollback(t *testing.T) {
 
 func TestUserAccessRelationsRequireVisibleTargets(t *testing.T) {
 	f := newUserAccessFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	apply := func(input schema.CreateCollectionInput) {
 		plan, err := f.schemas.Preview(ctx, schema.NewCreateChange(input))
 		if err != nil {

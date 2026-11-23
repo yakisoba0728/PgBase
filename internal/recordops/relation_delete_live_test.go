@@ -78,7 +78,7 @@ func TestRecordOperationsDeleteGraphRestrictSingleAndMultipleRollback(t *testing
 
 func TestRecordOperationsDeleteGraphBudgetValidationRollsBackClosure(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	collection := applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{
 		Name: "budget_records", Fields: []schema.FieldInput{
 			{Name: "name", Type: schema.TypeText, Required: true},
@@ -130,7 +130,7 @@ func TestRecordOperationsDeleteGraphBudgetValidationRollsBackClosure(t *testing.
 
 func TestDeleteRecordBatchRejectsAggregateMaterializationBudgets(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	collection := applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{
 		Name: "delete_read_budget", Fields: []schema.FieldInput{
 			{Name: "name", Type: schema.TypeText, Required: true},
@@ -169,7 +169,7 @@ func TestDeleteRecordBatchRejectsAggregateMaterializationBudgets(t *testing.T) {
 
 func TestRecordOperationsDeleteGraphSetNullWritesOneDerivedArtifact(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	applyDeleteSetNullSchema(t, ctx, schemas, principal.ID)
 
 	deletedTarget := createDeleteRecord(t, ctx, records, principal, "null_targets", "set-null-target", map[string]json.RawMessage{
@@ -283,7 +283,7 @@ func TestRecordOperationsDeleteGraphSetNullWritesOneDerivedArtifact(t *testing.T
 
 func TestRecordOperationsDeleteGraphSetNullArtifactFailureRollsBackEverything(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	applyDeleteSetNullSchema(t, ctx, schemas, principal.ID)
 	target := createDeleteRecord(t, ctx, records, principal, "null_targets", "rollback-target", map[string]json.RawMessage{
 		"name": json.RawMessage(`"target"`),
@@ -333,7 +333,7 @@ func TestRecordOperationsDeleteGraphSetNullArtifactFailureRollsBackEverything(t 
 
 func TestRecordOperationsDeleteGraphChecksOnlyRootIfMatch(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	applyDeleteSetNullSchema(t, ctx, schemas, principal.ID)
 	target := createDeleteRecord(t, ctx, records, principal, "null_targets", "if-match-target", map[string]json.RawMessage{
 		"name": json.RawMessage(`"target"`),
@@ -402,7 +402,7 @@ func TestRecordOperationsDeleteGraphChecksOnlyRootIfMatch(t *testing.T) {
 
 func TestRecordOperationsDeleteGraphCascadeSelfCycleDiamondAndInternalRestrict(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	applyDeleteCascadeGraphSchema(t, ctx, schemas, principal.ID)
 
 	root := createDeleteRecord(t, ctx, records, principal, "graph_roots", "graph-root", map[string]json.RawMessage{
@@ -480,7 +480,7 @@ func TestRecordOperationsDeleteGraphCascadeSelfCycleDiamondAndInternalRestrict(t
 
 func TestRecordOperationsDeleteGraphReadCommittedSeesEdgeCommittedWhileWaiting(t *testing.T) {
 	databaseURL, pool, schemas, records, principal := newRecordOperationsTestWithURL(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{
 		Name: "phantom_targets", Fields: []schema.FieldInput{{Name: "name", Type: schema.TypeText, Required: true}},
 	})
@@ -591,7 +591,7 @@ func TestRecordOperationsDeleteGraphReadCommittedSeesEdgeCommittedWhileWaiting(t
 
 func TestRecordOperationsDeleteGraphRetryKeepsDerivedIdentity(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	applyDeleteSetNullSchema(t, ctx, schemas, principal.ID)
 	target := createDeleteRecord(t, ctx, records, principal, "null_targets", "retry-target", map[string]json.RawMessage{
 		"name": json.RawMessage(`"target"`),
@@ -676,7 +676,7 @@ func TestRecordOperationsDeleteGraphRetryKeepsDerivedIdentity(t *testing.T) {
 
 func TestRecordOperationsDeleteGraphRetryAllocatesOnlyCurrentClosureIdentities(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	applyDeleteSetNullSchema(t, ctx, schemas, principal.ID)
 	target := createDeleteRecord(t, ctx, records, principal, "null_targets", "retry-switch-target", map[string]json.RawMessage{
 		"name": json.RawMessage(`"target"`),

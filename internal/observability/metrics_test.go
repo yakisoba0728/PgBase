@@ -112,6 +112,67 @@ func TestWrapHTTPCountsAnAbortedStreamAsFailure(t *testing.T) {
 	)
 }
 
+// A failure or abort after the client disconnected is a 4xx: the client
+// closed the request, so it must not move a 5xx alert. A panic other than an
+// abort stays a server failure.
+func TestWrapHTTPCountsClientDisconnectsOutsideServerErrors(t *testing.T) {
+	metrics := NewMetrics(nil)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /failed", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	mux.HandleFunc("GET /aborted", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		panic(http.ErrAbortHandler)
+	})
+	mux.HandleFunc("GET /panicked", func(http.ResponseWriter, *http.Request) { panic("boom") })
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, path := range []string{"/failed", "/aborted", "/panicked"} {
+		func() {
+			defer func() { _ = recover() }()
+			metrics.WrapHTTP(mux, mux).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil).WithContext(canceled))
+		}()
+	}
+	metrics.WrapHTTP(mux, mux).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/failed", nil))
+	assertContains(t, scrape(t, metrics, "scrape-secret"),
+		`pgbase_http_requests_total{method="GET",route="/failed",status="4xx"} 1`,
+		`pgbase_http_requests_total{method="GET",route="/failed",status="5xx"} 1`,
+		`pgbase_http_requests_total{method="GET",route="/aborted",status="4xx"} 1`,
+		`pgbase_http_requests_total{method="GET",route="/panicked",status="5xx"} 1`,
+	)
+}
+
+func TestRecordedHTTPStatus(t *testing.T) {
+	live := context.Background()
+	canceled, cancel := context.WithCancel(live)
+	cancel()
+	expired, stop := context.WithDeadline(live, time.Now().Add(-time.Second))
+	defer stop()
+	for _, test := range []struct {
+		name    string
+		ctx     context.Context
+		written int
+		aborted bool
+		want    int
+	}{
+		{"implicit success", live, 0, false, http.StatusOK},
+		{"written", live, http.StatusCreated, false, http.StatusCreated},
+		{"server error", live, http.StatusServiceUnavailable, false, http.StatusServiceUnavailable},
+		{"server abort", live, http.StatusOK, true, http.StatusInternalServerError},
+		{"disconnect error", canceled, http.StatusInternalServerError, false, StatusClientClosedRequest},
+		{"disconnect abort", canceled, http.StatusOK, true, StatusClientClosedRequest},
+		{"disconnect without answer", canceled, 0, false, StatusClientClosedRequest},
+		{"answered before disconnect", canceled, http.StatusNotFound, false, http.StatusNotFound},
+		{"success before disconnect", canceled, http.StatusOK, false, http.StatusOK},
+		{"deadline is not a disconnect", expired, http.StatusGatewayTimeout, false, http.StatusGatewayTimeout},
+	} {
+		if got := RecordedHTTPStatus(test.ctx, test.written, test.aborted); got != test.want {
+			t.Errorf("%s: RecordedHTTPStatus = %d, want %d", test.name, got, test.want)
+		}
+	}
+}
+
 func TestWrapHTTPUsesMuxRouteTemplatesWithoutRequestData(t *testing.T) {
 	metrics := NewMetrics(nil)
 	mux := http.NewServeMux()

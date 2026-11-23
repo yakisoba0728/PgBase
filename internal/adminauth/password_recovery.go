@@ -95,8 +95,9 @@ func (s *Service) passwordResetReady() error {
 }
 
 // RequestPasswordReset is intentionally indistinguishable for malformed and
-// unknown addresses. It reserves account and network rate-limit capacity
-// before lookup, then suppresses mail delivery failures from the caller.
+// unknown addresses. It reserves account and network rate-limit capacity, then
+// queues the lookup, the reset credential and the mail, so neither the
+// account's existence nor mail delivery affects the response or its timing.
 func (s *Service) RequestPasswordReset(ctx context.Context, email, clientAddress string) error {
 	if err := s.passwordResetReady(); err != nil {
 		return err
@@ -121,9 +122,27 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email, clientAddress
 	if emailErr != nil {
 		return nil
 	}
+	s.resetQueue.Go(ctx, func(ctx context.Context) {
+		s.issuePasswordReset(ctx, normalized, now)
+	})
+	return nil
+}
+
+// WaitForQueuedMail blocks until the password reset mail queued so far is
+// issued and handed to the mail server, or ctx ends.
+func (s *Service) WaitForQueuedMail(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	return s.resetQueue.Wait(ctx)
+}
+
+// issuePasswordReset runs in the reset mail queue and does nothing for an
+// address without an active administrator.
+func (s *Service) issuePasswordReset(ctx context.Context, normalized string, now time.Time) {
 	raw, err := GenerateToken()
 	if err != nil {
-		return err
+		return
 	}
 	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		// Recheck active state after any concurrent account mutation, and keep
@@ -138,19 +157,15 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email, clientAddress
 		}
 		return store.CreatePasswordReset(ctx, hashPasswordResetToken(s.tokenSecret, raw), administratorID, now.Add(s.resetTTL))
 	})
-	if errors.Is(err, ErrInvalidCredentials) {
-		return nil
-	}
 	if err != nil {
-		return err
+		return
 	}
 	message := mailer.Message{
 		Purpose: "admin_password_reset", To: normalized, Subject: "Reset your PgBase administrator password",
 		Text: s.resetBaseURL + "/admin/reset-password#token=" + url.QueryEscape(raw),
 	}
-	// Deliberately preserve the enumeration-safe response when SMTP is down.
+	// The credential remains bounded by expiry and cleanup if delivery fails.
 	_ = s.resetMailer.Send(ctx, message)
-	return nil
 }
 
 func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, password string) error {

@@ -37,6 +37,12 @@ func (c *Codec) ScopeFingerprint(canonicalDescriptor []byte) []byte {
 }
 
 func (c *Codec) authenticatedPayload(token string) ([]byte, error) {
+	return c.authenticatedPayloadIn(cursorDomain, token)
+}
+
+// authenticatedPayloadIn verifies a token signed for one MAC domain. Distinct
+// domains keep one cursor kind from being replayed as another.
+func (c *Codec) authenticatedPayloadIn(domain, token string) ([]byte, error) {
 	if token == "" || len(token) > base64.RawURLEncoding.EncodedLen(maxDecodedSize) {
 		return nil, invalid()
 	}
@@ -45,19 +51,23 @@ func (c *Codec) authenticatedPayload(token string) ([]byte, error) {
 		return nil, invalid()
 	}
 	payload := raw[:len(raw)-sha256.Size]
-	if !hmac.Equal(raw[len(raw)-sha256.Size:], c.fingerprint(cursorDomain, payload)) {
+	if !hmac.Equal(raw[len(raw)-sha256.Size:], c.fingerprint(domain, payload)) {
 		return nil, invalid()
 	}
 	return payload, nil
 }
 
 func (c *Codec) signAndEncode(payload []byte) (string, error) {
+	return c.signAndEncodeIn(cursorDomain, payload)
+}
+
+func (c *Codec) signAndEncodeIn(domain string, payload []byte) (string, error) {
 	// Reject before hashing or adding lengths. The HMAC is always SHA-256;
 	// subtraction keeps the bound valid independently of the input length.
 	if len(payload) > maxDecodedSize-sha256.Size {
 		return "", invalid()
 	}
-	signature := c.fingerprint(cursorDomain, payload)
+	signature := c.fingerprint(domain, payload)
 	raw := append(append(make([]byte, 0, len(payload)+len(signature)), payload...), signature...)
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }

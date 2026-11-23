@@ -69,7 +69,7 @@ func (s *Service) readRootPageInTx(
 		if err != nil {
 			return rootPageReadResult{}, invalidCursor()
 		}
-		if decoded.Version != cursor.Version5 || (order.private() && !decoded.PrivateValues) {
+		if decoded.Version != cursor.Version5 || (order.privateCursor() && !decoded.PrivateValues) {
 			return rootPageReadResult{}, invalidCursor()
 		}
 		membership, err := s.bindCursorV5(decoded, plan, request.traversal)

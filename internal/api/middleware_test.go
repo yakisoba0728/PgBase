@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -409,6 +411,63 @@ func TestBodyLimitAppliesToEveryContentTypeSpelling(t *testing.T) {
 			}
 			if read > maxJSONBodyBytes {
 				t.Fatalf("handler read %d bytes, want at most %d", read, maxJSONBodyBytes)
+			}
+		})
+	}
+}
+
+// A client that disconnects makes the handler fail on its canceled context.
+// That failure is recorded as 499 in both logs, while the same 500 from a
+// client that is still connected stays a server error.
+func TestAccessLogRecordsClientDisconnectAs499(t *testing.T) {
+	failing := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeAPIError(w, r, APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: "Internal server error"})
+	})
+	aborting := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic(http.ErrAbortHandler) })
+	silent := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+	rejecting := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeAPIError(w, r, APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "Invalid request"})
+	})
+	for _, test := range []struct {
+		name     string
+		handler  http.Handler
+		canceled bool
+		want     int
+	}{
+		{"server error", failing, false, http.StatusInternalServerError},
+		{"disconnect after failure", failing, true, observability.StatusClientClosedRequest},
+		{"server abort", aborting, false, http.StatusInternalServerError},
+		{"disconnect abort", aborting, true, observability.StatusClientClosedRequest},
+		{"disconnect without answer", silent, true, observability.StatusClientClosedRequest},
+		{"answered before disconnect", rejecting, true, http.StatusBadRequest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			stored := &observability.RequestLog{}
+			handler := accessLogMiddleware(slog.New(slog.NewJSONHandler(&logs, nil)), nil, func() []netip.Prefix { return nil },
+				recoveryMiddleware(slog.New(slog.DiscardHandler), test.handler), stored)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if test.canceled {
+				cancel()
+			}
+			func() {
+				defer func() {
+					if recovered := recover(); recovered != nil && recovered != http.ErrAbortHandler {
+						t.Fatalf("panic = %v", recovered)
+					}
+				}()
+				handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/reports", nil).WithContext(ctx))
+			}()
+			items := stored.Page(0, 0).Items
+			if len(items) != 1 || items[0].Status != test.want {
+				t.Fatalf("stored entries = %#v, want status %d", items, test.want)
+			}
+			if want := fmt.Sprintf(`"status":%d`, test.want); !strings.Contains(logs.String(), want) {
+				t.Fatalf("process log = %s, want %s", logs.String(), want)
+			}
+			if serverErrors := stored.Page(0, 5).Items; (len(serverErrors) == 1) != (test.want >= 500) {
+				t.Fatalf("server-error filter = %#v for status %d", serverErrors, test.want)
 			}
 		})
 	}

@@ -6,6 +6,9 @@ import 'realtime.dart';
 import 'transport.dart';
 import 'types.dart';
 
+/// The server's maximum native page size; larger values are clamped to it.
+const _iteratePageSize = 200;
+
 final class Records {
   const Records(this._client, this.collection);
 
@@ -201,6 +204,9 @@ final class Records {
     );
   }
 
+  /// Reads every matching record, one cursor page at a time. Pages default to
+  /// the server's 200-row maximum; [Query.limit] overrides it. The server
+  /// still shortens a page that would exceed its response budget.
   Stream<JsonObject> iterate([
     Query query = const Query(),
     CancellationToken? cancellation,
@@ -219,7 +225,7 @@ final class Records {
           requestKey: query.requestKey,
           autoCancel: query.autoCancel,
           cursor: next,
-          limit: query.limit,
+          limit: query.limit ?? _iteratePageSize,
         ),
         cancellation,
       );

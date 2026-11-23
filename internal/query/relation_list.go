@@ -67,7 +67,7 @@ func relationListPlanUsesRelation(plan relationListPlan) bool {
 		return true
 	}
 	for _, term := range plan.order.terms {
-		if term.identityCollectionID != uuid.Nil {
+		if term.identityCollectionID != uuid.Nil || term.visibility != nil {
 			return true
 		}
 	}
@@ -99,7 +99,7 @@ type relationRecordScanner struct {
 func newRelationRecordScanner(row RowScanner, order orderSpec) (*relationRecordScanner, error) {
 	scanner := &relationRecordScanner{row: row, order: order}
 	for _, term := range order.terms {
-		if term.relationPath == nil && term.identityCollectionID == uuid.Nil {
+		if !term.hiddenCursor() {
 			continue
 		}
 		destination, err := scanDestination(term.cursorField)
@@ -120,7 +120,7 @@ func (s *relationRecordScanner) cursorValues(record map[string]any) ([]json.RawM
 	valuesByName := cloneRecord(record)
 	hidden := 0
 	for _, term := range s.order.terms {
-		if term.relationPath == nil && term.identityCollectionID == uuid.Nil {
+		if !term.hiddenCursor() {
 			continue
 		}
 		value, err := encodeScannedValue(s.hiddenFields[hidden], s.hidden[hidden])

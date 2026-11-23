@@ -68,7 +68,7 @@ func TestFilteredDeleteRechecksSelectionAndRollsBackBatch(t *testing.T) {
 
 func TestRecordOperationsLegacyPromotionPreconditionsAndAtomicArtifacts(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	id := uuid.MustParse("019551d0-e9c0-7000-8000-000000000099")
 	if _, err := pool.Exec(ctx, `INSERT INTO app.records (id, created_at, updated_at, title, count, metadata)
 		VALUES ($1, transaction_timestamp(), transaction_timestamp(), 'legacy-secret-value', 1, '{"n":9007199254740993}'::jsonb)`, id); err != nil {
@@ -127,7 +127,7 @@ func TestRecordOperationsLegacyPromotionPreconditionsAndAtomicArtifacts(t *testi
 
 func TestRecordOperationsRejectInvalidPatchBeforeEvaluatingStalePrecondition(t *testing.T) {
 	_, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	created, err := records.Create(ctx, CreateRequest{
 		Principal: principal, RequestID: testRequestID, Collection: "records",
 		Input:          map[string]json.RawMessage{"title": json.RawMessage(`"validation-order"`)},
@@ -182,7 +182,7 @@ func TestRecordOperationsRejectTypeMismatchBeforeMalformedPrecondition(t *testin
 
 func TestRecordOperationsCreateReplayConflictAndDataMinimization(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	key := "idempotency-key-1234567890"
 	input := map[string]json.RawMessage{
 		"title":    json.RawMessage(`"private-record-value"`),
@@ -245,7 +245,7 @@ func TestRecordOperationsCreateReplayConflictAndDataMinimization(t *testing.T) {
 
 func TestRecordOperationsRollbackWhenOutboxWriteFails(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	if _, err := pool.Exec(ctx, `CREATE FUNCTION pgbase_meta.fail_outbox_insert() RETURNS trigger LANGUAGE plpgsql AS $$
 		BEGIN RAISE EXCEPTION 'injected outbox failure'; END $$;
 		CREATE TRIGGER fail_outbox BEFORE INSERT ON pgbase_meta.record_outbox
@@ -270,7 +270,7 @@ func TestRecordOperationsRollbackWhenOutboxWriteFails(t *testing.T) {
 
 func TestRecordOperationsDoNotReturnAnUncommittedMutationResult(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	if _, err := pool.Exec(ctx, `CREATE FUNCTION pgbase_meta.fail_record_commit() RETURNS trigger LANGUAGE plpgsql AS $$
 		BEGIN RAISE EXCEPTION 'injected deferred commit failure'; END $$;
 		CREATE CONSTRAINT TRIGGER fail_record_commit
@@ -300,12 +300,12 @@ func TestRecordOperationsDoNotReturnAnUncommittedMutationResult(t *testing.T) {
 
 func TestRecordOperationsMultiPoolIdempotencyAndStaleWrite(t *testing.T) {
 	databaseURL, pool, schemas, firstService, principal := newRecordOperationsTestWithURL(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	secondPool, err := database.Open(ctx, databaseURL, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(secondPool.Close)
+	closePoolOnCleanup(t, secondPool)
 	secondSchemas := schema.NewService(secondPool, &schema.Cache{}, nil)
 	secondService := NewService(secondPool, secondSchemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
 
@@ -399,7 +399,7 @@ func TestRecordOperationsMultiPoolIdempotencyAndStaleWrite(t *testing.T) {
 
 func TestIdempotencyAdvisoryLockPrecedesCatalogSnapshot(t *testing.T) {
 	pool, schemas, _, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	key := "lock-order-key-12345678"
 	keyDigest := recordartifact.Digest("pgbase-idempotency-key-v1", []byte(key))
 	lockKey := advisoryLockKey(principal, []byte("records"), keyDigest[:])
@@ -459,7 +459,7 @@ func TestIdempotencyAdvisoryLockPrecedesCatalogSnapshot(t *testing.T) {
 
 func TestIdempotencyCleanerUsesBoundedPasses(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	for index := 0; index < 3; index++ {
 		_, err := records.Create(ctx, CreateRequest{
 			Principal: principal, RequestID: "cleaner_request_" + string(rune('a'+index)), Collection: "records",
@@ -544,7 +544,7 @@ func TestIdempotencyCleanerUsesBoundedPasses(t *testing.T) {
 // relation-path work any more than the scalar sort beside them.
 func TestRelationReadTelemetrySortSamplesFollowTheDottedPath(t *testing.T) {
 	pool, schemas, _, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	applyDeleteSetNullSchema(t, ctx, schemas, principal.ID)
 
 	recorder := &relationTelemetryRecorder{}
@@ -598,7 +598,7 @@ func TestRelationReadTelemetrySortSamplesFollowTheDottedPath(t *testing.T) {
 // and needs the direct unit test noted in the handoff.
 func TestRelationAwareRecordPageStaysWithinTheAdvertisedByteBudget(t *testing.T) {
 	pool, schemas, _, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	applyDeleteSetNullSchema(t, ctx, schemas, principal.ID)
 	records := NewService(pool, schemas, []byte("0123456789abcdef0123456789abcdef"), nil, nil, nil)
 
@@ -680,7 +680,7 @@ func TestRelationAwareRecordPageStaysWithinTheAdvertisedByteBudget(t *testing.T)
 
 func TestDeleteGraphDerivedUpdateStampsStatementTime(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	applyDeleteSetNullSchema(t, ctx, schemas, principal.ID)
 
 	target := recordResultID(t, createDeleteRecord(t, ctx, records, principal, "null_targets", "monotonic-target",

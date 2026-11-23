@@ -13,7 +13,7 @@ import (
 
 func TestDeleteGraphAcceptsRenamedScalarFieldsInOwnAndUnrelatedCollections(t *testing.T) {
 	_, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	unrelated := applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{Name: "renamed_unrelated", Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText}}})
 	renameOperationFields(t, schemas, principal.ID, unrelated, []schema.FieldInput{{ID: &unrelated.Fields[0].ID, Name: "headline", Type: schema.TypeText}})
 	first := createDeleteRecord(t, ctx, records, principal, "records", "unrelated-rename", map[string]json.RawMessage{"title": json.RawMessage(`"first"`)})

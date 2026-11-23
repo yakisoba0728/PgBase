@@ -21,6 +21,7 @@ type ManagedJobs interface {
 	ListJobs(context.Context) ([]jobs.Status, error)
 	ConfigureJob(context.Context, uuid.UUID, string, bool) error
 	RequestRun(context.Context, uuid.UUID) error
+	ListRuns(context.Context, uuid.UUID, int, string) (jobs.RunPage, error)
 }
 
 type timezoneManagedJobs interface {
@@ -146,6 +147,28 @@ func operationsConsoleRoutes(d Dependencies) []route {
 		}{items, d.Jobs != nil})
 	})})
 	if d.Jobs != nil {
+		routes = append(routes, route{method: "GET", pattern: "/api/admin/jobs/{id}/runs", access: accessAdminSameOriginRead, response: atomicJSON(maximumCatalogResponseBytes), deadline: deadlineDefault, handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			id, idErr := uuid.Parse(r.PathValue("id"))
+			values, err := url.ParseQuery(r.URL.RawQuery)
+			if idErr != nil || err != nil || duplicateSingleton(values, "limit", "cursor") || hasUnexpectedQuery(values, "limit", "cursor") {
+				writeOperationsError(w, r, jobs.ErrInvalidRunQuery)
+				return
+			}
+			limit := 0
+			if raw := values.Get("limit"); raw != "" {
+				limit, err = strconv.Atoi(raw)
+				if err != nil || limit < 1 || limit > jobs.MaximumRunPageLimit {
+					writeOperationsError(w, r, jobs.ErrInvalidRunQuery)
+					return
+				}
+			}
+			page, err := d.Jobs.ListRuns(r.Context(), id, limit, values.Get("cursor"))
+			if err != nil {
+				writeOperationsError(w, r, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, page)
+		})})
 		for _, method := range []string{"PUT", "POST"} {
 			pattern := "/api/admin/jobs/{id}"
 			if method == "POST" {
@@ -337,8 +360,11 @@ func logTimeRange(r *http.Request) (from, to *time.Time, ok bool) {
 
 func writeOperationsError(w http.ResponseWriter, r *http.Request, err error) {
 	value := APIError{Status: 500, Code: "operations_unavailable", Message: "Operations request failed"}
-	if errors.Is(err, jobs.ErrInvalidSchedule) {
+	if errors.Is(err, jobs.ErrInvalidSchedule) || errors.Is(err, jobs.ErrInvalidRunQuery) {
 		value = APIError{Status: 400, Code: "invalid_request", Message: "Invalid operations request"}
+	}
+	if errors.Is(err, jobs.ErrJobNotFound) {
+		value = APIError{Status: 404, Code: "job_not_found", Message: "Scheduled job not found"}
 	}
 	if errors.Is(err, jobs.ErrNotManageable) {
 		value = APIError{Status: 409, Code: "job_not_manageable", Message: "Job is missing, disabled, unregistered, or currently running"}

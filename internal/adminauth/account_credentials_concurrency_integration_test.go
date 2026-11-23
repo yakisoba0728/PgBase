@@ -45,6 +45,7 @@ func TestAccountPasswordChangeSerializesPendingCredentialRedemption(t *testing.T
 				if err := service.RequestPasswordReset(ctx, target.Email, "192.0.2.3"); err != nil {
 					t.Fatal(err)
 				}
+				waitForResetMail(t, service)
 				token := resetToken(t, capture.messages[len(capture.messages)-1])
 				redeem = func() error { return service.ConfirmPasswordReset(ctx, token, "recovery account password") }
 			} else {
@@ -163,6 +164,7 @@ func TestAccountDeactivationPreventsLateCredentialIssuance(t *testing.T) {
 				t.Fatalf("deactivation failed: %v", err)
 			}
 			issueErr := <-issued
+			waitForResetMail(t, service)
 			if kind == "password-reset" && issueErr != nil {
 				t.Fatalf("reset response must remain enumeration-safe: %v", issueErr)
 			}
