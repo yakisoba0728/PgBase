@@ -60,6 +60,24 @@ func DeploymentWarnings(ctx context.Context, db database.DBTX, seedBackupEndpoin
 	return findings, nil
 }
 
+const smallPoolCode = "database_pool_small"
+
+// PoolWarnings reports a request pool too small for the CPU parallelism the
+// server gets on this host. maxConns is the effective pool size of
+// PGBASE_DATABASE_URL and gomaxprocs is runtime.GOMAXPROCS(0) of the process
+// running doctor, which matches the server when doctor runs in its container.
+func PoolWarnings(maxConns int32, gomaxprocs int) []Finding {
+	minimum := database.RecommendedMinimumPoolConnections(gomaxprocs)
+	if maxConns >= minimum {
+		return nil
+	}
+	return []Finding{warning(smallPoolCode, fmt.Sprintf(
+		"The PostgreSQL pool allows %d connections, fewer than the recommended %d for GOMAXPROCS=%d "+
+			"(one request connection per CPU plus headroom for background work), so requests can queue behind background work. "+
+			"Remove pool_max_conns from PGBASE_DATABASE_URL to use the default of %d, or raise it (see docs/deployment.md)",
+		maxConns, minimum, max(gomaxprocs, 1), database.DefaultPoolConnections(gomaxprocs)))}
+}
+
 func warning(code, message string) Finding {
 	return Finding{Severity: SeverityWarning, Code: code, Message: message}
 }

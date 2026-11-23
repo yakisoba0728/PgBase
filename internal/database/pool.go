@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"net/url"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +23,11 @@ type Pool struct {
 	inner     *pgxpool.Pool
 	closeOnce sync.Once
 	closeDone chan struct{}
+
+	coordinationMu     sync.Mutex
+	coordination       *pgxpool.Pool
+	coordinationSlots  chan struct{}
+	coordinationClosed bool
 }
 
 // Begin starts a caller-owned transaction on an acquired pooled connection.
@@ -32,6 +40,32 @@ func (p *Pool) Begin(ctx context.Context) (pgx.Tx, error) {
 }
 
 const minimumPoolConnections int32 = 4
+
+// backgroundPoolHeadroom is the number of pool connections set aside for the
+// background loops (outbox delivery, file maintenance, cleaners, samplers,
+// schema operations, the listener's reconnect) that can hold a connection at
+// the same moment as request handlers.
+const backgroundPoolHeadroom = 8
+
+// maximumDefaultPoolConnections caps the derived default so a large host does
+// not claim most of PostgreSQL's default max_connections=100 by itself. An
+// explicit pool_max_conns is never capped.
+const maximumDefaultPoolConnections = 64
+
+// DefaultPoolConnections is the pool size used when the database URL omits
+// pool_max_conns: two connections per schedulable CPU for request work plus the
+// background headroom, at most 64. gomaxprocs is runtime.GOMAXPROCS(0), which
+// follows a container's CPU limit.
+func DefaultPoolConnections(gomaxprocs int) int32 {
+	return int32(min(2*max(gomaxprocs, 1)+backgroundPoolHeadroom, maximumDefaultPoolConnections))
+}
+
+// RecommendedMinimumPoolConnections is the smallest pool that still leaves one
+// request connection per schedulable CPU beside the background headroom. A
+// smaller pool queues requests behind background work under load.
+func RecommendedMinimumPoolConnections(gomaxprocs int) int32 {
+	return int32(min(max(gomaxprocs, 1)+backgroundPoolHeadroom, maximumDefaultPoolConnections))
+}
 
 var errPoolConfiguration = errors.New("parse PostgreSQL pool configuration")
 
@@ -125,6 +159,9 @@ func parsePoolConfig(databaseURL string, allowInsecure bool) (*pgxpool.Config, e
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errPoolConfiguration, err)
 	}
+	if !poolMaxConnsSpecified(databaseURL) {
+		config.MaxConns = DefaultPoolConnections(runtime.GOMAXPROCS(0))
+	}
 	if config.MaxConns < minimumPoolConnections {
 		return nil, fmt.Errorf("%w: pool_max_conns must be at least %d", errPoolConfiguration, minimumPoolConnections)
 	}
@@ -133,6 +170,26 @@ func parsePoolConfig(databaseURL string, allowInsecure bool) (*pgxpool.Config, e
 	}
 	return config, nil
 }
+
+// poolMaxConnsSpecified reports whether the connection string sets
+// pool_max_conns itself. Without it pgxpool substitutes max(4, NumCPU), and
+// NumCPU ignores a container's CPU quota.
+func poolMaxConnsSpecified(connString string) bool {
+	if strings.HasPrefix(connString, "postgres://") || strings.HasPrefix(connString, "postgresql://") {
+		_, rawQuery, ok := strings.Cut(connString, "?")
+		if !ok {
+			return false
+		}
+		rawQuery, _, _ = strings.Cut(rawQuery, "#")
+		query, err := url.ParseQuery(rawQuery)
+		// ParseConfig already accepted the string. If this simpler parse
+		// disagrees, keep what pgx parsed instead of overriding it.
+		return err != nil || query.Has("pool_max_conns")
+	}
+	return keywordPoolMaxConns.MatchString(connString)
+}
+
+var keywordPoolMaxConns = regexp.MustCompile(`(?:^|\s)pool_max_conns\s*=`)
 
 func validateDatabaseTransport(config *pgxpool.Config, allowInsecure bool) error {
 	if allowInsecure {
@@ -195,16 +252,24 @@ func (p *Pool) OpenCoordinationSession(ctx context.Context) (*pgx.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	var admitted bool
-	if err := conn.QueryRow(ctx, `select pg_catalog.pg_try_advisory_lock_shared($1)`, backupGateKey).Scan(&admitted); err != nil {
+	if err := admitCoordinationSession(ctx, conn); err != nil {
 		_ = conn.Close(context.Background())
 		return nil, err
 	}
-	if !admitted {
-		_ = conn.Close(context.Background())
-		return nil, ErrBackupGateBusy
-	}
 	return conn, nil
+}
+
+// admitCoordinationSession takes the backup-writer gate a coordination session
+// holds for its lifetime, like every request pool connection.
+func admitCoordinationSession(ctx context.Context, conn *pgx.Conn) error {
+	var admitted bool
+	if err := conn.QueryRow(ctx, `select pg_catalog.pg_try_advisory_lock_shared($1)`, backupGateKey).Scan(&admitted); err != nil {
+		return err
+	}
+	if !admitted {
+		return ErrBackupGateBusy
+	}
+	return nil
 }
 
 // CloseCoordinationSession acknowledges lock release before closing the socket.
@@ -245,9 +310,19 @@ func (p *Pool) CloseContext(ctx context.Context) error {
 
 func (p *Pool) startClose() {
 	p.closeOnce.Do(func() {
+		p.coordinationMu.Lock()
+		coordination := p.coordination
+		p.coordinationClosed = true
+		p.coordinationMu.Unlock()
 		p.inner.Reset()
+		if coordination != nil {
+			coordination.Reset()
+		}
 		go func() {
 			p.inner.Close()
+			if coordination != nil {
+				coordination.Close()
+			}
 			close(p.closeDone)
 		}()
 	})
