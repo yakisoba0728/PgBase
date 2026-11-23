@@ -353,13 +353,6 @@ func (s *Service) CompleteOAuthWithFields(ctx context.Context, provider, state, 
 			var hash string
 			err = scanSessionUser(tx.QueryRow(ctx, `select `+sessionUserColumns+`,u.password_hash from pgbase_meta.users u where id=$1 and active for update`, *linkUser), &user, &hash)
 			if errors.Is(err, pgx.ErrNoRows) {
-				// A new account needs a provider-verified email. Providers that do
-				// not expose one remain usable through the explicit password-bound
-				// account-link flow.
-				if identity.Email == "" || !identity.EmailVerified {
-					operationErr = ErrInvalidCredentials
-					return nil
-				}
 				operationErr = ErrInvalidCredentials
 				return nil
 			}
@@ -396,6 +389,9 @@ func (s *Service) CompleteOAuthWithFields(ctx context.Context, provider, state, 
 					operationErr = ErrInvalidCredentials
 					return nil
 				}
+				// An identity is never attached to an existing account by its
+				// email, verified or not: that takes the authenticated,
+				// password-bound link flow above. A taken email is a conflict.
 				if identity.Email != "" {
 					var emailExists bool
 					if err := tx.QueryRow(ctx, `select exists(select 1 from pgbase_meta.users where auth_collection_id=$2 and email=$1)`, identity.Email, persistedCollectionID).Scan(&emailExists); err != nil {
@@ -406,7 +402,9 @@ func (s *Service) CompleteOAuthWithFields(ctx context.Context, provider, state, 
 						return nil
 					}
 				}
-				user = User{ID: uuid.New(), Email: identity.Email, Verified: identity.EmailVerified, CreatedAt: now}
+				// The account is verified only when the provider vouched for the
+				// email; otherwise the owner proves it later by email.
+				user = User{ID: uuid.New(), Email: identity.Email, Verified: identity.Email != "" && identity.EmailVerified, CreatedAt: now}
 				user.AuthCollectionID = persistedCollectionID
 				recordIDPolicy, policyErr := authRecordIDPolicy(ctx, tx, user.AuthCollectionID)
 				if policyErr != nil {
