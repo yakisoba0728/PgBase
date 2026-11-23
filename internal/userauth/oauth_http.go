@@ -196,9 +196,13 @@ func (p *HTTPOAuthProvider) identityFromFields(fields map[string]json.RawMessage
 		return OAuthIdentity{}, errors.New("OAuth email is invalid")
 	}
 	if raw, ok := fields[p.config.EmailVerifiedField]; ok {
-		if err := json.Unmarshal(raw, &identity.EmailVerified); err != nil {
-			return OAuthIdentity{}, errors.New("OAuth email verification is invalid")
+		verified, err := emailVerifiedClaim(raw)
+		if err != nil {
+			return OAuthIdentity{}, err
 		}
+		// The claim vouches for the email it accompanies, so it is ignored
+		// when the provider returned no email.
+		identity.EmailVerified = verified && identity.Email != ""
 	}
 	if raw, ok := fields[p.config.AvatarField]; ok && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &identity.AvatarURL); err != nil {
@@ -207,6 +211,32 @@ func (p *HTTPOAuthProvider) identityFromFields(fields map[string]json.RawMessage
 	}
 	identity.AvatarAllowInsecureLoopback = p.config.AllowInsecureLoopback
 	return identity, nil
+}
+
+// emailVerifiedClaim reads a custom provider's email verification claim. Only
+// an explicit true vouches for the email: a JSON boolean, or the strings
+// "true" and "false" that some OpenID providers (Amazon Cognito among them)
+// send. A null claim is false; any other value is rejected rather than
+// guessed.
+func emailVerifiedClaim(raw json.RawMessage) (bool, error) {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return false, errors.New("OAuth email verification is invalid")
+	}
+	switch v := value.(type) {
+	case nil:
+		return false, nil
+	case bool:
+		return v, nil
+	case string:
+		switch strings.ToLower(v) {
+		case "true":
+			return true, nil
+		case "false":
+			return false, nil
+		}
+	}
+	return false, errors.New("OAuth email verification is invalid")
 }
 
 func (p *HTTPOAuthProvider) doJSON(req *http.Request, destination any) error {
