@@ -8,7 +8,8 @@ export declare class RealtimeService {
     private clientId?;
     private lastEventId?;
     private running?;
-    private subscribing?;
+    private readonly queued;
+    private draining;
     private syncing;
     private ready?;
     private resolveReady?;
@@ -29,6 +30,18 @@ export declare class RealtimeService {
     /** Registers all topics with one atomic server replacement. */
     subscribeMany(topics: readonly string[], listener: (event: RealtimeSubscriptionEvent) => void, options?: RealtimeSubscriptionOptions): Promise<() => Promise<void>>;
     private subscribeTopics;
+    /**
+     * Installs queued subscriptions in call order. Requests that queue behind an
+     * in-flight one share a single replacement request. A failed shared
+     * replacement leaves the server unchanged, so each request is then retried
+     * alone and only the failing one rejects, as if they had run serially.
+     */
+    private drain;
+    /**
+     * Registers the requests' listeners and replaces the server topic list once.
+     * A shared failure rolls every request back; `stopWhenEmpty` is false when
+     * the caller retries them, so the stream is not torn down in between.
+     */
     private subscribeNow;
     private removeListener;
     /**

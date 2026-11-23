@@ -8,7 +8,8 @@ export class RealtimeService {
     clientId;
     lastEventId;
     running;
-    subscribing;
+    queued = [];
+    draining = false;
     syncing = Promise.resolve();
     ready;
     resolveReady;
@@ -43,26 +44,58 @@ export class RealtimeService {
         return this.subscribeTopics([...new Set(topics)], listener, options);
     }
     subscribeTopics(topics, listener, options) {
-        const generation = this.client.auth.generation;
-        const start = () => {
-            if (generation !== this.client.auth.generation)
-                throw new PgBaseError(0, "realtime_unsubscribed");
-            return this.subscribeNow(topics, listener, options, generation);
-        };
-        const result = this.subscribing ? this.subscribing.then(start) : start();
-        const tail = result.catch(() => { });
-        this.subscribing = tail;
-        void tail.then(() => { if (this.subscribing === tail)
-            this.subscribing = undefined; });
-        return result;
+        return new Promise((resolve, reject) => {
+            this.queued.push({ topics, listener, options, generation: this.client.auth.generation, resolve, reject });
+            if (!this.draining)
+                void this.drain();
+        });
     }
-    async subscribeNow(topics, listener, options, generation) {
-        if (topics.length === 0 || topics.some((topic) => !validRealtimeTopic(topic)))
-            throw new PgBaseError(0, "invalid_realtime_topic");
-        if (options.maxReconnects !== undefined && (!Number.isInteger(options.maxReconnects) || options.maxReconnects < 0))
-            throw new PgBaseError(0, "invalid_reconnect_options");
-        if (options.reconnectDelayMs !== undefined && (!Number.isFinite(options.reconnectDelayMs) || options.reconnectDelayMs < 0))
-            throw new PgBaseError(0, "invalid_reconnect_options");
+    /**
+     * Installs queued subscriptions in call order. Requests that queue behind an
+     * in-flight one share a single replacement request. A failed shared
+     * replacement leaves the server unchanged, so each request is then retried
+     * alone and only the failing one rejects, as if they had run serially.
+     */
+    async drain() {
+        this.draining = true;
+        try {
+            while (this.queued.length) {
+                // A connection handshake replaces with its own request's topics only:
+                // a denied topic there would stop the whole shared stream.
+                const batch = this.queued.splice(0, this.clientId ? this.queued.length : 1).filter((request) => {
+                    const error = subscriptionRequestError(request, this.client.auth.generation);
+                    if (error)
+                        request.reject(error);
+                    return !error;
+                });
+                if (batch.length > 1) {
+                    const outcomes = await this.subscribeNow(batch, false).catch(() => undefined);
+                    if (outcomes) {
+                        batch.forEach((request, index) => settle(request, outcomes[index]));
+                        continue;
+                    }
+                }
+                for (const request of batch) {
+                    try {
+                        settle(request, (await this.subscribeNow([request], true))[0]);
+                    }
+                    catch (error) {
+                        request.reject(error);
+                    }
+                }
+            }
+        }
+        finally {
+            this.draining = false;
+        }
+    }
+    /**
+     * Registers the requests' listeners and replaces the server topic list once.
+     * A shared failure rolls every request back; `stopWhenEmpty` is false when
+     * the caller retries them, so the stream is not torn down in between.
+     */
+    async subscribeNow(requests, stopWhenEmpty) {
+        const { options, generation } = requests[0];
         if (this.controller?.signal.aborted && this.running)
             await this.running;
         // Reinstall established topics first. A denied new topic must not make the
@@ -72,7 +105,7 @@ export class RealtimeService {
             await this.ready;
         if (generation !== this.client.auth.generation || (this.running && previousController?.signal.aborted))
             throw new PgBaseError(0, "realtime_unsubscribed");
-        const registrations = topics.map((topic) => {
+        const registrations = requests.map(({ topics, listener }) => topics.map((topic) => {
             let set = this.listeners.get(topic);
             if (!set) {
                 set = new Set();
@@ -80,8 +113,13 @@ export class RealtimeService {
             }
             const added = !set.has(listener);
             set.add(listener);
-            return { topic, set, added };
-        });
+            return { topic, set, added, listener };
+        }));
+        const rollBack = (items) => {
+            for (const { topic, set, added, listener } of items)
+                if (added)
+                    this.removeListener(topic, set, listener);
+        };
         this.ensureRunning(options);
         const controller = this.controller;
         try {
@@ -91,25 +129,33 @@ export class RealtimeService {
             }
             else
                 await this.ready;
-            if (generation !== this.client.auth.generation || controller?.signal.aborted || registrations.some(({ topic, set }) => this.listeners.get(topic) !== set || !set.has(listener))) {
+            if (generation !== this.client.auth.generation || controller?.signal.aborted)
                 throw new PgBaseError(0, "realtime_unsubscribed");
-            }
         }
         catch (error) {
-            for (const { topic, set, added } of registrations)
-                if (added)
-                    this.removeListener(topic, set, listener);
-            if (this.listeners.size === 0 && !this.controller?.signal.aborted)
+            registrations.forEach(rollBack);
+            if (stopWhenEmpty && this.listeners.size === 0 && !this.controller?.signal.aborted)
                 await this.unsubscribe();
             throw error;
         }
-        return async () => {
-            if (this.controller !== controller)
-                return;
-            for (const { topic, set } of registrations)
-                this.removeListener(topic, set, listener);
-            await this.updateSubscriptions();
-        };
+        const outcomes = registrations.map((items) => {
+            if (items.some(({ topic, set, listener }) => this.listeners.get(topic) !== set || !set.has(listener))) {
+                rollBack(items);
+                return { error: new PgBaseError(0, "realtime_unsubscribed") };
+            }
+            return {
+                dispose: async () => {
+                    if (this.controller !== controller)
+                        return;
+                    for (const { topic, set, listener } of items)
+                        this.removeListener(topic, set, listener);
+                    await this.updateSubscriptions();
+                },
+            };
+        });
+        if (outcomes.some((outcome) => "error" in outcome) && this.listeners.size === 0 && !this.controller?.signal.aborted)
+            await this.unsubscribe();
+        return outcomes;
     }
     removeListener(topic, set, listener) {
         if (this.listeners.get(topic) !== set)
@@ -292,6 +338,23 @@ export class RealtimeService {
         }
         catch { /* An observer cannot affect delivery or recursively report itself. */ }
     }
+}
+function settle(request, outcome) {
+    if ("dispose" in outcome)
+        request.resolve(outcome.dispose);
+    else
+        request.reject(outcome.error);
+}
+function subscriptionRequestError({ topics, options, generation }, current) {
+    if (generation !== current)
+        return new PgBaseError(0, "realtime_unsubscribed");
+    if (topics.length === 0 || topics.some((topic) => !validRealtimeTopic(topic)))
+        return new PgBaseError(0, "invalid_realtime_topic");
+    if (options.maxReconnects !== undefined && (!Number.isInteger(options.maxReconnects) || options.maxReconnects < 0))
+        return new PgBaseError(0, "invalid_reconnect_options");
+    if (options.reconnectDelayMs !== undefined && (!Number.isFinite(options.reconnectDelayMs) || options.reconnectDelayMs < 0))
+        return new PgBaseError(0, "invalid_reconnect_options");
+    return undefined;
 }
 function terminalRealtimeError(error) {
     return error instanceof PgBaseError &&
