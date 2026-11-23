@@ -3,7 +3,7 @@ export * from "./auth-store.js";
 export { RealtimeService } from "./realtime.js";
 import { AuthStore } from "./auth-store.js";
 import { RealtimeService } from "./realtime.js";
-import type { AuthCreationOptions } from "./types.js";
+import type { AuthCreationOptions, OAuthStartOptions, OAuthCompleteOptions } from "./types.js";
 import type { UserSession, RecordData, FilterParams, RecordPage, PocketBaseListOptions, PocketBasePage, RecordModifiers, RecordMutation, RecordResult, RecordMutationResult, RecordJSONResult, Query, RecordGetOptions, RecordWriteOptions, BatchOptions, RecordEvent, EventOptions, RequestOptions, OAuthLaunchOptions, OAuthBrowserAdapter, BatchOperation, BatchResult, BatchHTTPRequest, BatchHTTPResult, BatchFilePart, FileInfo, AuthMethods, OAuthStart } from "./types.js";
 export * from "./admin.js";
 export { browserAuthStorage } from "./state-storage.js";
@@ -119,16 +119,13 @@ export declare class AuthRealm {
     completeOTP(otpId: string, code: string, signal?: AbortSignal): Promise<UserSession>;
     profile<T extends RecordData = RecordData>(options?: RecordGetOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
     updateProfile<T extends RecordData = RecordData>(profile: T, options?: RecordWriteOptions | AbortSignal, signal?: AbortSignal): Promise<T>;
-    oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<OAuthStart>;
+    oauthStart(provider: string, redirectUri: string, options?: OAuthStartOptions | AbortSignal, signal?: AbortSignal): Promise<OAuthStart>;
     /** Starts OAuth and delegates browser/popup/deep-link navigation to the host. */
-    oauthStartAndOpen(provider: string, redirectUri: string, options: OAuthLaunchOptions, signal?: AbortSignal): Promise<{
-        authorizationUrl: string;
-        expiresAt: string;
-    }>;
+    oauthStartAndOpen(provider: string, redirectUri: string, options: OAuthLaunchOptions & OAuthStartOptions, signal?: AbortSignal): Promise<OAuthStart>;
     oauthWithBrowser<T extends RecordData = RecordData>(provider: string, redirectUri: string, adapter: OAuthBrowserAdapter, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<UserSession>;
-    oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<OAuthStart>;
-    oauthComplete<T extends RecordData = RecordData>(provider: string, state: string, code: string, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
-    oauthCompleteFromURL<T extends RecordData = RecordData>(provider: string, callbackURL: string | URL, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
+    oauthLink(currentPassword: string, provider: string, redirectUri: string, options?: OAuthStartOptions | AbortSignal, signal?: AbortSignal): Promise<OAuthStart>;
+    oauthComplete<T extends RecordData = RecordData>(provider: string, state: string, code: string, options?: OAuthCompleteOptions<T> | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
+    oauthCompleteFromURL<T extends RecordData = RecordData>(provider: string, callbackURL: string | URL, options?: OAuthCompleteOptions<T> | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>>;
 }
 export declare class OAuthCallbackError extends Error {
     readonly code: string;

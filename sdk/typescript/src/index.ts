@@ -4,7 +4,7 @@ export { RealtimeService } from "./realtime.js";
 import { AuthStore } from "./auth-store.js";
 import { RealtimeService } from "./realtime.js";
 import { PgBaseError, MFAChallengeError } from "./types.js";
-import type { AuthCreationOptions } from "./types.js";
+import type { AuthCreationOptions, OAuthStartOptions, OAuthCompleteOptions } from "./types.js";
 import type { User, UserSession, GeoPoint, RecordData, FilterParams, RecordPage, PocketBaseListOptions, PocketBasePage, RecordModifiers, RecordMutation, RecordResult, RecordMutationResult, RecordJSONResult, Query, RecordGetOptions, RecordWriteOptions, BatchOptions, RecordEvent, EventOptions, RealtimeSubscriptionOptions, RealtimeEvent, RealtimeCustomEvent, RealtimeSubscriptionEvent, RequestOptions, OAuthLaunchOptions, OAuthBrowserAdapter, BatchOperation, BatchUpsertOperation, BatchResult, BatchHTTPRequest, BatchHTTPResult, BatchFilePart, FileInfo, MFAChallenge, AuthMethods, OAuthStart } from "./types.js";
 import { parseEventStream, canonicalDeliveryCursor, deliveryCursor, recordEvent, waitForReconnect } from "./sse.js";
 
@@ -473,17 +473,18 @@ export class AuthRealm {
     const suffix = query?.fields === undefined ? "" : `?fields=${encodeURIComponent(query.fields)}`;
     return inAuthScope(this.client.auth, async () => (await this.client._request<{ attributes: T }>(`${this.path("profile")}${suffix}`, { method: "PATCH", body: JSON.stringify(profile) }, requestSignal, query?.requestKey)).attributes);
   }
-  oauthStart(provider: string, redirectUri: string, signal?: AbortSignal): Promise<OAuthStart> { return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri }) }, signal); }
+  oauthStart(provider: string, redirectUri: string, options?: OAuthStartOptions | AbortSignal, signal?: AbortSignal): Promise<OAuthStart> { const [start, requestSignal] = oauthStartArguments(options, signal); return this.client._request(this.path("oauth/start"), { method: "POST", body: JSON.stringify({ provider, redirectUri, ...start }) }, requestSignal); }
   /** Starts OAuth and delegates browser/popup/deep-link navigation to the host. */
-  async oauthStartAndOpen(provider: string, redirectUri: string, options: OAuthLaunchOptions, signal?: AbortSignal): Promise<{ authorizationUrl: string; expiresAt: string }> {
-    const started = await this.oauthStart(provider, redirectUri, signal);
+  async oauthStartAndOpen(provider: string, redirectUri: string, options: OAuthLaunchOptions & OAuthStartOptions, signal?: AbortSignal): Promise<OAuthStart> {
+    const started = await this.oauthStart(provider, redirectUri, { requireCodeVerifier: options.requireCodeVerifier }, signal);
     await options.open(started.authorizationUrl);
     return started;
   }
   async oauthWithBrowser<T extends RecordData = RecordData>(provider: string, redirectUri: string, adapter: OAuthBrowserAdapter, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<UserSession> {
-    const [, requestSignal] = recordGetArguments(options, signal);
+    const [query, requestSignal] = recordGetArguments(options, signal);
     try {
-      const started = await this.oauthStart(provider, redirectUri, requestSignal);
+      // The verifier never leaves this call, so a leaked callback URL cannot complete the flow.
+      const started = await this.oauthStart(provider, redirectUri, { requireCodeVerifier: true }, requestSignal);
       const expectedState = new URL(started.authorizationUrl).searchParams.get("state");
       if (!expectedState) throw new OAuthCallbackError("invalid_start", "The OAuth start URL is missing state.");
       await adapter.open(started.authorizationUrl);
@@ -494,12 +495,12 @@ export class AuthRealm {
       const state = callback.searchParams.get("state"); const code = callback.searchParams.get("code");
       if (!state || !code) throw new OAuthCallbackError("invalid_callback", "The OAuth callback is missing state or code.");
       if (state !== expectedState) throw new OAuthCallbackError("invalid_state", "The OAuth callback state does not match the OAuth start state.");
-      return await this.oauthComplete(provider, state, code, options, requestSignal) as UserSession;
+      return await this.oauthComplete(provider, state, code, { ...query, codeVerifier: started.codeVerifier }, requestSignal) as UserSession;
     } finally { adapter.close?.(); }
   }
-  oauthLink(currentPassword: string, provider: string, redirectUri: string, signal?: AbortSignal): Promise<OAuthStart> { return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri }) }, signal); }
-  async oauthComplete<T extends RecordData = RecordData>(provider: string, state: string, code: string, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>> { const [query, requestSignal] = recordGetArguments(options, signal); const generation = this.client.auth.generation; const session = await this.client._request<UserSession>(authFieldsPath("/api/v1/auth/oauth/complete", query), { method: "POST", body: JSON.stringify({ provider, state, code, ...(query?.profile === undefined ? {} : { fields: query.profile }) }) }, requestSignal, query?.requestKey); return acceptAuthSession(this.client.auth, generation, session, !!(session.token && session.user)); }
-  oauthCompleteFromURL<T extends RecordData = RecordData>(provider: string, callbackURL: string | URL, options?: AuthCreationOptions<T> | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>> {
+  oauthLink(currentPassword: string, provider: string, redirectUri: string, options?: OAuthStartOptions | AbortSignal, signal?: AbortSignal): Promise<OAuthStart> { const [start, requestSignal] = oauthStartArguments(options, signal); return this.client._request("/api/v1/auth/oauth/link", { method: "POST", body: JSON.stringify({ currentPassword, provider, redirectUri, ...start }) }, requestSignal); }
+  async oauthComplete<T extends RecordData = RecordData>(provider: string, state: string, code: string, options?: OAuthCompleteOptions<T> | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>> { const [query, requestSignal] = recordGetArguments(options, signal); const generation = this.client.auth.generation; const session = await this.client._request<UserSession>(authFieldsPath("/api/v1/auth/oauth/complete", query), { method: "POST", body: JSON.stringify({ provider, state, code, ...(query?.codeVerifier === undefined ? {} : { codeVerifier: query.codeVerifier }), ...(query?.profile === undefined ? {} : { fields: query.profile }) }) }, requestSignal, query?.requestKey); return acceptAuthSession(this.client.auth, generation, session, !!(session.token && session.user)); }
+  oauthCompleteFromURL<T extends RecordData = RecordData>(provider: string, callbackURL: string | URL, options?: OAuthCompleteOptions<T> | AbortSignal, signal?: AbortSignal): Promise<Partial<UserSession>> {
     const url = typeof callbackURL === "string" ? new URL(callbackURL) : callbackURL;
     const providerError = url.searchParams.get("error");
     if (providerError) throw new OAuthCallbackError(providerError, url.searchParams.get("error_description") ?? undefined);
@@ -776,6 +777,12 @@ function recordGetArguments<T extends RecordGetOptions = RecordGetOptions>(
 ): [T | undefined, AbortSignal | undefined] {
   if (optionsOrSignal && "aborted" in optionsOrSignal) return [undefined, optionsOrSignal];
   return [optionsOrSignal as T | undefined, signal];
+}
+
+function oauthStartArguments(optionsOrSignal?: OAuthStartOptions | AbortSignal, signal?: AbortSignal): [{ requireCodeVerifier?: true }, AbortSignal | undefined] {
+  if (optionsOrSignal && "aborted" in optionsOrSignal) return [{}, optionsOrSignal];
+  // Servers before the opt-in reject unknown keys, so the key is sent only when requested.
+  return [optionsOrSignal?.requireCodeVerifier ? { requireCodeVerifier: true } : {}, signal];
 }
 
 function authFieldsPath(path: string, query?: Pick<Query, "fields">): string {

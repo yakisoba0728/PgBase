@@ -163,6 +163,14 @@ Nonempty profiles on existing OAuth login/link are rejected, not merged into an
 existing account. Session responses stay unchanged; read custom attributes with
 the realm's `profile()` method.
 
+`oauthWithBrowser` sends `requireCodeVerifier: true` and completes with the
+returned `codeVerifier`, so a leaked callback URL alone cannot finish the flow.
+Redirect flows opt in with `oauthStart(..., requireCodeVerifier: true)` (also
+`oauthLink` and `oauthStartAndOpen`), keep `codeVerifier` across the redirect
+themselves, and pass it as `oauthComplete(..., codeVerifier: verifier)` or
+`oauthCompleteFromUri(..., codeVerifier: verifier)`. Servers before v0.5.0
+reject the opt-in with 400.
+
 Use the explicit auth realm to discover methods and refresh a session:
 
 ```dart

@@ -114,6 +114,7 @@ final class AuthRealm {
   Future<JsonObject> oauthStart(
     String provider,
     String redirectUri, {
+    bool requireCodeVerifier = false,
     CancellationToken? cancellation,
   }) => client._objectRequest(
     'POST',
@@ -121,6 +122,7 @@ final class AuthRealm {
     JsonObject({
       'provider': JsonString(provider),
       'redirectUri': JsonString(redirectUri),
+      if (requireCodeVerifier) 'requireCodeVerifier': const JsonBool(true),
     }),
     cancellation,
   );
@@ -129,9 +131,15 @@ final class AuthRealm {
     String provider,
     String redirectUri,
     OAuthUrlLauncher open, {
+    bool requireCodeVerifier = false,
     CancellationToken? cancellation,
   }) => _oauthStartAndOpen(
-    () => oauthStart(provider, redirectUri, cancellation: cancellation),
+    () => oauthStart(
+      provider,
+      redirectUri,
+      requireCodeVerifier: requireCodeVerifier,
+      cancellation: cancellation,
+    ),
     open,
   );
 
@@ -143,14 +151,20 @@ final class AuthRealm {
     JsonObject? profile,
     String? fields,
   }) => _oauthWithBrowser(
-    () => oauthStart(provider, redirectUri, cancellation: cancellation),
+    () => oauthStart(
+      provider,
+      redirectUri,
+      requireCodeVerifier: true,
+      cancellation: cancellation,
+    ),
     redirectUri,
     adapter,
     cancellation,
-    (state, code) => client.oauthComplete(
+    (state, code, codeVerifier) => client.oauthComplete(
       provider,
       state,
       code,
+      codeVerifier: codeVerifier,
       cancellation: cancellation,
       profile: profile,
       fields: fields,
@@ -160,12 +174,14 @@ final class AuthRealm {
   Future<UserSession> oauthCompleteFromUri(
     String provider,
     Uri callback, {
+    String? codeVerifier,
     String? fields,
     JsonObject? profile,
     CancellationToken? cancellation,
   }) => client.oauthCompleteFromUri(
     provider,
     callback,
+    codeVerifier: codeVerifier,
     fields: fields,
     profile: profile,
     cancellation: cancellation,
@@ -327,7 +343,8 @@ Future<UserSession> _oauthWithBrowser(
   String redirectUri,
   OAuthBrowserAdapter adapter,
   CancellationToken? cancellation,
-  Future<UserSession> Function(String state, String code) complete,
+  Future<UserSession> Function(String state, String code, String? codeVerifier)
+  complete,
 ) async {
   try {
     final started = await start();
@@ -360,7 +377,13 @@ Future<UserSession> _oauthWithBrowser(
       throw const OAuthCallbackError('invalid_callback');
     }
     if (state != expectedState) throw const OAuthCallbackError('invalid_state');
-    return await complete(state, code);
+    // The verifier never leaves this call, so a leaked callback URL cannot complete the flow.
+    final codeVerifier = started['codeVerifier'];
+    return await complete(
+      state,
+      code,
+      codeVerifier is JsonString ? codeVerifier.value : null,
+    );
   } finally {
     adapter.close?.call();
   }

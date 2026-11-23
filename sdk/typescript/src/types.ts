@@ -41,6 +41,10 @@ export type RecordGetOptions = Pick<Query, "expand" | "fields" | "requestKey">;
 export type RecordWriteOptions = Pick<Query, "fields" | "requestKey">;
 /** Custom signup fields go in the request body; `fields` remains response projection. */
 export type AuthCreationOptions<T extends RecordData = RecordData> = RecordWriteOptions & { profile?: T };
+/** `requireCodeVerifier` binds completion to the `codeVerifier` returned by start/link. */
+export type OAuthStartOptions = { requireCodeVerifier?: boolean };
+/** `codeVerifier` is the value returned by start/link; it must match whenever sent. */
+export type OAuthCompleteOptions<T extends RecordData = RecordData> = AuthCreationOptions<T> & { codeVerifier?: string };
 export type BatchOptions = Pick<Query, "fields" | "requestKey">;
 export type RecordEvent = {
   /** Durable outbox event UUID, distinct from the SSE delivery cursor. */

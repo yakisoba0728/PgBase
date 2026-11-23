@@ -10,6 +10,8 @@ const { authorizationUrl } = await members.oauthStart("github", "http://localhos
 location.assign(authorizationUrl);
 ```
 
+`oauthWithBrowser` sends `requireCodeVerifier: true` and completes with the returned `codeVerifier`, so a leaked callback URL alone cannot finish the flow. Redirect flows that start and complete on different page loads opt in with `oauthStart(provider, redirectUri, { requireCodeVerifier: true })` (also `oauthLink` and `oauthStartAndOpen`), keep `codeVerifier` across the redirect themselves, and pass it as `oauthComplete(..., { codeVerifier })` or `oauthCompleteFromURL(..., { codeVerifier })`. Servers before v0.5.0 reject the opt-in with 400.
+
 `members.login` raises `MFAChallengeError` when a challenge must be completed. Tokens live only in the supplied `AuthStore`; pass `browserTokenStorage(localStorage)` only when persistent browser storage is intended.
 
 The existing `TokenStorage` / `browserTokenStorage` contract stores only the opaque token; a newly constructed store has no cached record. To persist both together, opt into `new AuthStore(browserAuthStorage(localStorage))`, or implement the synchronous `AuthStateStorage` interface (`read`, `write`, `clear`). `browserAuthStorage` uses the separate default key `pgbase.user.auth`, stores one JSON snapshot, and ignores malformed stored snapshots. `save` writes token and record together; `clear` removes both. It does not migrate the existing `pgbase.user.token` key. Tokens remain opaque: `isValid` means a nonempty token exists, not that the server has verified it. Full-state persistence stores JSON-compatible record data; select the storage mechanism appropriate to your application.

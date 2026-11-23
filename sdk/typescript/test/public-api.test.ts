@@ -14,6 +14,9 @@ const signup: AuthCreationOptions<{ displayName: string; newsletter: boolean }> 
 void client.register("a@test", "password", signup);
 void client.realm("members").register("a@test", "password", signup);
 void client.realm("members").oauthComplete("github", "state", "code", signup);
+void client.realm("members").oauthStart("github", "https://app.test/callback", { requireCodeVerifier: true });
+void client.realm("members").oauthStart("github", "https://app.test/callback", new AbortController().signal);
+void client.realm("members").oauthComplete("github", "state", "code", { codeVerifier: "verifier" });
 void client.disableTOTP("password", "123456", new AbortController().signal);
 declare const adminClient: PgBaseAdminClient;
 const administratorPage: Promise<AdministratorAccountPage> = adminClient.administratorAccounts({ limit: 25, after: "id" });
