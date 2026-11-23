@@ -232,6 +232,7 @@ func seedPendingAccountCredentials(t *testing.T, fixture accountManagementFixtur
 	if err := s.RequestPasswordReset(ctx, account.Email, "192.0.2.1"); err != nil {
 		t.Fatal(err)
 	}
+	waitForResetMail(t, s)
 	if len(mail.messages) != 1 || mail.messages[0].Purpose != "admin_password_reset" {
 		t.Fatal("reset fixture did not issue one pending credential")
 	}

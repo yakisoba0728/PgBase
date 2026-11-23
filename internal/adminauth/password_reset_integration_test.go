@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,13 +15,27 @@ import (
 )
 
 type resetCapture struct {
+	mu       sync.Mutex
 	messages []mailer.Message
 	err      error
 }
 
 func (s *resetCapture) Send(_ context.Context, message mailer.Message) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.messages = append(s.messages, message)
 	return s.err
+}
+
+// waitForResetMail lets the reset mail that requests queued so far reach the
+// capture; RequestPasswordReset returns before it is sent.
+func waitForResetMail(t testing.TB, s *Service) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := s.WaitForQueuedMail(ctx); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func resetToken(t *testing.T, message mailer.Message) string {
@@ -47,12 +62,14 @@ func TestPasswordResetMailFlowIsOneUseAndRevokesSessions(t *testing.T) {
 	if err := service.RequestPasswordReset(context.Background(), "unknown@example.test", "192.0.2.2"); err != nil {
 		t.Fatalf("unknown reset request: %v", err)
 	}
+	waitForResetMail(t, service)
 	if len(capture.messages) != 0 {
 		t.Fatal("unknown administrator sent mail")
 	}
 	if err := service.RequestPasswordReset(context.Background(), "ADMIN@example.test", "192.0.2.3"); err != nil {
 		t.Fatal(err)
 	}
+	waitForResetMail(t, service)
 	if len(capture.messages) != 1 || capture.messages[0].Purpose != "admin_password_reset" {
 		t.Fatalf("messages=%#v", capture.messages)
 	}
@@ -85,6 +102,7 @@ func TestPasswordResetExpiryAndSMTPFailureAreNotDisclosed(t *testing.T) {
 	if err := service.RequestPasswordReset(context.Background(), "admin@example.test", "192.0.2.2"); err != nil {
 		t.Fatal(err)
 	}
+	waitForResetMail(t, service)
 	token := resetToken(t, capture.messages[0])
 	clock.now = clock.now.Add(2 * time.Minute)
 	if err := service.ConfirmPasswordReset(context.Background(), token, "new correct horse battery staple"); !errors.Is(err, ErrInvalidCredentials) {
@@ -93,6 +111,10 @@ func TestPasswordResetExpiryAndSMTPFailureAreNotDisclosed(t *testing.T) {
 	capture.err = errors.New("SMTP unavailable")
 	if err := service.RequestPasswordReset(context.Background(), "admin@example.test", "192.0.2.3"); err != nil {
 		t.Fatalf("SMTP failure leaked from reset request: %v", err)
+	}
+	waitForResetMail(t, service)
+	if len(capture.messages) != 2 {
+		t.Fatalf("reset delivery attempts=%d, want 2", len(capture.messages))
 	}
 }
 
@@ -129,4 +151,5 @@ func TestPasswordResetUsesLiveRatePolicy(t *testing.T) {
 	if err := service.RequestPasswordReset(context.Background(), "admin@example.test", network); !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("reset policy did not block subsequent request: %v", err)
 	}
+	waitForResetMail(t, service)
 }

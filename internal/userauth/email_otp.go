@@ -13,7 +13,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/yakisoba0728/PgBase/internal/database"
 	"github.com/yakisoba0728/PgBase/internal/mailer"
 )
 
@@ -52,63 +51,80 @@ func (s *Service) RequestEmailOTPInCollection(ctx context.Context, collectionID 
 	if emailErr != nil {
 		return result, nil
 	}
-	var random [8]byte
-	if _, err := rand.Read(random[:]); err != nil {
+	// Only the collection policy is read here. Looking the address up,
+	// storing the code and sending it all run in the mail queue, so a
+	// registered and an unknown address do the same work before this answers,
+	// however slow the mail server is.
+	var enabled bool
+	var duration int
+	err = s.pool.QueryRow(ctx, `select p.otp_enabled,coalesce(t.ttl_seconds,p.otp_duration_seconds) from pgbase_meta.auth_collection_policies p left join pgbase_meta.auth_token_policies t on t.auth_collection_id=p.auth_collection_id and t.purpose='otp' where p.auth_collection_id=$1`, collectionID).Scan(&enabled, &duration)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return result, nil
+	}
+	if err != nil {
 		return EmailOTPRequest{}, err
 	}
+	if !enabled {
+		return result, nil
+	}
+	result.ExpiresAt = now.Add(time.Duration(duration) * time.Second)
+	s.mailQueue.Go(ctx, func(ctx context.Context) {
+		s.issueEmailOTP(ctx, collectionID, normalized, id, result.ExpiresAt, now)
+	})
+	return result, nil
+}
+
+// issueEmailOTP stores and sends a code for an address that has an account
+// and does nothing for any other address. It runs in the mail queue, so its
+// outcome is never visible to the requester.
+func (s *Service) issueEmailOTP(ctx context.Context, collectionID uuid.UUID, email string, id uuid.UUID, expiresAt, now time.Time) {
+	var random [8]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return
+	}
 	code := fmt.Sprintf("%06d", binary.BigEndian.Uint64(random[:])%1_000_000)
-	var userID uuid.UUID
-	var otpHash []byte
-	var keyVersion string
-	err = s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var enabled bool
-		var duration, maxAttempts int
-		if err := tx.QueryRow(ctx, `select otp_enabled,otp_duration_seconds,otp_max_attempts from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, collectionID).Scan(&enabled, &duration, &maxAttempts); err != nil {
+		var maxAttempts int
+		if err := tx.QueryRow(ctx, `select otp_enabled,otp_max_attempts from pgbase_meta.auth_collection_policies where auth_collection_id=$1 for share`, collectionID).Scan(&enabled, &maxAttempts); err != nil {
 			return err
 		}
 		if !enabled {
 			return ErrInvalidCredentials
 		}
-		var configuredTTL int
+		var otpHash []byte
+		var keyVersion string
 		var cipher []byte
-		if err := tx.QueryRow(ctx, `select ttl_seconds,key_version,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='otp' for share`, collectionID).Scan(&configuredTTL, &keyVersion, &cipher); err == nil {
-			duration = configuredTTL
+		if err := tx.QueryRow(ctx, `select key_version,key_ciphertext from pgbase_meta.auth_token_policies where auth_collection_id=$1 and purpose='otp' for share`, collectionID).Scan(&keyVersion, &cipher); err == nil {
 			key, e := s.decrypt("auth-token-policy:otp", cipher)
 			if e != nil {
 				return e
 			}
-			otpHash = keyedDigest(key, emailOTPDomain(id, normalized), code)
+			otpHash = keyedDigest(key, emailOTPDomain(id, email), code)
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		result.ExpiresAt = now.Add(time.Duration(duration) * time.Second)
-		if err := tx.QueryRow(ctx, `select id from pgbase_meta.users where auth_collection_id=$1 and email=$2 and active for update`, collectionID, normalized).Scan(&userID); err != nil {
+		var userID uuid.UUID
+		if err := tx.QueryRow(ctx, `select id from pgbase_meta.users where auth_collection_id=$1 and email=$2 and active for update`, collectionID, email).Scan(&userID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `update pgbase_meta.user_email_otps set consumed_at=CURRENT_TIMESTAMP where user_id=$1 and consumed_at is null`, userID); err != nil {
 			return err
 		}
 		if otpHash == nil {
-			otpHash = s.digest(emailOTPDomain(id, normalized), code)
+			otpHash = s.digest(emailOTPDomain(id, email), code)
 		}
-		_, err := tx.Exec(ctx, `insert into pgbase_meta.user_email_otps(id,auth_collection_id,user_id,code_hash,token_key_version,max_attempts,expires_at,created_at) values($1,$2,$3,$4,$5,$6,$7,$8)`, id, collectionID, userID, otpHash, keyVersion, maxAttempts, result.ExpiresAt, now)
+		_, err := tx.Exec(ctx, `insert into pgbase_meta.user_email_otps(id,auth_collection_id,user_id,code_hash,token_key_version,max_attempts,expires_at,created_at) values($1,$2,$3,$4,$5,$6,$7,$8)`, id, collectionID, userID, otpHash, keyVersion, maxAttempts, expiresAt, now)
 		return err
 	})
-	if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, ErrInvalidCredentials) {
-		return result, nil
-	}
-	if database.Classify(err) == database.KindConflict {
-		return result, nil
-	}
 	if err != nil {
-		return EmailOTPRequest{}, err
+		return
 	}
-	if err := s.sendOTP(ctx, collectionID, normalized, result.OTPID, code); err != nil {
+	if err := s.sendOTP(ctx, collectionID, email, id.String(), code); err != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		_, _ = s.pool.Exec(cleanupCtx, `update pgbase_meta.user_email_otps set consumed_at=CURRENT_TIMESTAMP where id=$1`, id)
 	}
-	return result, nil
 }
 
 func (s *Service) CompleteEmailOTP(ctx context.Context, otpID, code string) (Session, error) {
@@ -129,7 +145,9 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 	// failures. The budget comes from the authenticated account tag inside the
 	// OTP id, which ids issued for unknown addresses carry too, so a missing
 	// account spends and exhausts it exactly like an existing one. An
-	// exhausted budget refuses even a correct code until the block ends.
+	// exhausted budget refuses even a correct code until the block ends. The
+	// attempt is charged before the code is checked and refunded unless it is
+	// refused, so concurrent wrong codes cannot overshoot the budget.
 	tag, authentic := s.emailOTPIDTag(collectionID, id)
 	if !authentic {
 		// Only ids issued before account tags existed reach this; they are
@@ -144,10 +162,11 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 		}
 		tag = s.emailOTPAccountTag(collectionID, email)
 	}
-	buckets := s.emailOTPBudget(collectionID, tag)
-	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
+	reservation, err := s.reserveFailures(ctx, s.emailOTPBudget(collectionID, tag), now)
+	if err != nil {
 		return Session{}, err
 	}
+	defer reservation.refund(ctx)
 	var issued Session
 	var operationErr error
 	var wrongCode bool
@@ -216,7 +235,7 @@ func (s *Service) CompleteEmailOTPInCollection(ctx context.Context, collectionID
 	// stored code exists, is live or still has attempts: an unknown address
 	// never has one, so anything narrower would tell the two apart.
 	if wrongCode || authentic && errors.Is(operationErr, ErrInvalidCredentials) {
-		if err := s.recordFailures(ctx, buckets, now); err != nil {
+		if err := reservation.fail(); err != nil {
 			return Session{}, err
 		}
 	}
