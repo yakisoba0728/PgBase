@@ -255,3 +255,49 @@
   }
 }
 
+/* A job pane's run history: one block per run, newest first, separated by hairlines. Error text wraps in place and
+   long output stays bounded by the server (1,024 characters). */
+.ops-runs-note {
+  margin: 0 0 var(--sp-8);
+}
+
+.ops-runs-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ops-runs-list > li {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-8) 0;
+  border-top: 1px solid var(--line);
+}
+
+.ops-runs-list > li:last-child {
+  border-bottom: 1px solid var(--line);
+}
+
+.ops-runs-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-4) var(--space-sm);
+}
+
+.ops-runs-duration {
+  margin-left: auto;
+}
+
+.ops-runs-meta {
+  font-size: var(--font-size-sm);
+}
+
+.ops-runs-error {
+  margin: var(--sp-4) 0 0;
+  color: var(--tone);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
