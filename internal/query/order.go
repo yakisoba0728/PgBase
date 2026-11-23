@@ -44,6 +44,18 @@ type orderTerm struct {
 	indexHint            orderIndexHint
 	random               bool
 	identityCollectionID uuid.UUID
+	// visibility masks a bare relation key for a principal whose relation
+	// values are filtered by the target's view policy: a target the principal
+	// cannot view sorts as NULL, exactly like a missing relation. It is bound
+	// per principal after planning, so only a principal-bound plan carries it.
+	visibility *plannedRelationHop
+}
+
+// hiddenCursor reports whether the term's cursor value is selected beside the
+// record instead of being read from it, because the record does not carry the
+// ordered value.
+func (t orderTerm) hiddenCursor() bool {
+	return t.relationPath != nil || t.identityCollectionID != uuid.Nil || t.visibility != nil
 }
 
 func (s orderSpec) random() bool {
@@ -95,8 +107,9 @@ func (s orderSpec) sortsRelationKey() bool {
 // privateCursor reports whether issued cursors must omit sort values and
 // carry only the keyed anchor digest. Relation-path orders always do; a bare
 // relation order does when the plan was marked for a non-administrator.
-// Decoding still accepts a signed value cursor for a bare relation order so
-// cursors issued before the anchor-only rule keep working.
+// Decoding requires an anchor-only cursor whenever this holds: a value cursor
+// for a masked bare relation order would carry the stored target id, which no
+// longer matches the masked sort key.
 func (s orderSpec) privateCursor() bool {
 	return s.private() || s.relationKeyCursor
 }
@@ -161,7 +174,7 @@ func (s orderSpec) orderBy() string {
 
 func (s orderSpec) appendHiddenCursorSelects(selects []string) []string {
 	for _, term := range s.terms {
-		if term.relationPath != nil || term.identityCollectionID != uuid.Nil {
+		if term.hiddenCursor() {
 			selects = append(selects, term.cursorExpression())
 		}
 	}
