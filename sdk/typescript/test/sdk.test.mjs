@@ -303,6 +303,9 @@ try {
   for await (const record of client.iterate("notes", { total: true })) iterated.push(record.id);
   assert.deepEqual(iterated, ["note-1", "note-2"]);
   assert.doesNotMatch(requests.at(-1).path, /total=/);
+  assert.match(requests.at(-1).path, /[?&]limit=200(&|$)/);
+  for await (const record of client.iterate("notes", { limit: 7 })) void record;
+  assert.match(requests.at(-1).path, /[?&]limit=7(&|$)/);
 
   const batch = await client.batch([
     { operation: "create", collection: "notes", input: { title: "batched" }, idempotencyKey: "batch-create-0001" },

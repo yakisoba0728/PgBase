@@ -190,6 +190,32 @@ void main() {
     }
   }
 
+  test('record iteration defaults to the server maximum page size', () async {
+    final requests = <Uri>[];
+    final client = PgBaseClient(
+      Uri.parse('http://pgbase.test'),
+      httpClient: MockClient((request) async {
+        requests.add(request.url);
+        return http.Response(
+          jsonEncode({
+            'items': [
+              {'id': 'one'},
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+    try {
+      await client.records('notes').iterate().toList();
+      expect(requests.single.queryParameters['limit'], '200');
+      await client.records('notes').iterate(const Query(limit: 7)).toList();
+      expect(requests.last.queryParameters['limit'], '7');
+    } finally {
+      client.close();
+    }
+  });
+
   for (final kind in ['json', 'record', 'multipart', 'upload', 'download']) {
     for (final outcome in ['success', 'HTTP error', 'transport error']) {
       test(
