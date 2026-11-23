@@ -32,7 +32,11 @@ func newJobService(ctx context.Context, pool *database.Pool, options Options) (*
 			return nil, fmt.Errorf("register scheduled job %q: %w", job.Name, err)
 		}
 	}
-	service := jobs.NewService(pool, registry, options.Logger)
+	service := jobs.NewServiceWithOptions(pool, registry, options.Logger, jobs.Options{
+		RunRetention:   options.Operations.JobRunRetention,
+		RunMaximumRows: options.Operations.JobRunMaximumRows,
+		CursorSecret:   options.TokenSecret,
+	})
 	for _, configured := range options.Jobs {
 		timezone := configured.Timezone
 		if timezone == "" {

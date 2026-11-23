@@ -112,6 +112,16 @@ the build, so size the maintenance window for the outbox history you retain. On
 a database with a few hundred records the three migrations finish in
 milliseconds.
 
+## Scheduled job run history (system migration 74)
+
+Migration 74 adds `pgbase_meta.scheduled_job_runs`, an empty table with two
+indexes, so it finishes in milliseconds and does not rewrite existing tables.
+Existing jobs start with no history; runs are recorded from the first claim made
+by the new binary. History is bounded by `Operations.JobRunRetention` (30 days)
+and `Operations.JobRunMaximumRows` (1,000 per job); see
+[Local scheduled jobs](local-jobs.md#run-history). Follow the standard
+stop–migrate–start procedure above.
+
 ## Image decoding memory
 
 Decoding an uploaded image for its thumbnail, and rendering a variant, now

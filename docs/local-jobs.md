@@ -73,3 +73,62 @@ preserve its occurrence key and attempt history. A changed schedule or
 timezone starts a new occurrence, so a partially completed external effect
 could run again under a new key. None of these metadata fences cancel an
 external side effect that a handler already performed.
+
+## Run history
+
+Each claim records one run in `pgbase_meta.scheduled_job_runs` (system
+migration 74) in the same statement that takes the lease, and completion
+records the outcome on that row together with the fenced job update. The
+administrator console shows it in the job detail pane.
+
+```http
+GET /api/admin/jobs/{id}/runs?limit=25&cursor=...
+```
+
+Administrator session only (same-origin read, like `GET /api/admin/jobs`). The
+route is mounted when the job worker exists. Results are newest first:
+
+```json
+{
+  "items": [
+    {
+      "id": 42,
+      "status": "failed",
+      "attempt": 2,
+      "scheduledAt": "2026-11-24T00:00:00Z",
+      "startedAt": "2026-11-24T00:00:01.2Z",
+      "finishedAt": "2026-11-24T00:00:03.7Z",
+      "durationMs": 2500,
+      "error": "upstream returned 503"
+    }
+  ],
+  "nextCursor": "...",
+  "retention": { "maximumRuns": 1000, "maximumAgeSeconds": 2592000 }
+}
+```
+
+- `limit` is 1–100 (25 when omitted). `nextCursor` is present only when more
+  runs exist; pass it back unchanged as `cursor`. Cursors are signed with the
+  token secret, bound to the job, and carry the last run id, so retention can
+  only shorten a traversal.
+- `status` is `running`, `succeeded`, `failed`, `superseded` (the handler
+  returned after its lease expired or was replaced; the job state was not
+  changed by it) or `abandoned` (still recorded as running, but its lease
+  expired or was replaced; derived on read). A later report from an abandoned
+  worker turns the row into `superseded`.
+- `attempt` counts retries of one occurrence (1 for the first try).
+  `scheduledAt` is the occurrence the run belongs to. `finishedAt` and
+  `durationMs` are absent while a run is in progress or abandoned.
+- `error` is the handler's error text, truncated to 1,024 characters like the
+  job's last error. Handlers return only an error, so a successful run carries
+  no result body.
+- Errors: 400 `invalid_request` for a malformed id, `limit`, repeated or
+  unknown parameter, or a forged, foreign or other-job cursor; 404
+  `job_not_found` for an unknown job.
+
+History is bounded like the request log: `Operations.JobRunRetention` removes
+runs that started longer ago (30 days when zero) and
+`Operations.JobRunMaximumRows` keeps the newest runs per job (1,000 when zero).
+Pruning runs after each completion and is best effort: a failed prune is
+logged and retried by the next completion. Changing a schedule, disabling or
+unregistering a job keeps its history.
