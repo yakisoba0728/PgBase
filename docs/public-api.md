@@ -102,7 +102,9 @@ Administrator request-log routes read the durable `request_logs` table (newest f
 | GET `/api/admin/logs/{id}` | One entry |
 | DELETE `/api/admin/logs?to` | With `to` (RFC 3339): deletes entries older than `to` and returns `{deleted}`. Without any query parameter: deletes everything, restarts ids and returns 204. An empty or invalid `to`, `from`, or any other parameter returns 400 `invalid_request` |
 
-`clientIP` is recorded only when the `logs.includeIP` setting is on, and `authKind`/`authID` only when `logs.includeAuth` is on; the two settings are independent and both default to off. The address follows the trusted-proxy policy. Authenticated administrator, user, and service-token routes record their corresponding `admin`, `user`, or `service` identity. Anonymous and realtime subscription requests carry no identity in request logs. The `q` search uses a trigram GIN index over the combined searchable fields. Retention is bounded by `Operations.RequestLogMaximumRows` (100,000 by default).
+`clientIP` is recorded only when the `logs.includeIP` setting is on, and `authKind`/`authID` only when `logs.includeAuth` is on; the two settings are independent and both default to off. The address follows the trusted-proxy policy. Authenticated administrator, user, and service-token routes record their corresponding `admin`, `user`, or `service` identity. Anonymous and realtime subscription requests carry no identity in request logs. The `q` search uses a trigram GIN index over the combined searchable fields. Retention is bounded by `Operations.RequestLogMaximumRows` (100,000 by default); cleanup removes at most 5,000 rows per policy and batch, so a backlog shrinks over several batches (see [metrics](deployment.md#metrics-and-initial-slo-evidence)).
+
+A request whose client disconnected before the response was complete is stored with `status` 499 ("client closed request"; never sent to a client), so `statusClass=4` returns it and `statusClass=5` does not. A response the handler had already written below 500 keeps its status.
 
 ## Records and permissions
 

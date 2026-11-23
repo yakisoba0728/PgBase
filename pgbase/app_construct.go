@@ -227,7 +227,7 @@ func newWithCatalogPreflight(
 	if err != nil {
 		return nil, fmt.Errorf("initialize runtime settings: %w", err)
 	}
-	requestLog := newRequestLog(pool, normalized, runtimeSettings)
+	requestLog := newRequestLog(pool, normalized, runtimeSettings, metrics)
 	app.requestLog = requestLog
 	apiLimits := apiratelimit.New(pool, normalized.TokenSecret, runtimeSettings.Get())
 	runtimeSettings.Subscribe(apiLimits.Set)
@@ -243,9 +243,8 @@ func newWithCatalogPreflight(
 	pruneLogs := func(runtimesettings.Settings) {
 		retentionCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if applyErr := requestLog.PruneExpired(retentionCtx); applyErr != nil {
-			normalized.Logger.ErrorContext(retentionCtx, "apply request log retention", "error", applyErr)
-		}
+		// The request log warns about a failed cleanup itself.
+		_ = requestLog.PruneExpired(retentionCtx)
 	}
 	pruneLogs(runtimeSettings.Get())
 	runtimeSettings.Subscribe(pruneLogs)

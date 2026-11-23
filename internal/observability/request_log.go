@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,21 @@ import (
 
 const recentRequestCapacity = 1000
 
+// DefaultRequestLogMaximumRows is the row cap applied when none is configured.
+const DefaultRequestLogMaximumRows = 100_000
+
+const (
+	// defaultRequestLogPruneRows bounds one cleanup statement per policy: at
+	// most this many expired rows and this many rows over the cap. A backlog
+	// left by a lowered retention or by failed cleanups is then removed over
+	// several batches instead of by one delete that outlives every budget
+	// and never commits.
+	defaultRequestLogPruneRows = 5000
+	// requestLogPruneWarningInterval spaces the repeated warning while cleanup
+	// keeps failing.
+	requestLogPruneWarningInterval = 5 * time.Minute
+)
+
 var ErrRequestLogNotFound = errors.New("request log entry not found")
 var ErrRequestLogClosed = errors.New("request log is shut down")
 
@@ -25,6 +41,13 @@ type RequestLogOptions struct {
 	FlushInterval                         time.Duration
 	// RuntimeRetention returns the age limit and revision of one settings snapshot.
 	RuntimeRetention func() (time.Duration, int64)
+	// Logger receives the warning when cleanup fails and the notice when it
+	// recovers. Nil discards them.
+	Logger *slog.Logger
+	// Recorder receives one request_log_prune operation event per cleanup.
+	Recorder Recorder
+
+	pruneRows int
 }
 
 func (o RequestLogOptions) normalized() RequestLogOptions {
@@ -32,7 +55,7 @@ func (o RequestLogOptions) normalized() RequestLogOptions {
 		o.Retention = 7 * 24 * time.Hour
 	}
 	if o.MaximumRows <= 0 {
-		o.MaximumRows = 100_000
+		o.MaximumRows = DefaultRequestLogMaximumRows
 	}
 	if o.QueueCapacity <= 0 {
 		o.QueueCapacity = 4096
@@ -42,6 +65,12 @@ func (o RequestLogOptions) normalized() RequestLogOptions {
 	}
 	if o.FlushInterval <= 0 {
 		o.FlushInterval = time.Second
+	}
+	if o.pruneRows <= 0 {
+		o.pruneRows = defaultRequestLogPruneRows
+	}
+	if o.Logger == nil {
+		o.Logger = slog.New(slog.DiscardHandler)
 	}
 	return o
 }
@@ -62,6 +91,10 @@ type RequestLog struct {
 	dropped     atomic.Uint64
 	closed      atomic.Bool
 	lifecycle   sync.RWMutex
+
+	pruneMu       sync.Mutex
+	pruneFailures int       // guarded by pruneMu: consecutive failed cleanups
+	pruneWarnedAt time.Time // guarded by pruneMu
 }
 
 type RequestEntry struct {
@@ -351,32 +384,102 @@ func (l *RequestLog) Truncate(ctx context.Context) error {
 }
 
 // PruneExpired applies the configured age limit without enforcing the row cap.
+// It deletes in bounded statements until no expired row is left or ctx ends,
+// so a deadline still keeps the rows removed before it.
 func (l *RequestLog) PruneExpired(ctx context.Context) error {
 	if l == nil || l.pool == nil {
 		return nil
 	}
-	return l.prune(ctx, l.pool, 0)
+	started := time.Now()
+	var total int64
+	for {
+		deleted, err := l.prune(ctx, l.pool, 0)
+		total += deleted
+		if err != nil || deleted < int64(l.options.pruneRows) {
+			l.observePrune(ctx, started, total, err)
+			return err
+		}
+	}
 }
 
-func (l *RequestLog) prune(ctx context.Context, db requestLogExecutor, maximumRows int) error {
+// prune deletes at most pruneRows expired rows and pruneRows rows over
+// maximumRows, oldest first, and reports how many it deleted.
+func (l *RequestLog) prune(ctx context.Context, db requestLogExecutor, maximumRows int) (int64, error) {
 	retention, revision := l.options.Retention, int64(0)
 	if source := l.options.RuntimeRetention; source != nil {
 		retention, revision = source()
 		if retention < 24*time.Hour || revision < 1 {
-			return errors.New("invalid runtime request log retention")
+			return 0, errors.New("invalid runtime request log retention")
 		}
 	}
 	// Lock the matching settings row through the delete. A concurrent settings
-	// update either follows this cleanup or makes its age policy stale.
-	_, err := db.Exec(ctx, `WITH current_policy AS MATERIALIZED (
+	// update either follows this cleanup or makes its age policy stale. Both
+	// candidate sets are read in index order (occurred_at, then id) and stop at
+	// the limit, so an empty set costs one index probe and a backlog costs at
+	// most the limit.
+	result, err := db.Exec(ctx, `WITH current_policy AS MATERIALIZED (
 		SELECT revision FROM pgbase_meta.runtime_settings WHERE singleton AND revision=$3 FOR SHARE
+	), expired AS (
+		SELECT id FROM pgbase_meta.request_logs
+		WHERE occurred_at < statement_timestamp()-make_interval(secs=>$1)
+			AND ($3=0 OR EXISTS (SELECT 1 FROM current_policy))
+		ORDER BY occurred_at LIMIT $4
+	), excess AS (
+		SELECT id FROM pgbase_meta.request_logs
+		WHERE $2::bigint>0 AND id <= GREATEST(0,(SELECT max(id) FROM pgbase_meta.request_logs)-$2)
+		ORDER BY id LIMIT $4
 	)
 	DELETE FROM pgbase_meta.request_logs
-	WHERE (occurred_at < statement_timestamp()-make_interval(secs=>$1)
-			AND ($3=0 OR EXISTS (SELECT 1 FROM current_policy)))
-		OR ($2::bigint>0 AND id <= GREATEST(0,(SELECT max(id) FROM pgbase_meta.request_logs)-$2))`,
-		int64(retention.Seconds()), maximumRows, revision)
-	return err
+	WHERE id IN (SELECT id FROM expired UNION ALL SELECT id FROM excess)`,
+		int64(retention.Seconds()), maximumRows, revision, l.options.pruneRows)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+// observePrune records one cleanup. While cleanups keep failing the table only
+// grows, so the first failure warns at once and later ones at most every
+// requestLogPruneWarningInterval; the first success after them says so.
+func (l *RequestLog) observePrune(ctx context.Context, started time.Time, deleted int64, err error) {
+	outcome := requestLogPruneOutcome(err)
+	if l.options.Recorder != nil {
+		l.options.Recorder.Record(ctx, OperationEvent(OperationRequestLogPrune, outcome, time.Since(started)))
+	}
+	l.pruneMu.Lock()
+	defer l.pruneMu.Unlock()
+	if err == nil {
+		if l.pruneFailures > 0 {
+			l.options.Logger.InfoContext(ctx, "request log cleanup recovered",
+				"failed_attempts", l.pruneFailures, "deleted", deleted)
+		}
+		l.pruneFailures, l.pruneWarnedAt = 0, time.Time{}
+		return
+	}
+	l.pruneFailures++
+	now := time.Now()
+	if l.pruneFailures > 1 && now.Sub(l.pruneWarnedAt) < requestLogPruneWarningInterval {
+		return
+	}
+	l.pruneWarnedAt = now
+	l.options.Logger.WarnContext(ctx, "request log cleanup failed; the table grows past its retention until a cleanup succeeds",
+		"outcome", string(outcome), "consecutive_failures", l.pruneFailures, "deleted", deleted, "error", err)
+}
+
+func requestLogPruneOutcome(err error) Outcome {
+	var pgErr *pgconn.PgError
+	switch {
+	case err == nil:
+		return OutcomeSuccess
+	case errors.Is(err, context.Canceled):
+		return OutcomeCanceled
+	// 57014 is a statement timeout (or cancel), 55P03 a lock timeout.
+	case errors.Is(err, context.DeadlineExceeded),
+		errors.As(err, &pgErr) && (pgErr.Code == "57014" || pgErr.Code == "55P03"):
+		return OutcomeBudget
+	default:
+		return OutcomeFailure
+	}
 }
 
 func (l *RequestLog) DeleteBefore(ctx context.Context, before time.Time) (int64, error) {
@@ -523,6 +626,8 @@ func (l *RequestLog) writeBatch(ctx context.Context, entries []RequestEntry) err
 		return nil
 	}
 	var pruneErr error
+	var pruned int64
+	var pruneStarted time.Time
 	failed := l.pool.InTx(ctx, requestLogWriteOptions, func(tx pgx.Tx) error {
 		if err := insertEntries(ctx, tx, entries); err != nil {
 			return err
@@ -531,6 +636,7 @@ func (l *RequestLog) writeBatch(ctx context.Context, entries []RequestEntry) err
 		// that outlives ctx would make pgx close the connection and lose the
 		// batch with it, so the server ends a slow cleanup first: a statement
 		// timeout aborts only the savepoint and leaves the batch to commit.
+		pruneStarted, pruned = time.Now(), 0
 		budget := requestLogPruneBudget(ctx)
 		if budget <= 0 {
 			pruneErr = context.DeadlineExceeded
@@ -540,11 +646,17 @@ func (l *RequestLog) writeBatch(ctx context.Context, entries []RequestEntry) err
 			if _, err := tx.Exec(ctx, fmt.Sprintf("set local statement_timeout = %d", budget.Milliseconds())); err != nil {
 				return err
 			}
-			return l.prune(ctx, tx, l.options.MaximumRows)
+			deleted, err := l.prune(ctx, tx, l.options.MaximumRows)
+			pruned = deleted
+			return err
 		})
+		if pruneErr != nil {
+			pruned = 0
+		}
 		return nil
 	})
 	if failed == nil {
+		l.observePrune(ctx, pruneStarted, pruned, pruneErr)
 		return pruneErr
 	}
 	if len(entries) == 1 || ctx.Err() != nil {
@@ -559,7 +671,10 @@ func (l *RequestLog) writeBatch(ctx context.Context, entries []RequestEntry) err
 			failed = err
 		}
 	}
-	return errors.Join(failed, l.prune(ctx, l.pool, l.options.MaximumRows))
+	pruneStarted = time.Now()
+	pruned, pruneErr = l.prune(ctx, l.pool, l.options.MaximumRows)
+	l.observePrune(ctx, pruneStarted, pruned, pruneErr)
+	return errors.Join(failed, pruneErr)
 }
 
 func insertEntries(ctx context.Context, db requestLogExecutor, entries []RequestEntry) error {
