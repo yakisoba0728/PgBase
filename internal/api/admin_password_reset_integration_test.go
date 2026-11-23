@@ -57,6 +57,10 @@ func TestAdministratorPasswordResetHTTPIntegration(t *testing.T) {
 			t.Fatalf("reset %s status=%d", address, response.Code)
 		}
 	}
+	// The response does not wait for the lookup or the mail.
+	if err := auth.WaitForQueuedMail(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if len(mail.messages) != 1 {
 		t.Fatalf("mail messages=%d, want 1", len(mail.messages))
 	}
@@ -84,6 +88,9 @@ func TestAdministratorPasswordResetHTTPIntegration(t *testing.T) {
 	request := securityRequest(t, http.MethodPost, "http://pgbase.test/api/admin/auth/request-password-reset", `{"email":"admin@example.test"}`)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
+	if err := auth.WaitForQueuedMail(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	expiredURL, err := url.Parse(mail.messages[len(mail.messages)-1].Text)
 	if err != nil {
 		t.Fatal(err)
@@ -101,6 +108,9 @@ func TestAdministratorPasswordResetHTTPIntegration(t *testing.T) {
 	handler.ServeHTTP(smtpFailure, smtpFailureRequest)
 	if smtpFailure.Code != http.StatusNoContent {
 		t.Fatalf("SMTP failure status=%d", smtpFailure.Code)
+	}
+	if err := auth.WaitForQueuedMail(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 

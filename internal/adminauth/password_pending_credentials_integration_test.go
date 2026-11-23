@@ -29,6 +29,7 @@ func TestAdministratorPasswordReplacementInvalidatesPendingEmailCredentials(t *t
 				if err := service.RequestPasswordReset(ctx, "admin@example.test", "192.0.2.1"); err != nil {
 					t.Fatal(err)
 				}
+				waitForResetMail(t, service)
 			}
 			oldReset := resetToken(t, capture.messages[0])
 			newReset := resetToken(t, capture.messages[1])

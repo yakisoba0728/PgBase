@@ -160,9 +160,14 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 		{hash: s.subjectHash("login", "account", accountSubject), limit: ratePolicy.AccountMaxFailures, window: ratePolicy.Window, block: ratePolicy.Block},
 		{hash: s.subjectHash("login", "network", clientAddress), limit: ratePolicy.NetworkMaxFailures, window: ratePolicy.Window, block: ratePolicy.Block},
 	}
-	if err := s.ensureBucketsNotBlocked(ctx, buckets, now); err != nil {
+	// The attempt is charged before the password is checked and refunded
+	// unless it fails, so concurrent wrong passwords cannot overshoot either
+	// budget.
+	reservation, err := s.reserveFailures(ctx, buckets, now)
+	if err != nil {
 		return Session{}, err
 	}
+	defer reservation.refund(ctx)
 	var user User
 	var hash string
 	lookupErr := error(ErrInvalidCredentials)
@@ -187,14 +192,14 @@ func (s *Service) LoginInCollection(ctx context.Context, collectionID uuid.UUID,
 		return Session{}, verifyErr
 	}
 	if !shapeValid || verifyErr != nil {
-		if err := s.recordFailures(ctx, buckets, now); err != nil {
+		if err := reservation.fail(); err != nil {
 			return Session{}, err
 		}
 		return Session{}, ErrInvalidCredentials
 	}
 	issued, err := s.issueCheckedSession(ctx, user, hash, now, password)
 	if errors.Is(err, ErrInvalidCredentials) {
-		_ = s.recordFailures(ctx, buckets, now)
+		_ = reservation.fail()
 	}
 	if err == nil {
 		if added, _ := s.recordAuthOrigin(ctx, user.ID, clientAddress, now); added {
@@ -528,6 +533,126 @@ func (s *Service) recordFailures(ctx context.Context, buckets []rateLimitBucket,
 	}
 	return nil
 }
+
+// failureReservation is one credential attempt's charge against its failure
+// buckets, taken before the credential is checked. Checking a budget first and
+// recording the failure afterwards lets every concurrent attempt that passed
+// the check be evaluated, so a burst of wrong guesses overshoots the limit;
+// charging first means no more than limit attempts can be in flight or failed
+// before the bucket blocks. The attempt then either keeps the charge (it
+// failed) or refunds it, which also lifts a block that only the charge itself
+// set.
+type failureReservation struct {
+	service *Service
+	now     time.Time
+	charges []failureCharge
+	blocked bool
+	settled bool
+}
+
+type failureCharge struct {
+	hash            []byte
+	windowStartedAt time.Time
+	// blockedUntil is the block this charge set, nil when it set none;
+	// previousBlock is the expired block it replaced.
+	blockedUntil, previousBlock *time.Time
+}
+
+// reserveFailures charges one failure to every bucket in one transaction, or
+// returns ErrRateLimited without charging any when a bucket is blocked. The
+// charge that reaches a bucket's limit blocks it at once, so concurrent
+// attempts are refused while it is in flight. Rows are locked in a stable
+// order, so attempts sharing buckets cannot deadlock.
+func (s *Service) reserveFailures(ctx context.Context, buckets []rateLimitBucket, now time.Time) (*failureReservation, error) {
+	policy := s.currentRatePolicy()
+	ordered := append([]rateLimitBucket(nil), buckets...)
+	sort.Slice(ordered, func(i, j int) bool { return advisoryKey(ordered[i].hash) < advisoryKey(ordered[j].hash) })
+	reservation := &failureReservation{service: s, now: now}
+	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		reservation.charges, reservation.blocked = nil, false
+		for _, bucket := range ordered {
+			window, block := bucket.window, bucket.block
+			if window <= 0 {
+				window = policy.Window
+			}
+			if block <= 0 {
+				block = policy.Block
+			}
+			if _, err := tx.Exec(ctx, `insert into pgbase_meta.user_auth_rate_limits(subject_hash,window_started_at,failures,blocked_until,updated_at) values($1,$2,0,null,$2) on conflict(subject_hash) do nothing`, bucket.hash, now); err != nil {
+				return err
+			}
+			var started time.Time
+			var failures int
+			var blockedUntil *time.Time
+			if err := tx.QueryRow(ctx, `select window_started_at,failures,blocked_until from pgbase_meta.user_auth_rate_limits where subject_hash=$1 for update`, bucket.hash).Scan(&started, &failures, &blockedUntil); err != nil {
+				return err
+			}
+			if blockedUntil != nil && blockedUntil.After(now) {
+				return ErrRateLimited
+			}
+			if !started.After(now.Add(-window)) {
+				started, failures = now, 0
+			}
+			failures++
+			charge := failureCharge{hash: bucket.hash, windowStartedAt: started.Truncate(time.Microsecond), previousBlock: blockedUntil}
+			next := blockedUntil
+			if failures >= bucket.limit {
+				until := now.Add(block).Truncate(time.Microsecond)
+				next, charge.blockedUntil = &until, &until
+				reservation.blocked = true
+			}
+			if _, err := tx.Exec(ctx, `update pgbase_meta.user_auth_rate_limits set window_started_at=$2,failures=$3,blocked_until=$4,updated_at=$5 where subject_hash=$1`, bucket.hash, charge.windowStartedAt, failures, next, now); err != nil {
+				return err
+			}
+			reservation.charges = append(reservation.charges, charge)
+		}
+		return nil
+	})
+	if errors.Is(err, ErrRateLimited) {
+		return nil, ErrRateLimited
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reserve user rate limits: %w", err)
+	}
+	return reservation, nil
+}
+
+// fail keeps the charge as a recorded failure. Like recordFailures it returns
+// ErrRateLimited when that failure reached a bucket's limit.
+func (r *failureReservation) fail() error {
+	if r == nil || r.settled {
+		return nil
+	}
+	r.settled = true
+	if r.blocked {
+		return ErrRateLimited
+	}
+	return nil
+}
+
+// refund withdraws the charge of an attempt that did not fail: a success, a
+// step change such as an MFA challenge, or an internal error. It is a no-op
+// after fail or a previous refund, so callers can defer it. A refund that
+// cannot be written leaves the charge counted, which only errs toward the
+// limit.
+func (r *failureReservation) refund(ctx context.Context) {
+	if r == nil || r.settled {
+		return
+	}
+	r.settled = true
+	refundCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	_ = r.service.pool.InTx(refundCtx, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		for _, charge := range r.charges {
+			// A window that rolled over since the charge already forgot it.
+			if _, err := tx.Exec(refundCtx, `update pgbase_meta.user_auth_rate_limits set failures=greatest(failures-1,0),blocked_until=case when $3::timestamptz is not null and blocked_until=$3 then $4 else blocked_until end,updated_at=$5 where subject_hash=$1 and window_started_at=$2`, charge.hash, charge.windowStartedAt, charge.blockedUntil, charge.previousBlock, r.now); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func (s *Service) ensureNotBlocked(ctx context.Context, hash []byte, now time.Time) error {
 	var blocked bool
 	err := s.pool.QueryRow(ctx, `select coalesce((select blocked_until>$2 from pgbase_meta.user_auth_rate_limits where subject_hash=$1),false)`, hash, now).Scan(&blocked)

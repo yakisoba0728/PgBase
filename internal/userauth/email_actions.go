@@ -121,21 +121,28 @@ func (s *Service) RequestPasswordResetInCollection(ctx context.Context, collecti
 	if emailErr != nil {
 		return nil
 	}
-	user, passwordHash, lookupErr := userByEmailDB(ctx, s.pool, collectionID, normalized, false)
-	if errors.Is(lookupErr, ErrInvalidCredentials) {
-		return nil
-	}
-	if lookupErr != nil {
-		return lookupErr
+	// Reset requests deliberately do not disclose delivery or account state.
+	// The account lookup, the token and the mail all run in the mail queue,
+	// so a registered and an unknown address do the same work before this
+	// answers, however slow the mail server is.
+	s.mailQueue.Go(ctx, func(ctx context.Context) {
+		s.issuePasswordReset(ctx, collectionID, normalized)
+	})
+	return nil
+}
+
+// issuePasswordReset runs in the mail queue. The token remains bounded by
+// expiry and cleanup if delivery fails.
+func (s *Service) issuePasswordReset(ctx context.Context, collectionID uuid.UUID, email string) {
+	user, passwordHash, err := userByEmailDB(ctx, s.pool, collectionID, email, false)
+	if err != nil {
+		return
 	}
 	raw, err := s.issueEmailAction(ctx, user.ID, "password_reset", nil, passwordHash, user.Email)
 	if err != nil {
-		return err
+		return
 	}
-	// Reset requests deliberately do not disclose delivery or account state.
-	// The token remains bounded by expiry and cleanup if delivery fails.
 	_ = s.sendAction(ctx, user.ID, user.Email, "Reset your password", "reset", raw)
-	return nil
 }
 
 func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, newPassword string) error {

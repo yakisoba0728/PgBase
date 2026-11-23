@@ -35,6 +35,7 @@ type App struct {
 	backupGate             *database.BackupGate
 	handler                http.Handler
 	publicSite             *publicsite.Handler
+	mailQueues             []queuedMail
 	httpServer             *http.Server
 	challengeServer        *http.Server
 	readiness              *readinessState
@@ -73,6 +74,13 @@ type App struct {
 	backgroundCancel context.CancelFunc
 	backgroundDone   chan struct{}
 	backgroundErr    error
+}
+
+// queuedMail is a service that sends mail from a queue after the request that
+// caused it has answered. Shutdown lets that mail finish before the database
+// pool closes.
+type queuedMail interface {
+	WaitForQueuedMail(context.Context) error
 }
 
 type backgroundRunner interface {
@@ -636,6 +644,11 @@ func (a *App) closeResources(ctx context.Context, startupDone <-chan struct{}, d
 // owns each resource as soon as it is acquired; dependencies close last.
 func (a *App) closeServices(ctx context.Context) error {
 	var closeErr error
+	for _, queue := range a.mailQueues {
+		if err := queue.WaitForQueuedMail(ctx); err != nil {
+			closeErr = errors.Join(closeErr, fmt.Errorf("wait for queued mail: %w", err))
+		}
+	}
 	if a.backupManager != nil {
 		closeErr = errors.Join(closeErr, a.backupManager.Shutdown(ctx))
 	}

@@ -168,6 +168,7 @@ type Service struct {
 	passwordSlots       chan struct{}
 	sessionSlots        chan struct{}
 	mailer              mailer.Sender
+	mailQueue           *mailer.Queue
 	decorateMailer      func(mailer.Sender) mailer.Sender
 	emailBaseURL        string
 	emailActionTTL      time.Duration
@@ -225,5 +226,29 @@ type OAuthAuthorization struct {
 func NewService(pool *database.Pool, passwords Passwords, secret []byte, ttl time.Duration) *Service {
 	return &Service{pool: pool, passwords: passwords, secret: append([]byte(nil), secret...), ttl: ttl,
 		credentialSlots: make(chan struct{}, 16), passwordSlots: make(chan struct{}, 2), sessionSlots: make(chan struct{}, 32), defaultRegistration: true,
-		recordIdentities: recordidentity.New(nil)}
+		recordIdentities: recordidentity.New(nil), mailQueue: newMailQueue()}
+}
+
+// Mail that public, unauthenticated requests may cause is issued and sent by
+// this queue. Its bounds keep an unreachable mail server from holding more
+// than mailQueueWorkers connections, and requests beyond mailQueueCapacity
+// unfinished jobs send nothing, exactly as an unknown address does.
+const (
+	mailQueueWorkers  = 4
+	mailQueueCapacity = 256
+	mailQueueTimeout  = time.Minute
+)
+
+func newMailQueue() *mailer.Queue {
+	return mailer.NewQueue(mailQueueWorkers, mailQueueCapacity, mailQueueTimeout)
+}
+
+// WaitForQueuedMail blocks until the mail that requests have queued so far is
+// issued and handed to the mail server, or ctx ends. Hosts call it before
+// closing the database pool; tests call it before reading delivered mail.
+func (s *Service) WaitForQueuedMail(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	return s.mailQueue.Wait(ctx)
 }

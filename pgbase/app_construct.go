@@ -280,6 +280,7 @@ func newWithCatalogPreflight(
 		return nil, err
 	}
 	schemaService.SetAuthExecutablePolicyValidator(userService)
+	app.mailQueues = []queuedMail{authService, userService}
 	if extensionMailer != nil {
 		if err := authService.ConfigurePasswordReset(extensionMailer, normalized.PublicURL.String(), time.Hour); err != nil {
 			return nil, fmt.Errorf("configure administrator password reset: %w", err)

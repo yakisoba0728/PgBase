@@ -19,6 +19,30 @@ type capturedSender struct {
 	mu       sync.Mutex
 	messages []mailer.Message
 	err      error
+	// service, when set, is waited for before messages are read, because
+	// OTP and password reset mail is sent from its queue.
+	service *Service
+}
+
+// wait lets the mail that requests queued so far reach the sender.
+func (s *capturedSender) wait(t testing.TB) {
+	t.Helper()
+	if s.service == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := s.service.WaitForQueuedMail(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (s *capturedSender) count(t testing.TB) int {
+	t.Helper()
+	s.wait(t)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.messages)
 }
 
 func (s *capturedSender) Send(_ context.Context, message mailer.Message) error {
@@ -30,6 +54,7 @@ func (s *capturedSender) Send(_ context.Context, message mailer.Message) error {
 
 func (s *capturedSender) token(t *testing.T) string {
 	t.Helper()
+	s.wait(t)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.messages) == 0 {
@@ -54,6 +79,7 @@ func newEmailActionService(t *testing.T) (*Service, *capturedSender) {
 	t.Helper()
 	sender := &capturedSender{}
 	service := NewService(newUserAuthPool(t), adminauth.NewArgon2idPasswords(), []byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	sender.service = service
 	if err := service.ConfigureEmailActions(sender, "http://localhost:8090", time.Hour); err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +93,7 @@ func TestAuthAlertSendsOncePerNewOriginAndNeverFailsAuthentication(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sender.messages) != 0 {
+	if sender.count(t) != 0 {
 		t.Fatal("origin alert sent without configured template")
 	}
 	if _, err := service.PutMailTemplate(ctx, DefaultCollectionID, MailTemplate{Purpose: "auth_alert", Subject: "New login", Body: "{{alert}}"}); err != nil {
@@ -229,7 +255,7 @@ func TestPasswordResetIsNondisclosingAndCredentialBound(t *testing.T) {
 	if err := service.RequestPasswordReset(ctx, "missing@example.com", "reset-missing"); err != nil {
 		t.Fatalf("unknown reset request = %v", err)
 	}
-	if len(sender.messages) != 0 {
+	if sender.count(t) != 0 {
 		t.Fatal("unknown reset request sent a message")
 	}
 	if err := service.RequestPasswordReset(ctx, registered.User.Email, "reset-known"); err != nil {
@@ -306,6 +332,9 @@ func TestExpiredActionAndRedactedResetDeliveryFailure(t *testing.T) {
 	sender.err = errors.New("fixture secret smtp failure")
 	if err := service.RequestPasswordReset(ctx, registered.User.Email, "expiry-reset"); err != nil {
 		t.Fatalf("reset delivery failure was disclosed: %v", err)
+	}
+	if sender.count(t) != 2 {
+		t.Fatal("reset delivery was not attempted")
 	}
 }
 
