@@ -246,6 +246,11 @@ export class PgBaseClient {
     }, signal);
   }
 
+  /**
+   * Reads every matching record, one cursor page at a time. Pages default to
+   * the server's 200-row maximum; `query.limit` overrides it. The server still
+   * shortens a page that would exceed its response budget.
+   */
   async *iterate<T extends RecordData>(
     collection: string,
     query: Query = {},
@@ -256,7 +261,7 @@ export class PgBaseClient {
     let cursor = query.cursor;
     do {
       assertAuthGeneration(this.auth, generation);
-      const page = await this.records<T>(collection).list({ ...query, cursor, total: undefined }, signal);
+      const page = await this.records<T>(collection).list({ ...query, cursor, limit: query.limit ?? iteratePageSize, total: undefined }, signal);
       for (const record of page.items) {
         assertAuthGeneration(this.auth, generation);
         yield record;
@@ -393,6 +398,9 @@ export class PgBaseClient {
     } };
   }
 }
+
+/** The server's maximum native page size; larger values are clamped to it. */
+const iteratePageSize = 200;
 
 function assertAuthGeneration(auth: AuthStore, generation: number): void {
   if (generation !== auth.generation) throw new PgBaseError(403, "session_changed");
