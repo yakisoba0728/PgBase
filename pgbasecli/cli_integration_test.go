@@ -60,7 +60,7 @@ func main() { os.Exit(pgbasecli.Execute(context.Background(), os.Args[1:])) }
 	command := exec.Command("go", "run", "-mod=mod", ".", "migration", "list")
 	command.Dir = directory
 	command.Env = append(os.Environ(),
-		"GOTOOLCHAIN=go1.26.11",
+		"GOTOOLCHAIN=go1.27.4",
 		"PGBASE_DATABASE_URL="+databaseURL,
 		"PGBASE_TOKEN_SECRET="+base64.StdEncoding.EncodeToString([]byte(strings.Repeat("x", 32))),
 	)
@@ -85,7 +85,7 @@ func main() { os.Exit(pgbasecli.Execute(context.Background(), os.Args[1:])) }
 	}
 	nativeCommand := exec.Command("go", "run", "-mod=mod", ".", "js", "check", "--dir", javaScriptDirectory)
 	nativeCommand.Dir = directory
-	nativeCommand.Env = append(os.Environ(), "GOTOOLCHAIN=go1.26.11", "PGBASE_JS_DIR=", "PGBASE_JS_CAPABILITIES=records", "PGBASE_JS_JOB_SERVICE_SUBJECTS=")
+	nativeCommand.Env = append(os.Environ(), "GOTOOLCHAIN=go1.27.4", "PGBASE_JS_DIR=", "PGBASE_JS_CAPABILITIES=records", "PGBASE_JS_JOB_SERVICE_SUBJECTS=")
 	output, err = nativeCommand.CombinedOutput()
 	if err != nil || !strings.Contains(string(output), "routes=1 hooks=0 jobs=0 migrations=0") {
 		t.Fatalf("external native CLI failed: %v\n%s", err, output)

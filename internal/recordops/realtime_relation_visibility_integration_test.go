@@ -3,7 +3,6 @@
 package recordops
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -18,7 +17,7 @@ import (
 
 func TestRealtimeRelationsUseCurrentVisibilityAndOriginalTargetIdentity(t *testing.T) {
 	f := newUserAccessFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	apply := func(input schema.CreateCollectionInput) {
 		t.Helper()
 		plan, err := f.schemas.Preview(ctx, schema.NewCreateChange(input))

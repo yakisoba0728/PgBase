@@ -13,7 +13,7 @@ import (
 
 func TestClosureTextBatchDeleteAndRelationModifiers(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	definition := schema.CreateCollectionInput{Name: "closure_text", RecordID: &schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 64, Pattern: `^[A-Za-z0-9-]+$`}, Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText}}}
 	plan, err := schemas.Preview(ctx, schema.NewCreateChange(definition))
 	if err != nil {
@@ -90,7 +90,7 @@ func TestClosureTextBatchDeleteAndRelationModifiers(t *testing.T) {
 
 func TestClosureCompoundReusesMembershipReadiness(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	if _, err := records.members.writer(ctx); err != nil {
 		t.Fatal(err)
 	}

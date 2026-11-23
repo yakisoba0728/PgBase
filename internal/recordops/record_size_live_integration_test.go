@@ -3,7 +3,6 @@
 package recordops
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -19,7 +18,7 @@ const maximumRecordBytes = schema.MaximumRecordBytes
 
 func TestCreateRefusesRecordOverThePageBudget(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 
 	_, err := records.Create(ctx, CreateRequest{
 		Principal: principal, RequestID: "size-create-0001", Collection: "records",
@@ -63,7 +62,7 @@ func TestCreateRefusesRecordOverThePageBudget(t *testing.T) {
 
 func TestUpdateRefusesGrowingARecordOverThePageBudget(t *testing.T) {
 	_, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 
 	created, err := records.Create(ctx, CreateRequest{
 		Principal: principal, RequestID: "grow-create-0001", Collection: "records",
@@ -110,7 +109,7 @@ func TestUpdateRefusesGrowingARecordOverThePageBudget(t *testing.T) {
 // without a manual SQL edit.
 func TestLegacyOversizedRecordBlocksListButStaysShrinkable(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 
 	legacyID := uuid.Must(uuid.NewV7())
 	// Plant a row just beyond the current canonical record bound so it is
@@ -164,7 +163,7 @@ func TestLegacyOversizedRecordBlocksListButStaysShrinkable(t *testing.T) {
 // rows even when a later apply removes the default from the catalog.
 func TestSchemaDefaultsCannotGrowExistingRecordsPastTheWriteLimit(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	testutil.RetireRecordMembershipV4(t, ctx, pool)
 	created, err := records.Create(ctx, CreateRequest{
 		Principal: principal, RequestID: "schema-size-create", Collection: "records",

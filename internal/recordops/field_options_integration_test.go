@@ -3,7 +3,6 @@
 package recordops
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -14,7 +13,7 @@ import (
 
 func TestCreateEnforcesEditorMaximumSize(t *testing.T) {
 	_, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	maximum := int64(3)
 	createGeneratedFieldsCollection(t, ctx, schemas, principal.ID, "editor_limits", []schema.FieldInput{{
 		Name: "body", Type: schema.TypeEditor, Options: &schema.FieldOptions{MaxSize: &maximum},

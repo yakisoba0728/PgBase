@@ -13,8 +13,8 @@ func TestBlockingLintToolchainIsPinnedAndNarrow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(script), "golangci-lint@v2.12.2") {
-		t.Fatal("lint runner does not pin the approved Go 1.26-compatible golangci-lint release")
+	if !strings.Contains(string(script), "golangci-lint@v2.15.0") {
+		t.Fatal("lint runner does not pin the approved Go 1.27-compatible golangci-lint release")
 	}
 
 	configuration, err := os.ReadFile(filepath.Join(root, ".golangci.yml"))

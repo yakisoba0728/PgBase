@@ -3,7 +3,6 @@
 package recordops
 
 import (
-	"context"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -14,7 +13,7 @@ import (
 // COMMIT. Mutations and reads inside a caller's transaction stay durable.
 func TestReadTxRelaxesCommitOnlyWhenOwned(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	definition := schema.CreateCollectionInput{Name: "read_commit", Fields: []schema.FieldInput{{Name: "title", Type: schema.TypeText}}}
 	plan, err := schemas.Preview(ctx, schema.NewCreateChange(definition))
 	if err != nil {

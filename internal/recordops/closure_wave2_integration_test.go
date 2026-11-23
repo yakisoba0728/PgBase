@@ -3,7 +3,6 @@
 package recordops
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -16,7 +15,7 @@ import (
 
 func TestClosureRelationRequestAndSurvivorAutoDate(t *testing.T) {
 	f := newUserAccessFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	apply := func(input schema.CreateCollectionInput) {
 		t.Helper()
 		plan, err := f.schemas.Preview(ctx, schema.NewCreateChange(input))
@@ -80,7 +79,7 @@ func TestClosureRelationRequestAndSurvivorAutoDate(t *testing.T) {
 
 func TestClosurePasswordUpdateAuthorizationAndAdmission(t *testing.T) {
 	f := newUserAccessFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	input := schema.CreateCollectionInput{Name: "closure_password", Fields: []schema.FieldInput{{Name: "pin", Type: schema.TypePassword}}}
 	plan, err := f.schemas.Preview(ctx, schema.NewCreateChange(input))
 	if err != nil {
@@ -140,7 +139,7 @@ func TestClosurePasswordUpdateAuthorizationAndAdmission(t *testing.T) {
 
 func TestClosureRelationUpdateTakesCollectionBeforeSourceRow(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	input := schema.CreateCollectionInput{Name: "closure_lock", Fields: []schema.FieldInput{{Name: "parent", Type: schema.TypeRelation, Relation: &schema.RelationInput{TargetCollection: "closure_lock", Cardinality: schema.RelationSingle, OnDelete: schema.RelationSetNull}}}}
 	plan, err := schemas.Preview(ctx, schema.NewCreateChange(input))
 	if err != nil {

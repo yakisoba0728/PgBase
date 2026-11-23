@@ -3,7 +3,6 @@
 package recordops
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -18,7 +17,7 @@ import (
 
 func TestTextRecordIdentityCRUDReplayAndExactCase(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	definition := schema.CreateCollectionInput{
 		Name:     "text_identity_records",
 		RecordID: &schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 32, Pattern: `^[A-Za-z0-9]+$`},
@@ -84,7 +83,7 @@ func TestTextRecordIdentityCRUDReplayAndExactCase(t *testing.T) {
 
 func TestTextRecordIdentityRelationsAndOrderedBatchResolution(t *testing.T) {
 	_, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	apply := func(definition schema.CreateCollectionInput) {
 		t.Helper()
 		plan, err := schemas.Preview(ctx, schema.NewCreateChange(definition))

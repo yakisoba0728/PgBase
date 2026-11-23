@@ -4,7 +4,6 @@ package recordops
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -15,7 +14,7 @@ import (
 
 func TestTruncateCountsMultipleRelationsInRelationSchema(t *testing.T) {
 	_, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{Name: "truncate_targets", Fields: []schema.FieldInput{{Name: "name", Type: schema.TypeText, Required: true}}})
 	maximum := 3
 	applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{Name: "truncate_sources", Fields: []schema.FieldInput{
@@ -35,7 +34,7 @@ func TestTruncateCountsMultipleRelationsInRelationSchema(t *testing.T) {
 
 func TestTruncateDeletesTextIdentitiesThroughRecordLifecycle(t *testing.T) {
 	pool, schemas, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	applyDeleteCollection(t, ctx, schemas, principal.ID, schema.CreateCollectionInput{
 		Name:     "truncate_text_records",
 		RecordID: &schema.RecordIDPolicy{Kind: schema.RecordIDText, MinLength: 1, MaxLength: 32, Pattern: `^[A-Za-z0-9]+$`},
@@ -66,7 +65,7 @@ func TestTruncateDeletesTextIdentitiesThroughRecordLifecycle(t *testing.T) {
 
 func TestTruncateUsesRecordAndDurableFileDeletionLifecycle(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	created := []uuid.UUID{}
 	for i, title := range []string{"truncate-one", "truncate-two"} {
 		result, err := records.Create(ctx, CreateRequest{Principal: principal, RequestID: "truncate-create-request", Collection: "records", IdempotencyKey: "truncate-create-record-000" + string(rune('1'+i)), Input: map[string]json.RawMessage{"title": json.RawMessage(`"` + title + `"`)}})
@@ -99,7 +98,7 @@ func TestTruncateUsesRecordAndDurableFileDeletionLifecycle(t *testing.T) {
 
 func TestTruncateHookVetoRollsBackEveryRecord(t *testing.T) {
 	pool, _, records, principal := newRecordOperationsTest(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	for i, title := range []string{"veto-one", "veto-two"} {
 		_, err := records.Create(ctx, CreateRequest{Principal: principal, RequestID: "truncate-veto-create", Collection: "records", IdempotencyKey: "truncate-veto-record-000" + string(rune('1'+i)), Input: map[string]json.RawMessage{"title": json.RawMessage(`"` + title + `"`)}})
 		if err != nil {

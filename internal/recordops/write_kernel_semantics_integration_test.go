@@ -58,7 +58,7 @@ func newWriteSemanticsFixture(t *testing.T) (string, userAccessFixture) {
 func newGuardedCreateFixture(t *testing.T) (string, userAccessFixture, map[string]string) {
 	t.Helper()
 	databaseURL, f := newWriteSemanticsFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	apply := func(input schema.CreateCollectionInput) {
 		t.Helper()
 		plan, err := f.schemas.Preview(ctx, schema.NewCreateChange(input))
@@ -121,7 +121,7 @@ func guardedInput(label string, author uuid.UUID, count int) map[string]json.Raw
 // that must deny; the insert is rolled back with the transaction or savepoint.
 func TestCreateRuleIsEnforcedOnEveryCreatePath(t *testing.T) {
 	_, f, tables := newGuardedCreateFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	user, other := f.first, f.second
 
 	rowCount := func(table, label string) int {
@@ -219,7 +219,7 @@ func TestCreateRuleIsEnforcedOnEveryCreatePath(t *testing.T) {
 // database.Open accepts no tracer.
 func TestBorrowedCreateKeepsSecondCreateRuleCheck(t *testing.T) {
 	databaseURL, f, tables := newGuardedCreateFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 
 	trace := &writeKernelTrace{}
 	config, err := pgx.ParseConfig(databaseURL)
@@ -344,7 +344,7 @@ func (*pausingHook) AfterMutation(context.Context, Mutation) {}
 // first: the concurrent writer finished without waiting.
 func waitBlockedBy(t *testing.T, f userAccessFixture, blocker int, done <-chan error) string {
 	t.Helper()
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		var statement string
@@ -480,7 +480,7 @@ func TestReusedWriteLocksHoldOffPolicyAndUserWriters(t *testing.T) {
 // runs AuthorizeUser again and holds the users row lock afresh.
 func TestSavepointRollbackDropsReusedAdmission(t *testing.T) {
 	databaseURL, f := newWriteSemanticsFixture(t)
-	ctx := context.Background()
+	ctx := recordOperationsTestContext(t)
 	f.enable(t, "records")
 	created := f.create(t, f.first, "savepoint-admission", "")
 
