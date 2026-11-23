@@ -117,6 +117,13 @@ await client.realtime.subscribe('notes/*', (RealtimeEvent event) {
 and returns one disposer for the group. During reconnect, an added group waits
 for existing subscriptions to be restored before requesting admission.
 
+Concurrent `subscribe` calls run in call order. Calls that queue behind an
+in-flight subscription share one server replacement, so N concurrent calls cost
+at most two replacements after the connection is up rather than N. The first
+connection handshake installs only the first call's topics. If a shared
+replacement fails, the server keeps its previous list and each queued call is
+retried alone, so only the call whose topic was denied fails.
+
 `onStatus` immediately delivers an immutable `RealtimeStatus` snapshot;
 `realtime.status` reads the current snapshot. `RealtimeState` distinguishes
 connecting, connected, reconnecting and stopped. `RealtimeStopReason` distinguishes

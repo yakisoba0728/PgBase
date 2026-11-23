@@ -59,6 +59,13 @@ Record event delivery IDs are decimal strings. The SDK reconnects with
 UUIDs, and surfaces an expired replay cursor as the server's HTTP error so the
 application can reload records.
 
+`records(name).iterate()` reads 200-row cursor pages, the server's maximum,
+unless `Query.limit` sets another size; the server may still shorten a page
+that would exceed its response budget. Concurrent `realtime.subscribe` calls
+queued behind an in-flight one share one subscription replacement request. If
+that shared request fails, each call is retried alone, so only the denied call
+fails.
+
 `Files.download` returns the authenticated file bytes after a caller obtains a
 download token with `mintDownloadToken`; `downloadUri` remains available for
 platform-native download handling.
