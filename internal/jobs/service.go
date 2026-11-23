@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/robfig/cron/v3"
+	"github.com/yakisoba0728/PgBase/internal/cursor"
 	"github.com/yakisoba0728/PgBase/internal/database"
 )
 
@@ -93,16 +94,23 @@ type Service struct {
 	logger          *slog.Logger
 	timeout         time.Duration
 	backupHeartbeat time.Duration
+	history         Options
+	cursors         *cursor.Codec
 }
 
 func NewService(pool *database.Pool, registry *Registry, logger *slog.Logger) *Service {
+	return NewServiceWithOptions(pool, registry, logger, Options{})
+}
+
+func NewServiceWithOptions(pool *database.Pool, registry *Registry, logger *slog.Logger, options Options) *Service {
 	if registry == nil {
 		registry = NewRegistry()
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{pool: pool, registry: registry, logger: logger, timeout: jobTimeout, backupHeartbeat: backupLeaseHeartbeat}
+	options = options.normalized()
+	return &Service{pool: pool, registry: registry, logger: logger, timeout: jobTimeout, backupHeartbeat: backupLeaseHeartbeat, history: options, cursors: cursor.NewCodec(options.CursorSecret)}
 }
 
 // Schedule creates or enables a named durable job. Changing its schedule makes
@@ -271,6 +279,7 @@ type claimedJob struct {
 	Job
 	token    uuid.UUID
 	timezone string
+	runID    int64
 }
 
 func (s *Service) claimNamed(ctx context.Context, names []string) ([]claimedJob, error) {
@@ -280,24 +289,31 @@ func (s *Service) claimNamed(ctx context.Context, names []string) ([]claimedJob,
 	}
 	err := s.pool.InTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		token := uuid.New()
+		// The claim writes the history row itself, so every lease that can run
+		// a handler has exactly one run row to complete.
 		rows, err := tx.Query(ctx, `WITH due AS (
  SELECT id FROM pgbase_meta.scheduled_jobs
  WHERE enabled AND name=ANY($3::text[]) AND next_run_at<=clock_timestamp()
  AND (lease_until IS NULL OR lease_until<clock_timestamp())
  ORDER BY next_run_at,id FOR UPDATE SKIP LOCKED LIMIT $1
-) UPDATE pgbase_meta.scheduled_jobs j SET lease_token=$2,
+), claimed AS (UPDATE pgbase_meta.scheduled_jobs j SET lease_token=$2,
  lease_until=clock_timestamp()+make_interval(secs=>$4), fence_generation=fence_generation+1,
  last_scheduled_at=CASE WHEN j.attempts=0 OR j.last_scheduled_at IS NULL THEN j.next_run_at ELSE j.last_scheduled_at END,
  attempts=j.attempts+1,last_started_at=clock_timestamp(),updated_at=clock_timestamp()
  FROM due WHERE j.id=due.id
-	 RETURNING j.id,j.name,j.schedule,j.fence_generation,j.timezone,j.last_scheduled_at`, claimBatch, token, names, leaseDuration.Seconds())
+ RETURNING j.id,j.name,j.schedule,j.fence_generation,j.timezone,j.last_scheduled_at,j.attempts,j.last_started_at
+), run AS (INSERT INTO pgbase_meta.scheduled_job_runs(job_id,fence_generation,attempt,status,scheduled_at,started_at)
+ SELECT id,fence_generation,attempts,'running',last_scheduled_at,last_started_at FROM claimed
+ RETURNING id,job_id
+) SELECT c.id,c.name,c.schedule,c.fence_generation,c.timezone,c.last_scheduled_at,run.id
+ FROM claimed c JOIN run ON run.job_id=c.id`, claimBatch, token, names, leaseDuration.Seconds())
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var item claimedJob
-			if err := rows.Scan(&item.ID, &item.Name, &item.Schedule, &item.FenceGeneration, &item.timezone, &item.ScheduledAt); err != nil {
+			if err := rows.Scan(&item.ID, &item.Name, &item.Schedule, &item.FenceGeneration, &item.timezone, &item.ScheduledAt, &item.runID); err != nil {
 				return err
 			}
 			item.token = token
@@ -321,20 +337,33 @@ func (s *Service) complete(ctx context.Context, claim claimedJob, runErr error) 
 		}
 		runErr = err
 	}
+	// Each statement records the run outcome together with the fenced job
+	// update. A worker whose lease was lost or replaced still finishes its run
+	// row, as superseded, without touching the job's current state.
 	if runErr == nil {
-		_, err = s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_token=NULL,lease_until=NULL,
+		_, err = s.pool.Exec(ctx, `WITH job AS (UPDATE pgbase_meta.scheduled_jobs SET lease_token=NULL,lease_until=NULL,
 	 next_run_at=COALESCE($3::timestamptz,clock_timestamp()+make_interval(secs=>$4)),
 	 last_scheduled_at=$5,attempts=0,last_error=NULL,last_finished_at=clock_timestamp(),updated_at=clock_timestamp()
-	 WHERE id=$1 AND lease_token=$2 AND fence_generation=$6 AND lease_until>clock_timestamp()`, claim.ID, claim.token, next, schedule.interval.Seconds(), claim.ScheduledAt, claim.FenceGeneration)
-		return err
-	}
-	// The SQL bounds retries at five minutes, keeps failure text bounded, and
-	// fences stale workers that lost a lease while their handler was running.
-	_, err = s.pool.Exec(ctx, `UPDATE pgbase_meta.scheduled_jobs SET lease_token=NULL,lease_until=NULL,
+	 WHERE id=$1 AND lease_token=$2 AND fence_generation=$6 AND lease_until>clock_timestamp() RETURNING id
+	) UPDATE pgbase_meta.scheduled_job_runs SET finished_at=clock_timestamp(),
+	 status=CASE WHEN EXISTS (SELECT 1 FROM job) THEN 'succeeded' ELSE 'superseded' END
+	 WHERE id=$7 AND job_id=$1 AND status='running'`, claim.ID, claim.token, next, schedule.interval.Seconds(), claim.ScheduledAt, claim.FenceGeneration, claim.runID)
+	} else {
+		// The SQL bounds retries at five minutes, keeps failure text bounded, and
+		// fences stale workers that lost a lease while their handler was running.
+		_, err = s.pool.Exec(ctx, `WITH job AS (UPDATE pgbase_meta.scheduled_jobs SET lease_token=NULL,lease_until=NULL,
  next_run_at=clock_timestamp()+make_interval(secs=>LEAST(300,power(2,LEAST(attempts,8))::integer)),
  last_error=left($3,1024),last_finished_at=clock_timestamp(),updated_at=clock_timestamp()
- WHERE id=$1 AND lease_token=$2 AND fence_generation=$4 AND lease_until>clock_timestamp()`, claim.ID, claim.token, runErr.Error(), claim.FenceGeneration)
-	return err
+ WHERE id=$1 AND lease_token=$2 AND fence_generation=$4 AND lease_until>clock_timestamp() RETURNING id
+) UPDATE pgbase_meta.scheduled_job_runs SET finished_at=clock_timestamp(),error=left($3,1024),
+ status=CASE WHEN EXISTS (SELECT 1 FROM job) THEN 'failed' ELSE 'superseded' END
+ WHERE id=$5 AND job_id=$1 AND status='running'`, claim.ID, claim.token, runErr.Error(), claim.FenceGeneration, claim.runID)
+	}
+	if err != nil {
+		return err
+	}
+	s.pruneRuns(ctx, claim.ID)
+	return nil
 }
 
 func invoke(ctx context.Context, handler Handler, job Job) (err error) {

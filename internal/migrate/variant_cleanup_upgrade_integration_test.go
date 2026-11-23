@@ -41,7 +41,7 @@ func TestVariantCleanupUpgradePreservesQueueAndReapplies(t *testing.T) {
 		}
 	}
 	status, err := runner.Status(t.Context())
-	if err != nil || status.Current != 72 || status.Latest != 72 || status.Dirty || !status.Compatible {
+	if err != nil || status.Current != 74 || status.Latest != 74 || status.Dirty || !status.Compatible {
 		t.Fatalf("migration status=%+v err=%v", status, err)
 	}
 	var retained bool

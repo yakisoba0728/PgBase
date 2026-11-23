@@ -32,9 +32,50 @@ pgBase is an early v0.x project. v0.x binaries, HTTP contracts, environment vari
 9. Through the administrator-authenticated HTTP record API, perform representative scalar and relation operations: create/read an ordered multiple relation, read an expanded single relation, and execute the configured `restrict`, `cascade`, or `set_null` path applicable to the project. Use `Idempotency-Key` and `If-Match`; do not validate the upgrade by writing pgBase-owned tables directly.
 10. Resume schema changes only after the rollout is accepted.
 
+## File upload count and write-only indexes (system migration 73)
+
+The current source requires schema 73. This migration changes only indexes:
+
+- It adds two partial indexes on `pgbase_meta.record_files` for pending uploads,
+  keyed by record field (`record_files_pending_record_idx` and
+  `record_files_pending_auth_record_idx`). The per-field upload count now reads
+  its ready and pending rows through indexes instead of scanning every file row;
+  on 450,000 rows the check went from about 18,000 buffers to about 11.
+- It drops `record_audit_events_resource_idx`, `record_audit_events_actor_idx`
+  and `record_outbox_created_idx`. No pgBase query used them; every record
+  mutation still paid to maintain them. Audit lookups by record remain indexed
+  by the `(collection_id, record_id, new_version)` unique constraint. An
+  operator's ad hoc query of audit events by actor, or of the outbox by creation
+  time, now scans its table.
+
+Use the existing stop–migrate–start window. The pending indexes cover only
+in-flight uploads, so they build in milliseconds; the build holds
+`record_files` against writes, and each drop briefly takes its table's
+exclusive lock. Require `pgbase migrate status` to print
+`current=73 latest=73 dirty=false` and `pgbase doctor --json` to report
+`"ok":true`. Coming from schema 69 to 71, the same `pgbase migrate up` first
+applies the migrations described below. A binary rollback after migration needs
+an artifact compatible with schema 73; earlier binaries do not depend on the
+dropped indexes.
+
+## Database pool size default
+
+When `PGBASE_DATABASE_URL` omits `pool_max_conns`, the pool now allows
+`2 × GOMAXPROCS + 8` connections, at most 64, instead of pgx's
+`max(4, NumCPU)`. `GOMAXPROCS` follows the container's CPU limit, so a
+two-CPU container gets 12. The connections open only when used. Check that
+PostgreSQL's `max_connections` leaves room for this maximum on every instance
+(see [External PostgreSQL](deployment.md#external-postgresql)); keep or set
+`pool_max_conns` to choose the size yourself. `pgbase doctor` now warns with
+`database_pool_small` when the pool is below `GOMAXPROCS + 8`.
+
+File downloads also reuse up to eight coordination sessions per process instead
+of connecting for each download. An idle reusable session is closed after about a
+minute and holds only the backup-writer gate, like an idle pool connection.
+
 ## Administrator TOTP counters (system migration 72)
 
-The current source requires schema 72. This additive migration records the last
+This additive migration records the last
 accepted administrator TOTP counter. Existing encrypted factors and their
 enablement times are preserved; their counter starts unset because previous
 versions did not retain consumption history. The first successful login with the
@@ -70,6 +111,16 @@ authentication tables the same way. Both hold their table for the duration of
 the build, so size the maintenance window for the outbox history you retain. On
 a database with a few hundred records the three migrations finish in
 milliseconds.
+
+## Scheduled job run history (system migration 74)
+
+Migration 74 adds `pgbase_meta.scheduled_job_runs`, an empty table with two
+indexes, so it finishes in milliseconds and does not rewrite existing tables.
+Existing jobs start with no history; runs are recorded from the first claim made
+by the new binary. History is bounded by `Operations.JobRunRetention` (30 days)
+and `Operations.JobRunMaximumRows` (1,000 per job); see
+[Local scheduled jobs](local-jobs.md#run-history). Follow the standard
+stop–migrate–start procedure above.
 
 ## Image decoding memory
 

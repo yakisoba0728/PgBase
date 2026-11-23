@@ -30,6 +30,22 @@ func containsVariant(values []string, value string) bool {
 }
 
 func (s *Service) variantObject(ctx context.Context, file File, variant string) (string, error) {
+	// A cached variant needs no lease, reservation, row lock or commit: its row
+	// is inserted in the same transaction that publishes the object, and a
+	// later delete can race the caller's read after either path returns. One
+	// autocommit read takes no transaction ID, so it never waits for a WAL
+	// flush. Only a miss falls through to the serialized render below, which
+	// checks again under its locks.
+	var cached string
+	err := s.pool.QueryRow(ctx, `select v.object_key from pgbase_meta.record_file_variants v
+		join pgbase_meta.record_files f on f.id=v.file_id
+		where v.file_id=$1 and v.variant=$2 and f.status='ready'`, file.ID, variant).Scan(&cached)
+	if err == nil {
+		return cached, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
 	ctx, release, err := s.beginStorageOperation(ctx)
 	if err != nil {
 		return "", err

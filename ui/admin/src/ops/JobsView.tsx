@@ -1,24 +1,24 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { trackOperation } from "../app/operations";
 import { Facts } from "../components/Facts";
 import { UnsavedGuard } from "../components/UnsavedGuard";
 import { Row, Table, TableScroll } from "../components/Table";
-import { QueryView } from "../components/QueryView";
+import { QueryView, useHeld } from "../components/QueryView";
 import { RiErrorWarningLine, RiPlayLine, RiTimerLine } from "@remixicon/react";
 import { ApiError, captureSessionScope } from "../api/http";
-import { runJob, updateJob, type ManagedJob } from "../api/jobs";
+import { runJob, updateJob, type JobRun, type JobRunStatus, type ManagedJob } from "../api/jobs";
 import { errorText } from "../app/queries";
 import { Button, RefreshButton } from "../components/Button";
-import { EmptyState, Notice, Skeleton } from "../components/Feedback";
+import { EmptyState, LoadMore, Notice, Skeleton } from "../components/Feedback";
 import { Checkbox, Field, Searchbar, Select } from "../components/Field";
 import { SaveBar } from "../components/SaveBar";
 import { SplitView, PaneHeader } from "../components/SplitView";
 import { toast } from "../components/Toast";
 import { useT, type Translate } from "../i18n";
 import { describeSchedule } from "./format";
-import { jobsQuery } from "./queries";
-import { useTimeFormat } from "../app/format";
+import { jobRunsKey, jobRunsQuery, jobsQuery } from "./queries";
+import { formatDuration, useTimeFormat } from "../app/format";
 import { useSearchState } from "../app/search";
 import { useDraft } from "../auth/useDraft";
 import "../styles/ops.css";
@@ -117,7 +117,7 @@ export function JobsView() {
                           {job.lastStartedAt ? (
                             <>
                               <span className="mono">{time(job.lastStartedAt)}</span>
-                              <span className="ops-aside" data-tone={job.failed ? "danger" : undefined}>
+                              <span className="ops-aside ops-jobs-result" data-tone={job.failed ? "danger" : undefined} title={jobResult(t, job) ?? undefined}>
                                 {jobResult(t, job)}
                               </span>
                             </>
@@ -208,6 +208,7 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
           { label: t("ops.jobs.result"), value: jobResult(t, job), tone: job.failed ? "danger" : undefined },
           { label: t("ops.jobs.id"), value: job.id, mono: true, copy: true },
         ]} />
+        <JobRuns job={job} />
       </div>
       <footer className="pane-footer">
         <Button variant="secondary" icon={RiPlayLine} className="pane-footer-start" disabled={locked || job.running || !job.enabled} loading={run.isPending} onClick={() => run.mutate(captureSessionScope())}>{t("ops.jobs.run")}</Button>
@@ -215,6 +216,80 @@ function JobPane({ job, workerEnabled, onClose }: { job: ManagedJob; workerEnabl
       </footer>
       <UnsavedGuard dirty={dirty} />
     </form>
+  );
+}
+
+type RunState = {
+  key: "ops.jobs.runRunning" | "ops.jobs.runSucceeded" | "ops.jobs.runFailed" | "ops.jobs.runSuperseded" | "ops.jobs.runAbandoned";
+  tone?: string;
+  hint?: "ops.jobs.runSupersededHint" | "ops.jobs.runAbandonedHint";
+};
+
+const runStates: Record<JobRunStatus, RunState> = {
+  running: { key: "ops.jobs.runRunning", tone: "accent" },
+  succeeded: { key: "ops.jobs.runSucceeded", tone: "success" },
+  failed: { key: "ops.jobs.runFailed", tone: "danger" },
+  superseded: { key: "ops.jobs.runSuperseded", tone: "warning", hint: "ops.jobs.runSupersededHint" },
+  abandoned: { key: "ops.jobs.runAbandoned", tone: "warning", hint: "ops.jobs.runAbandonedHint" },
+};
+
+const runDuration = (ms: number) => (ms < 1000 ? `${ms} ms` : formatDuration(ms));
+
+/** The job's runs, newest first, with "load more"; it refreshes when the polled job shows a run starting or ending. */
+function JobRuns({ job }: { job: ManagedJob }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const runs = useHeld(useInfiniteQuery(jobRunsQuery(job.id)));
+  const items = runs.data?.pages.flatMap((page) => page.items) ?? [];
+  const retention = runs.data?.pages[0]?.retention;
+  const marker = `${job.lastStartedAt ?? ""}|${job.lastFinishedAt ?? ""}|${job.running}`;
+  const seen = useRef(marker);
+  useEffect(() => {
+    if (seen.current === marker) return;
+    seen.current = marker;
+    void queryClient.invalidateQueries({ queryKey: jobRunsKey(job.id) });
+  }, [marker, job.id, queryClient]);
+
+  return (
+    <section className="ops-runs" aria-label={t("ops.jobs.history")}>
+      <h3 className="subtitle">{t("ops.jobs.history")}</h3>
+      {retention && (
+        <p className="txt-hint ops-runs-note">
+          {t("ops.jobs.historyRetention", { count: retention.maximumRuns, days: Math.max(1, Math.round(retention.maximumAgeSeconds / 86400)) })}
+        </p>
+      )}
+      <QueryView query={runs} skeleton="list" isEmpty={(data) => data.pages.every((page) => page.items.length === 0)} empty={<p className="txt-hint">{t("ops.jobs.historyEmpty")}</p>}>
+        {() => (
+          <>
+            <ol className="ops-runs-list">
+              {items.map((run) => <JobRunItem key={run.id} run={run} />)}
+            </ol>
+            <LoadMore query={runs} />
+          </>
+        )}
+      </QueryView>
+    </section>
+  );
+}
+
+function JobRunItem({ run }: { run: JobRun }) {
+  const t = useT();
+  const time = useTimeFormat();
+  // An unknown status from a newer server reads as running rather than breaking the list.
+  const state = runStates[run.status] ?? runStates.running;
+  return (
+    <li>
+      <div className="ops-runs-head">
+        <span className="dot" data-tone={state.tone} title={state.hint && t(state.hint)}>{t(state.key)}</span>
+        <time className="mono" dateTime={run.startedAt}>{time(run.startedAt, true)}</time>
+        {run.durationMs !== undefined && <span className="mono txt-hint ops-runs-duration">{runDuration(run.durationMs)}</span>}
+      </div>
+      <div className="txt-hint ops-runs-meta">
+        {t("ops.jobs.attempt", { count: run.attempt })}
+        {run.scheduledAt && <> · {t("ops.jobs.scheduledFor", { time: time(run.scheduledAt) })}</>}
+      </div>
+      {run.error && <p className="mono ops-runs-error" data-tone="danger">{run.error}</p>}
+    </li>
   );
 }
 

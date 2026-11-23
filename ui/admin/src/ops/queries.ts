@@ -1,6 +1,6 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { pageWindow } from "../app/queries";
-import { listJobs } from "../api/jobs";
+import { listJobRuns, listJobs } from "../api/jobs";
 import { getRequestLog, getRequestLogStatistics, listRequestLogs, type RequestLogFilter } from "../api/logs";
 import { getRealtimeQueueStatus, getRealtimeStatus, listDeadRealtimeEvents } from "../api/realtime";
 import { localToRfc3339 } from "./format";
@@ -34,6 +34,18 @@ export const jobsQuery = queryOptions({
   // Keeps last/next run and the running flag current after "Run now".
   refetchInterval: 5000,
 });
+
+/** Under the jobs key, so refreshing the jobs list also refreshes an open history. */
+export const jobRunsKey = (id: string) => [...jobsQuery.queryKey, "runs", id] as const;
+
+/** One job's runs, newest first; "load more" follows the opaque cursor. */
+export const jobRunsQuery = (id: string) =>
+  infiniteQueryOptions({
+    queryKey: jobRunsKey(id),
+    queryFn: ({ pageParam, signal }) => listJobRuns(id, pageParam, signal),
+    ...pageWindow,
+    getNextPageParam: (page) => page.nextCursor,
+  });
 
 export const realtimeKey = ["realtime"] as const;
 
