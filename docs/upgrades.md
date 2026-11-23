@@ -124,6 +124,23 @@ ends. A variant request that waits more than five seconds returns **503**
 the 256 MiB of live image data plus garbage-collector headroom; set
 `GOMEMLIMIT` when the container has a hard memory limit.
 
+## Busy variants and per-caller storage slots
+
+Concurrent requests for variants of one file used to wait for the render in
+progress until `statement_timeout` and then answer **500** `file_error`. They
+now wait at most five seconds and answer **503** `file_busy` with
+`Retry-After`, like a variant that waited for image-decoding memory. Clients
+that already retry `file_busy` need no change. JavaScript `createThumb` throws
+`file_busy` instead of `thumbnail_failed` in the same condition.
+
+The 64 storage-operation slots shared by uploads, downloads and variant renders
+now admit at most 16 requests of one caller at a time. A caller is a user,
+administrator or service token, or an anonymous IPv4 address or IPv6 /64. A
+caller's further requests wait, as they did when all slots were taken, instead
+of failing. Configure trusted proxies before upgrading if anonymous clients
+reach PgBase through a reverse proxy; otherwise they share one caller's 16
+slots.
+
 ## Relation visibility in responses and replay
 
 Authorized auth record and profile responses now remove relation IDs whose
