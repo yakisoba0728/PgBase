@@ -185,6 +185,90 @@ void main() {
       }
     }
   });
+
+  test('concurrent subscriptions share one replacement and a denied topic rejects only its own call', () async {
+    final syncs = <List<dynamic>>[];
+    final held = Completer<void>();
+    final release = Completer<void>();
+    final stream = StreamController<List<int>>();
+    final transport = MockClient.streaming((request, body) async {
+      if (request.method == 'POST') {
+        final topics =
+            (jsonDecode(await body.transform(utf8.decoder).join())
+                    as Map)['subscriptions']
+                as List;
+        syncs.add(topics);
+        if (!held.isCompleted) {
+          held.complete();
+          await release.future;
+        }
+        if (topics.contains('denied/*')) {
+          return http.StreamedResponse(
+            Stream.value(utf8.encode('{"error":{"code":"access_denied"}}')),
+            403,
+          );
+        }
+        return http.StreamedResponse(const Stream.empty(), 204);
+      }
+      stream.add(
+        utf8.encode('event: PB_CONNECT\ndata: {"clientId":"session"}\n\n'),
+      );
+      return http.StreamedResponse(stream.stream, 200);
+    });
+    final client = PgBaseClient(
+      Uri.parse('http://pgbase.test'),
+      httpClient: transport,
+    );
+    final realtime = RealtimeService(client);
+    try {
+      // The handshake installs only the first call's topic; the 20 calls
+      // queued behind it share the next replacement instead of 20 serial ones.
+      final first = realtime.subscribe('notes/*', (_) {});
+      final queued = [
+        for (var i = 0; i < 20; i++) realtime.subscribe('notes/$i', (_) {}),
+      ];
+      await held.future;
+      release.complete();
+      await Future.wait([first, ...queued]);
+      final all = ['notes/*', for (var i = 0; i < 20; i++) 'notes/$i'];
+      expect(syncs, [
+        ['notes/*'],
+        all,
+      ]);
+
+      // A denied topic fails the shared replacement without changing the
+      // server, so the batch is retried call by call and only that call fails.
+      syncs.clear();
+      final outcomes = await Future.wait([
+        for (final topic in ['notes/a', 'notes/b', 'denied/*', 'notes/c'])
+          realtime
+              .subscribe(topic, (_) {})
+              .then<Object?>((_) => null, onError: (Object error) => error),
+      ]);
+      expect(outcomes[0], isNull);
+      expect(outcomes[1], isNull);
+      expect(
+        outcomes[2],
+        isA<PgBaseError>().having(
+          (error) => error.code,
+          'code',
+          'access_denied',
+        ),
+      );
+      expect(outcomes[3], isNull);
+      expect(syncs, [
+        [...all, 'notes/a'],
+        [...all, 'notes/a', 'notes/b', 'denied/*', 'notes/c'],
+        [...all, 'notes/a', 'notes/b'],
+        [...all, 'notes/a', 'notes/b', 'denied/*'],
+        [...all, 'notes/a', 'notes/b', 'notes/c'],
+      ]);
+      expect(realtime.status.state, RealtimeState.connected);
+    } finally {
+      await realtime.unsubscribe();
+      await stream.close();
+    }
+  });
 }
 
 final class RealtimeFrames extends http.BaseClient {

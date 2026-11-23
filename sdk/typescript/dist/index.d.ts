@@ -80,6 +80,11 @@ export declare class PgBaseClient {
         codes: string[];
     }>;
     disableTOTP(currentPassword: string, code: string, signal?: AbortSignal): Promise<void>;
+    /**
+     * Reads every matching record, one cursor page at a time. Pages default to
+     * the server's 200-row maximum; `query.limit` overrides it. The server still
+     * shortens a page that would exceed its response budget.
+     */
     iterate<T extends RecordData>(collection: string, query?: Query, signal?: AbortSignal): AsyncGenerator<T>;
     _request<T>(path: string, init?: RequestInit, signal?: AbortSignal, requestKey?: string | null): Promise<T>;
     /** Cancels an in-flight request started with this key. */

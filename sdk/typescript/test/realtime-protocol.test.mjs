@@ -137,3 +137,53 @@ test("reconnect retains the checkpoint and rejects only newly denied topics", as
     assert.equal(client.realtime.status.state, "connected");
   } finally { await client.realtime.unsubscribe(); }
 });
+
+test("concurrent subscriptions share one replacement and a denied topic rejects only its own call", async () => {
+  const syncs = [];
+  let release, held = false;
+  const client = new PgBaseClient("http://pgbase.test", { fetch: async (_url, init) => {
+    if (init.method === "POST") {
+      const topics = JSON.parse(init.body).subscriptions;
+      syncs.push(topics);
+      if (!held) { held = true; await new Promise((resolve) => { release = resolve; }); }
+      return topics.includes("denied/*")
+        ? Response.json({ error: { code: "access_denied" } }, { status: 403 })
+        : new Response(null, { status: 204 });
+    }
+    return new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(new TextEncoder().encode('event: PB_CONNECT\ndata: {"clientId":"session"}\n\n'));
+      init.signal.addEventListener("abort", () => controller.close(), { once: true });
+    } }));
+  } });
+  try {
+    // The handshake installs only the first call's topic; the 20 calls queued
+    // behind it share the next replacement instead of 20 serial ones.
+    const first = client.realtime.subscribe("notes/*", () => {});
+    const queued = Array.from({ length: 20 }, (_, i) => client.realtime.subscribe(`notes/${i}`, () => {}));
+    while (!release) await new Promise((resolve) => setTimeout(resolve, 1));
+    release();
+    await Promise.all([first, ...queued]);
+    const all = ["notes/*", ...Array.from({ length: 20 }, (_, i) => `notes/${i}`)];
+    assert.deepEqual(syncs, [["notes/*"], all]);
+
+    // A denied topic fails the shared replacement without changing the server,
+    // so the batch is retried call by call and only that call rejects.
+    syncs.length = 0;
+    const settled = await Promise.allSettled([
+      client.realtime.subscribe("notes/a", () => {}),
+      client.realtime.subscribe("notes/b", () => {}),
+      client.realtime.subscribe("denied/*", () => {}),
+      client.realtime.subscribe("notes/c", () => {}),
+    ]);
+    assert.deepEqual(settled.map((result) => result.status), ["fulfilled", "fulfilled", "rejected", "fulfilled"]);
+    assert.equal(settled[2].reason.code, "access_denied");
+    assert.deepEqual(syncs, [
+      [...all, "notes/a"],
+      [...all, "notes/a", "notes/b", "denied/*", "notes/c"],
+      [...all, "notes/a", "notes/b"],
+      [...all, "notes/a", "notes/b", "denied/*"],
+      [...all, "notes/a", "notes/b", "notes/c"],
+    ]);
+    assert.equal(client.realtime.status.state, "connected");
+  } finally { await client.realtime.unsubscribe(); }
+});
