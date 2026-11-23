@@ -1,5 +1,7 @@
-// Self-hosted Pretendard subsets (unicode-range), with the system stack as fallback in tokens.css.
+// Self-hosted Pretendard subsets (unicode-range), with the system stack as fallback in tokens.css. The build adds
+// one face for the interface's own characters after them, so the interface loads one file instead of dozens.
 import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+import "./styles/pretendard-ui.css";
 import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/buttons.css";
