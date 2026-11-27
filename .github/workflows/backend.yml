@@ -71,7 +71,7 @@ jobs:
         run: scripts/support/check-dashboard-promql.sh
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: 1.26.11
           cache: ${{ vars.PGBASE_CI_RUNNER == '' }}
@@ -105,7 +105,7 @@ jobs:
         run: scripts/support/validate-release-candidate.sh "$CANDIDATE_IMAGE" "$EXPECTED_VERSION"
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: 1.26.11
           cache: ${{ vars.PGBASE_CI_RUNNER == '' }}
@@ -160,7 +160,7 @@ jobs:
           ref: ${{ inputs.source_commit || github.sha }}
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: 1.26.11
           cache: true
@@ -193,7 +193,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: 1.26.11
           cache: true
@@ -263,7 +263,7 @@ jobs:
           >> "$GITHUB_ENV"
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: 1.26.11
           cache: ${{ vars.PGBASE_CI_RUNNER == '' }}
@@ -461,7 +461,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: 1.26.11
           cache: true
